@@ -1,8 +1,8 @@
 # Tracecat Helm Chart
 
-This Helm chart deploys Tracecat on Kubernetes with external managed services (PostgreSQL, Redis, S3) and an optional self-hosted Temporal subchart.
+This chart deploys Tracecat as a single Helm release with optional self-hosted Temporal.
 
-## Prerequisites
+## Deploying the single chart
 
 ### 1. Create namespace
 
@@ -10,57 +10,82 @@ This Helm chart deploys Tracecat on Kubernetes with external managed services (P
 kubectl create namespace tracecat
 ```
 
-### 2. Create core credentials secret
+### 2. Choose a secret strategy
+
+You can either supply existing Kubernetes secrets or let this chart render native Secret manifests.
+
+#### Option A: Use existing Kubernetes secrets
 
 ```bash
-# Generate credentials locally
-export DB_ENCRYPTION_KEY=$(openssl rand 32 | base64 | tr -d '\n' | tr '+/' '-_')
-export SERVICE_KEY=$(openssl rand -hex 32)
-export SIGNING_SECRET=$(openssl rand -hex 32)
-export USER_AUTH_SECRET=$(openssl rand -hex 32)
-
-# Create core credentials secret
+# Required: Tracecat application secrets
 kubectl create secret generic tracecat-secrets \
   -n tracecat \
-  --from-literal=dbEncryptionKey=$DB_ENCRYPTION_KEY \
-  --from-literal=serviceKey=$SERVICE_KEY \
-  --from-literal=signingSecret=$SIGNING_SECRET \
-  --from-literal=userAuthSecret=$USER_AUTH_SECRET \
-  --dry-run=client -o yaml | kubectl apply -f -
-```
+  --from-literal=dbEncryptionKey=YOUR_DB_ENCRYPTION_KEY \
+  --from-literal=serviceKey=YOUR_SERVICE_KEY \
+  --from-literal=signingSecret=YOUR_SIGNING_SECRET \
+  --from-literal=userAuthSecret=YOUR_USER_AUTH_SECRET
 
-### 3. Create external service secrets
-
-```bash
-# PostgreSQL credentials
+# Required: external Postgres credentials
 kubectl create secret generic tracecat-postgres-credentials \
   -n tracecat \
   --from-literal=username=YOUR_PG_USER \
   --from-literal=password=YOUR_PG_PASSWORD
 
-# Redis URL
+# Required for Redis when using K8s secret auth
 kubectl create secret generic tracecat-redis-credentials \
   -n tracecat \
   --from-literal=url='redis://:YOUR_REDIS_PASSWORD@YOUR_REDIS_HOST:6379'
 
-# S3 credentials (optional - not needed if using IRSA/IAM roles)
-kubectl create secret generic tracecat-s3-credentials \
+# Optional: Temporal Web UI OIDC (self-hosted Temporal only)
+kubectl create secret generic temporal-ui-oidc \
   -n tracecat \
-  --from-literal=accessKeyId=YOUR_ACCESS_KEY \
-  --from-literal=secretAccessKey=YOUR_SECRET_KEY
+  --from-literal=TEMPORAL_AUTH_CLIENT_ID=YOUR_OIDC_CLIENT_ID \
+  --from-literal=TEMPORAL_AUTH_CLIENT_SECRET=YOUR_OIDC_CLIENT_SECRET
 ```
 
-## Installation
+#### Option B: Let the chart render secret templates
+
+Set:
+
+- `secrets.create.tracecat.enabled=true` (required if not using `secrets.existingSecret`)
+- `secrets.create.postgres.enabled=true` (required if not using `externalPostgres.auth.existingSecret`)
+- `secrets.create.temporalUiOidc.enabled=true` (optional for self-hosted Temporal UI OIDC)
+- `temporal.web.additionalEnvSecretName=temporal-ui-oidc` (when enabling Temporal UI OIDC via secret)
+
+When enabled, `secrets.create.*` resources are rendered as `pre-install,pre-upgrade` hooks so they exist before migration hooks run.
+
+### 3. Install with ingress networking (default)
 
 ```bash
 helm install tracecat ./tracecat \
   -n tracecat \
-  --set secrets.existingSecret=tracecat-secrets \
   --set tracecat.auth.superadminEmail=admin@example.com \
+  --set ingress.enabled=true \
   --set ingress.host=tracecat.example.com \
+  --set secrets.existingSecret=tracecat-secrets \
   --set externalPostgres.host=your-db-host.example.com \
   --set externalPostgres.auth.existingSecret=tracecat-postgres-credentials \
   --set externalRedis.auth.existingSecret=tracecat-redis-credentials
+```
+
+### 4. Install with Istio VirtualService networking (ingress disabled)
+
+```bash
+helm install tracecat ./tracecat \
+  -n tracecat \
+  --set tracecat.auth.superadminEmail=admin@example.com \
+  --set ingress.enabled=false \
+  --set urls.publicApp=https://tracecat.example.com \
+  --set urls.publicApi=https://tracecat.example.com/api \
+  --set secrets.existingSecret=tracecat-secrets \
+  --set externalPostgres.host=your-db-host.example.com \
+  --set externalPostgres.auth.existingSecret=tracecat-postgres-credentials \
+  --set externalRedis.auth.existingSecret=tracecat-redis-credentials \
+  --set virtualService.enabled=true \
+  --set virtualService.tracecat.enabled=true \
+  --set 'virtualService.tracecat.configs[0].name=tracecat' \
+  --set 'virtualService.tracecat.configs[0].hosts[0]=tracecat.example.com' \
+  --set 'virtualService.tracecat.configs[0].gateways[0]=istio-system/public-gateway'
 ```
 
 ### OrbStack (local development on macOS)
@@ -121,11 +146,22 @@ See `examples/` for complete example configurations.
 
 | Parameter | Description |
 |-----------|-------------|
-| `secrets.existingSecret` | Name of K8s secret with core credentials |
 | `tracecat.auth.superadminEmail` | Initial admin email (required on first install) |
 | `externalPostgres.host` | PostgreSQL hostname |
-| `externalPostgres.auth.existingSecret` | Secret with `username` and `password` |
-| `externalRedis.auth.existingSecret` | Secret with `url` |
+| `secrets.existingSecret` **or** `secrets.create.tracecat.enabled=true` **or** `externalSecrets.coreSecrets.secretArn` | Required Tracecat core secret source |
+| `externalPostgres.auth.existingSecret` **or** `externalPostgres.auth.secretArn` **or** `secrets.create.postgres.enabled=true` | Required Postgres credential source |
+| `externalRedis.auth.existingSecret` **or** `externalRedis.auth.secretArn` | Required Redis credential source |
+
+### Secret templates (native K8s Secrets)
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `secrets.create.tracecat.enabled` | `false` | Render `tracecat-secrets` |
+| `secrets.create.tracecat.name` | `tracecat-secrets` | Name of Tracecat core secret |
+| `secrets.create.postgres.enabled` | `false` | Render `tracecat-postgres-credentials` |
+| `secrets.create.postgres.name` | `tracecat-postgres-credentials` | Name of Postgres secret |
+| `secrets.create.temporalUiOidc.enabled` | `false` | Render `temporal-ui-oidc` for self-hosted Temporal UI |
+| `secrets.create.temporalUiOidc.name` | `temporal-ui-oidc` | Name of Temporal UI OIDC secret |
 
 ### Ingress
 
@@ -139,6 +175,56 @@ See `examples/` for complete example configurations.
 | `ingress.ui.annotations` | `{}` | UI ingress annotations (merged with `ingress.annotations`) |
 | `ingress.api.annotations` | `{}` | API ingress annotations (merged with `ingress.annotations`) |
 | `ingress.tls` | `[]` | TLS configuration |
+
+### VirtualService (Istio)
+
+Use this when ingress is disabled and traffic is managed by Istio gateways.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `virtualService.enabled` | `false` | Enable VirtualService rendering |
+| `virtualService.apiVersion` | `networking.istio.io/v1beta1` | Istio API version |
+| `virtualService.tracecat.enabled` | `true` | Render Tracecat UI/API VirtualServices |
+| `virtualService.tracecat.configs` | `[]` | Required list of `{name, hosts, gateways}` entries |
+| `virtualService.webhooks.enabled` | `false` | Render webhook-only VirtualServices |
+| `virtualService.webhooks.timeout` | `5s` | Timeout for webhook routes |
+| `virtualService.webhooks.configs` | `[]` | Required list of `{name, hosts, gateways}` entries |
+| `virtualService.temporal.enabled` | `false` | Render Temporal Web UI VirtualServices |
+| `virtualService.temporal.configs` | `[]` | Required list of `{name, hosts, gateways}` entries (self-hosted Temporal only) |
+
+Example:
+
+```yaml
+ingress:
+  enabled: false
+
+virtualService:
+  enabled: true
+  tracecat:
+    enabled: true
+    configs:
+      - name: tracecat
+        hosts:
+          - tracecat.example.com
+        gateways:
+          - istio-system/public-gateway
+  webhooks:
+    enabled: true
+    configs:
+      - name: tracecat-webhooks
+        hosts:
+          - webhooks.example.com
+        gateways:
+          - istio-system/public-gateway
+  temporal:
+    enabled: true
+    configs:
+      - name: tracecat-temporal
+        hosts:
+          - temporal.example.com
+        gateways:
+          - istio-system/private-gateway
+```
 
 ### Public URLs
 
@@ -268,6 +354,11 @@ The chart supports two Temporal modes: a self-hosted subchart or an external clu
 |-----------|---------|-------------|
 | `temporal.enabled` | `true` | Deploy Temporal as a subchart |
 | `temporal.clusterQueue` | `tracecat-task-queue` | Temporal task queue for Tracecat workers |
+| `temporal.web.additionalEnvSecretName` | `""` | Optional secret for Temporal Web UI env vars (set to `temporal-ui-oidc` when using OIDC) |
+| `temporal.server.config.persistence.datastores.default.sql.existingSecret` | `tracecat-postgres-credentials` | Secret used for Temporal default store SQL password |
+| `temporal.server.config.persistence.datastores.visibility.sql.existingSecret` | `tracecat-postgres-credentials` | Secret used for Temporal visibility store SQL password |
+
+If you override `secrets.create.postgres.name`, also override both Temporal datastore `existingSecret` values to the same secret name.
 
 When using the self-hosted subchart, you must configure `temporal.server.config.persistence` to point to your external database. The `temporal` and `temporal_visibility` databases must already exist. See `terraform/aws/modules/eks/helm.tf` for a production example.
 

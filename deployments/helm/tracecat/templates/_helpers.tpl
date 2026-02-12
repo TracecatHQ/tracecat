@@ -457,7 +457,8 @@ Constructs TRACECAT__DB_URI from computed host/port/database/sslmode and secret 
 {{- $database := include "tracecat.postgres.database" . }}
 {{- $sslMode := include "tracecat.postgres.sslMode" . }}
 {{- $hasSecretArn := .Values.externalPostgres.auth.secretArn }}
-{{- $hasExistingSecret := .Values.externalPostgres.auth.existingSecret }}
+{{- $postgresSecretName := include "tracecat.secrets.postgresName" . }}
+{{- $hasExistingSecret := $postgresSecretName }}
 {{- if $hasSecretArn }}
 {{- if .Values.externalPostgres.auth.username }}
 - name: TRACECAT__DB_USER
@@ -466,7 +467,7 @@ Constructs TRACECAT__DB_URI from computed host/port/database/sslmode and secret 
 - name: TRACECAT__DB_USER
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.externalPostgres.auth.existingSecret }}
+      name: {{ $postgresSecretName }}
       key: username
 {{- end }}
 - name: TRACECAT__DB_PASS__ARN
@@ -477,13 +478,13 @@ Constructs TRACECAT__DB_URI from computed host/port/database/sslmode and secret 
 - name: TRACECAT__DB_USER
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.externalPostgres.auth.existingSecret }}
+      name: {{ $postgresSecretName }}
       key: username
 {{- end }}
 - name: TRACECAT__DB_PASS
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.externalPostgres.auth.existingSecret }}
+      name: {{ $postgresSecretName }}
       key: password
 {{- end }}
 - name: TRACECAT__DB_ENDPOINT
@@ -495,7 +496,7 @@ Constructs TRACECAT__DB_URI from computed host/port/database/sslmode and secret 
 - name: TRACECAT__DB_SSLMODE
   value: {{ $sslMode | quote }}
 {{- if not (or $hasSecretArn $hasExistingSecret) }}
-{{- fail "externalPostgres.auth.existingSecret or externalPostgres.auth.secretArn is required" }}
+{{- fail "externalPostgres.auth.existingSecret, externalPostgres.auth.secretArn, or secrets.create.postgres.enabled is required" }}
 {{- end }}
 {{- end }}
 
@@ -763,22 +764,12 @@ Otherwise, require the manual existingSecret.
 {{- .Values.externalSecrets.coreSecrets.targetSecretName }}
 {{- else if .Values.secrets.existingSecret }}
 {{- .Values.secrets.existingSecret }}
+{{- else if .Values.secrets.create.tracecat.enabled }}
+{{- required "secrets.create.tracecat.name is required when tracecat secret template is enabled" .Values.secrets.create.tracecat.name }}
 {{- else }}
-{{- fail "Either secrets.existingSecret or externalSecrets.coreSecrets (with secretArn) must be configured" }}
+{{- fail "Either secrets.existingSecret, secrets.create.tracecat.enabled, or externalSecrets.coreSecrets (with secretArn) must be configured" }}
 {{- end }}
 {{- end }}
-
-{{/*
-Get the effective OAuth secrets name.
-*/}}
-{{- define "tracecat.secrets.oauthName" -}}
-{{- if and .Values.externalSecrets.enabled .Values.externalSecrets.oauthSecrets.enabled .Values.externalSecrets.oauthSecrets.secretArn }}
-{{- .Values.externalSecrets.oauthSecrets.targetSecretName }}
-{{- else }}
-{{- .Values.secrets.oauthSecret }}
-{{- end }}
-{{- end }}
-
 
 {{/*
 Get the effective PostgreSQL secrets name for external Postgres.
@@ -789,6 +780,8 @@ ESO-managed secret takes precedence over existingSecret.
 {{- .Values.externalSecrets.postgres.targetSecretName }}
 {{- else if .Values.externalPostgres.auth.existingSecret }}
 {{- .Values.externalPostgres.auth.existingSecret }}
+{{- else if .Values.secrets.create.postgres.enabled }}
+{{- required "secrets.create.postgres.name is required when postgres secret template is enabled" .Values.secrets.create.postgres.name }}
 {{- end }}
 {{- end }}
 
@@ -825,9 +818,10 @@ Validate required secrets - accepts either manual secret or ESO-managed secret
 */}}
 {{- define "tracecat.validateRequiredSecrets" -}}
 {{- $hasManualSecret := .Values.secrets.existingSecret -}}
+{{- $hasTemplatedSecret := .Values.secrets.create.tracecat.enabled -}}
 {{- $hasEsoSecret := and .Values.externalSecrets.enabled .Values.externalSecrets.coreSecrets.enabled .Values.externalSecrets.coreSecrets.secretArn -}}
-{{- if not (or $hasManualSecret $hasEsoSecret) -}}
-{{- fail "Core secrets required: set secrets.existingSecret OR enable externalSecrets with coreSecrets.secretArn" -}}
+{{- if not (or $hasManualSecret $hasTemplatedSecret $hasEsoSecret) -}}
+{{- fail "Core secrets required: set secrets.existingSecret, enable secrets.create.tracecat, or enable externalSecrets with coreSecrets.secretArn" -}}
 {{- end -}}
 {{- end -}}
 
@@ -881,32 +875,17 @@ Uses ESO-aware secret name resolution.
 {{- end -}}
 
 {{/*
-API-specific secret env vars (OAuth, user auth)
+API-specific secret env vars (user auth)
 Uses ESO-aware secret name resolution.
 */}}
 {{- define "tracecat.env.secrets.api" -}}
 {{- $coreSecretName := include "tracecat.secrets.coreName" . }}
-{{- $oauthSecretName := include "tracecat.secrets.oauthName" . }}
 {{ include "tracecat.env.secrets" . }}
 - name: USER_AUTH_SECRET
   valueFrom:
     secretKeyRef:
       name: {{ $coreSecretName }}
       key: userAuthSecret
-{{- if $oauthSecretName }}
-- name: OAUTH_CLIENT_ID
-  valueFrom:
-    secretKeyRef:
-      name: {{ $oauthSecretName }}
-      key: oauthClientId
-      optional: true
-- name: OAUTH_CLIENT_SECRET
-  valueFrom:
-    secretKeyRef:
-      name: {{ $oauthSecretName }}
-      key: oauthClientSecret
-      optional: true
-{{- end }}
 {{- end -}}
 
 {{/*

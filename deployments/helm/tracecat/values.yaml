@@ -5,12 +5,35 @@ secrets:
   # - serviceKey: Service-to-service auth key (hex)
   # - signingSecret: Webhook signing secret (hex)
   # - userAuthSecret: Password reset/email verification token secret (hex)
+  # Leave empty when using secrets.create.tracecat or externalSecrets.coreSecrets.
   existingSecret: ""
 
-  # (Optional) Name of existing Kubernetes Secret for OAuth containing:
-  # - oauthClientId: Google OAuth client ID
-  # - oauthClientSecret: Google OAuth client secret
-  oauthSecret: ""
+  # Optional native K8s Secret manifests rendered by this chart.
+  # Useful when you do not use External Secrets Operator.
+  # These are rendered as pre-install/pre-upgrade hooks (weight -15) so
+  # they exist before the pre-install/pre-upgrade migrations job (weight -5).
+  create:
+    tracecat:
+      enabled: false
+      name: "tracecat-secrets"
+      dbEncryptionKey: ""
+      serviceKey: ""
+      signingSecret: ""
+      userAuthSecret: ""
+
+    postgres:
+      enabled: false
+      # Keep this aligned with externalPostgres.auth.existingSecret unless you
+      # explicitly override the app DB secret name.
+      name: "tracecat-postgres-credentials"
+      username: ""
+      password: ""
+
+    temporalUiOidc:
+      enabled: false
+      name: "temporal-ui-oidc"
+      clientId: ""
+      clientSecret: ""
 
 
 # External Secrets Operator integration (optional)
@@ -28,13 +51,6 @@ externalSecrets:
     enabled: true
     secretArn: ""
     targetSecretName: "tracecat-secrets"
-
-  # OAuth secrets (optional)
-  # Expected JSON: { "oauthClientId": "...", "oauthClientSecret": "..." }
-  oauthSecrets:
-    enabled: false
-    secretArn: ""
-    targetSecretName: "tracecat-oauth-secrets"
 
   # PostgreSQL credentials for externalPostgres
   # Expected JSON: { "username": "...", "password": "..." }
@@ -101,6 +117,32 @@ ingress:
     annotations: {}
   api:
     annotations: {}
+
+# Istio VirtualService configuration (alternative to ingress).
+# Disable ingress when enabling VirtualServices.
+virtualService:
+  enabled: false
+  apiVersion: networking.istio.io/v1beta1
+
+  # Routes /api and / to Tracecat API/UI services.
+  tracecat:
+    enabled: true
+    # Render one VirtualService per entry.
+    configs: []
+
+  # Optional webhook-only VirtualServices.
+  # Routes /_/webhooks and /webhooks to the Tracecat API service.
+  webhooks:
+    enabled: false
+    timeout: 5s
+    # Render one VirtualService per entry.
+    configs: []
+
+  # Optional Temporal Web UI VirtualServices for self-hosted Temporal.
+  temporal:
+    enabled: false
+    # Render one VirtualService per entry.
+    configs: []
 
 urls:
   publicApp: ""
@@ -249,6 +291,10 @@ temporal:
   enabled: true
   # Temporal task queue used by Tracecat workers.
   clusterQueue: tracecat-task-queue
+  web:
+    # Optional envFrom secret for Temporal Web UI auth settings.
+    # Set to temporal-ui-oidc (or your secret name) to enable OIDC auth via secret keys.
+    additionalEnvSecretName: ""
   server:
     config:
       persistence:
@@ -266,7 +312,9 @@ temporal:
               connectProtocol: tcp
               user: ""
               password: ""
-              existingSecret: ""  # K8s secret with database password
+              # Keep this aligned with the secret used by Temporal SQL setup jobs.
+              # If you change the postgres secret name, update this and visibility.sql.existingSecret.
+              existingSecret: "tracecat-postgres-credentials"  # K8s secret with database password
               secretKey: password
               createDatabase: false
               manageSchema: true
@@ -280,7 +328,8 @@ temporal:
               connectProtocol: tcp
               user: ""
               password: ""
-              existingSecret: ""  # K8s secret with database password
+              # Keep this aligned with default.sql.existingSecret.
+              existingSecret: "tracecat-postgres-credentials"  # K8s secret with database password
               secretKey: password
               createDatabase: false
               manageSchema: true
@@ -301,7 +350,9 @@ externalPostgres:
   auth:
     # Either set a Kubernetes secret or an AWS Secrets Manager ARN.
     # You can set both to export TRACECAT__DB_PASS__ARN and TRACECAT__DB_PASS.
-    existingSecret: null  # Contains `username` and `password`.
+    # existingSecret is optional when secrets.create.postgres.enabled=true
+    # or when externalSecrets.postgres is enabled with a secretArn.
+    existingSecret: null  # Contains `username` and `password` (or enable secrets.create.postgres).
     # Username to use with secretArn (if omitted, the ARN secret must include `username`).
     username: ""
     # SecretString should be JSON with `password` (and optional `username`) or a raw password when username is set.
