@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
+from fastapi_users import InvalidPasswordException
 from tracecat_ee.admin.users import router as users_router
 from tracecat_ee.admin.users.schemas import AdminUserRead
 
@@ -86,6 +87,28 @@ async def test_create_user_bad_request(
     with patch.object(users_router, "AdminUserService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.create_user.side_effect = ValueError(
+            "Password must be at least 12 characters long"
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            "/admin/users",
+            json={
+                "email": "new-user@example.com",
+                "password": "short",
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.anyio
+async def test_create_user_invalid_password_exception_returns_bad_request(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    with patch.object(users_router, "AdminUserService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_user.side_effect = InvalidPasswordException(
             "Password must be at least 12 characters long"
         )
         MockService.return_value = mock_svc

@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, HTTPException, status
+from fastapi_users import InvalidPasswordException
 
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSession
@@ -25,6 +26,10 @@ async def create_user(
     service = AdminUserService(session, role)
     try:
         return await service.create_user(params)
+    except InvalidPasswordException as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
     except ValueError as e:
         detail = str(e)
         if "already exists" in detail.lower():
