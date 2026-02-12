@@ -6,10 +6,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from tracecat.db.models import OrganizationTier
+from tracecat.db.models import OrganizationTier, Tier
 from tracecat.exceptions import EntitlementRequired
 from tracecat.identifiers import OrganizationID
-from tracecat.tiers import defaults as tier_defaults
 from tracecat.tiers.enums import Entitlement
 
 
@@ -28,7 +27,15 @@ async def is_org_entitled(
     org_tier = result.scalar_one_or_none()
 
     if org_tier is None:
-        return getattr(tier_defaults.DEFAULT_ENTITLEMENTS, entitlement.value, False)
+        default_tier_stmt = select(Tier).where(
+            Tier.is_default.is_(True), Tier.is_active.is_(True)
+        )
+        default_tier_result = await session.execute(default_tier_stmt)
+        default_tier = default_tier_result.scalar_one_or_none()
+        if default_tier is None:
+            return False
+        tier_entitlements = default_tier.entitlements or {}
+        return bool(tier_entitlements.get(entitlement.value, False))
 
     overrides = org_tier.entitlement_overrides or {}
     override = overrides.get(entitlement.value)
