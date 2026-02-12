@@ -9,7 +9,7 @@ import {
   UsersIcon,
 } from "lucide-react"
 import { useMemo, useState } from "react"
-import type { GroupAssignmentReadWithDetails } from "@/client"
+import type { GroupRoleAssignmentReadWithDetails } from "@/client"
 import {
   RbacDetailRow,
   RbacListContainer,
@@ -65,7 +65,7 @@ import {
 
 export function OrgRbacAssignments() {
   const [selectedAssignment, setSelectedAssignment] =
-    useState<GroupAssignmentReadWithDetails | null>(null)
+    useState<GroupRoleAssignmentReadWithDetails | null>(null)
   const [expandedAssignmentId, setExpandedAssignmentId] = useState<
     string | null
   >(null)
@@ -521,7 +521,7 @@ function AssignmentEditDialog({
   isPending,
   onOpenChange,
 }: {
-  assignment: GroupAssignmentReadWithDetails
+  assignment: GroupRoleAssignmentReadWithDetails
   onSubmit: (roleId: string) => Promise<void>
   isPending: boolean
   onOpenChange: (open: boolean) => void

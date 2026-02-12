@@ -10,6 +10,7 @@ import { useParams } from "next/navigation"
 import { useState } from "react"
 import { z } from "zod"
 import type { TableColumnRead } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Spinner } from "@/components/loading/spinner"
 import {
   AlertDialog,
@@ -30,7 +31,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
-import { useAuth } from "@/hooks/use-auth"
 import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
 import { SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -38,7 +38,8 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 type TableViewColumnMenuType = "delete" | "edit" | "set-natural-key" | null
 
 export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
-  const { user } = useAuth()
+  const canUpdateTable = useScopeCheck("table:update")
+  const canDeleteColumn = useScopeCheck("table:delete")
   const params = useParams<{ tableId?: string }>()
   const tableId = params?.tableId
   const [activeType, setActiveType] = useState<TableViewColumnMenuType>(null)
@@ -74,30 +75,30 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
             <CopyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
             Copy name
           </DropdownMenuItem>
-          {user?.isPrivileged() && (
-            <>
-              <DropdownMenuItem
-                className="py-1 text-xs text-foreground/80"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setActiveType("set-natural-key")
-                }}
-                disabled={column.is_index}
-              >
-                <DatabaseZapIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
-                {column.is_index ? "Unique index" : "Create unique index"}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="py-1 text-xs text-destructive"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setActiveType("delete")
-                }}
-              >
-                <Trash2Icon className="mr-2 size-3 group-hover/item:text-destructive" />
-                Delete column
-              </DropdownMenuItem>
-            </>
+          {canUpdateTable && (
+            <DropdownMenuItem
+              className="py-1 text-xs text-foreground/80"
+              onClick={(e) => {
+                e.stopPropagation()
+                setActiveType("set-natural-key")
+              }}
+              disabled={column.is_index}
+            >
+              <DatabaseZapIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
+              {column.is_index ? "Unique index" : "Create unique index"}
+            </DropdownMenuItem>
+          )}
+          {canDeleteColumn && (
+            <DropdownMenuItem
+              className="py-1 text-xs text-destructive"
+              onClick={(e) => {
+                e.stopPropagation()
+                setActiveType("delete")
+              }}
+            >
+              <Trash2Icon className="mr-2 size-3 group-hover/item:text-destructive" />
+              Delete column
+            </DropdownMenuItem>
           )}
         </DropdownMenuContent>
       </DropdownMenu>

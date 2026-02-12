@@ -13,8 +13,8 @@ export default function OrganizationLayout({
   children: React.ReactNode
 }) {
   return (
-    <AuthGuard requireAuth requireOrgAdmin>
-      <ScopeProvider>
+    <ScopeProvider>
+      <AuthGuard requireAuth requireOrgAdmin>
         <SidebarProvider>
           <OrganizationSidebar />
           <SidebarInset>
@@ -27,7 +27,7 @@ export default function OrganizationLayout({
             </div>
           </SidebarInset>
         </SidebarProvider>
-      </ScopeProvider>
-    </AuthGuard>
+      </AuthGuard>
+    </ScopeProvider>
   )
 }

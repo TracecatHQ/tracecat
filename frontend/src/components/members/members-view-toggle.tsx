@@ -9,6 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { cn } from "@/lib/utils"
 
 export enum MembersViewMode {
@@ -35,6 +36,9 @@ export function MembersViewToggle({
   groupsHref,
   rbacScope,
 }: MembersViewToggleProps) {
+  const { isFeatureEnabled } = useFeatureFlag()
+  const rbacEnabled = isFeatureEnabled("rbac")
+
   const toggleItems = [
     {
       mode: MembersViewMode.Members,
@@ -107,6 +111,9 @@ export function MembersViewToggle({
           )
 
           if (item.requiresScope) {
+            if (!rbacEnabled) {
+              return null
+            }
             return (
               <ScopeGuard
                 key={item.mode}

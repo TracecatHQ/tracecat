@@ -5,6 +5,7 @@ import type { Row } from "@tanstack/react-table"
 import { CopyIcon, TrashIcon } from "lucide-react"
 import { useMemo, useState } from "react"
 import type { RegistryActionReadMinimal } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -24,11 +25,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
-import { useOrgMembership } from "@/hooks/use-org-membership"
 import { useRegistryActions } from "@/lib/hooks"
 
 export function RegistryActionsTable() {
-  const { canAdministerOrg } = useOrgMembership()
+  const canAdministerOrg = useScopeCheck("org:registry:manage")
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useRegistryActions()
   const [selectedAction, setSelectedAction] =

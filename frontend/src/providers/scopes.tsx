@@ -6,9 +6,6 @@ import { useOptionalWorkspaceId } from "@/providers/workspace-id"
 
 interface ScopeContextValue {
   scopes: Set<string>
-  orgRoleScopes: Set<string>
-  workspaceRoleScopes: Set<string>
-  groupScopes: Set<string>
   isLoading: boolean
   error: unknown
   /**
@@ -73,9 +70,6 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<ScopeContextValue>(() => {
     const scopes = new Set(userScopes?.scopes ?? [])
-    const orgRoleScopes = new Set(userScopes?.org_role_scopes ?? [])
-    const workspaceRoleScopes = new Set(userScopes?.workspace_role_scopes ?? [])
-    const groupScopes = new Set(userScopes?.group_scopes ?? [])
 
     const hasScope = (scope: string): boolean => {
       return matchScope(scope, scopes)
@@ -91,9 +85,6 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
 
     return {
       scopes,
-      orgRoleScopes,
-      workspaceRoleScopes,
-      groupScopes,
       isLoading,
       error,
       hasScope,

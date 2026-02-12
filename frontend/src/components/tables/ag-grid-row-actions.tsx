@@ -6,6 +6,7 @@ import { CopyIcon, Trash2Icon } from "lucide-react"
 import { useParams } from "next/navigation"
 import { useState } from "react"
 import type { TableRowRead } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,14 +25,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useAuth } from "@/hooks/use-auth"
 import { useDeleteRow } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 type RowActionType = "delete" | null
 
 export function AgGridRowActions(params: CustomCellRendererProps) {
-  const { user } = useAuth()
+  const canDeleteRow = useScopeCheck("table:delete")
   const [activeType, setActiveType] = useState<RowActionType>(null)
   const row = params.data as TableRowRead
 
@@ -55,7 +55,7 @@ export function AgGridRowActions(params: CustomCellRendererProps) {
             <CopyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
             Copy ID
           </DropdownMenuItem>
-          {user?.isPrivileged() && (
+          {canDeleteRow && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem

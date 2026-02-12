@@ -40,7 +40,7 @@ export function NoOrganizationAccess() {
             organization.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 text-center">
           {pendingInvitationsError ? (
             <p className="text-sm text-muted-foreground">
               Could not load pending invitations. If you have an invitation

@@ -2,24 +2,21 @@
 
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { RegistryRepositoriesTable } from "@/components/registry/registry-repos-table"
-import { useAuth } from "@/hooks/use-auth"
-import { useOrgMembership } from "@/hooks/use-org-membership"
 
 export default function RegistryRepositoriesPage() {
-  const { userIsLoading } = useAuth()
-  const { canAdministerOrg, isLoading: orgMembershipLoading } =
-    useOrgMembership()
+  const canAdministerOrg = useScopeCheck("org:registry:manage")
   const router = useRouter()
 
-  const isLoading = userIsLoading || orgMembershipLoading
+  const isLoading = canAdministerOrg === undefined
 
   useEffect(() => {
-    if (!canAdministerOrg && !isLoading) {
+    if (canAdministerOrg === false) {
       router.replace("/registry/actions")
     }
-  }, [canAdministerOrg, isLoading, router])
+  }, [canAdministerOrg, router])
 
   if (isLoading) return <CenteredSpinner />
   if (!canAdministerOrg) return null

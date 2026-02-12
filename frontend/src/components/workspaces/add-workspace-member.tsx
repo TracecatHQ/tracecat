@@ -7,9 +7,9 @@ import {
   ApiError,
   type UserRead,
   usersSearchUser,
-  type WorkspaceMembershipRead,
   type WorkspaceRead,
 } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -35,12 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useAuth } from "@/hooks/use-auth"
-import { useOrgMembership } from "@/hooks/use-org-membership"
-import {
-  useCurrentUserRole,
-  useWorkspaceMutations,
-} from "@/hooks/use-workspace"
+import { useWorkspaceMutations } from "@/hooks/use-workspace"
 import { WorkspaceRoleEnum } from "@/lib/workspace"
 
 const addUserSchema = z.object({
@@ -53,9 +48,7 @@ export function AddWorkspaceMember({
   workspace,
   className,
 }: { workspace: WorkspaceRead } & React.HTMLAttributes<HTMLButtonElement>) {
-  const { user } = useAuth()
-  const { role } = useCurrentUserRole(workspace.id)
-  const { canAdministerOrg } = useOrgMembership()
+  const canInviteMembers = useScopeCheck("workspace:member:invite")
   const { addMember: addWorkspaceMember } = useWorkspaceMutations()
   const [showDialog, setShowDialog] = useState(false)
   const form = useForm<AddUser>({
@@ -114,10 +107,7 @@ export function AddWorkspaceMember({
         <Button
           variant="outline"
           size="sm"
-          disabled={
-            !canAdministerOrg &&
-            !user?.isPrivileged({ role } as WorkspaceMembershipRead)
-          }
+          disabled={!canInviteMembers}
           className="h-7 bg-white disabled:cursor-not-allowed"
         >
           <Plus className="mr-1 h-3.5 w-3.5" />

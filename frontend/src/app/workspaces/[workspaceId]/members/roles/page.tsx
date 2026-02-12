@@ -1,13 +1,31 @@
 "use client"
 
+import { useRouter } from "next/navigation"
+import { useEffect } from "react"
 import { ScopeGuard } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { WorkspaceRbacRoles } from "@/components/workspaces/workspace-rbac-roles"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function WorkspaceRolesPage() {
+  const router = useRouter()
+  const workspaceId = useWorkspaceId()
   const { workspace, workspaceLoading, workspaceError } = useWorkspaceDetails()
+  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
+  const rbacEnabled = isFeatureEnabled("rbac")
+
+  useEffect(() => {
+    if (!featureFlagsLoading && !rbacEnabled) {
+      router.replace(`/workspaces/${workspaceId}/members`)
+    }
+  }, [featureFlagsLoading, rbacEnabled, router, workspaceId])
+
+  if (featureFlagsLoading || !rbacEnabled) {
+    return <CenteredSpinner />
+  }
   if (workspaceLoading) {
     return <CenteredSpinner />
   }

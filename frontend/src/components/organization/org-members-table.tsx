@@ -11,6 +11,7 @@ import {
   organizationGetInvitationToken,
   type UserRole,
 } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -64,7 +65,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useAuth } from "@/hooks/use-auth"
 import { getRelativeTime } from "@/lib/event-history"
 import {
   useOrgMembers,
@@ -254,6 +254,9 @@ export function OrgMembersTable() {
       setSelectedMember(null)
     }
   }
+  const [isManageRolesOpen, setIsManageRolesOpen] = useState(false)
+  const canAdministerOrg = useScopeCheck("org:member:update")
+  const { orgMembers, deleteOrgMember } = useOrgMembers()
 
   const handleRemoveMember = async () => {
     if (selectedMember?.user_id) {

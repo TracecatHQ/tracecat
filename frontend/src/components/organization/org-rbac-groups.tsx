@@ -14,8 +14,8 @@ import {
 } from "lucide-react"
 import { useMemo, useState } from "react"
 import type {
-  GroupAssignmentReadWithDetails,
   GroupReadWithMembers,
+  GroupRoleAssignmentReadWithDetails,
 } from "@/client"
 import {
   RbacDetailRow,
@@ -414,7 +414,7 @@ function GroupExpandedContent({
   onManage,
 }: {
   group: GroupReadWithMembers
-  assignments: GroupAssignmentReadWithDetails[]
+  assignments: GroupRoleAssignmentReadWithDetails[]
   onManage: () => void
 }) {
   return (
