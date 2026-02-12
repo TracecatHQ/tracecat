@@ -55,6 +55,7 @@ with workflow.unsafe.imports_passed_through():
         EvaluateTemplatedObjectActivityInput,
         NormalizeTriggerInputsActivityInputs,
         PrepareSubflowActivityInput,
+        ResolveAgentVarsActivityInput,
         ResolveSubflowBatchActivityInput,
         SynchronizeCollectionObjectActivityInput,
     )
@@ -792,17 +793,15 @@ class DSLWorkflow:
                 case PlatformAction.AI_AGENT:
                     logger.info("Executing agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
-                    resolved_env = await self._resolve_action_environment(
+                    self._set_logical_time_context()
+                    agent_operand = await self._resolve_agent_context(
                         task, agent_operand
                     )
-                    self._set_logical_time_context()
                     action_args = await workflow.execute_activity(
                         DSLActivities.build_agent_args_activity,
                         arg=BuildAgentArgsActivityInput(
                             args=dict(task.args),
                             operand=agent_operand,
-                            role=self.role,
-                            environment=resolved_env,
                         ),
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -855,17 +854,15 @@ class DSLWorkflow:
                 case PlatformAction.AI_ACTION:
                     logger.info("Executing AI action", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
-                    resolved_env = await self._resolve_action_environment(
+                    self._set_logical_time_context()
+                    agent_operand = await self._resolve_agent_context(
                         task, agent_operand
                     )
-                    self._set_logical_time_context()
                     action_args = await workflow.execute_activity(
                         DSLActivities.build_agent_args_activity,
                         arg=BuildAgentArgsActivityInput(
                             args=dict(task.args),
                             operand=agent_operand,
-                            role=self.role,
-                            environment=resolved_env,
                         ),
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -920,17 +917,15 @@ class DSLWorkflow:
                 case PlatformAction.AI_PRESET_AGENT:
                     logger.info("Executing preset agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
-                    resolved_env = await self._resolve_action_environment(
+                    self._set_logical_time_context()
+                    agent_operand = await self._resolve_agent_context(
                         task, agent_operand
                     )
-                    self._set_logical_time_context()
                     preset_action_args = await workflow.execute_activity(
                         DSLActivities.build_preset_agent_args_activity,
                         arg=BuildPresetAgentArgsActivityInput(
                             args=dict(task.args),
                             operand=agent_operand,
-                            role=self.role,
-                            environment=resolved_env,
                         ),
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -1740,6 +1735,30 @@ class DSLWorkflow:
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
         return environment
+
+    async def _resolve_agent_context(
+        self, task: ActionStatement, operand: ExecutionContext
+    ) -> ExecutionContext:
+        """Resolve environment and VARS for agent actions, injecting into operand.
+
+        1. Resolve effective environment (task override > workflow default).
+        2. Fetch workspace variables scoped to that environment.
+        3. Inject VARS into operand so the sync build activity can evaluate them.
+        """
+        resolved_env = await self._resolve_action_environment(task, operand)
+        workspace_variables = await workflow.execute_activity(
+            DSLActivities.resolve_agent_vars_activity,
+            arg=ResolveAgentVarsActivityInput(
+                args=dict(task.args),
+                role=self.role,
+                environment=resolved_env or self.run_context.environment,
+            ),
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        )
+        if workspace_variables:
+            operand["VARS"] = workspace_variables
+        return operand
 
     async def _run_action(self, task: ActionStatement) -> StoredObject:
         # XXX(perf): We shouldn't pass the full execution context to the activity
