@@ -15,6 +15,12 @@ from tracecat_registry.core.transform import (
 )
 
 
+@pytest.fixture(autouse=True)
+def deduplicate_workspace_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure deduplication tests have an explicit workspace scope by default."""
+    monkeypatch.setenv("TRACECAT__WORKSPACE_ID", "test-workspace")
+
+
 @pytest.mark.parametrize(
     "items,python_lambda,expected",
     [
@@ -562,6 +568,46 @@ async def test_deduplicate_ttl_expiry(redis_server, clean_redis_db) -> None:
         assert third == payload
     except ConnectionError:
         pytest.skip("Redis not available")
+
+
+@pytest.mark.anyio
+async def test_deduplicate_is_scoped_by_workspace_id(
+    redis_server, clean_redis_db, monkeypatch
+) -> None:
+    """Deduplication keys should be isolated between workspaces."""
+    payload = [{"id": 7, "value": "same-key"}]
+
+    try:
+        monkeypatch.setenv("TRACECAT__WORKSPACE_ID", "workspace-a")
+        first_workspace_a = await deduplicate(payload, ["id"])
+        assert first_workspace_a == payload
+
+        second_workspace_a = await deduplicate(payload, ["id"])
+        assert second_workspace_a == []
+
+        monkeypatch.setenv("TRACECAT__WORKSPACE_ID", "workspace-b")
+        first_workspace_b = await deduplicate(payload, ["id"])
+        assert first_workspace_b == payload
+    except ConnectionError:
+        pytest.skip("Redis not available")
+
+
+@pytest.mark.anyio
+async def test_deduplicate_requires_workspace_scope(monkeypatch) -> None:
+    """Deduplication should fail explicitly without context or workspace ID."""
+
+    def mock_get_context_raises() -> None:
+        raise RuntimeError("No registry context is set.")
+
+    monkeypatch.delenv("TRACECAT__WORKSPACE_ID", raising=False)
+    monkeypatch.setattr(
+        "tracecat_registry.core.transform.get_context", mock_get_context_raises
+    )
+
+    with pytest.raises(
+        ValueError, match="could not determine this run's workspace scope"
+    ):
+        await deduplicate([{"id": 1}], ["id"])
 
 
 @pytest.mark.parametrize(
