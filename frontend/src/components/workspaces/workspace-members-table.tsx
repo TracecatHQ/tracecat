@@ -2,12 +2,8 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useCallback, useState } from "react"
-import type {
-  WorkspaceMember,
-  WorkspaceMembershipRead,
-  WorkspaceRead,
-  WorkspaceRole,
-} from "@/client"
+import type { WorkspaceMember, WorkspaceRead, WorkspaceRole } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -48,10 +44,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
-import { useAuth } from "@/hooks/use-auth"
-import { useOrgMembership } from "@/hooks/use-org-membership"
 import {
-  useCurrentUserRole,
   useWorkspaceMembers,
   useWorkspaceMutations,
 } from "@/hooks/use-workspace"
@@ -62,11 +55,9 @@ export function WorkspaceMembersTable({
 }: {
   workspace: WorkspaceRead
 }) {
-  const { user } = useAuth()
+  const canManageMembers = useScopeCheck("workspace:member:update")
   const [selectedUser, setSelectedUser] = useState<WorkspaceMember | null>(null)
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
-  const { role } = useCurrentUserRole(workspace.id)
-  const { canAdministerOrg } = useOrgMembership()
   const { removeMember, updateMember } = useWorkspaceMutations()
   const { members, membersLoading, membersError } = useWorkspaceMembers(
     workspace.id
@@ -210,10 +201,7 @@ export function WorkspaceMembersTable({
                         Copy user ID
                       </DropdownMenuItem>
 
-                      {(canAdministerOrg ||
-                        user?.isPrivileged({
-                          role,
-                        } as WorkspaceMembershipRead)) && (
+                      {canManageMembers && (
                         <>
                           <DialogTrigger asChild>
                             <DropdownMenuItem

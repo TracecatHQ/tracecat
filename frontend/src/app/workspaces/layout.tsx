@@ -10,6 +10,7 @@ import type React from "react"
 import { useEffect, useMemo, useState } from "react"
 import { ApiError } from "@/client"
 import { NoOrganizationAccess } from "@/components/auth/no-organization-access"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CaseSelectionProvider } from "@/components/cases/case-selection-context"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ControlsHeader } from "@/components/nav/controls-header"
@@ -18,7 +19,6 @@ import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
-import { useOrgMembership } from "@/hooks/use-org-membership"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { WorkflowBuilderProvider } from "@/providers/builder"
 import { ScopeProvider } from "@/providers/scopes"
@@ -93,7 +93,11 @@ export default function WorkspaceLayout({
   } else if (workspaces.length > 0) {
     selectedWorkspaceId = workspaces[0].id
   } else {
-    return <NoWorkspaces />
+    return (
+      <ScopeProvider>
+        <NoWorkspaces />
+      </ScopeProvider>
+    )
   }
 
   return (
@@ -195,7 +199,7 @@ function WorkflowView({
 function NoWorkspaces() {
   const { user } = useAuth()
   const { logout } = useAuthActions()
-  const { canAdministerOrg } = useOrgMembership()
+  const canCreateWorkspace = useScopeCheck("workspace:create")
   const { createWorkspace } = useWorkspaceManager()
   const router = useRouter()
   const [isCreating, setIsCreating] = useState(false)
@@ -220,12 +224,12 @@ function NoWorkspaces() {
       <Image src={TracecatIcon} alt="Tracecat" className="mb-4 size-16" />
       <h1 className="text-2xl font-semibold tracking-tight">No workspaces</h1>
       <span className="text-center text-muted-foreground">
-        {canAdministerOrg
+        {canCreateWorkspace
           ? "There are no workspaces yet. Create one to get started."
           : "You are not a member of any workspace. Please contact your administrator."}
       </span>
       <div className="flex gap-2">
-        {canAdministerOrg && (
+        {canCreateWorkspace && (
           <Button
             variant="default"
             onClick={handleCreateWorkspace}

@@ -12,6 +12,7 @@ import type {
   RegistryRepositoryErrorDetail,
   RegistryRepositoryReadMinimal,
 } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -35,12 +36,11 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useOrgMembership } from "@/hooks/use-org-membership"
 import { getRelativeTime } from "@/lib/event-history"
 import { useRegistryRepositories } from "@/lib/hooks"
 
 export function RegistryRepositoriesTable() {
-  const { canAdministerOrg } = useOrgMembership()
+  const canAdministerOrg = useScopeCheck("org:registry:manage")
   const {
     repos: registryRepos,
     reposIsLoading: registryReposIsLoading,

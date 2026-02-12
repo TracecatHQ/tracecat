@@ -53,9 +53,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useRbacScopes } from "@/lib/hooks"
 
 const SCOPE_SOURCE_COLORS: Record<ScopeSource, string> = {
-  system: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
-  registry:
-    "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300",
+  platform: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
   custom: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
 }
 
@@ -143,8 +141,7 @@ export function OrgRbacScopes() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All sources</SelectItem>
-                    <SelectItem value="system">System</SelectItem>
-                    <SelectItem value="registry">Registry</SelectItem>
+                    <SelectItem value="platform">Platform</SelectItem>
                     <SelectItem value="custom">Custom</SelectItem>
                   </SelectContent>
                 </Select>

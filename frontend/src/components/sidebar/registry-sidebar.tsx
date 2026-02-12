@@ -4,6 +4,7 @@ import { BookOpenIcon, ChevronLeftIcon, GitBranchIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type * as React from "react"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import {
   Sidebar,
@@ -17,12 +18,11 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { useOrgMembership } from "@/hooks/use-org-membership"
 
 export function RegistrySidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
-  const { canAdministerOrg } = useOrgMembership()
+  const canAdministerOrg = useScopeCheck("org:registry:manage")
   const pathname = usePathname()
 
   const navMain = [
