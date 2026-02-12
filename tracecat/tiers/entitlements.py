@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import Depends
@@ -11,28 +10,15 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import EntitlementRequired
-from tracecat.tiers.service import TierService
+from tracecat.tiers.access import is_org_entitled, require_org_entitlement
+from tracecat.tiers.enums import Entitlement
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from tracecat.auth.types import Role
     from tracecat.identifiers import OrganizationID
-
-
-class Entitlement(StrEnum):
-    """Available feature entitlements."""
-
-    CUSTOM_REGISTRY = "custom_registry"
-    SSO = "sso"
-    GIT_SYNC = "git_sync"
-    AGENT_APPROVALS = "agent_approvals"
-    AGENT_PRESETS = "agent_presets"
-    CASE_DROPDOWNS = "case_dropdowns"
-    CASE_DURATIONS = "case_durations"
-    CASE_TASKS = "case_tasks"
-    CASE_TRIGGERS = "case_triggers"
+    from tracecat.tiers.service import TierService
 
 
 class EntitlementService:
@@ -59,8 +45,7 @@ class EntitlementService:
         Returns:
             True if the organization is entitled to the feature, False otherwise
         """
-        effective = await self.tier_service.get_effective_entitlements(org_id)
-        return getattr(effective, entitlement.value, False)
+        return await is_org_entitled(self.tier_service.session, org_id, entitlement)
 
     async def check_entitlement(
         self, org_id: OrganizationID, entitlement: Entitlement
@@ -74,8 +59,7 @@ class EntitlementService:
         Raises:
             EntitlementRequired: If the organization is not entitled to the feature
         """
-        if not await self.is_entitled(org_id, entitlement):
-            raise EntitlementRequired(entitlement.value)
+        await require_org_entitlement(self.tier_service.session, org_id, entitlement)
 
 
 async def check_entitlement(
@@ -96,9 +80,7 @@ async def check_entitlement(
     """
     if role.organization_id is None:
         raise ValueError("Role must have organization_id to check entitlements")
-    tier_svc = TierService(session)
-    entitlement_svc = EntitlementService(tier_svc)
-    await entitlement_svc.check_entitlement(role.organization_id, entitlement)
+    await require_org_entitlement(session, role.organization_id, entitlement)
 
 
 def require_entitlement(

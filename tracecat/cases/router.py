@@ -58,7 +58,6 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.tiers.entitlements import Entitlement, require_entitlement
 
 cases_router = APIRouter(prefix="/cases", tags=["cases"])
 case_fields_router = APIRouter(prefix="/case-fields", tags=["cases"])
@@ -697,7 +696,6 @@ async def list_events_with_users(
 @cases_router.get(
     "/{case_id}/tasks",
     status_code=HTTP_200_OK,
-    dependencies=[require_entitlement(Entitlement.CASE_TASKS)],
 )
 async def list_tasks(
     *,
@@ -733,7 +731,6 @@ async def list_tasks(
 @cases_router.post(
     "/{case_id}/tasks",
     status_code=HTTP_201_CREATED,
-    dependencies=[require_entitlement(Entitlement.CASE_TASKS)],
 )
 async def create_task(
     *,
@@ -779,7 +776,6 @@ async def create_task(
 @cases_router.patch(
     "/{case_id}/tasks/{task_id}",
     status_code=HTTP_200_OK,
-    dependencies=[require_entitlement(Entitlement.CASE_TASKS)],
 )
 async def update_task(
     *,
@@ -829,7 +825,6 @@ async def update_task(
 @cases_router.delete(
     "/{case_id}/tasks/{task_id}",
     status_code=HTTP_204_NO_CONTENT,
-    dependencies=[require_entitlement(Entitlement.CASE_TASKS)],
 )
 async def delete_task(
     *,

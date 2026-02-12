@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
 from tracecat.agent.preset.schemas import (
+    AgentPresetCreate,
     AgentPresetRead,
     AgentPresetReadMinimal,
     AgentPresetUpdate,
@@ -73,8 +74,6 @@ async def create_preset(
     params: PresetCreateRequest,
 ) -> dict[str, Any]:
     """Create a new agent preset."""
-    from tracecat.agent.preset.schemas import AgentPresetCreate
-
     service = AgentPresetService(session, role=role)
     try:
         preset = await service.create_preset(
