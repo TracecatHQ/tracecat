@@ -17,156 +17,58 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+TARGET_TABLES = (
+    "registry_action",
+    "platform_registry_action",
+    "registry_index",
+    "platform_registry_index",
+)
+
+
+CASE_ACTIONS = (
+    "create_task",
+    "get_task",
+    "list_tasks",
+    "update_task",
+    "delete_task",
+    "get_case_metrics",
+)
+
+
+def _sql_in(values: tuple[str, ...]) -> str:
+    return ", ".join(f"'{value}'" for value in values)
+
+
 def upgrade() -> None:
-    # Case tasks UDFs
-    op.execute(
-        """
-        UPDATE registry_action
-        SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('case_addons'))
-        WHERE namespace = 'core.cases'
-          AND name IN ('create_task', 'get_task', 'list_tasks', 'update_task', 'delete_task')
-        """
-    )
-    op.execute(
-        """
-        UPDATE platform_registry_action
-        SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('case_addons'))
-        WHERE namespace = 'core.cases'
-          AND name IN ('create_task', 'get_task', 'list_tasks', 'update_task', 'delete_task')
-        """
-    )
-    op.execute(
-        """
-        UPDATE registry_index
-        SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('case_addons'))
-        WHERE namespace = 'core.cases'
-          AND name IN ('create_task', 'get_task', 'list_tasks', 'update_task', 'delete_task')
-        """
-    )
-    op.execute(
-        """
-        UPDATE platform_registry_index
-        SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('case_addons'))
-        WHERE namespace = 'core.cases'
-          AND name IN ('create_task', 'get_task', 'list_tasks', 'update_task', 'delete_task')
-        """
-    )
-
-    # Case durations UDFs
-    op.execute(
-        """
-        UPDATE registry_action
-        SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('case_addons'))
-        WHERE namespace = 'core.cases'
-          AND name = 'get_case_metrics'
-        """
-    )
-    op.execute(
-        """
-        UPDATE platform_registry_action
-        SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('case_addons'))
-        WHERE namespace = 'core.cases'
-          AND name = 'get_case_metrics'
-        """
-    )
-    op.execute(
-        """
-        UPDATE registry_index
-        SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('case_addons'))
-        WHERE namespace = 'core.cases'
-          AND name = 'get_case_metrics'
-        """
-    )
-    op.execute(
-        """
-        UPDATE platform_registry_index
-        SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('case_addons'))
-        WHERE namespace = 'core.cases'
-          AND name = 'get_case_metrics'
-        """
-    )
-
-    # Agent presets UDF
-    op.execute(
-        """
-        UPDATE registry_action
-        SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('agent_addons'))
-        WHERE namespace = 'ai'
-          AND name = 'preset_agent'
-        """
-    )
-    op.execute(
-        """
-        UPDATE platform_registry_action
-        SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('agent_addons'))
-        WHERE namespace = 'ai'
-          AND name = 'preset_agent'
-        """
-    )
-    op.execute(
-        """
-        UPDATE registry_index
-        SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('agent_addons'))
-        WHERE namespace = 'ai'
-          AND name = 'preset_agent'
-        """
-    )
-    op.execute(
-        """
-        UPDATE platform_registry_index
-        SET options = COALESCE(options, '{}'::jsonb) ||
-            jsonb_build_object('required_entitlements', jsonb_build_array('agent_addons'))
-        WHERE namespace = 'ai'
-          AND name = 'preset_agent'
-        """
-    )
+    case_names_sql = _sql_in(CASE_ACTIONS)
+    for table in TARGET_TABLES:
+        op.execute(
+            f"""
+            UPDATE {table}
+            SET options = COALESCE(options, '{{}}'::jsonb) ||
+                jsonb_build_object(
+                    'required_entitlements',
+                    CASE
+                        WHEN namespace = 'core.cases' AND name IN ({case_names_sql})
+                            THEN jsonb_build_array('case_addons')
+                        WHEN namespace = 'ai' AND name = 'preset_agent'
+                            THEN jsonb_build_array('agent_addons')
+                    END
+                )
+            WHERE (namespace = 'core.cases' AND name IN ({case_names_sql}))
+               OR (namespace = 'ai' AND name = 'preset_agent')
+            """
+        )
 
 
 def downgrade() -> None:
-    op.execute(
-        """
-        UPDATE registry_action
-        SET options = COALESCE(options, '{}'::jsonb) - 'required_entitlements'
-        WHERE (namespace = 'core.cases'
-               AND name IN ('create_task', 'get_task', 'list_tasks', 'update_task', 'delete_task', 'get_case_metrics'))
-           OR (namespace = 'ai' AND name = 'preset_agent')
-        """
-    )
-    op.execute(
-        """
-        UPDATE platform_registry_action
-        SET options = COALESCE(options, '{}'::jsonb) - 'required_entitlements'
-        WHERE (namespace = 'core.cases'
-               AND name IN ('create_task', 'get_task', 'list_tasks', 'update_task', 'delete_task', 'get_case_metrics'))
-           OR (namespace = 'ai' AND name = 'preset_agent')
-        """
-    )
-    op.execute(
-        """
-        UPDATE registry_index
-        SET options = COALESCE(options, '{}'::jsonb) - 'required_entitlements'
-        WHERE (namespace = 'core.cases'
-               AND name IN ('create_task', 'get_task', 'list_tasks', 'update_task', 'delete_task', 'get_case_metrics'))
-           OR (namespace = 'ai' AND name = 'preset_agent')
-        """
-    )
-    op.execute(
-        """
-        UPDATE platform_registry_index
-        SET options = COALESCE(options, '{}'::jsonb) - 'required_entitlements'
-        WHERE (namespace = 'core.cases'
-               AND name IN ('create_task', 'get_task', 'list_tasks', 'update_task', 'delete_task', 'get_case_metrics'))
-           OR (namespace = 'ai' AND name = 'preset_agent')
-        """
-    )
+    case_names_sql = _sql_in(CASE_ACTIONS)
+    for table in TARGET_TABLES:
+        op.execute(
+            f"""
+            UPDATE {table}
+            SET options = COALESCE(options, '{{}}'::jsonb) - 'required_entitlements'
+            WHERE (namespace = 'core.cases' AND name IN ({case_names_sql}))
+               OR (namespace = 'ai' AND name = 'preset_agent')
+            """
+        )
