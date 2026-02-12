@@ -2,21 +2,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING
 
-from fastapi import Depends
-
-from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
-from tracecat.authz.enums import OrgRole, WorkspaceRole
-from tracecat.db.dependencies import AsyncDBSession
 from tracecat.tiers.access import is_org_entitled, require_org_entitlement
 from tracecat.tiers.enums import Entitlement
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from tracecat.auth.types import Role
     from tracecat.identifiers import OrganizationID
     from tracecat.tiers.service import TierService
 
@@ -81,31 +75,3 @@ async def check_entitlement(
     if role.organization_id is None:
         raise ValueError("Role must have organization_id to check entitlements")
     await require_org_entitlement(session, role.organization_id, entitlement)
-
-
-def require_entitlement(
-    entitlement: Entitlement,
-    *,
-    allow_user: bool = True,
-    allow_service: bool = False,
-    allow_executor: bool = False,
-    require_workspace: Literal["yes", "no", "optional"] = "yes",
-    require_org_roles: list[OrgRole] | None = None,
-    require_workspace_roles: WorkspaceRole | list[WorkspaceRole] | None = None,
-) -> Any:
-    """FastAPI dependency to require a specific entitlement."""
-
-    async def _check_entitlement(
-        session: AsyncDBSession,
-        role: Role = RoleACL(
-            allow_user=allow_user,
-            allow_service=allow_service,
-            allow_executor=allow_executor,
-            require_workspace=require_workspace,
-            require_org_roles=require_org_roles,
-            require_workspace_roles=require_workspace_roles,
-        ),
-    ) -> None:
-        await check_entitlement(session, role, entitlement)
-
-    return Depends(_check_entitlement)
