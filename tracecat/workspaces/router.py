@@ -151,7 +151,7 @@ async def get_workspace(
     return WorkspaceRead(
         id=workspace.id,
         name=workspace.name,
-        settings=WorkspaceSettingsRead.model_validate(workspace.settings),
+        settings=WorkspaceSettingsRead.model_validate(workspace.settings or {}),
         organization_id=workspace.organization_id,
     )
 

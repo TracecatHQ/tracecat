@@ -501,10 +501,10 @@ export type AgentSessionUpdate = {
 }
 
 export type AgentSettingsRead = {
-  agent_default_model: string | null
-  agent_fixed_args: string | null
-  agent_case_chat_prompt: string
-  agent_case_chat_inject_content: boolean
+  agent_default_model?: string | null
+  agent_fixed_args?: string | null
+  agent_case_chat_prompt?: string
+  agent_case_chat_inject_content?: boolean
 }
 
 export type AgentSettingsUpdate = {
@@ -530,13 +530,13 @@ export type AgentSettingsUpdate = {
  * Settings for the app.
  */
 export type AppSettingsRead = {
-  app_registry_validation_enabled: boolean
-  app_executions_query_limit: number
-  app_interactions_enabled: boolean
-  app_workflow_export_enabled: boolean
-  app_create_workspace_on_register: boolean
-  app_editor_pill_decorations_enabled: boolean
-  app_action_form_mode_enabled: boolean
+  app_registry_validation_enabled?: boolean
+  app_executions_query_limit?: number
+  app_interactions_enabled?: boolean
+  app_workflow_export_enabled?: boolean
+  app_create_workspace_on_register?: boolean
+  app_editor_pill_decorations_enabled?: boolean
+  app_action_form_mode_enabled?: boolean
 }
 
 /**
@@ -766,7 +766,7 @@ export type AudioUrl = {
  * Settings for audit logging.
  */
 export type AuditSettingsRead = {
-  audit_webhook_url: string | null
+  audit_webhook_url?: string | null
   audit_webhook_custom_headers?: {
     [key: string]: string
   } | null
@@ -2697,7 +2697,7 @@ export type GitHubWebhookAttributes = {
 }
 
 export type GitSettingsRead = {
-  git_allowed_domains: Array<string>
+  git_allowed_domains?: Array<string>
   git_repo_url?: string | null
   git_repo_package_name?: string | null
 }
@@ -4611,8 +4611,8 @@ export type SAMLDatabaseLoginResponse = {
 }
 
 export type SAMLSettingsRead = {
-  saml_enabled: boolean
-  saml_enforced: boolean
+  saml_enabled?: boolean
+  saml_enforced?: boolean
   saml_idp_metadata_url?: string | null
   saml_sp_acs_url: string
   /**
