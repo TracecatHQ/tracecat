@@ -19,12 +19,21 @@ def _resolve_dedup_scope() -> str:
 
     Prefer the registry execution context workspace ID. Fall back to the
     workspace ID environment variable when context isn't set (e.g. some tests).
+    Raise explicitly when no workspace scope is available.
     """
 
     try:
-        return get_context().workspace_id
+        workspace_id = get_context().workspace_id
     except RuntimeError:
-        return os.environ.get("TRACECAT__WORKSPACE_ID", "global")
+        workspace_id = os.environ.get("TRACECAT__WORKSPACE_ID")
+
+    if not workspace_id:
+        raise ValueError(
+            "Deduplication could not determine this run's workspace scope. "
+            "This indicates a platform execution-context issue. Retry the run; "
+            "if it persists, contact your Tracecat administrator with the run ID."
+        )
+    return workspace_id
 
 
 @registry.register(
