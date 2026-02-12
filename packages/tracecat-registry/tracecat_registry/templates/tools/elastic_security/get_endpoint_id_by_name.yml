@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Get endpoint ID by name
+  description: Retrieve the ID of an endpoint by its name using Elastic Security.
+  display_group: Elastic Security
+  doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-get-fleet-agents
+  namespace: tools.elastic_security
+  name: get_endpoint_id_by_name
+  secrets:
+    - name: elastic_security
+      keys: ["ELASTIC_API_KEY"]
+  expects:
+    endpoint_name:
+      type: str
+      description: Name of the endpoint to retrieve the ID for.
+    base_url:
+      type: str | None
+      description: Kibana endpoint URL (e.g. https://localhost:5601).
+      default: https://localhost:5601
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: get_endpoint_id_by_name
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.elastic_security.base_url }}/api/fleet/agents?kuery=local_metadata.host.name:${{ inputs.endpoint_name }}
+        method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          kbn-xsrf: kibana
+          Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}
+  returns: ${{ steps.get_endpoint_id_by_name.result }}
