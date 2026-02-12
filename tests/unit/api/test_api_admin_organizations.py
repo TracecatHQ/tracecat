@@ -11,6 +11,7 @@ from tracecat_ee.admin.organizations import router as organizations_router
 from tracecat_ee.admin.organizations.schemas import OrgDomainRead, OrgRead
 
 from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatValidationError
 
 
 def _org_read(org_id: uuid.UUID | None = None) -> OrgRead:
@@ -124,6 +125,7 @@ async def test_delete_organization_success(
     client: TestClient, test_admin_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     org_id = uuid.uuid4()
+    org_name = "Test Org"
     monkeypatch.setattr(organizations_router.config, "TRACECAT__EE_MULTI_TENANT", True)
 
     with patch.object(organizations_router, "AdminOrgService") as MockService:
@@ -131,9 +133,32 @@ async def test_delete_organization_success(
         mock_svc.delete_organization.return_value = None
         MockService.return_value = mock_svc
 
-        response = client.delete(f"/admin/organizations/{org_id}")
+        response = client.delete(f"/admin/organizations/{org_id}?confirm={org_name}")
 
     assert response.status_code == status.HTTP_204_NO_CONTENT
+    mock_svc.delete_organization.assert_awaited_once_with(
+        org_id,
+        confirmation=org_name,
+    )
+
+
+@pytest.mark.anyio
+async def test_delete_organization_bad_confirmation_returns_400(
+    client: TestClient, test_admin_role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    org_id = uuid.uuid4()
+    monkeypatch.setattr(organizations_router.config, "TRACECAT__EE_MULTI_TENANT", True)
+
+    with patch.object(organizations_router, "AdminOrgService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.delete_organization.side_effect = TracecatValidationError(
+            "Confirmation text must exactly match the organization name."
+        )
+        MockService.return_value = mock_svc
+
+        response = client.delete(f"/admin/organizations/{org_id}?confirm=wrong")
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 @pytest.mark.anyio

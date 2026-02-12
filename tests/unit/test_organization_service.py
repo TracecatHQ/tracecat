@@ -343,6 +343,86 @@ class TestOrganizationServiceDeleteMember:
             await service.delete_member(uuid.uuid4())
 
 
+class TestOrganizationServiceDeleteOrganization:
+    """Tests for OrgService.delete_organization()."""
+
+    @pytest.mark.anyio
+    async def test_owner_can_delete_organization_with_confirmation(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ) -> None:
+        role = Role(
+            type="user",
+            user_id=admin_in_org1.id,
+            organization_id=org1.id,
+            access_level=AccessLevel.ADMIN,
+            org_role=OrgRole.OWNER,
+            service_id="tracecat-api",
+            is_platform_superuser=False,
+        )
+        service = OrgService(session, role=role)
+
+        await service.delete_organization(confirmation=org1.name)
+
+        org_result = await session.execute(
+            select(Organization).where(Organization.id == org1.id)
+        )
+        membership_result = await session.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.organization_id == org1.id
+            )
+        )
+        assert org_result.scalar_one_or_none() is None
+        assert membership_result.scalars().all() == []
+
+    @pytest.mark.anyio
+    async def test_delete_organization_requires_exact_confirmation(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ) -> None:
+        role = Role(
+            type="user",
+            user_id=admin_in_org1.id,
+            organization_id=org1.id,
+            access_level=AccessLevel.ADMIN,
+            org_role=OrgRole.OWNER,
+            service_id="tracecat-api",
+            is_platform_superuser=False,
+        )
+        service = OrgService(session, role=role)
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="Confirmation text must exactly match the organization name.",
+        ):
+            await service.delete_organization(confirmation="wrong")
+
+        org_result = await session.execute(
+            select(Organization).where(Organization.id == org1.id)
+        )
+        assert org_result.scalar_one_or_none() is not None
+
+    @pytest.mark.anyio
+    async def test_admin_cannot_delete_organization(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ) -> None:
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="required org role",
+        ):
+            await service.delete_organization(confirmation=org1.name)
+
+
 class TestOrganizationServiceSessions:
     """Tests for OrganizationService session management."""
 

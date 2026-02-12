@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
@@ -61,6 +61,16 @@ OrgAdminRole = Annotated[
         allow_service=False,
         require_workspace="no",
         require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
+    ),
+]
+
+OrgOwnerRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+        require_org_roles=[OrgRole.OWNER],
     ),
 ]
 
@@ -168,6 +178,40 @@ async def get_organization_entitlements(
 
     tier_service = TierService(session)
     return await tier_service.get_effective_entitlements(role.organization_id)
+
+
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_organization(
+    *,
+    role: OrgOwnerRole,
+    session: AsyncDBSession,
+    confirm: str | None = Query(
+        default=None,
+        description="Must exactly match the organization name.",
+    ),
+) -> None:
+    """Delete the current organization.
+
+    Restricted to organization owners and platform superusers.
+    """
+    service = OrgService(session, role=role)
+    try:
+        await service.delete_organization(confirmation=confirm)
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden",
+        ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
 
 
 @router.get("/members/me", response_model=OrgMemberDetail)
