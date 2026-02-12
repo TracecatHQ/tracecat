@@ -6207,6 +6207,13 @@ export type WorkspaceCreate = {
 }
 
 /**
+ * Request body for accepting a workspace invitation via token.
+ */
+export type WorkspaceInvitationAccept = {
+  token: string
+}
+
+/**
  * Request schema for creating a workspace invitation.
  */
 export type WorkspaceInvitationCreate = {
@@ -6227,6 +6234,24 @@ export type WorkspaceInvitationRead = {
   expires_at: string
   accepted_at: string | null
   created_at: string
+}
+
+/**
+ * Minimal response for public token-based invitation lookup.
+ *
+ * Excludes sensitive fields to reduce information disclosure
+ * when querying by token.
+ */
+export type WorkspaceInvitationReadMinimal = {
+  workspace_id: string
+  workspace_name: string
+  organization_name: string
+  inviter_name: string | null
+  inviter_email: string | null
+  role: WorkspaceRole
+  status: InvitationStatus
+  expires_at: string
+  email_matches?: boolean | null
 }
 
 export type WorkspaceMember = {
@@ -6594,6 +6619,30 @@ export type WorkspacesRevokeWorkspaceInvitationData = {
 }
 
 export type WorkspacesRevokeWorkspaceInvitationResponse = void
+
+export type WorkspacesGetInvitationTokenData = {
+  invitationId: string
+  workspaceId: string
+}
+
+export type WorkspacesGetInvitationTokenResponse = {
+  [key: string]: string
+}
+
+export type WorkspacesGetInvitationByTokenData = {
+  token: string
+}
+
+export type WorkspacesGetInvitationByTokenResponse =
+  WorkspaceInvitationReadMinimal
+
+export type WorkspacesAcceptWorkspaceInvitationData = {
+  requestBody: WorkspaceInvitationAccept
+}
+
+export type WorkspacesAcceptWorkspaceInvitationResponse = {
+  [key: string]: string
+}
 
 export type WorkflowsListWorkflowsData = {
   cursor?: string | null
@@ -9123,6 +9172,55 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/invitations/{invitation_id}/token": {
+    get: {
+      req: WorkspacesGetInvitationTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/invitations/token/{token}": {
+    get: {
+      req: WorkspacesGetInvitationByTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceInvitationReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/invitations/accept": {
+    post: {
+      req: WorkspacesAcceptWorkspaceInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
         /**
          * Validation Error
          */

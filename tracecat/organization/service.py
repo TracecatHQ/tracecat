@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, cast, func, select, update
+from sqlalchemy import and_, cast, delete, func, select, update
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager
@@ -26,9 +26,12 @@ from tracecat.authz.enums import OrgRole
 from tracecat.db.models import (
     AccessToken,
     Organization,
+    Membership,
     OrganizationInvitation,
     OrganizationMembership,
     User,
+    UserRoleAssignment,
+    Workspace,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -142,7 +145,7 @@ async def accept_invitation_for_user(
             # Shouldn't reach here, but handle gracefully
             raise TracecatAuthorizationError("Invitation is no longer valid")
 
-        # Create membership
+        # Create membership with role from invitation
         membership = OrganizationMembership(
             user_id=user_id,
             organization_id=invitation.organization_id,
@@ -244,24 +247,51 @@ class OrgService(BaseOrgService):
     @audit_log(resource_type="organization_member", action="delete")
     @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def delete_member(self, user_id: UserID) -> None:
-        """
-        Remove a member of the organization.
+        """Remove a member from the organization.
 
-        This method deletes a specified member from the organization.
-        It first checks if the member is a superuser and raises an
-        authorization error if so, as superusers cannot be deleted.
+        Deletes the org membership and cleans up workspace memberships
+        and role assignments within this org. The user account is preserved.
 
         Args:
-            user_id (UserID): The unique identifier of the user to be removed.
+            user_id: The unique identifier of the user to remove.
 
         Raises:
-            TracecatAuthorizationError: If the user is a superuser and cannot be deleted.
+            TracecatAuthorizationError: If the user is a superuser.
         """
         user, _ = await self.get_member(user_id)
         if user.is_superuser:
-            raise TracecatAuthorizationError("Cannot delete superuser")
-        async with self._manager() as user_manager:
-            await user_manager.delete(user)
+            raise TracecatAuthorizationError("Cannot remove superuser")
+
+        org_id = self.organization_id
+
+        # Workspace IDs belonging to this organization
+        ws_ids_stmt = select(Workspace.id).where(Workspace.organization_id == org_id)
+
+        # Clean up workspace memberships in this org's workspaces
+        await self.session.execute(
+            delete(Membership).where(
+                Membership.user_id == user_id,
+                Membership.workspace_id.in_(ws_ids_stmt),
+            )
+        )
+
+        # Clean up role assignments in this org
+        await self.session.execute(
+            delete(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == user_id,
+                UserRoleAssignment.organization_id == org_id,
+            )
+        )
+
+        # Delete the organization membership
+        await self.session.execute(
+            delete(OrganizationMembership).where(
+                OrganizationMembership.user_id == user_id,
+                OrganizationMembership.organization_id == org_id,
+            )
+        )
+
+        await self.session.commit()
 
     @audit_log(resource_type="organization_member", action="update")
     @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)

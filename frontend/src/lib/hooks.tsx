@@ -282,6 +282,8 @@ import {
   type WorkflowsMoveWorkflowToFolderData,
   type WorkflowsRemoveTagData,
   type WorkspaceCreate,
+  type WorkspaceInvitationCreate,
+  type WorkspaceInvitationRead,
   type WorkspaceReadMinimal,
   type WorkspaceUpdate,
   workflowExecutionsCreateDraftWorkflowExecution,
@@ -296,8 +298,11 @@ import {
   workflowsMoveWorkflowToFolder,
   workflowsRemoveTag,
   workspacesCreateWorkspace,
+  workspacesCreateWorkspaceInvitation,
   workspacesDeleteWorkspace,
+  workspacesListWorkspaceInvitations,
   workspacesListWorkspaces,
+  workspacesRevokeWorkspaceInvitation,
   workspacesUpdateWorkspace,
 } from "@/client"
 import {
@@ -2185,6 +2190,87 @@ export function useOrgMembers() {
     createInvitation,
     createInvitationIsPending,
     revokeInvitation,
+  }
+}
+
+export function useWorkspaceInvitations(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    data: invitations,
+    isLoading,
+    error,
+  } = useQuery<WorkspaceInvitationRead[]>({
+    queryKey: ["workspace-invitations", workspaceId],
+    queryFn: async () =>
+      await workspacesListWorkspaceInvitations({ workspaceId }),
+    enabled: !!workspaceId,
+  })
+
+  const {
+    mutateAsync: createInvitation,
+    isPending: createPending,
+    error: createError,
+  } = useMutation({
+    mutationFn: async (params: WorkspaceInvitationCreate) =>
+      await workspacesCreateWorkspaceInvitation({
+        workspaceId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-invitations", workspaceId],
+      })
+      // Note: No toast here - the calling component handles success feedback
+    },
+    onError: (error: TracecatApiError) => {
+      const apiError = error as TracecatApiError
+      const detail = apiError.body?.detail
+      toast({
+        title: "Failed to create invitation",
+        description: typeof detail === "string" ? detail : apiError.message,
+        variant: "destructive",
+      })
+    },
+  })
+
+  const {
+    mutateAsync: revokeInvitation,
+    isPending: revokePending,
+    error: revokeError,
+  } = useMutation({
+    mutationFn: async (invitationId: string) =>
+      await workspacesRevokeWorkspaceInvitation({ workspaceId, invitationId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-invitations", workspaceId],
+      })
+      toast({
+        title: "Invitation revoked",
+        description: "Invitation has been revoked.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      const apiError = error as TracecatApiError
+      const detail = apiError.body?.detail
+      toast({
+        title: "Failed to revoke invitation",
+        description: typeof detail === "string" ? detail : apiError.message,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    invitations,
+    isLoading,
+    error,
+    createInvitation,
+    createPending,
+    createError,
+    revokeInvitation,
+    revokePending,
+    revokeError,
   }
 }
 

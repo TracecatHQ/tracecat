@@ -9,7 +9,13 @@ import type React from "react"
 import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import { ApiError } from "@/client"
+import {
+  ApiError,
+  organizationAcceptInvitation,
+  organizationGetInvitationByToken,
+  workspacesAcceptWorkspaceInvitation,
+  workspacesGetInvitationByToken,
+} from "@/client"
 import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import {
@@ -53,6 +59,12 @@ function isEmailLoginValidationError(
   )
 }
 
+type InvitationType = "organization" | "workspace"
+type ExtractedInvitation = {
+  type: InvitationType
+  token: string
+}
+
 interface SignUpProps extends React.HTMLProps<HTMLDivElement> {
   returnUrl?: string | null
 }
@@ -60,14 +72,70 @@ interface SignUpProps extends React.HTMLProps<HTMLDivElement> {
 export function SignUp({ className, returnUrl }: SignUpProps) {
   const { user } = useAuth()
   const router = useRouter()
+  const { logout } = useAuthActions()
+  const [invitationEmailMismatch, setInvitationEmailMismatch] = useState(false)
+  const [invitationRedirectUrl, setInvitationRedirectUrl] = useState<
+    string | null
+  >(null)
 
   useEffect(() => {
-    if (user) {
-      // Always redirect to /workspaces after login
-      // Invitation acceptance is handled atomically during registration
-      router.push("/workspaces")
+    // Don't redirect if there's an invitation email mismatch
+    if (user && !invitationEmailMismatch) {
+      // If invitation was accepted, redirect to the workspace directly
+      // Otherwise, redirect to returnUrl if provided, or to workspaces
+      const redirectTo = invitationRedirectUrl || returnUrl || "/workspaces"
+      router.push(redirectTo)
     }
-  }, [user, router])
+  }, [user, router, returnUrl, invitationEmailMismatch, invitationRedirectUrl])
+
+  // Show error state if email doesn't match invitation
+  if (invitationEmailMismatch && user) {
+    return (
+      <div
+        className={cn(
+          "container flex size-full items-center justify-center",
+          className
+        )}
+      >
+        <div className="flex w-full flex-1 flex-col justify-center gap-2 px-8 sm:max-w-md">
+          <CardHeader className="items-center space-y-2 text-center">
+            <Image src={TracecatIcon} alt="Tracecat" className="mb-8 size-16" />
+            <CardTitle className="text-2xl">Wrong account</CardTitle>
+            <CardDescription>
+              This invitation was sent to a different email address. Please sign
+              in with the email address the invitation was sent to.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg border bg-muted/50 p-4">
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Signed in as</span>
+                  <span className="font-medium">{user.email}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Button
+                className="w-full"
+                onClick={() => {
+                  const redirectUrl = returnUrl
+                    ? `/sign-in?returnUrl=${encodeURIComponent(returnUrl)}`
+                    : "/sign-in"
+                  logout(redirectUrl)
+                }}
+              >
+                Sign in with a different account
+              </Button>
+              <Button asChild variant="ghost" className="w-full">
+                <Link href="/workspaces">Go to workspaces</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -86,7 +154,11 @@ export function SignUp({ className, returnUrl }: SignUpProps) {
         </CardHeader>
         <CardContent>
           <div className="grid gap-4">
-            <BasicRegistrationForm returnUrl={returnUrl} />
+            <BasicRegistrationForm
+              returnUrl={returnUrl}
+              onInvitationEmailMismatch={() => setInvitationEmailMismatch(true)}
+              onInvitationAccepted={setInvitationRedirectUrl}
+            />
           </div>
           <div className="mt-4 text-center text-sm text-muted-foreground">
             Already have an account?{" "}
@@ -117,6 +189,32 @@ type BasicLoginForm = z.infer<typeof basicRegistrationSchema>
 
 interface BasicRegistrationFormProps {
   returnUrl?: string | null
+  onInvitationEmailMismatch?: () => void
+  onInvitationAccepted?: (redirectUrl: string) => void
+}
+
+/**
+ * Extract invitation token and type from a returnUrl if it's an invitation accept URL.
+ */
+function extractInvitation(
+  returnUrl: string | null
+): ExtractedInvitation | null {
+  if (!returnUrl) return null
+  try {
+    const url = new URL(returnUrl, window.location.origin)
+    const token = url.searchParams.get("token")
+    if (!token) return null
+
+    if (url.pathname === "/invitations/accept") {
+      return { type: "organization", token }
+    }
+    if (url.pathname === "/invitations/workspace/accept") {
+      return { type: "workspace", token }
+    }
+  } catch {
+    // Invalid URL, ignore
+  }
+  return null
 }
 
 /**
@@ -138,6 +236,8 @@ function extractInvitationToken(returnUrl: string | null): string | null {
 
 export function BasicRegistrationForm({
   returnUrl,
+  onInvitationEmailMismatch,
+  onInvitationAccepted,
 }: BasicRegistrationFormProps) {
   const [isLoading, setIsLoading] = useState(false)
   const { register, login } = useAuthActions()
@@ -176,7 +276,45 @@ export function BasicRegistrationForm({
           password: values.password,
         },
       })
-      // Redirect is handled by the useEffect in SignUp component
+
+      // After successful login, check if this is an invitation flow
+      const invitation = extractInvitation(returnUrl ?? null)
+      if (invitation) {
+        try {
+          if (invitation.type === "workspace") {
+            // Workspace invitation: check email match, then auto-accept
+            const wsInvitation = await workspacesGetInvitationByToken({
+              token: invitation.token,
+            })
+            if (wsInvitation.email_matches === false) {
+              onInvitationEmailMismatch?.()
+              return
+            }
+            // Auto-accept and redirect to workspace
+            await workspacesAcceptWorkspaceInvitation({
+              requestBody: { token: invitation.token },
+            })
+            onInvitationAccepted?.(`/workspaces/${wsInvitation.workspace_id}`)
+          } else {
+            // Organization invitation: check email match, then auto-accept
+            const orgInvitation = await organizationGetInvitationByToken({
+              token: invitation.token,
+            })
+            if (orgInvitation.email_matches === false) {
+              onInvitationEmailMismatch?.()
+              return
+            }
+            // Auto-accept and redirect to workspaces
+            await organizationAcceptInvitation({
+              requestBody: { token: invitation.token },
+            })
+            onInvitationAccepted?.("/workspaces")
+          }
+        } catch {
+          // Failed to fetch/accept invitation, let the redirect happen and handle error there
+          console.error("Failed to process invitation")
+        }
+      }
     } catch (error) {
       if (error instanceof ApiError) {
         const apiError = error as TracecatApiError

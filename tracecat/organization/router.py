@@ -335,7 +335,7 @@ async def delete_org_member(
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Action cannot be performed. Check if user is a superuser or has active sessions.",
+            detail="Cannot remove member due to a database constraint.",
         ) from e
     except TracecatAuthorizationError as e:
         raise HTTPException(
