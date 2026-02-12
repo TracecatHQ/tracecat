@@ -28,6 +28,11 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 import { useAdminTiers } from "@/hooks/use-admin"
+import {
+  TIER_ENTITLEMENTS,
+  tierEntitlementsSchema,
+  withDefaultTierEntitlements,
+} from "@/lib/tier-entitlements"
 
 // Preprocessor to convert empty strings to undefined for optional numeric fields
 const emptyToUndefined = z.preprocess(
@@ -45,6 +50,7 @@ const formSchema = z.object({
   max_concurrent_actions: emptyToUndefined,
   api_rate_limit: emptyToUndefined,
   api_burst_capacity: emptyToUndefined,
+  entitlements: tierEntitlementsSchema,
   is_default: z.boolean().default(false),
   sort_order: z.coerce.number().int().min(0).default(0),
 })
@@ -59,6 +65,7 @@ export function CreateTierDialog() {
     resolver: zodResolver(formSchema),
     defaultValues: {
       display_name: "",
+      entitlements: withDefaultTierEntitlements(),
       is_default: false,
       sort_order: 0,
     },
@@ -74,6 +81,7 @@ export function CreateTierDialog() {
         max_concurrent_actions: values.max_concurrent_actions ?? null,
         api_rate_limit: values.api_rate_limit ?? null,
         api_burst_capacity: values.api_burst_capacity ?? null,
+        entitlements: values.entitlements,
         is_default: values.is_default,
         sort_order: values.sort_order,
       })
@@ -230,6 +238,40 @@ export function CreateTierDialog() {
                     </FormItem>
                   )}
                 />
+              </div>
+            </div>
+            <div className="border-t pt-4">
+              <h4 className="mb-3 text-sm font-medium">Entitlements</h4>
+              <div className="space-y-3">
+                {TIER_ENTITLEMENTS.map((entitlement) => (
+                  <FormField
+                    key={entitlement.key}
+                    control={form.control}
+                    name={`entitlements.${entitlement.key}` as const}
+                    render={({ field }) => (
+                      <FormItem className="flex items-start space-x-3 space-y-0">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={(checked) =>
+                              field.onChange(checked === true)
+                            }
+                          />
+                        </FormControl>
+                        <div className="space-y-1 leading-none">
+                          <FormLabel className="font-normal">
+                            {entitlement.label}
+                          </FormLabel>
+                          {entitlement.description ? (
+                            <FormDescription>
+                              {entitlement.description}
+                            </FormDescription>
+                          ) : null}
+                        </div>
+                      </FormItem>
+                    )}
+                  />
+                ))}
               </div>
             </div>
 
