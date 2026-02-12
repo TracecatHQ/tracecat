@@ -1,0 +1,119 @@
+"""Tests for tier-based entitlement resolution and enforcement."""
+
+import uuid
+
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from tracecat.db.models import Organization, OrganizationTier, Tier
+from tracecat.exceptions import EntitlementRequired
+from tracecat.tiers.entitlements import Entitlement, EntitlementService
+from tracecat.tiers.service import TierService
+
+pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture
+async def test_org(session: AsyncSession) -> Organization:
+    """Create an organization for tier entitlement tests."""
+    org = Organization(
+        id=uuid.uuid4(),
+        name=f"Tier Test Org {uuid.uuid4().hex[:8]}",
+        slug=f"tier-test-org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    session.add(org)
+    await session.commit()
+    return org
+
+
+async def _create_org_tier(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    *,
+    entitlements: dict[str, bool],
+    entitlement_overrides: dict[str, bool] | None = None,
+) -> Tier:
+    """Create and assign a tier to an organization."""
+    tier = Tier(
+        display_name=f"Tier {uuid.uuid4().hex[:8]}",
+        entitlements=entitlements,
+        is_default=False,
+        sort_order=0,
+        is_active=True,
+    )
+    session.add(tier)
+    await session.flush()
+
+    session.add(
+        OrganizationTier(
+            organization_id=org_id,
+            tier_id=tier.id,
+            entitlement_overrides=entitlement_overrides,
+        )
+    )
+    await session.commit()
+    return tier
+
+
+@pytest.mark.anyio
+async def test_specific_tier_entitlements_drive_effective_values(
+    session: AsyncSession, test_org: Organization
+) -> None:
+    """Assigned tier entitlements should directly control effective values."""
+    await _create_org_tier(
+        session,
+        test_org.id,
+        entitlements={
+            "case_tasks": True,
+            "agent_approvals": False,
+            "git_sync": True,
+        },
+    )
+
+    tier_service = TierService(session)
+    effective = await tier_service.get_effective_entitlements(test_org.id)
+
+    assert effective.case_tasks is True
+    assert effective.agent_approvals is False
+    assert effective.git_sync is True
+
+
+@pytest.mark.anyio
+async def test_org_entitlement_overrides_take_precedence_over_tier(
+    session: AsyncSession, test_org: Organization
+) -> None:
+    """Per-org entitlement overrides should win over the assigned tier values."""
+    await _create_org_tier(
+        session,
+        test_org.id,
+        entitlements={"case_tasks": True, "agent_approvals": True},
+        entitlement_overrides={"case_tasks": False, "agent_approvals": False},
+    )
+
+    tier_service = TierService(session)
+    effective = await tier_service.get_effective_entitlements(test_org.id)
+
+    assert effective.case_tasks is False
+    assert effective.agent_approvals is False
+
+
+@pytest.mark.anyio
+async def test_entitlement_check_changes_when_tier_entitlement_is_updated(
+    session: AsyncSession, test_org: Organization
+) -> None:
+    """Changing a tier entitlement should flip entitlement checks for that org."""
+    tier = await _create_org_tier(
+        session,
+        test_org.id,
+        entitlements={"case_tasks": False},
+    )
+    entitlement_service = EntitlementService(TierService(session))
+
+    with pytest.raises(EntitlementRequired):
+        await entitlement_service.check_entitlement(test_org.id, Entitlement.CASE_TASKS)
+
+    tier.entitlements = {**tier.entitlements, "case_tasks": True}
+    await session.commit()
+
+    await entitlement_service.check_entitlement(test_org.id, Entitlement.CASE_TASKS)
