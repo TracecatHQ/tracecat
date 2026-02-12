@@ -18,7 +18,7 @@ from tracecat_registry.context import get_context
     display_group="Cases",
     description="Create a new task for a case.",
     namespace="core.cases",
-    required_entitlements=["case_tasks"],
+    required_entitlements=["case_addons"],
 )
 async def create_task(
     case_id: Annotated[
@@ -77,7 +77,7 @@ async def create_task(
     display_group="Cases",
     description="Get details of a specific case task by ID.",
     namespace="core.cases",
-    required_entitlements=["case_tasks"],
+    required_entitlements=["case_addons"],
 )
 async def get_task(
     task_id: Annotated[
@@ -94,7 +94,7 @@ async def get_task(
     display_group="Cases",
     description="List all tasks for a specific case.",
     namespace="core.cases",
-    required_entitlements=["case_tasks"],
+    required_entitlements=["case_addons"],
 )
 async def list_tasks(
     case_id: Annotated[
@@ -111,7 +111,7 @@ async def list_tasks(
     display_group="Cases",
     description="Update an existing case task.",
     namespace="core.cases",
-    required_entitlements=["case_tasks"],
+    required_entitlements=["case_addons"],
 )
 async def update_task(
     task_id: Annotated[
@@ -181,7 +181,7 @@ async def update_task(
     display_group="Cases",
     description="Delete a case task.",
     namespace="core.cases",
-    required_entitlements=["case_tasks"],
+    required_entitlements=["case_addons"],
 )
 async def delete_task(
     task_id: Annotated[

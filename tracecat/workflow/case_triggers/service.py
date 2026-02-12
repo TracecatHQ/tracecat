@@ -18,7 +18,7 @@ class CaseTriggersService(BaseWorkspaceService):
 
     service_name = "case_triggers"
 
-    @requires_entitlement(Entitlement.CASE_TRIGGERS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_case_trigger(self, workflow_id: WorkflowID) -> CaseTrigger:
         stmt = select(CaseTrigger).where(
             CaseTrigger.workspace_id == self.workspace_id,
@@ -32,7 +32,7 @@ class CaseTriggersService(BaseWorkspaceService):
                 f"Case trigger for workflow {workflow_id} not found"
             ) from exc
 
-    @requires_entitlement(Entitlement.CASE_TRIGGERS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def upsert_case_trigger(
         self,
         workflow_id: WorkflowID,
@@ -72,7 +72,7 @@ class CaseTriggersService(BaseWorkspaceService):
                 await self.session.flush()
             return case_trigger
 
-    @requires_entitlement(Entitlement.CASE_TRIGGERS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def update_case_trigger(
         self,
         workflow_id: WorkflowID,

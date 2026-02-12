@@ -2290,29 +2290,13 @@ export type EffectiveEntitlements = {
    */
   git_sync?: boolean
   /**
-   * Whether agent tool approvals are enabled
+   * Whether add-on agent capabilities are enabled (approvals, presets)
    */
-  agent_approvals?: boolean
+  agent_addons?: boolean
   /**
-   * Whether agent presets are enabled
+   * Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)
    */
-  agent_presets?: boolean
-  /**
-   * Whether case dropdowns are enabled
-   */
-  case_dropdowns?: boolean
-  /**
-   * Whether case durations are enabled
-   */
-  case_durations?: boolean
-  /**
-   * Whether case tasks are enabled
-   */
-  case_tasks?: boolean
-  /**
-   * Whether case workflow triggers are enabled
-   */
-  case_triggers?: boolean
+  case_addons?: boolean
 }
 
 /**
@@ -2333,12 +2317,14 @@ export type EntitlementsDict = {
    * Whether git sync is enabled
    */
   git_sync?: boolean
-  agent_approvals?: boolean
-  agent_presets?: boolean
-  case_dropdowns?: boolean
-  case_durations?: boolean
-  case_tasks?: boolean
-  case_triggers?: boolean
+  /**
+   * Whether add-on agent capabilities are enabled (approvals, presets)
+   */
+  agent_addons?: boolean
+  /**
+   * Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)
+   */
+  case_addons?: boolean
 }
 
 export type ErrorDetails = {
@@ -2485,8 +2471,10 @@ export type ExternalObject = {
 
 /**
  * Feature flag enum reserved for engineering rollouts.
+ *
+ * NOTE: At least one member is required for valid OpenAPI schema generation.
  */
-export type FeatureFlag = "ai-ranking"
+export type FeatureFlag = "__placeholder__"
 
 /**
  * Response model for feature flags.
@@ -7191,6 +7179,15 @@ export type UsersSearchUserResponse = UserRead
 export type OrganizationGetOrganizationResponse =
   tracecat__organization__schemas__OrgRead
 
+export type OrganizationDeleteOrganizationData = {
+  /**
+   * Must exactly match the organization name.
+   */
+  confirm?: string | null
+}
+
+export type OrganizationDeleteOrganizationResponse = void
+
 export type OrganizationListOrganizationDomainsResponse =
   Array<tracecat__organization__schemas__OrgDomainRead>
 
@@ -7492,6 +7489,10 @@ export type AdminUpdateOrganizationResponse =
   tracecat_ee__admin__organizations__schemas__OrgRead
 
 export type AdminDeleteOrganizationData = {
+  /**
+   * Must exactly match the organization name.
+   */
+  confirm?: string | null
   orgId: string
 }
 
@@ -10139,6 +10140,19 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: tracecat__organization__schemas__OrgRead
+      }
+    }
+    delete: {
+      req: OrganizationDeleteOrganizationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }

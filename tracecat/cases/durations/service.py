@@ -44,7 +44,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
 
-    @requires_entitlement(Entitlement.CASE_DURATIONS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def list_definitions(self) -> list[CaseDurationDefinitionRead]:
         """Return all duration definitions configured for the workspace."""
 
@@ -56,7 +56,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return [self._to_read_model(row) for row in result.scalars().all()]
 
-    @requires_entitlement(Entitlement.CASE_DURATIONS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_definition(
         self, duration_id: uuid.UUID
     ) -> CaseDurationDefinitionRead:
@@ -65,7 +65,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         entity = await self._get_definition_entity(duration_id)
         return self._to_read_model(entity)
 
-    @requires_entitlement(Entitlement.CASE_DURATIONS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def create_definition(
         self, params: CaseDurationDefinitionCreate
     ) -> CaseDurationDefinitionRead:
@@ -85,7 +85,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         await self.session.refresh(entity)
         return self._to_read_model(entity)
 
-    @requires_entitlement(Entitlement.CASE_DURATIONS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def update_definition(
         self, duration_id: uuid.UUID, params: CaseDurationDefinitionUpdate
     ) -> CaseDurationDefinitionRead:
@@ -126,7 +126,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         await self.session.refresh(entity)
         return self._to_read_model(entity)
 
-    @requires_entitlement(Entitlement.CASE_DURATIONS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def delete_definition(self, duration_id: uuid.UUID) -> None:
         """Delete a case duration definition."""
 
@@ -228,7 +228,7 @@ class CaseDurationService(BaseWorkspaceService):
             role=self.role,
         )
 
-    @requires_entitlement(Entitlement.CASE_DURATIONS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def list_durations(self, case: Case | uuid.UUID) -> list[CaseDurationRead]:
         """List persisted case durations for a case."""
 
@@ -244,7 +244,7 @@ class CaseDurationService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return [self._to_read_model(row) for row in result.scalars().all()]
 
-    @requires_entitlement(Entitlement.CASE_DURATIONS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_duration(
         self, case: Case | uuid.UUID, duration_id: uuid.UUID
     ) -> CaseDurationRead:
@@ -254,7 +254,7 @@ class CaseDurationService(BaseWorkspaceService):
         entity = await self._get_case_duration_entity(duration_id, case_obj.id)
         return self._to_read_model(entity)
 
-    @requires_entitlement(Entitlement.CASE_DURATIONS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def create_duration(
         self, case: Case | uuid.UUID, params: CaseDurationCreate
     ) -> CaseDurationRead:
@@ -279,7 +279,7 @@ class CaseDurationService(BaseWorkspaceService):
         await self.session.refresh(entity)
         return self._to_read_model(entity)
 
-    @requires_entitlement(Entitlement.CASE_DURATIONS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def update_duration(
         self, case: Case | uuid.UUID, duration_id: uuid.UUID, params: CaseDurationUpdate
     ) -> CaseDurationRead:
@@ -313,7 +313,7 @@ class CaseDurationService(BaseWorkspaceService):
         await self.session.refresh(entity)
         return self._to_read_model(entity)
 
-    @requires_entitlement(Entitlement.CASE_DURATIONS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def delete_duration(
         self, case: Case | uuid.UUID, duration_id: uuid.UUID
     ) -> None:
@@ -324,7 +324,7 @@ class CaseDurationService(BaseWorkspaceService):
         await self.session.delete(entity)
         await self.session.commit()
 
-    @requires_entitlement(Entitlement.CASE_DURATIONS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def compute_duration(
         self, case: Case | uuid.UUID
     ) -> list[CaseDurationComputation]:
@@ -338,7 +338,7 @@ class CaseDurationService(BaseWorkspaceService):
         events = await self._list_case_events(case_obj)
         return self._compute_durations_from_events(events, definitions)
 
-    @requires_entitlement(Entitlement.CASE_DURATIONS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def compute_durations(
         self, cases: Sequence[Case]
     ) -> dict[uuid.UUID, list[CaseDurationComputation]]:
@@ -386,7 +386,7 @@ class CaseDurationService(BaseWorkspaceService):
             for case_id, events in events_by_case.items()
         }
 
-    @requires_entitlement(Entitlement.CASE_DURATIONS)
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def compute_time_series(
         self, cases: Sequence[Case]
     ) -> list[CaseDurationMetric]:
@@ -496,7 +496,7 @@ class CaseDurationService(BaseWorkspaceService):
         self, case: Case | uuid.UUID
     ) -> list[CaseDurationComputation]:
         """Persist computed duration values for a case and return calculations."""
-        if not await self.has_entitlement(Entitlement.CASE_DURATIONS):
+        if not await self.has_entitlement(Entitlement.CASE_ADDONS):
             return []
         case_obj = await self._resolve_case(case)
         computations = await self.compute_duration(case_obj)

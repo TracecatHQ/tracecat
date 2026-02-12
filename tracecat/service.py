@@ -179,7 +179,9 @@ class BaseOrgService(BaseService):
             self._entitlement_cache.move_to_end(entitlement)
             return entitled
 
-        entitled = await is_org_entitled(self.session, self.organization_id, entitlement)
+        entitled = await is_org_entitled(
+            self.session, self.organization_id, entitlement
+        )
         if len(self._entitlement_cache) >= self._MAX_ENTITLEMENT_CACHE_ENTRIES:
             self._entitlement_cache.popitem(last=False)
         self._entitlement_cache[entitlement] = entitled

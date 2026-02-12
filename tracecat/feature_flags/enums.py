@@ -2,6 +2,9 @@ from enum import StrEnum
 
 
 class FeatureFlag(StrEnum):
-    """Feature flag enum reserved for engineering rollouts."""
+    """Feature flag enum reserved for engineering rollouts.
 
-    AI_RANKING = "ai-ranking"
+    NOTE: At least one member is required for valid OpenAPI schema generation.
+    """
+
+    _PLACEHOLDER = "__placeholder__"

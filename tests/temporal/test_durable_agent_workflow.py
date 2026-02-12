@@ -66,7 +66,7 @@ def enable_agent_approvals_entitlement(monkeypatch):
     monkeypatch.setattr(
         tier_defaults,
         "DEFAULT_ENTITLEMENTS",
-        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"agent_approvals": True}),
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"agent_addons": True}),
     )
 
 

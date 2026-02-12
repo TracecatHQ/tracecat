@@ -18,7 +18,7 @@ from tracecat_registry.context import get_context
     display_group="Cases",
     description="Get case metrics as time-series.",
     namespace="core.cases",
-    required_entitlements=["case_durations"],
+    required_entitlements=["case_addons"],
 )
 async def get_case_metrics(
     case_ids: Annotated[

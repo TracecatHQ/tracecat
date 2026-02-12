@@ -226,7 +226,7 @@ async def agent(
     display_group="AI",
     secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
     namespace="ai",
-    required_entitlements=["agent_presets"],
+    required_entitlements=["agent_addons"],
 )
 async def preset_agent(
     preset: Annotated[

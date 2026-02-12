@@ -70,7 +70,7 @@ export default React.memo(function TriggerNode({
   } = useWorkflowBuilder()
   const { breakpoint, style } = useTriggerNodeZoomBreakpoint()
   const { hasEntitlement } = useEntitlements()
-  const caseTriggersEnabled = hasEntitlement("case_triggers")
+  const caseAddonsEnabled = hasEntitlement("case_addons")
   const {
     data: caseTrigger,
     isLoading: caseTriggerIsLoading,
@@ -277,7 +277,7 @@ export default React.memo(function TriggerNode({
                 <TriggerNodeSchedulesTable workflowId={workflow.id} />
               </div>
               {/* Case triggers */}
-              {caseTriggersEnabled && (
+              {caseAddonsEnabled && (
                 <div
                   className="rounded-lg border cursor-pointer"
                   onClick={() =>

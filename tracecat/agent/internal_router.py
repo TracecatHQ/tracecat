@@ -123,7 +123,7 @@ async def run_agent_endpoint(
             mcp_servers = [MCPServerConfig(**s) for s in config.mcp_servers]
 
         if config and config.tool_approvals:
-            await check_entitlement(session, role, Entitlement.AGENT_APPROVALS)
+            await check_entitlement(session, role, Entitlement.AGENT_ADDONS)
 
         async with _provider_secrets_context(agent_svc, config.model_provider):
             result: AgentOutput = await runtime_run_agent(

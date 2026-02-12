@@ -65,8 +65,8 @@ async def test_specific_tier_entitlements_drive_effective_values(
         session,
         test_org.id,
         entitlements={
-            "case_tasks": True,
-            "agent_approvals": False,
+            "case_addons": True,
+            "agent_addons": False,
             "git_sync": True,
         },
     )
@@ -74,8 +74,8 @@ async def test_specific_tier_entitlements_drive_effective_values(
     tier_service = TierService(session)
     effective = await tier_service.get_effective_entitlements(test_org.id)
 
-    assert effective.case_tasks is True
-    assert effective.agent_approvals is False
+    assert effective.case_addons is True
+    assert effective.agent_addons is False
     assert effective.git_sync is True
 
 
@@ -87,15 +87,15 @@ async def test_org_entitlement_overrides_take_precedence_over_tier(
     await _create_org_tier(
         session,
         test_org.id,
-        entitlements={"case_tasks": True, "agent_approvals": True},
-        entitlement_overrides={"case_tasks": False, "agent_approvals": False},
+        entitlements={"case_addons": True, "agent_addons": True},
+        entitlement_overrides={"case_addons": False, "agent_addons": False},
     )
 
     tier_service = TierService(session)
     effective = await tier_service.get_effective_entitlements(test_org.id)
 
-    assert effective.case_tasks is False
-    assert effective.agent_approvals is False
+    assert effective.case_addons is False
+    assert effective.agent_addons is False
 
 
 @pytest.mark.anyio
@@ -106,14 +106,16 @@ async def test_entitlement_check_changes_when_tier_entitlement_is_updated(
     tier = await _create_org_tier(
         session,
         test_org.id,
-        entitlements={"case_tasks": False},
+        entitlements={"case_addons": False},
     )
     entitlement_service = EntitlementService(TierService(session))
 
     with pytest.raises(EntitlementRequired):
-        await entitlement_service.check_entitlement(test_org.id, Entitlement.CASE_TASKS)
+        await entitlement_service.check_entitlement(
+            test_org.id, Entitlement.CASE_ADDONS
+        )
 
-    tier.entitlements = {**tier.entitlements, "case_tasks": True}
+    tier.entitlements = {**tier.entitlements, "case_addons": True}
     await session.commit()
 
-    await entitlement_service.check_entitlement(test_org.id, Entitlement.CASE_TASKS)
+    await entitlement_service.check_entitlement(test_org.id, Entitlement.CASE_ADDONS)

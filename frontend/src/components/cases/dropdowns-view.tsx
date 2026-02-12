@@ -22,7 +22,7 @@ export function DropdownsView() {
   const workspaceId = useWorkspaceId()
   const { workspace, workspaceLoading, workspaceError } = useWorkspaceDetails()
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
-  const caseDropdownsEnabled = hasEntitlement("case_dropdowns")
+  const caseAddonsEnabled = hasEntitlement("case_addons")
 
   const {
     dropdownDefinitions,
@@ -36,7 +36,7 @@ export function DropdownsView() {
     updateDropdownOption,
     deleteDropdownOption,
     reorderDropdownOptions,
-  } = useCaseDropdownDefinitions(workspaceId, caseDropdownsEnabled)
+  } = useCaseDropdownDefinitions(workspaceId, caseAddonsEnabled)
 
   // Check feature flag loading first
   if (entitlementsLoading) {
@@ -44,7 +44,7 @@ export function DropdownsView() {
   }
 
   // Show enterprise-only message if feature is not enabled
-  if (!caseDropdownsEnabled) {
+  if (!caseAddonsEnabled) {
     return (
       <div className="size-full overflow-auto">
         <div className="container flex h-full max-w-[1000px] items-center justify-center py-8">

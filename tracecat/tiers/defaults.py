@@ -20,10 +20,6 @@ DEFAULT_ENTITLEMENTS = EffectiveEntitlements(
     custom_registry=True,
     sso=True,
     git_sync=True,
-    agent_approvals=True,
-    agent_presets=True,
-    case_dropdowns=True,
-    case_durations=True,
-    case_tasks=True,
-    case_triggers=True,
+    agent_addons=True,
+    case_addons=True,
 )

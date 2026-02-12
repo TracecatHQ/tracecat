@@ -31,13 +31,13 @@ export function CaseDurationsView() {
   const { workspace, workspaceLoading, workspaceError } = useWorkspaceDetails()
   const queryClient = useQueryClient()
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
-  const caseDurationsEnabled = hasEntitlement("case_durations")
+  const caseAddonsEnabled = hasEntitlement("case_addons")
 
   const {
     caseDurationDefinitions,
     caseDurationDefinitionsIsLoading,
     caseDurationDefinitionsError,
-  } = useCaseDurationDefinitions(workspaceId, caseDurationsEnabled)
+  } = useCaseDurationDefinitions(workspaceId, caseAddonsEnabled)
 
   const { mutateAsync: handleDelete, isPending: deleteIsPending } = useMutation(
     {
@@ -135,7 +135,7 @@ export function CaseDurationsView() {
 
   // Show enterprise-only message if feature is not enabled
   // This shows immediately after feature flags load (~200ms)
-  if (!caseDurationsEnabled) {
+  if (!caseAddonsEnabled) {
     return (
       <div className="size-full overflow-auto">
         <div className="container flex h-full max-w-[1000px] items-center justify-center py-8">
