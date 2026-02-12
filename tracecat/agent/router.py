@@ -113,7 +113,7 @@ async def get_provider_credential_config(
 
 
 @router.post("/credentials", status_code=status.HTTP_201_CREATED)
-@require_scope("agent:execute")
+@require_scope("agent:create")
 async def create_provider_credentials(
     *,
     params: ModelCredentialCreate,

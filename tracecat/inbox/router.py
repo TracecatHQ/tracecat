@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.inbox.dependencies import get_inbox_providers
 from tracecat.inbox.schemas import InboxItemRead
@@ -26,6 +27,7 @@ WorkspaceUser = Annotated[
 
 
 @router.get("")
+@require_scope("inbox:read")
 async def list_items(
     role: WorkspaceUser,
     session: AsyncDBSession,
@@ -43,6 +45,7 @@ async def list_items(
 
 
 @router.get("/paginated")
+@require_scope("inbox:read")
 async def list_items_paginated(
     role: WorkspaceUser,
     session: AsyncDBSession,

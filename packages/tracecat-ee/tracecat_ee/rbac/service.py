@@ -39,9 +39,6 @@ class RBACService(BaseOrgService):
     """Service for managing RBAC entities and computing effective scopes."""
 
     service_name = "rbac"
-    _PROTECTED_ROLE_SLUGS = frozenset(PRESET_ROLE_SCOPES) | frozenset(
-        {"admin", "editor", "viewer"}
-    )
 
     # =========================================================================
     # Scope Management
@@ -231,7 +228,7 @@ class RBACService(BaseOrgService):
         role = await self.get_role(role_id)
 
         # Preset roles cannot have scopes modified
-        if role.slug in self._PROTECTED_ROLE_SLUGS and scope_ids is not None:
+        if role.slug in PRESET_ROLE_SCOPES and scope_ids is not None:
             raise TracecatAuthorizationError("Cannot modify scopes of system roles")
 
         if name is not None:
@@ -255,7 +252,7 @@ class RBACService(BaseOrgService):
         role = await self.get_role(role_id)
 
         # Preset roles cannot be deleted
-        if role.slug in self._PROTECTED_ROLE_SLUGS:
+        if role.slug in PRESET_ROLE_SCOPES:
             raise TracecatAuthorizationError("Cannot delete system roles")
 
         # Check if role is in use by any group assignments

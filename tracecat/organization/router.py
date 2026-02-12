@@ -19,8 +19,6 @@ from tracecat.db.models import (
     OrganizationInvitation,
     OrganizationMembership,
     User,
-    UserRoleAssignment,
-    Role as DBRole
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -92,6 +90,7 @@ async def get_organization(
 
 
 @router.get("/domains", response_model=list[OrgDomainRead])
+@require_scope("org:read")
 async def list_organization_domains(
     *,
     role: OrgUserRole,
@@ -134,6 +133,7 @@ async def list_organization_domains(
 
 
 @router.get("/members/me", response_model=OrgMemberRead)
+@require_scope("org:member:read")
 async def get_current_org_member(
     *,
     role: OrgUserRole,

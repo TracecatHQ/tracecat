@@ -775,6 +775,7 @@ def _check_case_triggers_flag() -> None:
     response_model=CaseTriggerRead,
     dependencies=[Depends(_check_case_triggers_flag)],
 )
+@require_scope("workflow:create")
 async def create_case_trigger(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -800,6 +801,7 @@ async def create_case_trigger(
     response_model=CaseTriggerRead,
     dependencies=[Depends(_check_case_triggers_flag)],
 )
+@require_scope("workflow:read")
 async def get_case_trigger(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -820,6 +822,7 @@ async def get_case_trigger(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(_check_case_triggers_flag)],
 )
+@require_scope("workflow:update")
 async def update_case_trigger(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
