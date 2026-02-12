@@ -235,6 +235,17 @@ export type ActionValidationResult = {
 export type status = "success" | "error"
 
 /**
+ * Create a user from the platform admin control plane.
+ */
+export type AdminUserCreate = {
+  email: string
+  password: string
+  first_name?: string | null
+  last_name?: string | null
+  is_superuser?: boolean
+}
+
+/**
  * Admin view of a user.
  */
 export type AdminUserRead = {
@@ -7567,6 +7578,12 @@ export type AdminUpdateOrgTierResponse = OrganizationTierRead
 
 export type AdminListUsersResponse = Array<AdminUserRead>
 
+export type AdminCreateUserData = {
+  requestBody: AdminUserCreate
+}
+
+export type AdminCreateUserResponse = AdminUserRead
+
 export type AdminGetUserData = {
   userId: string
 }
@@ -10950,6 +10967,19 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<AdminUserRead>
+      }
+    }
+    post: {
+      req: AdminCreateUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AdminUserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }
