@@ -8,9 +8,11 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from tracecat import config
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.service import BaseService
 from tracecat.tiers import defaults as tier_defaults
+from tracecat.tiers.access import get_org_tier_and_resolved_tier
 from tracecat.tiers.exceptions import (
     DefaultTierNotConfiguredError,
     OrganizationNotFoundError,
@@ -89,38 +91,53 @@ class TierService(BaseService):
     async def get_effective_limits(self, org_id: OrganizationID) -> EffectiveLimits:
         """Get effective limits (org override or tier default).
 
-        Falls back to DEFAULT_LIMITS if no tier is configured.
-        """
-        org_tier = await self.get_org_tier(org_id)
+        In single-tenant mode, returns static OSS/self-host defaults.
+        In multi-tenant mode, uses the org-assigned tier if present,
+        otherwise falls back to the active default tier.
 
-        if org_tier is None:
-            # No org tier - return copy of default limits to avoid mutating shared instance
+        Raises:
+            DefaultTierNotConfiguredError: If no active default tier exists
+                and the organization has no assigned tier.
+        """
+        if not config.TRACECAT__EE_MULTI_TENANT:
             return tier_defaults.DEFAULT_LIMITS.model_copy()
 
-        tier = org_tier.tier
+        org_tier, tier = await get_org_tier_and_resolved_tier(self.session, org_id)
+
+        org_api_rate_limit = org_tier.api_rate_limit if org_tier is not None else None
+        org_api_burst_capacity = (
+            org_tier.api_burst_capacity if org_tier is not None else None
+        )
+        org_max_concurrent_workflows = (
+            org_tier.max_concurrent_workflows if org_tier is not None else None
+        )
+        org_max_actions_per_workflow = (
+            org_tier.max_action_executions_per_workflow
+            if org_tier is not None
+            else None
+        )
+        org_max_concurrent_actions = (
+            org_tier.max_concurrent_actions if org_tier is not None else None
+        )
 
         def resolve(org_value: int | None, tier_value: int | None) -> int | None:
             """Resolve value: org override takes precedence, then tier default."""
             return org_value if org_value is not None else tier_value
 
         return EffectiveLimits(
-            api_rate_limit=resolve(
-                org_tier.api_rate_limit, tier.api_rate_limit if tier else None
-            ),
-            api_burst_capacity=resolve(
-                org_tier.api_burst_capacity, tier.api_burst_capacity if tier else None
-            ),
+            api_rate_limit=resolve(org_api_rate_limit, tier.api_rate_limit),
+            api_burst_capacity=resolve(org_api_burst_capacity, tier.api_burst_capacity),
             max_concurrent_workflows=resolve(
-                org_tier.max_concurrent_workflows,
-                tier.max_concurrent_workflows if tier else None,
+                org_max_concurrent_workflows,
+                tier.max_concurrent_workflows,
             ),
             max_action_executions_per_workflow=resolve(
-                org_tier.max_action_executions_per_workflow,
-                tier.max_action_executions_per_workflow if tier else None,
+                org_max_actions_per_workflow,
+                tier.max_action_executions_per_workflow,
             ),
             max_concurrent_actions=resolve(
-                org_tier.max_concurrent_actions,
-                tier.max_concurrent_actions if tier else None,
+                org_max_concurrent_actions,
+                tier.max_concurrent_actions,
             ),
         )
 
@@ -129,17 +146,20 @@ class TierService(BaseService):
     ) -> EffectiveEntitlements:
         """Get effective entitlements (org override or tier default).
 
-        Falls back to DEFAULT_ENTITLEMENTS if no tier is configured.
-        """
-        org_tier = await self.get_org_tier(org_id)
+        In single-tenant mode, returns static OSS/self-host defaults.
+        In multi-tenant mode, uses the org-assigned tier if present,
+        otherwise falls back to the active default tier.
 
-        if org_tier is None:
-            # No org tier - return copy of default entitlements to avoid mutating shared instance
+        Raises:
+            DefaultTierNotConfiguredError: If no active default tier exists
+                and the organization has no assigned tier.
+        """
+        if not config.TRACECAT__EE_MULTI_TENANT:
             return tier_defaults.DEFAULT_ENTITLEMENTS.model_copy()
 
-        tier = org_tier.tier
-        tier_entitlements = tier.entitlements if tier else {}
-        overrides = org_tier.entitlement_overrides or {}
+        org_tier, tier = await get_org_tier_and_resolved_tier(self.session, org_id)
+        tier_entitlements = tier.entitlements or {}
+        overrides = org_tier.entitlement_overrides or {} if org_tier is not None else {}
 
         def resolve_entitlement(key: str, default: bool = False) -> bool:
             """Resolve entitlement: org override takes precedence, then tier default."""

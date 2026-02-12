@@ -5,6 +5,7 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.exceptions import EntitlementRequired
 from tracecat.tiers import defaults as tier_defaults
@@ -12,6 +13,12 @@ from tracecat.tiers.entitlements import Entitlement, EntitlementService
 from tracecat.tiers.service import TierService
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture(autouse=True)
+def enable_multi_tenant(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run this suite in multi-tenant mode unless explicitly overridden."""
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
 
 @pytest.fixture
@@ -174,3 +181,38 @@ async def test_entitlement_without_org_tier_does_not_use_self_host_defaults(
         await entitlement_service.check_entitlement(
             test_org.id, Entitlement.CASE_ADDONS
         )
+
+
+@pytest.mark.anyio
+async def test_single_tenant_effective_values_use_static_defaults(
+    session: AsyncSession, test_org: Organization, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Single-tenant mode should return static self-host defaults."""
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    await _create_org_tier(
+        session,
+        test_org.id,
+        entitlements={"case_addons": False, "agent_addons": False},
+        entitlement_overrides={"case_addons": False, "agent_addons": False},
+    )
+
+    tier_service = TierService(session)
+    effective_limits = await tier_service.get_effective_limits(test_org.id)
+    effective_entitlements = await tier_service.get_effective_entitlements(test_org.id)
+
+    assert effective_limits.model_dump() == tier_defaults.DEFAULT_LIMITS.model_dump()
+    assert (
+        effective_entitlements.model_dump()
+        == tier_defaults.DEFAULT_ENTITLEMENTS.model_dump()
+    )
+
+
+@pytest.mark.anyio
+async def test_single_tenant_entitlement_check_uses_static_defaults(
+    session: AsyncSession, test_org: Organization, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Single-tenant entitlement checks should not require DB tier rows."""
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    entitlement_service = EntitlementService(TierService(session))
+
+    await entitlement_service.check_entitlement(test_org.id, Entitlement.CASE_ADDONS)
