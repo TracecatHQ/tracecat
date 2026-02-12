@@ -19,7 +19,9 @@ class BaseSettingsGroup(BaseModel):
 
 
 class GitSettingsRead(BaseSettingsGroup):
-    git_allowed_domains: list[str]
+    git_allowed_domains: list[str] = Field(
+        default_factory=lambda: ["github.com", "gitlab.com", "bitbucket.org"]
+    )
     git_repo_url: str | None = Field(default=None)
     git_repo_package_name: str | None = Field(default=None)
 
@@ -48,10 +50,10 @@ class GitSettingsUpdate(BaseSettingsGroup):
 
 
 class SAMLSettingsRead(BaseSettingsGroup):
-    saml_enabled: bool
-    saml_enforced: bool
+    saml_enabled: bool = False
+    saml_enforced: bool = False
     saml_idp_metadata_url: str | None = Field(default=None)
-    saml_sp_acs_url: str  # Read only
+    saml_sp_acs_url: str = ""  # Read only, injected by router
 
     @field_validator("saml_enforced", mode="before")
     @classmethod
@@ -75,13 +77,13 @@ class SAMLSettingsUpdate(BaseSettingsGroup):
 class AppSettingsRead(BaseSettingsGroup):
     """Settings for the app."""
 
-    app_registry_validation_enabled: bool
-    app_executions_query_limit: int
-    app_interactions_enabled: bool
-    app_workflow_export_enabled: bool
-    app_create_workspace_on_register: bool
-    app_editor_pill_decorations_enabled: bool
-    app_action_form_mode_enabled: bool
+    app_registry_validation_enabled: bool = False
+    app_executions_query_limit: int = 100
+    app_interactions_enabled: bool = False
+    app_workflow_export_enabled: bool = True
+    app_create_workspace_on_register: bool = False
+    app_editor_pill_decorations_enabled: bool = False
+    app_action_form_mode_enabled: bool = True
 
 
 class AppSettingsUpdate(BaseSettingsGroup):
@@ -119,7 +121,7 @@ class AppSettingsUpdate(BaseSettingsGroup):
 class AuditSettingsRead(BaseSettingsGroup):
     """Settings for audit logging."""
 
-    audit_webhook_url: str | None
+    audit_webhook_url: str | None = None
     audit_webhook_custom_headers: dict[str, str] | None = None
 
 
@@ -137,10 +139,10 @@ class AuditSettingsUpdate(BaseSettingsGroup):
 
 
 class AgentSettingsRead(BaseSettingsGroup):
-    agent_default_model: str | None
-    agent_fixed_args: str | None
-    agent_case_chat_prompt: str
-    agent_case_chat_inject_content: bool
+    agent_default_model: str | None = None
+    agent_fixed_args: str | None = None
+    agent_case_chat_prompt: str = ""
+    agent_case_chat_inject_content: bool = False
 
 
 class AgentSettingsUpdate(BaseSettingsGroup):

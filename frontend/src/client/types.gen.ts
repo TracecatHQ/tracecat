@@ -499,10 +499,10 @@ export type AgentSessionUpdate = {
 }
 
 export type AgentSettingsRead = {
-  agent_default_model: string | null
-  agent_fixed_args: string | null
-  agent_case_chat_prompt: string
-  agent_case_chat_inject_content: boolean
+  agent_default_model?: string | null
+  agent_fixed_args?: string | null
+  agent_case_chat_prompt?: string
+  agent_case_chat_inject_content?: boolean
 }
 
 export type AgentSettingsUpdate = {
@@ -528,13 +528,13 @@ export type AgentSettingsUpdate = {
  * Settings for the app.
  */
 export type AppSettingsRead = {
-  app_registry_validation_enabled: boolean
-  app_executions_query_limit: number
-  app_interactions_enabled: boolean
-  app_workflow_export_enabled: boolean
-  app_create_workspace_on_register: boolean
-  app_editor_pill_decorations_enabled: boolean
-  app_action_form_mode_enabled: boolean
+  app_registry_validation_enabled?: boolean
+  app_executions_query_limit?: number
+  app_interactions_enabled?: boolean
+  app_workflow_export_enabled?: boolean
+  app_create_workspace_on_register?: boolean
+  app_editor_pill_decorations_enabled?: boolean
+  app_action_form_mode_enabled?: boolean
 }
 
 /**
@@ -730,9 +730,12 @@ export type AttachmentDeletedEventRead = {
   created_at: string
 }
 
+/**
+ * A URL to an audio file.
+ */
 export type AudioUrl = {
   url: string
-  force_download?: boolean
+  force_download?: boolean | "allow-local"
   vendor_metadata?: {
     [key: string]: unknown
   } | null
@@ -761,7 +764,7 @@ export type AudioUrl = {
  * Settings for audit logging.
  */
 export type AuditSettingsRead = {
-  audit_webhook_url: string | null
+  audit_webhook_url?: string | null
   audit_webhook_custom_headers?: {
     [key: string]: string
   } | null
@@ -810,8 +813,11 @@ export type BatchPositionUpdate = {
   trigger_position?: Position | null
 }
 
+/**
+ * Binary content, e.g. an audio or image file.
+ */
 export type BinaryContent = {
-  data: Blob | File
+  data: string
   media_type:
     | "audio/wav"
     | "audio/mpeg"
@@ -2109,9 +2115,12 @@ export type DataUIPart = {
   data: unknown
 }
 
+/**
+ * The URL of the document.
+ */
 export type DocumentUrl = {
   url: string
-  force_download?: boolean
+  force_download?: boolean | "allow-local"
   vendor_metadata?: {
     [key: string]: unknown
   } | null
@@ -2595,7 +2604,7 @@ export type GitHubWebhookAttributes = {
 }
 
 export type GitSettingsRead = {
-  git_allowed_domains: Array<string>
+  git_allowed_domains?: Array<string>
   git_repo_url?: string | null
   git_repo_package_name?: string | null
 }
@@ -2691,9 +2700,12 @@ export type HealthResponse = {
   status: string
 }
 
+/**
+ * A URL to an image.
+ */
 export type ImageUrl = {
   url: string
-  force_download?: boolean
+  force_download?: boolean | "allow-local"
   vendor_metadata?: {
     [key: string]: unknown
   } | null
@@ -4296,10 +4308,10 @@ export type SAMLDatabaseLoginResponse = {
 }
 
 export type SAMLSettingsRead = {
-  saml_enabled: boolean
-  saml_enforced: boolean
+  saml_enabled?: boolean
+  saml_enforced?: boolean
   saml_idp_metadata_url?: string | null
-  saml_sp_acs_url: string
+  saml_sp_acs_url?: string
 }
 
 export type SAMLSettingsUpdate = {
@@ -5307,7 +5319,7 @@ export type ToolResultBlock = {
 }
 
 export type ToolReturn = {
-  return_value: unknown
+  return_value: ToolReturnContent
   content?:
     | string
     | Array<
@@ -5323,6 +5335,18 @@ export type ToolReturn = {
   metadata?: unknown
   kind?: "tool-return"
 }
+
+export type ToolReturnContent =
+  | ImageUrl
+  | AudioUrl
+  | DocumentUrl
+  | VideoUrl
+  | BinaryContent
+  | Array<ToolReturnContent>
+  | {
+      [key: string]: ToolReturnContent
+    }
+  | unknown
 
 export type ToolUIPartInputAvailable = {
   type: string
@@ -5610,9 +5634,12 @@ export type VersionDiff = {
   total_changes?: number
 }
 
+/**
+ * A URL to a video.
+ */
 export type VideoUrl = {
   url: string
-  force_download?: boolean
+  force_download?: boolean | "allow-local"
   vendor_metadata?: {
     [key: string]: unknown
   } | null

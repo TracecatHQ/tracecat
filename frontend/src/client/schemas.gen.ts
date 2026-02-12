@@ -2160,19 +2160,15 @@ export const $AgentSettingsRead = {
     agent_case_chat_prompt: {
       type: "string",
       title: "Agent Case Chat Prompt",
+      default: "",
     },
     agent_case_chat_inject_content: {
       type: "boolean",
       title: "Agent Case Chat Inject Content",
+      default: false,
     },
   },
   type: "object",
-  required: [
-    "agent_default_model",
-    "agent_fixed_args",
-    "agent_case_chat_prompt",
-    "agent_case_chat_inject_content",
-  ],
   title: "AgentSettingsRead",
 } as const
 
@@ -2229,42 +2225,40 @@ export const $AppSettingsRead = {
     app_registry_validation_enabled: {
       type: "boolean",
       title: "App Registry Validation Enabled",
+      default: false,
     },
     app_executions_query_limit: {
       type: "integer",
       title: "App Executions Query Limit",
+      default: 100,
     },
     app_interactions_enabled: {
       type: "boolean",
       title: "App Interactions Enabled",
+      default: false,
     },
     app_workflow_export_enabled: {
       type: "boolean",
       title: "App Workflow Export Enabled",
+      default: true,
     },
     app_create_workspace_on_register: {
       type: "boolean",
       title: "App Create Workspace On Register",
+      default: false,
     },
     app_editor_pill_decorations_enabled: {
       type: "boolean",
       title: "App Editor Pill Decorations Enabled",
+      default: false,
     },
     app_action_form_mode_enabled: {
       type: "boolean",
       title: "App Action Form Mode Enabled",
+      default: true,
     },
   },
   type: "object",
-  required: [
-    "app_registry_validation_enabled",
-    "app_executions_query_limit",
-    "app_interactions_enabled",
-    "app_workflow_export_enabled",
-    "app_create_workspace_on_register",
-    "app_editor_pill_decorations_enabled",
-    "app_action_form_mode_enabled",
-  ],
   title: "AppSettingsRead",
   description: "Settings for the app.",
 } as const
@@ -2825,7 +2819,15 @@ export const $AudioUrl = {
       title: "Url",
     },
     force_download: {
-      type: "boolean",
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "string",
+          const: "allow-local",
+        },
+      ],
       title: "Force Download",
       default: false,
     },
@@ -2874,6 +2876,7 @@ distinguish multiple files.`,
   type: "object",
   required: ["url", "media_type", "identifier"],
   title: "AudioUrl",
+  description: "A URL to an audio file.",
 } as const
 
 export const $AuditSettingsRead = {
@@ -2905,7 +2908,6 @@ export const $AuditSettingsRead = {
     },
   },
   type: "object",
-  required: ["audit_webhook_url"],
   title: "AuditSettingsRead",
   description: "Settings for audit logging.",
 } as const
@@ -3009,7 +3011,7 @@ export const $BinaryContent = {
   properties: {
     data: {
       type: "string",
-      format: "binary",
+      format: "base64url",
       title: "Data",
     },
     media_type: {
@@ -3087,6 +3089,7 @@ distinguish multiple files.`,
   type: "object",
   required: ["data", "media_type", "identifier"],
   title: "BinaryContent",
+  description: "Binary content, e.g. an audio or image file.",
 } as const
 
 export const $Body_auth_auth_database_login = {
@@ -6948,7 +6951,15 @@ export const $DocumentUrl = {
       title: "Url",
     },
     force_download: {
-      type: "boolean",
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "string",
+          const: "allow-local",
+        },
+      ],
       title: "Force Download",
       default: false,
     },
@@ -6997,6 +7008,7 @@ distinguish multiple files.`,
   type: "object",
   required: ["url", "media_type", "identifier"],
   title: "DocumentUrl",
+  description: "The URL of the document.",
 } as const
 
 export const $DropdownValueChangedEventRead = {
@@ -8510,7 +8522,6 @@ export const $GitSettingsRead = {
     },
   },
   type: "object",
-  required: ["git_allowed_domains"],
   title: "GitSettingsRead",
 } as const
 
@@ -8688,7 +8699,15 @@ export const $ImageUrl = {
       title: "Url",
     },
     force_download: {
-      type: "boolean",
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "string",
+          const: "allow-local",
+        },
+      ],
       title: "Force Download",
       default: false,
     },
@@ -8737,6 +8756,7 @@ distinguish multiple files.`,
   type: "object",
   required: ["url", "media_type", "identifier"],
   title: "ImageUrl",
+  description: "A URL to an image.",
 } as const
 
 export const $InboxItemRead = {
@@ -13508,10 +13528,12 @@ export const $SAMLSettingsRead = {
     saml_enabled: {
       type: "boolean",
       title: "Saml Enabled",
+      default: false,
     },
     saml_enforced: {
       type: "boolean",
       title: "Saml Enforced",
+      default: false,
     },
     saml_idp_metadata_url: {
       anyOf: [
@@ -13527,10 +13549,10 @@ export const $SAMLSettingsRead = {
     saml_sp_acs_url: {
       type: "string",
       title: "Saml Sp Acs Url",
+      default: "",
     },
   },
   type: "object",
-  required: ["saml_enabled", "saml_enforced", "saml_sp_acs_url"],
   title: "SAMLSettingsRead",
 } as const
 
@@ -16793,7 +16815,7 @@ export const $ToolResultBlock = {
 export const $ToolReturn = {
   properties: {
     return_value: {
-      title: "Return Value",
+      $ref: "#/components/schemas/ToolReturnContent",
     },
     content: {
       anyOf: [
@@ -16807,19 +16829,33 @@ export const $ToolReturn = {
                 type: "string",
               },
               {
-                $ref: "#/components/schemas/ImageUrl",
-              },
-              {
-                $ref: "#/components/schemas/AudioUrl",
-              },
-              {
-                $ref: "#/components/schemas/DocumentUrl",
-              },
-              {
-                $ref: "#/components/schemas/VideoUrl",
-              },
-              {
-                $ref: "#/components/schemas/BinaryContent",
+                oneOf: [
+                  {
+                    $ref: "#/components/schemas/ImageUrl",
+                  },
+                  {
+                    $ref: "#/components/schemas/AudioUrl",
+                  },
+                  {
+                    $ref: "#/components/schemas/DocumentUrl",
+                  },
+                  {
+                    $ref: "#/components/schemas/VideoUrl",
+                  },
+                  {
+                    $ref: "#/components/schemas/BinaryContent",
+                  },
+                ],
+                discriminator: {
+                  propertyName: "kind",
+                  mapping: {
+                    "audio-url": "#/components/schemas/AudioUrl",
+                    binary: "#/components/schemas/BinaryContent",
+                    "document-url": "#/components/schemas/DocumentUrl",
+                    "image-url": "#/components/schemas/ImageUrl",
+                    "video-url": "#/components/schemas/VideoUrl",
+                  },
+                },
               },
               {
                 $ref: "#/components/schemas/CachePoint",
@@ -16847,6 +16883,53 @@ export const $ToolReturn = {
   type: "object",
   required: ["return_value"],
   title: "ToolReturn",
+} as const
+
+export const $ToolReturnContent = {
+  anyOf: [
+    {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/ImageUrl",
+        },
+        {
+          $ref: "#/components/schemas/AudioUrl",
+        },
+        {
+          $ref: "#/components/schemas/DocumentUrl",
+        },
+        {
+          $ref: "#/components/schemas/VideoUrl",
+        },
+        {
+          $ref: "#/components/schemas/BinaryContent",
+        },
+      ],
+      discriminator: {
+        propertyName: "kind",
+        mapping: {
+          "audio-url": "#/components/schemas/AudioUrl",
+          binary: "#/components/schemas/BinaryContent",
+          "document-url": "#/components/schemas/DocumentUrl",
+          "image-url": "#/components/schemas/ImageUrl",
+          "video-url": "#/components/schemas/VideoUrl",
+        },
+      },
+    },
+    {
+      items: {
+        $ref: "#/components/schemas/ToolReturnContent",
+      },
+      type: "array",
+    },
+    {
+      additionalProperties: {
+        $ref: "#/components/schemas/ToolReturnContent",
+      },
+      type: "object",
+    },
+    {},
+  ],
 } as const
 
 export const $ToolUIPartInputAvailable = {
@@ -18020,7 +18103,15 @@ export const $VideoUrl = {
       title: "Url",
     },
     force_download: {
-      type: "boolean",
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "string",
+          const: "allow-local",
+        },
+      ],
       title: "Force Download",
       default: false,
     },
@@ -18069,6 +18160,7 @@ distinguish multiple files.`,
   type: "object",
   required: ["url", "media_type", "identifier"],
   title: "VideoUrl",
+  description: "A URL to a video.",
 } as const
 
 export const $WaitStrategy = {
