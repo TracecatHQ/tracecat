@@ -4,6 +4,7 @@ import { type ComponentPropsWithoutRef, useState } from "react"
 import { authOauthOidcDatabaseAuthorize } from "@/client"
 import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
+import { FORCE_OIDC_REAUTH_AFTER_LOGOUT_SESSION_KEY } from "@/lib/auth"
 import {
   sanitizeReturnUrl,
   serializeClearPostAuthReturnUrlCookie,
@@ -27,6 +28,38 @@ function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
   document.cookie = sanitizedReturnUrl
     ? serializePostAuthReturnUrlCookie(sanitizedReturnUrl, secure)
     : serializeClearPostAuthReturnUrlCookie(secure)
+}
+
+function buildAuthorizeUrlForLogoutReauth(authorizationUrl: string): string {
+  if (process.env.NODE_ENV !== "development") {
+    return authorizationUrl
+  }
+
+  let shouldForcePrompt = false
+  try {
+    shouldForcePrompt =
+      window.sessionStorage.getItem(
+        FORCE_OIDC_REAUTH_AFTER_LOGOUT_SESSION_KEY
+      ) === "1"
+    window.sessionStorage.removeItem(FORCE_OIDC_REAUTH_AFTER_LOGOUT_SESSION_KEY)
+  } catch (error) {
+    console.warn("Failed to read dev reauth flag", error)
+    return authorizationUrl
+  }
+
+  if (!shouldForcePrompt) {
+    return authorizationUrl
+  }
+
+  try {
+    const url = new URL(authorizationUrl)
+    url.searchParams.set("prompt", "login")
+    url.searchParams.set("max_age", "0")
+    return url.toString()
+  } catch (error) {
+    console.warn("Failed to append OIDC reauth query params", error)
+    return authorizationUrl
+  }
 }
 
 export function GithubOAuthButton({
@@ -72,7 +105,7 @@ export function OidcOAuthButton({
         scopes: ["openid", "email", "profile"],
       })
       setPostAuthReturnUrlCookie(returnUrl)
-      window.location.href = authorization_url
+      window.location.href = buildAuthorizeUrlForLogoutReauth(authorization_url)
     } catch (error) {
       console.error("Error authorizing with OIDC", error)
     } finally {

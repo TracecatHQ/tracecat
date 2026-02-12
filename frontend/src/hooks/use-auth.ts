@@ -10,7 +10,11 @@ import {
   authRegisterRegister,
 } from "@/client"
 import { authConfig } from "@/config/auth"
-import { getCurrentUser, User } from "@/lib/auth"
+import {
+  FORCE_OIDC_REAUTH_AFTER_LOGOUT_SESSION_KEY,
+  getCurrentUser,
+  User,
+} from "@/lib/auth"
 
 async function logoutViaServerRoute(): Promise<void> {
   try {
@@ -21,6 +25,21 @@ async function logoutViaServerRoute(): Promise<void> {
     })
   } catch (error) {
     console.warn("Failed to execute server logout route", error)
+  }
+}
+
+function markForceOidcReauthAfterLogout(): void {
+  if (process.env.NODE_ENV !== "development") {
+    return
+  }
+
+  try {
+    window.sessionStorage.setItem(
+      FORCE_OIDC_REAUTH_AFTER_LOGOUT_SESSION_KEY,
+      "1"
+    )
+  } catch (error) {
+    console.warn("Failed to persist dev reauth flag", error)
   }
 }
 
@@ -47,6 +66,7 @@ export function useAuthActions() {
       await queryClient.invalidateQueries({
         queryKey: ["auth"],
       })
+      markForceOidcReauthAfterLogout()
       router.push(redirectUrl ?? "/sign-in")
     },
     [queryClient, router]
