@@ -316,7 +316,10 @@ temporal:
               # If you change the postgres secret name, update this and visibility.sql.existingSecret.
               existingSecret: "tracecat-postgres-credentials"  # K8s secret with database password
               secretKey: password
-              createDatabase: false
+              # Enables Temporal's schema job to cold-start external PostgreSQL
+              # (create DB if missing, then setup/update schema).
+              # Disable only if your DB role cannot CREATE DATABASE and DBs are pre-provisioned.
+              createDatabase: true
               manageSchema: true
               maxConns: 20
               maxIdleConns: 20
@@ -331,7 +334,8 @@ temporal:
               # Keep this aligned with default.sql.existingSecret.
               existingSecret: "tracecat-postgres-credentials"  # K8s secret with database password
               secretKey: password
-              createDatabase: false
+              # Same cold-start behavior as the default store.
+              createDatabase: true
               manageSchema: true
               maxConns: 20
               maxIdleConns: 20

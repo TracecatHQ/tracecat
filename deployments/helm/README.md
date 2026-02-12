@@ -355,8 +355,14 @@ The chart supports two Temporal modes: a self-hosted subchart or an external clu
 | `temporal.enabled` | `true` | Deploy Temporal as a subchart |
 | `temporal.clusterQueue` | `tracecat-task-queue` | Temporal task queue for Tracecat workers |
 | `temporal.web.additionalEnvSecretName` | `""` | Optional secret for Temporal Web UI env vars (set to `temporal-ui-oidc` when using OIDC) |
+| `temporal.server.config.persistence.datastores.default.sql.connectAddr` | `""` | Required PostgreSQL `host:port` for the default store |
+| `temporal.server.config.persistence.datastores.default.sql.user` | `""` | Required PostgreSQL username for the default store |
 | `temporal.server.config.persistence.datastores.default.sql.existingSecret` | `tracecat-postgres-credentials` | Secret used for Temporal default store SQL password |
+| `temporal.server.config.persistence.datastores.default.sql.createDatabase` | `true` | Auto-create the Temporal database on cold start (requires DB user with `CREATE DATABASE`) |
+| `temporal.server.config.persistence.datastores.visibility.sql.connectAddr` | `""` | Required PostgreSQL `host:port` for the visibility store |
+| `temporal.server.config.persistence.datastores.visibility.sql.user` | `""` | Required PostgreSQL username for the visibility store |
 | `temporal.server.config.persistence.datastores.visibility.sql.existingSecret` | `tracecat-postgres-credentials` | Secret used for Temporal visibility store SQL password |
+| `temporal.server.config.persistence.datastores.visibility.sql.createDatabase` | `true` | Auto-create the visibility database on cold start (requires DB user with `CREATE DATABASE`) |
 | `temporal.server.archival.history.state` | `disabled` | Cluster-level history archival state (`enabled` to turn on archival) |
 | `temporal.server.archival.visibility.state` | `disabled` | Cluster-level visibility archival state (`enabled` to turn on archival) |
 | `temporal.server.namespaceDefaults.archival.history.URI` | `""` | Default namespace history archival URI (for example `s3://bucket/temporal-history`) |
@@ -364,7 +370,16 @@ The chart supports two Temporal modes: a self-hosted subchart or an external clu
 
 If you override `secrets.create.postgres.name`, also override both Temporal datastore `existingSecret` values to the same secret name.
 
-When using the self-hosted subchart, you must configure `temporal.server.config.persistence` to point to your external database. The `temporal` and `temporal_visibility` databases must already exist. See `terraform/aws/modules/eks/helm.tf` for a production example.
+When using the self-hosted subchart, configure `temporal.server.config.persistence` for external PostgreSQL with SQL plugin `postgres12` (or `postgres12_pgx`) on both default and visibility stores.
+
+PostgreSQL requirements for self-hosted Temporal:
+
+1. Set `connectAddr`, `databaseName`, `user`, and `existingSecret` (or `password`) for both stores.
+2. The secret referenced by `existingSecret` must contain a `password` key.
+3. With `createDatabase=true` (default), the configured DB user must have `CREATE DATABASE` privileges.
+4. If your DB user cannot create databases, pre-create `temporal` and `temporal_visibility` and set `createDatabase=false` for both stores.
+
+See `terraform/aws/modules/eks/helm.tf` for a production example.
 
 For Temporal chart `1.0.0-rc.1`, archival is rendered from `server.archival` and `server.namespaceDefaults` in `temporal/templates/server-configmap.yaml` (the bundled `values/values.archival.s3.yaml` still matches those active keys).
 

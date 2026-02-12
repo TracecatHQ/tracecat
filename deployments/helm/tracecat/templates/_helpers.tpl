@@ -887,9 +887,40 @@ Validate auth config on first install
 {{/*
 Validate infrastructure dependencies
 */}}
+{{- define "tracecat.validateTemporalSqlStore" -}}
+{{- $storeName := .storeName -}}
+{{- $storeConfig := .storeConfig -}}
+{{- if not $storeConfig -}}
+{{- fail (printf "temporal.server.config.persistence.datastores.%s.sql is required when temporal.enabled=true" $storeName) -}}
+{{- end -}}
+{{- $pluginName := dig "pluginName" "" $storeConfig -}}
+{{- if and (ne $pluginName "postgres12") (ne $pluginName "postgres12_pgx") -}}
+{{- fail (printf "temporal.server.config.persistence.datastores.%s.sql.pluginName must be postgres12 or postgres12_pgx" $storeName) -}}
+{{- end -}}
+{{- if not (dig "connectAddr" "" $storeConfig) -}}
+{{- fail (printf "temporal.server.config.persistence.datastores.%s.sql.connectAddr is required when temporal.enabled=true" $storeName) -}}
+{{- end -}}
+{{- if not (dig "databaseName" "" $storeConfig) -}}
+{{- fail (printf "temporal.server.config.persistence.datastores.%s.sql.databaseName is required when temporal.enabled=true" $storeName) -}}
+{{- end -}}
+{{- if not (dig "user" "" $storeConfig) -}}
+{{- fail (printf "temporal.server.config.persistence.datastores.%s.sql.user is required when temporal.enabled=true" $storeName) -}}
+{{- end -}}
+{{- if not (or (dig "existingSecret" "" $storeConfig) (dig "password" "" $storeConfig)) -}}
+{{- fail (printf "temporal.server.config.persistence.datastores.%s.sql.existingSecret (or sql.password) is required when temporal.enabled=true" $storeName) -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "tracecat.validateInfrastructure" -}}
 {{- if and (not .Values.temporal.enabled) (not .Values.externalTemporal.enabled) -}}
 {{- fail "Either temporal.enabled or externalTemporal.enabled must be true" -}}
+{{- end -}}
+{{- if .Values.temporal.enabled -}}
+{{- $values := .Values | toYaml | fromYaml -}}
+{{- $defaultSql := dig "temporal" "server" "config" "persistence" "datastores" "default" "sql" nil $values -}}
+{{- $visibilitySql := dig "temporal" "server" "config" "persistence" "datastores" "visibility" "sql" nil $values -}}
+{{- include "tracecat.validateTemporalSqlStore" (dict "storeName" "default" "storeConfig" $defaultSql) -}}
+{{- include "tracecat.validateTemporalSqlStore" (dict "storeName" "visibility" "storeConfig" $visibilitySql) -}}
 {{- end -}}
 {{- end -}}
 

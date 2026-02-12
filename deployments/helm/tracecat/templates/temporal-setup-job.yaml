@@ -29,6 +29,11 @@ spec:
             - |
               set -e
 
+              # Persistence bootstrap (DB create + schema setup/update) is handled by
+              # the Temporal subchart schema job via:
+              # temporal.server.config.persistence.datastores.*.sql.createDatabase/manageSchema.
+              # This hook only performs setup that requires a running Temporal frontend.
+
               # Wait for Temporal frontend to be healthy (with exponential backoff)
               echo "Waiting for Temporal frontend to be ready..."
               MAX_RETRIES=30
