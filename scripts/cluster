@@ -283,6 +283,13 @@ build_env() {
 
     # Default to direct executor backend for development
     export TRACECAT__EXECUTOR_BACKEND="${TRACECAT__EXECUTOR_BACKEND:-direct}"
+
+    # Enable multitenancy and all feature flags for development
+    export TRACECAT__EE_MULTI_TENANT=true
+    FEATURE_FLAGS=$(cd "$REPO_ROOT" && uv run python -c "from tracecat.feature_flags.enums import FeatureFlag; print(','.join(f.value for f in FeatureFlag))" 2>/dev/null) || FEATURE_FLAGS=""
+    if [[ -n "$FEATURE_FLAGS" ]]; then
+        export TRACECAT__FEATURE_FLAGS="$FEATURE_FLAGS"
+    fi
 }
 
 # Show port mappings for a cluster
