@@ -35,6 +35,13 @@ secrets:
       clientId: ""
       clientSecret: ""
 
+    redis:
+      enabled: false
+      # Keep this aligned with externalRedis.auth.existingSecret unless you
+      # explicitly override the Redis secret name.
+      name: "tracecat-redis-credentials"
+      url: ""
+
 
 # External Secrets Operator integration (optional)
 # When enabled, ESO syncs secrets from AWS Secrets Manager into K8s Secrets.

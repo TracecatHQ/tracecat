@@ -553,17 +553,18 @@ Redis environment variables
 Constructs REDIS_URL from computed host/port or from external secret
 */}}
 {{- define "tracecat.env.redis" -}}
+{{- $redisSecretName := include "tracecat.secrets.redisName" . }}
 {{- if .Values.externalRedis.auth.secretArn }}
 - name: REDIS_URL__ARN
   value: {{ .Values.externalRedis.auth.secretArn | quote }}
-{{- else if .Values.externalRedis.auth.existingSecret }}
+{{- else if $redisSecretName }}
 - name: REDIS_URL
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.externalRedis.auth.existingSecret }}
+      name: {{ $redisSecretName }}
       key: url
 {{- else }}
-{{- fail "externalRedis.auth.existingSecret or externalRedis.auth.secretArn is required" }}
+{{- fail "externalRedis.auth.existingSecret, externalRedis.auth.secretArn, or secrets.create.redis.enabled is required" }}
 {{- end }}
 {{- end }}
 
@@ -841,6 +842,8 @@ Get the effective Redis secrets name for external Redis.
 {{- .Values.externalSecrets.redis.targetSecretName }}
 {{- else if .Values.externalRedis.auth.existingSecret }}
 {{- .Values.externalRedis.auth.existingSecret }}
+{{- else if .Values.secrets.create.redis.enabled }}
+{{- required "secrets.create.redis.name is required when redis secret template is enabled" .Values.secrets.create.redis.name }}
 {{- end }}
 {{- end }}
 
