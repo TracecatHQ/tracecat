@@ -1,7 +1,7 @@
 "use client"
 
 import { DownloadIcon, EyeIcon, LoaderIcon } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   type WorkflowExecutionObjectPreviewResponse,
   workflowExecutionsGetWorkflowExecutionObjectDownload,
@@ -27,6 +27,15 @@ function formatSize(sizeBytes: number): string {
   return `${value.toFixed(exponent === 0 ? 0 : 1)} ${units[exponent]}`
 }
 
+function shouldProbeDownloadUrl(downloadUrl: string): boolean {
+  try {
+    const parsed = new URL(downloadUrl, window.location.href)
+    return parsed.origin === window.location.origin
+  } catch {
+    return false
+  }
+}
+
 export function ExternalObjectResult({
   executionId,
   eventId,
@@ -44,6 +53,12 @@ export function ExternalObjectResult({
 
   const sizeLabel = formatSize(external.ref.size_bytes)
 
+  useEffect(() => {
+    // Clear preview when switching to a different event/object to avoid
+    // showing stale content from a previous selection.
+    setPreview(null)
+  }, [eventId, executionId, external.ref.key, external.ref.sha256])
+
   const handleDownload = async () => {
     setIsDownloading(true)
     try {
@@ -56,18 +71,20 @@ export function ExternalObjectResult({
           },
         })
 
-      // Validate the generated URL before navigating so we can surface
-      // a friendly UI error instead of showing raw S3/MinIO XML in-browser.
-      const probe = await fetch(response.download_url, {
-        method: "GET",
-        headers: {
-          Range: "bytes=0-0",
-        },
-      })
-      if (!probe.ok) {
-        throw new Error(
-          `Object download probe failed (${probe.status} ${probe.statusText})`
-        )
+      // Probe only for same-origin URLs. Cross-origin probes can fail due to
+      // CORS/preflight while the browser download would still succeed.
+      if (shouldProbeDownloadUrl(response.download_url)) {
+        const probe = await fetch(response.download_url, {
+          method: "GET",
+          headers: {
+            Range: "bytes=0-0",
+          },
+        })
+        if (!probe.ok) {
+          throw new Error(
+            `Object download probe failed (${probe.status} ${probe.statusText})`
+          )
+        }
       }
 
       const link = document.createElement("a")
