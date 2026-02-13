@@ -12,6 +12,7 @@ import hashlib
 import os
 import re
 import sysconfig
+import tarfile
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,7 +40,6 @@ class TarballVenvBuildResult:
     tarball_path: Path
     tarball_name: str
     content_hash: str
-    uncompressed_size_bytes: int
     compressed_size_bytes: int
 
 
@@ -117,13 +117,6 @@ def get_installed_site_packages_path() -> Path:
     return site_packages
 
 
-def _compute_path_size(path: Path) -> int:
-    """Compute the total size in bytes for a file or directory tree."""
-    if path.is_file():
-        return path.stat().st_size
-    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
-
-
 async def build_tarball_venv_from_installed_environment(
     *,
     package_name: str,
@@ -136,7 +129,6 @@ async def build_tarball_venv_from_installed_environment(
     It's primarily used for builtin registry sync where dependencies are already
     available in the running container image.
     """
-    import tarfile
 
     if output_dir is None:
         output_dir = Path(tempfile.mkdtemp(prefix="tracecat_tarball_venv_"))
@@ -156,12 +148,6 @@ async def build_tarball_venv_from_installed_environment(
         package_dir=str(package_dir),
         package_in_site_packages=package_in_site_packages,
     )
-
-    # Include all installed dependencies from site-packages.
-    # If the package is installed in editable mode, also include its source dir.
-    uncompressed_size = _compute_path_size(site_packages)
-    if not package_in_site_packages:
-        uncompressed_size += _compute_path_size(package_dir)
 
     def _create_tarball() -> None:
         with tarfile.open(tarball_path, "w:gz", compresslevel=6) as tar:
@@ -188,16 +174,13 @@ async def build_tarball_venv_from_installed_environment(
         "Installed environment tarball built successfully",
         tarball_name=tarball_name,
         content_hash=content_hash[:16],
-        uncompressed_size_bytes=uncompressed_size,
         compressed_size_bytes=compressed_size,
-        compression_ratio=f"{uncompressed_size / compressed_size:.2f}x",
     )
 
     return TarballVenvBuildResult(
         tarball_path=tarball_path,
         tarball_name=tarball_name,
         content_hash=content_hash,
-        uncompressed_size_bytes=uncompressed_size,
         compressed_size_bytes=compressed_size,
     )
 
@@ -224,7 +207,6 @@ async def build_tarball_venv_from_path(
     Raises:
         TarballBuildError: If the build fails
     """
-    import tarfile
 
     if not package_path.exists():
         raise TarballBuildError(f"Package path does not exist: {package_path}")
@@ -320,12 +302,7 @@ async def build_tarball_venv_from_path(
     await process.communicate()
     # Ignore errors - bytecode compilation is optional optimization
 
-    # Step 5: Calculate uncompressed size
-    uncompressed_size = sum(
-        f.stat().st_size for f in site_packages.rglob("*") if f.is_file()
-    )
-
-    # Step 6: Create compressed tarball of site-packages
+    # Step 5: Create compressed tarball of site-packages
     # Use gzip compression (zstd would be faster but less portable)
     tarball_name = "site-packages.tar.gz"
     tarball_path = output_dir / tarball_name
@@ -334,7 +311,6 @@ async def build_tarball_venv_from_path(
         "Compressing site-packages to tarball",
         site_packages=str(site_packages),
         tarball_path=str(tarball_path),
-        uncompressed_size_bytes=uncompressed_size,
     )
 
     # Run tar compression in a thread to not block async loop
@@ -346,7 +322,7 @@ async def build_tarball_venv_from_path(
 
     await asyncio.to_thread(_create_tarball)
 
-    # Step 7: Compute content hash
+    # Step 6: Compute content hash
     content_hash = await asyncio.to_thread(_compute_file_hash, tarball_path)
     compressed_size = tarball_path.stat().st_size
 
@@ -354,16 +330,13 @@ async def build_tarball_venv_from_path(
         "Tarball venv built successfully",
         tarball_name=tarball_name,
         content_hash=content_hash[:16],
-        uncompressed_size_bytes=uncompressed_size,
         compressed_size_bytes=compressed_size,
-        compression_ratio=f"{uncompressed_size / compressed_size:.2f}x",
     )
 
     return TarballVenvBuildResult(
         tarball_path=tarball_path,
         tarball_name=tarball_name,
         content_hash=content_hash,
-        uncompressed_size_bytes=uncompressed_size,
         compressed_size_bytes=compressed_size,
     )
 
