@@ -46,6 +46,7 @@ async def test_compute_effective_scopes_uses_service_allowlist_path() -> None:
     scopes = await credentials.compute_effective_scopes(role)
 
     assert "workflow:execute" in scopes
+    assert "workflow:terminate" in scopes
     assert "case:create" in scopes
     assert "table:update" in scopes
     assert "variable:read" in scopes
@@ -109,6 +110,7 @@ async def test_compute_effective_scopes_falls_back_to_legacy_memberships(
     assert "org:settings:delete" in scopes
     assert "org:registry:update" in scopes
     assert "workflow:execute" in scopes
+    assert "workflow:terminate" in scopes
     assert "table:update" in scopes
     assert "action:core.*:execute" in scopes
     cached_scopes.assert_awaited_once_with(user_id, organization_id, workspace_id)

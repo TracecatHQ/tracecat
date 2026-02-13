@@ -14,6 +14,7 @@ from tracecat.organization import router as organization_router
 from tracecat.registry.repositories import router as registry_repos_router
 from tracecat.tables import router as tables_router
 from tracecat.vcs import router as vcs_router
+from tracecat.workflow.executions import router as workflow_executions_router
 from tracecat.workflow.store import router as workflow_store_router
 
 type AsyncEndpoint = Callable[..., Awaitable[object]]
@@ -129,6 +130,20 @@ async def test_organization_invitation_scope_guards(
     ],
 )
 async def test_workflow_store_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (workflow_executions_router.cancel_workflow_execution, "workflow:terminate"),
+        (workflow_executions_router.terminate_workflow_execution, "workflow:terminate"),
+    ],
+)
+async def test_workflow_execution_stop_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)

@@ -516,7 +516,7 @@ async def create_draft_workflow_execution(
     "/{execution_id}/cancel",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-@require_scope("workflow:execute")
+@require_scope("workflow:terminate")
 async def cancel_workflow_execution(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
@@ -539,7 +539,7 @@ async def cancel_workflow_execution(
     "/{execution_id}/terminate",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-@require_scope("workflow:execute")
+@require_scope("workflow:terminate")
 async def terminate_workflow_execution(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
