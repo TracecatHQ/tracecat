@@ -1,0 +1,38 @@
+name: Publish helm chart
+
+on:
+  push:
+    branches: ["staging", "preview"]
+    tags:
+      - "*.*.*"
+
+env:
+  REGISTRY: ghcr.io
+  CHART_PATH: deployments/helm/tracecat
+  OCI_REPOSITORY: ghcr.io/tracecathq/tracecat-helm-chart
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish-helm-chart:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Log in to Container registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} \
+            --username "${{ github.actor }}" \
+            --password-stdin
+
+      - name: Package chart
+        run: helm package "${{ env.CHART_PATH }}" --destination /tmp/chart
+
+      - name: Push chart to GHCR
+        run: helm push /tmp/chart/*.tgz oci://${{ env.OCI_REPOSITORY }}
