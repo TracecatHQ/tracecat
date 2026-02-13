@@ -148,7 +148,7 @@ class RegistryLockService(BaseOrgService):
                 )
                 if impl.type == "template":
                     for step in impl.template_action.definition.steps:
-                        if PlatformAction.is_interface(step.action):
+                        if not PlatformAction.is_template_step_supported(step.action):
                             raise RegistryError(
                                 f"Template action '{action_name}' contains step '{step.ref}' using "
                                 f"platform action '{step.action}'. Platform actions cannot be used "

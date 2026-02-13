@@ -86,10 +86,10 @@ resource "helm_release" "tracecat" {
   values = [yamlencode(merge(
     {
       ingress = {
-        enabled   = true
-        split     = var.tracecat_ingress_split
-        className = "alb"
-        host      = var.domain_name
+        enabled     = true
+        split       = var.tracecat_ingress_split
+        className   = "alb"
+        host        = var.domain_name
         annotations = local.tracecat_alb_ingress_annotations
         ui = {
           annotations = {
@@ -110,6 +110,9 @@ resource "helm_release" "tracecat" {
         publicApi = "https://${var.domain_name}/api"
       }
       tracecat = {
+        auth = {
+          types = var.auth_types
+        }
         temporal = {
           metrics = {
             enabled = true
@@ -129,6 +132,11 @@ resource "helm_release" "tracecat" {
     },
     var.spot_node_group_enabled ? {
       scheduling = local.tracecat_spot_scheduling
+    } : {},
+    var.feature_flags != "" ? {
+      enterprise = {
+        featureFlags = var.feature_flags
+      }
     } : {}
   ))]
 
@@ -343,28 +351,7 @@ resource "helm_release" "tracecat" {
     value = "${var.ui_memory_request_mib}Mi"
   }
 
-  # Disable internal subcharts (using AWS managed services)
-  set {
-    name  = "postgres.enabled"
-    value = "false"
-  }
-
-  set {
-    name  = "redis.enabled"
-    value = "false"
-  }
-
-  set {
-    name  = "minio.enabled"
-    value = "false"
-  }
-
   # External PostgreSQL (RDS)
-  set {
-    name  = "externalPostgres.enabled"
-    value = "true"
-  }
-
   set {
     name  = "externalPostgres.host"
     value = aws_db_instance.tracecat.address
@@ -392,11 +379,6 @@ resource "helm_release" "tracecat" {
   }
 
   # External Redis (ElastiCache)
-  set {
-    name  = "externalRedis.enabled"
-    value = "true"
-  }
-
   # ESO creates the secret; reference by target name
   set {
     name  = "externalRedis.auth.existingSecret"
@@ -404,11 +386,6 @@ resource "helm_release" "tracecat" {
   }
 
   # External S3 (uses IRSA - don't set endpoint to use default credential chain)
-  set {
-    name  = "externalS3.enabled"
-    value = "true"
-  }
-
   set {
     name  = "externalS3.region"
     value = local.aws_region
@@ -709,18 +686,43 @@ resource "helm_release" "tracecat" {
     }
   }
 
-  # Enterprise feature flags
-  dynamic "set" {
-    for_each = var.feature_flags != "" ? [1] : []
-    content {
-      name  = "enterprise.featureFlags"
-      value = var.feature_flags
-    }
-  }
-
   set {
     name  = "enterprise.multiTenant"
     value = var.ee_multi_tenant
+  }
+
+  # OIDC Configuration
+  dynamic "set" {
+    for_each = var.oidc_issuer != "" ? [1] : []
+    content {
+      name  = "tracecat.oidc.issuer"
+      value = var.oidc_issuer
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.oidc_client_id != "" ? [1] : []
+    content {
+      name  = "tracecat.oidc.clientId"
+      value = var.oidc_client_id
+    }
+  }
+
+  dynamic "set_sensitive" {
+    for_each = var.oidc_client_secret != "" ? [1] : []
+    content {
+      name  = "tracecat.oidc.clientSecret"
+      value = var.oidc_client_secret
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.oidc_scopes != "" ? [1] : []
+    content {
+      name  = "tracecat.oidc.scopes"
+      value = var.oidc_scopes
+      type  = "string"
+    }
   }
 
   depends_on = [

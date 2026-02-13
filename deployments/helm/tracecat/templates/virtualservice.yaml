@@ -1,0 +1,176 @@
+{{- if .Values.virtualService.enabled }}
+{{- $apiVersion := .Values.virtualService.apiVersion | default "networking.istio.io/v1beta1" -}}
+
+{{- if .Values.virtualService.tracecat.enabled }}
+{{- if not .Values.virtualService.tracecat.configs }}
+{{- fail "virtualService.tracecat.configs is required when virtualService.tracecat.enabled is true" }}
+{{- end }}
+{{- range $idx, $cfg := .Values.virtualService.tracecat.configs }}
+{{- if not $cfg.name }}
+{{- fail (printf "virtualService.tracecat.configs[%d].name is required" $idx) }}
+{{- end }}
+{{- if not $cfg.hosts }}
+{{- fail (printf "virtualService.tracecat.configs[%d].hosts is required" $idx) }}
+{{- end }}
+{{- if not $cfg.gateways }}
+{{- fail (printf "virtualService.tracecat.configs[%d].gateways is required" $idx) }}
+{{- end }}
+---
+apiVersion: {{ $apiVersion }}
+kind: VirtualService
+metadata:
+  name: {{ $cfg.name }}
+  labels:
+    {{- include "tracecat.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: virtualservice
+    {{- with $cfg.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $cfg.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  hosts:
+    {{- range $host := $cfg.hosts }}
+    - {{ $host | quote }}
+    {{- end }}
+  gateways:
+    {{- range $gateway := $cfg.gateways }}
+    - {{ $gateway | quote }}
+    {{- end }}
+  exportTo:
+    {{- toYaml ($cfg.exportTo | default (list ".")) | nindent 4 }}
+  http:
+    - match:
+        - uri:
+            prefix: /api
+      route:
+        - destination:
+            host: {{ include "tracecat.fullname" $ }}-api
+            port:
+              number: 8000
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: {{ include "tracecat.fullname" $ }}-ui
+            port:
+              number: 3000
+{{- end }}
+{{- end }}
+
+{{- if .Values.virtualService.webhooks.enabled }}
+{{- if not .Values.virtualService.webhooks.configs }}
+{{- fail "virtualService.webhooks.configs is required when virtualService.webhooks.enabled is true" }}
+{{- end }}
+{{- range $idx, $cfg := .Values.virtualService.webhooks.configs }}
+{{- if not $cfg.name }}
+{{- fail (printf "virtualService.webhooks.configs[%d].name is required" $idx) }}
+{{- end }}
+{{- if not $cfg.hosts }}
+{{- fail (printf "virtualService.webhooks.configs[%d].hosts is required" $idx) }}
+{{- end }}
+{{- if not $cfg.gateways }}
+{{- fail (printf "virtualService.webhooks.configs[%d].gateways is required" $idx) }}
+{{- end }}
+---
+apiVersion: {{ $apiVersion }}
+kind: VirtualService
+metadata:
+  name: {{ $cfg.name }}
+  labels:
+    {{- include "tracecat.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: virtualservice
+    {{- with $cfg.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $cfg.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  hosts:
+    {{- range $host := $cfg.hosts }}
+    - {{ $host | quote }}
+    {{- end }}
+  gateways:
+    {{- range $gateway := $cfg.gateways }}
+    - {{ $gateway | quote }}
+    {{- end }}
+  exportTo:
+    {{- toYaml ($cfg.exportTo | default (list ".")) | nindent 4 }}
+  http:
+    - match:
+        - uri:
+            prefix: /_/webhooks
+        - uri:
+            prefix: /webhooks
+      route:
+        - destination:
+            host: {{ include "tracecat.fullname" $ }}-api
+            port:
+              number: 8000
+      timeout: {{ $cfg.timeout | default $.Values.virtualService.webhooks.timeout | quote }}
+{{- end }}
+{{- end }}
+
+{{- if .Values.virtualService.temporal.enabled }}
+{{- if not .Values.temporal.enabled }}
+{{- fail "virtualService.temporal.enabled requires temporal.enabled=true" }}
+{{- end }}
+{{- if not .Values.virtualService.temporal.configs }}
+{{- fail "virtualService.temporal.configs is required when virtualService.temporal.enabled is true" }}
+{{- end }}
+{{- $values := $.Values | toYaml | fromYaml -}}
+{{- $temporalWebPort := dig "temporal" "web" "service" "port" 8080 $values -}}
+{{- range $idx, $cfg := .Values.virtualService.temporal.configs }}
+{{- if not $cfg.name }}
+{{- fail (printf "virtualService.temporal.configs[%d].name is required" $idx) }}
+{{- end }}
+{{- if not $cfg.hosts }}
+{{- fail (printf "virtualService.temporal.configs[%d].hosts is required" $idx) }}
+{{- end }}
+{{- if not $cfg.gateways }}
+{{- fail (printf "virtualService.temporal.configs[%d].gateways is required" $idx) }}
+{{- end }}
+---
+apiVersion: {{ $apiVersion }}
+kind: VirtualService
+metadata:
+  name: {{ $cfg.name }}
+  labels:
+    {{- include "tracecat.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: virtualservice
+    {{- with $cfg.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $cfg.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  hosts:
+    {{- range $host := $cfg.hosts }}
+    - {{ $host | quote }}
+    {{- end }}
+  gateways:
+    {{- range $gateway := $cfg.gateways }}
+    - {{ $gateway | quote }}
+    {{- end }}
+  exportTo:
+    {{- toYaml ($cfg.exportTo | default (list ".")) | nindent 4 }}
+  http:
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: {{ include "tracecat.temporalFullname" $ }}-web
+            port:
+              number: {{ $temporalWebPort }}
+{{- end }}
+{{- end }}
+
+{{- end }}

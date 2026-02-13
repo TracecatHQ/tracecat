@@ -22,6 +22,8 @@ import type {
   AdminCreateOrganizationResponse,
   AdminCreateTierData,
   AdminCreateTierResponse,
+  AdminCreateUserData,
+  AdminCreateUserResponse,
   AdminDeleteOrganizationData,
   AdminDeleteOrganizationDomainData,
   AdminDeleteOrganizationDomainResponse,
@@ -324,8 +326,6 @@ import type {
   OrganizationGetInvitationTokenData,
   OrganizationGetInvitationTokenResponse,
   OrganizationGetOrganizationResponse,
-  OrganizationListInvitationsData,
-  OrganizationListInvitationsResponse,
   OrganizationListMyPendingInvitationsResponse,
   OrganizationListOrganizationDomainsResponse,
   OrganizationListOrgMembersResponse,
@@ -3095,7 +3095,7 @@ export const organizationListOrganizationDomains =
  *
  * This endpoint doesn't require admin access - any authenticated org member
  * can view their own membership details.
- * @returns OrgMemberRead Successful Response
+ * @returns OrgMemberDetail Successful Response
  * @throws ApiError
  */
 export const organizationGetCurrentOrgMember =
@@ -3146,7 +3146,7 @@ export const organizationDeleteOrgMember = (
  * @param data The data for the request.
  * @param data.userId
  * @param data.requestBody
- * @returns OrgMemberRead Successful Response
+ * @returns OrgMemberDetail Successful Response
  * @throws ApiError
  */
 export const organizationUpdateOrgMember = (
@@ -3217,29 +3217,6 @@ export const organizationCreateInvitation = (
     url: "/organization/invitations",
     body: data.requestBody,
     mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Invitations
- * List invitations for the organization.
- * @param data The data for the request.
- * @param data.status
- * @returns OrgInvitationRead Successful Response
- * @throws ApiError
- */
-export const organizationListInvitations = (
-  data: OrganizationListInvitationsData = {}
-): CancelablePromise<OrganizationListInvitationsResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/organization/invitations",
-    query: {
-      status: data.status,
-    },
     errors: {
       422: "Validation Error",
     },
@@ -4604,6 +4581,28 @@ export const adminListUsers = (): CancelablePromise<AdminListUsersResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/admin/users",
+  })
+}
+
+/**
+ * Create User
+ * Create a platform-level user without org membership.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns AdminUserRead Successful Response
+ * @throws ApiError
+ */
+export const adminCreateUser = (
+  data: AdminCreateUserData
+): CancelablePromise<AdminCreateUserResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/users",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
   })
 }
 

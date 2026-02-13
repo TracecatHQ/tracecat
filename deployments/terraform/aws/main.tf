@@ -51,7 +51,10 @@ module "eks" {
 
   # Data Services Configuration
   rds_instance_class         = var.rds_instance_class
+  rds_engine_version         = var.rds_engine_version
   rds_allocated_storage      = var.rds_allocated_storage
+  rds_storage_type           = var.rds_storage_type
+  rds_apply_immediately      = var.rds_apply_immediately
   rds_master_username        = var.rds_master_username
   rds_snapshot_identifier    = var.rds_snapshot_identifier
   rds_database_insights_mode = var.rds_database_insights_mode
@@ -102,6 +105,15 @@ module "eks" {
   waf_rate_limit = var.waf_rate_limit
 
   tags = var.tags
+
+  # Auth Configuration
+  auth_types = var.auth_types
+
+  # OIDC Configuration
+  oidc_issuer        = var.oidc_issuer
+  oidc_client_id     = var.oidc_client_id
+  oidc_client_secret = var.oidc_client_secret
+  oidc_scopes        = var.oidc_scopes
 
   # Enterprise Edition
   ee_multi_tenant = var.ee_multi_tenant

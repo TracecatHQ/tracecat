@@ -10,7 +10,6 @@ import {
   LockIcon,
   LogInIcon,
   LogsIcon,
-  SendIcon,
   Settings2,
   UsersIcon,
 } from "lucide-react"
@@ -105,12 +104,6 @@ export function OrganizationSidebar({
       url: "/organization/members",
       icon: UsersIcon,
       isActive: pathname?.includes("/organization/members"),
-    },
-    {
-      title: "Invitations",
-      url: "/organization/invitations",
-      icon: SendIcon,
-      isActive: pathname?.includes("/organization/invitations"),
     },
     {
       title: "Sessions",

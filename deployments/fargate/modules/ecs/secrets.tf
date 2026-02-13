@@ -1,0 +1,313 @@
+# Required secrets in AWS Secrets Manager:
+# 1. TRACECAT__DB_ENCRYPTION_KEY
+# 2. TRACECAT__SERVICE_KEY
+# 3. TRACECAT__SIGNING_SECRET
+#
+# Optional secrets:
+# 1. OAUTH_CLIENT_ID
+# 2. OAUTH_CLIENT_SECRET
+
+### Required secrets
+data "aws_secretsmanager_secret" "tracecat_db_encryption_key" {
+  arn = var.tracecat_db_encryption_key_arn
+}
+
+data "aws_secretsmanager_secret" "tracecat_service_key" {
+  arn = var.tracecat_service_key_arn
+}
+
+data "aws_secretsmanager_secret" "tracecat_signing_secret" {
+  arn = var.tracecat_signing_secret_arn
+}
+
+### Optional secrets
+
+# Tracecat authentication
+
+data "aws_secretsmanager_secret" "oauth_client_id" {
+  count = var.oauth_client_id_arn != null ? 1 : 0
+  arn   = var.oauth_client_id_arn
+}
+
+data "aws_secretsmanager_secret" "oauth_client_secret" {
+  count = var.oauth_client_secret_arn != null ? 1 : 0
+  arn   = var.oauth_client_secret_arn
+}
+
+data "aws_secretsmanager_secret" "oidc_client_id" {
+  count = var.oidc_client_id_arn != null ? 1 : 0
+  arn   = var.oidc_client_id_arn
+}
+
+data "aws_secretsmanager_secret" "oidc_client_secret" {
+  count = var.oidc_client_secret_arn != null ? 1 : 0
+  arn   = var.oidc_client_secret_arn
+}
+
+data "aws_secretsmanager_secret" "user_auth_secret" {
+  count = var.user_auth_secret_arn != null ? 1 : 0
+  arn   = var.user_auth_secret_arn
+}
+
+data "aws_secretsmanager_secret" "saml_idp_metadata_url" {
+  count = var.saml_idp_metadata_url_arn != null ? 1 : 0
+  arn   = var.saml_idp_metadata_url_arn
+}
+
+data "aws_secretsmanager_secret" "saml_ca_certs" {
+  count = var.saml_ca_certs_arn != null ? 1 : 0
+  arn   = var.saml_ca_certs_arn
+}
+
+data "aws_secretsmanager_secret" "saml_metadata_cert" {
+  count = var.saml_metadata_cert_arn != null ? 1 : 0
+  arn   = var.saml_metadata_cert_arn
+}
+
+# Temporal UI authentication
+
+data "aws_secretsmanager_secret" "temporal_auth_client_id" {
+  count = var.temporal_auth_client_id_arn != null ? 1 : 0
+  arn   = var.temporal_auth_client_id_arn
+}
+
+data "aws_secretsmanager_secret" "temporal_auth_client_secret" {
+  count = var.temporal_auth_client_secret_arn != null ? 1 : 0
+  arn   = var.temporal_auth_client_secret_arn
+}
+
+data "aws_secretsmanager_secret" "temporal_api_key" {
+  count = var.temporal_api_key_arn != null ? 1 : 0
+  arn   = var.temporal_api_key_arn
+}
+
+### Retrieve secret values
+
+# Tracecat secrets
+
+data "aws_secretsmanager_secret_version" "tracecat_db_encryption_key" {
+  secret_id = data.aws_secretsmanager_secret.tracecat_db_encryption_key.id
+}
+
+data "aws_secretsmanager_secret_version" "tracecat_service_key" {
+  secret_id = data.aws_secretsmanager_secret.tracecat_service_key.id
+}
+
+data "aws_secretsmanager_secret_version" "tracecat_signing_secret" {
+  secret_id = data.aws_secretsmanager_secret.tracecat_signing_secret.id
+}
+
+data "aws_secretsmanager_secret_version" "oauth_client_id" {
+  count     = var.oauth_client_id_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.oauth_client_id[0].id
+}
+
+data "aws_secretsmanager_secret_version" "oauth_client_secret" {
+  count     = var.oauth_client_secret_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.oauth_client_secret[0].id
+}
+
+data "aws_secretsmanager_secret_version" "oidc_client_id" {
+  count     = var.oidc_client_id_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.oidc_client_id[0].id
+}
+
+data "aws_secretsmanager_secret_version" "oidc_client_secret" {
+  count     = var.oidc_client_secret_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.oidc_client_secret[0].id
+}
+
+data "aws_secretsmanager_secret_version" "user_auth_secret" {
+  count     = var.user_auth_secret_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.user_auth_secret[0].id
+}
+
+data "aws_secretsmanager_secret_version" "saml_idp_metadata_url" {
+  count     = var.saml_idp_metadata_url_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.saml_idp_metadata_url[0].id
+}
+
+data "aws_secretsmanager_secret_version" "saml_ca_certs" {
+  count     = var.saml_ca_certs_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.saml_ca_certs[0].id
+}
+
+data "aws_secretsmanager_secret_version" "saml_metadata_cert" {
+  count     = var.saml_metadata_cert_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.saml_metadata_cert[0].id
+}
+
+# Temporal UI secrets
+
+data "aws_secretsmanager_secret_version" "temporal_auth_client_id" {
+  count     = var.temporal_auth_client_id_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.temporal_auth_client_id[0].id
+}
+
+data "aws_secretsmanager_secret_version" "temporal_auth_client_secret" {
+  count     = var.temporal_auth_client_secret_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.temporal_auth_client_secret[0].id
+}
+
+data "aws_secretsmanager_secret_version" "temporal_api_key" {
+  count     = var.temporal_api_key_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.temporal_api_key[0].id
+}
+
+### Database secrets
+
+data "aws_secretsmanager_secret" "tracecat_db_password" {
+  arn        = aws_db_instance.core_database.master_user_secret[0].secret_arn
+  depends_on = [aws_db_instance.core_database]
+}
+
+data "aws_secretsmanager_secret" "temporal_db_password" {
+  count      = var.disable_temporal_autosetup ? 0 : 1
+  arn        = aws_db_instance.temporal_database[0].master_user_secret[0].secret_arn
+  depends_on = [aws_db_instance.temporal_database]
+}
+
+data "aws_secretsmanager_secret_version" "tracecat_db_password" {
+  secret_id = data.aws_secretsmanager_secret.tracecat_db_password.id
+}
+
+data "aws_secretsmanager_secret_version" "temporal_db_password" {
+  count     = var.disable_temporal_autosetup ? 0 : 1
+  secret_id = data.aws_secretsmanager_secret.temporal_db_password[0].id
+}
+
+locals {
+  required_tracecat_base_secrets = [
+    {
+      name      = "TRACECAT__SERVICE_KEY"
+      valueFrom = data.aws_secretsmanager_secret_version.tracecat_service_key.arn
+    },
+    {
+      name      = "TRACECAT__SIGNING_SECRET"
+      valueFrom = data.aws_secretsmanager_secret_version.tracecat_signing_secret.arn
+    },
+    {
+      name      = "TRACECAT__DB_ENCRYPTION_KEY"
+      valueFrom = data.aws_secretsmanager_secret_version.tracecat_db_encryption_key.arn
+    },
+    {
+      name      = "REDIS_URL"
+      valueFrom = aws_secretsmanager_secret_version.redis_url.arn
+    },
+  ]
+
+  temporal_api_key_secret = var.temporal_api_key_arn != null ? [
+    {
+      name      = "TEMPORAL__API_KEY"
+      valueFrom = data.aws_secretsmanager_secret_version.temporal_api_key[0].arn
+    }
+  ] : []
+
+  tracecat_base_secrets = concat(
+    local.required_tracecat_base_secrets,
+    local.temporal_api_key_secret
+  )
+
+  oauth_client_id_secret = var.oauth_client_id_arn != null ? [
+    {
+      name      = "OAUTH_CLIENT_ID"
+      valueFrom = data.aws_secretsmanager_secret_version.oauth_client_id[0].arn
+    }
+  ] : []
+
+  oauth_client_secret_secret = var.oauth_client_secret_arn != null ? [
+    {
+      name      = "OAUTH_CLIENT_SECRET"
+      valueFrom = data.aws_secretsmanager_secret_version.oauth_client_secret[0].arn
+    }
+  ] : []
+
+  oidc_client_id_secret = var.oidc_client_id_arn != null ? [
+    {
+      name      = "OIDC_CLIENT_ID"
+      valueFrom = data.aws_secretsmanager_secret_version.oidc_client_id[0].arn
+    }
+  ] : []
+
+  oidc_client_secret_secret = var.oidc_client_secret_arn != null ? [
+    {
+      name      = "OIDC_CLIENT_SECRET"
+      valueFrom = data.aws_secretsmanager_secret_version.oidc_client_secret[0].arn
+    }
+  ] : []
+
+  user_auth_secret_secret = var.user_auth_secret_arn != null ? [
+    {
+      name      = "USER_AUTH_SECRET"
+      valueFrom = data.aws_secretsmanager_secret_version.user_auth_secret[0].arn
+    }
+  ] : []
+
+  saml_idp_metadata_url_secret = var.saml_idp_metadata_url_arn != null ? [
+    {
+      name      = "SAML_IDP_METADATA_URL"
+      valueFrom = data.aws_secretsmanager_secret_version.saml_idp_metadata_url[0].arn
+    }
+  ] : []
+
+  saml_ca_certs_secret = var.saml_ca_certs_arn != null ? [
+    {
+      name      = "SAML_CA_CERTS"
+      valueFrom = data.aws_secretsmanager_secret_version.saml_ca_certs[0].arn
+    }
+  ] : []
+
+  saml_metadata_cert_secret = var.saml_metadata_cert_arn != null ? [
+    {
+      name      = "SAML_METADATA_CERT"
+      valueFrom = data.aws_secretsmanager_secret_version.saml_metadata_cert[0].arn
+    }
+  ] : []
+
+  temporal_auth_client_id_secret = var.temporal_auth_client_id_arn != null ? [
+    {
+      name      = "TEMPORAL_AUTH_CLIENT_ID"
+      valueFrom = data.aws_secretsmanager_secret_version.temporal_auth_client_id[0].arn
+    }
+  ] : []
+
+  temporal_auth_client_secret_secret = var.temporal_auth_client_secret_arn != null ? [
+    {
+      name      = "TEMPORAL_AUTH_CLIENT_SECRET"
+      valueFrom = data.aws_secretsmanager_secret_version.temporal_auth_client_secret[0].arn
+    }
+  ] : []
+
+  tracecat_api_secrets = concat(
+    local.tracecat_base_secrets,
+    local.oauth_client_id_secret,
+    local.oauth_client_secret_secret,
+    local.oidc_client_id_secret,
+    local.oidc_client_secret_secret,
+    local.user_auth_secret_secret,
+    local.saml_idp_metadata_url_secret,
+    local.saml_ca_certs_secret,
+    local.saml_metadata_cert_secret
+  )
+
+  tracecat_ui_secrets = [
+    {
+      name      = "TRACECAT__SERVICE_KEY"
+      valueFrom = data.aws_secretsmanager_secret_version.tracecat_service_key.arn
+    }
+  ]
+
+  temporal_secrets = var.disable_temporal_autosetup ? [] : [
+    {
+      name      = "POSTGRES_PWD"
+      valueFrom = "${data.aws_secretsmanager_secret_version.temporal_db_password[0].arn}:password::"
+    }
+  ]
+
+  temporal_ui_secrets = concat(
+    local.temporal_auth_client_id_secret,
+    local.temporal_auth_client_secret_secret,
+  )
+
+  executor_secrets = local.tracecat_base_secrets
+}

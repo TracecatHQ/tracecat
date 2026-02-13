@@ -21,7 +21,11 @@ from tracecat.db.models import (
     RegistryVersion,
 )
 from tracecat.organization.domains import normalize_domain
-from tracecat.organization.management import create_organization_with_defaults
+from tracecat.organization.management import (
+    create_organization_with_defaults,
+    delete_organization_with_cleanup,
+    validate_organization_delete_confirmation,
+)
 from tracecat.service import BasePlatformService
 from tracecat_ee.admin.organizations.schemas import (
     OrgCreate,
@@ -93,7 +97,12 @@ class AdminOrgService(BasePlatformService):
         await self.session.refresh(org)
         return OrgRead.model_validate(org)
 
-    async def delete_organization(self, org_id: uuid.UUID) -> None:
+    async def delete_organization(
+        self,
+        org_id: uuid.UUID,
+        *,
+        confirmation: str | None,
+    ) -> None:
         """Delete organization."""
         stmt = select(Organization).where(Organization.id == org_id)
         result = await self.session.execute(stmt)
@@ -101,7 +110,12 @@ class AdminOrgService(BasePlatformService):
         if not org:
             raise ValueError(f"Organization {org_id} not found")
 
-        await self.session.delete(org)
+        validate_organization_delete_confirmation(org, confirmation=confirmation)
+        await delete_organization_with_cleanup(
+            self.session,
+            organization=org,
+            operator_user_id=self.role.user_id,
+        )
         await self.session.commit()
 
     # Org Domain Methods

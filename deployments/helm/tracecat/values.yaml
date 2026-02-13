@@ -5,12 +5,36 @@ secrets:
   # - serviceKey: Service-to-service auth key (hex)
   # - signingSecret: Webhook signing secret (hex)
   # - userAuthSecret: Password reset/email verification token secret (hex)
+  # Leave empty when using secrets.create.tracecat or externalSecrets.coreSecrets.
   existingSecret: ""
 
-  # (Optional) Name of existing Kubernetes Secret for OAuth containing:
-  # - oauthClientId: Google OAuth client ID
-  # - oauthClientSecret: Google OAuth client secret
-  oauthSecret: ""
+  # Optional native K8s Secret manifests rendered by this chart.
+  # Useful when you do not use External Secrets Operator.
+  # These are rendered as pre-install/pre-upgrade hooks (weight -15) so
+  # they exist before the pre-install/pre-upgrade migrations job (weight -5).
+  create:
+    tracecat:
+      enabled: false
+      name: "tracecat-secrets"
+      dbEncryptionKey: ""
+      serviceKey: ""
+      signingSecret: ""
+      userAuthSecret: ""
+
+    postgres:
+      enabled: false
+      # Keep this aligned with externalPostgres.auth.existingSecret unless you
+      # explicitly override the app DB secret name.
+      name: "tracecat-postgres-credentials"
+      username: ""
+      password: ""
+
+    temporalUiOidc:
+      enabled: false
+      name: "temporal-ui-oidc"
+      clientId: ""
+      clientSecret: ""
+
 
 # External Secrets Operator integration (optional)
 # When enabled, ESO syncs secrets from AWS Secrets Manager into K8s Secrets.
@@ -27,13 +51,6 @@ externalSecrets:
     enabled: true
     secretArn: ""
     targetSecretName: "tracecat-secrets"
-
-  # OAuth secrets (optional)
-  # Expected JSON: { "oauthClientId": "...", "oauthClientSecret": "..." }
-  oauthSecrets:
-    enabled: false
-    secretArn: ""
-    targetSecretName: "tracecat-oauth-secrets"
 
   # PostgreSQL credentials for externalPostgres
   # Expected JSON: { "username": "...", "password": "..." }
@@ -56,7 +73,11 @@ externalSecrets:
     secretArn: ""
     targetSecretName: "tracecat-temporal-credentials"
 
-# Service account for Tracecat workloads (api/worker/executor)
+# Pod annotations applied to all Tracecat workloads (e.g., Istio sidecar config).
+podAnnotations: {}
+
+# Service account for Tracecat workloads (api/worker/executor/temporal-setup).
+# Migration jobs use a dedicated hook SA (migrations-sa.yaml) created before the job runs.
 serviceAccount:
   create: true
   name: ""
@@ -97,10 +118,36 @@ ingress:
   api:
     annotations: {}
 
+# Istio VirtualService configuration (alternative to ingress).
+# Disable ingress when enabling VirtualServices.
+virtualService:
+  enabled: false
+  apiVersion: networking.istio.io/v1beta1
+
+  # Routes /api and / to Tracecat API/UI services.
+  tracecat:
+    enabled: true
+    # Render one VirtualService per entry.
+    configs: []
+
+  # Optional webhook-only VirtualServices.
+  # Routes /_/webhooks and /webhooks to the Tracecat API service.
+  webhooks:
+    enabled: false
+    timeout: 5s
+    # Render one VirtualService per entry.
+    configs: []
+
+  # Optional Temporal Web UI VirtualServices for self-hosted Temporal.
+  temporal:
+    enabled: false
+    # Render one VirtualService per entry.
+    configs: []
+
 urls:
   publicApp: ""
   publicApi: ""
-  # Only used to rewrite presigned URLs (defaults to /s3 when minio is enabled).
+  # Only used to rewrite presigned URLs for S3-compatible storage.
   publicS3: ""
 
 tracecat:
@@ -137,9 +184,15 @@ tracecat:
     metadataCert: ""
 
   auth:
-    types: "basic,saml"
+    types: "oidc"
     allowedDomains: ""
     superadminEmail: ""
+
+  oidc:
+    issuer: ""
+    clientId: ""
+    clientSecret: ""
+    scopes: ""
 
   temporal:
     # Search attributes to create in Temporal (name: type)
@@ -234,60 +287,39 @@ agentExecutor:
     enabled: false
     thresholdKb: 16
 
-# CloudNativePG cluster subchart configuration (aliased as postgres)
-postgres:
-  enabled: true
-  fullnameOverride: tracecat-postgres
-  cluster:
-    instances: 1
-    # Bootstrap Temporal databases for local installs (runs only on initial cluster creation).
-    initdb:
-      postInitSQL:
-        - CREATE DATABASE temporal OWNER app;
-        - CREATE DATABASE temporal_visibility OWNER app;
-
-# Valkey subchart configuration (aliased as redis)
-redis:
-  enabled: true
-  fullnameOverride: tracecat-valkey
-  dataStorage:
-    enabled: true
-    size: 5Gi
-
-minio:
-  enabled: true
-  fullnameOverride: tracecat-minio
-  mode: standalone
-  primary:
-    enabled: true
-  resources:
-    requests:
-      memory: 256Mi
-  auth:
-    existingSecret: null
-
 temporal:
   enabled: true
   # Temporal task queue used by Tracecat workers.
   clusterQueue: tracecat-task-queue
+  web:
+    # Optional envFrom secret for Temporal Web UI auth settings.
+    # Set to temporal-ui-oidc (or your secret name) to enable OIDC auth via secret keys.
+    additionalEnvSecretName: ""
   server:
     config:
       persistence:
         defaultStore: default
         visibilityStore: visibility
         numHistoryShards: 1024
+        # Configure these when using self-hosted Temporal with an external database.
+        # See deployments/terraform/aws/modules/eks/helm.tf for a production example.
         datastores:
           default:
             sql:
               pluginName: postgres12
               databaseName: temporal
-              connectAddr: tracecat-postgres-rw:5432
+              connectAddr: ""  # e.g. your-rds-host:5432
               connectProtocol: tcp
-              user: app
+              user: ""
               password: ""
-              existingSecret: tracecat-postgres-app
+              # Keep this aligned with the secret used by Temporal SQL setup jobs.
+              # If you change the postgres secret name, update this and visibility.sql.existingSecret.
+              existingSecret: "tracecat-postgres-credentials"  # K8s secret with database password
               secretKey: password
-              createDatabase: false
+              # Enables Temporal's schema job to cold-start external PostgreSQL
+              # (create DB if missing, then setup/update schema).
+              # Disable only if your DB role cannot CREATE DATABASE and DBs are pre-provisioned.
+              createDatabase: true
               manageSchema: true
               maxConns: 20
               maxIdleConns: 20
@@ -295,13 +327,15 @@ temporal:
             sql:
               pluginName: postgres12
               databaseName: temporal_visibility
-              connectAddr: tracecat-postgres-rw:5432
+              connectAddr: ""  # e.g. your-rds-host:5432
               connectProtocol: tcp
-              user: app
+              user: ""
               password: ""
-              existingSecret: tracecat-postgres-app
+              # Keep this aligned with default.sql.existingSecret.
+              existingSecret: "tracecat-postgres-credentials"  # K8s secret with database password
               secretKey: password
-              createDatabase: false
+              # Same cold-start behavior as the default store.
+              createDatabase: true
               manageSchema: true
               maxConns: 20
               maxIdleConns: 20
@@ -311,9 +345,31 @@ temporal:
         namespace:
           - name: default
             retention: 720h
+    # Optional archival settings for self-hosted Temporal (chart 1.0.0-rc.1).
+    # These are rendered from temporal/templates/server-configmap.yaml.
+    # archival:
+    #   history:
+    #     state: "enabled"
+    #     enableRead: true
+    #     provider:
+    #       s3store:
+    #         region: "us-east-1"
+    #   visibility:
+    #     state: "enabled"
+    #     enableRead: true
+    #     provider:
+    #       s3store:
+    #         region: "us-east-1"
+    # namespaceDefaults:
+    #   archival:
+    #     history:
+    #       state: "enabled"
+    #       URI: "s3://your-bucket/temporal-history"
+    #     visibility:
+    #       state: "enabled"
+    #       URI: "s3://your-bucket/temporal-visibility"
 
 externalPostgres:
-  enabled: false
   host: "example-db.example.com"
   port: 5432
   database: tracecat
@@ -321,7 +377,9 @@ externalPostgres:
   auth:
     # Either set a Kubernetes secret or an AWS Secrets Manager ARN.
     # You can set both to export TRACECAT__DB_PASS__ARN and TRACECAT__DB_PASS.
-    existingSecret: null  # Contains `username` and `password`.
+    # existingSecret is optional when secrets.create.postgres.enabled=true
+    # or when externalSecrets.postgres is enabled with a secretArn.
+    existingSecret: null  # Contains `username` and `password` (or enable secrets.create.postgres).
     # Username to use with secretArn (if omitted, the ARN secret must include `username`).
     username: ""
     # SecretString should be JSON with `password` (and optional `username`) or a raw password when username is set.
@@ -332,12 +390,8 @@ externalPostgres:
     # CA certificate for verifying the database server certificate (PEM format)
     # For AWS RDS, use the RDS CA bundle from https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
     caCert: ""
-    # Or reference an existing ConfigMap containing the CA certificate
-    existingConfigMap: ""
-    configMapKey: "ca-bundle.pem"
 
 externalRedis:
-  enabled: false
   auth:
     # Either set a Kubernetes secret or an AWS Secrets Manager ARN.
     existingSecret: null  # Contains `url` (raw string)
@@ -345,7 +399,6 @@ externalRedis:
     secretArn: null
 
 externalS3:
-  enabled: false
   endpoint: ""
   region: ""
   auth:

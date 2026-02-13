@@ -430,6 +430,14 @@ Available predefined roles:
 - Always use `pnpm` over `npm` and `rg` instead of `grep`
 - Always ask clarifying questions when lacking full context
 - When handling frontend types, don't import variables prefixed with '$' unless you are importing the schema object
+- **NEVER** use `--no-gpg-sign` or `--no-verify` to bypass commit signing. If GPG/SSH signing fails (e.g., 1Password agent not running), stop and ask the user to fix their signing setup rather than creating an unverified commit.
+
+## Pull Request Description Hygiene
+- Never use `gh pr create --body "..."` when the body includes Markdown or backticks.
+- Always write the PR body to a file using a single-quoted heredoc (`<<'EOF'`) and pass it with `gh pr create --body-file <file>`.
+- After creating or editing a PR body, always verify with `gh pr view <pr-number> --json body --jq .body` and confirm inline code, endpoint paths, and backticks are preserved exactly.
+- If formatting is wrong, immediately fix it with `gh pr edit <pr-number> --body-file <file>` and re-verify.
+- Always keep auto-generated PR content from cubic; do not remove or replace it unless the user explicitly asks.
 
 ## Code Typing Guidelines
 - When writing typescript code, always do your best to use proper type hints and avoid using `any`. If you really have to you can use `unknown`.

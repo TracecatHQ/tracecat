@@ -65,10 +65,11 @@ resource "aws_db_instance" "tracecat" {
   identifier = "${var.cluster_name}-postgres-${local.rds_suffix}"
 
   engine                = "postgres"
-  engine_version        = "16.6"
+  engine_version        = var.rds_engine_version
   instance_class        = var.rds_instance_class
   allocated_storage     = var.rds_allocated_storage
   max_allocated_storage = var.rds_allocated_storage * 5
+  storage_type          = var.rds_storage_type
 
   snapshot_identifier = var.rds_snapshot_identifier != "" ? var.rds_snapshot_identifier : null
 
@@ -80,8 +81,9 @@ resource "aws_db_instance" "tracecat" {
   vpc_security_group_ids = [aws_security_group.rds.id]
 
   publicly_accessible = false
-  multi_az            = false
+  multi_az            = true
   storage_encrypted   = true
+  apply_immediately   = var.rds_apply_immediately
 
   database_insights_mode = var.rds_database_insights_mode
 
@@ -93,7 +95,8 @@ resource "aws_db_instance" "tracecat" {
   final_snapshot_identifier = var.rds_skip_final_snapshot ? null : "${var.cluster_name}-postgres-${local.rds_suffix}-final"
   deletion_protection       = var.rds_deletion_protection
 
-  performance_insights_enabled = true
+  performance_insights_enabled          = true
+  performance_insights_retention_period = var.rds_database_insights_mode == "advanced" ? 465 : 7
 
   tags = merge(var.tags, {
     Name = "${var.cluster_name}-postgres-${local.rds_suffix}"

@@ -2,8 +2,8 @@ apiVersion: v2
 name: tracecat
 description: Tracecat is the AI automation platform for work.
 type: application
-version: 0.3.2
-appVersion: "1.0.0-beta.4"
+version: 0.3.3
+appVersion: "1.0.0-beta.6"
 home: https://tracecat.com
 maintainers:
   - email: founders@tracecat.com
@@ -24,17 +24,3 @@ dependencies:
     version: "1.0.0-rc.1"
     repository: https://go.temporal.io/helm-charts
     condition: temporal.enabled
-  - name: cluster
-    alias: postgres
-    repository: https://cloudnative-pg.github.io/charts
-    version: "~0.5.0"
-    condition: postgres.enabled
-  - name: minio
-    repository: https://charts.min.io/
-    version: "5.4.0"
-    condition: minio.enabled
-  - name: valkey
-    alias: redis
-    repository: https://valkey.io/valkey-helm/
-    version: "~0.9.2"
-    condition: redis.enabled

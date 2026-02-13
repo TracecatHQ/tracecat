@@ -1,4 +1,4 @@
-{{- if and .Values.externalPostgres.enabled .Values.externalPostgres.tls.verifyCA .Values.externalPostgres.tls.caCert }}
+{{- if and .Values.externalPostgres.tls.verifyCA .Values.externalPostgres.tls.caCert }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

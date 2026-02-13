@@ -28,7 +28,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useAuth } from "@/hooks/use-auth"
+import { useOrgMembership } from "@/hooks/use-org-membership"
 import { getRelativeTime } from "@/lib/event-history"
 import { useSessions } from "@/lib/hooks"
 
@@ -37,7 +37,7 @@ export function OrgSessionsTable() {
     null
   )
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
-  const { user } = useAuth()
+  const { canAdministerOrg } = useOrgMembership()
   const { sessions, deleteSession } = useSessions()
 
   const handleRevokeSession = useCallback(async () => {
@@ -122,7 +122,7 @@ export function OrgSessionsTable() {
                       >
                         Copy user ID
                       </DropdownMenuItem>
-                      {user?.isPrivileged() && (
+                      {canAdministerOrg && (
                         <DropdownMenuGroup>
                           <AlertDialogTrigger asChild>
                             <DropdownMenuItem

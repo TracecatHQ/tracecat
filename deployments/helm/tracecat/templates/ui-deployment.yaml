@@ -16,6 +16,10 @@ spec:
       labels:
         {{- include "tracecat.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: ui
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       securityContext:
         {{- toYaml .Values.securityContext | nindent 8 }}

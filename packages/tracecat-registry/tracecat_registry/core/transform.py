@@ -11,6 +11,29 @@ import orjson
 from tracecat_registry import ActionIsInterfaceError, registry
 from tracecat_registry._internal.jsonpath import eval_jsonpath
 from tracecat_registry._internal.safe_lambda import build_safe_lambda
+from tracecat_registry.context import get_context
+
+
+def _resolve_dedup_scope() -> str:
+    """Resolve the deduplication scope identifier.
+
+    Prefer the registry execution context workspace ID. Fall back to the
+    workspace ID environment variable when context isn't set (e.g. some tests).
+    Raise explicitly when no workspace scope is available.
+    """
+
+    try:
+        workspace_id = get_context().workspace_id
+    except RuntimeError:
+        workspace_id = os.environ.get("TRACECAT__WORKSPACE_ID")
+
+    if not workspace_id:
+        raise ValueError(
+            "Deduplication could not determine this run's workspace scope. "
+            "This indicates a platform execution-context issue. Retry the run; "
+            "if it persists, contact your Tracecat administrator with the run ID."
+        )
+    return workspace_id
 
 
 @registry.register(
@@ -134,6 +157,7 @@ async def _deduplicate_redis(
         )
 
     result: list[dict[str, Any]] = []
+    dedup_scope = _resolve_dedup_scope()
 
     try:
         # AWS ElastiCache usually adds ~0.3-1 ms RTT per command. Reduce round-trips
@@ -145,7 +169,10 @@ async def _deduplicate_redis(
 
             for key in seen.keys():
                 key_str = json.dumps(key, sort_keys=True, default=str)
-                redis_key = f"dedup:{hashlib.sha256(key_str.encode()).hexdigest()}"
+                redis_key = (
+                    f"dedup:{dedup_scope}:"
+                    f"{hashlib.sha256(key_str.encode()).hexdigest()}"
+                )
                 redis_keys.append(redis_key)
                 pipe.set(redis_key, "1", ex=expire_seconds, nx=True)
 
@@ -165,7 +192,10 @@ async def _deduplicate_redis(
 
                 if redis_available:
                     key_str = json.dumps(key, sort_keys=True, default=str)
-                    redis_key = f"dedup:{hashlib.sha256(key_str.encode()).hexdigest()}"
+                    redis_key = (
+                        f"dedup:{dedup_scope}:"
+                        f"{hashlib.sha256(key_str.encode()).hexdigest()}"
+                    )
 
                     try:
                         was_set = await redis_client.set(

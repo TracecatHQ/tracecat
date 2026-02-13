@@ -11,18 +11,12 @@ export default function MembersPage() {
             <h2 className="text-2xl font-semibold tracking-tight">
               Organization members
             </h2>
-            <p className="text-md text-muted-foreground">
-              View all organization members here.
+            <p className="text-base text-muted-foreground">
+              Manage members and invitations for your organization.
             </p>
           </div>
-          <div className="ml-auto flex items-center space-x-2"></div>
         </div>
-        <div className="space-y-4">
-          <>
-            <h6 className="text-sm font-semibold">Manage members</h6>
-            <OrgMembersTable />
-          </>
-        </div>
+        <OrgMembersTable />
       </div>
     </div>
   )

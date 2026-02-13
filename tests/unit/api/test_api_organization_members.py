@@ -14,6 +14,7 @@ from tracecat.api.app import app
 from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole
 from tracecat.contexts import ctx_role
+from tracecat.exceptions import TracecatValidationError
 from tracecat.organization import router as organization_router
 
 
@@ -102,3 +103,54 @@ async def test_update_org_member_omits_superuser_flag(
     assert data["user_id"] == str(user.id)
     assert data["role"] == "member"
     assert "is_superuser" not in data
+
+
+@pytest.mark.anyio
+async def test_delete_organization_requires_owner_role(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    response = client.delete("/organization?confirm=Test%20Organization")
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.anyio
+async def test_delete_organization_owner_success(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    owner_role = test_admin_role.model_copy(update={"org_role": OrgRole.OWNER})
+    token = ctx_role.set(owner_role)
+    try:
+        with patch.object(organization_router, "OrgService") as MockService:
+            mock_svc = AsyncMock()
+            mock_svc.delete_organization.return_value = None
+            MockService.return_value = mock_svc
+
+            response = client.delete("/organization?confirm=Test%20Organization")
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    mock_svc.delete_organization.assert_awaited_once_with(
+        confirmation="Test Organization"
+    )
+
+
+@pytest.mark.anyio
+async def test_delete_organization_bad_confirmation_returns_400(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    owner_role = test_admin_role.model_copy(update={"org_role": OrgRole.OWNER})
+    token = ctx_role.set(owner_role)
+    try:
+        with patch.object(organization_router, "OrgService") as MockService:
+            mock_svc = AsyncMock()
+            mock_svc.delete_organization.side_effect = TracecatValidationError(
+                "Confirmation text must exactly match the organization name."
+            )
+            MockService.return_value = mock_svc
+
+            response = client.delete("/organization?confirm=wrong")
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST

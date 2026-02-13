@@ -1,5 +1,5 @@
 ## Minikube Local Development
-## Prerequisites: minikube with ingress addon, CloudNativePG operator, secrets created
+## Prerequisites: minikube with ingress addon, secrets created
 ## Add to /etc/hosts: $(minikube ip) tracecat.local
 
 secrets:
@@ -13,21 +13,26 @@ ingress:
   enabled: true
   className: nginx
   host: tracecat.local
-  annotations:
-    # Strip /s3 prefix for MinIO presigned URLs
-    nginx.ingress.kubernetes.io/use-regex: "true"
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      rewrite ^/s3/(.*)$ /$1 break;
 
-# Use internal subcharts (default)
+# Temporal subchart
 temporal:
   enabled: true
-postgres:
-  enabled: true
-redis:
-  enabled: true
-minio:
-  enabled: true
+
+# External services (configure these for your environment)
+externalPostgres:
+  host: ""       # e.g. host.minikube.internal or your database host
+  port: 5432
+  database: tracecat
+  sslMode: disable
+  auth:
+    existingSecret: tracecat-postgres-credentials  # Secret with `username` and `password` keys
+
+externalRedis:
+  auth:
+    existingSecret: tracecat-redis-credentials  # Secret with `url` key
+
+externalS3:
+  endpoint: ""   # e.g. http://host.minikube.internal:9000 for a local MinIO
 
 # Replica overrides for local development (resources use chart defaults)
 api:

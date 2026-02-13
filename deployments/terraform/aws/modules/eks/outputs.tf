@@ -94,11 +94,11 @@ output "database_authentication" {
 output "encryption_at_rest" {
   description = "Encryption at rest for RDS, ElastiCache, and S3."
   value = {
-    rds_storage_encrypted          = aws_db_instance.tracecat.storage_encrypted
-    redis_encryption_enabled       = aws_elasticache_replication_group.tracecat.at_rest_encryption_enabled
-    s3_attachments_sse_algorithm   = one(one(aws_s3_bucket_server_side_encryption_configuration.attachments.rule).apply_server_side_encryption_by_default).sse_algorithm
-    s3_registry_sse_algorithm      = one(one(aws_s3_bucket_server_side_encryption_configuration.registry.rule).apply_server_side_encryption_by_default).sse_algorithm
-    s3_workflow_sse_algorithm      = one(one(aws_s3_bucket_server_side_encryption_configuration.workflow.rule).apply_server_side_encryption_by_default).sse_algorithm
+    rds_storage_encrypted        = aws_db_instance.tracecat.storage_encrypted
+    redis_encryption_enabled     = aws_elasticache_replication_group.tracecat.at_rest_encryption_enabled
+    s3_attachments_sse_algorithm = one(one(aws_s3_bucket_server_side_encryption_configuration.attachments.rule).apply_server_side_encryption_by_default).sse_algorithm
+    s3_registry_sse_algorithm    = one(one(aws_s3_bucket_server_side_encryption_configuration.registry.rule).apply_server_side_encryption_by_default).sse_algorithm
+    s3_workflow_sse_algorithm    = one(one(aws_s3_bucket_server_side_encryption_configuration.workflow.rule).apply_server_side_encryption_by_default).sse_algorithm
   }
 }
 

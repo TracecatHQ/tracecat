@@ -235,6 +235,17 @@ export type ActionValidationResult = {
 export type status = "success" | "error"
 
 /**
+ * Create a user from the platform admin control plane.
+ */
+export type AdminUserCreate = {
+  email: string
+  password: string
+  first_name?: string | null
+  last_name?: string | null
+  is_superuser?: boolean
+}
+
+/**
  * Admin view of a user.
  */
 export type AdminUserRead = {
@@ -730,9 +741,12 @@ export type AttachmentDeletedEventRead = {
   created_at: string
 }
 
+/**
+ * A URL to an audio file.
+ */
 export type AudioUrl = {
   url: string
-  force_download?: boolean
+  force_download?: boolean | "allow-local"
   vendor_metadata?: {
     [key: string]: unknown
   } | null
@@ -810,8 +824,11 @@ export type BatchPositionUpdate = {
   trigger_position?: Position | null
 }
 
+/**
+ * Binary content, e.g. an audio or image file.
+ */
 export type BinaryContent = {
-  data: Blob | File
+  data: string
   media_type:
     | "audio/wav"
     | "audio/mpeg"
@@ -2109,9 +2126,12 @@ export type DataUIPart = {
   data: unknown
 }
 
+/**
+ * The URL of the document.
+ */
 export type DocumentUrl = {
   url: string
-  force_download?: boolean
+  force_download?: boolean | "allow-local"
   vendor_metadata?: {
     [key: string]: unknown
   } | null
@@ -2257,8 +2277,17 @@ export type EditorParamRead = {
  * All keys are optional (total=False) to support partial overrides.
  */
 export type EntitlementsDict = {
+  /**
+   * Whether custom registry repositories are enabled
+   */
   custom_registry?: boolean
+  /**
+   * Whether SSO is enabled
+   */
   sso?: boolean
+  /**
+   * Whether git sync is enabled
+   */
   git_sync?: boolean
 }
 
@@ -2691,9 +2720,12 @@ export type HealthResponse = {
   status: string
 }
 
+/**
+ * A URL to an image.
+ */
 export type ImageUrl = {
   url: string
-  force_download?: boolean
+  force_download?: boolean | "allow-local"
   vendor_metadata?: {
     [key: string]: unknown
   } | null
@@ -3246,7 +3278,10 @@ export type OrgInvitationReadMinimal = {
   email_matches?: boolean | null
 }
 
-export type OrgMemberRead = {
+/**
+ * Detailed member info for /me and update endpoints.
+ */
+export type OrgMemberDetail = {
   user_id: string
   first_name: string | null
   last_name: string | null
@@ -3256,6 +3291,24 @@ export type OrgMemberRead = {
   is_verified: boolean
   last_login_at: string | null
 }
+
+/**
+ * Unified member representation — covers active, inactive, and pending (invited) members.
+ */
+export type OrgMemberRead = {
+  user_id?: string | null
+  invitation_id?: string | null
+  email: string
+  role: OrgRole
+  status: OrgMemberStatus
+  first_name?: string | null
+  last_name?: string | null
+  last_login_at?: string | null
+  expires_at?: string | null
+  created_at?: string | null
+}
+
+export type OrgMemberStatus = "active" | "inactive" | "invited"
 
 /**
  * Pending invitation visible to the invited authenticated user.
@@ -5286,7 +5339,7 @@ export type ToolResultBlock = {
 }
 
 export type ToolReturn = {
-  return_value: unknown
+  return_value: ToolReturnContent
   content?:
     | string
     | Array<
@@ -5302,6 +5355,18 @@ export type ToolReturn = {
   metadata?: unknown
   kind?: "tool-return"
 }
+
+export type ToolReturnContent =
+  | ImageUrl
+  | AudioUrl
+  | DocumentUrl
+  | VideoUrl
+  | BinaryContent
+  | Array<ToolReturnContent>
+  | {
+      [key: string]: ToolReturnContent
+    }
+  | unknown
 
 export type ToolUIPartInputAvailable = {
   type: string
@@ -5589,9 +5654,12 @@ export type VersionDiff = {
   total_changes?: number
 }
 
+/**
+ * A URL to a video.
+ */
 export type VideoUrl = {
   url: string
-  force_download?: boolean
+  force_download?: boolean | "allow-local"
   vendor_metadata?: {
     [key: string]: unknown
   } | null
@@ -7082,7 +7150,7 @@ export type OrganizationGetOrganizationResponse =
 export type OrganizationListOrganizationDomainsResponse =
   Array<tracecat__organization__schemas__OrgDomainRead>
 
-export type OrganizationGetCurrentOrgMemberResponse = OrgMemberRead
+export type OrganizationGetCurrentOrgMemberResponse = OrgMemberDetail
 
 export type OrganizationListOrgMembersResponse = Array<OrgMemberRead>
 
@@ -7097,7 +7165,7 @@ export type OrganizationUpdateOrgMemberData = {
   userId: string
 }
 
-export type OrganizationUpdateOrgMemberResponse = OrgMemberRead
+export type OrganizationUpdateOrgMemberResponse = OrgMemberDetail
 
 export type OrganizationListSessionsResponse = Array<SessionRead>
 
@@ -7112,12 +7180,6 @@ export type OrganizationCreateInvitationData = {
 }
 
 export type OrganizationCreateInvitationResponse = OrgInvitationRead
-
-export type OrganizationListInvitationsData = {
-  status?: InvitationStatus | null
-}
-
-export type OrganizationListInvitationsResponse = Array<OrgInvitationRead>
 
 export type OrganizationRevokeInvitationData = {
   invitationId: string
@@ -7515,6 +7577,12 @@ export type AdminUpdateOrgTierData = {
 export type AdminUpdateOrgTierResponse = OrganizationTierRead
 
 export type AdminListUsersResponse = Array<AdminUserRead>
+
+export type AdminCreateUserData = {
+  requestBody: AdminUserCreate
+}
+
+export type AdminCreateUserResponse = AdminUserRead
 
 export type AdminGetUserData = {
   userId: string
@@ -10043,7 +10111,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: OrgMemberRead
+        200: OrgMemberDetail
       }
     }
   }
@@ -10077,7 +10145,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: OrgMemberRead
+        200: OrgMemberDetail
         /**
          * Validation Error
          */
@@ -10118,19 +10186,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: OrgInvitationRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    get: {
-      req: OrganizationListInvitationsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<OrgInvitationRead>
         /**
          * Validation Error
          */
@@ -10912,6 +10967,19 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<AdminUserRead>
+      }
+    }
+    post: {
+      req: AdminCreateUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AdminUserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }

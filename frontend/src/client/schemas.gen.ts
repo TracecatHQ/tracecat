@@ -863,6 +863,51 @@ export const $ActionValidationResult = {
   description: "Result of validating a registry action's arguments.",
 } as const
 
+export const $AdminUserCreate = {
+  properties: {
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    password: {
+      type: "string",
+      title: "Password",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+    is_superuser: {
+      type: "boolean",
+      title: "Is Superuser",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["email", "password"],
+  title: "AdminUserCreate",
+  description: "Create a user from the platform admin control plane.",
+} as const
+
 export const $AdminUserRead = {
   properties: {
     id: {
@@ -2825,7 +2870,15 @@ export const $AudioUrl = {
       title: "Url",
     },
     force_download: {
-      type: "boolean",
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "string",
+          const: "allow-local",
+        },
+      ],
       title: "Force Download",
       default: false,
     },
@@ -2874,6 +2927,7 @@ distinguish multiple files.`,
   type: "object",
   required: ["url", "media_type", "identifier"],
   title: "AudioUrl",
+  description: "A URL to an audio file.",
 } as const
 
 export const $AuditSettingsRead = {
@@ -3009,7 +3063,7 @@ export const $BinaryContent = {
   properties: {
     data: {
       type: "string",
-      format: "binary",
+      format: "base64url",
       title: "Data",
     },
     media_type: {
@@ -3087,6 +3141,7 @@ distinguish multiple files.`,
   type: "object",
   required: ["data", "media_type", "identifier"],
   title: "BinaryContent",
+  description: "Binary content, e.g. an audio or image file.",
 } as const
 
 export const $Body_auth_auth_database_login = {
@@ -6948,7 +7003,15 @@ export const $DocumentUrl = {
       title: "Url",
     },
     force_download: {
-      type: "boolean",
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "string",
+          const: "allow-local",
+        },
+      ],
       title: "Force Download",
       default: false,
     },
@@ -6997,6 +7060,7 @@ distinguish multiple files.`,
   type: "object",
   required: ["url", "media_type", "identifier"],
   title: "DocumentUrl",
+  description: "The URL of the document.",
 } as const
 
 export const $DropdownValueChangedEventRead = {
@@ -7416,14 +7480,17 @@ export const $EntitlementsDict = {
     custom_registry: {
       type: "boolean",
       title: "Custom Registry",
+      description: "Whether custom registry repositories are enabled",
     },
     sso: {
       type: "boolean",
       title: "Sso",
+      description: "Whether SSO is enabled",
     },
     git_sync: {
       type: "boolean",
       title: "Git Sync",
+      description: "Whether git sync is enabled",
     },
   },
   type: "object",
@@ -8688,7 +8755,15 @@ export const $ImageUrl = {
       title: "Url",
     },
     force_download: {
-      type: "boolean",
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "string",
+          const: "allow-local",
+        },
+      ],
       title: "Force Download",
       default: false,
     },
@@ -8737,6 +8812,7 @@ distinguish multiple files.`,
   type: "object",
   required: ["url", "media_type", "identifier"],
   title: "ImageUrl",
+  description: "A URL to an image.",
 } as const
 
 export const $InboxItemRead = {
@@ -10111,7 +10187,7 @@ Excludes sensitive fields like email, invited_by ID, and timestamps
 to reduce information disclosure when querying by token.`,
 } as const
 
-export const $OrgMemberRead = {
+export const $OrgMemberDetail = {
   properties: {
     user_id: {
       type: "string",
@@ -10180,7 +10256,117 @@ export const $OrgMemberRead = {
     "is_verified",
     "last_login_at",
   ],
+  title: "OrgMemberDetail",
+  description: "Detailed member info for /me and update endpoints.",
+} as const
+
+export const $OrgMemberRead = {
+  properties: {
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+    },
+    invitation_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Invitation Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role: {
+      $ref: "#/components/schemas/OrgRole",
+    },
+    status: {
+      $ref: "#/components/schemas/OrgMemberStatus",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+    last_login_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Login At",
+    },
+    expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expires At",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["email", "role", "status"],
   title: "OrgMemberRead",
+  description:
+    "Unified member representation — covers active, inactive, and pending (invited) members.",
+} as const
+
+export const $OrgMemberStatus = {
+  type: "string",
+  enum: ["active", "inactive", "invited"],
+  title: "OrgMemberStatus",
 } as const
 
 export const $OrgPendingInvitationRead = {
@@ -16683,7 +16869,7 @@ export const $ToolResultBlock = {
 export const $ToolReturn = {
   properties: {
     return_value: {
-      title: "Return Value",
+      $ref: "#/components/schemas/ToolReturnContent",
     },
     content: {
       anyOf: [
@@ -16697,19 +16883,33 @@ export const $ToolReturn = {
                 type: "string",
               },
               {
-                $ref: "#/components/schemas/ImageUrl",
-              },
-              {
-                $ref: "#/components/schemas/AudioUrl",
-              },
-              {
-                $ref: "#/components/schemas/DocumentUrl",
-              },
-              {
-                $ref: "#/components/schemas/VideoUrl",
-              },
-              {
-                $ref: "#/components/schemas/BinaryContent",
+                oneOf: [
+                  {
+                    $ref: "#/components/schemas/ImageUrl",
+                  },
+                  {
+                    $ref: "#/components/schemas/AudioUrl",
+                  },
+                  {
+                    $ref: "#/components/schemas/DocumentUrl",
+                  },
+                  {
+                    $ref: "#/components/schemas/VideoUrl",
+                  },
+                  {
+                    $ref: "#/components/schemas/BinaryContent",
+                  },
+                ],
+                discriminator: {
+                  propertyName: "kind",
+                  mapping: {
+                    "audio-url": "#/components/schemas/AudioUrl",
+                    binary: "#/components/schemas/BinaryContent",
+                    "document-url": "#/components/schemas/DocumentUrl",
+                    "image-url": "#/components/schemas/ImageUrl",
+                    "video-url": "#/components/schemas/VideoUrl",
+                  },
+                },
               },
               {
                 $ref: "#/components/schemas/CachePoint",
@@ -16737,6 +16937,53 @@ export const $ToolReturn = {
   type: "object",
   required: ["return_value"],
   title: "ToolReturn",
+} as const
+
+export const $ToolReturnContent = {
+  anyOf: [
+    {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/ImageUrl",
+        },
+        {
+          $ref: "#/components/schemas/AudioUrl",
+        },
+        {
+          $ref: "#/components/schemas/DocumentUrl",
+        },
+        {
+          $ref: "#/components/schemas/VideoUrl",
+        },
+        {
+          $ref: "#/components/schemas/BinaryContent",
+        },
+      ],
+      discriminator: {
+        propertyName: "kind",
+        mapping: {
+          "audio-url": "#/components/schemas/AudioUrl",
+          binary: "#/components/schemas/BinaryContent",
+          "document-url": "#/components/schemas/DocumentUrl",
+          "image-url": "#/components/schemas/ImageUrl",
+          "video-url": "#/components/schemas/VideoUrl",
+        },
+      },
+    },
+    {
+      items: {
+        $ref: "#/components/schemas/ToolReturnContent",
+      },
+      type: "array",
+    },
+    {
+      additionalProperties: {
+        $ref: "#/components/schemas/ToolReturnContent",
+      },
+      type: "object",
+    },
+    {},
+  ],
 } as const
 
 export const $ToolUIPartInputAvailable = {
@@ -17910,7 +18157,15 @@ export const $VideoUrl = {
       title: "Url",
     },
     force_download: {
-      type: "boolean",
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "string",
+          const: "allow-local",
+        },
+      ],
       title: "Force Download",
       default: false,
     },
@@ -17959,6 +18214,7 @@ distinguish multiple files.`,
   type: "object",
   required: ["url", "media_type", "identifier"],
   title: "VideoUrl",
+  description: "A URL to a video.",
 } as const
 
 export const $WaitStrategy = {

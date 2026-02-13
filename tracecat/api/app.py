@@ -31,6 +31,7 @@ from tracecat.api.common import (
     generic_exception_handler,
     tracecat_exception_handler,
 )
+from tracecat.auth.credentials import authenticated_user_only
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
     require_auth_type_enabled,
@@ -442,6 +443,7 @@ def create_app(**kwargs) -> FastAPI:
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",
         tags=["users"],
+        dependencies=[Depends(authenticated_user_only)],
     )
     # Internal routers
     app.include_router(internal_agent_router)

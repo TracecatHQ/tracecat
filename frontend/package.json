@@ -87,7 +87,7 @@
     "ag-grid-community": "^35.0.1",
     "ag-grid-react": "^35.0.1",
     "ai": "^5.0.59",
-    "axios": "^1.12.2",
+    "axios": "1.13.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^0.2.1",

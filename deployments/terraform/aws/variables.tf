@@ -74,19 +74,19 @@ variable "node_ami_type" {
 variable "node_desired_size" {
   description = "Desired number of nodes in the node group"
   type        = number
-  default     = 6
+  default     = 8
 }
 
 variable "node_min_size" {
   description = "Minimum number of nodes in the node group"
   type        = number
-  default     = 6
+  default     = 8
 }
 
 variable "node_max_size" {
   description = "Maximum number of nodes in the node group"
   type        = number
-  default     = 10
+  default     = 12
 }
 
 variable "node_disk_size" {
@@ -135,7 +135,7 @@ variable "tracecat_version" {
 variable "tracecat_image_tag" {
   description = "Docker image tag for Tracecat services"
   type        = string
-  default     = "1.0.0-beta.4"
+  default     = "1.0.0-beta.6"
 }
 
 variable "tracecat_ingress_split" {
@@ -159,13 +159,36 @@ variable "tracecat_secrets_arn" {
 variable "rds_instance_class" {
   description = "RDS instance class"
   type        = string
-  default     = "db.t4g.medium"
+  default     = "db.t4g.xlarge"
+}
+
+variable "rds_engine_version" {
+  description = "Exact Postgres engine version for the RDS instance (for example, 16.12)"
+  type        = string
+  default     = "16.12"
 }
 
 variable "rds_allocated_storage" {
   description = "Allocated storage for RDS in GB"
   type        = number
-  default     = 20
+  default     = 50
+}
+
+variable "rds_storage_type" {
+  description = "RDS storage type"
+  type        = string
+  default     = "gp3"
+
+  validation {
+    condition     = contains(["gp2", "gp3", "io1", "io2"], var.rds_storage_type)
+    error_message = "rds_storage_type must be one of: gp2, gp3, io1, io2."
+  }
+}
+
+variable "rds_apply_immediately" {
+  description = "Whether to apply RDS modifications immediately instead of during the next maintenance window"
+  type        = bool
+  default     = false
 }
 
 variable "rds_master_username" {
@@ -206,7 +229,7 @@ variable "rds_deletion_protection" {
 variable "elasticache_node_type" {
   description = "ElastiCache node type"
   type        = string
-  default     = "cache.t3.micro"
+  default     = "cache.t4g.medium"
 }
 
 # Temporal Configuration
@@ -358,7 +381,7 @@ variable "executor_memory_request_mib" {
 variable "agent_executor_cpu_request_millicores" {
   description = "Agent executor CPU request in millicores"
   type        = number
-  default     = 4000
+  default     = 2000
 }
 
 variable "agent_executor_memory_request_mib" {
@@ -443,6 +466,39 @@ variable "tags" {
     Project   = "tracecat"
     ManagedBy = "terraform"
   }
+}
+
+# Auth Configuration
+variable "auth_types" {
+  description = "Comma-separated authentication types (e.g., 'oidc', 'basic,saml', 'basic,oidc')"
+  type        = string
+  default     = "oidc"
+}
+
+# OIDC Configuration
+variable "oidc_issuer" {
+  description = "OIDC issuer URL (e.g., https://accounts.google.com)"
+  type        = string
+  default     = ""
+}
+
+variable "oidc_client_id" {
+  description = "OIDC client ID"
+  type        = string
+  default     = ""
+}
+
+variable "oidc_client_secret" {
+  description = "OIDC client secret"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "oidc_scopes" {
+  description = "OIDC scopes to request (space-separated, e.g., 'openid email profile')"
+  type        = string
+  default     = ""
 }
 
 # Enterprise Edition

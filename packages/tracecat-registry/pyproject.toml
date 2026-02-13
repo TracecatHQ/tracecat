@@ -29,7 +29,7 @@ dependencies = [
     "dnspython==2.6.1",
     "docker==7.1.0",
     "duckdb==1.4.3",
-    "google-auth==2.37.0",
+    "google-auth==2.48.0",
     "grpcio==1.75.1",
     "grpcio-tools==1.75.1",
     "hatchling==1.27.0",

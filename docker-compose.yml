@@ -14,7 +14,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.4}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.6}
     container_name: api
     restart: unless-stopped
     networks:
@@ -31,7 +31,6 @@ services:
       TRACECAT__AUTH_MIN_PASSWORD_LENGTH: ${TRACECAT__AUTH_MIN_PASSWORD_LENGTH}
       TRACECAT__AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
       TRACECAT__AUTH_SUPERADMIN_EMAIL: ${TRACECAT__AUTH_SUPERADMIN_EMAIL}
-      TRACECAT__DEV_COOKIE_NAME: ${TRACECAT__DEV_COOKIE_NAME:-}
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
@@ -98,7 +97,7 @@ services:
       start_period: 10s
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.4}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.6}
     restart: unless-stopped
     networks:
       - core
@@ -153,7 +152,7 @@ services:
         condition: service_healthy
 
   executor:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.4}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.6}
     restart: unless-stopped
     networks:
       - core
@@ -225,7 +224,7 @@ services:
         condition: service_healthy
 
   agent-executor:
-      image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.4}
+      image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.6}
       restart: unless-stopped
       networks:
         - core
@@ -296,7 +295,7 @@ services:
         minio:
           condition: service_healthy
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-1.0.0-beta.4}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-1.0.0-beta.6}
     container_name: ui
     restart: unless-stopped
     networks:
@@ -332,7 +331,7 @@ services:
       start_period: 5s
 
   migrations:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.4}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.6}
     container_name: migrations
     restart: "no"
     networks:
@@ -395,7 +394,7 @@ services:
     #   - 8081:8080
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CORS_ORIGINS=http://localhost:8080
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8081
     depends_on:
       - temporal
 

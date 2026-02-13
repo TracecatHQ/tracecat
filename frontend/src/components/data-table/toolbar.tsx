@@ -25,6 +25,7 @@ export interface DataTableToolbarProps<TData> {
   filterProps?: DataTableToolbarFilterProps
   fields?: DataTableToolbarField[]
   onDeleteRows?: (selectedRows: Row<TData>[]) => Promise<void> | void
+  actions?: React.ReactNode
 }
 
 interface DataTableToolbarFilterProps {
@@ -52,6 +53,7 @@ export function DataTableToolbar<TData>({
   fields,
   table,
   onDeleteRows,
+  actions,
 }: InternalDataTableToolbarProps<TData>) {
   const isFiltered = table.getState().columnFilters.length > 0
   const hasSelection = Object.keys(table.getState().rowSelection).length > 0
@@ -145,7 +147,10 @@ export function DataTableToolbar<TData>({
           </AlertDialog>
         )}
       </div>
-      <DataTableViewOptions table={table} />
+      <div className="flex items-center gap-2">
+        {actions}
+        <DataTableViewOptions table={table} />
+      </div>
     </div>
   )
 }

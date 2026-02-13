@@ -18,7 +18,7 @@ spec:
         app.kubernetes.io/component: executor
         tracecat.com/access-postgres: "true"
         tracecat.com/access-redis: "true"
-      {{- if or .Values.reloader.enabled (and .Values.tracecat.temporal.metrics.enabled .Values.tracecat.temporal.metrics.scrape) }}
+      {{- if or .Values.reloader.enabled (and .Values.tracecat.temporal.metrics.enabled .Values.tracecat.temporal.metrics.scrape) .Values.podAnnotations }}
       annotations:
         {{- if .Values.reloader.enabled }}
         reloader.stakater.com/auto: "true"
@@ -28,17 +28,13 @@ spec:
         prometheus.io/port: {{ .Values.tracecat.temporal.metrics.port | quote }}
         prometheus.io/path: {{ .Values.tracecat.temporal.metrics.path | default "/metrics" | quote }}
         {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
     spec:
-      {{- if not .Values.tracecat.sandbox.disableNsjail }}
-      # nsjail requires root to set up mount namespaces
-      securityContext:
-        fsGroup: 0
-        runAsUser: 0
-      {{- else }}
       securityContext:
         {{- toYaml .Values.securityContext | nindent 8 }}
-      {{- end }}
       serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
       {{- include "tracecat.podScheduling" (dict "root" . "component" "executor") | nindent 6 }}
       containers:
