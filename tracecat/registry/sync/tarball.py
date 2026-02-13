@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import os
 import re
+import sysconfig
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -98,6 +99,107 @@ def get_builtin_registry_source_path() -> Path:
         )
 
     return package_path
+
+
+def get_installed_site_packages_path() -> Path:
+    """Get the site-packages directory for the current interpreter."""
+    site_packages_str = sysconfig.get_path("purelib")
+    if site_packages_str is None:
+        raise TarballBuildError(
+            "Could not resolve site-packages path from current interpreter."
+        )
+
+    site_packages = Path(site_packages_str)
+    if not site_packages.exists():
+        raise TarballBuildError(
+            f"Resolved site-packages path does not exist: {site_packages}"
+        )
+    return site_packages
+
+
+def _compute_path_size(path: Path) -> int:
+    """Compute the total size in bytes for a file or directory tree."""
+    if path.is_file():
+        return path.stat().st_size
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
+
+async def build_tarball_venv_from_installed_environment(
+    *,
+    package_name: str,
+    package_dir: Path,
+    output_dir: Path | None = None,
+) -> TarballVenvBuildResult:
+    """Build a tarball from the current interpreter's installed environment.
+
+    This avoids creating a fresh venv and re-installing dependencies from indexes.
+    It's primarily used for builtin registry sync where dependencies are already
+    available in the running container image.
+    """
+    import tarfile
+
+    if output_dir is None:
+        output_dir = Path(tempfile.mkdtemp(prefix="tracecat_tarball_venv_"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    site_packages = get_installed_site_packages_path()
+    package_dir = package_dir.resolve()
+    package_in_site_packages = package_dir.parent == site_packages.resolve()
+
+    tarball_name = "site-packages.tar.gz"
+    tarball_path = output_dir / tarball_name
+
+    logger.info(
+        "Building tarball from installed environment",
+        site_packages=str(site_packages),
+        package_name=package_name,
+        package_dir=str(package_dir),
+        package_in_site_packages=package_in_site_packages,
+    )
+
+    # Include all installed dependencies from site-packages.
+    # If the package is installed in editable mode, also include its source dir.
+    uncompressed_size = _compute_path_size(site_packages)
+    if not package_in_site_packages:
+        uncompressed_size += _compute_path_size(package_dir)
+
+    def _create_tarball() -> None:
+        with tarfile.open(tarball_path, "w:gz", compresslevel=6) as tar:
+            for item in site_packages.iterdir():
+                tar.add(item, arcname=item.name)
+
+            # Editable installs put package source outside site-packages.
+            if not package_in_site_packages:
+                if (site_packages / package_name).exists():
+                    logger.warning(
+                        "Skipping editable package overlay because package already exists in site-packages",
+                        package_name=package_name,
+                        site_packages=str(site_packages),
+                    )
+                else:
+                    tar.add(package_dir, arcname=package_name)
+
+    await asyncio.to_thread(_create_tarball)
+
+    content_hash = await asyncio.to_thread(_compute_file_hash, tarball_path)
+    compressed_size = tarball_path.stat().st_size
+
+    logger.info(
+        "Installed environment tarball built successfully",
+        tarball_name=tarball_name,
+        content_hash=content_hash[:16],
+        uncompressed_size_bytes=uncompressed_size,
+        compressed_size_bytes=compressed_size,
+        compression_ratio=f"{uncompressed_size / compressed_size:.2f}x",
+    )
+
+    return TarballVenvBuildResult(
+        tarball_path=tarball_path,
+        tarball_name=tarball_name,
+        content_hash=content_hash,
+        uncompressed_size_bytes=uncompressed_size,
+        compressed_size_bytes=compressed_size,
+    )
 
 
 async def build_tarball_venv_from_path(
@@ -377,6 +479,13 @@ async def build_builtin_registry_tarball_venv(
     Raises:
         TarballBuildError: If the build fails
     """
+    if config.TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES:
+        return await build_tarball_venv_from_installed_environment(
+            package_name="tracecat_registry",
+            package_dir=Path(tracecat_registry.__file__).resolve().parent,
+            output_dir=output_dir,
+        )
+
     package_path = get_builtin_registry_source_path()
     return await build_tarball_venv_from_path(package_path, output_dir)
 
