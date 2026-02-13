@@ -2,6 +2,11 @@ name: Publish helm chart
 
 on:
   workflow_dispatch:
+    inputs:
+      chart_version:
+        description: "Chart version to publish (defaults to Chart.yaml version)"
+        required: false
+        type: string
   push:
     tags:
       - "*.*.*"
@@ -25,6 +30,34 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4
 
+      - name: Resolve chart version
+        id: chart-version
+        run: |
+          INPUT_VERSION="${{ inputs.chart_version }}"
+          if [ -n "$INPUT_VERSION" ]; then
+            CHART_VERSION="$INPUT_VERSION"
+          else
+            CHART_VERSION="$(helm show chart "${{ env.CHART_PATH }}" | awk -F': ' '$1 == "version" {print $2}')"
+          fi
+
+          if [ -z "$CHART_VERSION" ]; then
+            echo "Unable to determine chart version."
+            exit 1
+          fi
+
+          echo "version=$CHART_VERSION" >> "$GITHUB_OUTPUT"
+
+
+      - name: Validate tag matches chart version
+        if: github.event_name == 'push'
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CHART_VERSION="${{ steps.chart-version.outputs.version }}"
+
+          if [ "$TAG_VERSION" != "$CHART_VERSION" ]; then
+            echo "Tag version ($TAG_VERSION) does not match chart version ($CHART_VERSION)."
+            exit 1
+          fi
       - name: Build chart dependencies
         run: helm dependency build "${{ env.CHART_PATH }}"
 
@@ -35,7 +68,10 @@ jobs:
             --password-stdin
 
       - name: Package chart
-        run: helm package "${{ env.CHART_PATH }}" --destination /tmp/chart
+        run: |
+          helm package "${{ env.CHART_PATH }}" \
+            --version "${{ steps.chart-version.outputs.version }}" \
+            --destination /tmp/chart
 
       - name: Push chart to GHCR
         run: helm push /tmp/chart/*.tgz oci://${{ env.OCI_REPOSITORY }}
