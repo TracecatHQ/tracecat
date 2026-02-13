@@ -229,7 +229,8 @@ class BaseRegistrySyncService[
     def _generate_collision_version(self, base_version: str) -> str:
         """Generate a unique dev version for same-version manifest changes."""
         suffix = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
-        return f"{base_version}.dev{suffix}"
+        tiebreaker = uuid.uuid4().int % 1_000_000
+        return f"{base_version}.dev{suffix}{tiebreaker:06d}"
 
     async def sync_repository_v2(
         self,

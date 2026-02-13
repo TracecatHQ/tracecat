@@ -33,6 +33,7 @@ from tracecat.contexts import (
 )
 from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.backends.base import ExecutorBackend
+from tracecat.executor.backends.registry_helpers import get_registry_tarball_uris
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorActionErrorInfo,
@@ -41,13 +42,8 @@ from tracecat.executor.schemas import (
     ExecutorResultSuccess,
     ResolvedContext,
 )
-from tracecat.executor.service import (
-    RegistryArtifactsContext,
-    get_registry_artifacts_for_lock,
-)
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionUDFImpl
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.loaders import load_udf_impl
 from tracecat.secrets import secrets_manager
 
@@ -269,37 +265,6 @@ class TestBackend(ExecutorBackend):
 
     async def _get_tarball_uris(self, input: RunActionInput, role: Role) -> list[str]:
         """Get tarball URIs for registry environment (deterministic ordering)."""
-        if role.organization_id is None:
-            raise ValueError(
-                "organization_id is required for registry artifacts lookup"
-            )
-
-        try:
-            artifacts = await get_registry_artifacts_for_lock(
-                input.registry_lock.origins, role.organization_id
-            )
-            return self._sort_tarball_uris(artifacts)
-        except Exception as e:
-            logger.warning(
-                "Failed to load registry artifacts for test execution",
-                error=str(e),
-            )
-            return []
-
-    def _sort_tarball_uris(
-        self, artifacts: list[RegistryArtifactsContext]
-    ) -> list[str]:
-        """Sort tarballs: tracecat_registry first, then lexicographically by origin."""
-        builtin_uris: list[str] = []
-        other_uris: list[tuple[str, str]] = []
-
-        for artifact in artifacts:
-            if not artifact.tarball_uri:
-                continue
-            if artifact.origin == DEFAULT_REGISTRY_ORIGIN:
-                builtin_uris.append(artifact.tarball_uri)
-            else:
-                other_uris.append((artifact.origin, artifact.tarball_uri))
-
-        other_uris.sort(key=lambda x: x[0])
-        return builtin_uris + [uri for _, uri in other_uris]
+        return await get_registry_tarball_uris(
+            input=input, role=role, execution_mode="test"
+        )
