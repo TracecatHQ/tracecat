@@ -15,6 +15,7 @@ from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.expressions.functions import tabulate
@@ -71,6 +72,7 @@ TableDownloadFormat = Literal["json", "ndjson", "csv", "markdown"]
 
 
 @router.get("")
+@require_scope("table:read")
 async def list_tables(
     *,
     role: ExecutorWorkspaceRole,
@@ -83,6 +85,7 @@ async def list_tables(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
+@require_scope("table:create")
 async def create_table(
     *,
     role: ExecutorWorkspaceRole,
@@ -122,6 +125,7 @@ async def create_table(
 
 
 @router.get("/{table_name}/metadata", response_model=TableRead)
+@require_scope("table:read")
 async def get_table_metadata(
     *,
     role: ExecutorWorkspaceRole,
@@ -158,6 +162,7 @@ async def get_table_metadata(
 
 
 @router.post("/{table_name}/lookup")
+@require_scope("table:read")
 async def lookup_rows(
     *,
     role: ExecutorWorkspaceRole,
@@ -197,6 +202,7 @@ async def lookup_rows(
 
 
 @router.post("/{table_name}/exists")
+@require_scope("table:read")
 async def exists_rows(
     *,
     role: ExecutorWorkspaceRole,
@@ -225,6 +231,7 @@ async def exists_rows(
 
 
 @router.post("/{table_name}/search")
+@require_scope("table:read")
 async def search_rows(
     *,
     role: ExecutorWorkspaceRole,
@@ -268,6 +275,7 @@ async def search_rows(
 
 
 @router.post("/{table_name}/rows", status_code=status.HTTP_201_CREATED)
+@require_scope("table:create")
 async def insert_row(
     *,
     role: ExecutorWorkspaceRole,
@@ -295,6 +303,7 @@ async def insert_row(
 
 
 @router.post("/{table_name}/rows/batch", status_code=status.HTTP_201_CREATED)
+@require_scope("table:create")
 async def insert_rows_batch(
     *,
     role: ExecutorWorkspaceRole,
@@ -328,6 +337,7 @@ async def insert_rows_batch(
 
 
 @router.patch("/{table_name}/rows/{row_id}")
+@require_scope("table:update")
 async def update_row(
     *,
     role: ExecutorWorkspaceRole,
@@ -361,6 +371,7 @@ async def update_row(
 
 
 @router.delete("/{table_name}/rows/{row_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("table:delete")
 async def delete_row(
     *,
     role: ExecutorWorkspaceRole,
@@ -388,6 +399,7 @@ async def delete_row(
 
 
 @router.get("/{table_name}/download")
+@require_scope("table:read")
 async def download_table(
     *,
     role: ExecutorWorkspaceRole,

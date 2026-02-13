@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
-from tracecat.authz.enums import OrgRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import RegistryRepository
@@ -60,13 +60,13 @@ router = APIRouter(prefix=REGISTRY_REPOS_PATH, tags=["registry-repositories"])
         400: {"description": "Cannot sync repository"},
     },
 )
+@require_scope("org:registry:update")
 async def sync_registry_repository(
     *,
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
     session: AsyncDBSession,
     repository_id: uuid.UUID,
@@ -222,6 +222,7 @@ async def sync_registry_repository(
 
 
 @router.get("/{repository_id}/versions", response_model=list[RegistryVersionRead])
+@require_scope("org:registry:read")
 async def list_repository_versions(
     *,
     role: Role = RoleACL(
@@ -251,7 +252,8 @@ async def list_repository_versions(
     return [RegistryVersionRead.model_validate(v) for v in versions]
 
 
-@router.get("")
+@router.get("", response_model=list[RegistryRepositoryReadMinimal])
+@require_scope("org:registry:read")
 async def list_registry_repositories(
     *,
     role: Role = RoleACL(
@@ -302,6 +304,7 @@ async def list_registry_repositories(
 
 
 @router.get("/{repository_id}", response_model=RegistryRepositoryRead)
+@require_scope("org:registry:read")
 async def get_registry_repository(
     *,
     role: Role = RoleACL(
@@ -338,6 +341,7 @@ async def get_registry_repository(
 
 
 @router.get("/{repository_id}/commits", response_model=list[GitCommitInfo])
+@require_scope("org:registry:read")
 async def list_repository_commits(
     *,
     role: Role = RoleACL(
@@ -428,13 +432,13 @@ async def list_repository_commits(
 @router.post(
     "", status_code=status.HTTP_201_CREATED, response_model=RegistryRepositoryRead
 )
+@require_scope("org:registry:create")
 async def create_registry_repository(
     *,
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
     session: AsyncDBSession,
     params: RegistryRepositoryCreate,
@@ -472,13 +476,13 @@ async def create_registry_repository(
 
 
 @router.patch("/{repository_id}", response_model=RegistryRepositoryRead)
+@require_scope("org:registry:update")
 async def update_registry_repository(
     *,
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
     session: AsyncDBSession,
     repository_id: uuid.UUID,
@@ -508,13 +512,13 @@ async def update_registry_repository(
 
 
 @router.delete("/{repository_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:registry:delete")
 async def delete_registry_repository(
     *,
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
     session: AsyncDBSession,
     repository_id: uuid.UUID,
@@ -542,13 +546,13 @@ async def delete_registry_repository(
     "/{repository_id}/versions/{version_id}/promote",
     response_model=RegistryVersionPromoteResponse,
 )
+@require_scope("org:registry:update")
 async def promote_registry_version(
     *,
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
     session: AsyncDBSession,
     repository_id: uuid.UUID,
@@ -612,13 +616,13 @@ async def promote_registry_version(
     "/{repository_id}/versions/{version_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("org:registry:delete")
 async def delete_registry_version(
     *,
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
     session: AsyncDBSession,
     repository_id: uuid.UUID,
@@ -682,6 +686,7 @@ async def delete_registry_version(
     "/{repository_id}/versions/{version_id}/diff",
     response_model=VersionDiff,
 )
+@require_scope("org:registry:read")
 async def compare_registry_versions(
     *,
     role: Role = RoleACL(
@@ -748,6 +753,7 @@ async def compare_registry_versions(
     "/{repository_id}/versions/{version_id}/previous",
     response_model=RegistryVersionRead | None,
 )
+@require_scope("org:registry:read")
 async def get_previous_registry_version(
     *,
     role: Role = RoleACL(

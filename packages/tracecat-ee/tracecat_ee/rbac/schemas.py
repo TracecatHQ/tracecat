@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from tracecat.authz.enums import ScopeSource
+from tracecat.authz.scopes import PRESET_ROLE_SCOPES
 from tracecat.core.schemas import Schema
 
 # =============================================================================
@@ -74,15 +75,8 @@ class RoleRead(BaseModel):
     @computed_field
     @property
     def is_system(self) -> bool:
-        """Whether this is a system role (admin, editor, viewer)."""
-        return self.slug in {
-            "workspace-admin",
-            "workspace-editor",
-            "workspace-viewer",
-            "organization-owner",
-            "organization-admin",
-            "organization-member",
-        }
+        """Whether this is a preset system role."""
+        return self.slug in PRESET_ROLE_SCOPES
 
 
 class RoleReadWithScopes(RoleRead):

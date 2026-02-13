@@ -5,7 +5,7 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import (
     AssigneeChangedEvent,
@@ -39,7 +39,6 @@ async def test_events_service_initialization_requires_workspace(
         workspace_id=None,
         organization_id=uuid.uuid4(),
         service_id="tracecat-service",
-        access_level=AccessLevel.BASIC,
     )
 
     # Attempt to create service without workspace should raise error
@@ -383,7 +382,6 @@ class TestCaseEventsService:
             workspace_id=svc_role.workspace_id,
             organization_id=svc_role.organization_id,
             service_id=svc_role.service_id,
-            access_level=AccessLevel.BASIC,
         )
         different_service = CaseEventsService(session=session, role=different_role)
 

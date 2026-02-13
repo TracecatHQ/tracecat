@@ -27,6 +27,7 @@ from tracecat.exceptions import (
     ExecutionError,
     LoopExecutionError,
     RateLimitExceeded,
+    ScopeDeniedError,
 )
 from tracecat.executor.backends import get_executor_backend
 from tracecat.executor.service import dispatch_action
@@ -123,6 +124,28 @@ class ExecutorActivities:
                     )
                     stored = await get_object_storage().store(key, result)
                     return stored
+        except ScopeDeniedError as e:
+            # ScopeDeniedError from dispatch_action (user lacks action permission)
+            kind = e.__class__.__name__
+            msg = f"Permission denied: missing scope(s) {e.missing_scopes} to execute action '{action_name}'"
+            log.warning(
+                "Action scope denied",
+                action=action_name,
+                required_scopes=e.required_scopes,
+                missing_scopes=e.missing_scopes,
+            )
+            err_info = ActionErrorInfo(
+                ref=task.ref,
+                message=msg,
+                type=kind,
+                attempt=act_attempt,
+                stream_id=input.stream_id,
+            )
+            err_msg = err_info.format("execute_action")
+            # Non-retryable: retrying won't help if user lacks permission
+            raise ApplicationError(
+                err_msg, err_info, type=kind, non_retryable=True
+            ) from e
         except ExecutionError as e:
             # ExecutionError from dispatch_action (single action failure)
             kind = e.__class__.__name__

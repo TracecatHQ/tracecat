@@ -11,7 +11,7 @@ import respx
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 
 
@@ -23,7 +23,6 @@ def role() -> Role:
         organization_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
-        access_level=AccessLevel.ADMIN,
         workspace_role=None,
     )
 

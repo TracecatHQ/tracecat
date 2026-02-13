@@ -18,6 +18,7 @@ from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.service import RPCError
 
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
@@ -104,6 +105,7 @@ class InternalWorkflowStatusResponse(BaseModel):
 
 
 @router.post("/executions", status_code=HTTP_201_CREATED)
+@require_scope("workflow:execute")
 async def execute_workflow(
     *,
     role: ExecutorWorkspaceRole,
@@ -201,6 +203,7 @@ async def execute_workflow(
 
 
 @router.get("/executions/{execution_id:path}", status_code=HTTP_200_OK)
+@require_scope("workflow:read")
 async def get_execution_status(
     *,
     role: ExecutorWorkspaceRole,

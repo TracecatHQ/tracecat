@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Schedule
 from tracecat.exceptions import TracecatNotFoundError, TracecatServiceError
@@ -21,6 +22,7 @@ router = APIRouter(prefix="/schedules", tags=["schedules"])
 
 
 @router.get("", response_model=list[ScheduleRead])
+@require_scope("schedule:read")
 async def list_schedules(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -32,6 +34,7 @@ async def list_schedules(
 
 
 @router.post("", response_model=ScheduleRead)
+@require_scope("schedule:create")
 async def create_schedule(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -63,6 +66,7 @@ async def create_schedule(
 
 
 @router.get("/{schedule_id}", response_model=ScheduleRead)
+@require_scope("schedule:read")
 async def get_schedule(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -82,6 +86,7 @@ async def get_schedule(
 
 
 @router.post("/{schedule_id}", response_model=ScheduleRead)
+@require_scope("schedule:update")
 async def update_schedule(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -107,6 +112,7 @@ async def update_schedule(
 
 
 @router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("schedule:delete")
 async def delete_schedule(
     role: WorkspaceUserRole, session: AsyncDBSession, schedule_id: AnyScheduleIDPath
 ) -> None:
@@ -123,6 +129,7 @@ async def delete_schedule(
 
 
 @router.get("/search", response_model=list[ScheduleRead])
+@require_scope("schedule:read")
 async def search_schedules(
     role: WorkspaceUserRole, session: AsyncDBSession, params: ScheduleSearch
 ) -> list[ScheduleRead]:

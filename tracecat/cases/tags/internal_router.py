@@ -3,6 +3,7 @@ from pydantic import UUID4
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
+from tracecat.authz.controls import require_scope
 from tracecat.cases.tags.schemas import CaseTagRead, InternalCaseTagCreate
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
@@ -14,6 +15,7 @@ router = APIRouter(
 
 
 @router.get("/{case_id}/tags", response_model=list[CaseTagRead])
+@require_scope("case:read")
 async def list_tags(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
@@ -30,6 +32,7 @@ async def list_tags(
 @router.post(
     "/{case_id}/tags", status_code=status.HTTP_201_CREATED, response_model=CaseTagRead
 )
+@require_scope("case:create")
 async def add_tag(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
@@ -59,6 +62,7 @@ async def add_tag(
 @router.delete(
     "/{case_id}/tags/{tag_identifier}", status_code=status.HTTP_204_NO_CONTENT
 )
+@require_scope("case:delete")
 async def remove_tag(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,

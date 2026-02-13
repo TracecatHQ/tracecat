@@ -47,7 +47,6 @@ export async function POST(request: NextRequest) {
     "x-tracecat-service-key": process.env.TRACECAT__SERVICE_KEY!,
     "x-tracecat-role-type": "service",
     "x-tracecat-role-service-id": "tracecat-ui",
-    "x-tracecat-role-access-level": "BASIC",
   }
   console.log("Headers", headers)
   const backendResponse = await fetch(backendUrl.toString(), {

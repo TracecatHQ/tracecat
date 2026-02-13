@@ -14,18 +14,26 @@ Standard actions (ordered by privilege):
 
 from __future__ import annotations
 
+from typing import cast, get_args
+
+from tracecat.identifiers import InternalServiceID
+
 # =============================================================================
 # Workspace Role Scopes
 # =============================================================================
 
 VIEWER_SCOPES: frozenset[str] = frozenset(
     {
+        "inbox:read",
         "workflow:read",
+        "integration:read",
         "case:read",
         "table:read",
         "schedule:read",
         "agent:read",
         "secret:read",
+        "tag:read",
+        "variable:read",
         "workspace:read",
         "workspace:member:read",
     }
@@ -36,6 +44,9 @@ EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
         "workflow:create",
         "workflow:update",
         "workflow:execute",
+        "workflow:terminate",
+        "integration:create",
+        "integration:update",
         "case:create",
         "case:update",
         "table:create",
@@ -45,6 +56,10 @@ EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
         "agent:execute",
         "secret:create",
         "secret:update",
+        "tag:create",
+        "tag:update",
+        "variable:create",
+        "variable:update",
         # Core actions available to editors
         "action:core.*:execute",
     }
@@ -57,9 +72,12 @@ ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
         "table:delete",
         "schedule:delete",
         "secret:delete",
+        "tag:delete",
+        "variable:delete",
         "agent:create",
         "agent:update",
         "agent:delete",
+        "integration:delete",
         "workspace:update",
         "workspace:delete",
         "workspace:member:invite",
@@ -88,12 +106,23 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "org:member:invite",
         "org:member:remove",
         "org:member:update",
-        # Billing (OWNER-only for manage)
+        # Billing (OWNER-only for updates)
         "org:billing:read",
-        "org:billing:manage",
+        "org:billing:update",
         # RBAC management
         "org:rbac:read",
-        "org:rbac:manage",
+        "org:rbac:create",
+        "org:rbac:update",
+        "org:rbac:delete",
+        # Org settings management
+        "org:settings:read",
+        "org:settings:update",
+        "org:settings:delete",
+        # Registry management (org-level custom actions)
+        "org:registry:read",
+        "org:registry:create",
+        "org:registry:update",
+        "org:registry:delete",
         # Full workspace control across the org
         "workspace:read",
         "workspace:create",
@@ -104,11 +133,17 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "workspace:member:remove",
         "workspace:member:update",
         # Full resource control
+        "inbox:read",
         "workflow:read",
         "workflow:create",
         "workflow:update",
         "workflow:delete",
         "workflow:execute",
+        "workflow:terminate",
+        "integration:read",
+        "integration:create",
+        "integration:update",
+        "integration:delete",
         "case:read",
         "case:create",
         "case:update",
@@ -117,6 +152,14 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "table:create",
         "table:update",
         "table:delete",
+        "tag:read",
+        "tag:create",
+        "tag:update",
+        "tag:delete",
+        "variable:read",
+        "variable:create",
+        "variable:update",
+        "variable:delete",
         "schedule:read",
         "schedule:create",
         "schedule:update",
@@ -130,6 +173,11 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "secret:create",
         "secret:update",
         "secret:delete",
+        # Organization secrets (org-scoped, not workspace-scoped)
+        "org:secret:read",
+        "org:secret:create",
+        "org:secret:update",
+        "org:secret:delete",
         # Full action execution
         "action:*:execute",
     }
@@ -137,7 +185,7 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
 
 ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
     {
-        # Org settings (no delete)
+        # Org settings (no org delete)
         "org:read",
         "org:update",
         # Org member management
@@ -149,7 +197,18 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "org:billing:read",
         # RBAC management
         "org:rbac:read",
-        "org:rbac:manage",
+        "org:rbac:create",
+        "org:rbac:update",
+        "org:rbac:delete",
+        # Org settings management
+        "org:settings:read",
+        "org:settings:update",
+        "org:settings:delete",
+        # Registry management (org-level custom actions)
+        "org:registry:read",
+        "org:registry:create",
+        "org:registry:update",
+        "org:registry:delete",
         # Full workspace control across the org
         "workspace:read",
         "workspace:create",
@@ -160,11 +219,17 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "workspace:member:remove",
         "workspace:member:update",
         # Full resource control
+        "inbox:read",
         "workflow:read",
         "workflow:create",
         "workflow:update",
         "workflow:delete",
         "workflow:execute",
+        "workflow:terminate",
+        "integration:read",
+        "integration:create",
+        "integration:update",
+        "integration:delete",
         "case:read",
         "case:create",
         "case:update",
@@ -173,6 +238,14 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "table:create",
         "table:update",
         "table:delete",
+        "tag:read",
+        "tag:create",
+        "tag:update",
+        "tag:delete",
+        "variable:read",
+        "variable:create",
+        "variable:update",
+        "variable:delete",
         "schedule:read",
         "schedule:create",
         "schedule:update",
@@ -186,6 +259,11 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "secret:create",
         "secret:update",
         "secret:delete",
+        # Organization secrets (org-scoped, not workspace-scoped)
+        "org:secret:read",
+        "org:secret:create",
+        "org:secret:update",
+        "org:secret:delete",
         # Full action execution
         "action:*:execute",
     }
@@ -212,4 +290,63 @@ PRESET_ROLE_SCOPES: dict[str, frozenset[str]] = {
     "organization-owner": ORG_OWNER_SCOPES,
     "organization-admin": ORG_ADMIN_SCOPES,
     "organization-member": ORG_MEMBER_SCOPES,
+}
+
+# =============================================================================
+# Service Principal Scope Allowlist
+# =============================================================================
+
+WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
+    {
+        "inbox:read",
+        "workflow:read",
+        "workflow:create",
+        "workflow:update",
+        "workflow:delete",
+        "workflow:execute",
+        "workflow:terminate",
+        "integration:read",
+        "integration:create",
+        "integration:update",
+        "integration:delete",
+        "case:read",
+        "case:create",
+        "case:update",
+        "case:delete",
+        "table:read",
+        "table:create",
+        "table:update",
+        "table:delete",
+        "variable:read",
+        "variable:create",
+        "variable:update",
+        "variable:delete",
+        "secret:read",
+        "secret:create",
+        "secret:update",
+        "secret:delete",
+        "agent:read",
+        "agent:create",
+        "agent:update",
+        "agent:delete",
+        "agent:execute",
+        "schedule:read",
+        "schedule:create",
+        "schedule:update",
+        "schedule:delete",
+        "tag:read",
+        "tag:create",
+        "tag:update",
+        "tag:delete",
+        "workspace:read",
+        "workspace:member:read",
+        "action:*:execute",
+    }
+)
+
+# Grant baseline operational scopes to all known internal service IDs.
+# Fine-grained admission is still enforced by service-role authentication.
+SERVICE_PRINCIPAL_SCOPES: dict[InternalServiceID, frozenset[str]] = {
+    cast(InternalServiceID, service_id): WORKSPACE_OPERATIONAL_SCOPES
+    for service_id in get_args(InternalServiceID)
 }
