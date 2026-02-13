@@ -76,8 +76,8 @@ externalSecrets:
 # Pod annotations applied to all Tracecat workloads (e.g., Istio sidecar config).
 podAnnotations: {}
 
-# Service account for all Tracecat workloads (api/worker/executor/migrations/temporal-setup).
-# Created as a Helm hook so it is available for pre-install migration jobs.
+# Service account for Tracecat workloads (api/worker/executor/temporal-setup).
+# Migration jobs use a dedicated hook SA (migrations-sa.yaml) created before the job runs.
 serviceAccount:
   create: true
   name: ""
