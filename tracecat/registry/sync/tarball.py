@@ -101,20 +101,35 @@ def get_builtin_registry_source_path() -> Path:
     return package_path
 
 
-def get_installed_site_packages_path() -> Path:
-    """Get the site-packages directory for the current interpreter."""
-    site_packages_str = sysconfig.get_path("purelib")
-    if site_packages_str is None:
-        raise TarballBuildError(
-            "Could not resolve site-packages path from current interpreter."
-        )
+def get_installed_site_packages_paths() -> list[Path]:
+    """Get site-packages directories for the current interpreter.
 
-    site_packages = Path(site_packages_str)
-    if not site_packages.exists():
-        raise TarballBuildError(
-            f"Resolved site-packages path does not exist: {site_packages}"
-        )
-    return site_packages
+    Returns both `purelib` and `platlib` when they differ.
+    """
+    site_packages_paths: list[Path] = []
+    seen_paths: set[Path] = set()
+
+    for path_name in ("purelib", "platlib"):
+        site_packages_str = sysconfig.get_path(path_name)
+        if site_packages_str is None:
+            raise TarballBuildError(
+                f"Could not resolve {path_name} path from current interpreter."
+            )
+
+        site_packages = Path(site_packages_str)
+        if not site_packages.exists():
+            raise TarballBuildError(
+                f"Resolved {path_name} path does not exist: {site_packages}"
+            )
+
+        resolved_site_packages = site_packages.resolve()
+        if resolved_site_packages in seen_paths:
+            continue
+
+        seen_paths.add(resolved_site_packages)
+        site_packages_paths.append(site_packages)
+
+    return site_packages_paths
 
 
 async def build_tarball_venv_from_installed_environment(
@@ -134,16 +149,20 @@ async def build_tarball_venv_from_installed_environment(
         output_dir = Path(tempfile.mkdtemp(prefix="tracecat_tarball_venv_"))
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    site_packages = get_installed_site_packages_path()
+    site_packages_paths = get_installed_site_packages_paths()
+    primary_site_packages = site_packages_paths[0]
     package_dir = package_dir.resolve()
-    package_in_site_packages = package_dir.parent == site_packages.resolve()
+    package_in_site_packages = any(
+        package_dir.parent == site_packages.resolve()
+        for site_packages in site_packages_paths
+    )
 
     tarball_name = "site-packages.tar.gz"
     tarball_path = output_dir / tarball_name
 
     logger.info(
         "Building tarball from installed environment",
-        site_packages=str(site_packages),
+        site_packages_paths=[str(path) for path in site_packages_paths],
         package_name=package_name,
         package_dir=str(package_dir),
         package_in_site_packages=package_in_site_packages,
@@ -151,16 +170,17 @@ async def build_tarball_venv_from_installed_environment(
 
     def _create_tarball() -> None:
         with tarfile.open(tarball_path, "w:gz", compresslevel=6) as tar:
-            for item in site_packages.iterdir():
-                tar.add(item, arcname=item.name)
+            for site_packages in site_packages_paths:
+                for item in site_packages.iterdir():
+                    tar.add(item, arcname=item.name)
 
             # Editable installs put package source outside site-packages.
             if not package_in_site_packages:
-                if (site_packages / package_name).exists():
+                if (primary_site_packages / package_name).exists():
                     logger.warning(
                         "Skipping editable package overlay because package already exists in site-packages",
                         package_name=package_name,
-                        site_packages=str(site_packages),
+                        site_packages=str(primary_site_packages),
                     )
                 else:
                     tar.add(package_dir, arcname=package_name)
