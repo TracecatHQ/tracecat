@@ -437,7 +437,7 @@ class RegistrySyncRunner:
 
         # Generate version string
         if commit_sha:
-            version = commit_sha[:7]
+            version = commit_sha
         else:
             version = datetime.now(UTC).strftime("%Y.%m.%d.%H%M%S")
 

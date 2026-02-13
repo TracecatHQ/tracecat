@@ -496,7 +496,7 @@ class BaseRegistrySyncService[
         commit_sha: str | None,
     ) -> str:
         if commit_sha:
-            return commit_sha[:7]
+            return commit_sha
 
         if origin == DEFAULT_REGISTRY_ORIGIN:
             import tracecat_registry
