@@ -27,6 +27,7 @@ locals {
     local.rds_master_secret_arn,
     aws_secretsmanager_secret.redis_url.arn,
     var.temporal_secret_arn,
+    var.grafana_cloud_credentials_secret_arn,
   ])
 
   # External Secrets Operator settings

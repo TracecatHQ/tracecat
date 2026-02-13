@@ -458,6 +458,55 @@ variable "waf_rate_limit" {
   default     = 2000
 }
 
+# Observability Configuration
+variable "enable_observability" {
+  description = "Enable Grafana Cloud observability (K8s Monitoring, CloudWatch Metric Streams)"
+  type        = bool
+  default     = false
+}
+
+variable "grafana_cloud_prometheus_url" {
+  description = "Grafana Cloud Prometheus remote write URL (e.g., https://prometheus-prod-01-us-east-0.grafana.net/api/prom/push)"
+  type        = string
+  default     = ""
+}
+
+variable "grafana_cloud_prometheus_username" {
+  description = "Grafana Cloud Prometheus username (numeric instance ID)"
+  type        = string
+  default     = ""
+}
+
+variable "grafana_cloud_loki_url" {
+  description = "Grafana Cloud Loki push URL (e.g., https://logs-prod-us-east-0.grafana.net/loki/api/v1/push)"
+  type        = string
+  default     = ""
+}
+
+variable "grafana_cloud_loki_username" {
+  description = "Grafana Cloud Loki username (numeric instance ID)"
+  type        = string
+  default     = ""
+}
+
+variable "grafana_cloud_credentials_secret_arn" {
+  description = "ARN of Secrets Manager secret with Grafana Cloud credentials (JSON: {\"metrics_write_token\": \"...\"}). Synced to cluster via ESO."
+  type        = string
+  default     = ""
+}
+
+variable "grafana_cloud_firehose_endpoint" {
+  description = "Grafana Cloud Firehose endpoint URL for CloudWatch Metric Streams"
+  type        = string
+  default     = ""
+}
+
+variable "observability_log_retention_days" {
+  description = "Retention in days for Firehose delivery log groups and S3 failed-delivery backups"
+  type        = number
+  default     = 30
+}
+
 # Tags
 variable "tags" {
   description = "Tags to apply to all resources"
