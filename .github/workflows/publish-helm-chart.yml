@@ -2,8 +2,10 @@ name: Publish helm chart
 
 on:
   push:
-    tags:
-      - "*.*.*"
+    branches:
+      - main
+    paths:
+      - deployments/helm/tracecat/Chart.yaml
 
 env:
   REGISTRY: ghcr.io
@@ -24,6 +26,20 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4
 
+      - name: Resolve chart metadata
+        id: chart-metadata
+        run: |
+          CHART_NAME="$(helm show chart "${{ env.CHART_PATH }}" | awk -F': ' '$1 == "name" {print $2}')"
+          CHART_VERSION="$(helm show chart "${{ env.CHART_PATH }}" | awk -F': ' '$1 == "version" {print $2}')"
+
+          if [ -z "$CHART_NAME" ] || [ -z "$CHART_VERSION" ]; then
+            echo "Unable to determine chart name or version."
+            exit 1
+          fi
+
+          echo "name=$CHART_NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$CHART_VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Build chart dependencies
         run: helm dependency build "${{ env.CHART_PATH }}"
 
@@ -34,7 +50,11 @@ jobs:
             --password-stdin
 
       - name: Package chart
-        run: helm package "${{ env.CHART_PATH }}" --destination /tmp/chart
+        run: |
+          helm package "${{ env.CHART_PATH }}" --destination /tmp/chart
 
       - name: Push chart to GHCR
-        run: helm push /tmp/chart/*.tgz oci://${{ env.OCI_REPOSITORY }}
+        run: |
+          helm push \
+            "/tmp/chart/${{ steps.chart-metadata.outputs.name }}-${{ steps.chart-metadata.outputs.version }}.tgz" \
+            oci://${{ env.OCI_REPOSITORY }}
