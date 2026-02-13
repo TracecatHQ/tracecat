@@ -6,7 +6,8 @@ enabling pluggable execution strategies for different deployment scenarios.
 Available backends:
 - pool: Warm nsjail workers for single-tenant, high throughput
 - ephemeral: Cold nsjail subprocess per action for multitenant workloads
-- direct: In-process execution for development only
+- direct: Direct subprocess execution without warm workers
+- test: In-process execution for tests only
 """
 
 from __future__ import annotations
