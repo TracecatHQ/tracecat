@@ -176,6 +176,8 @@ tracecat:
       attachments: ""
       # Defaults to tracecat-registry if unset.
       registry: ""
+      # Defaults to tracecat-workflow if unset.
+      workflow: ""
 
   saml:
     enabled: false
