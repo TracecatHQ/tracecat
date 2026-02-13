@@ -15,8 +15,34 @@ resource "aws_ecs_task_definition" "api_task_definition" {
 
   container_definitions = jsonencode([
     {
-      name  = "TracecatApiContainer"
-      image = "${var.tracecat_image}:${local.tracecat_image_tag}"
+      name      = "TracecatApiMigrationsContainer"
+      image     = "${var.tracecat_image}:${local.tracecat_image_tag}"
+      essential = false
+      command   = ["python3", "-m", "alembic", "upgrade", "head"]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
+          awslogs-region        = var.aws_region
+          awslogs-stream-prefix = "api-migrations"
+        }
+      }
+      environment = local.migrations_env
+      dockerPullConfig = {
+        maxAttempts = 3
+        backoffTime = 10
+      }
+    },
+    {
+      name      = "TracecatApiContainer"
+      image     = "${var.tracecat_image}:${local.tracecat_image_tag}"
+      essential = true
+      dependsOn = [
+        {
+          containerName = "TracecatApiMigrationsContainer"
+          condition     = "SUCCESS"
+        }
+      ]
       portMappings = [
         {
           containerPort = 8000

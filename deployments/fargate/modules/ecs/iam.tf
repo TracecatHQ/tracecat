@@ -90,6 +90,18 @@ resource "aws_iam_policy" "s3_blob_access" {
           aws_s3_bucket.registry.arn,
           aws_s3_bucket.workflow.arn,
         ]
+      },
+      {
+        Sid    = "AllowWorkflowBucketLifecycleConfiguration"
+        Effect = "Allow"
+        Action = [
+          "s3:GetLifecycleConfiguration",
+          "s3:PutLifecycleConfiguration",
+          "s3:DeleteLifecycleConfiguration"
+        ]
+        Resource = [
+          aws_s3_bucket.workflow.arn
+        ]
       }
     ]
   })
@@ -118,6 +130,7 @@ resource "aws_iam_policy" "secrets_access" {
           var.saml_idp_metadata_url_arn,
           var.saml_ca_certs_arn,
           var.saml_metadata_cert_arn,
+          var.temporal_api_key_arn,
         ])
       }
     ]
@@ -138,25 +151,6 @@ resource "aws_iam_policy" "ui_secrets_access" {
         Action = ["secretsmanager:GetSecretValue"]
         Resource = compact([
           var.tracecat_service_key_arn,
-        ])
-      }
-    ]
-  })
-}
-
-resource "aws_iam_policy" "task_secrets_access" {
-  # Enable this policy if temporal autosetup is disabled
-  count       = var.disable_temporal_autosetup ? 1 : 0
-  name        = "TracecatTaskSecretsAccessPolicy"
-  description = "Policy for accessing Tracecat secrets at runtime"
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = ["secretsmanager:GetSecretValue"]
-        Resource = compact([
-          var.temporal_api_key_arn,
         ])
       }
     ]
@@ -252,13 +246,6 @@ resource "aws_iam_role_policy_attachment" "api_worker_task_s3" {
 # Attach Redis IAM policy to API/Worker task role
 resource "aws_iam_role_policy_attachment" "api_worker_task_redis" {
   policy_arn = aws_iam_policy.redis_iam_access.arn
-  role       = aws_iam_role.api_worker_task.name
-}
-
-resource "aws_iam_role_policy_attachment" "api_worker_task_secrets" {
-  # Enable this policy if temporal autosetup is disabled
-  count      = var.disable_temporal_autosetup ? 1 : 0
-  policy_arn = aws_iam_policy.task_secrets_access[0].arn
   role       = aws_iam_role.api_worker_task.name
 }
 

@@ -52,7 +52,6 @@ module "ecs" {
   temporal_cluster_url       = var.temporal_cluster_url
   temporal_cluster_queue     = var.temporal_cluster_queue
   temporal_namespace         = var.temporal_namespace
-  temporal_task_timeout      = var.temporal_task_timeout
 
   # Container environment variables
   tracecat_app_env                       = var.tracecat_app_env
@@ -133,19 +132,16 @@ module "ecs" {
   executor_desired_count          = var.executor_desired_count
   executor_client_timeout         = var.executor_client_timeout
   executor_queue                  = var.executor_queue
-  executor_backend                = var.executor_backend
   executor_worker_pool_size       = var.executor_worker_pool_size
   agent_executor_cpu              = var.agent_executor_cpu
   agent_executor_memory           = var.agent_executor_memory
   agent_executor_desired_count    = var.agent_executor_desired_count
   agent_queue                     = var.agent_queue
-  agent_backend                   = var.agent_backend
   agent_executor_worker_pool_size = var.agent_executor_worker_pool_size
   ui_cpu                          = var.ui_cpu
   ui_memory                       = var.ui_memory
   temporal_cpu                    = var.temporal_cpu
   temporal_memory                 = var.temporal_memory
-  temporal_client_rpc_timeout     = var.temporal_client_rpc_timeout
   temporal_num_history_shards     = var.temporal_num_history_shards
   caddy_cpu                       = var.caddy_cpu
   caddy_memory                    = var.caddy_memory

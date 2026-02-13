@@ -250,6 +250,18 @@ resource "aws_vpc_endpoint" "s3" {
           aws_s3_bucket.workflow.arn,
           "${aws_s3_bucket.workflow.arn}/*",
         ]
+      },
+      {
+        Effect    = "Allow"
+        Principal = "*"
+        Action = [
+          "s3:GetLifecycleConfiguration",
+          "s3:PutLifecycleConfiguration",
+          "s3:DeleteLifecycleConfiguration"
+        ]
+        Resource = [
+          aws_s3_bucket.workflow.arn
+        ]
       }
     ]
   })

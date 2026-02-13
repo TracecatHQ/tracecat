@@ -129,12 +129,6 @@ variable "temporal_namespace" {
   default     = "default"
 }
 
-variable "temporal_task_timeout" {
-  type        = number
-  description = "Temporal task timeout in seconds"
-  default     = 10
-}
-
 
 ### Container Env Vars
 # NOTE: sensitive variables are stored in secrets manager
@@ -458,12 +452,6 @@ variable "executor_queue" {
   default     = "shared-action-queue"
 }
 
-variable "executor_backend" {
-  type        = string
-  description = "Executor backend: direct, pool, ephemeral, or auto"
-  default     = "direct"
-}
-
 variable "executor_worker_pool_size" {
   type        = string
   description = "Executor worker pool size (optional; auto when null)"
@@ -492,12 +480,6 @@ variable "agent_queue" {
   default     = "shared-agent-queue"
 }
 
-variable "agent_backend" {
-  type        = string
-  description = "Agent executor backend: direct, pool, ephemeral, or auto"
-  default     = "direct"
-}
-
 variable "agent_executor_worker_pool_size" {
   type        = string
   description = "Agent executor worker pool size (optional; auto when null)"
@@ -512,12 +494,6 @@ variable "temporal_cpu" {
 variable "temporal_memory" {
   type    = string
   default = "4096"
-}
-
-variable "temporal_client_rpc_timeout" {
-  type        = string
-  description = "RPC timeout for Temporal client in seconds"
-  default     = null
 }
 
 variable "temporal_num_history_shards" {

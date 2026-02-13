@@ -76,6 +76,11 @@ data "aws_secretsmanager_secret" "temporal_auth_client_secret" {
   arn   = var.temporal_auth_client_secret_arn
 }
 
+data "aws_secretsmanager_secret" "temporal_api_key" {
+  count = var.temporal_api_key_arn != null ? 1 : 0
+  arn   = var.temporal_api_key_arn
+}
+
 ### Retrieve secret values
 
 # Tracecat secrets
@@ -144,6 +149,11 @@ data "aws_secretsmanager_secret_version" "temporal_auth_client_secret" {
   secret_id = data.aws_secretsmanager_secret.temporal_auth_client_secret[0].id
 }
 
+data "aws_secretsmanager_secret_version" "temporal_api_key" {
+  count     = var.temporal_api_key_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.temporal_api_key[0].id
+}
+
 ### Database secrets
 
 data "aws_secretsmanager_secret" "tracecat_db_password" {
@@ -167,7 +177,7 @@ data "aws_secretsmanager_secret_version" "temporal_db_password" {
 }
 
 locals {
-  tracecat_base_secrets = [
+  required_tracecat_base_secrets = [
     {
       name      = "TRACECAT__SERVICE_KEY"
       valueFrom = data.aws_secretsmanager_secret_version.tracecat_service_key.arn
@@ -181,6 +191,18 @@ locals {
       valueFrom = data.aws_secretsmanager_secret_version.tracecat_db_encryption_key.arn
     },
   ]
+
+  temporal_api_key_secret = var.temporal_api_key_arn != null ? [
+    {
+      name      = "TEMPORAL__API_KEY"
+      valueFrom = data.aws_secretsmanager_secret_version.temporal_api_key[0].arn
+    }
+  ] : []
+
+  tracecat_base_secrets = concat(
+    local.required_tracecat_base_secrets,
+    local.temporal_api_key_secret
+  )
 
   oauth_client_id_secret = var.oauth_client_id_arn != null ? [
     {

@@ -68,6 +68,7 @@ resource "aws_ecs_service" "tracecat_agent_executor" {
   }
 
   depends_on = [
-    aws_ecs_service.temporal_service
+    aws_ecs_service.temporal_service,
+    aws_ecs_service.tracecat_api
   ]
 }

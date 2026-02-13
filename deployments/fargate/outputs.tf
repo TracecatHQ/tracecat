@@ -20,6 +20,16 @@ output "tracecat_image_tag" {
   value       = module.ecs.tracecat_image_tag
 }
 
+output "ecs_cluster_name" {
+  description = "ECS cluster name"
+  value       = module.ecs.ecs_cluster_name
+}
+
+output "ecs_cluster_arn" {
+  description = "ECS cluster ARN"
+  value       = module.ecs.ecs_cluster_arn
+}
+
 output "public_app_url" {
   description = "The public URL of the Tracecat application"
   value       = module.ecs.public_app_url
@@ -140,4 +150,14 @@ output "latest_core_snapshot_encrypted" {
 output "latest_temporal_snapshot_encrypted" {
   description = "Whether the latest temporal database snapshot is encrypted (only available when using automatic snapshot selection)"
   value       = module.ecs.latest_temporal_snapshot_encrypted
+}
+
+output "core_sg_id" {
+  description = "The ID of the core security group"
+  value       = module.ecs.core_sg_id
+}
+
+output "core_db_sg_id" {
+  description = "The ID of the core database security group"
+  value       = module.ecs.core_db_sg_id
 }

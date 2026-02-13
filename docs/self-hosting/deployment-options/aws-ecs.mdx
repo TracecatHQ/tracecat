@@ -79,11 +79,11 @@ attachments, registry, and workflow artifacts.
   </Step>
 </Steps>
 
-## Notes
+## Deployment behavior
 
-- API runs migrations at startup in this stack.
-- ECS runtime includes `executor` and `agent-executor` services.
-- Workflow artifact retention is controlled by `workflow_artifact_retention_days`.
+- Migrations run in an init container in the API task definition.
+- API container startup is gated on migration success.
+- If migrations fail, API deployment does not stabilize and dependent service updates are blocked by Terraform dependency ordering.
 
 ## Reference
 

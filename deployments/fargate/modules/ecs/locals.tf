@@ -17,9 +17,6 @@ locals {
   # Redis configuration with IAM auth
   redis_url = "rediss://${aws_elasticache_user.app_user.user_name}@${aws_elasticache_replication_group.redis.primary_endpoint_address}:${aws_elasticache_replication_group.redis.port}"
 
-  # Temporal client authentication
-  temporal_api_key_arn = var.temporal_api_key_arn
-
   # Tracecat Postgres env vars
   tracecat_db_configs = {
     TRACECAT__DB_USER         = "postgres"
@@ -39,12 +36,8 @@ locals {
 
   tracecat_common_env = {
     LOG_LEVEL                                        = var.log_level
-    TEMPORAL__CLIENT_RPC_TIMEOUT                     = var.temporal_client_rpc_timeout
-    TEMPORAL__TASK_TIMEOUT                           = var.temporal_task_timeout
     TEMPORAL__CLUSTER_NAMESPACE                      = local.temporal_namespace
-    TEMPORAL__CLUSTER_QUEUE                          = local.temporal_cluster_queue
     TEMPORAL__CLUSTER_URL                            = local.temporal_cluster_url
-    TEMPORAL__API_KEY__ARN                           = local.temporal_api_key_arn
     TRACECAT__APP_ENV                                = var.tracecat_app_env
     TRACECAT__FEATURE_FLAGS                          = var.feature_flags # Requires Tracecat Enterprise license to modify.
     TRACECAT__EE_MULTI_TENANT                        = var.ee_multi_tenant
@@ -53,6 +46,7 @@ locals {
     TRACECAT__RESULT_EXTERNALIZATION_ENABLED         = var.result_externalization_enabled
     TRACECAT__COLLECTION_MANIFESTS_ENABLED           = var.collection_manifests_enabled
     TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES = var.result_externalization_threshold_bytes
+    TRACECAT__DB_SSLMODE                             = "require"
     REDIS_URL                                        = local.redis_url
   }
 
@@ -68,7 +62,6 @@ locals {
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       {
-        RUN_MIGRATIONS                             = "true"
         TRACECAT__ALLOW_ORIGINS                    = local.allow_origins
         TRACECAT__API_ROOT_PATH                    = "/api"
         TRACECAT__API_URL                          = local.internal_api_url
@@ -81,6 +74,7 @@ locals {
         TRACECAT__DB_ENDPOINT                      = local.core_db_hostname
         OIDC_ISSUER                                = var.oidc_issuer
         OIDC_SCOPES                                = var.oidc_scopes
+        TEMPORAL__CLUSTER_QUEUE                    = local.temporal_cluster_queue
         SAML_ALLOW_UNSOLICITED                     = var.saml_allow_unsolicited
         SAML_AUTHN_REQUESTS_SIGNED                 = var.saml_authn_requests_signed
         SAML_SIGNED_ASSERTIONS                     = var.saml_signed_assertions
@@ -104,6 +98,7 @@ locals {
         TRACECAT__DB_ENDPOINT             = local.core_db_hostname
         TRACECAT__PUBLIC_API_URL          = local.public_api_url
         TRACECAT__EXECUTOR_CLIENT_TIMEOUT = var.executor_client_timeout
+        TEMPORAL__CLUSTER_QUEUE           = local.temporal_cluster_queue
         SENTRY_DSN                        = var.sentry_dsn
       }
     ) :
@@ -119,7 +114,7 @@ locals {
       {
         TRACECAT__API_URL                   = local.internal_api_url
         TRACECAT__DB_ENDPOINT               = local.core_db_hostname
-        TRACECAT__EXECUTOR_BACKEND          = var.executor_backend
+        TRACECAT__EXECUTOR_BACKEND          = "direct"
         TRACECAT__EXECUTOR_QUEUE            = var.executor_queue
         TRACECAT__EXECUTOR_WORKER_POOL_SIZE = var.executor_worker_pool_size
         TRACECAT__UNSAFE_DISABLE_SM_MASKING = "false"
@@ -141,7 +136,7 @@ locals {
       {
         TRACECAT__API_URL                   = local.internal_api_url
         TRACECAT__DB_ENDPOINT               = local.core_db_hostname
-        TRACECAT__EXECUTOR_BACKEND          = var.agent_backend
+        TRACECAT__EXECUTOR_BACKEND          = "direct"
         TRACECAT__AGENT_QUEUE               = var.agent_queue
         TRACECAT__EXECUTOR_WORKER_POOL_SIZE = var.agent_executor_worker_pool_size
         TRACECAT__UNSAFE_DISABLE_SM_MASKING = "false"
@@ -150,6 +145,18 @@ locals {
         TRACECAT__SANDBOX_ROOTFS_PATH       = "/var/lib/tracecat/sandbox-rootfs"
         TRACECAT__SANDBOX_CACHE_DIR         = "/var/lib/tracecat/sandbox-cache"
       }
+    ) :
+    { name = k, value = tostring(v) } if v != null
+  ]
+
+  migrations_env = [
+    for k, v in merge(
+      {
+        LOG_LEVEL             = var.log_level
+        TRACECAT__DB_SSLMODE  = "require"
+        TRACECAT__DB_ENDPOINT = local.core_db_hostname
+      },
+      local.tracecat_db_configs
     ) :
     { name = k, value = tostring(v) } if v != null
   ]

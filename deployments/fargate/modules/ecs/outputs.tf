@@ -3,6 +3,16 @@ output "tracecat_image_tag" {
   value       = local.tracecat_image_tag
 }
 
+output "ecs_cluster_name" {
+  description = "ECS cluster name"
+  value       = aws_ecs_cluster.tracecat_cluster.name
+}
+
+output "ecs_cluster_arn" {
+  description = "ECS cluster ARN"
+  value       = aws_ecs_cluster.tracecat_cluster.arn
+}
+
 output "public_app_url" {
   description = "The public URL of the app"
   value       = local.public_app_url
@@ -112,6 +122,11 @@ output "redis_url" {
 output "core_sg_id" {
   value       = aws_security_group.core.id
   description = "The ID of the core security group"
+}
+
+output "core_db_sg_id" {
+  value       = aws_security_group.core_db.id
+  description = "The ID of the core database security group"
 }
 
 output "caddy_sg_id" {
