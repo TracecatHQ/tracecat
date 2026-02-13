@@ -165,6 +165,9 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
     ),
     ScopeDefinition("workflow:delete", "workflow", "delete", "Delete workflows"),
     ScopeDefinition("workflow:execute", "workflow", "execute", "Run/trigger workflows"),
+    ScopeDefinition(
+        "workflow:terminate", "workflow", "terminate", "Stop running workflows"
+    ),
     # Integration scopes
     ScopeDefinition(
         "integration:read",

@@ -274,12 +274,16 @@ async def _has_any_rbac_assignments_cached(
             else UserRoleAssignment.workspace_id.is_(None)
         )
 
-        user_assignment_stmt = select(UserRoleAssignment.id).where(
-            UserRoleAssignment.user_id == user_id,
-            UserRoleAssignment.organization_id == organization_id,
-            user_workspace_condition,
+        user_assignment_stmt = (
+            select(UserRoleAssignment.id)
+            .where(
+                UserRoleAssignment.user_id == user_id,
+                UserRoleAssignment.organization_id == organization_id,
+                user_workspace_condition,
+            )
+            .limit(1)
         )
-        user_assignment_result = await session.execute(user_assignment_stmt.limit(1))
+        user_assignment_result = await session.execute(user_assignment_stmt)
         if user_assignment_result.scalar_one_or_none() is not None:
             return True
 
@@ -299,8 +303,9 @@ async def _has_any_rbac_assignments_cached(
                 GroupRoleAssignment.organization_id == organization_id,
                 group_workspace_condition,
             )
+            .limit(1)
         )
-        group_assignment_result = await session.execute(group_assignment_stmt.limit(1))
+        group_assignment_result = await session.execute(group_assignment_stmt)
         return group_assignment_result.scalar_one_or_none() is not None
 
 
