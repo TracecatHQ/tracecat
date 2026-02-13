@@ -35,7 +35,7 @@ from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
@@ -50,6 +50,7 @@ from tracecat.db.models import (
 from tracecat.db.models import (
     Role as RoleModel,
 )
+from tracecat.db.rls import set_rls_context_from_role
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 from tracecat.organization.management import get_default_organization_id
@@ -68,7 +69,7 @@ async def _get_workspace_org_id(workspace_id: uuid.UUID) -> uuid.UUID | None:
     The workspace→organization mapping is immutable, so this can be cached
     indefinitely without TTL.
     """
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
@@ -129,7 +130,7 @@ async def _compute_effective_scopes_cached(
     organization_id: uuid.UUID,
     workspace_id: uuid.UUID | None,
 ) -> frozenset[str]:
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         # Direct user role assignments → Role → RoleScope → Scope
         user_scopes = (
             select(Scope.name)
@@ -771,6 +772,7 @@ async def _role_dependency(
         require_org_roles=require_org_roles,
     )
     ctx_role.set(role)
+    await set_rls_context_from_role(session, role)
     return role
 
 
