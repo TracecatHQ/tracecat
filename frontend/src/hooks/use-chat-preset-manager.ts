@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react"
 import type { AgentSessionsGetSessionVercelResponse } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { useAgentPreset, useAgentPresets } from "@/hooks/use-agent-presets"
@@ -22,13 +23,24 @@ export function useChatPresetManager({
   selectedChatId,
   enabled = true,
 }: UseChatPresetManagerProps) {
+  const [draftPresetId, setDraftPresetId] = useState<string | null>(null)
+
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
     { enabled }
   )
 
   const presetOptions = enabled ? (presets ?? []) : []
-  const effectivePresetId = chat?.agent_preset_id ?? null
+  const effectivePresetId = selectedChatId
+    ? (chat?.agent_preset_id ?? null)
+    : draftPresetId
+
+  useEffect(() => {
+    if (!selectedChatId) {
+      return
+    }
+    setDraftPresetId(chat?.agent_preset_id ?? null)
+  }, [chat?.agent_preset_id, selectedChatId])
 
   const { preset: selectedPreset, presetIsLoading: selectedPresetLoading } =
     useAgentPreset(workspaceId, effectivePresetId, {
@@ -36,11 +48,13 @@ export function useChatPresetManager({
     })
 
   const handlePresetChange = async (nextPresetId: string | null) => {
-    if (!selectedChatId) {
+    const currentPresetId = effectivePresetId
+    if (nextPresetId === currentPresetId) {
       return
     }
-    const currentPresetId = chat?.agent_preset_id ?? null
-    if (nextPresetId === currentPresetId) {
+
+    if (!selectedChatId) {
+      setDraftPresetId(nextPresetId)
       return
     }
 
@@ -51,6 +65,7 @@ export function useChatPresetManager({
           agent_preset_id: nextPresetId,
         },
       })
+      setDraftPresetId(nextPresetId)
     } catch (error) {
       console.error("Failed to update chat preset:", error)
       toast({
@@ -62,8 +77,7 @@ export function useChatPresetManager({
   }
 
   const presetMenuLabel = selectedPreset?.name ?? "No preset"
-  const presetMenuDisabled =
-    !enabled || !selectedChatId || chatLoading || isUpdatingChat
+  const presetMenuDisabled = !enabled || chatLoading || isUpdatingChat
   const showPresetSpinner =
     presetsIsLoading || isUpdatingChat || chatLoading || selectedPresetLoading
 
