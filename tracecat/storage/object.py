@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -102,6 +102,16 @@ class InlineObject[T: Any](_StoredObjectBase):
     data: T
     """The inline data. Can be any JSON-serializable value, including None."""
 
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            data: T,
+            typename: str | None = None,
+            type: Literal["inline"] = "inline",
+        ) -> None: ...
+
     @model_validator(mode="before")
     @classmethod
     def _inject_type(cls, data: Any) -> Any:
@@ -122,6 +132,16 @@ class ExternalObject(_StoredObjectBase):
 
     ref: ObjectRef
     """Reference to the externalized data in blob storage."""
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            ref: ObjectRef,
+            typename: str | None = None,
+            type: Literal["external"] = "external",
+        ) -> None: ...
 
     @model_validator(mode="before")
     @classmethod
@@ -178,6 +198,21 @@ class CollectionObject(_StoredObjectBase):
 
     def __len__(self) -> int:
         return self.count
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            manifest_ref: ObjectRef,
+            count: int,
+            chunk_size: int,
+            element_kind: Literal["value", "stored_object"],
+            schema_version: int = 1,
+            index: int | None = None,
+            typename: str | None = None,
+            type: Literal["collection"] = "collection",
+        ) -> None: ...
 
     def at(self, index: int) -> CollectionObject:
         """Return a copy of this collection handle pointing to a specific index.
