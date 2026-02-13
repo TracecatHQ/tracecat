@@ -3,6 +3,7 @@ import {
   AlarmClockCheckIcon,
   AlarmClockOffIcon,
   AlarmClockPlusIcon,
+  BriefcaseBusinessIcon,
   CalendarIcon,
   CalendarSearchIcon,
   CircleCheck,
@@ -559,6 +560,15 @@ export function getTriggerTypeIcon(
       return (
         <div className="relative rounded-full bg-purple-400">
           <WebhookIcon
+            className={cn("size-3 scale-[0.7] stroke-white", className)}
+            strokeWidth={2.5}
+          />
+        </div>
+      )
+    case "case":
+      return (
+        <div className="relative rounded-full bg-emerald-500">
+          <BriefcaseBusinessIcon
             className={cn("size-3 scale-[0.7] stroke-white", className)}
             strokeWidth={2.5}
           />
