@@ -8,6 +8,7 @@ from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import tracecat.agent.adapter.vercel
+from tracecat import config
 from tracecat.agent.schemas import AgentOutput
 from tracecat.agent.types import ClaudeSDKMessageTA
 from tracecat.auth.dependencies import WorkspaceUserRole
@@ -27,11 +28,15 @@ from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery, WorkflowUU
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.settings.service import get_setting
+from tracecat.storage import blob
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.schemas import (
     WorkflowExecutionCreate,
     WorkflowExecutionCreateResponse,
+    WorkflowExecutionObjectDownloadResponse,
+    WorkflowExecutionObjectPreviewResponse,
+    WorkflowExecutionObjectRequest,
     WorkflowExecutionRead,
     WorkflowExecutionReadCompact,
     WorkflowExecutionReadMinimal,
@@ -41,6 +46,21 @@ from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 router = APIRouter(prefix="/workflow-executions", tags=["workflow-executions"])
+PREVIEW_MAX_BYTES = 256 * 1024  # 256 KB
+
+
+def _is_previewable_content_type(content_type: str) -> bool:
+    lowered = content_type.lower()
+    return lowered.startswith("text/") or "json" in lowered
+
+
+def _suggest_download_filename(key: str, event_id: int, content_type: str) -> str:
+    parts = key.split("/")
+    if parts and parts[-1]:
+        return parts[-1]
+
+    suffix = ".json" if "json" in content_type.lower() else ".txt"
+    return f"workflow-result-{event_id}{suffix}"
 
 
 async def _list_interactions(
@@ -207,6 +227,153 @@ async def get_workflow_execution_compact(
         execution_type=get_execution_type_from_search_attr(
             execution.typed_search_attributes
         ),
+    )
+
+
+@router.post("/{execution_id:path}/objects/download")
+async def get_workflow_execution_object_download(
+    role: WorkspaceUserRole,
+    execution_id: UnquotedExecutionID,
+    params: WorkflowExecutionObjectRequest,
+) -> WorkflowExecutionObjectDownloadResponse:
+    """Generate a presigned download URL for a workflow execution result object."""
+    if params.field != "action_result":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported field: {params.field}",
+        )
+
+    service = await WorkflowExecutionsService.connect(role=role)
+    execution = await service.get_execution(execution_id)
+    if not execution:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow execution not found",
+        )
+
+    try:
+        external = await service.get_external_action_result(
+            execution_id,
+            params.event_id,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TypeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+
+    ref = external.ref
+    if not await blob.file_exists(key=ref.key, bucket=ref.bucket):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Object not found: {ref.bucket}/{ref.key}",
+        )
+
+    expiry = config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
+    download_url = await blob.generate_presigned_download_url(
+        key=ref.key,
+        bucket=ref.bucket,
+        expiry=expiry,
+        force_download=True,
+        override_content_type="application/octet-stream",
+    )
+    return WorkflowExecutionObjectDownloadResponse(
+        download_url=download_url,
+        file_name=_suggest_download_filename(
+            ref.key, params.event_id, ref.content_type
+        ),
+        content_type=ref.content_type,
+        size_bytes=ref.size_bytes,
+        expires_in_seconds=expiry,
+    )
+
+
+@router.post("/{execution_id:path}/objects/preview")
+async def get_workflow_execution_object_preview(
+    role: WorkspaceUserRole,
+    execution_id: UnquotedExecutionID,
+    params: WorkflowExecutionObjectRequest,
+) -> WorkflowExecutionObjectPreviewResponse:
+    """Fetch a bounded text preview for a workflow execution result object."""
+    if params.field != "action_result":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported field: {params.field}",
+        )
+
+    service = await WorkflowExecutionsService.connect(role=role)
+    execution = await service.get_execution(execution_id)
+    if not execution:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow execution not found",
+        )
+
+    try:
+        external = await service.get_external_action_result(
+            execution_id,
+            params.event_id,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TypeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+
+    ref = external.ref
+    if not await blob.file_exists(key=ref.key, bucket=ref.bucket):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Object not found: {ref.bucket}/{ref.key}",
+        )
+
+    if not _is_previewable_content_type(ref.content_type):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Preview is not supported for content type: {ref.content_type}",
+        )
+
+    preview_limit = min(ref.size_bytes, PREVIEW_MAX_BYTES)
+    content_bytes = b""
+    if preview_limit > 0:
+        try:
+            content_bytes = await blob.download_file_range(
+                key=ref.key,
+                bucket=ref.bucket,
+                start=0,
+                end=preview_limit - 1,
+            )
+        except FileNotFoundError as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Object not found: {ref.bucket}/{ref.key}",
+            ) from e
+
+    try:
+        content = content_bytes.decode("utf-8")
+        encoding = "utf-8"
+    except UnicodeDecodeError:
+        content = content_bytes.decode("utf-8", errors="replace")
+        encoding = "unknown"
+
+    preview_size = len(content_bytes)
+    return WorkflowExecutionObjectPreviewResponse(
+        content=content,
+        content_type=ref.content_type,
+        size_bytes=ref.size_bytes,
+        preview_bytes=preview_size,
+        truncated=ref.size_bytes > preview_size,
+        encoding=encoding,
     )
 
 

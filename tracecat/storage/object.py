@@ -35,7 +35,6 @@ from pydantic import (
     Discriminator,
     Field,
     TypeAdapter,
-    model_serializer,
     model_validator,
 )
 
@@ -78,7 +77,7 @@ class ObjectRef(BaseModel):
 
 
 class _StoredObjectBase(BaseModel):
-    """Base class for stored object types with shared serialization behavior.
+    """Base class for stored object types.
 
     Subclasses must define a `type` field as the discriminator.
     """
@@ -86,23 +85,27 @@ class _StoredObjectBase(BaseModel):
     typename: str | None = None
     """Optional type name of the original data (e.g., 'str', 'list')."""
 
-    @model_serializer(mode="wrap")
-    def _serialize(self, handler: Any) -> dict[str, Any]:
-        """Always include type field for discriminated union."""
-        result: dict[str, Any] = handler(self)
-        # Access type from subclass (InlineObject or ExternalObject)
-        result["type"] = self.type  # pyright: ignore[reportAttributeAccessIssue]
-        return result
+    @staticmethod
+    def _inject_discriminator_type(data: Any, value: str) -> Any:
+        """Backfill discriminator for ergonomic construction/back-compat."""
+        if isinstance(data, dict) and "type" not in data:
+            data["type"] = value
+        return data
 
 
 class InlineObject[T: Any](_StoredObjectBase):
     """Data stored inline (not externalized)."""
 
-    type: Literal["inline"] = "inline"
+    type: Literal["inline"]
     """Discriminator for tagged union."""
 
     data: T
     """The inline data. Can be any JSON-serializable value, including None."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _inject_type(cls, data: Any) -> Any:
+        return cls._inject_discriminator_type(data, "inline")
 
     @model_validator(mode="after")
     def _set_typename(self) -> InlineObject[T]:
@@ -114,11 +117,16 @@ class InlineObject[T: Any](_StoredObjectBase):
 class ExternalObject(_StoredObjectBase):
     """Data externalized to blob storage."""
 
-    type: Literal["external"] = "external"
+    type: Literal["external"]
     """Discriminator for tagged union."""
 
     ref: ObjectRef
     """Reference to the externalized data in blob storage."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _inject_type(cls, data: Any) -> Any:
+        return cls._inject_discriminator_type(data, "external")
 
 
 class CollectionObject(_StoredObjectBase):
@@ -138,7 +146,7 @@ class CollectionObject(_StoredObjectBase):
         schema_version: Manifest schema version for forward compatibility.
     """
 
-    type: Literal["collection"] = "collection"
+    type: Literal["collection"]
     """Discriminator for tagged union."""
 
     manifest_ref: ObjectRef
@@ -178,6 +186,11 @@ class CollectionObject(_StoredObjectBase):
         The manifest_ref remains the same, but the index field is set.
         """
         return self.model_copy(update={"index": index})
+
+    @model_validator(mode="before")
+    @classmethod
+    def _inject_type(cls, data: Any) -> Any:
+        return cls._inject_discriminator_type(data, "collection")
 
     @model_validator(mode="after")
     def _set_typename(self) -> CollectionObject:
