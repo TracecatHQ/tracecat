@@ -7,7 +7,6 @@
 # 4. IAM roles with confused-deputy protections
 #
 # Gated by var.enable_observability (master toggle).
-# CloudWatch Metric Streams additionally gated by var.cloudwatch_metrics_stream_enabled.
 
 locals {
   observability_enabled = var.enable_observability
@@ -262,6 +261,7 @@ resource "aws_kinesis_firehose_delivery_stream" "grafana_metrics" {
   count       = local.observability_enabled ? 1 : 0
   name        = "${var.cluster_name}-grafana-metrics"
   destination = "http_endpoint"
+  depends_on  = [aws_iam_role_policy.firehose]
 
   http_endpoint_configuration {
     url                = var.grafana_cloud_firehose_endpoint
@@ -301,6 +301,7 @@ resource "aws_cloudwatch_metric_stream" "grafana" {
   role_arn      = aws_iam_role.cw_metric_stream[0].arn
   firehose_arn  = aws_kinesis_firehose_delivery_stream.grafana_metrics[0].arn
   output_format = "opentelemetry1.0"
+  depends_on    = [aws_iam_role_policy.cw_metric_stream]
 
   include_filter {
     namespace = "AWS/RDS"
