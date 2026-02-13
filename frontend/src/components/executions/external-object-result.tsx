@@ -55,6 +55,21 @@ export function ExternalObjectResult({
             event_id: eventId,
           },
         })
+
+      // Validate the generated URL before navigating so we can surface
+      // a friendly UI error instead of showing raw S3/MinIO XML in-browser.
+      const probe = await fetch(response.download_url, {
+        method: "GET",
+        headers: {
+          Range: "bytes=0-0",
+        },
+      })
+      if (!probe.ok) {
+        throw new Error(
+          `Object download probe failed (${probe.status} ${probe.statusText})`
+        )
+      }
+
       const link = document.createElement("a")
       link.href = response.download_url
       link.download = response.file_name
