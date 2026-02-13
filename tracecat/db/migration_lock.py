@@ -11,7 +11,9 @@ from sqlalchemy.engine import Connection
 MIGRATION_ADVISORY_LOCK_NAMESPACE = "tracecat:alembic:migrations:v1"
 
 
-def migration_advisory_lock_id(namespace: str = MIGRATION_ADVISORY_LOCK_NAMESPACE) -> int:
+def migration_advisory_lock_id(
+    namespace: str = MIGRATION_ADVISORY_LOCK_NAMESPACE,
+) -> int:
     """Derive a stable PostgreSQL advisory lock id from a namespace string."""
     digest = hashlib.blake2b(namespace.encode("utf-8"), digest_size=8).digest()
     lock_id = int.from_bytes(digest, byteorder="big", signed=False) & ((1 << 63) - 1)
