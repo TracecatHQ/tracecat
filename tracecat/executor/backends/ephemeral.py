@@ -118,6 +118,4 @@ class EphemeralBackend(ExecutorBackend):
         role: Role,
     ) -> list[str]:
         """Get tarball URIs for registry environment (deterministic ordering)."""
-        return await get_registry_tarball_uris(
-            input=input, role=role, execution_mode="ephemeral"
-        )
+        return await get_registry_tarball_uris(input=input, role=role)

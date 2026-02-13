@@ -265,6 +265,4 @@ class TestBackend(ExecutorBackend):
 
     async def _get_tarball_uris(self, input: RunActionInput, role: Role) -> list[str]:
         """Get tarball URIs for registry environment (deterministic ordering)."""
-        return await get_registry_tarball_uris(
-            input=input, role=role, execution_mode="test"
-        )
+        return await get_registry_tarball_uris(input=input, role=role)

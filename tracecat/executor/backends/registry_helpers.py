@@ -9,15 +9,12 @@ from tracecat.executor.service import (
     RegistryArtifactsContext,
     get_registry_artifacts_for_lock,
 )
-from tracecat.logger import logger
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 
 
 async def get_registry_tarball_uris(
     input: RunActionInput,
     role: Role,
-    *,
-    execution_mode: str,
 ) -> list[str]:
     """Get tarball URIs for registry environment in deterministic order."""
     if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
@@ -26,17 +23,10 @@ async def get_registry_tarball_uris(
     if role.organization_id is None:
         raise ValueError("organization_id is required for registry artifacts lookup")
 
-    try:
-        artifacts = await get_registry_artifacts_for_lock(
-            input.registry_lock.origins, role.organization_id
-        )
-        return sort_registry_tarball_uris(artifacts)
-    except Exception as e:
-        logger.warning(
-            f"Failed to load registry artifacts for {execution_mode} execution",
-            error=str(e),
-        )
-        return []
+    artifacts = await get_registry_artifacts_for_lock(
+        input.registry_lock.origins, role.organization_id
+    )
+    return sort_registry_tarball_uris(artifacts)
 
 
 def sort_registry_tarball_uris(artifacts: list[RegistryArtifactsContext]) -> list[str]:
