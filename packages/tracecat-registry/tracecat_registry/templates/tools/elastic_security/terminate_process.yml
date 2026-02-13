@@ -18,7 +18,7 @@ definition:
       type: list[str]
       description: Array of endpoint IDs. Must be at least one ID.
     pid:
-      type: int | None
+      type: int
       description: Process ID (PID).
     comment:
       type: str

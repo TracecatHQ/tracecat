@@ -24,10 +24,6 @@ definition:
       type: str
       description: Optional comment to include.
       default: Action triggered by Tracecat
-    timeout:
-      type: int
-      description: Timeout in seconds.
-      default: 600
     base_url:
       type: str | None
       description: Kibana endpoint URL (e.g. https://localhost:5601).
@@ -52,12 +48,12 @@ definition:
           agent_type: ${{ inputs.agent_type }}
           parameters:
             command: ${{ inputs.command }}
-            timeout: ${{ inputs.timeout }}
     - ref: get_command_results
       action: core.http_poll
       args:
         url: ${{ inputs.base_url || VARS.elastic_security.base_url }}/api/endpoint/action/${{ steps.run_command.result.data.data.id }}
         method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}
         poll_condition: >

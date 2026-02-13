@@ -48,6 +48,7 @@ definition:
       args:
         url: ${{ inputs.base_url || VARS.elastic_security.base_url }}/api/endpoint/action/${{ steps.get_running_processes.result.data.data.id }}
         method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}
         poll_condition: >
