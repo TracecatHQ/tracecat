@@ -159,13 +159,13 @@ variable "tracecat_secrets_arn" {
 variable "rds_instance_class" {
   description = "RDS instance class"
   type        = string
-  default     = "db.t4g.medium"
+  default     = "db.m7g.2xlarge"
 }
 
 variable "rds_allocated_storage" {
   description = "Allocated storage for RDS in GB"
   type        = number
-  default     = 20
+  default     = 300
 }
 
 variable "rds_storage_type" {
@@ -217,7 +217,7 @@ variable "rds_deletion_protection" {
 variable "elasticache_node_type" {
   description = "ElastiCache node type"
   type        = string
-  default     = "cache.t3.micro"
+  default     = "cache.m7g.xlarge"
 }
 
 # Temporal Configuration
