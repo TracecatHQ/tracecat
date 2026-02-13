@@ -120,15 +120,12 @@ export function ExternalObjectResult({
       <div className="flex items-start justify-between gap-2">
         <div className="space-y-1">
           <p className="text-foreground/80">
-            This file is too large to load ({sizeLabel}).
+            This object is too large to load ({sizeLabel}).
           </p>
           <p className="text-muted-foreground">
             Download to inspect it, or fetch a truncated preview.
           </p>
         </div>
-        <Badge variant="secondary" className="font-mono text-[10px]">
-          ExternalObject
-        </Badge>
       </div>
       <div className="flex items-center gap-2">
         <Button
