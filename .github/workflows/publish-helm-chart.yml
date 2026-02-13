@@ -26,6 +26,10 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4
 
+      - name: Add Helm repositories
+        run: |
+          helm repo add temporal https://go.temporal.io/helm-charts
+
       - name: Resolve chart metadata
         id: chart-metadata
         run: |
