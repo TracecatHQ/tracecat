@@ -23,7 +23,9 @@ TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
 
-TRACECAT__LOOP_MAX_BATCH_SIZE = int(os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE", 64))
+TRACECAT__LOOP_MAX_BATCH_SIZE = int(
+    os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE") or 64
+)
 """Maximum number of parallel requests to the worker service."""
 
 TRACECAT__EXECUTOR_QUEUE = os.environ.get(
@@ -69,13 +71,13 @@ TRACECAT__DB_SSLMODE = os.environ.get("TRACECAT__DB_SSLMODE", "require")
 TRACECAT__DB_PASS__ARN = os.environ.get("TRACECAT__DB_PASS__ARN")
 """(AWS only) ARN of the secret to connect to the database with."""
 
-TRACECAT__DB_MAX_OVERFLOW = int(os.environ.get("TRACECAT__DB_MAX_OVERFLOW", 60))
+TRACECAT__DB_MAX_OVERFLOW = int(os.environ.get("TRACECAT__DB_MAX_OVERFLOW") or 60)
 """The maximum number of connections to allow in the pool."""
-TRACECAT__DB_POOL_SIZE = int(os.environ.get("TRACECAT__DB_POOL_SIZE", 10))
+TRACECAT__DB_POOL_SIZE = int(os.environ.get("TRACECAT__DB_POOL_SIZE") or 10)
 """The size of the connection pool."""
-TRACECAT__DB_POOL_TIMEOUT = int(os.environ.get("TRACECAT__DB_POOL_TIMEOUT", 30))
+TRACECAT__DB_POOL_TIMEOUT = int(os.environ.get("TRACECAT__DB_POOL_TIMEOUT") or 30)
 """The timeout for the connection pool."""
-TRACECAT__DB_POOL_RECYCLE = int(os.environ.get("TRACECAT__DB_POOL_RECYCLE", 600))
+TRACECAT__DB_POOL_RECYCLE = int(os.environ.get("TRACECAT__DB_POOL_RECYCLE") or 600)
 """The time to recycle the connection pool."""
 
 # === Auth config === #
@@ -168,7 +170,7 @@ SAML_SIGNED_RESPONSES = (
 )
 """Whether to require signed SAML responses."""
 
-SAML_ACCEPTED_TIME_DIFF = int(os.environ.get("SAML_ACCEPTED_TIME_DIFF", "3"))
+SAML_ACCEPTED_TIME_DIFF = int(os.environ.get("SAML_ACCEPTED_TIME_DIFF") or 3)
 """The time difference in seconds for SAML authentication."""
 
 XMLSEC_BINARY_PATH = os.environ.get("XMLSEC_BINARY_PATH", "/usr/bin/xmlsec1")
@@ -192,7 +194,7 @@ SAML_VERIFY_SSL_METADATA = (
 TRACECAT__ALLOW_ORIGINS = os.environ.get("TRACECAT__ALLOW_ORIGINS")
 
 # === Temporal config === #
-TEMPORAL__CONNECT_RETRIES = int(os.environ.get("TEMPORAL__CONNECT_RETRIES", 10))
+TEMPORAL__CONNECT_RETRIES = int(os.environ.get("TEMPORAL__CONNECT_RETRIES") or 10)
 TEMPORAL__CLUSTER_URL = os.environ.get(
     "TEMPORAL__CLUSTER_URL", "http://localhost:7233"
 )  # AKA TEMPORAL_HOST_URL
@@ -236,7 +238,7 @@ TRACECAT__UNSAFE_DISABLE_SM_MASKING = os.environ.get(
 # === M2M config === #
 TRACECAT__SERVICE_KEY = os.environ.get("TRACECAT__SERVICE_KEY")
 TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS = int(
-    os.environ.get("TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS", 900)
+    os.environ.get("TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS") or 900
 )
 """Executor JWT TTL in seconds (default: 900 seconds)."""
 
@@ -268,7 +270,7 @@ TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = os.environ.get(
 """Public endpoint URL to use for presigned URLs."""
 
 TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = int(
-    os.environ.get("TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY", 10)
+    os.environ.get("TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY") or 10
 )
 """Default expiry time for presigned URLs in seconds (default: 10 seconds for immediate use)."""
 
@@ -285,7 +287,7 @@ TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW = os.environ.get(
 """Bucket for externalized workflow data (action results, triggers, etc.)."""
 
 TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS = int(
-    os.environ.get("TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS", 30)
+    os.environ.get("TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS") or 30
 )
 """Retention period in days for workflow artifacts in blob storage.
 
@@ -328,17 +330,17 @@ When disabled (default), large collections use legacy InlineObject/ExternalObjec
 """
 
 TRACECAT__COLLECTION_CHUNK_SIZE = int(
-    os.environ.get("TRACECAT__COLLECTION_CHUNK_SIZE", "256")
+    os.environ.get("TRACECAT__COLLECTION_CHUNK_SIZE") or 256
 )
 """Number of items per chunk in collection manifests. Default: 256."""
 
 TRACECAT__COLLECTION_INLINE_MAX_ITEMS = int(
-    os.environ.get("TRACECAT__COLLECTION_INLINE_MAX_ITEMS", "100")
+    os.environ.get("TRACECAT__COLLECTION_INLINE_MAX_ITEMS") or 100
 )
 """Maximum items before using CollectionObject. Below this, use InlineObject/ExternalObject."""
 
 TRACECAT__COLLECTION_INLINE_MAX_BYTES = int(
-    os.environ.get("TRACECAT__COLLECTION_INLINE_MAX_BYTES", str(256 * 1024))
+    os.environ.get("TRACECAT__COLLECTION_INLINE_MAX_BYTES") or 256 * 1024
 )
 """Maximum bytes before using CollectionObject. Default: 256 KB."""
 
@@ -370,12 +372,12 @@ TRACECAT__SANDBOX_CACHE_DIR = os.environ.get(
 """Base directory for sandbox caching (packages, uv cache)."""
 
 TRACECAT__SANDBOX_DEFAULT_TIMEOUT = int(
-    os.environ.get("TRACECAT__SANDBOX_DEFAULT_TIMEOUT", "300")
+    os.environ.get("TRACECAT__SANDBOX_DEFAULT_TIMEOUT") or 300
 )
 """Default timeout for sandbox script execution in seconds."""
 
 TRACECAT__SANDBOX_DEFAULT_MEMORY_MB = int(
-    os.environ.get("TRACECAT__SANDBOX_DEFAULT_MEMORY_MB", "2048")
+    os.environ.get("TRACECAT__SANDBOX_DEFAULT_MEMORY_MB") or 2048
 )
 """Default memory limit for sandbox execution in megabytes (2 GiB)."""
 
@@ -427,7 +429,7 @@ Only use 'direct' for tests. For production, use 'pool' or 'ephemeral'.
 """
 
 TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
-    os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT", "300")
+    os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT") or 300
 )
 """Default timeout in seconds for executor client operations (default: 300s)."""
 
@@ -480,12 +482,12 @@ When False (default), metrics are not emitted to reduce log noise.
 
 # === Agent Sandbox (NSJail for ClaudeAgentRuntime) === #
 TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT", "600")
+    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT") or 600
 )
 """Default timeout for agent sandbox execution in seconds (10 minutes)."""
 
 TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_MEMORY_MB", "4096")
+    os.environ.get("TRACECAT__AGENT_SANDBOX_MEMORY_MB") or 4096
 )
 """Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
 
@@ -501,16 +503,16 @@ TRACECAT__RATE_LIMIT_ENABLED = (
 )
 """Whether rate limiting is enabled for the executor service."""
 
-TRACECAT__RATE_LIMIT_RATE = float(os.environ.get("TRACECAT__RATE_LIMIT_RATE", 40.0))
+TRACECAT__RATE_LIMIT_RATE = float(os.environ.get("TRACECAT__RATE_LIMIT_RATE") or 40.0)
 """The rate at which tokens are added to the bucket (tokens per second)."""
 
 TRACECAT__RATE_LIMIT_CAPACITY = float(
-    os.environ.get("TRACECAT__RATE_LIMIT_CAPACITY", 80.0)
+    os.environ.get("TRACECAT__RATE_LIMIT_CAPACITY") or 80.0
 )
 """The maximum number of tokens the bucket can hold."""
 
 TRACECAT__RATE_LIMIT_WINDOW_SIZE = int(
-    os.environ.get("TRACECAT__RATE_LIMIT_WINDOW_SIZE", 60)
+    os.environ.get("TRACECAT__RATE_LIMIT_WINDOW_SIZE") or 60
 )
 """The time window in seconds for rate limiting."""
 
@@ -525,27 +527,27 @@ TRACECAT__RATE_LIMIT_BY_ENDPOINT = (
 """Whether to rate limit by endpoint."""
 
 TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES = int(
-    os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES", 1024 * 1024)
+    os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES") or 1024 * 1024
 )
 """The maximum size of a payload in bytes the executor can return. Defaults to 1MB"""
 
 TRACECAT__MAX_FILE_SIZE_BYTES = int(
-    os.environ.get("TRACECAT__MAX_FILE_SIZE_BYTES", 20 * 1024 * 1024)  # Default 20MB
+    os.environ.get("TRACECAT__MAX_FILE_SIZE_BYTES") or 20 * 1024 * 1024  # Default 20MB
 )
 """The maximum size for file handling (e.g., uploads, downloads) in bytes. Defaults to 20MB."""
 
 TRACECAT__MAX_TABLE_IMPORT_SIZE_BYTES = int(
-    os.environ.get("TRACECAT__MAX_TABLE_IMPORT_SIZE_BYTES", 5 * 1024 * 1024)
+    os.environ.get("TRACECAT__MAX_TABLE_IMPORT_SIZE_BYTES") or 5 * 1024 * 1024
 )
 """Maximum CSV upload size for table imports in bytes. Defaults to 5MB."""
 
 TRACECAT__MAX_UPLOAD_FILES_COUNT = int(
-    os.environ.get("TRACECAT__MAX_UPLOAD_FILES_COUNT", 5)
+    os.environ.get("TRACECAT__MAX_UPLOAD_FILES_COUNT") or 5
 )
 """The maximum number of files that can be uploaded at once. Defaults to 5."""
 
 TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES = int(
-    os.environ.get("TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES", 100 * 1024 * 1024)
+    os.environ.get("TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES") or 100 * 1024 * 1024
 )
 """The maximum size of the aggregate upload size in bytes. Defaults to 100MB."""
 
@@ -557,12 +559,12 @@ TRACECAT__SYSTEM_PATH = os.environ.get(
 
 # === Concurrency Limits === #
 TRACECAT__S3_CONCURRENCY_LIMIT = int(
-    os.environ.get("TRACECAT__S3_CONCURRENCY_LIMIT", 50)
+    os.environ.get("TRACECAT__S3_CONCURRENCY_LIMIT") or 50
 )
 """Maximum number of concurrent S3 operations to prevent resource exhaustion. Defaults to 50."""
 
 TRACECAT__MAX_ROWS_CLIENT_POSTGRES = int(
-    os.environ.get("TRACECAT__MAX_ROWS_CLIENT_POSTGRES", 1000)
+    os.environ.get("TRACECAT__MAX_ROWS_CLIENT_POSTGRES") or 1000
 )
 """Maximum number of rows that can be returned from PostgreSQL client queries. Defaults to 1,000."""
 
@@ -573,7 +575,7 @@ TRACECAT__CONTEXT_COMPRESSION_ENABLED = os.environ.get(
 """Enable compression of large action results in workflow contexts. Defaults to False."""
 
 TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB = int(
-    os.environ.get("TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB", 16)
+    os.environ.get("TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB") or 16
 )
 """Threshold in KB above which action results are compressed. Defaults to 16KB."""
 
@@ -590,7 +592,7 @@ TRACECAT__WORKFLOW_RETURN_STRATEGY: Literal["context", "minimal"] = cast(
 
 # === Redis config === #
 REDIS_CHAT_TTL_SECONDS = int(
-    os.environ.get("REDIS_CHAT_TTL_SECONDS", 3 * 24 * 60 * 60)  # 3 days
+    os.environ.get("REDIS_CHAT_TTL_SECONDS") or 3 * 24 * 60 * 60  # 3 days
 )
 """TTL for Redis chat history streams in seconds. Defaults to 3 days."""
 
@@ -616,58 +618,58 @@ TRACECAT__CASE_TRIGGERS_GROUP = os.environ.get(
 """Redis consumer group for case trigger processing."""
 
 TRACECAT__CASE_TRIGGERS_BLOCK_MS = int(
-    os.environ.get("TRACECAT__CASE_TRIGGERS_BLOCK_MS", 2000)
+    os.environ.get("TRACECAT__CASE_TRIGGERS_BLOCK_MS") or 2000
 )
 """XREADGROUP block timeout in milliseconds."""
 
 TRACECAT__CASE_TRIGGERS_BATCH = int(
-    os.environ.get("TRACECAT__CASE_TRIGGERS_BATCH", 100)
+    os.environ.get("TRACECAT__CASE_TRIGGERS_BATCH") or 100
 )
 """Maximum number of events to read per batch."""
 
 TRACECAT__CASE_TRIGGERS_CLAIM_IDLE_MS = int(
-    os.environ.get("TRACECAT__CASE_TRIGGERS_CLAIM_IDLE_MS", 300000)
+    os.environ.get("TRACECAT__CASE_TRIGGERS_CLAIM_IDLE_MS") or 300000
 )
 """Idle time before claiming pending messages (milliseconds)."""
 
 TRACECAT__CASE_TRIGGERS_MAXLEN = int(
-    os.environ.get("TRACECAT__CASE_TRIGGERS_MAXLEN", 30000)
+    os.environ.get("TRACECAT__CASE_TRIGGERS_MAXLEN") or 30000
 )
 """Approximate max length for the case events stream."""
 
 TRACECAT__CASE_TRIGGERS_DEDUP_TTL_SECONDS = int(
-    os.environ.get("TRACECAT__CASE_TRIGGERS_DEDUP_TTL_SECONDS", 21600)
+    os.environ.get("TRACECAT__CASE_TRIGGERS_DEDUP_TTL_SECONDS") or 21600
 )
 """TTL for case trigger dedup keys in seconds."""
 
 TRACECAT__CASE_TRIGGERS_LOCK_TTL_SECONDS = int(
-    os.environ.get("TRACECAT__CASE_TRIGGERS_LOCK_TTL_SECONDS", 300)
+    os.environ.get("TRACECAT__CASE_TRIGGERS_LOCK_TTL_SECONDS") or 300
 )
 """TTL for case trigger lock keys in seconds."""
 
 # === File limits === #
 TRACECAT__MAX_ATTACHMENT_SIZE_BYTES = int(
-    os.environ.get("TRACECAT__MAX_ATTACHMENT_SIZE_BYTES", 20 * 1024 * 1024)
+    os.environ.get("TRACECAT__MAX_ATTACHMENT_SIZE_BYTES") or 20 * 1024 * 1024
 )
 """The maximum size for case attachment files in bytes. Defaults to 20MB."""
 
 TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH = int(
-    os.environ.get("TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH", 255)
+    os.environ.get("TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH") or 255
 )
 """The maximum length for attachment filenames. Defaults to 255 (Django FileField standard)."""
 
 TRACECAT__MAX_CASE_STORAGE_BYTES = int(
-    os.environ.get("TRACECAT__MAX_CASE_STORAGE_BYTES", 200 * 1024 * 1024)
+    os.environ.get("TRACECAT__MAX_CASE_STORAGE_BYTES") or 200 * 1024 * 1024
 )
 """The maximum total storage per case in bytes. Defaults to 200MB."""
 
 TRACECAT__MAX_ATTACHMENTS_PER_CASE = int(
-    os.environ.get("TRACECAT__MAX_ATTACHMENTS_PER_CASE", 10)
+    os.environ.get("TRACECAT__MAX_ATTACHMENTS_PER_CASE") or 10
 )
 """The maximum number of attachments allowed per case. Defaults to 10."""
 
 TRACECAT__MAX_RECORDS_PER_CASE = int(
-    os.environ.get("TRACECAT__MAX_RECORDS_PER_CASE", 50)
+    os.environ.get("TRACECAT__MAX_RECORDS_PER_CASE") or 50
 )
 """The maximum number of entity records allowed per case. Defaults to 50."""
 
@@ -753,27 +755,29 @@ TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED = os.environ.get(
 ).lower() in ("true", "1")
 """Whether to enable unified streaming for agent execution."""
 
-TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS", 30))
+TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS") or 30)
 """The maximum number of tools that can be used in an agent."""
 
 TRACECAT__AGENT_MAX_TOOL_CALLS = int(
-    os.environ.get("TRACECAT__AGENT_MAX_TOOL_CALLS", 40)
+    os.environ.get("TRACECAT__AGENT_MAX_TOOL_CALLS") or 40
 )
 """The maximum number of tool calls that can be made per agent run."""
 
-TRACECAT__AGENT_MAX_REQUESTS = int(os.environ.get("TRACECAT__AGENT_MAX_REQUESTS", 120))
+TRACECAT__AGENT_MAX_REQUESTS = int(
+    os.environ.get("TRACECAT__AGENT_MAX_REQUESTS") or 120
+)
 """The maximum number of requests that can be made per agent run."""
 
-TRACECAT__AGENT_MAX_RETRIES = int(os.environ.get("TRACECAT__AGENT_MAX_RETRIES", 20))
+TRACECAT__AGENT_MAX_RETRIES = int(os.environ.get("TRACECAT__AGENT_MAX_RETRIES") or 20)
 """The maximum number of retries that can be made per agent run."""
 
 TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT = int(
-    os.environ.get("TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT", 128_000)
+    os.environ.get("TRACECAT__AGENT_DEFAULT_CONTEXT_LIMIT") or 128_000
 )
 """Default character limit for agent message history when truncating context."""
 
 TRACECAT__AGENT_TOOL_OUTPUT_LIMIT = int(
-    os.environ.get("TRACECAT__AGENT_TOOL_OUTPUT_LIMIT", 80_000)
+    os.environ.get("TRACECAT__AGENT_TOOL_OUTPUT_LIMIT") or 80_000
 )
 """Default character limit for individual tool outputs when truncating context."""
 
@@ -806,12 +810,12 @@ When False, uses the existing subprocess approach from the API service.
 """
 
 TRACECAT__REGISTRY_SYNC_INSTALL_TIMEOUT = int(
-    os.environ.get("TRACECAT__REGISTRY_SYNC_INSTALL_TIMEOUT", 600)
+    os.environ.get("TRACECAT__REGISTRY_SYNC_INSTALL_TIMEOUT") or 600
 )
 """Timeout for package installation during registry sync in seconds. Defaults to 600 (10 min)."""
 
 TRACECAT__REGISTRY_SYNC_DISCOVER_TIMEOUT = int(
-    os.environ.get("TRACECAT__REGISTRY_SYNC_DISCOVER_TIMEOUT", 300)
+    os.environ.get("TRACECAT__REGISTRY_SYNC_DISCOVER_TIMEOUT") or 300
 )
 """Timeout for action discovery during registry sync in seconds. Defaults to 300 (5 min)."""
 
