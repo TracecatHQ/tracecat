@@ -1,15 +1,11 @@
 name: Publish helm chart
 
 on:
-  workflow_dispatch:
-    inputs:
-      chart_version:
-        description: "Chart version to publish (defaults to Chart.yaml version)"
-        required: false
-        type: string
   push:
-    tags:
-      - "*.*.*"
+    branches:
+      - main
+    paths:
+      - deployments/helm/tracecat/Chart.yaml
 
 env:
   REGISTRY: ghcr.io
@@ -30,34 +26,20 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4
 
-      - name: Resolve chart version
-        id: chart-version
+      - name: Resolve chart metadata
+        id: chart-metadata
         run: |
-          INPUT_VERSION="${{ inputs.chart_version }}"
-          if [ -n "$INPUT_VERSION" ]; then
-            CHART_VERSION="$INPUT_VERSION"
-          else
-            CHART_VERSION="$(helm show chart "${{ env.CHART_PATH }}" | awk -F': ' '$1 == "version" {print $2}')"
-          fi
+          CHART_NAME="$(helm show chart "${{ env.CHART_PATH }}" | awk -F': ' '$1 == "name" {print $2}')"
+          CHART_VERSION="$(helm show chart "${{ env.CHART_PATH }}" | awk -F': ' '$1 == "version" {print $2}')"
 
-          if [ -z "$CHART_VERSION" ]; then
-            echo "Unable to determine chart version."
+          if [ -z "$CHART_NAME" ] || [ -z "$CHART_VERSION" ]; then
+            echo "Unable to determine chart name or version."
             exit 1
           fi
 
+          echo "name=$CHART_NAME" >> "$GITHUB_OUTPUT"
           echo "version=$CHART_VERSION" >> "$GITHUB_OUTPUT"
 
-
-      - name: Validate tag matches chart version
-        if: github.event_name == 'push'
-        run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          CHART_VERSION="${{ steps.chart-version.outputs.version }}"
-
-          if [ "$TAG_VERSION" != "$CHART_VERSION" ]; then
-            echo "Tag version ($TAG_VERSION) does not match chart version ($CHART_VERSION)."
-            exit 1
-          fi
       - name: Build chart dependencies
         run: helm dependency build "${{ env.CHART_PATH }}"
 
@@ -69,9 +51,10 @@ jobs:
 
       - name: Package chart
         run: |
-          helm package "${{ env.CHART_PATH }}" \
-            --version "${{ steps.chart-version.outputs.version }}" \
-            --destination /tmp/chart
+          helm package "${{ env.CHART_PATH }}" --destination /tmp/chart
 
       - name: Push chart to GHCR
-        run: helm push /tmp/chart/*.tgz oci://${{ env.OCI_REPOSITORY }}
+        run: |
+          helm push \
+            "/tmp/chart/${{ steps.chart-metadata.outputs.name }}-${{ steps.chart-metadata.outputs.version }}.tgz" \
+            oci://${{ env.OCI_REPOSITORY }}
