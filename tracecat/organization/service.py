@@ -300,7 +300,7 @@ class OrgService(BaseOrgService):
         to an organization. It is typically called from the invitation flow
         when a user accepts an invitation.
 
-        Note: This method does not require access level checks as it is
+        Note: This method does not require scope checks as it is
         intended to be called by internal services (e.g., invitation service).
 
         Args:
@@ -519,7 +519,7 @@ class OrgService(BaseOrgService):
     async def get_invitation_by_token(self, token: str) -> OrganizationInvitation:
         """Get an invitation by its unique token.
 
-        This method does not require access level checks as it is used
+        This method does not require scope checks as it is used
         during the public invitation acceptance flow.
 
         Args:

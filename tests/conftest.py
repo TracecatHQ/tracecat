@@ -29,7 +29,7 @@ from temporalio.worker import Worker
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
@@ -982,7 +982,6 @@ async def test_admin_role(test_workspace, mock_org_id):
         user_id=mock_org_id,
         organization_id=mock_org_id,
         workspace_id=test_workspace.id,
-        access_level=AccessLevel.ADMIN,
         org_role=OrgRole.ADMIN,
         service_id="tracecat-runner",
     )
@@ -1069,7 +1068,6 @@ async def test_workspace(test_organization, mock_org_id):
         type="service",
         service_id="tracecat-service",
         organization_id=mock_org_id,
-        access_level=AccessLevel.ADMIN,
         org_role=OrgRole.OWNER,
     )
 
@@ -1261,7 +1259,6 @@ async def svc_role(svc_workspace: Workspace) -> Role:
     """Service test fixture. Create a function scoped test role."""
     return Role(
         type="user",
-        access_level=AccessLevel.BASIC,
         workspace_id=svc_workspace.id,
         organization_id=svc_workspace.organization_id,
         user_id=uuid.uuid4(),
@@ -1274,7 +1271,6 @@ async def svc_admin_role(svc_workspace: Workspace) -> Role:
     """Service test fixture. Create a function scoped test role."""
     return Role(
         type="user",
-        access_level=AccessLevel.ADMIN,
         org_role=OrgRole.ADMIN,
         workspace_id=svc_workspace.id,
         organization_id=svc_workspace.organization_id,

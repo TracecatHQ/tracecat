@@ -10,7 +10,7 @@ from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.schemas import UserRole
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole
 from tracecat.db.models import (
     AccessToken,
@@ -137,7 +137,6 @@ def create_admin_role(organization_id: uuid.UUID, user_id: uuid.UUID) -> Role:
         type="user",
         user_id=user_id,
         organization_id=organization_id,
-        access_level=AccessLevel.ADMIN,
         org_role=OrgRole.ADMIN,
         service_id="tracecat-api",
         is_platform_superuser=False,
@@ -150,7 +149,6 @@ def create_superuser_role(organization_id: uuid.UUID, user_id: uuid.UUID) -> Rol
         type="user",
         user_id=user_id,
         organization_id=organization_id,
-        access_level=AccessLevel.ADMIN,
         org_role=OrgRole.OWNER,
         service_id="tracecat-api",
         is_platform_superuser=True,
@@ -1054,7 +1052,6 @@ class TestOrganizationServiceInvitations:
             type="user",
             user_id=user_in_org2.id,
             organization_id=org2.id,
-            access_level=AccessLevel.BASIC,
             service_id="tracecat-api",
         )
         user_service = OrgService(session, role=user_role)
@@ -1091,7 +1088,6 @@ class TestOrganizationServiceInvitations:
             type="user",
             user_id=user_in_org2.id,
             organization_id=org2.id,
-            access_level=AccessLevel.BASIC,
             service_id="tracecat-api",
         )
         user_service = OrgService(session, role=user_role)
@@ -1137,7 +1133,6 @@ class TestOrganizationServiceInvitations:
             type="user",
             user_id=different_user.id,
             organization_id=org2.id,
-            access_level=AccessLevel.BASIC,
             service_id="tracecat-api",
         )
         different_service = OrgService(session, role=different_role)
@@ -1172,7 +1167,6 @@ class TestOrganizationServiceInvitations:
             type="user",
             user_id=user_in_org2.id,
             organization_id=org2.id,
-            access_level=AccessLevel.BASIC,
             service_id="tracecat-api",
         )
         user_service = OrgService(session, role=user_role)

@@ -220,9 +220,9 @@ class TestOrgRoleScopes:
         assert "org:delete" not in ORG_ADMIN_SCOPES
         assert "org:delete" not in ORG_MEMBER_SCOPES
 
-    def test_owner_has_billing_manage(self):
-        assert "org:billing:manage" in ORG_OWNER_SCOPES
-        assert "org:billing:manage" not in ORG_ADMIN_SCOPES
+    def test_owner_has_billing_update(self):
+        assert "org:billing:update" in ORG_OWNER_SCOPES
+        assert "org:billing:update" not in ORG_ADMIN_SCOPES
 
     def test_admin_has_billing_read(self):
         assert "org:billing:read" in ORG_ADMIN_SCOPES

@@ -247,7 +247,7 @@ async def oauth_callback(
 
 # Collection-level endpoints
 @integrations_router.get("")
-@require_scope("workflow:read")
+@require_scope("integration:read")
 async def list_integrations(
     role: WorkspaceUserRole, session: AsyncDBSession
 ) -> list[IntegrationReadMinimal]:
@@ -274,7 +274,7 @@ async def list_integrations(
 
 
 @integrations_router.get("/{provider_id}")
-@require_scope("workflow:read")
+@require_scope("integration:read")
 async def get_integration(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -330,7 +330,7 @@ async def get_integration(
 # XXX(SECURITY): Should we allow non-admins to connect providers?
 # Generic OAuth flow endpoints
 @integrations_router.post("/{provider_id}/connect")
-@require_scope("workflow:update")
+@require_scope("integration:update")
 async def connect_provider(
     *,
     role: WorkspaceUserRole,
@@ -471,7 +471,7 @@ async def connect_provider(
 @integrations_router.post(
     "/{provider_id}/disconnect", status_code=status.HTTP_204_NO_CONTENT
 )
-@require_scope("workflow:update")
+@require_scope("integration:update")
 async def disconnect_integration(
     *,
     role: WorkspaceUserRole,
@@ -496,7 +496,7 @@ async def disconnect_integration(
 
 
 @integrations_router.delete("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("workflow:update")
+@require_scope("integration:delete")
 async def delete_integration(
     *,
     role: WorkspaceUserRole,
@@ -527,7 +527,7 @@ async def delete_integration(
 
 
 @integrations_router.post("/{provider_id}/test")
-@require_scope("workflow:update")
+@require_scope("integration:update")
 async def test_connection(
     *,
     role: WorkspaceUserRole,
@@ -605,7 +605,7 @@ async def test_connection(
 
 
 @integrations_router.put("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("workflow:update")
+@require_scope("integration:update")
 async def update_integration(
     *,
     role: WorkspaceUserRole,
@@ -654,7 +654,7 @@ async def update_integration(
 
 
 @providers_router.post("", status_code=status.HTTP_201_CREATED)
-@require_scope("workflow:update")
+@require_scope("integration:create")
 async def create_custom_provider(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -700,7 +700,7 @@ async def create_custom_provider(
 
 
 @providers_router.get("")
-@require_scope("workflow:read")
+@require_scope("integration:read")
 async def list_providers(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -747,7 +747,7 @@ async def list_providers(
 
 
 @providers_router.get("/{provider_id}")
-@require_scope("workflow:read")
+@require_scope("integration:read")
 async def get_provider(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -782,7 +782,7 @@ async def get_provider(
 
 
 @mcp_router.post("", status_code=status.HTTP_201_CREATED)
-@require_scope("workflow:update")
+@require_scope("integration:create")
 async def create_mcp_integration(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -819,7 +819,7 @@ async def create_mcp_integration(
 
 
 @mcp_router.get("")
-@require_scope("workflow:read")
+@require_scope("integration:read")
 async def list_mcp_integrations(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -852,7 +852,7 @@ async def list_mcp_integrations(
 
 
 @mcp_router.get("/{mcp_integration_id}")
-@require_scope("workflow:read")
+@require_scope("integration:read")
 async def get_mcp_integration(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -888,7 +888,7 @@ async def get_mcp_integration(
 
 
 @mcp_router.put("/{mcp_integration_id}")
-@require_scope("workflow:update")
+@require_scope("integration:update")
 async def update_mcp_integration(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -933,7 +933,7 @@ async def update_mcp_integration(
 
 
 @mcp_router.delete("/{mcp_integration_id}", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("workflow:update")
+@require_scope("integration:delete")
 async def delete_mcp_integration(
     role: WorkspaceUserRole,
     session: AsyncDBSession,

@@ -56,7 +56,7 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
     ScopeDefinition(
         "org:billing:read", "org:billing", "read", "View billing information"
     ),
-    ScopeDefinition("org:billing:manage", "org:billing", "manage", "Manage billing"),
+    ScopeDefinition("org:billing:update", "org:billing", "update", "Manage billing"),
     # RBAC administration
     ScopeDefinition(
         "org:rbac:read",
@@ -65,10 +65,22 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "View roles, scopes, groups, and assignments",
     ),
     ScopeDefinition(
-        "org:rbac:manage",
+        "org:rbac:create",
         "org:rbac",
-        "manage",
-        "Create/update/delete roles, scopes, groups, and manage assignments",
+        "create",
+        "Create roles, scopes, groups, and assignments",
+    ),
+    ScopeDefinition(
+        "org:rbac:update",
+        "org:rbac",
+        "update",
+        "Update roles, groups, and assignments",
+    ),
+    ScopeDefinition(
+        "org:rbac:delete",
+        "org:rbac",
+        "delete",
+        "Delete roles, scopes, groups, and assignments",
     ),
     # Org settings management
     ScopeDefinition(
@@ -78,10 +90,16 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "View organization settings and configuration",
     ),
     ScopeDefinition(
-        "org:settings:manage",
+        "org:settings:update",
         "org:settings",
-        "manage",
+        "update",
         "Manage organization settings and configuration",
+    ),
+    ScopeDefinition(
+        "org:settings:delete",
+        "org:settings",
+        "delete",
+        "Delete organization settings and configuration",
     ),
     # Registry administration
     ScopeDefinition(
@@ -91,10 +109,22 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "View organization registry repositories and versions",
     ),
     ScopeDefinition(
-        "org:registry:manage",
+        "org:registry:create",
         "org:registry",
-        "manage",
-        "Manage organization registry repositories and versions",
+        "create",
+        "Create organization registry repositories and versions",
+    ),
+    ScopeDefinition(
+        "org:registry:update",
+        "org:registry",
+        "update",
+        "Update organization registry repositories and versions",
+    ),
+    ScopeDefinition(
+        "org:registry:delete",
+        "org:registry",
+        "delete",
+        "Delete organization registry repositories and versions",
     ),
     # Workspace-level scopes
     ScopeDefinition("workspace:read", "workspace", "read", "View workspace settings"),
@@ -135,6 +165,31 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
     ),
     ScopeDefinition("workflow:delete", "workflow", "delete", "Delete workflows"),
     ScopeDefinition("workflow:execute", "workflow", "execute", "Run/trigger workflows"),
+    # Integration scopes
+    ScopeDefinition(
+        "integration:read",
+        "integration",
+        "read",
+        "View integrations and provider metadata",
+    ),
+    ScopeDefinition(
+        "integration:create",
+        "integration",
+        "create",
+        "Create integrations and provider configurations",
+    ),
+    ScopeDefinition(
+        "integration:update",
+        "integration",
+        "update",
+        "Manage integration configuration and connections",
+    ),
+    ScopeDefinition(
+        "integration:delete",
+        "integration",
+        "delete",
+        "Delete integrations and provider configurations",
+    ),
     # Case scopes
     ScopeDefinition("case:read", "case", "read", "View cases"),
     ScopeDefinition("case:create", "case", "create", "Create new cases"),
@@ -236,7 +291,7 @@ PRESET_ROLE_DEFINITIONS: dict[str, RoleDefinition] = {
     ),
     "organization-admin": RoleDefinition(
         "Organization Admin",
-        "Organization admin without delete or billing manage",
+        "Organization admin without delete or billing update",
         PRESET_ROLE_SCOPES["organization-admin"],
     ),
     "organization-member": RoleDefinition(

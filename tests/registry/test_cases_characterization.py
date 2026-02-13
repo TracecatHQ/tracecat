@@ -64,7 +64,7 @@ from tracecat.auth.dependencies import (
     WorkspaceUserRole,
 )
 from tracecat.auth.executor_tokens import mint_executor_token
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole
 from tracecat.cases.durations.schemas import (
     CaseDurationDefinitionCreate,
@@ -98,7 +98,6 @@ async def cases_test_role(svc_workspace: Workspace) -> Role:
     """Create a service role for case UDF tests."""
     return Role(
         type="service",
-        access_level=AccessLevel.ADMIN,
         org_role=OrgRole.ADMIN,
         workspace_id=svc_workspace.id,
         organization_id=svc_workspace.organization_id,

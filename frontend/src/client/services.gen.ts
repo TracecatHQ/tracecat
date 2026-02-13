@@ -860,8 +860,8 @@ export const publicReceiveInteraction = (
  * List Workspaces
  * List workspaces.
  *
- * Access Level
- * ------------
+ * Authorization
+ * -------------
  * - Basic: Can list workspaces where they are a member.
  * - Admin: Can list all workspaces regardless of membership.
  * - Org Owner/Admin: Can list all workspaces in the organization.
@@ -880,8 +880,8 @@ export const workspacesListWorkspaces =
  * Create Workspace
  * Create a new workspace.
  *
- * Access Level
- * ------------
+ * Authorization
+ * -------------
  * - Admin: Can create a workspace for any user.
  * @param data The data for the request.
  * @param data.requestBody
@@ -1151,8 +1151,8 @@ export const workspacesDeleteWorkspaceMembership = (
  * Create Workspace Invitation
  * Create a workspace invitation.
  *
- * Access Level
- * ------------
+ * Authorization
+ * -------------
  * - Workspace Admin: Can create invitations for their workspace.
  * @param data The data for the request.
  * @param data.workspaceId
@@ -1181,8 +1181,8 @@ export const workspacesCreateWorkspaceInvitation = (
  * List Workspace Invitations
  * List workspace invitations.
  *
- * Access Level
- * ------------
+ * Authorization
+ * -------------
  * - Workspace Admin: Can list invitations for their workspace.
  * @param data The data for the request.
  * @param data.workspaceId
@@ -1212,8 +1212,8 @@ export const workspacesListWorkspaceInvitations = (
  * Revoke Workspace Invitation
  * Revoke a workspace invitation.
  *
- * Access Level
- * ------------
+ * Authorization
+ * -------------
  * - Workspace Admin: Can revoke invitations for their workspace.
  * @param data The data for the request.
  * @param data.workspaceId
@@ -8721,7 +8721,7 @@ export const rbacListScopes = (
  * Create Scope
  * Create a custom scope.
  *
- * Requires: org:rbac:manage scope
+ * Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
  * @param data The data for the request.
  * @param data.requestBody
  * @returns ScopeRead Successful Response
@@ -8772,7 +8772,7 @@ export const rbacGetScope = (
  *
  * Only custom scopes can be deleted. System and registry scopes are protected.
  *
- * Requires: org:rbac:manage scope
+ * Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
  * @param data The data for the request.
  * @param data.scopeId
  * @returns void Successful Response
@@ -8812,7 +8812,7 @@ export const rbacListRoles = (): CancelablePromise<RbacListRolesResponse> => {
  * Create Role
  * Create a custom role.
  *
- * Requires: org:rbac:manage scope
+ * Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
  * @param data The data for the request.
  * @param data.requestBody
  * @returns RoleReadWithScopes Successful Response
@@ -8861,7 +8861,7 @@ export const rbacGetRole = (
  * Update Role
  * Update a role.
  *
- * Requires: org:rbac:manage scope
+ * Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
  * @param data The data for the request.
  * @param data.roleId
  * @param data.requestBody
@@ -8891,7 +8891,7 @@ export const rbacUpdateRole = (
  *
  * Roles with active assignments must have all assignments removed first.
  *
- * Requires: org:rbac:manage scope
+ * Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
  * @param data The data for the request.
  * @param data.roleId
  * @returns void Successful Response
@@ -8931,7 +8931,7 @@ export const rbacListGroups = (): CancelablePromise<RbacListGroupsResponse> => {
  * Create Group
  * Create a group.
  *
- * Requires: org:rbac:manage scope
+ * Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
  * @param data The data for the request.
  * @param data.requestBody
  * @returns GroupReadWithMembers Successful Response
@@ -8980,7 +8980,7 @@ export const rbacGetGroup = (
  * Update Group
  * Update a group.
  *
- * Requires: org:rbac:manage scope
+ * Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
  * @param data The data for the request.
  * @param data.groupId
  * @param data.requestBody
@@ -9010,7 +9010,7 @@ export const rbacUpdateGroup = (
  *
  * This will also delete all group assignments and memberships.
  *
- * Requires: org:rbac:manage scope
+ * Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
  * @param data The data for the request.
  * @param data.groupId
  * @returns void Successful Response
@@ -9035,7 +9035,7 @@ export const rbacDeleteGroup = (
  * Add Group Member
  * Add a member to a group.
  *
- * Requires: org:rbac:manage scope
+ * Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
  * @param data The data for the request.
  * @param data.groupId
  * @param data.requestBody
@@ -9063,7 +9063,7 @@ export const rbacAddGroupMember = (
  * Remove Group Member
  * Remove a member from a group.
  *
- * Requires: org:rbac:manage scope
+ * Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
  * @param data The data for the request.
  * @param data.groupId
  * @param data.userId
@@ -9121,7 +9121,7 @@ export const rbacListAssignments = (
  * assignment that applies to all workspaces. Each group can have at most
  * one assignment per workspace (or one org-wide assignment).
  *
- * Requires: org:rbac:manage scope
+ * Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
  * @param data The data for the request.
  * @param data.requestBody
  * @returns GroupRoleAssignmentReadWithDetails Successful Response
@@ -9170,7 +9170,7 @@ export const rbacGetAssignment = (
  * Update Assignment
  * Update a group assignment (change role).
  *
- * Requires: org:rbac:manage scope
+ * Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
  * @param data The data for the request.
  * @param data.assignmentId
  * @param data.requestBody
@@ -9198,7 +9198,7 @@ export const rbacUpdateAssignment = (
  * Delete Assignment
  * Delete a group assignment.
  *
- * Requires: org:rbac:manage scope
+ * Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
  * @param data The data for the request.
  * @param data.assignmentId
  * @returns void Successful Response
@@ -9254,7 +9254,7 @@ export const rbacListUserAssignments = (
  * assignment that applies to all workspaces. Each user can have at most
  * one assignment per workspace (or one org-wide assignment).
  *
- * Requires: org:rbac:manage scope
+ * Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
  * @param data The data for the request.
  * @param data.requestBody
  * @returns UserRoleAssignmentReadWithDetails Successful Response
@@ -9303,7 +9303,7 @@ export const rbacGetUserAssignment = (
  * Update User Assignment
  * Update a user role assignment (change role).
  *
- * Requires: org:rbac:manage scope
+ * Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
  * @param data The data for the request.
  * @param data.assignmentId
  * @param data.requestBody
@@ -9331,7 +9331,7 @@ export const rbacUpdateUserAssignment = (
  * Delete User Assignment
  * Delete a user role assignment.
  *
- * Requires: org:rbac:manage scope
+ * Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
  * @param data The data for the request.
  * @param data.assignmentId
  * @returns void Successful Response

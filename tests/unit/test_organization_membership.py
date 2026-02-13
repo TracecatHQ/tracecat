@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.credentials import get_role_from_user
 from tracecat.auth.schemas import UserRole
-from tracecat.auth.types import AccessLevel, OrgRole, Role
+from tracecat.auth.types import OrgRole, Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.models import (
     Organization,
@@ -430,7 +430,6 @@ class TestGetRoleFromUser:
         assert role.user_id == user.id
         assert role.org_role == OrgRole.ADMIN
         assert role.workspace_role == WorkspaceRole.EDITOR
-        assert role.access_level == AccessLevel.BASIC
 
     @pytest.mark.anyio
     async def test_get_role_from_user_without_org_role(self, session: AsyncSession):
@@ -456,7 +455,7 @@ class TestGetRoleFromUser:
 
     @pytest.mark.anyio
     async def test_get_role_from_superuser(self, session: AsyncSession):
-        """Test get_role_from_user for superuser gets ADMIN access level."""
+        """Test get_role_from_user for superuser resolves owner org role."""
         user = User(
             id=uuid.uuid4(),
             email=f"superuser-{uuid.uuid4().hex[:8]}@example.com",
@@ -475,8 +474,7 @@ class TestGetRoleFromUser:
             org_role=OrgRole.MEMBER,
         )
 
-        # Superuser should get ADMIN access level and OWNER org role
-        assert role.access_level == AccessLevel.ADMIN
+        # Superuser should resolve to OWNER org role
         assert role.org_role == OrgRole.OWNER
 
 

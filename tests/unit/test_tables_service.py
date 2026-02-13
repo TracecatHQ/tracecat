@@ -7,8 +7,7 @@ import pytest
 from sqlalchemy.exc import DBAPIError, StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.models import Table
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
@@ -39,7 +38,6 @@ async def svc_editor_role(svc_workspace) -> Role:  # type: ignore[override]
     """Workspace editor role for tables tests."""
     return Role(
         type="user",
-        access_level=AccessLevel.BASIC,
         workspace_id=svc_workspace.id,
         organization_id=svc_workspace.organization_id,
         workspace_role=WorkspaceRole.EDITOR,

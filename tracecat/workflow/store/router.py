@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
 from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
@@ -24,6 +25,7 @@ router = APIRouter(prefix="/workflows", tags=["workflows"])
 
 
 @router.post("/{workflow_id}/publish", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("workflow:update")
 async def publish_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -65,6 +67,7 @@ async def publish_workflow(
 
 
 @router.get("/sync/commits", response_model=list[GitCommitInfo])
+@require_scope("workflow:read")
 async def list_workflow_commits(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -152,6 +155,7 @@ async def list_workflow_commits(
 
 
 @router.post("/sync/pull", response_model=PullResult)
+@require_scope("workflow:update")
 async def pull_workflows(
     role: WorkspaceUserRole,
     session: AsyncDBSession,

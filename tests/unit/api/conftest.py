@@ -13,7 +13,11 @@ from tracecat.agent.router import (
 )
 from tracecat.api.app import app
 from tracecat.auth.credentials import AuthenticatedUserOnly, SuperuserRole
-from tracecat.auth.dependencies import ExecutorWorkspaceRole, WorkspaceUserRole, OrgUserRole
+from tracecat.auth.dependencies import (
+    ExecutorWorkspaceRole,
+    OrgUserRole,
+    WorkspaceUserRole,
+)
 from tracecat.auth.types import Role
 from tracecat.cases.router import WorkspaceUser
 from tracecat.contexts import ctx_role

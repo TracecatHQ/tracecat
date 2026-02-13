@@ -1,15 +1,9 @@
-from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.identifiers import InternalServiceID, OrganizationID, UserID, WorkspaceID
-
-
-class AccessLevel(StrEnum):
-    BASIC = "BASIC"
-    ADMIN = "ADMIN"
 
 
 class Role(BaseModel):
@@ -46,7 +40,6 @@ class Role(BaseModel):
     org_role: OrgRole | None = Field(default=None, frozen=True)
     user_id: UserID | None = Field(default=None, frozen=True)
     service_id: InternalServiceID = Field(frozen=True)
-    access_level: AccessLevel = Field(default=AccessLevel.BASIC, frozen=True)
     is_platform_superuser: bool = Field(default=False, frozen=True)
     """Whether this role belongs to a platform superuser (User.is_superuser=True)."""
     scopes: frozenset[str] = Field(default=frozenset(), frozen=True)
@@ -78,7 +71,6 @@ class Role(BaseModel):
         headers = {
             "x-tracecat-role-type": self.type,
             "x-tracecat-role-service-id": self.service_id,
-            "x-tracecat-role-access-level": self.access_level.value,
         }
         if self.user_id is not None:
             headers["x-tracecat-role-user-id"] = str(self.user_id)
@@ -108,7 +100,6 @@ class PlatformRole(BaseModel):
     user_id: UserID = Field(frozen=True)
     """The superuser's ID - required for audit logging."""
     service_id: InternalServiceID = Field(frozen=True)
-    access_level: AccessLevel = Field(default=AccessLevel.ADMIN, frozen=True)
 
     @property
     def is_platform_superuser(self) -> bool:

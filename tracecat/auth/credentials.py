@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.executor_tokens import verify_executor_token
-from tracecat.auth.types import AccessLevel, PlatformRole, Role
+from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import (
     current_active_user,
     is_unprivileged,
@@ -388,16 +388,6 @@ async def _authenticate_service(
         if (org_role_str := request.headers.get("x-tracecat-role-org-role")) is not None
         else None
     )
-    access_level = AccessLevel.BASIC
-    if access_level_header := request.headers.get("x-tracecat-role-access-level"):
-        try:
-            access_level = AccessLevel(access_level_header)
-        except ValueError as e:
-            msg = (
-                f"Invalid x-tracecat-role-access-level header: {access_level_header!r}"
-            )
-            logger.error(msg)
-            raise HTTP_EXC(msg) from e
     # Parse scopes from header if present (for inter-service calls)
     scopes: frozenset[str] = frozenset()
     if scopes_header := request.headers.get("x-tracecat-role-scopes"):
@@ -413,7 +403,6 @@ async def _authenticate_service(
         organization_id=organization_id,
         workspace_role=workspace_role,
         org_role=org_role,
-        access_level=access_level,
         scopes=scopes,
     )
 

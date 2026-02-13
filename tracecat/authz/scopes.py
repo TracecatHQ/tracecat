@@ -26,6 +26,7 @@ VIEWER_SCOPES: frozenset[str] = frozenset(
     {
         "inbox:read",
         "workflow:read",
+        "integration:read",
         "case:read",
         "table:read",
         "schedule:read",
@@ -43,6 +44,8 @@ EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
         "workflow:create",
         "workflow:update",
         "workflow:execute",
+        "integration:create",
+        "integration:update",
         "case:create",
         "case:update",
         "table:create",
@@ -73,6 +76,7 @@ ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
         "agent:create",
         "agent:update",
         "agent:delete",
+        "integration:delete",
         "workspace:update",
         "workspace:delete",
         "workspace:member:invite",
@@ -101,18 +105,23 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "org:member:invite",
         "org:member:remove",
         "org:member:update",
-        # Billing (OWNER-only for manage)
+        # Billing (OWNER-only for updates)
         "org:billing:read",
-        "org:billing:manage",
+        "org:billing:update",
         # RBAC management
         "org:rbac:read",
-        "org:rbac:manage",
+        "org:rbac:create",
+        "org:rbac:update",
+        "org:rbac:delete",
         # Org settings management
         "org:settings:read",
-        "org:settings:manage",
+        "org:settings:update",
+        "org:settings:delete",
         # Registry management (org-level custom actions)
         "org:registry:read",
-        "org:registry:manage",
+        "org:registry:create",
+        "org:registry:update",
+        "org:registry:delete",
         # Full workspace control across the org
         "workspace:read",
         "workspace:create",
@@ -129,6 +138,10 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "workflow:update",
         "workflow:delete",
         "workflow:execute",
+        "integration:read",
+        "integration:create",
+        "integration:update",
+        "integration:delete",
         "case:read",
         "case:create",
         "case:update",
@@ -170,7 +183,7 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
 
 ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
     {
-        # Org settings (no delete)
+        # Org settings (no org delete)
         "org:read",
         "org:update",
         # Org member management
@@ -182,13 +195,18 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "org:billing:read",
         # RBAC management
         "org:rbac:read",
-        "org:rbac:manage",
+        "org:rbac:create",
+        "org:rbac:update",
+        "org:rbac:delete",
         # Org settings management
         "org:settings:read",
-        "org:settings:manage",
+        "org:settings:update",
+        "org:settings:delete",
         # Registry management (org-level custom actions)
         "org:registry:read",
-        "org:registry:manage",
+        "org:registry:create",
+        "org:registry:update",
+        "org:registry:delete",
         # Full workspace control across the org
         "workspace:read",
         "workspace:create",
@@ -205,6 +223,10 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "workflow:update",
         "workflow:delete",
         "workflow:execute",
+        "integration:read",
+        "integration:create",
+        "integration:update",
+        "integration:delete",
         "case:read",
         "case:create",
         "case:update",
@@ -279,6 +301,10 @@ WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
         "workflow:update",
         "workflow:delete",
         "workflow:execute",
+        "integration:read",
+        "integration:create",
+        "integration:update",
+        "integration:delete",
         "case:read",
         "case:create",
         "case:update",

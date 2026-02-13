@@ -61,7 +61,7 @@ router = APIRouter(prefix=REGISTRY_REPOS_PATH, tags=["registry-repositories"])
         400: {"description": "Cannot sync repository"},
     },
 )
-@require_scope("org:registry:manage")
+@require_scope("org:registry:update")
 async def sync_registry_repository(
     *,
     role: Role = RoleACL(
@@ -437,7 +437,7 @@ async def list_repository_commits(
 @router.post(
     "", status_code=status.HTTP_201_CREATED, response_model=RegistryRepositoryRead
 )
-@require_scope("org:registry:manage")
+@require_scope("org:registry:create")
 async def create_registry_repository(
     *,
     role: Role = RoleACL(
@@ -481,7 +481,7 @@ async def create_registry_repository(
 
 
 @router.patch("/{repository_id}", response_model=RegistryRepositoryRead)
-@require_scope("org:registry:manage")
+@require_scope("org:registry:update")
 async def update_registry_repository(
     *,
     role: Role = RoleACL(
@@ -517,7 +517,7 @@ async def update_registry_repository(
 
 
 @router.delete("/{repository_id}", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("org:registry:manage")
+@require_scope("org:registry:delete")
 async def delete_registry_repository(
     *,
     role: Role = RoleACL(
@@ -551,7 +551,7 @@ async def delete_registry_repository(
     "/{repository_id}/versions/{version_id}/promote",
     response_model=RegistryVersionPromoteResponse,
 )
-@require_scope("org:registry:manage")
+@require_scope("org:registry:update")
 async def promote_registry_version(
     *,
     role: Role = RoleACL(
@@ -621,7 +621,7 @@ async def promote_registry_version(
     "/{repository_id}/versions/{version_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-@require_scope("org:registry:manage")
+@require_scope("org:registry:delete")
 async def delete_registry_version(
     *,
     role: Role = RoleACL(
