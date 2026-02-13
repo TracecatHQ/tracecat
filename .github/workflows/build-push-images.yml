@@ -8,6 +8,12 @@ on:
       - "nightly-*"
   schedule:
     - cron: "0 0 * * *"  # Nightly at midnight UTC
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (for example: 1.2.3 or nightly-20250101)"
+        required: true
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -56,6 +62,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Set up Docker builder
         uses: useblacksmith/setup-docker-builder@78f41686563c732ccc097f7baac2f092f67538f0 # v1
@@ -117,6 +124,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
@@ -169,6 +177,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Set up Docker builder
         uses: useblacksmith/setup-docker-builder@78f41686563c732ccc097f7baac2f092f67538f0 # v1
@@ -242,6 +251,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
             type=match,pattern=nightly-(.*),group=0
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
