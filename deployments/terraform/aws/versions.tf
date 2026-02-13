@@ -1,5 +1,8 @@
 terraform {
-  required_version = "~> 1.14.0"
+  # NOTE: Terraform 1.14 currently breaks planning for this stack in TFC because
+  # the kubernetes/helm providers attempt to initialize before EKS connection
+  # details exist, falling back to localhost and failing with cluster-unreachable.
+  required_version = ">= 1.11.0, < 1.14.0"
 
   required_providers {
     aws = {
