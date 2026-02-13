@@ -156,6 +156,18 @@ async def build_tarball_venv_from_installed_environment(
         package_dir.parent == site_packages.resolve()
         for site_packages in site_packages_paths
     )
+    existing_package_entries = [
+        site_packages / package_name
+        for site_packages in site_packages_paths
+        if (site_packages / package_name).exists()
+    ]
+    package_site_entry = existing_package_entries[0] if existing_package_entries else None
+    package_site_entry_is_symlink = (
+        package_site_entry.is_symlink() if package_site_entry is not None else False
+    )
+    should_overlay_editable_package = not package_in_site_packages and (
+        package_site_entry is None or package_site_entry_is_symlink
+    )
 
     tarball_name = "site-packages.tar.gz"
     tarball_path = output_dir / tarball_name
@@ -166,17 +178,31 @@ async def build_tarball_venv_from_installed_environment(
         package_name=package_name,
         package_dir=str(package_dir),
         package_in_site_packages=package_in_site_packages,
+        package_site_entry=str(package_site_entry) if package_site_entry else None,
+        package_site_entry_is_symlink=package_site_entry_is_symlink,
     )
 
     def _create_tarball() -> None:
         with tarfile.open(tarball_path, "w:gz", compresslevel=6) as tar:
             for site_packages in site_packages_paths:
                 for item in site_packages.iterdir():
+                    if (
+                        should_overlay_editable_package
+                        and item.name == package_name
+                        and item.is_symlink()
+                    ):
+                        logger.info(
+                            "Skipping symlinked package entry in site-packages",
+                            package_name=package_name,
+                            site_packages=str(site_packages),
+                            symlink_path=str(item),
+                        )
+                        continue
                     tar.add(item, arcname=item.name)
 
             # Editable installs put package source outside site-packages.
             if not package_in_site_packages:
-                if (primary_site_packages / package_name).exists():
+                if not should_overlay_editable_package:
                     logger.warning(
                         "Skipping editable package overlay because package already exists in site-packages",
                         package_name=package_name,

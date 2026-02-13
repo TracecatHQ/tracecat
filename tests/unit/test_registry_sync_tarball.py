@@ -65,3 +65,46 @@ async def test_build_tarball_from_installed_environment_includes_platlib_content
 
     assert "pure_only.py" in tar_names
     assert "plat_only.so" in tar_names
+
+
+@pytest.mark.anyio
+async def test_build_tarball_from_installed_environment_overlays_symlinked_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Skip symlink entry and archive real package source for editable installs."""
+    purelib = tmp_path / "purelib"
+    purelib.mkdir()
+    (purelib / "dependency.py").write_text("DEP = True\n")
+
+    package_dir = tmp_path / "src" / "tracecat_registry"
+    package_dir.mkdir(parents=True)
+    (package_dir / "__init__.py").write_text("__version__ = '0.0.0'\n")
+    (purelib / "tracecat_registry").symlink_to(package_dir, target_is_directory=True)
+
+    monkeypatch.setattr(
+        tarball,
+        "get_installed_site_packages_paths",
+        lambda: [purelib],
+    )
+
+    result = await tarball.build_tarball_venv_from_installed_environment(
+        package_name="tracecat_registry",
+        package_dir=package_dir,
+        output_dir=tmp_path / "out",
+    )
+
+    with tarfile.open(result.tarball_path, "r:gz") as archive:
+        tracecat_members = [
+            member for member in archive.getmembers() if member.name == "tracecat_registry"
+        ]
+        assert tracecat_members
+        assert all(not member.issym() for member in tracecat_members)
+
+        extract_dir = tmp_path / "extract"
+        extract_dir.mkdir()
+        archive.extractall(path=extract_dir, filter="data")
+
+    extracted_package = extract_dir / "tracecat_registry" / "__init__.py"
+    assert extracted_package.exists()
+    assert not (extract_dir / "tracecat_registry").is_symlink()
