@@ -20,7 +20,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.models import RegistryVersion
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
-from tracecat.executor.backends.direct import DirectBackend
+from tracecat.executor.backends.test import TestBackend
 from tracecat.executor.service import dispatch_action
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -135,11 +135,11 @@ def mock_run_context():
 
 
 async def run_template_test(
-    input: RunActionInput, role: Role, backend: DirectBackend | None = None
+    input: RunActionInput, role: Role, backend: TestBackend | None = None
 ) -> Any:
     """Test helper: execute template action using production code path."""
     if backend is None:
-        backend = DirectBackend()
+        backend = TestBackend()
     ctx_role.set(role)
     return await dispatch_action(backend, input)
 
@@ -149,7 +149,7 @@ async def run_template_test(
 async def test_template_action_two_steps_via_direct_backend(
     test_role, db_session_with_repo, mock_run_context, monkeysession
 ):
-    """Test that a 2-step template executes correctly via DirectBackend.
+    """Test that a 2-step template executes correctly via TestBackend.
 
     This verifies the service-layer orchestration where each step becomes
     a separate backend.execute() call.

@@ -814,7 +814,7 @@ class TestExecuteWithSyncedRegistry:
                 side_effect=execute_without_nsjail,
             ),
             patch(
-                "tracecat.executor.backends.ephemeral.get_registry_artifacts_for_lock",
+                "tracecat.executor.backends.registry_helpers.get_registry_artifacts_for_lock",
                 new_callable=AsyncMock,
                 return_value=mock_artifacts,
             ),
@@ -1354,7 +1354,7 @@ class TestMultitenantWorkloads:
                 side_effect=execute_without_nsjail,
             ),
             patch(
-                "tracecat.executor.backends.ephemeral.get_registry_artifacts_for_lock",
+                "tracecat.executor.backends.registry_helpers.get_registry_artifacts_for_lock",
                 new_callable=AsyncMock,
                 return_value=mock_artifacts,
             ),

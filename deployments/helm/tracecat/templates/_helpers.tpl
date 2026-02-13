@@ -553,17 +553,18 @@ Redis environment variables
 Constructs REDIS_URL from computed host/port or from external secret
 */}}
 {{- define "tracecat.env.redis" -}}
+{{- $redisSecretName := include "tracecat.secrets.redisName" . }}
 {{- if .Values.externalRedis.auth.secretArn }}
 - name: REDIS_URL__ARN
   value: {{ .Values.externalRedis.auth.secretArn | quote }}
-{{- else if .Values.externalRedis.auth.existingSecret }}
+{{- else if $redisSecretName }}
 - name: REDIS_URL
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.externalRedis.auth.existingSecret }}
+      name: {{ $redisSecretName }}
       key: url
 {{- else }}
-{{- fail "externalRedis.auth.existingSecret or externalRedis.auth.secretArn is required" }}
+{{- fail "externalRedis.auth.existingSecret, externalRedis.auth.secretArn, or secrets.create.redis.enabled is required" }}
 {{- end }}
 {{- end }}
 
@@ -623,22 +624,6 @@ Merges: common + temporal + postgres + redis + api-specific
   value: {{ .Values.tracecat.saml.idpMetadataUrl | quote }}
 - name: SAML_ALLOW_UNSOLICITED
   value: {{ .Values.tracecat.saml.allowUnsolicited | quote }}
-- name: SAML_ACCEPTED_TIME_DIFF
-  value: {{ .Values.tracecat.saml.acceptedTimeDiff | quote }}
-- name: SAML_AUTHN_REQUESTS_SIGNED
-  value: {{ .Values.tracecat.saml.authnRequestsSigned | quote }}
-- name: SAML_SIGNED_ASSERTIONS
-  value: {{ .Values.tracecat.saml.signedAssertions | quote }}
-- name: SAML_SIGNED_RESPONSES
-  value: {{ .Values.tracecat.saml.signedResponses | quote }}
-- name: SAML_VERIFY_SSL_ENTITY
-  value: {{ .Values.tracecat.saml.verifySslEntity | quote }}
-- name: SAML_VERIFY_SSL_METADATA
-  value: {{ .Values.tracecat.saml.verifySslMetadata | quote }}
-- name: SAML_CA_CERTS
-  value: {{ .Values.tracecat.saml.caCerts | quote }}
-- name: SAML_METADATA_CERT
-  value: {{ .Values.tracecat.saml.metadataCert | quote }}
 {{- end }}
 {{- /* OIDC settings */}}
 {{- if .Values.tracecat.oidc.issuer }}
@@ -841,6 +826,8 @@ Get the effective Redis secrets name for external Redis.
 {{- .Values.externalSecrets.redis.targetSecretName }}
 {{- else if .Values.externalRedis.auth.existingSecret }}
 {{- .Values.externalRedis.auth.existingSecret }}
+{{- else if .Values.secrets.create.redis.enabled }}
+{{- required "secrets.create.redis.name is required when redis secret template is enabled" .Values.secrets.create.redis.name }}
 {{- end }}
 {{- end }}
 

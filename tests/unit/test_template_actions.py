@@ -33,7 +33,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.executor import service
-from tracecat.executor.backends.direct import DirectBackend
+from tracecat.executor.backends.test import TestBackend
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.schemas import (
@@ -135,7 +135,7 @@ async def run_action_test(input: RunActionInput, role: Role) -> Any:
     from tracecat.contexts import ctx_role
 
     ctx_role.set(role)
-    backend = DirectBackend()
+    backend = TestBackend()
     return await service.dispatch_action(backend, input)
 
 

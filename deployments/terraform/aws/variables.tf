@@ -387,7 +387,7 @@ variable "agent_executor_cpu_request_millicores" {
 variable "agent_executor_memory_request_mib" {
   description = "Agent executor memory request in MiB"
   type        = number
-  default     = 8192
+  default     = 4096
 }
 
 variable "ui_cpu_request_millicores" {

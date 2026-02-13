@@ -35,6 +35,13 @@ secrets:
       clientId: ""
       clientSecret: ""
 
+    redis:
+      enabled: false
+      # Keep this aligned with externalRedis.auth.existingSecret unless you
+      # explicitly override the Redis secret name.
+      name: "tracecat-redis-credentials"
+      url: ""
+
 
 # External Secrets Operator integration (optional)
 # When enabled, ESO syncs secrets from AWS Secrets Manager into K8s Secrets.
@@ -169,6 +176,8 @@ tracecat:
       attachments: ""
       # Defaults to tracecat-registry if unset.
       registry: ""
+      # Defaults to tracecat-workflow if unset.
+      workflow: ""
 
   saml:
     enabled: false
@@ -224,46 +233,46 @@ ui:
   replicas: 1
   resources:
     requests:
-      cpu: "100m"
-      memory: "256Mi"
-    limits:
       cpu: "500m"
       memory: "512Mi"
+    limits:
+      cpu: "500m"
+      memory: "1024Mi"
 
 api:
-  replicas: 1
+  replicas: 2
   resources:
     requests:
-      cpu: "250m"
-      memory: "512Mi"
+      cpu: "2000m"
+      memory: "4096Mi"
     limits:
-      cpu: "1000m"
-      memory: "1Gi"
+      cpu: "2000m"
+      memory: "4096Mi"
 
 worker:
-  replicas: 1
+  replicas: 4
   resources:
     requests:
-      cpu: "250m"
-      memory: "512Mi"
+      cpu: "2000m"
+      memory: "2048Mi"
     limits:
-      cpu: "1000m"
-      memory: "1Gi"
+      cpu: "2000m"
+      memory: "2048Mi"
   contextCompression:
     enabled: false
     thresholdKb: 16
 
 executor:
-  replicas: 1
+  replicas: 4
   # Executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default)
-  backend: "auto"
+  backend: "ephemeral"
   resources:
     requests:
-      cpu: "250m"
-      memory: "512Mi"
+      cpu: "4000m"
+      memory: "8192Mi"
     limits:
-      cpu: "1000m"
-      memory: "1Gi"
+      cpu: "4000m"
+      memory: "8192Mi"
   queue: "shared-action-queue"
   workerPoolSize: ""
   contextCompression:
@@ -271,16 +280,15 @@ executor:
     thresholdKb: 16
 
 agentExecutor:
-  replicas: 1
-  # Agent executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default)
-  backend: "auto"
+  replicas: 2
+  backend: "ephemeral"
   resources:
     requests:
-      cpu: "250m"
-      memory: "512Mi"
+      cpu: "2000m"
+      memory: "4096Mi"
     limits:
-      cpu: "1000m"
-      memory: "1Gi"
+      cpu: "2000m"
+      memory: "4096Mi"
   queue: "shared-agent-queue"
   workerPoolSize: ""
   contextCompression:

@@ -17,6 +17,7 @@ from tracecat.auth.types import Role
 from tracecat.dsl.schemas import RunActionInput
 from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.backends.base import ExecutorBackend
+from tracecat.executor.backends.registry_helpers import get_registry_tarball_uris
 from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ExecutorResult,
@@ -24,12 +25,7 @@ from tracecat.executor.schemas import (
     ExecutorResultSuccess,
     ResolvedContext,
 )
-from tracecat.executor.service import (
-    RegistryArtifactsContext,
-    get_registry_artifacts_for_lock,
-)
 from tracecat.logger import logger
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 
 
 class EphemeralBackend(ExecutorBackend):
@@ -121,52 +117,5 @@ class EphemeralBackend(ExecutorBackend):
         input: RunActionInput,
         role: Role,
     ) -> list[str]:
-        """Get tarball URIs for registry environment (deterministic ordering).
-
-        Args:
-            input: The RunActionInput containing task and execution context
-
-        Returns:
-            List of tarball URIs in deterministic order (tracecat_registry first,
-            then lexicographically by origin).
-        """
-        if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
-            return []
-
-        # Ensure organization_id is set (workflows are always org-scoped)
-        if role.organization_id is None:
-            raise ValueError(
-                "organization_id is required for registry artifacts lookup"
-            )
-
-        try:
-            artifacts = await get_registry_artifacts_for_lock(
-                input.registry_lock.origins, role.organization_id
-            )
-            return self._sort_tarball_uris(artifacts)
-        except Exception as e:
-            logger.warning(
-                "Failed to load registry artifacts for ephemeral execution",
-                error=str(e),
-            )
-            return []
-
-    def _sort_tarball_uris(
-        self, artifacts: list[RegistryArtifactsContext]
-    ) -> list[str]:
-        """Sort tarballs: tracecat_registry first, then lexicographically by origin."""
-        builtin_uris: list[str] = []
-        other_uris: list[tuple[str, str]] = []  # (origin, uri)
-
-        for artifact in artifacts:
-            if not artifact.tarball_uri:
-                continue
-            if artifact.origin == DEFAULT_REGISTRY_ORIGIN:
-                builtin_uris.append(artifact.tarball_uri)
-            else:
-                other_uris.append((artifact.origin, artifact.tarball_uri))
-
-        # Sort non-builtin by origin lexicographically
-        other_uris.sort(key=lambda x: x[0])
-
-        return builtin_uris + [uri for _, uri in other_uris]
+        """Get tarball URIs for registry environment (deterministic ordering)."""
+        return await get_registry_tarball_uris(input=input, role=role)
