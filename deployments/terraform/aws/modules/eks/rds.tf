@@ -83,6 +83,7 @@ resource "aws_db_instance" "tracecat" {
   publicly_accessible = false
   multi_az            = true
   storage_encrypted   = true
+  apply_immediately   = var.rds_apply_immediately
 
   database_insights_mode = var.rds_database_insights_mode
 

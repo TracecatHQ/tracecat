@@ -169,6 +169,12 @@ variable "rds_storage_type" {
   }
 }
 
+variable "rds_apply_immediately" {
+  description = "Whether to apply RDS modifications immediately instead of during the next maintenance window"
+  type        = bool
+  default     = false
+}
+
 variable "rds_master_username" {
   description = "Master username for RDS"
   type        = string
