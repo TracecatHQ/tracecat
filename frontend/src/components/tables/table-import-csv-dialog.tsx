@@ -15,6 +15,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -27,7 +28,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -176,7 +176,7 @@ export function TableImportCsvDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-h-[85vh] max-w-3xl overflow-hidden"
+        className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden"
         aria-describedby="csv-import-description"
       >
         <DialogHeader className="space-y-4">
@@ -190,10 +190,10 @@ export function TableImportCsvDialog({
         <FormProvider {...form}>
           <form
             onSubmit={form.handleSubmit(onSubmit)}
-            className="min-w-0 overflow-hidden"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden"
           >
-            <ScrollArea className="max-h-[calc(85vh-10rem)]">
-              <div className="space-y-6 pr-4">
+            <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
+              <div className="space-y-6">
                 {!csvPreview ? (
                   <CsvUploadForm
                     isUploading={isUploading}
@@ -205,45 +205,46 @@ export function TableImportCsvDialog({
                     {table && (
                       <ColumnMapping csvData={csvPreview} table={table} />
                     )}
-                    <div>
-                      {form.formState.errors.root && (
-                        <div className="text-sm text-red-500">
-                          {form.formState.errors.root.message}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex justify-end space-x-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setCsvPreview(null)
-                          form.reset({ columnMapping: {} })
-                        }}
-                      >
-                        Back
-                      </Button>
-                      <Button
-                        type="submit"
-                        disabled={
-                          importCsvIsPending ||
-                          Object.keys(form.getValues("columnMapping"))
-                            .length === 0
-                        }
-                      >
-                        {importCsvIsPending ? (
-                          <>
-                            <Spinner className="mr-2 size-4" />
-                            Importing...
-                          </>
-                        ) : (
-                          "Import Data"
-                        )}
-                      </Button>
-                    </div>
                   </>
                 )}
               </div>
-            </ScrollArea>
+            </div>
+
+            {csvPreview && (
+              <DialogFooter className="pt-4">
+                {form.formState.errors.root && (
+                  <div className="mr-auto text-sm text-red-500">
+                    {form.formState.errors.root.message}
+                  </div>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setCsvPreview(null)
+                    form.reset({ columnMapping: {} })
+                  }}
+                >
+                  Back
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={
+                    importCsvIsPending ||
+                    Object.keys(form.watch("columnMapping")).length === 0
+                  }
+                >
+                  {importCsvIsPending ? (
+                    <>
+                      <Spinner className="mr-2 size-4" />
+                      Importing...
+                    </>
+                  ) : (
+                    "Import Data"
+                  )}
+                </Button>
+              </DialogFooter>
+            )}
           </form>
         </FormProvider>
       </DialogContent>
@@ -313,7 +314,7 @@ interface CsvPreviewProps {
 
 export function CsvPreview({ csvData }: CsvPreviewProps) {
   return (
-    <div className="min-w-0 overflow-hidden space-y-2">
+    <div className="min-w-0 space-y-2">
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium">Preview</span>
         <span className="text-xs text-muted-foreground">
@@ -321,8 +322,8 @@ export function CsvPreview({ csvData }: CsvPreviewProps) {
           rows
         </span>
       </div>
-      <div className="max-h-[240px] overflow-auto rounded-md border border-border/50">
-        <table className="w-full min-w-max table-auto border-collapse text-xs">
+      <div className="no-scrollbar max-h-[240px] overflow-auto rounded-md border border-border/50">
+        <table className="w-full min-w-max table-auto border-separate border-spacing-0 text-xs">
           <thead>
             <tr>
               <th className="sticky left-0 top-0 z-20 min-w-[40px] border-b border-r border-border/30 bg-muted/30 px-3 py-2 text-left font-medium text-muted-foreground">

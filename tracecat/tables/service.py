@@ -891,6 +891,64 @@ class BaseTablesService(BaseWorkspaceService):
         await conn.execute(stmt)
         await self.session.flush()
 
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
+    async def batch_delete_rows(self, table: Table, row_ids: list[UUID]) -> int:
+        """Delete multiple rows from the table.
+
+        Args:
+            table: The table containing the rows to delete
+            row_ids: List of row IDs to delete
+
+        Returns:
+            Number of rows deleted
+        """
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        conn = await self.session.connection()
+        table_clause = sa.table(sanitized_table_name, schema=schema_name)
+        stmt = sa.delete(table_clause).where(sa.column("id").in_(row_ids))
+        result = await conn.execute(stmt)
+        await self.session.flush()
+        return result.rowcount
+
+    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
+    async def batch_update_rows(
+        self, table: Table, row_ids: list[UUID], data: dict[str, Any]
+    ) -> int:
+        """Update multiple rows in the table with the same data.
+
+        Args:
+            table: The table containing the rows to update
+            row_ids: List of row IDs to update
+            data: Dictionary of column names and values to set
+
+        Returns:
+            Number of rows updated
+        """
+        schema_name = self._get_schema_name()
+        conn = await self.session.connection()
+
+        normalised_data = self._normalize_row_inputs(table, data)
+        col_map = {c.name: c for c in table.columns}
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        value_clauses: dict[str, sa.BindParameter] = {}
+        cols = []
+        for column_name, value in normalised_data.items():
+            cols.append(sa.column(self._sanitize_identifier(column_name)))
+            value_clauses[column_name] = to_sql_clause(
+                value, col_map[column_name].name, SqlType(col_map[column_name].type)
+            )
+
+        stmt = (
+            sa.update(sa.table(sanitized_table_name, *cols, schema=schema_name))
+            .where(sa.column("id").in_(row_ids))
+            .values(**value_clauses)
+        )
+
+        result = await conn.execute(stmt)
+        await self.session.flush()
+        return result.rowcount
+
     @retry(
         retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
         stop=stop_after_attempt(3),
@@ -1747,6 +1805,18 @@ class TablesService(BaseTablesService):
     async def delete_row(self, table: Table, row_id: UUID) -> None:
         await super().delete_row(table, row_id)
         await self.session.commit()
+
+    async def batch_delete_rows(self, table: Table, row_ids: list[UUID]) -> int:
+        result = await super().batch_delete_rows(table, row_ids)
+        await self.session.commit()
+        return result
+
+    async def batch_update_rows(
+        self, table: Table, row_ids: list[UUID], data: dict[str, Any]
+    ) -> int:
+        result = await super().batch_update_rows(table, row_ids, data)
+        await self.session.commit()
+        return result
 
     async def create_column(
         self, table: Table, params: TableColumnCreate

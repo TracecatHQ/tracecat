@@ -37,6 +37,10 @@ from tracecat.tables.schemas import (
     TableImportResponse,
     TableRead,
     TableReadMinimal,
+    TableRowBatchDelete,
+    TableRowBatchDeleteResponse,
+    TableRowBatchUpdate,
+    TableRowBatchUpdateResponse,
     TableRowInsert,
     TableRowInsertBatch,
     TableRowInsertBatchResponse,
@@ -534,6 +538,72 @@ async def batch_insert_rows(
         ) from e
     except DBAPIError as e:
         logger.exception("Database error occurred during batch row insert")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A database error occurred. Please check your input and try again.",
+        ) from e
+
+
+@router.post("/{table_id}/rows/batch-delete")
+async def batch_delete_rows(
+    role: WorkspaceEditorUser,
+    session: AsyncDBSession,
+    table_id: TableID,
+    params: TableRowBatchDelete,
+) -> TableRowBatchDeleteResponse:
+    """Delete multiple rows from a table."""
+    service = TablesService(session, role=role)
+    try:
+        table = await service.get_table(table_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+
+    try:
+        count = await service.batch_delete_rows(table, params.row_ids)
+        return TableRowBatchDeleteResponse(rows_deleted=count)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except DBAPIError as e:
+        logger.exception("Database error occurred during batch row delete")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A database error occurred. Please check your input and try again.",
+        ) from e
+
+
+@router.post("/{table_id}/rows/batch-update")
+async def batch_update_rows(
+    role: WorkspaceEditorUser,
+    session: AsyncDBSession,
+    table_id: TableID,
+    params: TableRowBatchUpdate,
+) -> TableRowBatchUpdateResponse:
+    """Update multiple rows in a table with the same data."""
+    service = TablesService(session, role=role)
+    try:
+        table = await service.get_table(table_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+
+    try:
+        count = await service.batch_update_rows(table, params.row_ids, params.data)
+        return TableRowBatchUpdateResponse(rows_updated=count)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except DBAPIError as e:
+        logger.exception("Database error occurred during batch row update")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A database error occurred. Please check your input and try again.",
