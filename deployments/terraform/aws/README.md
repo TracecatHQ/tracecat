@@ -81,10 +81,10 @@ capacity_reserved_memory_mib=8192
 capacity_reserved_pod_eni=8
 
 # Persistence services and Temporal mode
-rds_instance_class="db.m7g.2xlarge"
-rds_allocated_storage=300
+rds_instance_class="db.t4g.xlarge"
+rds_allocated_storage=50
 rds_storage_type="gp3"
-elasticache_node_type="cache.m7g.xlarge"
+elasticache_node_type="cache.t4g.medium"
 rds_database_insights_mode="advanced"
 ```
 
@@ -304,7 +304,7 @@ export TF_VAR_temporal_mode="self-hosted"
 ```
 
 Default persistence profile:
-`rds_instance_class="db.m7g.2xlarge"`, `rds_allocated_storage=300`, `rds_storage_type="gp3"`, `elasticache_node_type="cache.m7g.xlarge"` (3-node Multi-AZ replication group with automatic failover), and `multi_az=true` for RDS.
+`rds_instance_class="db.t4g.xlarge"`, `rds_allocated_storage=50`, `rds_storage_type="gp3"`, `elasticache_node_type="cache.t4g.medium"` (3-node Multi-AZ replication group with automatic failover), and `multi_az=true` for RDS.
 
 For Temporal self-hosting, use a larger starting profile:
 
