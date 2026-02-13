@@ -9,17 +9,20 @@ filters rows based on whether the current session's context matches the row's
 organization_id or workspace_id.
 
 Key features:
-- Uses SET LOCAL to scope variables to the current transaction (connection pool safe)
-- Supports bypassing RLS for system operations via special "bypass" UUID
+- Uses transaction-local `set_config(..., true)` settings (connection pool safe)
+- Supports explicit bypassing via app.rls_bypass for privileged operations
 - Integrates with ctx_role context variable for automatic context propagation
 """
 
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select, text
+import sqlalchemy.orm
+from sqlalchemy import event, select, text
+from sqlalchemy.engine import Connection
 
 from tracecat import config
 from tracecat.audit.rls import audit_rls_violation
@@ -37,10 +40,23 @@ if TYPE_CHECKING:
 RLS_VAR_ORG_ID = "app.current_org_id"
 RLS_VAR_WORKSPACE_ID = "app.current_workspace_id"
 RLS_VAR_USER_ID = "app.current_user_id"
+RLS_VAR_BYPASS = "app.rls_bypass"
 
-# Special UUID value that bypasses RLS checks when set as the context
-# Policies check: IF context == bypass_value THEN allow_all
-RLS_BYPASS_VALUE = "00000000-0000-0000-0000-000000000000"
+RLS_BYPASS_ON = "on"
+RLS_BYPASS_OFF = "off"
+RLS_UNSET_VALUE = ""
+
+_RLS_CONTEXT_INFO_KEY = "tracecat_rls_context"
+
+
+@dataclass(frozen=True, slots=True)
+class _RLSContext:
+    """Session-level RLS context cached for transaction re-application."""
+
+    org_id: str | None
+    workspace_id: str | None
+    user_id: str | None
+    bypass: bool
 
 
 def is_rls_enabled() -> bool:
@@ -48,53 +64,140 @@ def is_rls_enabled() -> bool:
     return FeatureFlag.RLS_ENABLED in config.TRACECAT__FEATURE_FLAGS
 
 
+def _normalize_rls_context(
+    *,
+    org_id: uuid.UUID | str | None,
+    workspace_id: uuid.UUID | str | None,
+    user_id: uuid.UUID | str | None,
+    bypass: bool,
+) -> _RLSContext:
+    return _RLSContext(
+        org_id=str(org_id) if org_id else None,
+        workspace_id=str(workspace_id) if workspace_id else None,
+        user_id=str(user_id) if user_id else None,
+        bypass=bypass,
+    )
+
+
+def _cache_rls_context(session: AsyncSession, context: _RLSContext) -> None:
+    """Store RLS context on the sync session so event hooks can reapply it."""
+    session.sync_session.info[_RLS_CONTEXT_INFO_KEY] = context
+
+
+def _set_local_or_reset_sync(
+    connection: Connection,
+    var_name: str,
+    value: str | None,
+    param_name: str,
+) -> None:
+    connection.execute(
+        text(f"SELECT set_config('{var_name}', :{param_name}, true)"),
+        {param_name: value if value is not None else RLS_UNSET_VALUE},
+    )
+
+
+async def _set_local_or_reset_async(
+    session: AsyncSession,
+    var_name: str,
+    value: str | None,
+    param_name: str,
+) -> None:
+    await session.execute(
+        text(f"SELECT set_config('{var_name}', :{param_name}, true)"),
+        {param_name: value if value is not None else RLS_UNSET_VALUE},
+    )
+
+
+def _apply_rls_context_sync(connection: Connection, context: _RLSContext) -> None:
+    """Apply context for the current transaction on a sync SQLAlchemy connection."""
+    connection.execute(
+        text(f"SELECT set_config('{RLS_VAR_BYPASS}', :bypass, true)"),
+        {"bypass": RLS_BYPASS_ON if context.bypass else RLS_BYPASS_OFF},
+    )
+    _set_local_or_reset_sync(connection, RLS_VAR_ORG_ID, context.org_id, "org_id")
+    _set_local_or_reset_sync(
+        connection,
+        RLS_VAR_WORKSPACE_ID,
+        context.workspace_id,
+        "workspace_id",
+    )
+    _set_local_or_reset_sync(connection, RLS_VAR_USER_ID, context.user_id, "user_id")
+
+
+async def _apply_rls_context_async(
+    session: AsyncSession,
+    context: _RLSContext,
+) -> None:
+    """Apply context for the current transaction on an async SQLAlchemy session."""
+    await session.execute(
+        text(f"SELECT set_config('{RLS_VAR_BYPASS}', :bypass, true)"),
+        {"bypass": RLS_BYPASS_ON if context.bypass else RLS_BYPASS_OFF},
+    )
+    await _set_local_or_reset_async(session, RLS_VAR_ORG_ID, context.org_id, "org_id")
+    await _set_local_or_reset_async(
+        session,
+        RLS_VAR_WORKSPACE_ID,
+        context.workspace_id,
+        "workspace_id",
+    )
+    await _set_local_or_reset_async(session, RLS_VAR_USER_ID, context.user_id, "user_id")
+
+
+@event.listens_for(sqlalchemy.orm.Session, "after_begin")
+def _reapply_rls_context_after_begin(  # pyright: ignore[reportUnusedFunction] - SQLAlchemy event listener
+    session: sqlalchemy.orm.Session,
+    transaction: sqlalchemy.orm.SessionTransaction,  # noqa: ARG001
+    connection: Connection,
+) -> None:
+    """Reapply cached RLS context whenever a new transaction begins."""
+    if not is_rls_enabled():
+        return
+    context = session.info.get(_RLS_CONTEXT_INFO_KEY)
+    if not isinstance(context, _RLSContext):
+        return
+    _apply_rls_context_sync(connection, context)
+
+
 async def set_rls_context(
     session: AsyncSession,
     org_id: uuid.UUID | str | None,
     workspace_id: uuid.UUID | str | None,
     user_id: uuid.UUID | str | None = None,
+    *,
+    bypass: bool = False,
 ) -> None:
     """Set RLS context variables in the PostgreSQL session.
 
-    Uses SET LOCAL to scope variables to the current transaction, making it safe
-    for use with connection pooling - the variables are automatically cleared
-    when the transaction ends.
+    Uses transaction-local settings (`set_config(..., true)`) to scope values to
+    the current transaction, making it safe for use with connection pooling.
 
     Args:
         session: The SQLAlchemy async session
-        org_id: Organization ID to set, or None to use bypass value
-        workspace_id: Workspace ID to set, or None to use bypass value
+        org_id: Organization ID to set. None removes tenant org scope.
+        workspace_id: Workspace ID to set. None removes tenant workspace scope.
         user_id: Optional user ID for audit purposes
+        bypass: Whether to bypass tenant filtering in RLS policies.
     """
     if not is_rls_enabled():
         return
 
-    # Convert to strings, using bypass value for None
-    org_id_str = str(org_id) if org_id else RLS_BYPASS_VALUE
-    workspace_id_str = str(workspace_id) if workspace_id else RLS_BYPASS_VALUE
-    user_id_str = str(user_id) if user_id else RLS_BYPASS_VALUE
+    context = _normalize_rls_context(
+        org_id=org_id,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        bypass=bypass,
+    )
 
     logger.trace(
         "Setting RLS context",
-        org_id=org_id_str,
-        workspace_id=workspace_id_str,
-        user_id=user_id_str,
+        org_id=context.org_id,
+        workspace_id=context.workspace_id,
+        user_id=context.user_id,
+        bypass=context.bypass,
     )
 
-    # Use SET LOCAL to scope to current transaction
-    # This is safe with connection pooling since the settings are cleared on transaction end
-    await session.execute(
-        text(f"SET LOCAL {RLS_VAR_ORG_ID} = :org_id"),
-        {"org_id": org_id_str},
-    )
-    await session.execute(
-        text(f"SET LOCAL {RLS_VAR_WORKSPACE_ID} = :workspace_id"),
-        {"workspace_id": workspace_id_str},
-    )
-    await session.execute(
-        text(f"SET LOCAL {RLS_VAR_USER_ID} = :user_id"),
-        {"user_id": user_id_str},
-    )
+    _cache_rls_context(session, context)
+    await _apply_rls_context_async(session, context)
 
 
 async def set_rls_context_from_role(
@@ -103,8 +206,8 @@ async def set_rls_context_from_role(
 ) -> None:
     """Set RLS context from a Role object or the current ctx_role.
 
-    If role is None, reads from ctx_role context variable. If ctx_role is also None,
-    sets bypass context (allowing full access - for system operations).
+    If role is None, reads from ctx_role context variable. If neither is available,
+    sets deny-by-default context (`app.rls_bypass=off` and no tenant IDs).
 
     Args:
         session: The SQLAlchemy async session
@@ -117,13 +220,27 @@ async def set_rls_context_from_role(
     effective_role = role or ctx_role.get()
 
     if effective_role is None:
-        # No role context - set bypass for system operations
-        logger.trace("No role context, setting RLS bypass")
+        logger.trace("No role context, setting RLS deny-default context")
         await set_rls_context(
             session,
             org_id=None,
             workspace_id=None,
             user_id=None,
+            bypass=False,
+        )
+        return
+
+    if effective_role.is_platform_superuser:
+        logger.trace(
+            "Platform superuser context, enabling RLS bypass",
+            user_id=str(effective_role.user_id) if effective_role.user_id else None,
+        )
+        await set_rls_context(
+            session,
+            org_id=None,
+            workspace_id=None,
+            user_id=effective_role.user_id,
+            bypass=True,
         )
         return
 
@@ -132,14 +249,12 @@ async def set_rls_context_from_role(
         org_id=effective_role.organization_id,
         workspace_id=effective_role.workspace_id,
         user_id=effective_role.user_id,
+        bypass=False,
     )
 
 
 async def clear_rls_context(session: AsyncSession) -> None:
-    """Clear RLS context variables by setting them to bypass values.
-
-    This effectively disables RLS filtering for subsequent queries in the session.
-    Typically called when switching to a system context or cleaning up.
+    """Clear RLS context variables and enforce deny-by-default mode.
 
     Args:
         session: The SQLAlchemy async session
@@ -153,6 +268,7 @@ async def clear_rls_context(session: AsyncSession) -> None:
         org_id=None,
         workspace_id=None,
         user_id=None,
+        bypass=False,
     )
 
 

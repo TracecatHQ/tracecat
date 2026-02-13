@@ -15,10 +15,10 @@ RLS is controlled by PostgreSQL session variables:
 - app.current_workspace_id: Current workspace context
 - app.current_org_id: Current organization context
 - app.current_user_id: Current user (for audit)
+- app.rls_bypass: Explicit bypass toggle ('on' enables full access)
 
 Bypass mechanism:
-- Setting any context to '00000000-0000-0000-0000-000000000000' bypasses RLS for that dimension
-- This allows system operations to have unrestricted access
+- Setting app.rls_bypass='on' bypasses tenant filters for privileged operations
 """
 
 from collections.abc import Sequence
@@ -31,8 +31,9 @@ down_revision: str | None = "2e1f96db2255"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-# RLS bypass value - setting context to this value bypasses RLS checks
-RLS_BYPASS_VALUE = "00000000-0000-0000-0000-000000000000"
+# RLS bypass variable and enabled value
+RLS_BYPASS_VAR = "app.rls_bypass"
+RLS_BYPASS_ON = "on"
 
 # Workspace-scoped tables (filtered by workspace_id)
 WORKSPACE_SCOPED_TABLES = [
@@ -80,12 +81,12 @@ def _enable_rls_workspace_table(table: str) -> str:
         CREATE POLICY rls_policy_{table} ON "{table}"
             FOR ALL
             USING (
-                current_setting('app.current_workspace_id', true) = '{RLS_BYPASS_VALUE}'
-                OR workspace_id = current_setting('app.current_workspace_id', true)::uuid
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
             )
             WITH CHECK (
-                current_setting('app.current_workspace_id', true) = '{RLS_BYPASS_VALUE}'
-                OR workspace_id = current_setting('app.current_workspace_id', true)::uuid
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
             );
     """
 
@@ -108,12 +109,12 @@ def _enable_rls_org_table(table: str) -> str:
         CREATE POLICY rls_policy_{table} ON "{table}"
             FOR ALL
             USING (
-                current_setting('app.current_org_id', true) = '{RLS_BYPASS_VALUE}'
-                OR organization_id = current_setting('app.current_org_id', true)::uuid
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
             )
             WITH CHECK (
-                current_setting('app.current_org_id', true) = '{RLS_BYPASS_VALUE}'
-                OR organization_id = current_setting('app.current_org_id', true)::uuid
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
             );
     """
 
@@ -143,16 +144,16 @@ def _enable_rls_workspace_special() -> str:
             FOR ALL
             USING (
                 -- Bypass check
-                current_setting('app.current_workspace_id', true) = '{RLS_BYPASS_VALUE}'
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
                 -- Direct workspace access
-                OR id = current_setting('app.current_workspace_id', true)::uuid
+                OR id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
                 -- Org-level access (for listing workspaces in an org)
-                OR organization_id = current_setting('app.current_org_id', true)::uuid
+                OR organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
             )
             WITH CHECK (
-                current_setting('app.current_workspace_id', true) = '{RLS_BYPASS_VALUE}'
-                OR id = current_setting('app.current_workspace_id', true)::uuid
-                OR organization_id = current_setting('app.current_org_id', true)::uuid
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                OR organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
             );
     """
 
