@@ -13,7 +13,7 @@ from tracecat import config
 from tracecat.db import (
     session_events,  # noqa: F401  # pyright: ignore[reportUnusedImport] - side effect import to register listeners
 )
-from tracecat.db.rls import set_rls_context_from_role
+from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 
 # Global so we don't create more than one engine per process.
 # Outside of being best practice, this is needed so we can properly pool
@@ -188,8 +188,8 @@ def reset_async_engine() -> None:
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     """Get an async SQLAlchemy database session with RLS context.
 
-    Automatically sets RLS context from ctx_role if the RLS feature flag is enabled.
-    The RLS context scopes database access to the current organization/workspace.
+    Automatically applies RLS context from ctx_role if available. When no role
+    is present, RLS defaults to deny-by-default mode.
     """
     async with AsyncSession(get_async_engine(), expire_on_commit=False) as session:
         # Set RLS context from ctx_role (no-op if RLS disabled)
@@ -198,9 +198,9 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def get_async_session_bypass_rls() -> AsyncGenerator[AsyncSession, None]:
-    """Get an async SQLAlchemy database session without RLS context.
+    """Get an async SQLAlchemy database session with explicit RLS bypass context.
 
-    Use this for system operations that need unrestricted access:
+    Use this only for system operations that need unrestricted access:
     - Database migrations
     - Background jobs without user context
     - Administrative operations
@@ -209,6 +209,13 @@ async def get_async_session_bypass_rls() -> AsyncGenerator[AsyncSession, None]:
     with proper role context for most operations.
     """
     async with AsyncSession(get_async_engine(), expire_on_commit=False) as session:
+        await set_rls_context(
+            session,
+            org_id=None,
+            workspace_id=None,
+            user_id=None,
+            bypass=True,
+        )
         yield session
 
 
@@ -222,7 +229,7 @@ def get_async_session_context_manager() -> contextlib.AbstractAsyncContextManage
 def get_async_session_bypass_rls_context_manager() -> (
     contextlib.AbstractAsyncContextManager[AsyncSession]
 ):
-    """Get a context manager for an async session without RLS context.
+    """Get a context manager for an async session with explicit RLS bypass.
 
     Use this for system operations that need unrestricted database access.
     """

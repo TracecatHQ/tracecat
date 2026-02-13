@@ -24,7 +24,10 @@ from tracecat.auth.types import AccessLevel, Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine
 from tracecat.db.rls import (
-    RLS_BYPASS_VALUE,
+    RLS_BYPASS_OFF,
+    RLS_BYPASS_ON,
+    RLS_UNSET_VALUE,
+    RLS_VAR_BYPASS,
     RLS_VAR_ORG_ID,
     RLS_VAR_WORKSPACE_ID,
     is_rls_enabled,
@@ -124,22 +127,52 @@ class TestRlsContextVariables:
         workspace_setting = result.scalar()
         assert workspace_setting == str(workspace_id_a)
 
+        result = await rls_session.execute(
+            text(f"SELECT current_setting('{RLS_VAR_BYPASS}', true)")
+        )
+        bypass_setting = result.scalar()
+        assert bypass_setting == RLS_BYPASS_OFF
+
     @pytest.mark.anyio
-    async def test_bypass_value_is_set_for_none(self, rls_session: AsyncSession):
-        """Test that bypass value is set when context is None."""
+    async def test_none_context_resets_tenant_scope(self, rls_session: AsyncSession):
+        """Test that unset tenant IDs do not imply bypass access."""
         await set_rls_context(rls_session, org_id=None, workspace_id=None)
 
         result = await rls_session.execute(
             text(f"SELECT current_setting('{RLS_VAR_ORG_ID}', true)")
         )
         org_setting = result.scalar()
-        assert org_setting == RLS_BYPASS_VALUE
+        assert org_setting == RLS_UNSET_VALUE
 
         result = await rls_session.execute(
             text(f"SELECT current_setting('{RLS_VAR_WORKSPACE_ID}', true)")
         )
         workspace_setting = result.scalar()
-        assert workspace_setting == RLS_BYPASS_VALUE
+        assert workspace_setting == RLS_UNSET_VALUE
+
+        result = await rls_session.execute(
+            text(f"SELECT current_setting('{RLS_VAR_BYPASS}', true)")
+        )
+        bypass_setting = result.scalar()
+        assert bypass_setting == RLS_BYPASS_OFF
+
+    @pytest.mark.anyio
+    async def test_context_reapplies_after_commit(
+        self, rls_session: AsyncSession, org_id_a: uuid.UUID, workspace_id_a: uuid.UUID
+    ):
+        """Test that cached RLS context is automatically re-applied after commit."""
+        await set_rls_context(rls_session, org_id=org_id_a, workspace_id=workspace_id_a)
+        await rls_session.commit()
+
+        result = await rls_session.execute(
+            text(f"SELECT current_setting('{RLS_VAR_ORG_ID}', true)")
+        )
+        assert result.scalar() == str(org_id_a)
+
+        result = await rls_session.execute(
+            text(f"SELECT current_setting('{RLS_VAR_WORKSPACE_ID}', true)")
+        )
+        assert result.scalar() == str(workspace_id_a)
 
 
 class TestRlsPolicyEnforcement:
@@ -239,8 +272,15 @@ class TestRlsIsolation:
     @pytest.mark.anyio
     async def test_bypass_context_returns_all_rows(self, rls_session: AsyncSession):
         """Test that bypass context allows access to all rows."""
-        # Set bypass context
-        await set_rls_context(rls_session, org_id=None, workspace_id=None)
+        # Set explicit bypass context
+        await set_rls_context(
+            rls_session, org_id=None, workspace_id=None, bypass=True
+        )
+
+        result = await rls_session.execute(
+            text(f"SELECT current_setting('{RLS_VAR_BYPASS}', true)")
+        )
+        assert result.scalar() == RLS_BYPASS_ON
 
         # Count should return all workspaces (not filtered)
         result = await rls_session.execute(text("SELECT COUNT(*) FROM workspace"))

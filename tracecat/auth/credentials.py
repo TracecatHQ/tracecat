@@ -35,7 +35,7 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
@@ -50,6 +50,7 @@ from tracecat.db.models import (
 from tracecat.db.models import (
     Role as DBRole,
 )
+from tracecat.db.rls import set_rls_context_from_role
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 from tracecat.organization.management import get_default_organization_id
@@ -68,7 +69,7 @@ async def _get_workspace_org_id(workspace_id: uuid.UUID) -> uuid.UUID | None:
     The workspace→organization mapping is immutable, so this can be cached
     indefinitely without TTL.
     """
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
@@ -151,7 +152,7 @@ async def _compute_effective_scopes_cached(
     organization_id: uuid.UUID,
     workspace_id: uuid.UUID | None,
 ) -> frozenset[str]:
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         user_workspace_condition = (
             or_(
                 UserRoleAssignment.workspace_id.is_(None),
@@ -169,7 +170,6 @@ async def _compute_effective_scopes_cached(
             if workspace_id is not None
             else GroupRoleAssignment.workspace_id.is_(None)
         )
-
         # Direct user role assignments → Role → RoleScope → Scope
         user_scopes = (
             select(Scope.name)
@@ -202,6 +202,55 @@ async def _compute_effective_scopes_cached(
         result = await session.execute(combined)
         return frozenset(result.scalars().all())
 
+@alru_cache(maxsize=10000, ttl=30)
+async def _has_any_rbac_assignments_cached(
+    user_id: uuid.UUID,
+    organization_id: uuid.UUID,
+    workspace_id: uuid.UUID | None,
+) -> bool:
+    async with get_async_session_bypass_rls_context_manager() as session:
+        user_workspace_condition = (
+            or_(
+                UserRoleAssignment.workspace_id.is_(None),
+                UserRoleAssignment.workspace_id == workspace_id,
+            )
+            if workspace_id is not None
+            else UserRoleAssignment.workspace_id.is_(None)
+        )
+
+        user_assignment_stmt = (
+            select(UserRoleAssignment.id)
+            .where(
+                UserRoleAssignment.user_id == user_id,
+                UserRoleAssignment.organization_id == organization_id,
+                user_workspace_condition,
+            )
+            .limit(1)
+        )
+        user_assignment_result = await session.execute(user_assignment_stmt)
+        if user_assignment_result.scalar_one_or_none() is not None:
+            return True
+
+        group_workspace_condition = (
+            or_(
+                GroupRoleAssignment.workspace_id.is_(None),
+                GroupRoleAssignment.workspace_id == workspace_id,
+            )
+            if workspace_id is not None
+            else GroupRoleAssignment.workspace_id.is_(None)
+        )
+        group_assignment_stmt = (
+            select(GroupRoleAssignment.id)
+            .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
+            .where(
+                GroupMember.user_id == user_id,
+                GroupRoleAssignment.organization_id == organization_id,
+                group_workspace_condition,
+            )
+            .limit(1)
+        )
+        group_assignment_result = await session.execute(group_assignment_stmt)
+        return group_assignment_result.scalar_one_or_none() is not None
 
 def get_role_from_user(
     user: User,
@@ -716,6 +765,7 @@ async def _role_dependency(
     )
 
     ctx_role.set(role)
+    await set_rls_context_from_role(session, role)
     return role
 
 
