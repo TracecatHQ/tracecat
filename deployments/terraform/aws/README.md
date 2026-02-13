@@ -332,6 +332,61 @@ export TF_VAR_temporal_cluster_namespace="my-temporal-namespace"
 export TF_VAR_temporal_secret_arn="arn:aws:secretsmanager:us-east-1:123456789012:secret:tracecat/temporal-api-key-AbCdEf"
 ```
 
+## Observability (Grafana Cloud)
+
+The stack includes an optional observability pipeline that deploys:
+
+1. **Grafana K8s Monitoring Helm chart** (Alloy-based) for in-cluster metrics and logs
+2. **CloudWatch Metric Streams + Kinesis Firehose** for AWS service metrics (RDS, ElastiCache, ALB, WAF, S3)
+3. **ESO ExternalSecret** for syncing Grafana Cloud credentials into the cluster
+4. **IAM roles** with confused-deputy protections for CloudWatch and Firehose
+
+All observability resources are gated by `enable_observability` (default `false`).
+
+### 1. Create a Grafana Cloud credentials secret
+
+Store your Grafana Cloud metrics write token in AWS Secrets Manager:
+
+```bash
+aws secretsmanager create-secret --name tracecat/grafana-cloud \
+  --secret-string '{"metrics_write_token": "glc_..."}'
+
+grafana_cloud_credentials_arn=$(aws secretsmanager describe-secret \
+  --secret-id tracecat/grafana-cloud | jq -r '.ARN')
+```
+
+### 2. Set Terraform variables
+
+```bash
+export TF_VAR_enable_observability=true
+export TF_VAR_grafana_cloud_prometheus_url="https://prometheus-prod-01-us-east-0.grafana.net/api/prom/push"
+export TF_VAR_grafana_cloud_prometheus_username="123456"
+export TF_VAR_grafana_cloud_loki_url="https://logs-prod-us-east-0.grafana.net/loki/api/v1/push"
+export TF_VAR_grafana_cloud_loki_username="789012"
+export TF_VAR_grafana_cloud_credentials_secret_arn="$grafana_cloud_credentials_arn"
+export TF_VAR_grafana_cloud_firehose_endpoint="https://awsmetrics-prod-01-us-east-0.grafana.net/api/v1/push"
+```
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `enable_observability` | Yes | `false` | Master toggle for all observability resources |
+| `grafana_cloud_prometheus_url` | Yes | `""` | Prometheus remote write URL |
+| `grafana_cloud_prometheus_username` | Yes | `""` | Prometheus numeric instance ID |
+| `grafana_cloud_loki_url` | Yes | `""` | Loki push URL |
+| `grafana_cloud_loki_username` | Yes | `""` | Loki numeric instance ID |
+| `grafana_cloud_credentials_secret_arn` | Yes | `""` | Secrets Manager ARN containing `{"metrics_write_token": "..."}` |
+| `grafana_cloud_firehose_endpoint` | Yes | `""` | Firehose endpoint URL for CloudWatch Metric Streams |
+| `observability_log_retention_days` | No | `30` | Retention for Firehose logs and S3 failed-delivery backups |
+
+### First-time deploy note
+
+If enabling observability on a fresh deployment, add these targets to stage 2:
+
+```bash
+  -target='module.eks.kubernetes_namespace.observability[0]' \
+  -target='module.eks.helm_release.grafana_k8s_monitoring[0]'
+```
+
 ## Snapshots and restore
 
 To restore the RDS instance from an existing snapshot, set `rds_snapshot_identifier` to the snapshot identifier or ARN before running `terraform apply`.
