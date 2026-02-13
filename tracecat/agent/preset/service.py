@@ -14,6 +14,7 @@ from tracecat import config
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
 from tracecat.audit.logger import audit_log
+from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
     OAuthIntegration,
@@ -45,6 +46,7 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
+    @require_scope("agent:create")
     @audit_log(resource_type="agent_preset", action="create")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def create_preset(self, params: AgentPresetCreate) -> AgentPreset:
@@ -95,6 +97,7 @@ class AgentPresetService(BaseWorkspaceService):
                 f"{len(missing_actions)} actions were not found in the registry: {sorted(missing_actions)}"
             )
 
+    @require_scope("agent:update")
     @audit_log(resource_type="agent_preset", action="update")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def update_preset(
@@ -137,6 +140,7 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.refresh(preset)
         return preset
 
+    @require_scope("agent:delete")
     @audit_log(resource_type="agent_preset", action="delete")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def delete_preset(self, preset: AgentPreset) -> None:

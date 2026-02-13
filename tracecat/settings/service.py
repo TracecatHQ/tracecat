@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
+from tracecat.authz.controls import require_scope
 from tracecat.common import UNSET
 from tracecat.contexts import ctx_role, ctx_session
 from tracecat.db.models import OrganizationSetting
@@ -192,6 +193,7 @@ class SettingsService(BaseOrgService):
         self.session.add(setting)
         return setting
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="create")
     async def create_org_setting(self, params: SettingCreate) -> OrganizationSetting:
         """Create a new organization setting."""
@@ -224,6 +226,7 @@ class SettingsService(BaseOrgService):
             setattr(setting, field, value)
         return setting
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
     async def update_org_setting(
         self, setting: OrganizationSetting, params: SettingUpdate
@@ -243,6 +246,7 @@ class SettingsService(BaseOrgService):
         await self.session.refresh(updated_setting)
         return updated_setting
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="delete")
     async def delete_org_setting(self, setting: OrganizationSetting) -> None:
         """Delete an organization setting."""
@@ -277,6 +281,7 @@ class SettingsService(BaseOrgService):
                 await self._update_setting(setting, params)
         await self.session.commit()
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
     async def update_git_settings(self, params: GitSettingsUpdate) -> None:
         self.logger.info(f"Updating Git settings: {params}")
@@ -284,21 +289,25 @@ class SettingsService(BaseOrgService):
         git_settings = await self.list_org_settings(keys=GitSettingsUpdate.keys())
         await self._update_grouped_settings(git_settings, params)
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
     async def update_saml_settings(self, params: SAMLSettingsUpdate) -> None:
         saml_settings = await self.list_org_settings(keys=SAMLSettingsUpdate.keys())
         await self._update_grouped_settings(saml_settings, params)
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
     async def update_audit_settings(self, params: AuditSettingsUpdate) -> None:
         audit_settings = await self.list_org_settings(keys=AuditSettingsUpdate.keys())
         await self._update_grouped_settings(audit_settings, params)
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
     async def update_app_settings(self, params: AppSettingsUpdate) -> None:
         app_settings = await self.list_org_settings(keys=AppSettingsUpdate.keys())
         await self._update_grouped_settings(app_settings, params)
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
     async def update_agent_settings(self, params: AgentSettingsUpdate) -> None:
         agent_settings = await self.list_org_settings(keys=AgentSettingsUpdate.keys())

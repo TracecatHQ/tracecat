@@ -21,6 +21,7 @@ from tracecat.auth.users import (
     get_user_db_context,
     get_user_manager_context,
 )
+from tracecat.authz.controls import require_scope
 from tracecat.authz.enums import OrgRole
 from tracecat.db.models import (
     AccessToken,
@@ -236,6 +237,7 @@ class OrgService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.tuples().one()
 
+    @require_scope("org:member:remove")
     @audit_log(resource_type="organization_member", action="delete")
     async def delete_member(self, user_id: UserID) -> None:
         """
@@ -257,6 +259,7 @@ class OrgService(BaseOrgService):
         async with self._manager() as user_manager:
             await user_manager.delete(user)
 
+    @require_scope("org:member:update")
     @audit_log(resource_type="organization_member", action="update")
     async def update_member(
         self, user_id: UserID, params: UserUpdate
@@ -286,6 +289,7 @@ class OrgService(BaseOrgService):
             )
         return updated_user, org_role
 
+    @require_scope("org:member:invite")
     @audit_log(resource_type="organization_member", action="create")
     async def add_member(
         self,
@@ -373,6 +377,7 @@ class OrgService(BaseOrgService):
             for s in result.scalars().all()
         ]
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_session", action="delete")
     async def delete_session(self, session_id: SessionID) -> None:
         """Delete a session by its ID (must belong to a user in this organization)."""
@@ -395,6 +400,7 @@ class OrgService(BaseOrgService):
 
     # === Manage invitations ===
 
+    @require_scope("org:member:invite")
     @audit_log(resource_type="organization_invitation", action="create")
     async def create_invitation(
         self,
@@ -665,6 +671,7 @@ class OrgService(BaseOrgService):
 
         return membership
 
+    @require_scope("org:member:remove")
     @audit_log(resource_type="organization_invitation", action="revoke")
     async def revoke_invitation(
         self, invitation_id: uuid.UUID

@@ -13,12 +13,8 @@ from slugify import slugify
 from sqlalchemy import and_, or_, select, update
 
 from tracecat import config
-from tracecat.db.models import (
-    AgentPreset,
-    MCPIntegration,
-    OAuthIntegration,
-    WorkspaceOAuthProvider,
-)
+from tracecat.authz.controls import require_scope
+from tracecat.db.models import MCPIntegration, OAuthIntegration, WorkspaceOAuthProvider
 from tracecat.identifiers import UserID
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.providers import get_provider_class
@@ -187,6 +183,7 @@ class IntegrationService(BaseWorkspaceService):
             return None
         return self._build_custom_provider_class(custom_provider)
 
+    @require_scope("integration:create")
     async def create_custom_provider(
         self, *, params: CustomOAuthProviderCreate
     ) -> WorkspaceOAuthProvider:
@@ -237,6 +234,7 @@ class IntegrationService(BaseWorkspaceService):
 
         return provider
 
+    @require_scope("integration:delete")
     async def delete_custom_provider(self, *, provider_key: ProviderKey) -> bool:
         """Delete a custom OAuth provider definition."""
         custom_provider = await self.get_custom_provider(provider_key=provider_key)
@@ -333,6 +331,7 @@ class IntegrationService(BaseWorkspaceService):
         )
         return authorization_endpoint, token_endpoint
 
+    @require_scope("integration:create", "integration:update", require_all=False)
     async def store_integration(
         self,
         *,
@@ -458,6 +457,7 @@ class IntegrationService(BaseWorkspaceService):
         )
         return integration
 
+    @require_scope("integration:delete")
     async def disconnect_integration(self, *, integration: OAuthIntegration) -> None:
         """Disconnect a user's integration for a specific provider."""
         self._disconnect_integration_state(integration=integration)
@@ -472,6 +472,7 @@ class IntegrationService(BaseWorkspaceService):
         integration.scope = None  # Granted scopes
         integration.requested_scopes = None
 
+    @require_scope("integration:delete")
     async def remove_integration(self, *, integration: OAuthIntegration) -> None:
         """Remove a user's integration for a specific provider."""
         # Capture provider info before deleting
@@ -708,12 +709,14 @@ class IntegrationService(BaseWorkspaceService):
 
         return integration
 
+    @require_scope("integration:read")
     async def get_access_token(self, integration: OAuthIntegration) -> SecretStr | None:
         """Get the decrypted access token for an integration."""
         if access_token := self._decrypt_token(integration.encrypted_access_token):
             return SecretStr(access_token)
         return None
 
+    @require_scope("integration:read")
     def get_decrypted_tokens(
         self, integration: OAuthIntegration
     ) -> tuple[str | None, str | None]:
@@ -746,6 +749,7 @@ class IntegrationService(BaseWorkspaceService):
             "utf-8"
         )
 
+    @require_scope("integration:create", "integration:update", require_all=False)
     async def store_provider_config(
         self,
         *,
@@ -915,6 +919,7 @@ class IntegrationService(BaseWorkspaceService):
             )
             return None
 
+    @require_scope("integration:delete")
     async def remove_provider_config(self, *, provider_key: ProviderKey) -> bool:
         """Remove provider configuration (client credentials) for a workspace."""
         integration = await self.get_integration(provider_key=provider_key)
@@ -1070,6 +1075,7 @@ class IntegrationService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().first() is not None
 
+    @require_scope("integration:create")
     async def create_mcp_integration(
         self, *, params: MCPIntegrationCreate
     ) -> MCPIntegration:
@@ -1144,6 +1150,7 @@ class IntegrationService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().first()
 
+    @require_scope("integration:update")
     async def update_mcp_integration(
         self, *, mcp_integration_id: uuid.UUID, params: MCPIntegrationUpdate
     ) -> MCPIntegration | None:
@@ -1214,6 +1221,7 @@ class IntegrationService(BaseWorkspaceService):
 
         return mcp_integration
 
+    @require_scope("integration:delete")
     async def delete_mcp_integration(self, *, mcp_integration_id: uuid.UUID) -> bool:
         """Delete an MCP integration."""
         mcp_integration = await self.get_mcp_integration(

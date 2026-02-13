@@ -9,7 +9,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import selectinload
 
 from tracecat.audit.logger import audit_log
-from tracecat.authz.controls import validate_scope_string
+from tracecat.authz.controls import require_scope, validate_scope_string
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.scopes import PRESET_ROLE_SCOPES
 from tracecat.db.models import (
@@ -89,6 +89,7 @@ class RBACService(BaseOrgService):
             raise TracecatNotFoundError("Scope not found")
         return scope
 
+    @require_scope("org:rbac:create")
     @audit_log(resource_type="rbac_scope", action="create")
     async def create_scope(
         self,
@@ -132,6 +133,7 @@ class RBACService(BaseOrgService):
         await self.session.refresh(scope)
         return scope
 
+    @require_scope("org:rbac:delete")
     @audit_log(resource_type="rbac_scope", action="delete", resource_id_attr="scope_id")
     async def delete_scope(self, scope_id: UUID) -> None:
         """Delete a custom scope.
@@ -183,6 +185,7 @@ class RBACService(BaseOrgService):
             raise TracecatNotFoundError("Role not found")
         return role
 
+    @require_scope("org:rbac:create")
     @audit_log(resource_type="rbac_role", action="create")
     async def create_role(
         self,
@@ -212,6 +215,7 @@ class RBACService(BaseOrgService):
         await self.session.refresh(role, ["scopes"])
         return role
 
+    @require_scope("org:rbac:update")
     @audit_log(resource_type="rbac_role", action="update", resource_id_attr="role_id")
     async def update_role(
         self,
@@ -243,6 +247,7 @@ class RBACService(BaseOrgService):
         await self.session.refresh(role, ["scopes"])
         return role
 
+    @require_scope("org:rbac:delete")
     @audit_log(resource_type="rbac_role", action="delete", resource_id_attr="role_id")
     async def delete_role(self, role_id: UUID) -> None:
         """Delete a role.
@@ -353,6 +358,7 @@ class RBACService(BaseOrgService):
             raise TracecatNotFoundError("Group not found")
         return group
 
+    @require_scope("org:rbac:create")
     @audit_log(resource_type="rbac_group", action="create")
     async def create_group(
         self,
@@ -372,6 +378,7 @@ class RBACService(BaseOrgService):
         await self.session.refresh(group, ["members"])
         return group
 
+    @require_scope("org:rbac:update")
     @audit_log(resource_type="rbac_group", action="update", resource_id_attr="group_id")
     async def update_group(
         self,
@@ -392,6 +399,7 @@ class RBACService(BaseOrgService):
         await self.session.refresh(group, ["members"])
         return group
 
+    @require_scope("org:rbac:delete")
     @audit_log(resource_type="rbac_group", action="delete", resource_id_attr="group_id")
     async def delete_group(self, group_id: UUID) -> None:
         """Delete a group."""
@@ -399,6 +407,7 @@ class RBACService(BaseOrgService):
         await self.session.delete(group)
         await self.session.commit()
 
+    @require_scope("org:rbac:update")
     @audit_log(
         resource_type="rbac_group_member", action="create", resource_id_attr="group_id"
     )
@@ -429,6 +438,7 @@ class RBACService(BaseOrgService):
         self.session.add(member)
         await self.session.commit()
 
+    @require_scope("org:rbac:update")
     @audit_log(
         resource_type="rbac_group_member", action="delete", resource_id_attr="group_id"
     )
@@ -510,6 +520,7 @@ class RBACService(BaseOrgService):
             raise TracecatNotFoundError("Group assignment not found")
         return assignment
 
+    @require_scope("org:rbac:create")
     @audit_log(resource_type="rbac_assignment", action="create")
     async def create_group_role_assignment(
         self,
@@ -554,6 +565,7 @@ class RBACService(BaseOrgService):
         await self.session.refresh(assignment, ["group", "role", "workspace"])
         return assignment
 
+    @require_scope("org:rbac:update")
     @audit_log(
         resource_type="rbac_assignment",
         action="update",
@@ -576,6 +588,7 @@ class RBACService(BaseOrgService):
         await self.session.refresh(assignment, ["group", "role", "workspace"])
         return assignment
 
+    @require_scope("org:rbac:delete")
     @audit_log(
         resource_type="rbac_assignment",
         action="delete",
@@ -636,6 +649,7 @@ class RBACService(BaseOrgService):
             raise TracecatNotFoundError("User role assignment not found")
         return assignment
 
+    @require_scope("org:rbac:create")
     @audit_log(resource_type="rbac_user_assignment", action="create")
     async def create_user_assignment(
         self,
@@ -688,6 +702,7 @@ class RBACService(BaseOrgService):
         await self.session.refresh(assignment, ["user", "role", "workspace"])
         return assignment
 
+    @require_scope("org:rbac:update")
     @audit_log(
         resource_type="rbac_user_assignment",
         action="update",
@@ -710,6 +725,7 @@ class RBACService(BaseOrgService):
         await self.session.refresh(assignment, ["user", "role", "workspace"])
         return assignment
 
+    @require_scope("org:rbac:delete")
     @audit_log(
         resource_type="rbac_user_assignment",
         action="delete",

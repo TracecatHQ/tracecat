@@ -17,6 +17,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
+from tracecat.authz.controls import require_scope
 from tracecat.cases.attachments import CaseAttachmentService
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.durations.service import CaseDurationService
@@ -630,6 +631,7 @@ class CasesService(BaseWorkspaceService):
 
         return case
 
+    @require_scope("case:create")
     @audit_log(resource_type="case", action="create")
     async def create_case(self, params: CaseCreate) -> Case:
         try:
@@ -676,6 +678,7 @@ class CasesService(BaseWorkspaceService):
             await self.session.rollback()
             raise
 
+    @require_scope("case:update")
     @audit_log(resource_type="case", action="update")
     async def update_case(self, case: Case, params: CaseUpdate) -> Case:
         """Update a case and optionally its custom fields.
@@ -800,6 +803,7 @@ class CasesService(BaseWorkspaceService):
             await self.session.rollback()
             raise
 
+    @require_scope("case:delete")
     @audit_log(resource_type="case", action="delete")
     async def delete_case(self, case: Case) -> None:
         """Delete a case and optionally its associated field data.
@@ -900,6 +904,7 @@ class CaseFieldsService(CustomFieldsService):
         flag_modified(definition, "schema")
         await self.session.flush()
 
+    @require_scope("case:create")
     async def create_field(self, params: CustomFieldCreate) -> None:
         """Create a new custom field column and update the schema."""
 
@@ -919,6 +924,7 @@ class CaseFieldsService(CustomFieldsService):
 
         await self.session.commit()
 
+    @require_scope("case:update")
     async def update_field(self, field_id: str, params: CustomFieldUpdate) -> None:
         """Update a custom field column and update the schema if needed."""
         await self._ensure_schema_ready()
@@ -957,6 +963,7 @@ class CaseFieldsService(CustomFieldsService):
 
         await self.session.commit()
 
+    @require_scope("case:delete")
     async def delete_field(self, field_id: str) -> None:
         """Delete a custom field and remove it from the schema."""
         await self._ensure_schema_ready()
@@ -1013,6 +1020,7 @@ class CaseFieldsService(CustomFieldsService):
         )
         return await self.editor.get_row(row_id) if row_id else None
 
+    @require_scope("case:create", "case:update", require_all=False)
     async def upsert_field_values(
         self, case: Case, fields: dict[str, Any]
     ) -> dict[str, Any]:
@@ -1128,6 +1136,7 @@ class CaseCommentsService(BaseWorkspaceService):
             # Return in the same format as the join query for consistency
             return [(comment, None) for comment in result.scalars().all()]
 
+    @require_scope("case:create")
     async def create_comment(
         self, case: Case, params: CaseCommentCreate
     ) -> CaseComment:
@@ -1154,6 +1163,7 @@ class CaseCommentsService(BaseWorkspaceService):
 
         return comment
 
+    @require_scope("case:update")
     async def update_comment(
         self, comment: CaseComment, params: CaseCommentUpdate
     ) -> CaseComment:
@@ -1186,6 +1196,7 @@ class CaseCommentsService(BaseWorkspaceService):
 
         return comment
 
+    @require_scope("case:delete")
     async def delete_comment(self, comment: CaseComment) -> None:
         """Delete a comment.
 
@@ -1416,6 +1427,7 @@ class CaseTasksService(BaseWorkspaceService):
             ) from e
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
+    @require_scope("case:create")
     async def create_task(self, case_id: uuid.UUID, params: CaseTaskCreate) -> CaseTask:
         """Create a new task for a case.
 
@@ -1483,6 +1495,7 @@ class CaseTasksService(BaseWorkspaceService):
         return task
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
+    @require_scope("case:update")
     async def update_task(self, task_id: uuid.UUID, params: CaseTaskUpdate) -> CaseTask:
         """Update a task.
 
@@ -1621,6 +1634,7 @@ class CaseTasksService(BaseWorkspaceService):
         return task
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
+    @require_scope("case:delete")
     async def delete_task(self, task_id: uuid.UUID) -> None:
         """Delete a task.
 

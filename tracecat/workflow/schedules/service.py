@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from temporalio import activity
 
+from tracecat.authz.controls import require_scope
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Schedule, Workspace
 from tracecat.db.session_events import add_after_commit_callback
@@ -50,6 +51,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         schedules = result.scalars().all()
         return list(schedules)
 
+    @require_scope("schedule:create")
     async def create_schedule(
         self, params: ScheduleCreate, commit: bool = True
     ) -> Schedule:
@@ -172,6 +174,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         except NoResultFound as e:
             raise TracecatNotFoundError(f"Schedule {schedule_uuid} not found") from e
 
+    @require_scope("schedule:update")
     async def update_schedule(
         self, schedule_id: AnyScheduleID, params: ScheduleUpdate
     ) -> Schedule:
@@ -225,6 +228,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         await self.session.refresh(schedule)
         return schedule
 
+    @require_scope("schedule:delete")
     async def delete_schedule(
         self, schedule_id: AnyScheduleID, commit: bool = True
     ) -> None:

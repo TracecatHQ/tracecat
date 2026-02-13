@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from temporalio import activity
 
+from tracecat.authz.controls import require_scope
 from tracecat.db.models import Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatException
@@ -57,6 +58,7 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 
+    @require_scope("workflow:update")
     async def create_workflow_definition(
         self,
         workflow_id: WorkflowID,

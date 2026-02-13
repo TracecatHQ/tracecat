@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from sqlalchemy import column, delete, func, literal, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 
+from tracecat.authz.controls import require_scope
 from tracecat.db.models import Action, Workflow
 from tracecat.dsl.view import Position
 from tracecat.identifiers import ActionID, WorkflowID, WorkflowUUID
@@ -38,6 +39,7 @@ class WorkflowActionService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    @require_scope("workflow:create")
     async def create_action(self, params: ActionCreate) -> Action:
         action = Action(
             workspace_id=self.workspace_id,
@@ -60,6 +62,7 @@ class WorkflowActionService(BaseWorkspaceService):
         await self.session.refresh(action)
         return action
 
+    @require_scope("workflow:update")
     async def update_action(self, action: Action, params: ActionUpdate) -> Action:
         set_fields = params.model_dump(exclude_unset=True)
         for field, value in set_fields.items():
@@ -69,6 +72,7 @@ class WorkflowActionService(BaseWorkspaceService):
         await self.session.refresh(action)
         return action
 
+    @require_scope("workflow:delete")
     async def delete_action(self, action: Action) -> None:
         """Delete an action and clean up downstream edge references.
 
@@ -125,6 +129,7 @@ class WorkflowActionService(BaseWorkspaceService):
 
         await self.session.commit()
 
+    @require_scope("workflow:update")
     async def batch_update_positions(
         self,
         workflow_id: WorkflowID,
