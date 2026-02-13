@@ -10,7 +10,9 @@ import pytest
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.contexts import ctx_role
 from tracecat.db.rls import (
-    RLS_BYPASS_VALUE,
+    RLS_BYPASS_OFF,
+    RLS_BYPASS_ON,
+    RLS_UNSET_VALUE,
     clear_rls_context,
     is_rls_enabled,
     require_rls_access,
@@ -25,7 +27,10 @@ from tracecat.feature_flags.enums import FeatureFlag
 @pytest.fixture
 def mock_session() -> AsyncMock:
     """Create a mock async session."""
-    return AsyncMock()
+    session = AsyncMock()
+    session.sync_session = MagicMock()
+    session.sync_session.info = {}
+    return session
 
 
 @pytest.fixture
@@ -53,6 +58,20 @@ def system_role() -> Role:
         service_id="tracecat-api",
         access_level=AccessLevel.ADMIN,
         workspace_role=None,
+    )
+
+
+@pytest.fixture
+def superuser_role() -> Role:
+    """Create a platform superuser role."""
+    return Role(
+        type="user",
+        workspace_id=None,
+        organization_id=None,
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+        access_level=AccessLevel.ADMIN,
+        is_platform_superuser=True,
     )
 
 
@@ -113,20 +132,21 @@ class TestSetRlsContext:
             user_id=user_id,
         )
 
-        # Should have made 3 execute calls (one for each variable)
-        assert mock_session.execute.call_count == 3
+        # Should have made 4 execute calls (bypass + org/workspace/user)
+        assert mock_session.execute.call_count == 4
 
         # Verify the parameters passed
         calls = mock_session.execute.call_args_list
-        assert calls[0][0][1]["org_id"] == str(org_id)
-        assert calls[1][0][1]["workspace_id"] == str(workspace_id)
-        assert calls[2][0][1]["user_id"] == str(user_id)
+        assert calls[0][0][1]["bypass"] == RLS_BYPASS_OFF
+        assert calls[1][0][1]["org_id"] == str(org_id)
+        assert calls[2][0][1]["workspace_id"] == str(workspace_id)
+        assert calls[3][0][1]["user_id"] == str(user_id)
 
     @pytest.mark.anyio
-    async def test_uses_bypass_for_none_values(
+    async def test_resets_tenant_context_for_none_values(
         self, mock_session: AsyncMock, monkeypatch: pytest.MonkeyPatch
     ):
-        """Test that None values are replaced with bypass value."""
+        """Test that None values reset tenant variables while bypass stays off."""
         monkeypatch.setattr(
             "tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS",
             {FeatureFlag.RLS_ENABLED},
@@ -140,9 +160,10 @@ class TestSetRlsContext:
         )
 
         calls = mock_session.execute.call_args_list
-        assert calls[0][0][1]["org_id"] == RLS_BYPASS_VALUE
-        assert calls[1][0][1]["workspace_id"] == RLS_BYPASS_VALUE
-        assert calls[2][0][1]["user_id"] == RLS_BYPASS_VALUE
+        assert calls[0][0][1]["bypass"] == RLS_BYPASS_OFF
+        assert calls[1][0][1]["org_id"] == RLS_UNSET_VALUE
+        assert calls[2][0][1]["workspace_id"] == RLS_UNSET_VALUE
+        assert calls[3][0][1]["user_id"] == RLS_UNSET_VALUE
 
 
 class TestSetRlsContextFromRole:
@@ -178,9 +199,10 @@ class TestSetRlsContextFromRole:
         await set_rls_context_from_role(mock_session, test_role)
 
         calls = mock_session.execute.call_args_list
-        assert calls[0][0][1]["org_id"] == str(test_role.organization_id)
-        assert calls[1][0][1]["workspace_id"] == str(test_role.workspace_id)
-        assert calls[2][0][1]["user_id"] == str(test_role.user_id)
+        assert calls[0][0][1]["bypass"] == RLS_BYPASS_OFF
+        assert calls[1][0][1]["org_id"] == str(test_role.organization_id)
+        assert calls[2][0][1]["workspace_id"] == str(test_role.workspace_id)
+        assert calls[3][0][1]["user_id"] == str(test_role.user_id)
 
     @pytest.mark.anyio
     async def test_reads_from_ctx_role_when_no_role_provided(
@@ -202,18 +224,19 @@ class TestSetRlsContextFromRole:
             await set_rls_context_from_role(mock_session)
 
             calls = mock_session.execute.call_args_list
-            assert calls[0][0][1]["org_id"] == str(test_role.organization_id)
-            assert calls[1][0][1]["workspace_id"] == str(test_role.workspace_id)
+            assert calls[0][0][1]["bypass"] == RLS_BYPASS_OFF
+            assert calls[1][0][1]["org_id"] == str(test_role.organization_id)
+            assert calls[2][0][1]["workspace_id"] == str(test_role.workspace_id)
         finally:
             ctx_role.set(None)
 
     @pytest.mark.anyio
-    async def test_sets_bypass_when_no_role_available(
+    async def test_sets_deny_default_when_no_role_available(
         self,
         mock_session: AsyncMock,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """Test that bypass is set when no role is available."""
+        """Test that no-role context sets bypass off and resets tenant IDs."""
         monkeypatch.setattr(
             "tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS",
             {FeatureFlag.RLS_ENABLED},
@@ -225,8 +248,31 @@ class TestSetRlsContextFromRole:
         await set_rls_context_from_role(mock_session)
 
         calls = mock_session.execute.call_args_list
-        assert calls[0][0][1]["org_id"] == RLS_BYPASS_VALUE
-        assert calls[1][0][1]["workspace_id"] == RLS_BYPASS_VALUE
+        assert calls[0][0][1]["bypass"] == RLS_BYPASS_OFF
+        assert calls[1][0][1]["org_id"] == RLS_UNSET_VALUE
+        assert calls[2][0][1]["workspace_id"] == RLS_UNSET_VALUE
+        assert calls[3][0][1]["user_id"] == RLS_UNSET_VALUE
+
+    @pytest.mark.anyio
+    async def test_sets_bypass_for_platform_superuser(
+        self,
+        mock_session: AsyncMock,
+        superuser_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Test that platform superusers get explicit bypass context."""
+        monkeypatch.setattr(
+            "tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS",
+            {FeatureFlag.RLS_ENABLED},
+        )
+
+        await set_rls_context_from_role(mock_session, superuser_role)
+
+        calls = mock_session.execute.call_args_list
+        assert calls[0][0][1]["bypass"] == RLS_BYPASS_ON
+        assert calls[1][0][1]["org_id"] == RLS_UNSET_VALUE
+        assert calls[2][0][1]["workspace_id"] == RLS_UNSET_VALUE
+        assert calls[3][0][1]["user_id"] == str(superuser_role.user_id)
 
 
 class TestClearRlsContext:
@@ -244,10 +290,10 @@ class TestClearRlsContext:
         mock_session.execute.assert_not_called()
 
     @pytest.mark.anyio
-    async def test_sets_bypass_values(
+    async def test_sets_deny_default_values(
         self, mock_session: AsyncMock, monkeypatch: pytest.MonkeyPatch
     ):
-        """Test that clearing sets all values to bypass."""
+        """Test that clearing enforces bypass-off and no tenant scope."""
         monkeypatch.setattr(
             "tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS",
             {FeatureFlag.RLS_ENABLED},
@@ -256,9 +302,10 @@ class TestClearRlsContext:
         await clear_rls_context(mock_session)
 
         calls = mock_session.execute.call_args_list
-        assert calls[0][0][1]["org_id"] == RLS_BYPASS_VALUE
-        assert calls[1][0][1]["workspace_id"] == RLS_BYPASS_VALUE
-        assert calls[2][0][1]["user_id"] == RLS_BYPASS_VALUE
+        assert calls[0][0][1]["bypass"] == RLS_BYPASS_OFF
+        assert calls[1][0][1]["org_id"] == RLS_UNSET_VALUE
+        assert calls[2][0][1]["workspace_id"] == RLS_UNSET_VALUE
+        assert calls[3][0][1]["user_id"] == RLS_UNSET_VALUE
 
 
 class TestVerifyRlsAccess:
