@@ -65,7 +65,7 @@ resource "aws_db_instance" "tracecat" {
   identifier = "${var.cluster_name}-postgres-${local.rds_suffix}"
 
   engine                = "postgres"
-  engine_version        = "16.6"
+  engine_version        = var.rds_engine_version
   instance_class        = var.rds_instance_class
   allocated_storage     = var.rds_allocated_storage
   max_allocated_storage = var.rds_allocated_storage * 5

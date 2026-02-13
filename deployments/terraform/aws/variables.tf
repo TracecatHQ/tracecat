@@ -162,6 +162,12 @@ variable "rds_instance_class" {
   default     = "db.m7g.2xlarge"
 }
 
+variable "rds_engine_version" {
+  description = "Exact Postgres engine version for the RDS instance (for example, 16.12)"
+  type        = string
+  default     = "16.12"
+}
+
 variable "rds_allocated_storage" {
   description = "Allocated storage for RDS in GB"
   type        = number
