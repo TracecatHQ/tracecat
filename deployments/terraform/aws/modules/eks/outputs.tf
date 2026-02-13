@@ -117,3 +117,11 @@ output "performance_monitoring" {
     performance_insights_enabled = aws_db_instance.tracecat.performance_insights_enabled
   }
 }
+
+output "observability" {
+  description = "Observability pipeline status"
+  value = var.enable_observability ? {
+    grafana_k8s_monitoring    = "deployed"
+    cloudwatch_metrics_stream = "deployed"
+  } : null
+}
