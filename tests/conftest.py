@@ -269,6 +269,28 @@ def default_org(db: None, env_sandbox: None) -> Iterator[None]:
         Base.metadata.create_all(sync_engine)
 
         with Session(sync_engine) as session:
+            org_slug = f"test-org-{TEST_ORG_ID.hex[:8]}"
+            existing_slug_owner = session.execute(
+                text("SELECT id FROM organization WHERE slug = :slug"),
+                {"slug": org_slug},
+            ).scalar_one_or_none()
+
+            # Handle stale/shared DB state where the canonical slug already exists
+            # with a different org ID (for example from previous CI runs).
+            if (
+                existing_slug_owner is not None
+                and str(existing_slug_owner) != str(TEST_ORG_ID)
+            ):
+                fallback_slug = f"{org_slug}-{TEST_DB_CONFIG.test_db_name[:8]}"
+                logger.warning(
+                    "Default test org slug is already in use by another org; "
+                    "using fallback slug",
+                    org_id=str(TEST_ORG_ID),
+                    existing_slug_owner=str(existing_slug_owner),
+                    fallback_slug=fallback_slug,
+                )
+                org_slug = fallback_slug
+
             session.execute(
                 text(
                     """
@@ -286,7 +308,7 @@ def default_org(db: None, env_sandbox: None) -> Iterator[None]:
                 ),
                 {
                     "org_id": str(TEST_ORG_ID),
-                    "org_slug": f"test-org-{TEST_ORG_ID.hex[:8]}",
+                    "org_slug": org_slug,
                 },
             )
             session.commit()
