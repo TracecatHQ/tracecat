@@ -81,7 +81,7 @@ resource "aws_db_instance" "tracecat" {
   vpc_security_group_ids = [aws_security_group.rds.id]
 
   publicly_accessible = false
-  multi_az            = false
+  multi_az            = true
   storage_encrypted   = true
 
   database_insights_mode = var.rds_database_insights_mode

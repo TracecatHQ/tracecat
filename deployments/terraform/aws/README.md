@@ -81,9 +81,10 @@ capacity_reserved_memory_mib=8192
 capacity_reserved_pod_eni=8
 
 # Persistence services and Temporal mode
-rds_instance_class="db.t4g.medium"
+rds_instance_class="db.m7g.2xlarge"
+rds_allocated_storage=300
 rds_storage_type="gp3"
-elasticache_node_type="cache.t3.micro"
+elasticache_node_type="cache.m7g.xlarge"
 rds_database_insights_mode="advanced"
 ```
 
@@ -148,9 +149,10 @@ capacity_reserved_cpu_millicores=3000
 capacity_reserved_memory_mib=8192
 
 # Persistence services
-rds_instance_class="db.t4g.medium"
+rds_instance_class="db.m7g.large"
+rds_allocated_storage=100
 rds_storage_type="gp3"
-elasticache_node_type="cache.t4g.small"
+elasticache_node_type="cache.m7g.large"
 rds_database_insights_mode="standard"
 ```
 
@@ -301,15 +303,16 @@ To deploy Temporal in self-hosted mode, set `temporal_mode` to `self-hosted`.
 export TF_VAR_temporal_mode="self-hosted"
 ```
 
-RDS defaults are intentionally cost-optimized for non-Temporal-heavy deployments:
-`rds_instance_class="db.t4g.medium"`, `rds_allocated_storage=20`, `rds_storage_type="gp3"`.
+Default persistence profile:
+`rds_instance_class="db.m7g.2xlarge"`, `rds_allocated_storage=300`, `rds_storage_type="gp3"`, `elasticache_node_type="cache.m7g.xlarge"` (3-node Multi-AZ replication group with automatic failover), and `multi_az=true` for RDS.
 
 For Temporal self-hosting, use a larger starting profile:
 
 ```bash
-export TF_VAR_rds_instance_class="db.r7g.2xlarge"
-export TF_VAR_rds_allocated_storage=100
+export TF_VAR_rds_instance_class="db.r7g.4xlarge"
+export TF_VAR_rds_allocated_storage=500
 export TF_VAR_rds_storage_type="io2"
+export TF_VAR_elasticache_node_type="cache.r7g.xlarge"
 ```
 
 To connect to an external Temporal cluster (cloud or self-hosted), set `temporal_mode` to `cloud`.
