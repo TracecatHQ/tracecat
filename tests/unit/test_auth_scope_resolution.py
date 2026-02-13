@@ -53,6 +53,10 @@ async def test_compute_effective_scopes_uses_service_allowlist_path() -> None:
     assert "agent:execute" in scopes
     assert "schedule:update" in scopes
     assert "tag:delete" in scopes
+    assert "integration:read" in scopes
+    assert "integration:create" in scopes
+    assert "integration:update" in scopes
+    assert "integration:delete" in scopes
     assert "workspace:read" in scopes
     assert "workspace:member:read" in scopes
     assert "action:*:execute" in scopes
@@ -101,8 +105,9 @@ async def test_compute_effective_scopes_falls_back_to_legacy_memberships(
 
     scopes = await credentials.compute_effective_scopes(role)
 
-    assert "org:settings:manage" in scopes
-    assert "org:registry:manage" in scopes
+    assert "org:settings:update" in scopes
+    assert "org:settings:delete" in scopes
+    assert "org:registry:update" in scopes
     assert "workflow:execute" in scopes
     assert "table:update" in scopes
     assert "action:core.*:execute" in scopes

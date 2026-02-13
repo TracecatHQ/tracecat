@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.schemas import UserRole
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.db.models import (
     Membership,
@@ -238,7 +238,6 @@ def create_workspace_admin_role(
         organization_id=organization_id,
         workspace_id=workspace_id,
         workspace_role=WorkspaceRole.ADMIN,
-        access_level=AccessLevel.ADMIN,
         service_id="tracecat-api",
     )
 

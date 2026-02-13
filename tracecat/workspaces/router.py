@@ -63,8 +63,8 @@ async def list_workspaces(
 ) -> list[WorkspaceReadMinimal]:
     """List workspaces.
 
-    Access Level
-    ------------
+    Authorization
+    -------------
     - Basic: Can list workspaces where they are a member.
     - Admin: Can list all workspaces regardless of membership.
     - Org Owner/Admin: Can list all workspaces in the organization.
@@ -93,8 +93,8 @@ async def create_workspace(
 ) -> WorkspaceReadMinimal:
     """Create a new workspace.
 
-    Access Level
-    ------------
+    Authorization
+    -------------
     - Admin: Can create a workspace for any user.
     """
     service = WorkspaceService(session, role=role)
@@ -102,7 +102,7 @@ async def create_workspace(
         workspace = await service.create_workspace(params.name)
     except TracecatAuthorizationError as e:
         logger.warning(
-            "User does not have the appropriate access level",
+            "User does not have the required scope",
             role=role,
         )
         raise HTTPException(
@@ -256,7 +256,7 @@ async def create_workspace_membership(
     except TracecatAuthorizationError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User does not have the appropriate access level",
+            detail="User does not have the required scope",
         ) from e
     except IntegrityError as e:
         logger.error("INTEGRITY ERROR")
@@ -292,7 +292,7 @@ async def update_workspace_membership(
     except TracecatAuthorizationError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User does not have the appropriate access level",
+            detail="User does not have the required scope",
         ) from e
     except IntegrityError as e:
         logger.error("INTEGRITY ERROR")
@@ -358,8 +358,8 @@ async def create_workspace_invitation(
 ) -> WorkspaceInvitationRead:
     """Create a workspace invitation.
 
-    Access Level
-    ------------
+    Authorization
+    -------------
     - Workspace Admin: Can create invitations for their workspace.
     """
     service = WorkspaceService(session, role=role)
@@ -399,8 +399,8 @@ async def list_workspace_invitations(
 ) -> list[WorkspaceInvitationRead]:
     """List workspace invitations.
 
-    Access Level
-    ------------
+    Authorization
+    -------------
     - Workspace Admin: Can list invitations for their workspace.
     """
     service = WorkspaceService(session, role=role)
@@ -441,8 +441,8 @@ async def revoke_workspace_invitation(
 ) -> None:
     """Revoke a workspace invitation.
 
-    Access Level
-    ------------
+    Authorization
+    -------------
     - Workspace Admin: Can revoke invitations for their workspace.
     """
     service = WorkspaceService(session, role=role)

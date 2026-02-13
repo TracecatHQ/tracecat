@@ -123,7 +123,7 @@ async def github_webhook(*, payload: dict[str, Any]) -> dict[str, str]:
 
 
 @github_router.post("/credentials", status_code=status.HTTP_201_CREATED)
-@require_scope("org:settings:manage")
+@require_scope("org:settings:update")
 async def save_github_app_credentials(
     *,
     session: AsyncDBSession,
@@ -168,7 +168,7 @@ async def save_github_app_credentials(
 
 
 @github_router.delete("/credentials", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("org:settings:manage")
+@require_scope("org:settings:delete")
 async def delete_github_app_credentials(
     *,
     session: AsyncDBSession,

@@ -100,7 +100,7 @@ async def get_registry_action(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-@require_scope("org:registry:manage")
+@require_scope("org:registry:create")
 async def create_registry_action(
     *,
     role: Role = RoleACL(
@@ -129,7 +129,7 @@ async def create_registry_action(
 
 
 @router.patch("/{action_name}", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("org:registry:manage")
+@require_scope("org:registry:update")
 async def update_registry_action(
     *,
     role: Role = RoleACL(
@@ -151,7 +151,7 @@ async def update_registry_action(
 
 
 @router.delete("/{action_name}", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("org:registry:manage")
+@require_scope("org:registry:delete")
 async def delete_registry_action(
     *,
     role: Role = RoleACL(

@@ -63,7 +63,7 @@ async def get_git_settings(
 
 
 @router.patch("/git", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("org:settings:manage")
+@require_scope("org:settings:update")
 async def update_git_settings(
     *,
     role: OrgUserRole,
@@ -93,7 +93,7 @@ async def get_saml_settings(
 
 
 @router.patch("/saml", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("org:settings:manage")
+@require_scope("org:settings:update")
 async def update_saml_settings(
     *,
     role: OrgUserRole,
@@ -121,7 +121,7 @@ async def get_app_settings(
 
 
 @router.patch("/app", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("org:settings:manage")
+@require_scope("org:settings:update")
 async def update_app_settings(
     *,
     role: OrgUserRole,
@@ -147,7 +147,7 @@ async def get_audit_settings(
 
 
 @router.patch("/audit", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("org:settings:manage")
+@require_scope("org:settings:update")
 async def update_audit_settings(
     *,
     role: OrgUserRole,
@@ -173,7 +173,7 @@ async def get_agent_settings(
 
 
 @router.patch("/agent", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("org:settings:manage")
+@require_scope("org:settings:update")
 async def update_agent_settings(
     *,
     role: OrgUserRole,

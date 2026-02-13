@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.credentials import RoleACL, _role_dependency
 from tracecat.auth.schemas import UserRole
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.service import MembershipWithOrg
 from tracecat.db.models import (
@@ -131,12 +131,6 @@ async def test_auth_cache_reduces_database_queries(mocker):
         "tracecat.auth.credentials.MembershipService", return_value=mock_service
     )
 
-    # Mock the access level lookup
-    mocker.patch.dict(
-        "tracecat.auth.credentials.USER_ROLE_TO_ACCESS_LEVEL",
-        {UserRole.BASIC: AccessLevel.BASIC},
-    )
-
     # Mock is_unprivileged to return True for basic users
     mocker.patch("tracecat.auth.credentials.is_unprivileged", return_value=True)
 
@@ -238,12 +232,6 @@ async def test_performance_improvement(mocker):
         MembershipService, "list_user_memberships", mock_list_user_memberships_slow
     )
     mocker.patch.object(MembershipService, "get_membership", mock_get_membership_slow)
-
-    # Mock the access level lookup
-    mocker.patch.dict(
-        "tracecat.auth.credentials.USER_ROLE_TO_ACCESS_LEVEL",
-        {UserRole.ADMIN: AccessLevel.ADMIN, UserRole.BASIC: AccessLevel.BASIC},
-    )
 
     # Helper to time a single call
     async def time_auth_check(user, use_cache=True):
@@ -395,10 +383,6 @@ async def test_cache_user_id_validation():
     with (
         patch("tracecat.auth.credentials.MembershipService", return_value=mock_service),
         patch("tracecat.auth.credentials.is_unprivileged", return_value=True),
-        patch.dict(
-            "tracecat.auth.credentials.USER_ROLE_TO_ACCESS_LEVEL",
-            {UserRole.BASIC: AccessLevel.BASIC},
-        ),
         patch("tracecat.auth.credentials._get_workspace_org_id", return_value=org_id),
         patch("tracecat.auth.credentials._get_org_role", return_value=None),
     ):
@@ -485,10 +469,6 @@ async def test_cache_size_limit():
     with (
         patch("tracecat.auth.credentials.MembershipService", return_value=mock_service),
         patch("tracecat.auth.credentials.is_unprivileged", return_value=True),
-        patch.dict(
-            "tracecat.auth.credentials.USER_ROLE_TO_ACCESS_LEVEL",
-            {UserRole.BASIC: AccessLevel.BASIC},
-        ),
         patch("tracecat.auth.credentials._get_workspace_org_id", return_value=org_id),
         patch("tracecat.auth.credentials._get_org_role", return_value=None),
     ):
@@ -555,12 +535,6 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
 
     # Mock is_unprivileged to return False for admin users
     mocker.patch("tracecat.auth.credentials.is_unprivileged", return_value=False)
-
-    # Mock the access level lookup
-    mocker.patch.dict(
-        "tracecat.auth.credentials.USER_ROLE_TO_ACCESS_LEVEL",
-        {UserRole.ADMIN: AccessLevel.ADMIN},
-    )
 
     request = MagicMock(spec=Request)
     request.state = MagicMock()
