@@ -269,6 +269,28 @@ def default_org(db: None, env_sandbox: None) -> Iterator[None]:
         Base.metadata.create_all(sync_engine)
 
         with Session(sync_engine) as session:
+            org_slug = f"test-org-{TEST_ORG_ID.hex[:8]}"
+            existing_slug_owner = session.execute(
+                text("SELECT id FROM organization WHERE slug = :slug"),
+                {"slug": org_slug},
+            ).scalar_one_or_none()
+
+            # Handle stale/shared DB state where the canonical slug already exists
+            # with a different org ID (for example from previous CI runs).
+            if (
+                existing_slug_owner is not None
+                and str(existing_slug_owner) != str(TEST_ORG_ID)
+            ):
+                fallback_slug = f"{org_slug}-{TEST_DB_CONFIG.test_db_name[:8]}"
+                logger.warning(
+                    "Default test org slug is already in use by another org; "
+                    "using fallback slug",
+                    org_id=str(TEST_ORG_ID),
+                    existing_slug_owner=str(existing_slug_owner),
+                    fallback_slug=fallback_slug,
+                )
+                org_slug = fallback_slug
+
             session.execute(
                 text(
                     """
@@ -286,7 +308,7 @@ def default_org(db: None, env_sandbox: None) -> Iterator[None]:
                 ),
                 {
                     "org_id": str(TEST_ORG_ID),
-                    "org_slug": f"test-org-{TEST_ORG_ID.hex[:8]}",
+                    "org_slug": org_slug,
                 },
             )
             session.commit()
@@ -887,10 +909,10 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__API_URL", api_url)
     monkeysession.setenv("TRACECAT__API_URL", api_url)
     monkeysession.setenv("TRACECAT__EXECUTOR_URL", executor_url)
-    # Use DirectBackend for in-process executor (no sandbox overhead) unless overridden
+    # Use TestBackend for in-process executor (no sandbox overhead) unless overridden
     if not IN_DOCKER:
-        monkeysession.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "direct")
-        monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", "direct")
+        monkeysession.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "test")
+        monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", "test")
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"http://{api_host}/api")
     monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
@@ -1451,10 +1473,10 @@ async def test_executor_worker_factory(
     threadpool: ThreadPoolExecutor,
     executor_backend: ExecutorBackend,
 ) -> AsyncGenerator[Callable[..., Worker], Any]:
-    """Factory fixture to create executor workers with DirectBackend.
+    """Factory fixture to create executor workers with TestBackend.
 
     This worker listens on the shared-action-queue and handles execute_action_activity.
-    Uses DirectBackend for in-process execution without sandbox overhead.
+    Uses TestBackend for in-process execution without sandbox overhead.
     """
     from tracecat.executor.activities import ExecutorActivities
 

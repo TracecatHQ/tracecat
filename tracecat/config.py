@@ -415,17 +415,19 @@ TRACECAT__EXECUTOR_BACKEND = os.environ.get("TRACECAT__EXECUTOR_BACKEND", "direc
 Supported values:
 - 'pool': Warm nsjail workers (single-tenant, high throughput, ~100-200ms)
 - 'ephemeral': Cold nsjail subprocess per action (multitenant, full isolation, ~4000ms)
-- 'direct': In-process execution (TESTING ONLY - no isolation, no subprocess overhead)
+- 'direct': Direct subprocess execution (no warm workers, no in-process state sharing)
+- 'test': In-process execution for tests only (no isolation, no subprocess overhead)
 - 'auto': Auto-select based on environment (pool if nsjail available, else direct)
 
 Trust mode is derived from the backend type:
 - pool: untrusted (secrets pre-resolved, no DB creds)
 - ephemeral: untrusted (secrets pre-resolved, no DB creds)
-- direct: trusted (no sandbox)
+- direct: untrusted subprocess execution (secrets pre-resolved, no DB creds)
+- test: trusted in-process execution (no sandbox)
 
-WARNING: 'direct' backend provides NO isolation between actions. Actions share
+WARNING: 'test' backend provides NO isolation between actions. Actions share
 the same process memory, env vars can leak, and crashes affect the whole worker.
-Only use 'direct' for tests. For production, use 'pool' or 'ephemeral'.
+Only use 'test' for tests.
 """
 
 TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
@@ -447,7 +449,7 @@ When True, actions run in an nsjail sandbox with:
 When False (default), actions run in direct subprocesses without sandboxing.
 
 Requires:
-- TRACECAT__EXECUTOR_BACKEND=pool or ephemeral
+- TRACECAT__EXECUTOR_BACKEND=pool, ephemeral, or direct
 - nsjail binary at TRACECAT__SANDBOX_NSJAIL_PATH
 - Sandbox rootfs at TRACECAT__SANDBOX_ROOTFS_PATH
 """

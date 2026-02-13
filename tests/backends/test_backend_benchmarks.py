@@ -14,7 +14,7 @@ Run benchmarks:
     # Start development stack first
     just dev
 
-    # All benchmarks with direct backend (default)
+    # All benchmarks with test backend (default)
     uv run pytest tests/backends/test_backend_benchmarks.py -v
 
     # Benchmarks only (skip non-benchmark tests)
@@ -118,16 +118,16 @@ class TestSimpleActionLatency:
     """
 
     @pytest.mark.anyio
-    async def test_direct_backend_latency(
+    async def test_test_backend_latency(
         self,
-        direct_backend: ExecutorBackend,
+        test_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
     ) -> None:
-        """Benchmark direct backend action latency.
+        """Benchmark test backend action latency.
 
-        Direct backend executes in-process with no subprocess overhead.
+        Test backend executes in-process with no subprocess overhead.
         This establishes the baseline latency for action execution.
 
         Expected: < 50ms per action (when registry is available)
@@ -147,7 +147,7 @@ class TestSimpleActionLatency:
 
         async def execute_action():
             nonlocal success_count
-            result = await direct_backend.execute(
+            result = await test_backend.execute(
                 input=input_data,
                 role=benchmark_role,
                 resolved_context=resolved_context,
@@ -165,7 +165,7 @@ class TestSimpleActionLatency:
         max_ms = max(times) * 1000
 
         # Report what we measured
-        print(f"\nDirect backend latency (n={len(times)}, successes={success_count}):")
+        print(f"\nTest backend latency (n={len(times)}, successes={success_count}):")
         print(f"  Mean: {avg_ms:.2f}ms")
         print(f"  Min:  {min_ms:.2f}ms")
         print(f"  Max:  {max_ms:.2f}ms")
@@ -177,9 +177,66 @@ class TestSimpleActionLatency:
         assert avg_ms < 100, f"Average latency {avg_ms:.2f}ms exceeds 100ms threshold"
 
     @pytest.mark.anyio
-    async def test_transform_action_latency_stats(
+    async def test_direct_backend_latency(
         self,
         direct_backend: ExecutorBackend,
+        simple_action_input_factory: Callable[..., RunActionInput],
+        resolved_context_factory: Callable[..., ResolvedContext],
+        benchmark_role: Role,
+    ) -> None:
+        """Benchmark subprocess direct backend action latency."""
+        input_data = simple_action_input_factory(
+            action="core.transform.reshape",
+            args={"value": {"benchmark": "direct-subprocess"}},
+        )
+        resolved_context = resolved_context_factory(
+            role=benchmark_role,
+            action="core.transform.reshape",
+            args={"value": {"benchmark": "direct-subprocess"}},
+        )
+
+        success_count = 0
+
+        async def execute_action():
+            nonlocal success_count
+            try:
+                result = await direct_backend.execute(
+                    input=input_data,
+                    role=benchmark_role,
+                    resolved_context=resolved_context,
+                    timeout=30.0,
+                )
+            except Exception:
+                # If tarballs are unavailable, direct backend can fail while
+                # preparing subprocess environment. We still want latency data.
+                return None
+            if result.type == "success":
+                success_count += 1
+            return result
+
+        times = await run_async_benchmark(execute_action, rounds=10, warmup_rounds=2)
+
+        avg_ms = sum(times) / len(times) * 1000
+        min_ms = min(times) * 1000
+        max_ms = max(times) * 1000
+
+        print(
+            f"\nDirect backend latency (n={len(times)}, successes={success_count}):"
+        )
+        print(f"  Mean: {avg_ms:.2f}ms")
+        print(f"  Min:  {min_ms:.2f}ms")
+        print(f"  Max:  {max_ms:.2f}ms")
+
+        if success_count == 0:
+            print("  Note: Measured failure path (registry not available)")
+
+        # Subprocess path should stay comfortably under 5s in local runs.
+        assert avg_ms < 5000, f"Average latency {avg_ms:.2f}ms exceeds 5000ms threshold"
+
+    @pytest.mark.anyio
+    async def test_transform_action_latency_stats(
+        self,
+        test_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
@@ -195,7 +252,7 @@ class TestSimpleActionLatency:
 
         async def execute():
             nonlocal success_count
-            result = await direct_backend.execute(
+            result = await test_backend.execute(
                 input=input_data,
                 role=benchmark_role,
                 resolved_context=resolved_context,
@@ -240,17 +297,17 @@ class TestColdStartLatency:
 
     @pytest.mark.anyio
     async def test_direct_backend_cold_start(self) -> None:
-        """Benchmark direct backend cold start time.
+        """Benchmark test backend cold start time.
 
-        Measures time to create and start a new DirectBackend instance.
-        Direct backend has minimal startup cost (no subprocess spawning).
+        Measures time to create and start a new TestBackend instance.
+        Test backend has minimal startup cost (no subprocess spawning).
 
         Expected: < 10ms
         """
-        from tracecat.executor.backends.direct import DirectBackend
+        from tracecat.executor.backends.test import TestBackend
 
         async def cold_start():
-            backend = DirectBackend()
+            backend = TestBackend()
             await backend.start()
             await backend.shutdown()
 
@@ -260,7 +317,7 @@ class TestColdStartLatency:
         min_ms = min(times) * 1000
         max_ms = max(times) * 1000
 
-        print(f"\nDirect backend cold start (n={len(times)}):")
+        print(f"\nTest backend cold start (n={len(times)}):")
         print(f"  Mean: {avg_ms:.2f}ms")
         print(f"  Min:  {min_ms:.2f}ms")
         print(f"  Max:  {max_ms:.2f}ms")
@@ -280,7 +337,7 @@ class TestColdStartLatency:
         This simulates the real-world scenario where a new worker
         starts and immediately executes an action.
         """
-        from tracecat.executor.backends.direct import DirectBackend
+        from tracecat.executor.backends.test import TestBackend
 
         input_data = simple_action_input_factory()
         resolved_context = resolved_context_factory(role=benchmark_role)
@@ -288,7 +345,7 @@ class TestColdStartLatency:
         success_count = 0
 
         for _ in range(10):
-            backend = DirectBackend()
+            backend = TestBackend()
             await backend.start()
 
             start = time.perf_counter()
@@ -334,7 +391,7 @@ class TestConcurrentThroughput:
     @pytest.mark.anyio
     async def test_concurrent_action_throughput(
         self,
-        direct_backend: ExecutorBackend,
+        test_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
@@ -354,7 +411,7 @@ class TestConcurrentThroughput:
 
             start = time.perf_counter()
             tasks = [
-                direct_backend.execute(
+                test_backend.execute(
                     input=inp,
                     role=benchmark_role,
                     resolved_context=resolved_context,
@@ -386,7 +443,7 @@ class TestConcurrentThroughput:
     @pytest.mark.anyio
     async def test_sustained_throughput(
         self,
-        direct_backend: ExecutorBackend,
+        test_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
@@ -407,7 +464,7 @@ class TestConcurrentThroughput:
 
             start = time.perf_counter()
             tasks = [
-                direct_backend.execute(
+                test_backend.execute(
                     input=inp,
                     role=benchmark_role,
                     resolved_context=resolved_context,
@@ -466,7 +523,7 @@ class TestMemoryUsage:
     @pytest.mark.anyio
     async def test_memory_after_burst(
         self,
-        direct_backend: ExecutorBackend,
+        test_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
@@ -486,7 +543,7 @@ class TestMemoryUsage:
         inputs = [simple_action_input_factory() for _ in range(burst_size)]
 
         tasks = [
-            direct_backend.execute(
+            test_backend.execute(
                 input=inp,
                 role=benchmark_role,
                 resolved_context=resolved_context,
@@ -530,7 +587,7 @@ class TestMemoryUsage:
     @pytest.mark.anyio
     async def test_memory_stability_over_iterations(
         self,
-        direct_backend: ExecutorBackend,
+        test_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
@@ -551,7 +608,7 @@ class TestMemoryUsage:
             inputs = [simple_action_input_factory() for _ in range(burst_size)]
 
             tasks = [
-                direct_backend.execute(
+                test_backend.execute(
                     input=inp,
                     role=benchmark_role,
                     resolved_context=resolved_context,
@@ -589,10 +646,10 @@ class TestMemoryUsage:
 
 
 class TestBackendComparison:
-    """Comparative benchmarks between all three backends.
+    """Comparative benchmarks between all four backends.
 
     These tests compare performance characteristics between
-    direct, pool, and ephemeral backends.
+    test, direct, pool, and ephemeral backends.
 
     Prerequisites:
     - Registry must be synced with tarballs available in MinIO
@@ -600,7 +657,8 @@ class TestBackendComparison:
     - Must run inside Docker on Linux (use `just bench` command)
 
     Backend configurations:
-    - direct: In-process execution (no sandboxing)
+    - test: In-process execution (no sandboxing)
+    - direct: Per-action subprocess execution
     - pool: Pooled nsjail workers (full OS-level isolation)
     - ephemeral: Per-action nsjail sandbox (maximum isolation)
     """
@@ -609,6 +667,7 @@ class TestBackendComparison:
     async def test_all_backends_latency(
         self,
         require_registry_sync: None,  # noqa: ARG002
+        test_backend: ExecutorBackend,
         direct_backend: ExecutorBackend,
         pool_backend: ExecutorBackend,
         ephemeral_backend: ExecutorBackend,
@@ -616,14 +675,16 @@ class TestBackendComparison:
         resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
     ) -> None:
-        """Compare action execution latency across all three backends.
+        """Compare action execution latency across all four backends.
 
         Measures per-action latency for:
-        - direct: In-process execution
+        - test: In-process execution
+        - direct: Subprocess execution
         - pool: Pooled nsjail workers
         - ephemeral: Per-action nsjail sandbox
         """
         backends = {
+            "test": test_backend,
             "direct": direct_backend,
             "pool": pool_backend,
             "ephemeral": ephemeral_backend,
@@ -663,11 +724,11 @@ class TestBackendComparison:
         print(f"{'Backend':<20} {'Mean':>10} {'Min':>10} {'Max':>10} {'Overhead':>12}")
         print("-" * 60)
 
-        direct_mean = results["direct"]["mean_ms"]
-        for name in ["direct", "pool", "ephemeral"]:
+        test_mean = results["test"]["mean_ms"]
+        for name in ["test", "direct", "pool", "ephemeral"]:
             r = results[name]
-            overhead = r["mean_ms"] - direct_mean
-            overhead_str = f"+{overhead:.1f}ms" if name != "direct" else "-"
+            overhead = r["mean_ms"] - test_mean
+            overhead_str = f"+{overhead:.1f}ms" if name != "test" else "-"
             print(
                 f"{name:<20} {r['mean_ms']:>9.2f}ms {r['min_ms']:>9.2f}ms "
                 f"{r['max_ms']:>9.2f}ms {overhead_str:>12}"
@@ -675,15 +736,16 @@ class TestBackendComparison:
 
         print("=" * 60)
 
-        # Direct should be fastest (in-process has no IPC overhead)
-        assert results["direct"]["mean_ms"] <= results["pool"]["mean_ms"], (
-            "Direct should be faster than pool"
+        # Test backend should be fastest (in-process has no IPC overhead)
+        assert results["test"]["mean_ms"] <= results["direct"]["mean_ms"], (
+            "Test backend should be faster than direct"
         )
 
     @pytest.mark.anyio
     async def test_all_backends_throughput(
         self,
         require_registry_sync: None,  # noqa: ARG002
+        test_backend: ExecutorBackend,
         direct_backend: ExecutorBackend,
         pool_backend: ExecutorBackend,
         ephemeral_backend: ExecutorBackend,
@@ -691,11 +753,12 @@ class TestBackendComparison:
         resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
     ) -> None:
-        """Compare throughput across all three backends.
+        """Compare throughput across all four backends.
 
         Measures actions/second at concurrency=10.
         """
         backends = {
+            "test": test_backend,
             "direct": direct_backend,
             "pool": pool_backend,
             "ephemeral": ephemeral_backend,
@@ -729,12 +792,12 @@ class TestBackendComparison:
         print(f"{'Backend':<20} {'Throughput':>15}")
         print("-" * 60)
 
-        for name in ["direct", "pool", "ephemeral"]:
+        for name in ["test", "direct", "pool", "ephemeral"]:
             print(f"{name:<20} {results[name]:>12.1f} actions/sec")
 
         print("=" * 60)
 
-        # Direct should have highest throughput
-        assert results["direct"] >= results["ephemeral"], (
-            "Direct should have higher throughput than ephemeral"
+        # Test backend should have highest throughput
+        assert results["test"] >= results["ephemeral"], (
+            "Test backend should have higher throughput than ephemeral"
         )
