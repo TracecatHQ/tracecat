@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
@@ -57,6 +58,11 @@ if TYPE_CHECKING:
     from tracecat.dsl.schemas import RunActionInput
 
 
+_SYS_PATH_LOCK = threading.Lock()
+_SYS_PATH_REF_COUNTS: dict[str, int] = {}
+_MANAGED_SYS_PATH_ENTRIES: set[str] = set()
+
+
 @contextmanager
 def _temporary_sys_path(paths: list[str]) -> Iterator[None]:
     """Temporarily add paths to sys.path for module imports.
@@ -68,18 +74,31 @@ def _temporary_sys_path(paths: list[str]) -> Iterator[None]:
         yield
         return
 
-    for path in reversed(paths):
-        if path not in sys.path:
-            sys.path.insert(0, path)
-            logger.debug("Added path to sys.path", path=path)
+    unique_paths = list(dict.fromkeys(paths))
+
+    with _SYS_PATH_LOCK:
+        for path in reversed(unique_paths):
+            ref_count = _SYS_PATH_REF_COUNTS.get(path, 0)
+            if ref_count == 0 and path not in sys.path:
+                sys.path.insert(0, path)
+                _MANAGED_SYS_PATH_ENTRIES.add(path)
+                logger.debug("Added path to sys.path", path=path)
+            _SYS_PATH_REF_COUNTS[path] = ref_count + 1
 
     try:
         yield
     finally:
-        for path in paths:
-            if path in sys.path:
-                sys.path.remove(path)
-                logger.debug("Removed path from sys.path", path=path)
+        with _SYS_PATH_LOCK:
+            for path in unique_paths:
+                ref_count = _SYS_PATH_REF_COUNTS.get(path, 0)
+                if ref_count <= 1:
+                    _SYS_PATH_REF_COUNTS.pop(path, None)
+                    if path in _MANAGED_SYS_PATH_ENTRIES and path in sys.path:
+                        sys.path.remove(path)
+                        logger.debug("Removed path from sys.path", path=path)
+                    _MANAGED_SYS_PATH_ENTRIES.discard(path)
+                else:
+                    _SYS_PATH_REF_COUNTS[path] = ref_count - 1
 
 
 class TestBackend(ExecutorBackend):
