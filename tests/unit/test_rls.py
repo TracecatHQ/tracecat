@@ -24,6 +24,23 @@ from tracecat.exceptions import TracecatRLSViolationError
 from tracecat.feature_flags.enums import FeatureFlag
 
 
+def _assert_execute_params(
+    session: AsyncMock,
+    *,
+    bypass: str,
+    org_id: str,
+    workspace_id: str,
+    user_id: str,
+) -> None:
+    """Assert that RLS context is applied via one execute call with expected params."""
+    session.execute.assert_called_once()
+    params = session.execute.call_args[0][1]
+    assert params["bypass"] == bypass
+    assert params["org_id"] == org_id
+    assert params["workspace_id"] == workspace_id
+    assert params["user_id"] == user_id
+
+
 @pytest.fixture
 def mock_session() -> AsyncMock:
     """Create a mock async session."""
@@ -132,15 +149,13 @@ class TestSetRlsContext:
             user_id=user_id,
         )
 
-        # Should have made 4 execute calls (bypass + org/workspace/user)
-        assert mock_session.execute.call_count == 4
-
-        # Verify the parameters passed
-        calls = mock_session.execute.call_args_list
-        assert calls[0][0][1]["bypass"] == RLS_BYPASS_OFF
-        assert calls[1][0][1]["org_id"] == str(org_id)
-        assert calls[2][0][1]["workspace_id"] == str(workspace_id)
-        assert calls[3][0][1]["user_id"] == str(user_id)
+        _assert_execute_params(
+            mock_session,
+            bypass=RLS_BYPASS_OFF,
+            org_id=str(org_id),
+            workspace_id=str(workspace_id),
+            user_id=str(user_id),
+        )
 
     @pytest.mark.anyio
     async def test_resets_tenant_context_for_none_values(
@@ -159,11 +174,13 @@ class TestSetRlsContext:
             user_id=None,
         )
 
-        calls = mock_session.execute.call_args_list
-        assert calls[0][0][1]["bypass"] == RLS_BYPASS_OFF
-        assert calls[1][0][1]["org_id"] == RLS_UNSET_VALUE
-        assert calls[2][0][1]["workspace_id"] == RLS_UNSET_VALUE
-        assert calls[3][0][1]["user_id"] == RLS_UNSET_VALUE
+        _assert_execute_params(
+            mock_session,
+            bypass=RLS_BYPASS_OFF,
+            org_id=RLS_UNSET_VALUE,
+            workspace_id=RLS_UNSET_VALUE,
+            user_id=RLS_UNSET_VALUE,
+        )
 
 
 class TestSetRlsContextFromRole:
@@ -198,11 +215,13 @@ class TestSetRlsContextFromRole:
 
         await set_rls_context_from_role(mock_session, test_role)
 
-        calls = mock_session.execute.call_args_list
-        assert calls[0][0][1]["bypass"] == RLS_BYPASS_OFF
-        assert calls[1][0][1]["org_id"] == str(test_role.organization_id)
-        assert calls[2][0][1]["workspace_id"] == str(test_role.workspace_id)
-        assert calls[3][0][1]["user_id"] == str(test_role.user_id)
+        _assert_execute_params(
+            mock_session,
+            bypass=RLS_BYPASS_OFF,
+            org_id=str(test_role.organization_id),
+            workspace_id=str(test_role.workspace_id),
+            user_id=str(test_role.user_id),
+        )
 
     @pytest.mark.anyio
     async def test_reads_from_ctx_role_when_no_role_provided(
@@ -223,10 +242,13 @@ class TestSetRlsContextFromRole:
         try:
             await set_rls_context_from_role(mock_session)
 
-            calls = mock_session.execute.call_args_list
-            assert calls[0][0][1]["bypass"] == RLS_BYPASS_OFF
-            assert calls[1][0][1]["org_id"] == str(test_role.organization_id)
-            assert calls[2][0][1]["workspace_id"] == str(test_role.workspace_id)
+            _assert_execute_params(
+                mock_session,
+                bypass=RLS_BYPASS_OFF,
+                org_id=str(test_role.organization_id),
+                workspace_id=str(test_role.workspace_id),
+                user_id=str(test_role.user_id),
+            )
         finally:
             ctx_role.set(None)
 
@@ -247,11 +269,13 @@ class TestSetRlsContextFromRole:
 
         await set_rls_context_from_role(mock_session)
 
-        calls = mock_session.execute.call_args_list
-        assert calls[0][0][1]["bypass"] == RLS_BYPASS_OFF
-        assert calls[1][0][1]["org_id"] == RLS_UNSET_VALUE
-        assert calls[2][0][1]["workspace_id"] == RLS_UNSET_VALUE
-        assert calls[3][0][1]["user_id"] == RLS_UNSET_VALUE
+        _assert_execute_params(
+            mock_session,
+            bypass=RLS_BYPASS_OFF,
+            org_id=RLS_UNSET_VALUE,
+            workspace_id=RLS_UNSET_VALUE,
+            user_id=RLS_UNSET_VALUE,
+        )
 
     @pytest.mark.anyio
     async def test_sets_bypass_for_platform_superuser(
@@ -268,11 +292,13 @@ class TestSetRlsContextFromRole:
 
         await set_rls_context_from_role(mock_session, superuser_role)
 
-        calls = mock_session.execute.call_args_list
-        assert calls[0][0][1]["bypass"] == RLS_BYPASS_ON
-        assert calls[1][0][1]["org_id"] == RLS_UNSET_VALUE
-        assert calls[2][0][1]["workspace_id"] == RLS_UNSET_VALUE
-        assert calls[3][0][1]["user_id"] == str(superuser_role.user_id)
+        _assert_execute_params(
+            mock_session,
+            bypass=RLS_BYPASS_ON,
+            org_id=RLS_UNSET_VALUE,
+            workspace_id=RLS_UNSET_VALUE,
+            user_id=str(superuser_role.user_id),
+        )
 
 
 class TestClearRlsContext:
@@ -301,11 +327,13 @@ class TestClearRlsContext:
 
         await clear_rls_context(mock_session)
 
-        calls = mock_session.execute.call_args_list
-        assert calls[0][0][1]["bypass"] == RLS_BYPASS_OFF
-        assert calls[1][0][1]["org_id"] == RLS_UNSET_VALUE
-        assert calls[2][0][1]["workspace_id"] == RLS_UNSET_VALUE
-        assert calls[3][0][1]["user_id"] == RLS_UNSET_VALUE
+        _assert_execute_params(
+            mock_session,
+            bypass=RLS_BYPASS_OFF,
+            org_id=RLS_UNSET_VALUE,
+            workspace_id=RLS_UNSET_VALUE,
+            user_id=RLS_UNSET_VALUE,
+        )
 
 
 class TestVerifyRlsAccess:

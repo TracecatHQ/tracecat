@@ -84,44 +84,31 @@ def _cache_rls_context(session: AsyncSession, context: _RLSContext) -> None:
     session.sync_session.info[_RLS_CONTEXT_INFO_KEY] = context
 
 
-def _set_local_or_reset_sync(
-    connection: Connection,
-    var_name: str,
-    value: str | None,
-    param_name: str,
-) -> None:
-    connection.execute(
-        text(f"SELECT set_config('{var_name}', :{param_name}, true)"),
-        {param_name: value if value is not None else RLS_UNSET_VALUE},
-    )
+_RLS_CONTEXT_SQL = text(
+    f"""
+    SELECT
+        set_config('{RLS_VAR_BYPASS}', :bypass, true),
+        set_config('{RLS_VAR_ORG_ID}', :org_id, true),
+        set_config('{RLS_VAR_WORKSPACE_ID}', :workspace_id, true),
+        set_config('{RLS_VAR_USER_ID}', :user_id, true)
+    """
+)
 
 
-async def _set_local_or_reset_async(
-    session: AsyncSession,
-    var_name: str,
-    value: str | None,
-    param_name: str,
-) -> None:
-    await session.execute(
-        text(f"SELECT set_config('{var_name}', :{param_name}, true)"),
-        {param_name: value if value is not None else RLS_UNSET_VALUE},
-    )
+def _build_rls_context_params(context: _RLSContext) -> dict[str, str]:
+    return {
+        "bypass": RLS_BYPASS_ON if context.bypass else RLS_BYPASS_OFF,
+        "org_id": context.org_id if context.org_id is not None else RLS_UNSET_VALUE,
+        "workspace_id": context.workspace_id
+        if context.workspace_id is not None
+        else RLS_UNSET_VALUE,
+        "user_id": context.user_id if context.user_id is not None else RLS_UNSET_VALUE,
+    }
 
 
 def _apply_rls_context_sync(connection: Connection, context: _RLSContext) -> None:
     """Apply context for the current transaction on a sync SQLAlchemy connection."""
-    connection.execute(
-        text(f"SELECT set_config('{RLS_VAR_BYPASS}', :bypass, true)"),
-        {"bypass": RLS_BYPASS_ON if context.bypass else RLS_BYPASS_OFF},
-    )
-    _set_local_or_reset_sync(connection, RLS_VAR_ORG_ID, context.org_id, "org_id")
-    _set_local_or_reset_sync(
-        connection,
-        RLS_VAR_WORKSPACE_ID,
-        context.workspace_id,
-        "workspace_id",
-    )
-    _set_local_or_reset_sync(connection, RLS_VAR_USER_ID, context.user_id, "user_id")
+    connection.execute(_RLS_CONTEXT_SQL, _build_rls_context_params(context))
 
 
 async def _apply_rls_context_async(
@@ -129,18 +116,7 @@ async def _apply_rls_context_async(
     context: _RLSContext,
 ) -> None:
     """Apply context for the current transaction on an async SQLAlchemy session."""
-    await session.execute(
-        text(f"SELECT set_config('{RLS_VAR_BYPASS}', :bypass, true)"),
-        {"bypass": RLS_BYPASS_ON if context.bypass else RLS_BYPASS_OFF},
-    )
-    await _set_local_or_reset_async(session, RLS_VAR_ORG_ID, context.org_id, "org_id")
-    await _set_local_or_reset_async(
-        session,
-        RLS_VAR_WORKSPACE_ID,
-        context.workspace_id,
-        "workspace_id",
-    )
-    await _set_local_or_reset_async(session, RLS_VAR_USER_ID, context.user_id, "user_id")
+    await session.execute(_RLS_CONTEXT_SQL, _build_rls_context_params(context))
 
 
 @event.listens_for(sqlalchemy.orm.Session, "after_begin")
