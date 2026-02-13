@@ -316,6 +316,8 @@ import type {
   OrganizationAcceptInvitationResponse,
   OrganizationCreateInvitationData,
   OrganizationCreateInvitationResponse,
+  OrganizationDeleteOrganizationData,
+  OrganizationDeleteOrganizationResponse,
   OrganizationDeleteOrgMemberData,
   OrganizationDeleteOrgMemberResponse,
   OrganizationDeleteSessionData,
@@ -3073,6 +3075,31 @@ export const organizationGetOrganization =
   }
 
 /**
+ * Delete Organization
+ * Delete the current organization.
+ *
+ * Restricted to organization owners and platform superusers.
+ * @param data The data for the request.
+ * @param data.confirm Must exactly match the organization name.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const organizationDeleteOrganization = (
+  data: OrganizationDeleteOrganizationData = {}
+): CancelablePromise<OrganizationDeleteOrganizationResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/organization",
+    query: {
+      confirm: data.confirm,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Organization Domains
  * List domains assigned to the current organization.
  * @returns tracecat__organization__schemas__OrgDomainRead Successful Response
@@ -4123,6 +4150,7 @@ export const adminUpdateOrganization = (
  * Delete organization.
  * @param data The data for the request.
  * @param data.orgId
+ * @param data.confirm Must exactly match the organization name.
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -4134,6 +4162,9 @@ export const adminDeleteOrganization = (
     url: "/admin/organizations/{org_id}",
     path: {
       org_id: data.orgId,
+    },
+    query: {
+      confirm: data.confirm,
     },
     errors: {
       422: "Validation Error",

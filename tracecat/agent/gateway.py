@@ -225,19 +225,11 @@ def _inject_provider_credentials(
             else:
                 access_key = creds.get("AWS_ACCESS_KEY_ID")
                 secret_key = creds.get("AWS_SECRET_ACCESS_KEY")
-                if not access_key or not secret_key:
-                    logger.warning(
-                        "Required credential keys missing for provider",
-                        provider=provider,
-                    )
-                    raise ProxyException(
-                        message="Provider credentials incomplete",
-                        type="auth_error",
-                        param=None,
-                        code=401,
-                    )
-                data["aws_access_key_id"] = access_key
-                data["aws_secret_access_key"] = secret_key
+                if access_key and secret_key:
+                    data["aws_access_key_id"] = access_key
+                    data["aws_secret_access_key"] = secret_key
+                # else: no explicit credentials — LiteLLM will use boto3 default
+                # credential chain (IAM role, instance profile, IRSA, env vars)
             if region := creds.get("AWS_REGION"):
                 data["aws_region_name"] = region
 
