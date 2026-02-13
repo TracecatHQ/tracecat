@@ -624,22 +624,6 @@ Merges: common + temporal + postgres + redis + api-specific
   value: {{ .Values.tracecat.saml.idpMetadataUrl | quote }}
 - name: SAML_ALLOW_UNSOLICITED
   value: {{ .Values.tracecat.saml.allowUnsolicited | quote }}
-- name: SAML_ACCEPTED_TIME_DIFF
-  value: {{ .Values.tracecat.saml.acceptedTimeDiff | quote }}
-- name: SAML_AUTHN_REQUESTS_SIGNED
-  value: {{ .Values.tracecat.saml.authnRequestsSigned | quote }}
-- name: SAML_SIGNED_ASSERTIONS
-  value: {{ .Values.tracecat.saml.signedAssertions | quote }}
-- name: SAML_SIGNED_RESPONSES
-  value: {{ .Values.tracecat.saml.signedResponses | quote }}
-- name: SAML_VERIFY_SSL_ENTITY
-  value: {{ .Values.tracecat.saml.verifySslEntity | quote }}
-- name: SAML_VERIFY_SSL_METADATA
-  value: {{ .Values.tracecat.saml.verifySslMetadata | quote }}
-- name: SAML_CA_CERTS
-  value: {{ .Values.tracecat.saml.caCerts | quote }}
-- name: SAML_METADATA_CERT
-  value: {{ .Values.tracecat.saml.metadataCert | quote }}
 {{- end }}
 {{- /* OIDC settings */}}
 {{- if .Values.tracecat.oidc.issuer }}
