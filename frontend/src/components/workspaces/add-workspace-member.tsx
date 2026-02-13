@@ -5,7 +5,6 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   type ApiError,
-  type WorkspaceMembershipRead,
   type WorkspaceRead,
   workspacesGetInvitationToken,
 } from "@/client"
@@ -37,7 +36,6 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
-import { useCurrentUserRole } from "@/hooks/use-workspace"
 import { useWorkspaceInvitations } from "@/lib/hooks"
 import { WorkspaceRoleEnum } from "@/lib/workspace"
 
@@ -56,8 +54,9 @@ export function AddWorkspaceMember({
   className,
 }: { workspace: WorkspaceRead } & React.HTMLAttributes<HTMLButtonElement>) {
   const { user } = useAuth()
-  const { role } = useCurrentUserRole(workspace.id)
-  const { createInvitation } = useWorkspaceInvitations(workspace.id)
+  const { createInvitation } = useWorkspaceInvitations(workspace.id, {
+    enabled: user?.isPrivileged(),
+  })
   const [showDialog, setShowDialog] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [dialogState, setDialogState] = useState<DialogState>({ type: "form" })
@@ -132,7 +131,7 @@ export function AddWorkspaceMember({
         <Button
           variant="outline"
           size="sm"
-          disabled={!user?.isPrivileged({ role } as WorkspaceMembershipRead)}
+          disabled={!user?.isPrivileged()}
           className="h-7 bg-white disabled:cursor-not-allowed"
         >
           <Plus className="mr-1 h-3.5 w-3.5" />

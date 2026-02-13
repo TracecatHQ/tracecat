@@ -2211,7 +2211,10 @@ export function useOrgMemberWorkspaces(userId: string | null | undefined) {
   }
 }
 
-export function useWorkspaceInvitations(workspaceId: string) {
+export function useWorkspaceInvitations(
+  workspaceId: string,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
   const queryClient = useQueryClient()
 
   const {
@@ -2222,7 +2225,7 @@ export function useWorkspaceInvitations(workspaceId: string) {
     queryKey: ["workspace-invitations", workspaceId],
     queryFn: async () =>
       await workspacesListWorkspaceInvitations({ workspaceId }),
-    enabled: !!workspaceId,
+    enabled: !!workspaceId && enabled,
   })
 
   const {

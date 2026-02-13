@@ -2,12 +2,7 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useCallback, useMemo, useState } from "react"
-import type {
-  WorkspaceMember,
-  WorkspaceMembershipRead,
-  WorkspaceRead,
-  WorkspaceRole,
-} from "@/client"
+import type { WorkspaceMember, WorkspaceRead, WorkspaceRole } from "@/client"
 import { workspacesGetInvitationToken } from "@/client"
 import {
   DataTable,
@@ -53,7 +48,6 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
 import {
-  useCurrentUserRole,
   useWorkspaceMembers,
   useWorkspaceMutations,
 } from "@/hooks/use-workspace"
@@ -85,7 +79,6 @@ export function WorkspaceMembersTable({
     null
   )
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
-  const { role } = useCurrentUserRole(workspace.id)
   const { removeMember, updateMember } = useWorkspaceMutations()
   const { members, membersLoading, membersError } = useWorkspaceMembers(
     workspace.id
@@ -93,8 +86,9 @@ export function WorkspaceMembersTable({
   const {
     invitations,
     isLoading: invitationsLoading,
+    error: invitationsError,
     revokeInvitation,
-  } = useWorkspaceInvitations(workspace.id)
+  } = useWorkspaceInvitations(workspace.id, { enabled: user?.isPrivileged() })
 
   // Combine members and pending invitations into a single list
   const combinedData = useMemo<MemberOrInvitation[]>(() => {
@@ -187,7 +181,7 @@ export function WorkspaceMembersTable({
         <DataTable
           data={combinedData}
           isLoading={membersLoading || invitationsLoading}
-          error={membersError}
+          error={membersError || invitationsError}
           columns={[
             {
               accessorKey: "email",
@@ -318,9 +312,7 @@ export function WorkspaceMembersTable({
                         </DropdownMenuItem>
                       )}
 
-                      {user?.isPrivileged({
-                        role,
-                      } as WorkspaceMembershipRead) && (
+                      {user?.isPrivileged() && (
                         <>
                           {isInvitation && (
                             <DropdownMenuItem

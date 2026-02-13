@@ -77,16 +77,24 @@ export function SignUp({ className, returnUrl }: SignUpProps) {
   const [invitationRedirectUrl, setInvitationRedirectUrl] = useState<
     string | null
   >(null)
+  const [isProcessingInvitation, setIsProcessingInvitation] = useState(false)
 
   useEffect(() => {
-    // Don't redirect if there's an invitation email mismatch
-    if (user && !invitationEmailMismatch) {
+    // Don't redirect if there's an invitation email mismatch or invitation is still being processed
+    if (user && !invitationEmailMismatch && !isProcessingInvitation) {
       // If invitation was accepted, redirect to the workspace directly
       // Otherwise, redirect to returnUrl if provided, or to workspaces
       const redirectTo = invitationRedirectUrl || returnUrl || "/workspaces"
       router.push(redirectTo)
     }
-  }, [user, router, returnUrl, invitationEmailMismatch, invitationRedirectUrl])
+  }, [
+    user,
+    router,
+    returnUrl,
+    invitationEmailMismatch,
+    invitationRedirectUrl,
+    isProcessingInvitation,
+  ])
 
   // Show error state if email doesn't match invitation
   if (invitationEmailMismatch && user) {
@@ -158,6 +166,7 @@ export function SignUp({ className, returnUrl }: SignUpProps) {
               returnUrl={returnUrl}
               onInvitationEmailMismatch={() => setInvitationEmailMismatch(true)}
               onInvitationAccepted={setInvitationRedirectUrl}
+              onInvitationProcessingChange={setIsProcessingInvitation}
             />
           </div>
           <div className="mt-4 text-center text-sm text-muted-foreground">
@@ -191,6 +200,7 @@ interface BasicRegistrationFormProps {
   returnUrl?: string | null
   onInvitationEmailMismatch?: () => void
   onInvitationAccepted?: (redirectUrl: string) => void
+  onInvitationProcessingChange?: (isProcessing: boolean) => void
 }
 
 /**
@@ -238,6 +248,7 @@ export function BasicRegistrationForm({
   returnUrl,
   onInvitationEmailMismatch,
   onInvitationAccepted,
+  onInvitationProcessingChange,
 }: BasicRegistrationFormProps) {
   const [isLoading, setIsLoading] = useState(false)
   const { register, login } = useAuthActions()
@@ -280,6 +291,7 @@ export function BasicRegistrationForm({
       // After successful login, check if this is an invitation flow
       const invitation = extractInvitation(returnUrl ?? null)
       if (invitation) {
+        onInvitationProcessingChange?.(true)
         try {
           if (invitation.type === "workspace") {
             // Workspace invitation: check email match, then auto-accept
@@ -313,6 +325,8 @@ export function BasicRegistrationForm({
         } catch {
           // Failed to fetch/accept invitation, let the redirect happen and handle error there
           console.error("Failed to process invitation")
+        } finally {
+          onInvitationProcessingChange?.(false)
         }
       }
     } catch (error) {

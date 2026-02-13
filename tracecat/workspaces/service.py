@@ -188,6 +188,7 @@ async def accept_workspace_invitation_for_user(
         # Re-raise validation errors without logging as failure (expected user errors)
         raise
     except Exception:
+        await session.rollback()
         # Log audit failure
         async with AuditService.with_session(audit_role, session=session) as svc:
             await svc.create_event(
@@ -493,6 +494,28 @@ class WorkspaceService(BaseOrgService):
         statement = statement.order_by(Invitation.created_at.desc())
         result = await self.session.execute(statement)
         return result.scalars().all()
+
+    @require_workspace_role(WorkspaceRole.ADMIN)
+    async def get_invitation(
+        self,
+        workspace_id: WorkspaceID,
+        invitation_id: InvitationID,
+    ) -> Invitation | None:
+        """Get a specific invitation by ID.
+
+        Args:
+            workspace_id: The workspace the invitation belongs to.
+            invitation_id: The invitation ID.
+
+        Returns:
+            The invitation if found, None otherwise.
+        """
+        statement = select(Invitation).where(
+            Invitation.id == invitation_id,
+            Invitation.workspace_id == workspace_id,
+        )
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
 
     async def get_invitation_by_token(self, token: str) -> Invitation | None:
         """Retrieve an invitation by its unique token.

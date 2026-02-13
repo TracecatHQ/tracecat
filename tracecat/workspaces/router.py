@@ -506,8 +506,7 @@ async def get_invitation_token(
     """
     service = WorkspaceService(session, role=role)
     try:
-        invitations = await service.list_invitations(workspace_id)
-        invitation = next((inv for inv in invitations if inv.id == invitation_id), None)
+        invitation = await service.get_invitation(workspace_id, invitation_id)
         if invitation is None:
             raise TracecatNotFoundError("Invitation not found")
         return {"token": invitation.token}
