@@ -11,6 +11,7 @@ from sqlalchemy.orm import load_only, noload, selectinload
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
+from tracecat.authz.controls import require_scope
 from tracecat.authz.enums import OrgRole, OwnerType, WorkspaceRole
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
@@ -86,6 +87,7 @@ class WorkspaceService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    @require_scope("workspace:create")
     @audit_log(resource_type="workspace", action="create")
     async def create_workspace(
         self,
@@ -143,6 +145,7 @@ class WorkspaceService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    @require_scope("workspace:update")
     @audit_log(resource_type="workspace", action="update")
     async def update_workspace(
         self, workspace: Workspace, params: WorkspaceUpdate
@@ -157,6 +160,7 @@ class WorkspaceService(BaseOrgService):
         await self.session.refresh(workspace)
         return workspace
 
+    @require_scope("workspace:delete")
     @audit_log(resource_type="workspace", action="delete")
     async def delete_workspace(self, workspace_id: WorkspaceID) -> None:
         """Delete a workspace."""
@@ -217,6 +221,7 @@ class WorkspaceService(BaseOrgService):
         """Generate a unique 64-character token for invitation magic links."""
         return secrets.token_urlsafe(48)[:64]
 
+    @require_scope("workspace:member:invite")
     @audit_log(resource_type="workspace_invitation", action="create")
     async def create_invitation(
         self,
@@ -438,6 +443,7 @@ class WorkspaceService(BaseOrgService):
         await self.session.refresh(membership)
         return membership
 
+    @require_scope("workspace:member:remove")
     @audit_log(resource_type="workspace_invitation", action="revoke")
     async def revoke_invitation(
         self,

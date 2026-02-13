@@ -220,18 +220,24 @@ def require_scope(*scopes: str, require_all: bool = True) -> Callable[[T], T]:
     """
     required = set(scopes)
 
-    def check_scopes():
+    def check_scopes(method_role: Role | None = None) -> None:
         # Empty required scopes means no restrictions
         if not required:
             return
 
-        role = ctx_role.get()
+        role = method_role or ctx_role.get()
         if role is None:
             raise ScopeDeniedError(
                 required_scopes=list(required), missing_scopes=list(required)
             )
 
         user_scopes = role.scopes
+
+        # For service-layer checks, allow legacy/internal service calls that pass a
+        # role object without resolved scopes. Router-level checks still use ctx_role.
+        if method_role is not None and not user_scopes:
+            logger.debug("Skipping service scope check; role has no resolved scopes")
+            return
 
         # Platform superuser has "*" scope - bypass all checks
         if "*" in user_scopes:
@@ -267,7 +273,10 @@ def require_scope(*scopes: str, require_all: bool = True) -> Callable[[T], T]:
 
             @functools.wraps(fn)
             async def async_wrapper(*args, **kwargs):
-                check_scopes()
+                method_role = (
+                    args[0].role if args and isinstance(args[0], HasRole) else None
+                )
+                check_scopes(method_role=method_role)
                 return await fn(*args, **kwargs)
 
             _attach_wrapped_signature(async_wrapper, fn)
@@ -277,7 +286,10 @@ def require_scope(*scopes: str, require_all: bool = True) -> Callable[[T], T]:
 
             @functools.wraps(fn)
             def wrapper(*args, **kwargs):
-                check_scopes()
+                method_role = (
+                    args[0].role if args and isinstance(args[0], HasRole) else None
+                )
+                check_scopes(method_role=method_role)
                 return fn(*args, **kwargs)
 
             _attach_wrapped_signature(wrapper, fn)

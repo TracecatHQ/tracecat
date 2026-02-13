@@ -5,6 +5,7 @@ from slugify import slugify
 from sqlalchemy import select
 
 from tracecat.audit.logger import audit_log
+from tracecat.authz.controls import require_scope
 from tracecat.db.models import Tag
 from tracecat.identifiers import TagID
 from tracecat.service import BaseWorkspaceService
@@ -46,6 +47,7 @@ class TagsService(BaseWorkspaceService):
             # Not a UUID, try ref
             return await self.get_tag_by_ref(tag_identifier)
 
+    @require_scope("tag:create")
     @audit_log(resource_type="tag", action="create")
     async def create_tag(self, tag: TagCreate) -> Tag:
         # Generate ref
@@ -65,6 +67,7 @@ class TagsService(BaseWorkspaceService):
         await self.session.commit()
         return db_tag
 
+    @require_scope("tag:update")
     @audit_log(resource_type="tag", action="update")
     async def update_tag(self, tag: Tag, tag_update: TagUpdate) -> Tag:
         """Update tag and regenerate ref if name changed."""
@@ -77,6 +80,7 @@ class TagsService(BaseWorkspaceService):
         await self.session.refresh(tag)
         return tag
 
+    @require_scope("tag:delete")
     @audit_log(resource_type="tag", action="delete")
     async def delete_tag(self, tag: Tag) -> None:
         await self.session.delete(tag)

@@ -8,6 +8,7 @@ import sqlalchemy as sa
 from sqlalchemy import and_, cast, func, or_, select
 from sqlalchemy.orm import selectinload
 
+from tracecat.authz.controls import require_scope
 from tracecat.db.models import Workflow, WorkflowDefinition, WorkflowFolder
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import WorkflowID
@@ -27,6 +28,7 @@ class WorkflowFolderService(BaseWorkspaceService):
 
     service_name = "workflow_folders"
 
+    @require_scope("workflow:create")
     async def create_folder(
         self, name: str, parent_path: str = "/", commit: bool = True
     ) -> WorkflowFolder:
@@ -152,6 +154,7 @@ class WorkflowFolderService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    @require_scope("workflow:update")
     async def move_workflow(
         self, workflow_id: WorkflowID, folder: WorkflowFolder | None = None
     ) -> Workflow:
@@ -181,6 +184,7 @@ class WorkflowFolderService(BaseWorkspaceService):
         await self.session.refresh(workflow)
         return workflow
 
+    @require_scope("workflow:update")
     async def rename_folder(
         self, folder_id: uuid.UUID, new_name: str
     ) -> WorkflowFolder:
@@ -236,6 +240,7 @@ class WorkflowFolderService(BaseWorkspaceService):
         await self.session.refresh(folder)
         return folder
 
+    @require_scope("workflow:update")
     async def move_folder(
         self, folder_id: uuid.UUID, new_parent_id: uuid.UUID | None
     ) -> WorkflowFolder:
@@ -303,6 +308,7 @@ class WorkflowFolderService(BaseWorkspaceService):
         await self.session.refresh(folder)
         return folder
 
+    @require_scope("workflow:delete")
     async def delete_folder(
         self, folder_id: uuid.UUID, recursive: bool = False
     ) -> None:

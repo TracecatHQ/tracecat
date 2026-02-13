@@ -26,6 +26,7 @@ from tenacity import (
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
+from tracecat.authz.controls import require_scope
 from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import (
     TracecatImportError,
@@ -1581,12 +1582,14 @@ class BaseTablesService(BaseWorkspaceService):
 class TablesService(BaseTablesService):
     """Transactional tables service."""
 
+    @require_scope("table:create")
     async def create_table(self, params: TableCreate) -> Table:
         result = await super().create_table(params)
         await self.session.commit()
         await self.session.refresh(result)
         return result
 
+    @require_scope("table:create")
     async def import_table_from_csv(
         self,
         *,
@@ -1712,21 +1715,25 @@ class TablesService(BaseTablesService):
                 error=cleanup_error,
             )
 
+    @require_scope("table:update")
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
         result = await super().update_table(table, params)
         await self.session.commit()
         await self.session.refresh(result)
         return result
 
+    @require_scope("table:delete")
     async def delete_table(self, table: Table) -> None:
         await super().delete_table(table)
         await self.session.commit()
 
+    @require_scope("table:create")
     async def insert_row(self, table: Table, params: TableRowInsert) -> dict[str, Any]:
         result = await super().insert_row(table, params)
         await self.session.commit()
         return result
 
+    @require_scope("table:update")
     async def update_row(
         self, table: Table, row_id: UUID, data: dict[str, Any]
     ) -> dict[str, Any]:
@@ -1734,10 +1741,12 @@ class TablesService(BaseTablesService):
         await self.session.commit()
         return result
 
+    @require_scope("table:delete")
     async def delete_row(self, table: Table, row_id: UUID) -> None:
         await super().delete_row(table, row_id)
         await self.session.commit()
 
+    @require_scope("table:create")
     async def create_column(
         self, table: Table, params: TableColumnCreate
     ) -> TableColumn:
@@ -1747,6 +1756,7 @@ class TablesService(BaseTablesService):
         await self.session.refresh(table)
         return column
 
+    @require_scope("table:update")
     async def update_column(
         self, column: TableColumn, params: TableColumnUpdate
     ) -> TableColumn:
@@ -1755,10 +1765,12 @@ class TablesService(BaseTablesService):
         await self.session.refresh(column)
         return column
 
+    @require_scope("table:delete")
     async def delete_column(self, column: TableColumn) -> None:
         await super().delete_column(column)
         await self.session.commit()
 
+    @require_scope("table:create")
     async def batch_insert_rows(
         self,
         table: Table,
