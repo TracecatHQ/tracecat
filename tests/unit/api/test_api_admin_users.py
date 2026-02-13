@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
+from fastapi_users import InvalidPasswordException
 from tracecat_ee.admin.users import router as users_router
 from tracecat_ee.admin.users.schemas import AdminUserRead
 
@@ -31,6 +32,96 @@ def _user_read(
         is_verified=True,
         last_login_at=now,
     )
+
+
+@pytest.mark.anyio
+async def test_create_user_success(client: TestClient, test_admin_role: Role) -> None:
+    user = _user_read(email="new-user@example.com")
+
+    with patch.object(users_router, "AdminUserService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_user.return_value = user
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            "/admin/users",
+            json={
+                "email": "new-user@example.com",
+                "password": "this-is-a-strong-password",
+                "first_name": "New",
+                "last_name": "User",
+                "is_superuser": False,
+            },
+        )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["id"] == str(user.id)
+    assert data["email"] == user.email
+
+
+@pytest.mark.anyio
+async def test_create_user_conflict(client: TestClient, test_admin_role: Role) -> None:
+    with patch.object(users_router, "AdminUserService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_user.side_effect = ValueError(
+            "User with email existing@example.com already exists"
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            "/admin/users",
+            json={
+                "email": "existing@example.com",
+                "password": "this-is-a-strong-password",
+            },
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+
+
+@pytest.mark.anyio
+async def test_create_user_bad_request(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    with patch.object(users_router, "AdminUserService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_user.side_effect = ValueError(
+            "Password must be at least 12 characters long"
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            "/admin/users",
+            json={
+                "email": "new-user@example.com",
+                "password": "short",
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.anyio
+async def test_create_user_invalid_password_exception_returns_bad_request(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    with patch.object(users_router, "AdminUserService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_user.side_effect = InvalidPasswordException(
+            "Password must be at least 12 characters long"
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            "/admin/users",
+            json={
+                "email": "new-user@example.com",
+                "password": "short",
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 @pytest.mark.anyio

@@ -34,7 +34,8 @@ resource "aws_eks_cluster" "tracecat" {
   # can escalate to cluster admin). Access entries are IAM-controlled
   # and CloudTrail-audited.
   access_config {
-    authentication_mode = "API"
+    authentication_mode                         = "API"
+    bootstrap_cluster_creator_admin_permissions = true
   }
 
   # Enable logging for audit and API server

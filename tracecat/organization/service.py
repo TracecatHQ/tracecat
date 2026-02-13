@@ -25,6 +25,7 @@ from tracecat.authz.controls import require_org_role
 from tracecat.authz.enums import OrgRole
 from tracecat.db.models import (
     AccessToken,
+    Organization,
     OrganizationInvitation,
     OrganizationMembership,
     User,
@@ -36,6 +37,10 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import OrganizationID, SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.organization.management import (
+    delete_organization_with_cleanup,
+    validate_organization_delete_confirmation,
+)
 from tracecat.service import BaseOrgService
 
 
@@ -323,6 +328,26 @@ class OrgService(BaseOrgService):
         await self.session.commit()
         await self.session.refresh(membership)
         return membership
+
+    @audit_log(resource_type="organization", action="delete")
+    @require_org_role(OrgRole.OWNER)
+    async def delete_organization(self, *, confirmation: str | None) -> None:
+        """Delete the current organization and all associated resources."""
+        statement = select(Organization).where(Organization.id == self.organization_id)
+        result = await self.session.execute(statement)
+        organization = result.scalar_one_or_none()
+        if organization is None:
+            raise TracecatNotFoundError("Organization not found")
+
+        validate_organization_delete_confirmation(
+            organization, confirmation=confirmation
+        )
+        await delete_organization_with_cleanup(
+            self.session,
+            organization=organization,
+            operator_user_id=self.role.user_id,
+        )
+        await self.session.commit()
 
     # === Manage settings ===
 

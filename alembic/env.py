@@ -10,6 +10,10 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from tracecat.db import models  # noqa: F401
+from tracecat.db.migration_lock import (
+    acquire_migration_advisory_lock,
+    release_migration_advisory_lock,
+)
 
 alembic_postgresql_enum.set_configuration(
     alembic_postgresql_enum.Config(
@@ -100,8 +104,18 @@ def run_migrations_online() -> None:
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
 
-        with context.begin_transaction():
-            context.run_migrations()
+        has_advisory_lock = acquire_migration_advisory_lock(connection)
+        try:
+            with context.begin_transaction():
+                context.run_migrations()
+        finally:
+            if has_advisory_lock:
+                try:
+                    release_migration_advisory_lock(connection)
+                except Exception:
+                    logging.exception(
+                        "Failed to release Alembic advisory lock; continuing cleanup"
+                    )
 
 
 if context.is_offline_mode():

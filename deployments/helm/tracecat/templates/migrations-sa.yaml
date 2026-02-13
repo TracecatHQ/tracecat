@@ -1,0 +1,27 @@
+{{/*
+Dedicated ServiceAccount for the pre-install/pre-upgrade migration hook.
+
+Regular chart resources (like serviceaccount.yaml) are created AFTER hooks,
+so the migration job cannot reference the main tracecat-app SA — it won't
+exist yet on first install. This lightweight hook SA is created at weight -10
+(before the migration job at weight -5), ensuring it exists when the
+migration pod is scheduled.
+
+This SA does NOT need IRSA annotations because the migration job only
+accesses RDS via username/password from Kubernetes secrets, not via
+IAM role assumption.
+*/}}
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "tracecat.fullname" . }}-migrations
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrations
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+{{- end }}

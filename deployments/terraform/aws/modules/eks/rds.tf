@@ -65,7 +65,7 @@ resource "aws_db_instance" "tracecat" {
   identifier = "${var.cluster_name}-postgres-${local.rds_suffix}"
 
   engine                = "postgres"
-  engine_version        = "16.6"
+  engine_version        = var.rds_engine_version
   instance_class        = var.rds_instance_class
   allocated_storage     = var.rds_allocated_storage
   max_allocated_storage = var.rds_allocated_storage * 5
@@ -81,8 +81,9 @@ resource "aws_db_instance" "tracecat" {
   vpc_security_group_ids = [aws_security_group.rds.id]
 
   publicly_accessible = false
-  multi_az            = false
+  multi_az            = true
   storage_encrypted   = true
+  apply_immediately   = var.rds_apply_immediately
 
   database_insights_mode = var.rds_database_insights_mode
 

@@ -430,6 +430,7 @@ Available predefined roles:
 - Always use `pnpm` over `npm` and `rg` instead of `grep`
 - Always ask clarifying questions when lacking full context
 - When handling frontend types, don't import variables prefixed with '$' unless you are importing the schema object
+- **NEVER** use `--no-gpg-sign` or `--no-verify` to bypass commit signing. If GPG/SSH signing fails (e.g., 1Password agent not running), stop and ask the user to fix their signing setup rather than creating an unverified commit.
 
 ## Pull Request Description Hygiene
 - Never use `gh pr create --body "..."` when the body includes Markdown or backticks.

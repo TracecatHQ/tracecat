@@ -41,13 +41,15 @@ class ExecutorBackendType(StrEnum):
 
     - POOL: Warm nsjail workers (high throughput, single-tenant, untrusted)
     - EPHEMERAL: Cold nsjail subprocess per action (full isolation, multi-tenant, untrusted)
-    - DIRECT: In-process execution (TESTING ONLY - no isolation, no subprocess overhead)
+    - DIRECT: Direct subprocess execution (no warm workers)
+    - TEST: In-process execution for tests only
     - AUTO: Auto-select based on environment
     """
 
     POOL = "pool"
     EPHEMERAL = "ephemeral"
     DIRECT = "direct"
+    TEST = "test"
     AUTO = "auto"
 
 
@@ -110,7 +112,7 @@ class ActionImplementation(BaseModel):
     action_name: str | None = None
     """Registry action name (e.g., 'core.transform.reshape' or 'testing.my_template').
 
-    This is preferred for loading actions in-process (e.g., DirectBackend) because it
+    This is preferred for loading actions in-process (e.g., TestBackend) because it
     allows indexed lookups on (namespace, name) instead of slower JSON implementation
     scans.
     """

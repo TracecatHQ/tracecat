@@ -181,14 +181,16 @@ async def delete_org(
             org = await client.get_organization(org_id)
 
             if not force:
-                confirm = typer.confirm(
-                    f"Are you sure you want to delete organization '{org.name}' ({org.slug})?"
+                typed_confirmation = typer.prompt(
+                    f"Type '{org.name}' to delete organization '{org.slug}'"
                 )
-                if not confirm:
-                    typer.echo("Aborted.")
+                if typed_confirmation.strip() != org.name:
+                    print_error("Confirmation does not match organization name.")
                     raise typer.Exit(0)
+            else:
+                typed_confirmation = org.name
 
-            await client.delete_organization(org_id)
+            await client.delete_organization(org_id, confirmation=typed_confirmation)
             print_success(f"Organization '{org.name}' deleted successfully")
     except AdminClientError as e:
         print_error(str(e))

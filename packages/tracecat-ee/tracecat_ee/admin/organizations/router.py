@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatValidationError
 from tracecat_ee.admin.organizations.schemas import (
     OrgCreate,
     OrgDomainCreate,
@@ -99,12 +100,20 @@ async def delete_organization(
     role: SuperuserRole,
     session: AsyncDBSession,
     org_id: uuid.UUID,
+    confirm: str | None = Query(
+        default=None,
+        description="Must exactly match the organization name.",
+    ),
 ) -> None:
     """Delete organization."""
     _require_multi_tenant()
     service = AdminOrgService(session, role)
     try:
-        await service.delete_organization(org_id)
+        await service.delete_organization(org_id, confirmation=confirm)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 

@@ -143,13 +143,19 @@ variable "tracecat_secrets_arn" {
 variable "rds_instance_class" {
   description = "RDS instance class"
   type        = string
-  default     = "db.t4g.medium"
+  default     = "db.t4g.xlarge"
+}
+
+variable "rds_engine_version" {
+  description = "Exact Postgres engine version for the RDS instance (for example, 16.12)"
+  type        = string
+  default     = "16.12"
 }
 
 variable "rds_allocated_storage" {
   description = "Allocated storage for RDS in GB"
   type        = number
-  default     = 20
+  default     = 50
 }
 
 variable "rds_storage_type" {
@@ -161,6 +167,12 @@ variable "rds_storage_type" {
     condition     = contains(["gp2", "gp3", "io1", "io2"], var.rds_storage_type)
     error_message = "rds_storage_type must be one of: gp2, gp3, io1, io2."
   }
+}
+
+variable "rds_apply_immediately" {
+  description = "Whether to apply RDS modifications immediately instead of during the next maintenance window"
+  type        = bool
+  default     = false
 }
 
 variable "rds_master_username" {
@@ -207,7 +219,7 @@ variable "rds_password_rotation_schedule" {
 variable "elasticache_node_type" {
   description = "ElastiCache node type"
   type        = string
-  default     = "cache.t3.micro"
+  default     = "cache.t4g.medium"
 }
 
 # Temporal Configuration

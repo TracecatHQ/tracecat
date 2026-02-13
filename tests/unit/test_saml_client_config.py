@@ -63,6 +63,5 @@ async def test_create_saml_client_uses_db_settings_in_multi_tenant(
     assert fake_config.loaded is not None
     assert fake_config.loaded["metadata"]["remote"][0]["url"] == db_metadata_url
     assert get_setting_mock.await_count == 1
-    await_args = get_setting_mock.await_args
-    assert await_args is not None
-    assert await_args.kwargs["default"] == env_metadata_url
+    assert get_setting_mock.await_args is not None
+    assert get_setting_mock.await_args.kwargs["default"] == env_metadata_url

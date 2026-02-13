@@ -1,8 +1,8 @@
-"""Test that DirectBackend executes UDFs without querying RegistryAction/RegistryActionsService.
+"""Test that TestBackend executes UDFs without querying RegistryAction/RegistryActionsService.
 
-This test verifies the refactoring that removes DB lookups from DirectBackend.
+This test verifies the refactoring that removes DB lookups from TestBackend.
 Workflow execution resolves implementations from RegistryVersion.manifest via
-registry_resolver (manifest-based). DirectBackend should simply execute a UDF
+registry_resolver (manifest-based). TestBackend should simply execute a UDF
 using the already-resolved ActionImplementation (module/name/origin).
 """
 
@@ -20,7 +20,7 @@ from tracecat.dsl.schemas import (
     RunActionInput,
     RunContext,
 )
-from tracecat.executor.backends.direct import DirectBackend
+from tracecat.executor.backends.test import TestBackend
 from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
@@ -89,8 +89,8 @@ def test_run_action_input() -> RunActionInput:
     )
 
 
-class TestDirectBackendNoRegistryAction:
-    """Test that DirectBackend does not query RegistryActionsService."""
+class TestTestBackendNoRegistryAction:
+    """Test that TestBackend does not query RegistryActionsService."""
 
     @pytest.mark.anyio
     async def test_execute_udf_without_db_lookup(
@@ -100,7 +100,7 @@ class TestDirectBackendNoRegistryAction:
         test_run_action_input: RunActionInput,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """DirectBackend should execute UDFs directly without DB lookup.
+        """TestBackend should execute UDFs directly without DB lookup.
 
         This test monkeypatches RegistryActionsService.with_session to raise
         an error if called. The test passes if the action executes successfully,
@@ -111,7 +111,7 @@ class TestDirectBackendNoRegistryAction:
         def raise_if_called(*args, **kwargs):
             raise AssertionError(
                 "RegistryActionsService.with_session was called! "
-                "DirectBackend should not query the database."
+                "TestBackend should not query the database."
             )
 
         # Import and patch at the module level where DirectBackend would import from
@@ -123,17 +123,17 @@ class TestDirectBackendNoRegistryAction:
             classmethod(lambda cls, *args, **kwargs: raise_if_called()),
         )
 
-        # Also patch in the direct module in case of any direct imports
+        # Also patch in the backend module in case of any direct imports
         # (though we've removed them, this ensures the test catches any regression)
-        import tracecat.executor.backends.direct as direct_module
+        import tracecat.executor.backends.test as test_module
 
         # Verify the import was removed (should raise AttributeError)
-        assert not hasattr(direct_module, "RegistryActionsService"), (
-            "RegistryActionsService should not be imported in direct.py"
+        assert not hasattr(test_module, "RegistryActionsService"), (
+            "RegistryActionsService should not be imported in test.py"
         )
 
         # Create and start the backend
-        backend = DirectBackend()
+        backend = TestBackend()
         await backend.start()
 
         try:
@@ -157,10 +157,10 @@ class TestDirectBackendNoRegistryAction:
         test_role: Role,
         test_run_action_input: RunActionInput,
     ) -> None:
-        """DirectBackend should reject template actions.
+        """TestBackend should reject template actions.
 
         Templates must be orchestrated at the service layer (_execute_template_action).
-        DirectBackend should only receive UDF leaf nodes.
+        TestBackend should only receive UDF leaf nodes.
         """
         # Create a ResolvedContext with a template action
         template_resolved_context = ResolvedContext(
@@ -179,7 +179,7 @@ class TestDirectBackendNoRegistryAction:
             logical_time=datetime.now(UTC),
         )
 
-        backend = DirectBackend()
+        backend = TestBackend()
         await backend.start()
 
         try:
@@ -203,7 +203,7 @@ class TestDirectBackendNoRegistryAction:
         test_role: Role,
         test_run_action_input: RunActionInput,
     ) -> None:
-        """DirectBackend should fail with clear error when UDF module is missing."""
+        """TestBackend should fail with clear error when UDF module is missing."""
         # Create a ResolvedContext with missing module
         bad_resolved_context = ResolvedContext(
             secrets={},
@@ -222,7 +222,7 @@ class TestDirectBackendNoRegistryAction:
             logical_time=datetime.now(UTC),
         )
 
-        backend = DirectBackend()
+        backend = TestBackend()
         await backend.start()
 
         try:

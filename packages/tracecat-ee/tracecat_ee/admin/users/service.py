@@ -5,18 +5,60 @@ from collections.abc import Sequence
 from typing import cast
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped
 
+from tracecat.audit.service import AuditService
+from tracecat.auth.schemas import UserCreate, UserRole
+from tracecat.auth.users import get_user_db_context, get_user_manager_context
 from tracecat.db.models import User
 from tracecat.service import BasePlatformService
 
-from .schemas import AdminUserRead
+from .schemas import AdminUserCreate, AdminUserRead
 
 
 class AdminUserService(BasePlatformService):
     """Platform-level user management."""
 
     service_name = "admin_user"
+
+    async def create_user(self, params: AdminUserCreate) -> AdminUserRead:
+        """Create a platform-level user without org/workspace memberships."""
+        async with get_user_db_context(self.session) as user_db:
+            async with get_user_manager_context(user_db) as user_manager:
+                user_create = UserCreate(email=params.email, password=params.password)
+                await user_manager.validate_password(params.password, user_create)
+                hashed_password = user_manager.password_helper.hash(params.password)
+
+        user = User(
+            email=params.email,
+            hashed_password=hashed_password,
+            is_active=True,
+            is_superuser=params.is_superuser,
+            is_verified=True,
+            first_name=params.first_name,
+            last_name=params.last_name,
+            role=UserRole.BASIC,
+        )
+        self.session.add(user)
+        try:
+            await self.session.commit()
+        except IntegrityError as e:
+            await self.session.rollback()
+            raise ValueError(f"User with email {params.email} already exists") from e
+
+        await self.session.refresh(user)
+
+        async with AuditService.with_session(
+            role=self.role, session=self.session
+        ) as svc:
+            await svc.create_event(
+                resource_type="user",
+                action="create",
+                resource_id=user.id,
+            )
+
+        return AdminUserRead.model_validate(user)
 
     async def list_users(self) -> Sequence[AdminUserRead]:
         """List all users."""

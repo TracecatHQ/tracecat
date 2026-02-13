@@ -62,6 +62,28 @@ SANDBOX_BASE_ENV = {
     "LC_ALL": "C.UTF-8",
 }
 
+_PASTA_GATEWAY_IP = "10.255.255.1"
+
+
+def build_sandbox_resolv_conf() -> str:
+    """Build sandbox resolv.conf with pasta DNS plus host search/options lines.
+
+    In Kubernetes, short service names rely on search domains like
+    `*.svc.cluster.local` and resolver options from the pod's /etc/resolv.conf.
+    Preserve those lines while forcing nameserver to pasta's DNS gateway.
+    """
+    lines = [f"nameserver {_PASTA_GATEWAY_IP}"]
+    try:
+        host_resolv = Path("/etc/resolv.conf").read_text()
+        for line in host_resolv.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("search ") or stripped.startswith("options "):
+                lines.append(stripped)
+    except OSError:
+        pass
+    return "\n".join(lines) + "\n"
+
+
 _NSJAIL_HINT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(r"\bCLONE_NEWUSER\b|clone_newuser", re.IGNORECASE),
@@ -199,39 +221,23 @@ class NsjailExecutor:
         # - Execute phase: per config.network_enabled
         network_enabled = phase == "install" or config.network_enabled
 
-        # Network namespace is always isolated (clone_newnet: true)
-        # When network access is needed, pasta provides userspace networking
+        # Network behavior:
+        # - network enabled: share pod netns (no pasta) for host DNS/routing reliability
+        # - network disabled: isolate netns
         lines = [
             'name: "python_sandbox"',
             "mode: ONCE",
             'hostname: "sandbox"',
             "keep_env: false",
             "",
-            "# Namespace isolation - network always isolated, pasta for outbound access",
-            "clone_newnet: true",
+            "# Namespace isolation",
+            f"clone_newnet: {'false' if network_enabled else 'true'}",
             "clone_newuser: true",
             "clone_newns: true",
             "clone_newpid: true",
             "clone_newipc: true",
             "clone_newuts: true",
         ]
-
-        # Userspace networking via pasta when network access is needed
-        if network_enabled:
-            lines.extend(
-                [
-                    "",
-                    "# Userspace networking via pasta - provides internet access with isolation",
-                    "user_net {",
-                    "  enable: true",
-                    '  ip: "10.255.255.2"',
-                    '  gw: "10.255.255.1"',
-                    '  ip6: "fc00::2"',
-                    '  gw6: "fc00::1"',
-                    "  enable_dns: true",
-                    "}",
-                ]
-            )
 
         lines.extend(
             [
@@ -261,38 +267,14 @@ class NsjailExecutor:
                 f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
             )
 
-        # Network config: when using pasta, generate /etc files for hostname resolution
-        # Docker export leaves these empty since Docker manages them at runtime
         if network_enabled:
-            resolv_conf_path = job_dir / "resolv.conf"
-            resolv_conf_path.write_text("nameserver 10.255.255.1\n")
-
-            hosts_path = job_dir / "hosts"
-            hosts_path.write_text(
-                "127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n"
-            )
-
-            # nsswitch.conf tells glibc how to resolve hostnames: check /etc/hosts
-            # first ("files"), then fall back to DNS. Without this, hostname
-            # resolution may fail even with valid /etc/hosts and /etc/resolv.conf.
-            nsswitch_path = job_dir / "nsswitch.conf"
-            nsswitch_path.write_text(
-                "passwd:         files\n"
-                "group:          files\n"
-                "shadow:         files\n"
-                "hosts:          files dns\n"
-                "networks:       files\n"
-                "protocols:      files\n"
-                "services:       files\n"
-            )
-
             lines.extend(
                 [
                     "",
-                    "# Network config - DNS and hostname resolution",
-                    f'mount {{ src: "{resolv_conf_path}" dst: "/etc/resolv.conf" is_bind: true rw: false }}',
-                    f'mount {{ src: "{hosts_path}" dst: "/etc/hosts" is_bind: true rw: false }}',
-                    f'mount {{ src: "{nsswitch_path}" dst: "/etc/nsswitch.conf" is_bind: true rw: false }}',
+                    "# DNS config - use pod resolver files directly",
+                    'mount { src: "/etc/resolv.conf" dst: "/etc/resolv.conf" is_bind: true rw: false }',
+                    'mount { src: "/etc/hosts" dst: "/etc/hosts" is_bind: true rw: false }',
+                    'mount { src: "/etc/nsswitch.conf" dst: "/etc/nsswitch.conf" is_bind: true rw: false }',
                 ]
             )
 
@@ -667,31 +649,19 @@ class NsjailExecutor:
         if config.site_packages_dir:
             _validate_path(config.site_packages_dir, "site_packages_dir")
 
-        # Network namespace isolated with pasta for userspace networking
-        # This provides outbound connectivity while maintaining network isolation
         lines = [
             'name: "action_sandbox"',
             "mode: ONCE",
             'hostname: "sandbox"',
             "keep_env: false",
             "",
-            "# Namespace isolation - network isolated with pasta for outbound access",
-            "clone_newnet: true",
+            "# Namespace isolation (share pod network namespace for reliability)",
+            "clone_newnet: false",
             "clone_newuser: true",
             "clone_newns: true",
             "clone_newpid: true",
             "clone_newipc: true",
             "clone_newuts: true",
-            "",
-            "# Userspace networking via pasta - provides internet access with isolation",
-            "user_net {",
-            "  enable: true",
-            '  ip: "10.255.255.2"',
-            '  gw: "10.255.255.1"',
-            '  ip6: "fc00::2"',
-            '  gw6: "fc00::1"',
-            "  enable_dns: true",
-            "}",
             "",
             "# UID/GID mapping - map container user to current user",
             f'uidmap {{ inside_id: "1000" outside_id: "{os.getuid()}" count: 1 }}',
@@ -717,37 +687,18 @@ class NsjailExecutor:
                 f'mount {{ src: "{sbin_path}" dst: "/sbin" is_bind: true rw: false }}'
             )
 
-        # Network config: pasta provides DNS forwarding at the gateway IP (10.255.255.1)
-        # Docker export leaves /etc files empty since Docker manages them at runtime
-        resolv_conf_path = job_dir / "resolv.conf"
-        resolv_conf_path.write_text("nameserver 10.255.255.1\n")
-
-        hosts_path = job_dir / "hosts"
-        hosts_path.write_text(
-            "127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n"
-        )
-
-        # nsswitch.conf tells glibc how to resolve hostnames: check /etc/hosts
-        # first ("files"), then fall back to DNS. Without this, hostname
-        # resolution may fail even with valid /etc/hosts and /etc/resolv.conf.
-        nsswitch_path = job_dir / "nsswitch.conf"
-        nsswitch_path.write_text(
-            "passwd:         files\n"
-            "group:          files\n"
-            "shadow:         files\n"
-            "hosts:          files dns\n"
-            "networks:       files\n"
-            "protocols:      files\n"
-            "services:       files\n"
+        lines.extend(
+            [
+                "",
+                "# DNS config - use pod resolver files directly",
+                'mount { src: "/etc/resolv.conf" dst: "/etc/resolv.conf" is_bind: true rw: false }',
+                'mount { src: "/etc/hosts" dst: "/etc/hosts" is_bind: true rw: false }',
+                'mount { src: "/etc/nsswitch.conf" dst: "/etc/nsswitch.conf" is_bind: true rw: false }',
+            ]
         )
 
         lines.extend(
             [
-                "",
-                "# Network config - DNS and hostname resolution",
-                f'mount {{ src: "{resolv_conf_path}" dst: "/etc/resolv.conf" is_bind: true rw: false }}',
-                f'mount {{ src: "{hosts_path}" dst: "/etc/hosts" is_bind: true rw: false }}',
-                f'mount {{ src: "{nsswitch_path}" dst: "/etc/nsswitch.conf" is_bind: true rw: false }}',
                 "",
                 "# /dev essentials",
                 'mount { src: "/dev/null" dst: "/dev/null" is_bind: true rw: true }',

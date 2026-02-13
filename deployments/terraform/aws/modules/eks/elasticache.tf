@@ -72,7 +72,7 @@ resource "aws_elasticache_replication_group" "tracecat" {
   engine             = "redis"
   engine_version     = "7.1"
   node_type          = var.elasticache_node_type
-  num_cache_clusters = 1
+  num_cache_clusters = 3
   port               = 6379
 
   subnet_group_name  = aws_elasticache_subnet_group.tracecat.name
@@ -82,8 +82,8 @@ resource "aws_elasticache_replication_group" "tracecat" {
   transit_encryption_enabled = true
   auth_token                 = random_password.redis_auth.result
 
-  automatic_failover_enabled = false
-  multi_az_enabled           = false
+  automatic_failover_enabled = true
+  multi_az_enabled           = true
 
   snapshot_retention_limit = 1
   snapshot_window          = "03:00-04:00"

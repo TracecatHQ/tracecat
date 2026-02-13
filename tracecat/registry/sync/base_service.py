@@ -56,6 +56,7 @@ class VersionProtocol(Protocol):
     id: Mapped[uuid.UUID]
     version: Mapped[str]
     tarball_uri: Mapped[str]
+    manifest: Mapped[dict[str, object]]
 
 
 class VersionsServiceProtocol[VersionT: VersionProtocol](Protocol):
@@ -68,6 +69,8 @@ class VersionsServiceProtocol[VersionT: VersionProtocol](Protocol):
         repository_id: uuid.UUID,
         version: str,
     ) -> VersionT | None: ...
+
+    async def get_version(self, version_id: uuid.UUID) -> VersionT | None: ...
 
     async def create_version(
         self,
@@ -163,6 +166,72 @@ class BaseRegistrySyncService[
     def _storage_namespace(cls) -> str | None:
         return None
 
+    async def _resolve_sync_version(
+        self,
+        *,
+        versions_service: VersionsServiceProtocol[VersionT],
+        repository_id: uuid.UUID,
+        current_version_id: uuid.UUID | None,
+        target_version: str,
+        manifest: RegistryVersionManifest,
+    ) -> tuple[str, VersionT | None]:
+        """Resolve version for this sync.
+
+        Behavior:
+        - No existing version: use target_version
+        - Existing version with identical manifest: return existing (idempotent)
+        - Existing version with different manifest: create a new collision version
+        """
+        existing_version = await versions_service.get_version_by_repo_and_version(
+            repository_id=repository_id,
+            version=target_version,
+        )
+        if existing_version is None:
+            return target_version, None
+
+        existing_manifest = RegistryVersionManifest.model_validate(
+            existing_version.manifest
+        )
+        if existing_manifest == manifest:
+            return target_version, existing_version
+
+        # If the active version already matches this manifest, reuse it to keep
+        # same-content syncs idempotent even when the requested base version differs.
+        if current_version_id is not None:
+            current_version = await versions_service.get_version(current_version_id)
+            if current_version is not None:
+                current_manifest = RegistryVersionManifest.model_validate(
+                    current_version.manifest
+                )
+                if current_manifest == manifest:
+                    return str(current_version.version), current_version
+
+        # Manifest changed but requested version already exists.
+        # Generate a new version string so executors pick up the update immediately.
+        version = self._generate_collision_version(target_version)
+        while (
+            await versions_service.get_version_by_repo_and_version(
+                repository_id=repository_id,
+                version=version,
+            )
+            is not None
+        ):
+            version = self._generate_collision_version(target_version)
+
+        self.logger.warning(
+            "Registry manifest changed for existing version; using collision version",
+            repository_id=str(repository_id),
+            requested_version=target_version,
+            collision_version=version,
+        )
+        return version, None
+
+    def _generate_collision_version(self, base_version: str) -> str:
+        """Generate a unique dev version for same-version manifest changes."""
+        suffix = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
+        tiebreaker = uuid.uuid4().int % 1_000_000
+        return f"{base_version}.dev{suffix}{tiebreaker:06d}"
+
     async def sync_repository_v2(
         self,
         db_repo: RepoT,
@@ -244,9 +313,12 @@ class BaseRegistrySyncService[
             )
 
         versions_service = self._get_versions_service()
-        existing_version = await versions_service.get_version_by_repo_and_version(
+        target_version, existing_version = await self._resolve_sync_version(
+            versions_service=versions_service,
             repository_id=repo_id,
-            version=target_version,
+            current_version_id=db_repo.current_version_id,
+            target_version=target_version,
+            manifest=manifest,
         )
         if existing_version:
             tarball_uri = cast(str | None, existing_version.tarball_uri)
@@ -424,7 +496,7 @@ class BaseRegistrySyncService[
         commit_sha: str | None,
     ) -> str:
         if commit_sha:
-            return commit_sha[:7]
+            return commit_sha
 
         if origin == DEFAULT_REGISTRY_ORIGIN:
             import tracecat_registry
@@ -560,9 +632,12 @@ class BaseRegistrySyncService[
             )
 
         versions_service = self._get_versions_service()
-        existing_version = await versions_service.get_version_by_repo_and_version(
+        target_version, existing_version = await self._resolve_sync_version(
+            versions_service=versions_service,
             repository_id=repo_id,
-            version=target_version,
+            current_version_id=db_repo.current_version_id,
+            target_version=target_version,
+            manifest=manifest,
         )
         if existing_version:
             existing_tarball_uri = cast(str | None, existing_version.tarball_uri)

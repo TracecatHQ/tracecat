@@ -136,6 +136,7 @@ export function CopilotChatInterface({
         title: `Chat ${(chats?.length || 0) + 1}`,
         entity_type: "copilot",
         entity_id: workspaceId,
+        agent_preset_id: effectivePresetId,
       })
       setPendingCopilotPrompt({ chatId: newChat.id, text: trimmedPrompt })
       router.push(`${pathname}?chatId=${newChat.id}`)

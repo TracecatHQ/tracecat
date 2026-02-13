@@ -89,13 +89,13 @@ spec:
 
               # Add search attributes (idempotent - check each before adding)
               echo "Checking search attributes..."
-              EXISTING_ATTRS=$(temporal operator search-attribute list 2>/dev/null || echo "")
+              EXISTING_ATTRS=$(temporal operator search-attribute list --namespace "$NAMESPACE" 2>/dev/null || echo "")
               {{- range $name, $type := .Values.tracecat.temporal.searchAttributes }}
               if echo "$EXISTING_ATTRS" | grep -q "{{ $name }}"; then
                 echo "Search attribute '{{ $name }}' already exists"
               else
                 echo "Adding search attribute '{{ $name }}' ({{ $type }})..."
-                echo "Y" | tctl admin cluster add-search-attributes --name {{ $name }} --type {{ $type }}
+                temporal operator search-attribute create --namespace "$NAMESPACE" --name {{ $name }} --type {{ $type }}
               fi
               {{- end }}
 
