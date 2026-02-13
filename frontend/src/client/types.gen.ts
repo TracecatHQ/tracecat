@@ -7215,6 +7215,15 @@ export type UsersSearchUserResponse = UserRead
 export type OrganizationGetOrganizationResponse =
   tracecat__organization__schemas__OrgRead
 
+export type OrganizationDeleteOrganizationData = {
+  /**
+   * Must exactly match the organization name.
+   */
+  confirm?: string | null
+}
+
+export type OrganizationDeleteOrganizationResponse = void
+
 export type OrganizationListOrganizationDomainsResponse =
   Array<tracecat__organization__schemas__OrgDomainRead>
 
@@ -7520,6 +7529,10 @@ export type AdminUpdateOrganizationResponse =
   tracecat_ee__admin__organizations__schemas__OrgRead
 
 export type AdminDeleteOrganizationData = {
+  /**
+   * Must exactly match the organization name.
+   */
+  confirm?: string | null
   orgId: string
 }
 
@@ -10216,6 +10229,19 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: tracecat__organization__schemas__OrgRead
+      }
+    }
+    delete: {
+      req: OrganizationDeleteOrganizationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }

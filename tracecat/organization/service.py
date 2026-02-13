@@ -25,11 +25,11 @@ from tracecat.authz.controls import require_org_role
 from tracecat.authz.enums import OrgRole
 from tracecat.db.models import (
     AccessToken,
-    Organization,
     Group,
     GroupMember,
     Invitation,
     Membership,
+    Organization,
     OrganizationInvitation,
     OrganizationMembership,
     User,

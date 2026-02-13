@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import TypeAdapter
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.schemas import UserRole
@@ -565,7 +565,7 @@ class TestAcceptInvitation:
                 session, user_id=uuid.uuid4(), token="invalid-token"
             )
 
-    async def test_accept_invitation_already_accepted(
+    async def test_accept_invitation_different_email_address(
         self,
         session: AsyncSession,
         inv_org: Organization,
@@ -573,7 +573,7 @@ class TestAcceptInvitation:
         admin_user: User,
         basic_user: User,
     ):
-        """Test accepting already-accepted invitation fails."""
+        """Test accepting invitation with different email fails."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
         service = WorkspaceService(session, role=role)
 
@@ -601,9 +601,46 @@ class TestAcceptInvitation:
         session.add(another_user)
         await session.commit()
 
-        with pytest.raises(TracecatValidationError, match="already been accepted"):
+        with pytest.raises(TracecatValidationError, match="different email address"):
             await accept_workspace_invitation_for_user(
                 session, user_id=another_user.id, token=invitation.token
+            )
+
+    async def test_accept_invitation_already_accepted(
+        self,
+        session: AsyncSession,
+        inv_org: Organization,
+        inv_workspace: Workspace,
+        admin_user: User,
+        basic_user: User,
+    ):
+        """Test accepting an already-accepted invitation fails."""
+        role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
+        service = WorkspaceService(session, role=role)
+
+        params = WorkspaceInvitationCreate(
+            email=basic_user.email,
+            role=WorkspaceRole.EDITOR,
+        )
+        invitation = await service.create_invitation(inv_workspace.id, params)
+
+        # Accept once successfully.
+        await accept_workspace_invitation_for_user(
+            session, user_id=basic_user.id, token=invitation.token
+        )
+
+        # Remove workspace membership so the second accept reaches invitation status validation.
+        await session.execute(
+            delete(Membership).where(
+                Membership.user_id == basic_user.id,
+                Membership.workspace_id == inv_workspace.id,
+            )
+        )
+        await session.commit()
+
+        with pytest.raises(TracecatValidationError, match="already been accepted"):
+            await accept_workspace_invitation_for_user(
+                session, user_id=basic_user.id, token=invitation.token
             )
 
     async def test_accept_invitation_revoked(

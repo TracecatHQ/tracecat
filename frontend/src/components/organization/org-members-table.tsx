@@ -211,9 +211,7 @@ function InviteMemberDialogButton() {
             />
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">
-                  Workspace assignments
-                </Label>
+                <Label className="text-sm font-medium">Workspaces</Label>
                 <Button
                   type="button"
                   variant="outline"
