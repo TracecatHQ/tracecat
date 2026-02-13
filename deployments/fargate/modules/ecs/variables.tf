@@ -569,8 +569,8 @@ variable "db_allocated_storage" {
 
 variable "db_engine_version" {
   type        = string
-  description = "Exact Postgres engine version for the core RDS instance (e.g. 16.10). Override per workspace if a different minor is required."
-  default     = "16.10"
+  description = "Exact Postgres engine version for the core RDS instance (e.g. 16.12). Override per workspace if a different minor is required."
+  default     = "16.12"
 }
 
 ### RDS Settings

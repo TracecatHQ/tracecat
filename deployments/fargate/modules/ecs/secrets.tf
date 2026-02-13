@@ -190,6 +190,10 @@ locals {
       name      = "TRACECAT__DB_ENCRYPTION_KEY"
       valueFrom = data.aws_secretsmanager_secret_version.tracecat_db_encryption_key.arn
     },
+    {
+      name      = "REDIS_URL"
+      valueFrom = aws_secretsmanager_secret_version.redis_url.arn
+    },
   ]
 
   temporal_api_key_secret = var.temporal_api_key_arn != null ? [

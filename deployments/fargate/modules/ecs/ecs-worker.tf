@@ -28,10 +28,6 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
       }
       environment = local.worker_env
       secrets     = local.tracecat_base_secrets
-      dockerPullConfig = {
-        maxAttempts = 3
-        backoffTime = 30
-      }
     }
   ])
 }

@@ -14,9 +14,6 @@ locals {
   temporal_namespace     = var.temporal_namespace
   allow_origins          = "https://${var.domain_name},http://ui-service:3000"
 
-  # Redis configuration with IAM auth
-  redis_url = "rediss://${aws_elasticache_user.app_user.user_name}@${aws_elasticache_replication_group.redis.primary_endpoint_address}:${aws_elasticache_replication_group.redis.port}"
-
   # Tracecat Postgres env vars
   tracecat_db_configs = {
     TRACECAT__DB_USER         = "postgres"
@@ -47,7 +44,6 @@ locals {
     TRACECAT__COLLECTION_MANIFESTS_ENABLED           = var.collection_manifests_enabled
     TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES = var.result_externalization_threshold_bytes
     TRACECAT__DB_SSLMODE                             = "require"
-    REDIS_URL                                        = local.redis_url
   }
 
   tracecat_blob_storage_env = {

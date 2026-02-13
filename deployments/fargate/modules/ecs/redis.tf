@@ -4,6 +4,11 @@ resource "aws_elasticache_subnet_group" "redis" {
   subnet_ids = var.private_subnet_ids
 }
 
+resource "random_password" "redis_app_user_password" {
+  length  = 40
+  special = false
+}
+
 # Default user (required by AWS ElastiCache)
 resource "aws_elasticache_user" "default" {
   user_id       = "default-user-tracecat"
@@ -20,21 +25,17 @@ resource "aws_elasticache_user" "default" {
   }
 }
 
-# Application user (no-password-required)
+# Application user
 resource "aws_elasticache_user" "app_user" {
   user_id       = "tracecat-app"
   user_name     = "tracecat-app" # App connections will use this username
   engine        = "redis"
   access_string = "on ~* +@all" # Full access; refine later if needed
 
-  # No password; access allowed purely by VPC / SG controls
+  # Require password auth so Redis access is not SG-only.
   authentication_mode {
-    type = "no-password-required"
-  }
-
-  lifecycle {
-    # Provider bug: AWS returns "no-password" so Terraform thinks auth changed each plan.
-    ignore_changes = [authentication_mode]
+    type      = "password"
+    passwords = [random_password.redis_app_user_password.result]
   }
 }
 
@@ -54,7 +55,7 @@ resource "aws_elasticache_user_group" "redis" {
 # The replication group (single-node, TLS & KMS encryption are ON by default in Redis 7)
 resource "aws_elasticache_replication_group" "redis" {
   replication_group_id = "tracecat-redis"
-  description          = "Tracecat Redis - no-password user"
+  description          = "Tracecat Redis - password-protected app user"
   engine               = "redis"
   engine_version       = "7.1"
   node_type            = var.redis_node_type # default cache.t3.micro
@@ -68,4 +69,21 @@ resource "aws_elasticache_replication_group" "redis" {
 
   transit_encryption_enabled = true # always enable TLS
   at_rest_encryption_enabled = true
+}
+
+# Store the complete Redis URL in Secrets Manager so ECS tasks can inject it.
+resource "aws_secretsmanager_secret" "redis_url" {
+  name_prefix = "tracecat-redis-url-"
+  description = "Tracecat Redis connection URL"
+}
+
+resource "aws_secretsmanager_secret_version" "redis_url" {
+  secret_id = aws_secretsmanager_secret.redis_url.id
+  secret_string = format(
+    "rediss://%s:%s@%s:%d",
+    aws_elasticache_user.app_user.user_name,
+    random_password.redis_app_user_password.result,
+    aws_elasticache_replication_group.redis.primary_endpoint_address,
+    aws_elasticache_replication_group.redis.port,
+  )
 }

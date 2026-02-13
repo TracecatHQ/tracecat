@@ -67,7 +67,7 @@ resource "aws_db_instance" "core_database" {
   instance_class              = "${var.db_instance_class}.${var.db_instance_size}"
   allocated_storage           = var.db_allocated_storage
   storage_encrypted           = true
-  storage_type                = "gp2"
+  storage_type                = "gp3"
   username                    = "postgres"
   multi_az                    = var.rds_multi_az
   manage_master_user_password = true
@@ -101,11 +101,11 @@ resource "aws_db_instance" "temporal_database" {
   count                       = var.disable_temporal_autosetup ? 0 : 1
   identifier                  = "temporal-database"
   engine                      = "postgres"
-  engine_version              = "13.15"
+  engine_version              = var.db_engine_version
   instance_class              = "${var.db_instance_class}.${var.db_instance_size}"
   allocated_storage           = 5
   storage_encrypted           = true
-  storage_type                = "gp2"
+  storage_type                = "gp3"
   username                    = "postgres"
   manage_master_user_password = true
   multi_az                    = var.rds_multi_az

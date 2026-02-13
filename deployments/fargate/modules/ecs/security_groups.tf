@@ -172,6 +172,13 @@ resource "aws_security_group" "temporal" {
     protocol    = "tcp"
     self        = true
   }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 }
 
 resource "aws_security_group" "temporal_db" {
@@ -188,14 +195,14 @@ resource "aws_security_group" "temporal_db" {
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
-    security_groups = [aws_security_group.core.id]
+    security_groups = [aws_security_group.temporal.id]
   }
 
   egress {
     from_port       = 0
     to_port         = 0
     protocol        = "-1"
-    security_groups = [aws_security_group.core.id]
+    security_groups = [aws_security_group.temporal.id]
   }
 
 }

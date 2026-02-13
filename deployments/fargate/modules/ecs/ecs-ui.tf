@@ -34,10 +34,6 @@ resource "aws_ecs_task_definition" "ui_task_definition" {
       }
       environment = local.ui_env
       secrets     = local.tracecat_ui_secrets
-      dockerPullConfig = {
-        maxAttempts = 3
-        backoffTime = 30
-      }
     }
   ])
 }

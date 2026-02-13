@@ -115,8 +115,13 @@ output "redis_port" {
 }
 
 output "redis_url" {
-  value       = local.redis_url
-  description = "The Redis connection URL with IAM authentication"
+  value       = "rediss://${aws_elasticache_user.app_user.user_name}@${aws_elasticache_replication_group.redis.primary_endpoint_address}:${aws_elasticache_replication_group.redis.port}"
+  description = "The Redis connection URL without credentials"
+}
+
+output "redis_url_secret_arn" {
+  value       = aws_secretsmanager_secret.redis_url.arn
+  description = "The ARN of the secret containing the Redis connection URL"
 }
 
 output "core_sg_id" {

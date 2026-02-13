@@ -6,9 +6,24 @@ data "aws_iam_policy_document" "assume_role" {
   statement {
     actions = ["sts:AssumeRole"]
     effect  = "Allow"
+
     principals {
       type        = "Service"
       identifiers = ["ecs-tasks.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values = [
+        "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
+      ]
     }
   }
 }
@@ -36,7 +51,7 @@ resource "aws_iam_policy" "ecs_poll" {
 # Redis IAM access policy
 resource "aws_iam_policy" "redis_iam_access" {
   name        = "TracecatRedisIAMAccessPolicy"
-  description = "Policy for ElastiCache Redis access (SG-only, no IAM auth)"
+  description = "Policy for ElastiCache Redis metadata access (no IAM auth)"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -131,6 +146,7 @@ resource "aws_iam_policy" "secrets_access" {
           var.saml_ca_certs_arn,
           var.saml_metadata_cert_arn,
           var.temporal_api_key_arn,
+          aws_secretsmanager_secret.redis_url.arn,
         ])
       }
     ]

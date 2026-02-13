@@ -41,16 +41,6 @@ resource "aws_ecs_task_definition" "temporal_task_definition" {
         }
       ])
       secrets = local.temporal_secrets
-
-      dockerPullConfig = {
-        maxAttempts = 3
-        backoffTime = 30
-      }
-
-      runtime_platform = {
-        cpu_architecture        = "ARM64"
-        operating_system_family = "LINUX"
-      }
     }
   ])
 }

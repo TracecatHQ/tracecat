@@ -35,7 +35,7 @@ resource "aws_ecs_task_definition" "temporal_ui_task_definition" {
         },
         {
           name  = "TEMPORAL_CORS_ORIGINS"
-          value = "http://localhost:3000"
+          value = local.public_app_url
         },
         {
           name  = "TEMPORAL_AUTH_ENABLED"
@@ -66,10 +66,6 @@ resource "aws_ecs_task_definition" "temporal_ui_task_definition" {
           awslogs-region        = var.aws_region
           awslogs-stream-prefix = "temporal-ui"
         }
-      }
-      dockerPullConfig = {
-        maxAttempts = 3
-        backoffTime = 30
       }
     }
   ])
