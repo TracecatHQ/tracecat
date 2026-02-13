@@ -12,18 +12,19 @@ definition:
   expects:
     agent_type:
       type: str
-      description: Type of agent to release (endpoint, sentinel_one, crowdstrike or microsoft_defender_endpoint).
+      description: Type of agent (endpoint, sentinel_one, crowdstrike or microsoft_defender_endpoint).
       default: endpoint
     endpoint_ids:
       type: list[str]
-      description: Array of endpoint IDs to release. Must be at least one ID.
+      description: Array of endpoint IDs. Must be at least one ID.
     comment:
       type: str
-      description: Optional comment to include with the release action.
-      default: Placeholder comment for release action.
+      description: Optional comment to include.
+      default: Action triggered by Tracecat
     base_url:
       type: str | None
       description: Kibana endpoint URL (e.g. https://localhost:5601).
+      default: null
     verify_ssl:
       type: bool
       description: Whether to verify SSL certificates.

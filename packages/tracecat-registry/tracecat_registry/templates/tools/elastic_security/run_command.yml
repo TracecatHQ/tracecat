@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Scan file or directory on endpoint
-  description: Scan a file or directory on an endpoint using Elastic Security.
+  title: Run command on endpoint
+  description: Run a command on an endpoint using Elastic Security.
   display_group: Elastic Security
-  doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-endpointscanaction
+  doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-endpointexecuteaction
   namespace: tools.elastic_security
-  name: scan_file_or_directory
+  name: run_command
   secrets:
     - name: elastic_security
       keys: ["ELASTIC_API_KEY"]
@@ -17,13 +17,17 @@ definition:
     endpoint_ids:
       type: list[str]
       description: Array of endpoint IDs. Must be at least one ID.
-    path:
+    command:
       type: str
-      description: The file or directory path.
+      description: The command to run.
     comment:
       type: str
       description: Optional comment to include.
       default: Action triggered by Tracecat
+    timeout:
+      type: int
+      description: Timeout in seconds.
+      default: 600
     base_url:
       type: str | None
       description: Kibana endpoint URL (e.g. https://localhost:5601).
@@ -33,10 +37,10 @@ definition:
       description: Whether to verify SSL certificates.
       default: true
   steps:
-    - ref: scan_file_or_directory
+    - ref: run_command
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.elastic_security.base_url }}/api/endpoint/action/scan
+        url: ${{ inputs.base_url || VARS.elastic_security.base_url }}/api/endpoint/action/execute
         method: POST
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:
@@ -47,5 +51,17 @@ definition:
           comment: ${{ inputs.comment }}
           agent_type: ${{ inputs.agent_type }}
           parameters:
-            path: ${{ inputs.path }}
-  returns: ${{ steps.scan_file_or_directory.result.data }}
+            command: ${{ inputs.command }}
+            timeout: ${{ inputs.timeout }}
+    - ref: get_command_results
+      action: core.http_poll
+      args:
+        url: ${{ inputs.base_url || VARS.elastic_security.base_url }}/api/endpoint/action/${{ steps.run_command.result.data.data.id }}
+        method: GET
+        headers:
+          Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}
+        poll_condition: >
+          lambda x: x['data']['data'].get('isCompleted', False) == True
+
+  returns: ${{ steps.get_command_results.result.data.data.outputs }}
+

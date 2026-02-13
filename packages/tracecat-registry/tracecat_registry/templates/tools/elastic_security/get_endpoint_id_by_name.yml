@@ -12,19 +12,31 @@ definition:
   expects:
     endpoint_name:
       type: str
-      description: Name of the endpoint to retrieve the ID for.
+      description: Name of the endpoint.
     base_url:
       type: str | None
       description: Kibana endpoint URL (e.g. https://localhost:5601).
+      default: null
     verify_ssl:
       type: bool
       description: Whether to verify SSL certificates.
       default: true
   steps:
+    - ref: prepare_query
+      action: core.script.run_python
+      args:
+        inputs:
+          endpoint_name: ${{ inputs.endpoint_name }}
+        script: |
+          import urllib.parse
+
+          def main(endpoint_name):
+              encoded_name = urllib.parse.quote(endpoint_name)
+              return {"encoded_endpoint_name": encoded_name}
     - ref: get_endpoint_id_by_name
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.elastic_security.base_url }}/api/fleet/agents?kuery=local_metadata.host.name:${{ inputs.endpoint_name }}
+        url: ${{ inputs.base_url || VARS.elastic_security.base_url }}/api/fleet/agents?kuery=local_metadata.host.name:${{ steps.prepare_query.result.encoded_endpoint_name }}
         method: GET
         verify_ssl: ${{ inputs.verify_ssl }}
         headers:
