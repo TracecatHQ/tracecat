@@ -10033,6 +10033,14 @@ export const $OrgInvitationCreate = {
       $ref: "#/components/schemas/OrgRole",
       default: "member",
     },
+    workspace_assignments: {
+      items: {
+        $ref: "#/components/schemas/WorkspaceAssignment",
+      },
+      type: "array",
+      title: "Workspace Assignments",
+      default: [],
+    },
   },
   type: "object",
   required: ["email"],
@@ -10096,6 +10104,11 @@ export const $OrgInvitationRead = {
         },
       ],
       title: "Accepted At",
+    },
+    workspace_invitations_created: {
+      type: "integer",
+      title: "Workspace Invitations Created",
+      default: 0,
     },
   },
   type: "object",
@@ -17689,6 +17702,27 @@ export const $UserUpdate = {
   title: "UserUpdate",
 } as const
 
+export const $UserWorkspaceMembership = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    role: {
+      $ref: "#/components/schemas/WorkspaceRole",
+    },
+  },
+  type: "object",
+  required: ["workspace_id", "workspace_name", "role"],
+  title: "UserWorkspaceMembership",
+  description: "A user's membership in a workspace, for org-level viewing.",
+} as const
+
 export const $ValidationDetail = {
   properties: {
     type: {
@@ -20126,6 +20160,25 @@ export const $WorkflowUpdate = {
   title: "WorkflowUpdate",
 } as const
 
+export const $WorkspaceAssignment = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    role: {
+      $ref: "#/components/schemas/WorkspaceRole",
+      default: "editor",
+    },
+  },
+  type: "object",
+  required: ["workspace_id"],
+  title: "WorkspaceAssignment",
+  description:
+    "Workspace + role pair for assigning a user to a workspace at invite time.",
+} as const
+
 export const $WorkspaceCreate = {
   properties: {
     name: {
@@ -20160,6 +20213,19 @@ export const $WorkspaceCreate = {
   type: "object",
   required: ["name"],
   title: "WorkspaceCreate",
+} as const
+
+export const $WorkspaceInvitationAccept = {
+  properties: {
+    token: {
+      type: "string",
+      title: "Token",
+    },
+  },
+  type: "object",
+  required: ["token"],
+  title: "WorkspaceInvitationAccept",
+  description: "Request body for accepting a workspace invitation via token.",
 } as const
 
 export const $WorkspaceInvitationCreate = {
@@ -20252,6 +20318,84 @@ export const $WorkspaceInvitationRead = {
   ],
   title: "WorkspaceInvitationRead",
   description: "Response schema for a workspace invitation.",
+} as const
+
+export const $WorkspaceInvitationReadMinimal = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    inviter_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Name",
+    },
+    inviter_email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Email",
+    },
+    role: {
+      $ref: "#/components/schemas/WorkspaceRole",
+    },
+    status: {
+      $ref: "#/components/schemas/InvitationStatus",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+    email_matches: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Email Matches",
+    },
+  },
+  type: "object",
+  required: [
+    "workspace_id",
+    "workspace_name",
+    "organization_name",
+    "inviter_name",
+    "inviter_email",
+    "role",
+    "status",
+    "expires_at",
+  ],
+  title: "WorkspaceInvitationReadMinimal",
+  description: `Minimal response for public token-based invitation lookup.
+
+Excludes sensitive fields to reduce information disclosure
+when querying by token.`,
 } as const
 
 export const $WorkspaceMember = {

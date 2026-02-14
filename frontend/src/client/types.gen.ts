@@ -3244,6 +3244,7 @@ export type OrgInvitationAccept = {
 export type OrgInvitationCreate = {
   email: string
   role?: OrgRole
+  workspace_assignments?: Array<WorkspaceAssignment>
 }
 
 /**
@@ -3259,6 +3260,7 @@ export type OrgInvitationRead = {
   expires_at: string
   created_at: string
   accepted_at: string | null
+  workspace_invitations_created?: number
 }
 
 /**
@@ -5548,6 +5550,15 @@ export type UserUpdate = {
   } | null
 }
 
+/**
+ * A user's membership in a workspace, for org-level viewing.
+ */
+export type UserWorkspaceMembership = {
+  workspace_id: string
+  workspace_name: string
+  role: WorkspaceRole
+}
+
 export type ValidationDetail = {
   type: string
   msg: string
@@ -6200,10 +6211,25 @@ export type WorkflowUpdate = {
   error_handler?: string | null
 }
 
+/**
+ * Workspace + role pair for assigning a user to a workspace at invite time.
+ */
+export type WorkspaceAssignment = {
+  workspace_id: string
+  role?: WorkspaceRole
+}
+
 export type WorkspaceCreate = {
   name: string
   settings?: WorkspaceSettingsUpdate | null
   organization_id?: string | null
+}
+
+/**
+ * Request body for accepting a workspace invitation via token.
+ */
+export type WorkspaceInvitationAccept = {
+  token: string
 }
 
 /**
@@ -6227,6 +6253,24 @@ export type WorkspaceInvitationRead = {
   expires_at: string
   accepted_at: string | null
   created_at: string
+}
+
+/**
+ * Minimal response for public token-based invitation lookup.
+ *
+ * Excludes sensitive fields to reduce information disclosure
+ * when querying by token.
+ */
+export type WorkspaceInvitationReadMinimal = {
+  workspace_id: string
+  workspace_name: string
+  organization_name: string
+  inviter_name: string | null
+  inviter_email: string | null
+  role: WorkspaceRole
+  status: InvitationStatus
+  expires_at: string
+  email_matches?: boolean | null
 }
 
 export type WorkspaceMember = {
@@ -6594,6 +6638,30 @@ export type WorkspacesRevokeWorkspaceInvitationData = {
 }
 
 export type WorkspacesRevokeWorkspaceInvitationResponse = void
+
+export type WorkspacesGetInvitationTokenData = {
+  invitationId: string
+  workspaceId: string
+}
+
+export type WorkspacesGetInvitationTokenResponse = {
+  [key: string]: string
+}
+
+export type WorkspacesGetInvitationByTokenData = {
+  token: string
+}
+
+export type WorkspacesGetInvitationByTokenResponse =
+  WorkspaceInvitationReadMinimal
+
+export type WorkspacesAcceptWorkspaceInvitationData = {
+  requestBody: WorkspaceInvitationAccept
+}
+
+export type WorkspacesAcceptWorkspaceInvitationResponse = {
+  [key: string]: string
+}
 
 export type WorkflowsListWorkflowsData = {
   cursor?: string | null
@@ -7147,6 +7215,15 @@ export type UsersSearchUserResponse = UserRead
 export type OrganizationGetOrganizationResponse =
   tracecat__organization__schemas__OrgRead
 
+export type OrganizationDeleteOrganizationData = {
+  /**
+   * Must exactly match the organization name.
+   */
+  confirm?: string | null
+}
+
+export type OrganizationDeleteOrganizationResponse = void
+
 export type OrganizationListOrganizationDomainsResponse =
   Array<tracecat__organization__schemas__OrgDomainRead>
 
@@ -7166,6 +7243,13 @@ export type OrganizationUpdateOrgMemberData = {
 }
 
 export type OrganizationUpdateOrgMemberResponse = OrgMemberDetail
+
+export type OrganizationListMemberWorkspaceMembershipsData = {
+  userId: string
+}
+
+export type OrganizationListMemberWorkspaceMembershipsResponse =
+  Array<UserWorkspaceMembership>
 
 export type OrganizationListSessionsResponse = Array<SessionRead>
 
@@ -7445,6 +7529,10 @@ export type AdminUpdateOrganizationResponse =
   tracecat_ee__admin__organizations__schemas__OrgRead
 
 export type AdminDeleteOrganizationData = {
+  /**
+   * Must exactly match the organization name.
+   */
+  confirm?: string | null
   orgId: string
 }
 
@@ -9130,6 +9218,55 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/invitations/{invitation_id}/token": {
+    get: {
+      req: WorkspacesGetInvitationTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/invitations/token/{token}": {
+    get: {
+      req: WorkspacesGetInvitationByTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceInvitationReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/invitations/accept": {
+    post: {
+      req: WorkspacesAcceptWorkspaceInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workflows": {
     get: {
       req: WorkflowsListWorkflowsData
@@ -10094,6 +10231,19 @@ export type $OpenApiTs = {
         200: tracecat__organization__schemas__OrgRead
       }
     }
+    delete: {
+      req: OrganizationDeleteOrganizationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
   }
   "/organization/domains": {
     get: {
@@ -10146,6 +10296,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: OrgMemberDetail
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/members/{user_id}/workspace-memberships": {
+    get: {
+      req: OrganizationListMemberWorkspaceMembershipsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<UserWorkspaceMembership>
         /**
          * Validation Error
          */

@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, cast, func, select, update
+from sqlalchemy import and_, cast, delete, func, select, update
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager
@@ -25,10 +25,16 @@ from tracecat.authz.controls import require_org_role
 from tracecat.authz.enums import OrgRole
 from tracecat.db.models import (
     AccessToken,
+    Group,
+    GroupMember,
+    Invitation,
+    Membership,
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
     User,
+    UserRoleAssignment,
+    Workspace,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -41,6 +47,7 @@ from tracecat.organization.management import (
     delete_organization_with_cleanup,
     validate_organization_delete_confirmation,
 )
+from tracecat.organization.schemas import UserWorkspaceMembership, WorkspaceAssignment
 from tracecat.service import BaseOrgService
 
 
@@ -142,7 +149,7 @@ async def accept_invitation_for_user(
             # Shouldn't reach here, but handle gracefully
             raise TracecatAuthorizationError("Invitation is no longer valid")
 
-        # Create membership
+        # Create membership with role from invitation
         membership = OrganizationMembership(
             user_id=user_id,
             organization_id=invitation.organization_id,
@@ -244,24 +251,60 @@ class OrgService(BaseOrgService):
     @audit_log(resource_type="organization_member", action="delete")
     @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def delete_member(self, user_id: UserID) -> None:
-        """
-        Remove a member of the organization.
+        """Remove a member from the organization.
 
-        This method deletes a specified member from the organization.
-        It first checks if the member is a superuser and raises an
-        authorization error if so, as superusers cannot be deleted.
+        Deletes the org membership and cleans up workspace memberships
+        and role assignments within this org. The user account is preserved.
 
         Args:
-            user_id (UserID): The unique identifier of the user to be removed.
+            user_id: The unique identifier of the user to remove.
 
         Raises:
-            TracecatAuthorizationError: If the user is a superuser and cannot be deleted.
+            TracecatAuthorizationError: If the user is a superuser.
         """
         user, _ = await self.get_member(user_id)
         if user.is_superuser:
-            raise TracecatAuthorizationError("Cannot delete superuser")
-        async with self._manager() as user_manager:
-            await user_manager.delete(user)
+            raise TracecatAuthorizationError("Cannot remove superuser")
+
+        org_id = self.organization_id
+
+        # Workspace IDs belonging to this organization
+        ws_ids_stmt = select(Workspace.id).where(Workspace.organization_id == org_id)
+
+        # Clean up workspace memberships in this org's workspaces
+        await self.session.execute(
+            delete(Membership).where(
+                Membership.user_id == user_id,
+                Membership.workspace_id.in_(ws_ids_stmt),
+            )
+        )
+
+        # Clean up role assignments in this org
+        await self.session.execute(
+            delete(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == user_id,
+                UserRoleAssignment.organization_id == org_id,
+            )
+        )
+
+        # Clean up group memberships in this org's groups
+        org_group_ids_stmt = select(Group.id).where(Group.organization_id == org_id)
+        await self.session.execute(
+            delete(GroupMember).where(
+                GroupMember.user_id == user_id,
+                GroupMember.group_id.in_(org_group_ids_stmt),
+            )
+        )
+
+        # Delete the organization membership
+        await self.session.execute(
+            delete(OrganizationMembership).where(
+                OrganizationMembership.user_id == user_id,
+                OrganizationMembership.organization_id == org_id,
+            )
+        )
+
+        await self.session.commit()
 
     @audit_log(resource_type="organization_member", action="update")
     @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
@@ -405,6 +448,39 @@ class OrgService(BaseOrgService):
         await self.session.delete(db_token)
         await self.session.commit()
 
+    # === Manage workspace memberships ===
+
+    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
+    async def list_member_workspace_memberships(
+        self, user_id: UserID
+    ) -> list[UserWorkspaceMembership]:
+        """List all workspace memberships for a user within this organization.
+
+        Args:
+            user_id: The user to list workspace memberships for.
+
+        Returns:
+            List of workspace memberships with workspace name and role.
+        """
+        statement = (
+            select(Membership.workspace_id, Workspace.name, Membership.role)
+            .join(Workspace, Membership.workspace_id == Workspace.id)
+            .where(
+                Membership.user_id == user_id,
+                Workspace.organization_id == self.organization_id,
+            )
+            .order_by(Workspace.name)
+        )
+        result = await self.session.execute(statement)
+        return [
+            UserWorkspaceMembership(
+                workspace_id=ws_id,
+                workspace_name=ws_name,
+                role=ws_role,
+            )
+            for ws_id, ws_name, ws_role in result.tuples().all()
+        ]
+
     # === Manage invitations ===
 
     @audit_log(resource_type="organization_invitation", action="create")
@@ -414,15 +490,21 @@ class OrgService(BaseOrgService):
         *,
         email: str,
         role: OrgRole = OrgRole.MEMBER,
-    ) -> OrganizationInvitation:
+        workspace_assignments: list[WorkspaceAssignment] | None = None,
+    ) -> tuple[OrganizationInvitation, int]:
         """Create an invitation to join the organization.
+
+        Optionally also creates workspace invitations for the specified
+        workspace assignments in the same transaction.
 
         Args:
             email: Email address of the invitee.
             role: Role to grant upon acceptance. Defaults to MEMBER.
+            workspace_assignments: Optional list of workspace + role pairs
+                to create workspace invitations for.
 
         Returns:
-            OrganizationInvitation: The created invitation record.
+            Tuple of (OrganizationInvitation, workspace_invitation_count).
         """
         if self.role is None or self.role.user_id is None:
             raise TracecatAuthorizationError(
@@ -483,9 +565,90 @@ class OrgService(BaseOrgService):
             status=InvitationStatus.PENDING,
         )
         self.session.add(invitation)
+
+        # Create workspace invitations if requested
+        ws_invite_count = 0
+        if workspace_assignments:
+            ws_invite_count = await self._create_workspace_invitations(
+                email=email,
+                assignments=workspace_assignments,
+            )
+
         await self.session.commit()
         await self.session.refresh(invitation)
-        return invitation
+        return invitation, ws_invite_count
+
+    async def _create_workspace_invitations(
+        self,
+        *,
+        email: str,
+        assignments: list[WorkspaceAssignment],
+    ) -> int:
+        """Create workspace invitations for the given assignments.
+
+        Validates that each workspace belongs to this organization.
+        Skips workspaces that already have a pending, unexpired invitation for this email.
+        Replaces expired/revoked invitations.
+
+        Must be called within an existing transaction (before commit).
+
+        Returns:
+            Number of workspace invitations created.
+        """
+        assert self.role is not None and self.role.user_id is not None
+
+        # Validate all workspace IDs belong to this org in a single query
+        ws_ids = [a.workspace_id for a in assignments]
+        valid_ws_result = await self.session.execute(
+            select(Workspace.id).where(
+                Workspace.id.in_(ws_ids),
+                Workspace.organization_id == self.organization_id,
+            )
+        )
+        valid_ws_ids = set(valid_ws_result.scalars().all())
+        invalid_ws_ids = set(ws_ids) - valid_ws_ids
+        if invalid_ws_ids:
+            raise TracecatValidationError(
+                f"Workspaces do not belong to this organization: {invalid_ws_ids}"
+            )
+
+        now = datetime.now(UTC)
+        expires_at = now + timedelta(days=7)
+        count = 0
+
+        for assignment in assignments:
+            # Check for existing workspace invitation
+            existing_stmt = select(Invitation).where(
+                Invitation.workspace_id == assignment.workspace_id,
+                func.lower(Invitation.email) == email.lower(),
+            )
+            existing_result = await self.session.execute(existing_stmt)
+            existing_inv = existing_result.scalar_one_or_none()
+
+            if existing_inv:
+                if (
+                    existing_inv.status == InvitationStatus.PENDING
+                    and existing_inv.expires_at > now
+                ):
+                    # Already has a valid pending invitation, skip
+                    continue
+                # Expired or revoked/accepted - delete to allow new one
+                await self.session.delete(existing_inv)
+                await self.session.flush()
+
+            ws_invitation = Invitation(
+                workspace_id=assignment.workspace_id,
+                email=email,
+                role=assignment.role,
+                status=InvitationStatus.PENDING,
+                invited_by=self.role.user_id,
+                token=secrets.token_urlsafe(32),
+                expires_at=expires_at,
+            )
+            self.session.add(ws_invitation)
+            count += 1
+
+        return count
 
     @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def list_invitations(
