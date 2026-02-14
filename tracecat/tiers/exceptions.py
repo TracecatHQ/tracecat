@@ -49,3 +49,27 @@ class TierInUseError(TierError):
             f"Cannot delete tier '{tier_id}': organizations are still assigned to it"
         )
         self.tier_id = tier_id
+
+
+class TierLimitExceeded(TierError):
+    """Base exception for tier limit violations."""
+
+    def __init__(self, limit_name: str, current: int, limit: int):
+        super().__init__(f"Tier limit '{limit_name}' exceeded: {current}/{limit}")
+        self.limit_name = limit_name
+        self.current = current
+        self.limit = limit
+
+
+class ConcurrentWorkflowLimitExceeded(TierLimitExceeded):
+    """Raised when max_concurrent_workflows limit is exceeded."""
+
+    def __init__(self, current: int, limit: int):
+        super().__init__("max_concurrent_workflows", current, limit)
+
+
+class ActionExecutionLimitExceeded(TierLimitExceeded):
+    """Raised when max_action_executions_per_workflow limit is exceeded."""
+
+    def __init__(self, current: int, limit: int):
+        super().__init__("max_action_executions_per_workflow", current, limit)
