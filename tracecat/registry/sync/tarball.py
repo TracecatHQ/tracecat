@@ -195,7 +195,9 @@ async def build_tarball_venv_from_installed_environment(
         return member
 
     def _create_tarball() -> None:
-        with tarfile.open(tarball_path, "w:gz", compresslevel=6) as tar:
+        with tarfile.open(
+            tarball_path, "w:gz", compresslevel=6, dereference=True
+        ) as tar:
             for site_packages in site_packages_paths:
                 for item in site_packages.iterdir():
                     tar.add(item, arcname=item.name, filter=_filter_link_entries)
