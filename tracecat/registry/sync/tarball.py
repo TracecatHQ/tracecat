@@ -161,7 +161,9 @@ async def build_tarball_venv_from_installed_environment(
         for site_packages in site_packages_paths
         if (site_packages / package_name).exists()
     ]
-    package_site_entry = existing_package_entries[0] if existing_package_entries else None
+    package_site_entry = (
+        existing_package_entries[0] if existing_package_entries else None
+    )
     package_site_entry_is_symlink = (
         package_site_entry.is_symlink() if package_site_entry is not None else False
     )
