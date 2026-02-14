@@ -506,23 +506,19 @@ async def _authenticate_user(
     session: AsyncSession,
     user: User,
     workspace_id: uuid.UUID | None,
-    require_workspace_roles: list[WorkspaceRole] | None,
 ) -> Role:
     """Authenticate user, resolve workspace/org context, and return Role.
 
     Handles:
     1. Workspace membership validation (if workspace_id provided)
     2. Organization context resolution (superuser vs regular user)
-    3. Org role fetching (org owners/admins bypass workspace membership checks)
-    4. Role construction
+    3. Role construction (authorization is enforced via scopes, not enum roles)
     """
     workspace_role: WorkspaceRole | None = None
     organization_id: uuid.UUID
     org_role: OrgRole | None = None
 
     if is_unprivileged(user) and workspace_id is not None:
-        # Unprivileged user targeting a workspace
-        # First resolve org from workspace to check org-level permissions
         resolved_org_id = await _get_workspace_org_id(workspace_id)
         if resolved_org_id is None:
             raise HTTPException(
@@ -539,12 +535,10 @@ async def _authenticate_user(
         )  # Can't use Role.is_org_admin yet - Role not built
 
         if is_org_admin:
-            # Org owners/admins bypass workspace membership checks
             logger.debug(
                 "Org admin bypassing workspace membership check",
                 user_id=user.id,
                 workspace_id=workspace_id,
-                org_role=org_role,
             )
         else:
             # Regular user - validate workspace membership
@@ -554,32 +548,14 @@ async def _authenticate_user(
                 workspace_id=workspace_id,
                 user=user,
             )
-
-            # Check workspace role requirements
-            if (
-                require_workspace_roles
-                and membership_with_org.membership.role not in require_workspace_roles
-            ):
-                logger.debug(
-                    "User does not have the appropriate workspace role",
-                    user=user,
-                    workspace_id=workspace_id,
-                    role=require_workspace_roles,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="You cannot perform this operation",
-                )
-
             workspace_role = membership_with_org.membership.role
     else:
-        # No workspace specified or privileged user; determine org context
         if user.is_superuser:
             organization_id = await _resolve_org_for_superuser(request, session)
         else:
             organization_id = await _resolve_org_for_regular_user(session, user)
 
-    # Fetch org-level role if not already fetched
+    # Fetch org-level role if not already fetched (backward compat)
     if org_role is None:
         org_role = await _get_org_role(session, user.id, organization_id)
 
@@ -667,31 +643,17 @@ async def _validate_role(
     *,
     require_workspace: Literal["yes", "no", "optional"],
     min_access_level: AccessLevel | None,
-    require_org_roles: list[OrgRole] | None = None,
 ) -> Role:
-    """Validate structural requirements on the authenticated role.
+    """Validate structural requirements and compute scopes for the authenticated role.
+
+    Authorization is enforced via DB-driven scopes, not enum role checks.
 
     Raises:
-        HTTPException(401): If role is None.
-        HTTPException(403): If workspace required but missing, org role requirement not met,
-            or access level insufficient.
+        HTTPException(403): If workspace required but missing.
     """
-
     if require_workspace == "yes" and role.workspace_id is None:
         logger.warning("User does not have access to this workspace", role=role)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-
-    # Check org role requirement
-    if require_org_roles is not None:
-        if role.org_role not in require_org_roles and not role.is_platform_superuser:
-            logger.warning(
-                "User does not have required org role",
-                role=role,
-                require_org_roles=require_org_roles,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
-            )
 
     # Compute effective scopes and create new role with scopes included
     scopes = await compute_effective_scopes(role)
@@ -726,13 +688,6 @@ async def _role_dependency(
     Delegates to the appropriate auth handler based on credentials and allowed
     auth types, then validates the resulting role.
     """
-    # Normalize require_workspace_roles to list
-    ws_roles_list: list[WorkspaceRole] | None = None
-    if isinstance(require_workspace_roles, WorkspaceRole):
-        ws_roles_list = [require_workspace_roles]
-    elif require_workspace_roles:
-        ws_roles_list = list(require_workspace_roles)
-
     # Dispatch to appropriate auth handler
     role: Role | None = None
 
@@ -742,7 +697,6 @@ async def _role_dependency(
             session=session,
             user=user,
             workspace_id=workspace_id,
-            require_workspace_roles=ws_roles_list,
         )
     elif api_key and allow_service:
         role = await _authenticate_service(request, api_key)
@@ -763,12 +717,11 @@ async def _role_dependency(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized",
         )
-    # Validate structural requirements and set context
+    # Validate structural requirements and compute scopes
     role = await _validate_role(
         role,
         require_workspace=require_workspace,
         min_access_level=min_access_level,
-        require_org_roles=require_org_roles,
     )
     ctx_role.set(role)
     return role
