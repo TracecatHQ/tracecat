@@ -111,11 +111,11 @@ async def test_build_tarball_from_installed_environment_overlays_symlinked_packa
 
 
 @pytest.mark.anyio
-async def test_build_tarball_from_installed_environment_dereferences_unrelated_symlink_entries(
+async def test_build_tarball_from_installed_environment_skips_unrelated_symlink_entries(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Archive symlink targets as regular entries for extraction compatibility."""
+    """Skip unrelated symlink entries to keep tarballs extractable and small."""
     purelib = tmp_path / "purelib"
     purelib.mkdir()
     (purelib / "dependency.py").write_text("DEP = True\n")
@@ -148,8 +148,7 @@ async def test_build_tarball_from_installed_environment_dereferences_unrelated_s
             if member.name == "linked_dependency"
             or member.name.startswith("linked_dependency/")
         ]
-        assert linked_members
-        assert all(not member.issym() and not member.islnk() for member in linked_members)
+        assert not linked_members
 
         extract_dir = tmp_path / "extract"
         extract_dir.mkdir()
@@ -157,5 +156,4 @@ async def test_build_tarball_from_installed_environment_dereferences_unrelated_s
 
     assert (extract_dir / "dependency.py").exists()
     assert (extract_dir / "tracecat_registry" / "__init__.py").exists()
-    assert (extract_dir / "linked_dependency" / "__init__.py").exists()
-    assert not (extract_dir / "linked_dependency").is_symlink()
+    assert not (extract_dir / "linked_dependency").exists()
