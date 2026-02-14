@@ -8,6 +8,7 @@ import {
   TablePanelProvider,
   useTablePanel,
 } from "@/components/tables/table-panel-context"
+import { TableSelectionProvider } from "@/components/tables/table-selection-context"
 import { TableSidePanelContent } from "@/components/tables/table-side-panel"
 import { Button } from "@/components/ui/button"
 import { ResizableSidebar } from "@/components/ui/resizable-sidebar"
@@ -25,18 +26,20 @@ export default function TableDetailLayout({
   children: React.ReactNode
 }) {
   return (
-    <TablePanelProvider>
-      <SidebarProvider>
-        <AppSidebar />
-        <SidebarInset className="min-w-0 flex-1 mr-px">
-          <div className="flex h-full flex-col">
-            <ControlsHeader />
-            <div className="flex-1 overflow-y-auto">{children}</div>
-          </div>
-        </SidebarInset>
-        <TableSidePanel />
-      </SidebarProvider>
-    </TablePanelProvider>
+    <TableSelectionProvider>
+      <TablePanelProvider>
+        <SidebarProvider>
+          <AppSidebar />
+          <SidebarInset className="min-w-0 flex-1 mr-px">
+            <div className="flex h-full flex-col">
+              <ControlsHeader />
+              <div className="flex-1 overflow-y-auto">{children}</div>
+            </div>
+          </SidebarInset>
+          <TableSidePanel />
+        </SidebarProvider>
+      </TablePanelProvider>
+    </TableSelectionProvider>
   )
 }
 

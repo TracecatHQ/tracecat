@@ -49,6 +49,7 @@ import {
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { Spinner } from "@/components/loading/spinner"
+import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
@@ -1029,7 +1030,12 @@ function TableBreadcrumb({
 }
 
 function TableDetailsActions() {
-  return <TableInsertButton />
+  return (
+    <>
+      <TableSelectionActionsBar />
+      <TableInsertButton />
+    </>
+  )
 }
 
 function AgentPresetBreadcrumb({

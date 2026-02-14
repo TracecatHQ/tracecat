@@ -15112,6 +15112,75 @@ export const $TableReadMinimal = {
   description: "Read model for a table.",
 } as const
 
+export const $TableRowBatchDelete = {
+  properties: {
+    row_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 1000,
+      minItems: 1,
+      title: "Row Ids",
+    },
+  },
+  type: "object",
+  required: ["row_ids"],
+  title: "TableRowBatchDelete",
+  description: "Request body for batch deleting rows.",
+} as const
+
+export const $TableRowBatchDeleteResponse = {
+  properties: {
+    rows_deleted: {
+      type: "integer",
+      title: "Rows Deleted",
+    },
+  },
+  type: "object",
+  required: ["rows_deleted"],
+  title: "TableRowBatchDeleteResponse",
+  description: "Response for batch delete operation.",
+} as const
+
+export const $TableRowBatchUpdate = {
+  properties: {
+    row_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 1000,
+      minItems: 1,
+      title: "Row Ids",
+    },
+    data: {
+      additionalProperties: true,
+      type: "object",
+      title: "Data",
+    },
+  },
+  type: "object",
+  required: ["row_ids", "data"],
+  title: "TableRowBatchUpdate",
+  description: "Request body for batch updating rows.",
+} as const
+
+export const $TableRowBatchUpdateResponse = {
+  properties: {
+    rows_updated: {
+      type: "integer",
+      title: "Rows Updated",
+    },
+  },
+  type: "object",
+  required: ["rows_updated"],
+  title: "TableRowBatchUpdateResponse",
+  description: "Response for batch update operation.",
+} as const
+
 export const $TableRowInsert = {
   properties: {
     data: {

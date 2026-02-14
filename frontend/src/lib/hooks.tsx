@@ -209,7 +209,9 @@ import {
   settingsUpdateSamlSettings,
   type TableRead,
   type TableReadMinimal,
+  type TablesBatchDeleteRowsData,
   type TablesBatchInsertRowsData,
+  type TablesBatchUpdateRowsData,
   type TablesCreateColumnData,
   type TablesCreateTableData,
   type TablesCreateTableResponse,
@@ -230,7 +232,9 @@ import {
   type TagsDeleteTagData,
   type TagsUpdateTagData,
   type TriggerType,
+  tablesBatchDeleteRows,
   tablesBatchInsertRows,
+  tablesBatchUpdateRows,
   tablesCreateColumn,
   tablesCreateTable,
   tablesDeleteColumn,
@@ -3314,6 +3318,74 @@ export function useDeleteRow() {
     deleteRow,
     deleteRowIsPending,
     deleteRowError,
+  }
+}
+
+export function useBatchDeleteRows() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: batchDeleteRows,
+    isPending: batchDeleteRowsIsPending,
+    error: batchDeleteRowsError,
+  } = useMutation({
+    mutationFn: async (params: TablesBatchDeleteRowsData) =>
+      await tablesBatchDeleteRows(params),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["rows", variables.tableId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: [
+          "rows",
+          "paginated",
+          variables.tableId,
+          variables.workspaceId,
+        ],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["table", variables.tableId],
+      })
+    },
+  })
+
+  return {
+    batchDeleteRows,
+    batchDeleteRowsIsPending,
+    batchDeleteRowsError,
+  }
+}
+
+export function useBatchUpdateRows() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: batchUpdateRows,
+    isPending: batchUpdateRowsIsPending,
+    error: batchUpdateRowsError,
+  } = useMutation({
+    mutationFn: async (params: TablesBatchUpdateRowsData) =>
+      await tablesBatchUpdateRows(params),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["rows", variables.tableId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: [
+          "rows",
+          "paginated",
+          variables.tableId,
+          variables.workspaceId,
+        ],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["table", variables.tableId],
+      })
+    },
+  })
+
+  return {
+    batchUpdateRows,
+    batchUpdateRowsIsPending,
+    batchUpdateRowsError,
   }
 }
 
