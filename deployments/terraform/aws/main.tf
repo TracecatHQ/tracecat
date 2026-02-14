@@ -104,6 +104,16 @@ module "eks" {
   enable_waf     = var.enable_waf
   waf_rate_limit = var.waf_rate_limit
 
+  # Observability
+  enable_observability                 = var.enable_observability
+  grafana_cloud_prometheus_url         = var.grafana_cloud_prometheus_url
+  grafana_cloud_prometheus_username    = var.grafana_cloud_prometheus_username
+  grafana_cloud_loki_url               = var.grafana_cloud_loki_url
+  grafana_cloud_loki_username          = var.grafana_cloud_loki_username
+  grafana_cloud_credentials_secret_arn = var.grafana_cloud_credentials_secret_arn
+  grafana_cloud_firehose_endpoint      = var.grafana_cloud_firehose_endpoint
+  observability_log_retention_days     = var.observability_log_retention_days
+
   tags = var.tags
 
   # Auth Configuration

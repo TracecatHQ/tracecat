@@ -104,3 +104,8 @@ output "performance_monitoring" {
   description = "RDS database performance monitoring configuration."
   value       = module.eks.performance_monitoring
 }
+
+output "observability" {
+  description = "Observability pipeline status"
+  value       = module.eks.observability
+}
