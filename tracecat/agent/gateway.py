@@ -225,10 +225,19 @@ def _inject_provider_credentials(
             else:
                 access_key = creds.get("AWS_ACCESS_KEY_ID")
                 secret_key = creds.get("AWS_SECRET_ACCESS_KEY")
-                if not access_key or not secret_key:
+                session_token = creds.get("AWS_SESSION_TOKEN")
+
+                if access_key and secret_key:
+                    data["aws_access_key_id"] = access_key
+                    data["aws_secret_access_key"] = secret_key
+                    if session_token:
+                        data["aws_session_token"] = session_token
+                elif access_key or secret_key:
                     logger.warning(
-                        "Required credential keys missing for provider",
+                        "Partial static AWS credentials configured for Bedrock",
                         provider=provider,
+                        has_access_key=bool(access_key),
+                        has_secret_key=bool(secret_key),
                     )
                     raise ProxyException(
                         message="Provider credentials incomplete",
@@ -236,8 +245,11 @@ def _inject_provider_credentials(
                         param=None,
                         code=401,
                     )
-                data["aws_access_key_id"] = access_key
-                data["aws_secret_access_key"] = secret_key
+                else:
+                    logger.info(
+                        "No static Bedrock AWS credentials configured; using ambient IAM role credentials",
+                        provider=provider,
+                    )
             if region := creds.get("AWS_REGION"):
                 data["aws_region_name"] = region
 
