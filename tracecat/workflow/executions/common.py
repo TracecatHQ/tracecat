@@ -16,7 +16,6 @@ from tracecat.storage.object import (
     ExternalObject,
     InlineObject,
     StoredObject,
-    get_object_storage,
 )
 from tracecat.workflow.executions.enums import (
     TemporalSearchAttr,
@@ -121,7 +120,7 @@ async def unwrap_action_result(task_result: StoredObject) -> Any:
     This function extracts the actual data for UI display:
     - Validates StoredObject using TypeAdapter with discriminated union
     - For InlineObject: extracts 'data' directly
-    - For ExternalObject: fetches from S3/MinIO storage
+    - For ExternalObject: returns metadata for deferred retrieval
     - For CollectionObject: returns metadata (don't materialize huge collections)
 
     Returns the original value unchanged if it doesn't match TaskResult structure.
@@ -132,9 +131,7 @@ async def unwrap_action_result(task_result: StoredObject) -> Any:
             return data
 
         case ExternalObject():
-            storage = get_object_storage()
-            data = await storage.retrieve(task_result)
-            return data
+            return task_result
 
         case CollectionObject():
             return task_result
@@ -173,6 +170,31 @@ async def get_result(event: HistoryEvent) -> Any:
     except ValidationError:
         # Pre-TaskResult format or non-action result - return as-is
         return result
+
+
+async def get_stored_result(event: HistoryEvent) -> StoredObject | None:
+    """Extract StoredObject from a completed workflow history event.
+
+    Returns None when the event result cannot be validated as StoredObject
+    (e.g. pre-uniform-envelope history entries).
+    """
+    match event.event_type:
+        case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
+            payload = event.workflow_execution_completed_event_attributes.result
+        case EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
+            payload = event.activity_task_completed_event_attributes.result
+        case EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED:
+            payload = event.child_workflow_execution_completed_event_attributes.result
+        case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED:
+            payload = event.workflow_execution_update_completed_event_attributes.outcome.success
+        case _:
+            raise ValueError("Event is not a completed event")
+
+    result = await extract_first(payload)
+    try:
+        return _stored_object_validator.validate_python(result)
+    except ValidationError:
+        return None
 
 
 def get_source_event_id(event: HistoryEvent) -> int | None:

@@ -41,13 +41,14 @@ from tracecat.identifiers.workflow import (
 )
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.storage.object import StoredObject, get_object_storage
+from tracecat.storage.object import ExternalObject, StoredObject, get_object_storage
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
     build_query,
     extract_first,
     get_result,
     get_source_event_id,
+    get_stored_result,
     is_close_event,
     is_error_event,
     is_scheduled_event,
@@ -370,6 +371,46 @@ class WorkflowExecutionsService:
                     task2events[task].action_result = [event.action_result]
 
         return list(task2events.values())
+
+    async def get_external_action_result(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+        event_id: int,
+    ) -> ExternalObject:
+        """Get an ExternalObject result for an event/source event ID.
+
+        The provided event_id may be:
+        - the completed event ID (e.g. ACTIVITY_TASK_COMPLETED), or
+        - the source scheduled event ID used by compact event payloads.
+        """
+        handle = self.handle(wf_exec_id)
+        source_match: HistoryEvent | None = None
+
+        async for event in handle.fetch_history_events():
+            if not is_close_event(event):
+                continue
+            if event.event_id == event_id:
+                source_match = event
+                break
+            if get_source_event_id(event) == event_id:
+                source_match = event
+
+        if source_match is None:
+            raise ValueError(f"No completed event found for event_id={event_id}")
+
+        stored = await get_stored_result(source_match)
+        if stored is None:
+            raise TypeError(
+                f"Event {source_match.event_id} result is not a StoredObject"
+            )
+
+        match stored:
+            case ExternalObject() as external:
+                return external
+            case _:
+                raise TypeError(
+                    f"Event {source_match.event_id} result is not external (got {stored.type})"
+                )
 
     async def list_workflow_execution_events(
         self,

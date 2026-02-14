@@ -377,6 +377,78 @@ async def download_file(key: str, bucket: str) -> bytes:
     return content
 
 
+async def download_file_range(
+    *,
+    key: str,
+    bucket: str,
+    start: int,
+    end: int | None = None,
+) -> bytes:
+    """Download a byte range from an S3 object.
+
+    Args:
+        key: The S3 object key
+        bucket: Bucket name (required)
+        start: Inclusive start byte offset
+        end: Inclusive end byte offset. If omitted, reads until EOF.
+
+    Returns:
+        The requested byte range as bytes
+
+    Raises:
+        FileNotFoundError: If the object doesn't exist
+        ValueError: If the provided range is invalid
+        ClientError: If the download fails
+    """
+    if start < 0:
+        raise ValueError("Range start must be >= 0")
+    if end is not None and end < start:
+        raise ValueError("Range end must be >= start")
+
+    range_header = f"bytes={start}-" if end is None else f"bytes={start}-{end}"
+
+    try:
+        async with get_storage_client() as s3_client:
+            response = await s3_client.get_object(
+                Bucket=bucket,
+                Key=key,
+                Range=range_header,
+            )
+            body: StreamingBody = response["Body"]
+            async with body as stream:
+                content = await stream.read()
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code")
+        if error_code == "NoSuchKey":
+            logger.warning(
+                "File not found in storage",
+                key=key,
+                bucket=bucket,
+            )
+            raise FileNotFoundError from e
+        if error_code == "InvalidRange":
+            raise ValueError(
+                f"Invalid range requested for {bucket}/{key}: {range_header}"
+            ) from e
+        logger.error(
+            "Failed to download file range",
+            key=key,
+            bucket=bucket,
+            range=range_header,
+            error=str(e),
+        )
+        raise
+
+    logger.debug(
+        "File range downloaded successfully",
+        key=key,
+        bucket=bucket,
+        range=range_header,
+        size=len(content),
+    )
+    return content
+
+
 @asynccontextmanager
 async def open_download_stream(
     key: str,

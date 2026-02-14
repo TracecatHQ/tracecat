@@ -90,7 +90,10 @@ export default function ExecutionPage() {
         <div className="flex h-full flex-col overflow-hidden">
           <div className="flex-1 overflow-auto">
             {selectedEvent ? (
-              <WorkflowExecutionEventDetailView event={selectedEvent} />
+              <WorkflowExecutionEventDetailView
+                event={selectedEvent}
+                executionId={fullExecutionId}
+              />
             ) : (
               <main className="container flex size-full max-w-[400px] flex-col items-center justify-center space-y-4">
                 <h1 className="text-lg font-semibold tracking-tight">

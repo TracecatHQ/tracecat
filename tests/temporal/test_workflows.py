@@ -90,7 +90,6 @@ from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInse
 from tracecat.tables.service import TablesService
 from tracecat.variables.schemas import VariableCreate
 from tracecat.variables.service import VariablesService
-from tracecat.workflow.executions.common import unwrap_action_result
 from tracecat.workflow.executions.enums import WorkflowEventType
 from tracecat.workflow.executions.schemas import (
     EventGroup,
@@ -456,9 +455,9 @@ async def assert_respectful_exec_order(dsl: DSLInput, final_context: ExecutionCo
             # Results come back as dicts when deserialized through Temporal
             source_task = TaskResult.model_validate(act_outputs[source])
             target_task = TaskResult.model_validate(act_outputs[target])
-            # Unwrap StoredObject (handles both inline and external/S3)
-            source_data = await unwrap_action_result(source_task.result)
-            target_data = await unwrap_action_result(target_task.result)
+            # Materialize StoredObject values for ordering assertions.
+            source_data = await to_data(source_task.result)
+            target_data = await to_data(target_task.result)
             assert source_data < target_data
 
 
@@ -676,8 +675,8 @@ async def test_workflow_override_environment_correct(
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
-    # Unwrap StoredObject to compare actual data (handles both inline and external)
-    assert await unwrap_action_result(result) == "__CORRECT_ENVIRONMENT__"
+    # Materialize StoredObject result for comparison.
+    assert await to_data(result) == "__CORRECT_ENVIRONMENT__"
 
 
 @pytest.mark.anyio
@@ -3716,8 +3715,8 @@ async def test_workflow_detached_child_workflow(
 
                 tg.create_task(child_handle.result())
 
-        # Unwrap StoredObject results (uniform envelope design)
-        results = [await unwrap_action_result(r) for r in tg.results()]
+        # Materialize StoredObject results for value assertions.
+        results = [await to_data(r) for r in tg.results()]
         assert results == [1001, 1002, 1003]
 
 

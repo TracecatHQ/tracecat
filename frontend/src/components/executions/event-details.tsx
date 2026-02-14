@@ -25,6 +25,7 @@ import {
 import Link from "next/link"
 import { useParams } from "next/navigation"
 import { CodeBlock } from "@/components/code-block"
+import { ExternalObjectResult } from "@/components/executions/external-object-result"
 import { GenericWorkflowIcon, getIcon } from "@/components/icons"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
@@ -44,6 +45,7 @@ import {
   parseEventType,
   parseExecutionId,
 } from "@/lib/event-history"
+import { isExternalStoredObject } from "@/lib/stored-object"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -54,8 +56,10 @@ import { useWorkspaceId } from "@/providers/workspace-id"
  */
 export function WorkflowExecutionEventDetailView({
   event,
+  executionId,
 }: {
   event: WorkflowExecutionEvent
+  executionId: string
 }) {
   const { event_group, result, failure } = event
   const action_input = event_group?.action_input
@@ -103,7 +107,7 @@ export function WorkflowExecutionEventDetailView({
         )}
 
         {/* Action details */}
-        {(result as Record<string, unknown>) && (
+        {result !== null && result !== undefined && (
           <AccordionItem value="result">
             <AccordionTrigger className="px-4 text-xs font-bold">
               <div className="flex items-end">
@@ -112,7 +116,15 @@ export function WorkflowExecutionEventDetailView({
             </AccordionTrigger>
             <AccordionContent>
               <div className="my-4 flex flex-col space-y-8 px-4">
-                <JsonViewWithControls src={result} />
+                {isExternalStoredObject(result) ? (
+                  <ExternalObjectResult
+                    executionId={executionId}
+                    eventId={event.event_id}
+                    external={result}
+                  />
+                ) : (
+                  <JsonViewWithControls src={result} />
+                )}
               </div>
             </AccordionContent>
           </AccordionItem>

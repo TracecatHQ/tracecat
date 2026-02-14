@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import (
     Annotated,
     Any,
@@ -143,6 +144,42 @@ class WorkflowExecutionReadCompact[TInput: Any, TResult: Any, TSessionEvent: Any
     interactions: list[InteractionRead] = Field(
         default_factory=list,
         description="The interactions in the workflow execution",
+    )
+
+
+class WorkflowExecutionObjectField(StrEnum):
+    ACTION_RESULT = "action_result"
+
+
+class WorkflowExecutionObjectRequest(BaseModel):
+    event_id: int = Field(..., ge=1, description="Temporal history event ID")
+    field: WorkflowExecutionObjectField = Field(
+        default=WorkflowExecutionObjectField.ACTION_RESULT
+    )
+
+
+class WorkflowExecutionObjectDownloadResponse(BaseModel):
+    download_url: str = Field(..., description="Pre-signed download URL")
+    file_name: str = Field(..., description="Suggested file name")
+    content_type: str = Field(..., description="MIME type of the object")
+    size_bytes: int = Field(..., ge=0, description="Object size in bytes")
+    expires_in_seconds: int = Field(
+        ..., ge=1, description="Presigned URL expiry in seconds"
+    )
+
+
+class WorkflowExecutionObjectPreviewResponse(BaseModel):
+    content: str = Field(..., description="Preview text content")
+    content_type: str = Field(..., description="MIME type of the object")
+    size_bytes: int = Field(..., ge=0, description="Total object size in bytes")
+    preview_bytes: int = Field(
+        ..., ge=0, description="Number of bytes used for preview"
+    )
+    truncated: bool = Field(
+        ..., description="Whether preview is truncated due to size limits"
+    )
+    encoding: Literal["utf-8", "unknown"] = Field(
+        ..., description="Encoding used to decode preview text"
     )
 
 
