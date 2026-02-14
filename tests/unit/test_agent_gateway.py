@@ -48,3 +48,14 @@ def test_bedrock_rejects_partial_static_keys():
 
     with pytest.raises(ProxyException):
         _inject_provider_credentials(data, "bedrock", creds)
+
+
+def test_bedrock_rejects_session_token_without_static_keys():
+    data = {"model": "bedrock"}
+    creds = {
+        "AWS_SESSION_TOKEN": "session-token",
+        "AWS_INFERENCE_PROFILE_ID": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+    }
+
+    with pytest.raises(ProxyException):
+        _inject_provider_credentials(data, "bedrock", creds)

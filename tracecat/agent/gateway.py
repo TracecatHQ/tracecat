@@ -232,12 +232,13 @@ def _inject_provider_credentials(
                     data["aws_secret_access_key"] = secret_key
                     if session_token:
                         data["aws_session_token"] = session_token
-                elif access_key or secret_key:
+                elif access_key or secret_key or session_token:
                     logger.warning(
                         "Partial static AWS credentials configured for Bedrock",
                         provider=provider,
                         has_access_key=bool(access_key),
                         has_secret_key=bool(secret_key),
+                        has_session_token=bool(session_token),
                     )
                     raise ProxyException(
                         message="Provider credentials incomplete",
