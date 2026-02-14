@@ -108,3 +108,49 @@ async def test_build_tarball_from_installed_environment_overlays_symlinked_packa
     extracted_package = extract_dir / "tracecat_registry" / "__init__.py"
     assert extracted_package.exists()
     assert not (extract_dir / "tracecat_registry").is_symlink()
+
+
+@pytest.mark.anyio
+async def test_build_tarball_from_installed_environment_skips_unrelated_symlink_entries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Skip non-package symlink entries to keep executor extraction compatible."""
+    purelib = tmp_path / "purelib"
+    purelib.mkdir()
+    (purelib / "dependency.py").write_text("DEP = True\n")
+
+    linked_target = tmp_path / "linked_target"
+    linked_target.mkdir()
+    (linked_target / "__init__.py").write_text("X = True\n")
+    (purelib / "linked_dependency").symlink_to(linked_target, target_is_directory=True)
+
+    package_dir = tmp_path / "src" / "tracecat_registry"
+    package_dir.mkdir(parents=True)
+    (package_dir / "__init__.py").write_text("__version__ = '0.0.0'\n")
+
+    monkeypatch.setattr(
+        tarball,
+        "get_installed_site_packages_paths",
+        lambda: [purelib],
+    )
+
+    result = await tarball.build_tarball_venv_from_installed_environment(
+        package_name="tracecat_registry",
+        package_dir=package_dir,
+        output_dir=tmp_path / "out",
+    )
+
+    with tarfile.open(result.tarball_path, "r:gz") as archive:
+        assert not any(
+            member.name == "linked_dependency" and (member.issym() or member.islnk())
+            for member in archive.getmembers()
+        )
+
+        extract_dir = tmp_path / "extract"
+        extract_dir.mkdir()
+        archive.extractall(path=extract_dir, filter="data")
+
+    assert (extract_dir / "dependency.py").exists()
+    assert (extract_dir / "tracecat_registry" / "__init__.py").exists()
+    assert not (extract_dir / "linked_dependency").exists()

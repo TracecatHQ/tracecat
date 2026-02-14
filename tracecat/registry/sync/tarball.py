@@ -184,23 +184,21 @@ async def build_tarball_venv_from_installed_environment(
         package_site_entry_is_symlink=package_site_entry_is_symlink,
     )
 
+    def _filter_link_entries(member: tarfile.TarInfo) -> tarfile.TarInfo | None:
+        if member.issym() or member.islnk():
+            logger.info(
+                "Skipping link entry while building installed environment tarball",
+                member_name=member.name,
+                link_target=member.linkname,
+            )
+            return None
+        return member
+
     def _create_tarball() -> None:
         with tarfile.open(tarball_path, "w:gz", compresslevel=6) as tar:
             for site_packages in site_packages_paths:
                 for item in site_packages.iterdir():
-                    if (
-                        should_overlay_editable_package
-                        and item.name == package_name
-                        and item.is_symlink()
-                    ):
-                        logger.info(
-                            "Skipping symlinked package entry in site-packages",
-                            package_name=package_name,
-                            site_packages=str(site_packages),
-                            symlink_path=str(item),
-                        )
-                        continue
-                    tar.add(item, arcname=item.name)
+                    tar.add(item, arcname=item.name, filter=_filter_link_entries)
 
             # Editable installs put package source outside site-packages.
             if not package_in_site_packages:
@@ -211,7 +209,11 @@ async def build_tarball_venv_from_installed_environment(
                         site_packages=str(primary_site_packages),
                     )
                 else:
-                    tar.add(package_dir, arcname=package_name)
+                    tar.add(
+                        package_dir,
+                        arcname=package_name,
+                        filter=_filter_link_entries,
+                    )
 
     await asyncio.to_thread(_create_tarball)
 
