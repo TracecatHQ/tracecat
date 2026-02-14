@@ -7,11 +7,41 @@ import {
   type ApiError,
   type AuthAuthDatabaseLoginData,
   authAuthDatabaseLogin,
-  authAuthDatabaseLogout,
   authRegisterRegister,
 } from "@/client"
 import { authConfig } from "@/config/auth"
-import { getCurrentUser, User } from "@/lib/auth"
+import {
+  FORCE_OIDC_REAUTH_AFTER_LOGOUT_SESSION_KEY,
+  getCurrentUser,
+  User,
+} from "@/lib/auth"
+
+async function logoutViaServerRoute(): Promise<void> {
+  try {
+    await fetch("/auth/logout", {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+    })
+  } catch (error) {
+    console.warn("Failed to execute server logout route", error)
+  }
+}
+
+function markForceOidcReauthAfterLogout(): void {
+  if (process.env.NODE_ENV !== "development") {
+    return
+  }
+
+  try {
+    window.sessionStorage.setItem(
+      FORCE_OIDC_REAUTH_AFTER_LOGOUT_SESSION_KEY,
+      "1"
+    )
+  } catch (error) {
+    console.warn("Failed to persist dev reauth flag", error)
+  }
+}
 
 /* ── AUTH ACTIONS HOOK ─────────────────────────────────────────────────── */
 
@@ -32,12 +62,12 @@ export function useAuthActions() {
 
   const logout = useCallback(
     async (redirectUrl?: string) => {
-      const logoutResponse = await authAuthDatabaseLogout()
+      await logoutViaServerRoute()
       await queryClient.invalidateQueries({
         queryKey: ["auth"],
       })
+      markForceOidcReauthAfterLogout()
       router.push(redirectUrl ?? "/sign-in")
-      return logoutResponse
     },
     [queryClient, router]
   )

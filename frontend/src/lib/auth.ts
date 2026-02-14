@@ -138,3 +138,5 @@ export class User {
 }
 
 export const SYSTEM_USER = new User(SYSTEM_USER_READ)
+export const FORCE_OIDC_REAUTH_AFTER_LOGOUT_SESSION_KEY =
+  "tracecat_force_oidc_reauth_after_logout"
