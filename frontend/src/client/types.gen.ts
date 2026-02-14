@@ -2272,6 +2272,34 @@ export type EditorParamRead = {
 }
 
 /**
+ * Effective feature entitlements for an organization.
+ *
+ * Values are resolved from org overrides falling back to tier defaults.
+ */
+export type EffectiveEntitlements = {
+  /**
+   * Whether custom registry repositories are enabled
+   */
+  custom_registry?: boolean
+  /**
+   * Whether SSO is enabled
+   */
+  sso?: boolean
+  /**
+   * Whether git sync is enabled
+   */
+  git_sync?: boolean
+  /**
+   * Whether add-on agent capabilities are enabled (approvals, presets)
+   */
+  agent_addons?: boolean
+  /**
+   * Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)
+   */
+  case_addons?: boolean
+}
+
+/**
  * TypedDict for tier entitlements stored in JSONB.
  *
  * All keys are optional (total=False) to support partial overrides.
@@ -2289,6 +2317,14 @@ export type EntitlementsDict = {
    * Whether git sync is enabled
    */
   git_sync?: boolean
+  /**
+   * Whether add-on agent capabilities are enabled (approvals, presets)
+   */
+  agent_addons?: boolean
+  /**
+   * Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)
+   */
+  case_addons?: boolean
 }
 
 export type ErrorDetails = {
@@ -2434,16 +2470,11 @@ export type ExternalObject = {
 }
 
 /**
- * Feature flag enum.
+ * Feature flag enum reserved for engineering rollouts.
+ *
+ * NOTE: At least one member is required for valid OpenAPI schema generation.
  */
-export type FeatureFlag =
-  | "git-sync"
-  | "agent-approvals"
-  | "agent-presets"
-  | "case-dropdowns"
-  | "case-durations"
-  | "case-tasks"
-  | "case-triggers"
+export type FeatureFlag = "__placeholder__"
 
 /**
  * Response model for feature flags.
@@ -3800,6 +3831,7 @@ export type RegistryActionInterface = {
 export type RegistryActionOptions = {
   include_in_schema?: boolean
   requires_approval?: boolean
+  required_entitlements?: Array<string> | null
 }
 
 /**
@@ -7147,8 +7179,20 @@ export type UsersSearchUserResponse = UserRead
 export type OrganizationGetOrganizationResponse =
   tracecat__organization__schemas__OrgRead
 
+export type OrganizationDeleteOrganizationData = {
+  /**
+   * Must exactly match the organization name.
+   */
+  confirm?: string | null
+}
+
+export type OrganizationDeleteOrganizationResponse = void
+
 export type OrganizationListOrganizationDomainsResponse =
   Array<tracecat__organization__schemas__OrgDomainRead>
+
+export type OrganizationGetOrganizationEntitlementsResponse =
+  EffectiveEntitlements
 
 export type OrganizationGetCurrentOrgMemberResponse = OrgMemberDetail
 
@@ -7445,6 +7489,10 @@ export type AdminUpdateOrganizationResponse =
   tracecat_ee__admin__organizations__schemas__OrgRead
 
 export type AdminDeleteOrganizationData = {
+  /**
+   * Must exactly match the organization name.
+   */
+  confirm?: string | null
   orgId: string
 }
 
@@ -10094,6 +10142,19 @@ export type $OpenApiTs = {
         200: tracecat__organization__schemas__OrgRead
       }
     }
+    delete: {
+      req: OrganizationDeleteOrganizationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
   }
   "/organization/domains": {
     get: {
@@ -10102,6 +10163,16 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<tracecat__organization__schemas__OrgDomainRead>
+      }
+    }
+  }
+  "/organization/entitlements": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EffectiveEntitlements
       }
     }
   }

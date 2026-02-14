@@ -3,7 +3,7 @@
 import { useEffect } from "react"
 import { CasesLayout } from "@/components/cases/cases-layout"
 import { useCases } from "@/hooks/use-cases"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import { useCaseDropdownDefinitions, useCaseTagCatalog } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -48,9 +48,12 @@ export default function CasesPage() {
 
   const { members } = useWorkspaceMembers(workspaceId)
   const { caseTags } = useCaseTagCatalog(workspaceId)
-  const { isFeatureEnabled } = useFeatureFlag()
-  const caseDropdownsEnabled = isFeatureEnabled("case-dropdowns")
-  const { dropdownDefinitions } = useCaseDropdownDefinitions(workspaceId)
+  const { hasEntitlement } = useEntitlements()
+  const caseAddonsEnabled = hasEntitlement("case_addons")
+  const { dropdownDefinitions } = useCaseDropdownDefinitions(
+    workspaceId,
+    caseAddonsEnabled
+  )
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -87,7 +90,7 @@ export default function CasesPage() {
         onUpdatedAtSortChange={setUpdatedAtSort}
         onLimitChange={setLimit}
         dropdownDefinitions={
-          caseDropdownsEnabled ? dropdownDefinitions : undefined
+          caseAddonsEnabled ? dropdownDefinitions : undefined
         }
         onDropdownFilterChange={setDropdownFilter}
         onDropdownModeChange={setDropdownMode}

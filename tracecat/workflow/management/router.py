@@ -7,7 +7,6 @@ import yaml
 from asyncpg import UniqueViolationError
 from fastapi import (
     APIRouter,
-    Depends,
     File,
     Form,
     HTTPException,
@@ -29,7 +28,6 @@ from tracecat.db.models import Webhook, WebhookApiKey, Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.schemas import DSLConfig
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
@@ -746,19 +744,11 @@ async def update_webhook(
 # ----- Workflow Case Triggers ----- #
 
 
-def _check_case_triggers_flag() -> None:
-    if not is_feature_enabled(FeatureFlag.CASE_TRIGGERS):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Feature not enabled"
-        )
-
-
 @router.post(
     "/{workflow_id}/case-trigger",
     status_code=status.HTTP_201_CREATED,
     tags=["triggers"],
     response_model=CaseTriggerRead,
-    dependencies=[Depends(_check_case_triggers_flag)],
 )
 async def create_case_trigger(
     role: WorkspaceUserRole,
@@ -783,7 +773,6 @@ async def create_case_trigger(
     "/{workflow_id}/case-trigger",
     tags=["triggers"],
     response_model=CaseTriggerRead,
-    dependencies=[Depends(_check_case_triggers_flag)],
 )
 async def get_case_trigger(
     role: WorkspaceUserRole,
@@ -803,7 +792,6 @@ async def get_case_trigger(
     "/{workflow_id}/case-trigger",
     tags=["triggers"],
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(_check_case_triggers_flag)],
 )
 async def update_case_trigger(
     role: WorkspaceUserRole,

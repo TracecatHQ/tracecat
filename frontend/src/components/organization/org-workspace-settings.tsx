@@ -20,7 +20,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { validateGitSshUrl } from "@/lib/git"
 import { useWorkspaceSettings } from "@/lib/hooks"
 import { OrgWorkspaceDeleteDialog } from "./org-workspace-delete-dialog"
@@ -73,7 +73,7 @@ export function OrgWorkspaceSettings({
     workspace.settings?.effective_allowed_attachment_extensions || []
   const systemDefaultMimeTypes =
     workspace.settings?.effective_allowed_attachment_mime_types || []
-  const { isFeatureEnabled } = useFeatureFlag()
+  const { hasEntitlement } = useEntitlements()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [pullDialogOpen, setPullDialogOpen] = useState(false)
   const { updateWorkspace, isUpdating, deleteWorkspace, isDeleting } =
@@ -169,7 +169,7 @@ export function OrgWorkspaceSettings({
               )}
             />
 
-            {isFeatureEnabled("git-sync") && (
+            {hasEntitlement("git_sync") && (
               <div>
                 <h4 className="text-md font-medium mb-4">
                   Git repository settings

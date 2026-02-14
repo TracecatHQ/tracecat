@@ -26,6 +26,7 @@ from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
+from tracecat.tiers.entitlements import Entitlement, check_entitlement
 
 router = APIRouter(
     prefix="/internal/agent",
@@ -121,6 +122,9 @@ async def run_agent_endpoint(
         if config.mcp_servers:
             mcp_servers = [MCPServerConfig(**s) for s in config.mcp_servers]
 
+        if config and config.tool_approvals:
+            await check_entitlement(session, role, Entitlement.AGENT_ADDONS)
+
         async with _provider_secrets_context(agent_svc, config.model_provider):
             result: AgentOutput = await runtime_run_agent(
                 user_prompt=params.user_prompt,
@@ -138,7 +142,6 @@ async def run_agent_endpoint(
                 retries=config.retries,
                 base_url=config.base_url,
             )
-
         return result.model_dump(mode="json")
     except AgentRunError as e:
         logger.exception("Agent run error", error=e)

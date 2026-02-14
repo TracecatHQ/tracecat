@@ -1,5 +1,4 @@
 import asyncio
-from collections.abc import Callable
 from contextlib import asynccontextmanager
 
 import tracecat_registry
@@ -77,11 +76,6 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.editor.router import router as editor_router
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
-from tracecat.feature_flags import (
-    FeatureFlag,
-    FlagLike,
-    is_feature_enabled,
-)
 from tracecat.feature_flags.router import router as feature_flags_router
 from tracecat.inbox.router import router as inbox_router
 from tracecat.integrations.router import (
@@ -332,20 +326,6 @@ def scope_denied_exception_handler(request: Request, exc: Exception) -> Response
     )
 
 
-def feature_flag_dep(flag: FlagLike) -> Callable[..., None]:
-    """Check if a feature flag is enabled."""
-
-    def _is_feature_enabled() -> None:
-        if not is_feature_enabled(flag):
-            logger.debug("Feature flag is not enabled", flag=flag)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Feature not enabled"
-            )
-        logger.debug("Feature flag is enabled", flag=flag)
-
-    return _is_feature_enabled
-
-
 def create_app(**kwargs) -> FastAPI:
     if config.TRACECAT__ALLOW_ORIGINS is not None:
         allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
@@ -398,10 +378,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(users_router)
     app.include_router(org_router)
     app.include_router(agent_router)
-    app.include_router(
-        agent_preset_router,
-        dependencies=[Depends(feature_flag_dep(FeatureFlag.AGENT_PRESETS))],
-    )
+    app.include_router(agent_preset_router)
     app.include_router(agent_session_router)
     app.include_router(approvals_router)
     app.include_router(admin_router)
@@ -418,27 +395,15 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(case_tags_router)
     app.include_router(case_tag_definitions_router)
     app.include_router(case_attachments_router)
-    app.include_router(
-        case_dropdowns_router,
-        dependencies=[Depends(feature_flag_dep(FeatureFlag.CASE_DROPDOWNS))],
-    )
-    app.include_router(
-        case_dropdown_values_router,
-        dependencies=[Depends(feature_flag_dep(FeatureFlag.CASE_DROPDOWNS))],
-    )
-    app.include_router(
-        case_durations_router,
-        dependencies=[Depends(feature_flag_dep(FeatureFlag.CASE_DURATIONS))],
-    )
+    app.include_router(case_dropdowns_router)
+    app.include_router(case_dropdown_values_router)
+    app.include_router(case_durations_router)
     app.include_router(workflow_folders_router)
     app.include_router(integrations_router)
     app.include_router(providers_router)
     app.include_router(mcp_router)
     app.include_router(feature_flags_router)
-    app.include_router(
-        vcs_router,
-        dependencies=[Depends(feature_flag_dep(FeatureFlag.GIT_SYNC))],
-    )
+    app.include_router(vcs_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",

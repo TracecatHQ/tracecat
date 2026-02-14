@@ -20,4 +20,6 @@ DEFAULT_ENTITLEMENTS = EffectiveEntitlements(
     custom_registry=True,
     sso=True,
     git_sync=True,
+    agent_addons=True,
+    case_addons=True,
 )

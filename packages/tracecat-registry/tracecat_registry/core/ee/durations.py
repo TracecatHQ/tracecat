@@ -1,7 +1,7 @@
 """SDK-only case duration UDFs.
 
 These UDFs are always registered but route to internal endpoints that are
-gated by feature flags on the server side. If the feature is not enabled,
+gated by entitlements on the server side. If the entitlement is not enabled,
 the server will return 404.
 """
 
@@ -18,6 +18,7 @@ from tracecat_registry.context import get_context
     display_group="Cases",
     description="Get case metrics as time-series.",
     namespace="core.cases",
+    required_entitlements=["case_addons"],
 )
 async def get_case_metrics(
     case_ids: Annotated[

@@ -19,3 +19,17 @@ class EntitlementsDict(TypedDict, total=False):
     ]
     sso: Annotated[bool, Field(description="Whether SSO is enabled")]
     git_sync: Annotated[bool, Field(description="Whether git sync is enabled")]
+    agent_addons: Annotated[
+        bool,
+        Field(
+            description="Whether add-on agent capabilities are enabled"
+            " (approvals, presets)"
+        ),
+    ]
+    case_addons: Annotated[
+        bool,
+        Field(
+            description="Whether add-on case capabilities are enabled"
+            " (dropdowns, durations, tasks, triggers)"
+        ),
+    ]

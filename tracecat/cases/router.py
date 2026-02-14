@@ -693,7 +693,10 @@ async def list_events_with_users(
 # Case Tasks
 
 
-@cases_router.get("/{case_id}/tasks", status_code=HTTP_200_OK)
+@cases_router.get(
+    "/{case_id}/tasks",
+    status_code=HTTP_200_OK,
+)
 async def list_tasks(
     *,
     role: WorkspaceUser,
@@ -725,7 +728,10 @@ async def list_tasks(
     ]
 
 
-@cases_router.post("/{case_id}/tasks", status_code=HTTP_201_CREATED)
+@cases_router.post(
+    "/{case_id}/tasks",
+    status_code=HTTP_201_CREATED,
+)
 async def create_task(
     *,
     role: WorkspaceUser,
@@ -767,7 +773,10 @@ async def create_task(
         ) from e
 
 
-@cases_router.patch("/{case_id}/tasks/{task_id}", status_code=HTTP_200_OK)
+@cases_router.patch(
+    "/{case_id}/tasks/{task_id}",
+    status_code=HTTP_200_OK,
+)
 async def update_task(
     *,
     role: WorkspaceUser,
@@ -813,7 +822,10 @@ async def update_task(
         ) from e
 
 
-@cases_router.delete("/{case_id}/tasks/{task_id}", status_code=HTTP_204_NO_CONTENT)
+@cases_router.delete(
+    "/{case_id}/tasks/{task_id}",
+    status_code=HTTP_204_NO_CONTENT,
+)
 async def delete_task(
     *,
     role: WorkspaceUser,

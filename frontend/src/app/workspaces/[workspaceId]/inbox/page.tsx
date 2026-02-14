@@ -4,14 +4,12 @@ import { useEffect } from "react"
 import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
 import { ActivityLayout } from "@/components/inbox"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useInbox } from "@/hooks/use-inbox"
 
 export default function InboxPage() {
-  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
-  const agentApprovalsEnabled = isFeatureEnabled("agent-approvals")
-  const agentPresetsEnabled = isFeatureEnabled("agent-presets")
-  const agentsFeatureEnabled = agentApprovalsEnabled && agentPresetsEnabled
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
 
   const {
     sessions,
@@ -25,17 +23,17 @@ export default function InboxPage() {
     setLimit,
     setUpdatedAfter,
     setCreatedAfter,
-  } = useInbox({ enabled: agentsFeatureEnabled })
+  } = useInbox({ enabled: agentAddonsEnabled })
 
   useEffect(() => {
     document.title = "Inbox"
   }, [])
 
-  if (featureFlagsLoading) {
+  if (entitlementsLoading) {
     return <CenteredSpinner />
   }
 
-  if (!agentsFeatureEnabled) {
+  if (!agentAddonsEnabled) {
     return (
       <div className="size-full overflow-auto">
         <div className="mx-auto flex h-full w-full max-w-3xl flex-1 items-center justify-center py-12">
