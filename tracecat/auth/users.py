@@ -44,7 +44,10 @@ from tracecat.auth.enums import AuthType
 from tracecat.auth.schemas import UserCreate, UserUpdate
 from tracecat.auth.types import PlatformRole
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session, get_async_session_context_manager
+from tracecat.db.engine import (
+    get_async_session,
+    get_async_session_bypass_rls_context_manager,
+)
 from tracecat.db.models import (
     AccessToken,
     OAuthAccount,
@@ -122,7 +125,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
     async def validate_email(self, email: str) -> None:
         # Check if this is attempting to be the first user (superadmin)
-        async with get_async_session_context_manager() as session:
+        async with get_async_session_bypass_rls_context_manager() as session:
             users = await list_users(session=session)
             if len(users) == 0:  # This would be the first user
                 # Only allow registration if this is the designated superadmin email
@@ -354,7 +357,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             return
 
         try:
-            async with get_async_session_context_manager() as session:
+            async with get_async_session_bypass_rls_context_manager() as session:
                 membership = await accept_invitation_for_user(
                     session, user_id=user.id, token=token
                 )
@@ -585,7 +588,7 @@ def is_unprivileged(user: User) -> bool:
 
 
 async def get_or_create_user(params: UserCreate, exist_ok: bool = True) -> User:
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         async with get_user_db_context(session) as user_db:
             async with get_user_manager_context(user_db) as user_manager:
                 try:

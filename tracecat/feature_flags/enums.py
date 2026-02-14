@@ -11,3 +11,4 @@ class FeatureFlag(StrEnum):
     CASE_DURATIONS = "case-durations"
     CASE_TASKS = "case-tasks"
     CASE_TRIGGERS = "case-triggers"
+    RLS_ENABLED = "rls-enabled"

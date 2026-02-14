@@ -2444,6 +2444,7 @@ export type FeatureFlag =
   | "case-durations"
   | "case-tasks"
   | "case-triggers"
+  | "rls-enabled"
 
 /**
  * Response model for feature flags.

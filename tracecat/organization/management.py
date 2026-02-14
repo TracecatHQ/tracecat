@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.cases.service import CaseFieldsService
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     Membership,
     Organization,
@@ -260,7 +260,7 @@ async def ensure_default_organization() -> OrganizationID:
     Returns:
         OrganizationID: The ID of the default (or first) organization.
     """
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         # Check if any organization exists
         count_result = await session.execute(
             select(func.count()).select_from(Organization)

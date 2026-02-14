@@ -8009,6 +8009,7 @@ export const $FeatureFlag = {
     "case-durations",
     "case-tasks",
     "case-triggers",
+    "rls-enabled",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum.",
