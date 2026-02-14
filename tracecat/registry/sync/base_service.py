@@ -485,7 +485,6 @@ class BaseRegistrySyncService[
                 "Tarball venv uploaded",
                 tarball_uri=tarball_uri,
                 compressed_size_bytes=tarball_result.compressed_size_bytes,
-                uncompressed_size_bytes=tarball_result.uncompressed_size_bytes,
             )
 
             return ArtifactsBuildResult(tarball_uri=tarball_uri)
