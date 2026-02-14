@@ -129,6 +129,8 @@ FILES=(
     "deployments/helm/tracecat/Chart.yaml"
     "deployments/terraform/aws/variables.tf"
     "deployments/terraform/aws/modules/eks/variables.tf"
+    "deployments/fargate/variables.tf"
+    "deployments/fargate/modules/ecs/variables.tf"
     "docs/self-hosting/deployment-options/docker-compose.mdx"
     "docs/quickstart/install.mdx"
     "docs/self-hosting/updating.mdx"
