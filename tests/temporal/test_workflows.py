@@ -74,6 +74,7 @@ from tracecat.identifiers.workflow import (
     WorkflowUUID,
 )
 from tracecat.logger import logger
+from tracecat.pagination import CursorPaginationParams
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.storage.object import (
@@ -3613,7 +3614,14 @@ async def test_workflow_table_actions_in_loop(
     # Verify the rows were actually inserted in the database
     async with TablesService.with_session(role=test_admin_role) as service:
         table = await service.get_table_by_name(table_name)
-        rows = await service.list_rows(table)
+        rows = (
+            await service.list_rows(
+                table,
+                CursorPaginationParams(limit=100, cursor=None, reverse=False),
+                order_by="created_at",
+                sort="asc",
+            )
+        ).items
 
     assert len(rows) == 5
     for i, row in enumerate(sorted(rows, key=lambda r: r["number"]), 1):

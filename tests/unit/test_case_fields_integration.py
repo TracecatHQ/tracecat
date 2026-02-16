@@ -7,6 +7,7 @@ from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import CaseCreate, CaseFieldCreate, CaseUpdate
 from tracecat.cases.service import CaseFieldsService, CasesService
 from tracecat.db.models import Case, User
+from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.enums import SqlType
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -403,19 +404,23 @@ class TestCaseAssigneeIntegration:
         case2 = await cases_service.create_case(assigned_params)
 
         # Get all cases
-        all_cases = await cases_service.list_cases()
+        all_cases = (
+            await cases_service.list_cases(
+                CursorPaginationParams(limit=100, cursor=None, reverse=False)
+            )
+        ).items
         assert len(all_cases) >= 2
 
         # Verify at least one case with our test user
         cases_with_assignee = [
-            case for case in all_cases if case.assignee_id == test_user.id
+            case
+            for case in all_cases
+            if case.assignee and case.assignee.id == test_user.id
         ]
         assert len(cases_with_assignee) >= 1
         assert case2.id in [case.id for case in cases_with_assignee]
 
         # Verify at least one case without assignee
-        cases_without_assignee = [
-            case for case in all_cases if case.assignee_id is None
-        ]
+        cases_without_assignee = [case for case in all_cases if case.assignee is None]
         assert len(cases_without_assignee) >= 1
         assert case1.id in [case.id for case in cases_without_assignee]

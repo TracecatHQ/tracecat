@@ -87,7 +87,7 @@ async def test_list_workflows_success(
             has_more=False,
             has_previous=False,
         )
-        mock_svc.list_workflows_paginated.return_value = mock_response
+        mock_svc.list_workflows.return_value = mock_response
 
         # Set up service mock
         MockService.return_value = mock_svc
@@ -137,7 +137,7 @@ async def test_list_workflows_with_pagination(
             has_more=True,
             has_previous=False,
         )
-        mock_svc.list_workflows_paginated.return_value = mock_response
+        mock_svc.list_workflows.return_value = mock_response
         MockService.return_value = mock_svc
 
         # Make request with pagination params
@@ -187,7 +187,7 @@ async def test_list_workflows_with_tag_filter(
             has_more=False,
             has_previous=False,
         )
-        mock_svc.list_workflows_paginated.return_value = mock_response
+        mock_svc.list_workflows.return_value = mock_response
         MockService.return_value = mock_svc
 
         # Make request with tag filter

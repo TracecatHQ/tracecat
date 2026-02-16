@@ -304,7 +304,7 @@ async def test_list_table_rows_success(
             has_previous=False,
         )
         mock_svc.get_table.return_value = mock_table
-        mock_svc.list_rows_paginated.return_value = mock_response
+        mock_svc.list_rows.return_value = mock_response
         MockService.return_value = mock_svc
 
         # Make request

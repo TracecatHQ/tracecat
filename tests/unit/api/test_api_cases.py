@@ -91,7 +91,7 @@ async def test_list_cases_success(
             has_more=False,
             has_previous=False,
         )
-        mock_svc.list_cases_paginated.return_value = mock_response
+        mock_svc.list_cases.return_value = mock_response
 
         # Set up service mock
         MockService.return_value = mock_svc
@@ -154,7 +154,7 @@ async def test_list_cases_with_filters(
             has_more=False,
             has_previous=False,
         )
-        mock_svc.list_cases_paginated.return_value = mock_response
+        mock_svc.list_cases.return_value = mock_response
         MockService.return_value = mock_svc
 
         # Make request with filters

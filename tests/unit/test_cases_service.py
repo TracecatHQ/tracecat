@@ -1,16 +1,23 @@
 import uuid  # noqa: I001
 import asyncio
+from typing import Literal
 from unittest.mock import patch, MagicMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.schemas import CaseCreate, CaseFieldCreate, CaseUpdate
+from tracecat.cases.schemas import (
+    CaseCreate,
+    CaseFieldCreate,
+    CaseReadMinimal,
+    CaseUpdate,
+)
 from tracecat.cases.service import CaseFieldsService, CasesService
 from tracecat.tables.enums import SqlType
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.pagination import CursorPaginationParams
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -62,6 +69,24 @@ def case_create_params() -> CaseCreate:
         priority=CasePriority.MEDIUM,
         severity=CaseSeverity.LOW,
     )
+
+
+async def _list_cases(
+    cases_service: CasesService,
+    *,
+    limit: int = 100,
+    order_by: Literal[
+        "created_at", "updated_at", "priority", "severity", "status", "tasks"
+    ]
+    | None = None,
+    sort: Literal["asc", "desc"] | None = None,
+) -> list[CaseReadMinimal]:
+    response = await cases_service.list_cases(
+        CursorPaginationParams(limit=limit, cursor=None, reverse=False),
+        order_by=order_by,
+        sort=sort,
+    )
+    return response.items
 
 
 @pytest.mark.anyio
@@ -142,7 +167,7 @@ class TestCasesService:
         )
 
         # List all cases
-        cases = await cases_service.list_cases()
+        cases = await _list_cases(cases_service)
         assert len(cases) >= 2
         case_ids = {case.id for case in cases}
         assert case1.id in case_ids
@@ -165,7 +190,7 @@ class TestCasesService:
             )
 
         # List cases with limit
-        cases = await cases_service.list_cases(limit=2)
+        cases = await _list_cases(cases_service, limit=2)
         assert len(cases) == 2
 
     async def test_list_cases_with_order_by(self, cases_service: CasesService) -> None:
@@ -192,7 +217,7 @@ class TestCasesService:
         )
 
         # Test ordering by priority (default ascending)
-        cases = await cases_service.list_cases(order_by="priority")
+        cases = await _list_cases(cases_service, order_by="priority")
 
         # Verify cases are ordered correctly (low priority should come first)
         # Find the indices of our test cases
@@ -237,7 +262,7 @@ class TestCasesService:
         )
 
         # Test explicit ascending ordering by severity
-        cases = await cases_service.list_cases(order_by="severity", sort="asc")
+        cases = await _list_cases(cases_service, order_by="severity", sort="asc")
 
         # Find the indices of our test cases
         low_idx = next(
@@ -281,7 +306,7 @@ class TestCasesService:
         )
 
         # Test descending ordering by status
-        cases = await cases_service.list_cases(order_by="status", sort="desc")
+        cases = await _list_cases(cases_service, order_by="status", sort="desc")
 
         # Find the indices of our test cases
         new_idx = next(
@@ -328,7 +353,7 @@ class TestCasesService:
         )
 
         # Test ascending order (oldest first)
-        asc_cases = await cases_service.list_cases(order_by="created_at", sort="asc")
+        asc_cases = await _list_cases(cases_service, order_by="created_at", sort="asc")
 
         # Find the indices of our test cases
         first_idx_asc = next(
@@ -346,7 +371,9 @@ class TestCasesService:
         assert first_idx_asc < second_idx_asc
 
         # Test descending order (newest first)
-        desc_cases = await cases_service.list_cases(order_by="created_at", sort="desc")
+        desc_cases = await _list_cases(
+            cases_service, order_by="created_at", sort="desc"
+        )
 
         # Find the indices of our test cases
         first_idx_desc = next(
@@ -734,7 +761,7 @@ class TestCasesService:
         )  # Should not expose DB details
 
         # Verify the case was NOT created (transaction rolled back)
-        cases = await cases_service.list_cases()
+        cases = await _list_cases(cases_service)
         assert len(cases) == 0
 
     async def test_create_case_atomic_rollback_on_field_error(
@@ -757,5 +784,5 @@ class TestCasesService:
             await cases_service.create_case(params)
 
         # Verify the case was NOT created (entire transaction rolled back)
-        cases = await cases_service.list_cases()
+        cases = await _list_cases(cases_service)
         assert len(cases) == 0, "Case should not exist if fields creation failed"
