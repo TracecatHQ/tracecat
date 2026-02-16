@@ -2277,6 +2277,8 @@ export const $AppSettingsRead = {
     },
     app_executions_query_limit: {
       type: "integer",
+      maximum: 1000,
+      minimum: 1,
       title: "App Executions Query Limit",
     },
     app_interactions_enabled: {
@@ -2324,6 +2326,8 @@ export const $AppSettingsUpdate = {
     },
     app_executions_query_limit: {
       type: "integer",
+      maximum: 1000,
+      minimum: 1,
       title: "App Executions Query Limit",
       description:
         "The maximum number of executions to return in a single query.",
