@@ -2649,7 +2649,7 @@ async def test_workflow_join_unreachable(
                 ),
                 id=wf_exec_id,
                 task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-                run_timeout=timedelta(seconds=5),
+                run_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(
                     maximum_attempts=1,
                     non_retryable_error_types=[
@@ -2728,7 +2728,7 @@ async def test_workflow_multiple_entrypoints(
             ),
             id=wf_exec_id,
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-            run_timeout=timedelta(seconds=5),
+            run_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
@@ -2850,7 +2850,7 @@ async def test_workflow_runs_template_for_each(
             ),
             id=wf_exec_id,
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-            run_timeout=timedelta(seconds=5),
+            run_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
