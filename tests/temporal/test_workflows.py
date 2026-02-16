@@ -2571,7 +2571,8 @@ async def test_workflow_error_path(
             ),
             id=wf_exec_id,
             task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-            run_timeout=timedelta(seconds=5),
+            # Keep enough headroom for first-run executor environment setup in CI.
+            run_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
                 non_retryable_error_types=[
