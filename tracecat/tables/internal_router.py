@@ -414,7 +414,9 @@ async def download_table(
         page_size = min(limit - len(rows), 200)
         rows_page = await service.list_rows(
             table=table,
-            params=CursorPaginationParams(limit=page_size, cursor=cursor, reverse=False),
+            params=CursorPaginationParams(
+                limit=page_size, cursor=cursor, reverse=False
+            ),
         )
         rows.extend(rows_page.items)
         if not rows_page.has_more or rows_page.next_cursor is None:
