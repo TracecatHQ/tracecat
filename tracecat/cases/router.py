@@ -176,7 +176,7 @@ async def list_cases(
             parsed_dropdown_filters.setdefault(def_ref, []).append(opt_ref)
 
     try:
-        cases = await service.list_cases_paginated(
+        cases = await service.list_cases(
             pagination_params,
             search_term=search_term,
             status=status,

@@ -34,39 +34,6 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
     async def list_items(
         self,
         *,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> list[InboxItemRead]:
-        """List all inbox items with simple pagination.
-
-        Aggregates items from all providers, sorts by status priority
-        (pending first) then by created_at descending.
-
-        Offset and limit are applied after merging all provider results
-        to ensure correct global pagination across providers.
-        """
-        items: list[InboxItemRead] = []
-
-        # Fetch enough items from each provider to cover offset + limit
-        fetch_limit = offset + limit
-        for provider in self.providers:
-            provider_items = await provider.list_items(limit=fetch_limit, offset=0)
-            items.extend(provider_items)
-
-        # Sort: pending first, then by created_at desc
-        items.sort(
-            key=lambda x: (
-                x.status != InboxItemStatus.PENDING,
-                -x.created_at.timestamp(),
-            )
-        )
-
-        # Apply offset and limit after merging and sorting
-        return items[offset : offset + limit]
-
-    async def list_items_paginated(
-        self,
-        *,
         limit: int = 20,
         cursor: str | None = None,
         reverse: bool = False,
@@ -100,7 +67,7 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
 
         for provider in self.providers:
             # Fetch items without cursor - handle pagination at aggregate level
-            provider_response = await provider.list_items_paginated(
+            provider_response = await provider.list_items(
                 limit=initial_fetch_limit,
                 cursor=None,
                 reverse=reverse,

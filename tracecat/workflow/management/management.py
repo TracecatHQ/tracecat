@@ -73,7 +73,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
 
     service_name = "workflows"
 
-    async def list_workflows(
+    async def list_all_workflows(
         self, *, tags: list[str] | None = None, reverse: bool = False
     ) -> list[tuple[Workflow, WorkflowDefinitionMinimal | None]]:
         """List workflows with their latest definitions.
@@ -158,7 +158,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
             res.append((workflow, latest_defn))
         return res
 
-    async def list_workflows_paginated(
+    async def list_workflows(
         self, params: CursorPaginationParams, *, tags: list[str] | None = None
     ) -> CursorPaginatedResponse[tuple[Workflow, WorkflowDefinitionMinimal | None]]:
         """List workflows with cursor-based pagination.

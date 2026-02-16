@@ -25,25 +25,8 @@ WorkspaceUser = Annotated[
 ]
 
 
-@router.get("")
+@router.get("/items")
 async def list_items(
-    role: WorkspaceUser,
-    session: AsyncDBSession,
-    limit: int = Query(default=100, ge=1, le=1000),
-    offset: int = Query(default=0, ge=0),
-) -> list[InboxItemRead]:
-    """List all inbox items for the workspace.
-
-    Returns inbox items aggregated from all registered providers,
-    sorted by status priority (pending first) then by creation time.
-    """
-    providers = get_inbox_providers(session, role)
-    service = InboxService(session, role, providers)
-    return await service.list_items(limit=limit, offset=offset)
-
-
-@router.get("/paginated")
-async def list_items_paginated(
     role: WorkspaceUser,
     session: AsyncDBSession,
     limit: int = Query(default=20, ge=1, le=100),
@@ -66,7 +49,7 @@ async def list_items_paginated(
     service = InboxService(session, role, providers)
 
     try:
-        return await service.list_items_paginated(
+        return await service.list_items(
             limit=limit,
             cursor=cursor,
             reverse=reverse,

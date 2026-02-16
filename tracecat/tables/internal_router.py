@@ -19,6 +19,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.expressions.functions import tabulate
 from tracecat.logger import logger
+from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
@@ -406,8 +407,11 @@ async def download_table(
             detail=str(exc),
         ) from exc
 
-    rows = await service.list_rows(table=table, limit=limit)
-    json_safe_rows = to_jsonable_python(rows, fallback=str)
+    rows_page = await service.list_rows(
+        table=table,
+        params=CursorPaginationParams(limit=limit, cursor=None, reverse=False),
+    )
+    json_safe_rows = to_jsonable_python(rows_page.items, fallback=str)
 
     if format is None:
         return json_safe_rows

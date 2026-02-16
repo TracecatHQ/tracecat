@@ -367,9 +367,7 @@ async def list_rows(
     )
 
     try:
-        response = await service.list_rows_paginated(
-            table, params, order_by=order_by, sort=sort
-        )
+        response = await service.list_rows(table, params, order_by=order_by, sort=sort)
     except ValueError as e:
         logger.warning(f"Invalid request for list rows: {e}")
         raise HTTPException(

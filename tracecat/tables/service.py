@@ -667,22 +667,6 @@ class BaseTablesService(BaseWorkspaceService):
 
     """Rows"""
 
-    async def list_rows(
-        self, table: Table, *, limit: int = 100, offset: int = 0
-    ) -> list[dict[str, Any]]:
-        """List all rows in a table."""
-        schema_name = self._get_schema_name()
-        sanitized_table_name = self._sanitize_identifier(table.name)
-        conn = await self.session.connection()
-        stmt = (
-            sa.select("*")
-            .select_from(sa.table(sanitized_table_name, schema=schema_name))
-            .limit(limit)
-            .offset(offset)
-        )
-        result = await conn.execute(stmt)
-        return [dict(row) for row in result.mappings().all()]
-
     async def get_row(self, table: Table, row_id: UUID) -> Any:
         """Get a row by ID."""
         schema_name = self._get_schema_name()
@@ -1183,7 +1167,7 @@ class BaseTablesService(BaseWorkspaceService):
             )
             raise
 
-    async def list_rows_paginated(
+    async def list_rows(
         self,
         table: Table,
         params: CursorPaginationParams,

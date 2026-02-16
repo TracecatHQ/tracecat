@@ -161,32 +161,6 @@ class CasesService(BaseWorkspaceService):
 
     async def list_cases(
         self,
-        limit: int | None = None,
-        order_by: Literal["created_at", "updated_at", "priority", "severity", "status"]
-        | None = None,
-        sort: Literal["asc", "desc"] | None = None,
-    ) -> Sequence[Case]:
-        statement = (
-            select(Case)
-            .where(Case.workspace_id == self.workspace_id)
-            .options(selectinload(Case.tags))
-            .options(selectinload(Case.assignee))
-        )
-        if limit is not None:
-            statement = statement.limit(limit)
-        if order_by is not None:
-            attr = getattr(Case, order_by)
-            if sort == "asc":
-                statement = statement.order_by(attr.asc())
-            elif sort == "desc":
-                statement = statement.order_by(attr.desc())
-            else:
-                statement = statement.order_by(attr)
-        result = await self.session.execute(statement)
-        return result.scalars().all()
-
-    async def list_cases_paginated(
-        self,
         params: CursorPaginationParams,
         search_term: str | None = None,
         status: CaseStatus | Sequence[CaseStatus] | None = None,

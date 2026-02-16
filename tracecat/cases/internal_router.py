@@ -136,7 +136,7 @@ async def list_cases(
                 ) from e
 
     try:
-        cases = await service.list_cases_paginated(
+        cases = await service.list_cases(
             pagination_params,
             search_term=search_term,
             status=status,
