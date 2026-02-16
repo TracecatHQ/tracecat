@@ -464,9 +464,9 @@ class TestCoreListCases:
 
         with pytest.raises(
             TracecatValidationError,
-            match=f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}",
+            match=f"Limit cannot be greater than {config.MAX_CASES_CLIENT_POSTGRES}",
         ):
-            await list_cases(limit=config.MAX_ROWS_CLIENT_POSTGRES + 1)
+            await list_cases(limit=config.MAX_CASES_CLIENT_POSTGRES + 1)
 
 
 @pytest.mark.anyio
@@ -625,9 +625,9 @@ class TestCoreSearchCases:
 
         with pytest.raises(
             TracecatValidationError,
-            match=f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}",
+            match=f"Limit cannot be greater than {config.MAX_CASES_CLIENT_POSTGRES}",
         ):
-            await search_cases(limit=config.MAX_ROWS_CLIENT_POSTGRES + 1)
+            await search_cases(limit=config.MAX_CASES_CLIENT_POSTGRES + 1)
 
 
 @pytest.mark.anyio

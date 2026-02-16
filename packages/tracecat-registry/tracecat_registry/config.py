@@ -24,6 +24,12 @@ MAX_ROWS_CLIENT_POSTGRES = int(
     os.environ.get("TRACECAT__MAX_ROWS_CLIENT_POSTGRES", 1000)
 )
 
+# Maximum case page size for list/search endpoints
+MAX_CASES_CLIENT_POSTGRES = min(
+    MAX_ROWS_CLIENT_POSTGRES,
+    int(os.environ.get("TRACECAT__LIMIT_CASES_MAX", 200)),
+)
+
 # File upload limits
 TRACECAT__MAX_FILE_SIZE_BYTES = int(
     os.environ.get("TRACECAT__MAX_FILE_SIZE_BYTES", 20 * 1024 * 1024)  # Default 20MB

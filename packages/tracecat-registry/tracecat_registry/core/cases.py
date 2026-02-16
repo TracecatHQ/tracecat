@@ -272,9 +272,9 @@ async def list_cases(
         Doc("The direction to order the cases by."),
     ] = None,
 ) -> list[types.CaseReadMinimal]:
-    if limit > config.MAX_ROWS_CLIENT_POSTGRES:
+    if limit > config.MAX_CASES_CLIENT_POSTGRES:
         raise TracecatValidationError(
-            detail=f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
+            detail=f"Limit cannot be greater than {config.MAX_CASES_CLIENT_POSTGRES}"
         )
 
     params: dict[str, Any] = {"limit": limit}
@@ -342,9 +342,9 @@ async def search_cases(
         Doc("Maximum number of cases to return."),
     ] = 100,
 ) -> list[types.CaseReadMinimal]:
-    if limit > config.MAX_ROWS_CLIENT_POSTGRES:
+    if limit > config.MAX_CASES_CLIENT_POSTGRES:
         raise TracecatValidationError(
-            detail=f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
+            detail=f"Limit cannot be greater than {config.MAX_CASES_CLIENT_POSTGRES}"
         )
 
     params: dict[str, Any] = {}
