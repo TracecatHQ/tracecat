@@ -35,6 +35,7 @@ LDAP_PASSWORD = "admin"
 LDAP_BIND_DN = f"cn=admin,{LDAP_BASE_DN}"
 LDAP_CONTAINER_NAME = f"test-ldap-{test_conftest.WORKER_ID}"
 LDAP_PORT = 1389 + test_conftest.WORKER_OFFSET
+LDAP_MAX_RETRIES = 5
 
 
 def _run_docker(
@@ -103,21 +104,27 @@ def live_ldap_server() -> Iterator[dict[str, Any]]:
     _run_docker(["rm", LDAP_CONTAINER_NAME], check=False)
 
 
-@pytest.fixture
-def ldap_test_data(live_ldap_server: dict[str, Any]) -> dict[str, str]:
-    """Ensure a known OU and user entry exists for each test."""
+def _assert_ldap_result(
+    conn: ldap3.Connection, *, ok_codes: set[int], operation: str
+) -> None:
+    result_code = conn.result.get("result")
+    if result_code not in ok_codes:
+        raise RuntimeError(
+            f"LDAP {operation} failed with result={result_code}, detail={conn.result}"
+        )
 
+
+def _seed_test_user_with_retry(live_ldap_server: dict[str, Any]) -> dict[str, str]:
     server = ldap3.Server(
         live_ldap_server["host"],
         port=live_ldap_server["port"],
         get_info=ldap3.NONE,
     )
     users_dn = f"ou=Users,{LDAP_BASE_DN}"
+    user_dn = f"cn=Tracecat,{users_dn}"
 
-    # Retry connection and OU creation with backoff - container may still be initializing
-    max_retries = 5
-    conn: ldap3.Connection | None = None
-    for attempt in range(max_retries):
+    for attempt in range(LDAP_MAX_RETRIES):
+        conn: ldap3.Connection | None = None
         try:
             conn = ldap3.Connection(
                 server,
@@ -125,30 +132,55 @@ def ldap_test_data(live_ldap_server: dict[str, Any]) -> dict[str, str]:
                 password=live_ldap_server["password"],
                 auto_bind=True,
             )
+
             conn.add(users_dn, ["organizationalUnit", "top"], {"ou": "Users"})
-            break
-        except LDAPException:
-            if attempt == max_retries - 1:
+            _assert_ldap_result(
+                conn,
+                ok_codes={0, 68},  # success, entry already exists
+                operation="add users OU",
+            )
+
+            conn.search(user_dn, "(objectClass=*)")
+            _assert_ldap_result(
+                conn,
+                ok_codes={0, 32},  # success, no such object
+                operation="search user",
+            )
+            if conn.entries:
+                conn.delete(user_dn)
+                _assert_ldap_result(
+                    conn,
+                    ok_codes={0, 32},  # success, no such object
+                    operation="delete user",
+                )
+
+            conn.add(
+                user_dn,
+                ["inetOrgPerson", "organizationalPerson", "person", "top"],
+                {
+                    "cn": "Tracecat",
+                    "sn": "Test",
+                    "uid": "tracecat.test",
+                    "mail": "tracecat@example.com",
+                },
+            )
+            _assert_ldap_result(conn, ok_codes={0}, operation="add user")
+            return {"base_dn": users_dn, "filter": "(uid=tracecat.test)"}
+        except (LDAPException, RuntimeError):
+            if attempt == LDAP_MAX_RETRIES - 1:
                 raise
-            time.sleep(1)
+            time.sleep(1 + attempt)
+        finally:
+            if conn is not None and conn.bound:
+                conn.unbind()
 
-    assert conn is not None, "Failed to establish LDAP connection"
-    user_dn = f"cn=Tracecat,{users_dn}"
-    if conn.search(user_dn, "(objectClass=*)"):
-        conn.delete(user_dn)
+    raise RuntimeError("Failed to seed LDAP test user after retries")
 
-    conn.add(
-        user_dn,
-        ["inetOrgPerson", "organizationalPerson", "person", "top"],
-        {
-            "cn": "Tracecat",
-            "sn": "Test",
-            "uid": "tracecat.test",
-            "mail": "tracecat@example.com",
-        },
-    )
-    conn.unbind()
-    return {"base_dn": users_dn, "filter": "(uid=tracecat.test)"}
+
+@pytest.fixture(scope="session")
+def ldap_test_data(live_ldap_server: dict[str, Any]) -> dict[str, str]:
+    """Ensure a known OU and user entry exists for each test."""
+    return _seed_test_user_with_retry(live_ldap_server)
 
 
 @pytest.fixture
