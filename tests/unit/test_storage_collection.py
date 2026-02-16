@@ -80,6 +80,27 @@ class TestCollectionObject:
         assert restored.chunk_size == 100
         assert restored.manifest_ref.key == "key/manifest.json"
 
+    def test_json_schema_requires_discriminator_type(self):
+        """OpenAPI schema should require discriminator `type`."""
+        required = CollectionObject.model_json_schema().get("required", [])
+        assert "type" in required
+
+    def test_model_dump_exclude_unset_includes_discriminator_type(self):
+        """Discriminator `type` must survive exclude_unset serialization."""
+        collection = CollectionObject(
+            manifest_ref=ObjectRef(
+                bucket="bucket",
+                key="manifest.json",
+                size_bytes=256,
+                sha256="hash",
+            ),
+            count=50,
+            chunk_size=10,
+            element_kind="value",
+        )
+
+        assert collection.model_dump(exclude_unset=True)["type"] == "collection"
+
 
 class TestStoredObjectUnionWithCollection:
     """Tests for StoredObject union including CollectionObject."""

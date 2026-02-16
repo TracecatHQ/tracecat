@@ -6199,8 +6199,73 @@ export const $Code = {
 } as const
 
 export const $CollectionObject = {
-  additionalProperties: true,
+  properties: {
+    typename: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Typename",
+    },
+    type: {
+      type: "string",
+      const: "collection",
+      title: "Type",
+    },
+    manifest_ref: {
+      $ref: "#/components/schemas/ObjectRef",
+    },
+    count: {
+      type: "integer",
+      title: "Count",
+    },
+    chunk_size: {
+      type: "integer",
+      title: "Chunk Size",
+    },
+    element_kind: {
+      type: "string",
+      enum: ["value", "stored_object"],
+      title: "Element Kind",
+    },
+    schema_version: {
+      type: "integer",
+      title: "Schema Version",
+      default: 1,
+    },
+    index: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Index",
+    },
+  },
   type: "object",
+  required: ["type", "manifest_ref", "count", "chunk_size", "element_kind"],
+  title: "CollectionObject",
+  description: `Handle to a collection manifest stored in blob storage.
+
+Represents huge collections without embedding list[StoredObject] in history.
+The manifest contains chunk references for paged access.
+
+This is a small, history-safe handle. The actual data lives in chunked
+blobs referenced by the manifest.
+
+Attributes:
+    manifest_ref: Reference to the manifest blob containing chunk refs.
+    count: Total number of elements in the collection.
+    chunk_size: Number of items per chunk.
+    element_kind: Whether elements are raw values or StoredObject handles.
+    schema_version: Manifest schema version for forward compatibility.`,
 } as const
 
 export const $ContinueRunRequest = {
@@ -7995,8 +8060,31 @@ export const $ExpressionValidationResponse = {
 } as const
 
 export const $ExternalObject = {
-  additionalProperties: true,
+  properties: {
+    typename: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Typename",
+    },
+    type: {
+      type: "string",
+      const: "external",
+      title: "Type",
+    },
+    ref: {
+      $ref: "#/components/schemas/ObjectRef",
+    },
+  },
   type: "object",
+  required: ["type", "ref"],
+  title: "ExternalObject",
+  description: "Data externalized to blob storage.",
 } as const
 
 export const $FeatureFlag = {
@@ -8949,8 +9037,31 @@ export const $InferredColumn = {
 } as const
 
 export const $InlineObject = {
-  additionalProperties: true,
+  properties: {
+    typename: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Typename",
+    },
+    type: {
+      type: "string",
+      const: "inline",
+      title: "Type",
+    },
+    data: {
+      title: "Data",
+    },
+  },
   type: "object",
+  required: ["type", "data"],
+  title: "InlineObject",
+  description: "Data stored inline (not externalized).",
 } as const
 
 export const $Integer = {
@@ -9934,6 +10045,56 @@ export const $OAuthGrantType = {
   enum: ["authorization_code", "client_credentials"],
   title: "OAuthGrantType",
   description: "Grant type for OAuth 2.0.",
+} as const
+
+export const $ObjectRef = {
+  properties: {
+    backend: {
+      type: "string",
+      const: "s3",
+      title: "Backend",
+      default: "s3",
+    },
+    bucket: {
+      type: "string",
+      title: "Bucket",
+    },
+    key: {
+      type: "string",
+      title: "Key",
+    },
+    size_bytes: {
+      type: "integer",
+      title: "Size Bytes",
+    },
+    sha256: {
+      type: "string",
+      title: "Sha256",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+      default: "application/json",
+    },
+    encoding: {
+      type: "string",
+      enum: ["json", "json+zstd", "json+gzip"],
+      title: "Encoding",
+      default: "json",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["bucket", "key", "size_bytes", "sha256"],
+  title: "ObjectRef",
+  description: `Reference to an externalized object in blob storage.
+
+This is a typed reference that replaces large payloads in workflow context.
+Only dereference ObjectRef instances created by Tracecat - never arbitrary URIs.`,
 } as const
 
 export const $OrgCreate = {
@@ -19142,6 +19303,119 @@ export const $WorkflowExecutionEventStatus = {
     "DETACHED",
   ],
   title: "WorkflowExecutionEventStatus",
+} as const
+
+export const $WorkflowExecutionObjectDownloadResponse = {
+  properties: {
+    download_url: {
+      type: "string",
+      title: "Download Url",
+      description: "Pre-signed download URL",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+      description: "Suggested file name",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+      description: "MIME type of the object",
+    },
+    size_bytes: {
+      type: "integer",
+      minimum: 0,
+      title: "Size Bytes",
+      description: "Object size in bytes",
+    },
+    expires_in_seconds: {
+      type: "integer",
+      minimum: 1,
+      title: "Expires In Seconds",
+      description: "Presigned URL expiry in seconds",
+    },
+  },
+  type: "object",
+  required: [
+    "download_url",
+    "file_name",
+    "content_type",
+    "size_bytes",
+    "expires_in_seconds",
+  ],
+  title: "WorkflowExecutionObjectDownloadResponse",
+} as const
+
+export const $WorkflowExecutionObjectField = {
+  type: "string",
+  enum: ["action_result"],
+  title: "WorkflowExecutionObjectField",
+} as const
+
+export const $WorkflowExecutionObjectPreviewResponse = {
+  properties: {
+    content: {
+      type: "string",
+      title: "Content",
+      description: "Preview text content",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+      description: "MIME type of the object",
+    },
+    size_bytes: {
+      type: "integer",
+      minimum: 0,
+      title: "Size Bytes",
+      description: "Total object size in bytes",
+    },
+    preview_bytes: {
+      type: "integer",
+      minimum: 0,
+      title: "Preview Bytes",
+      description: "Number of bytes used for preview",
+    },
+    truncated: {
+      type: "boolean",
+      title: "Truncated",
+      description: "Whether preview is truncated due to size limits",
+    },
+    encoding: {
+      type: "string",
+      enum: ["utf-8", "unknown"],
+      title: "Encoding",
+      description: "Encoding used to decode preview text",
+    },
+  },
+  type: "object",
+  required: [
+    "content",
+    "content_type",
+    "size_bytes",
+    "preview_bytes",
+    "truncated",
+    "encoding",
+  ],
+  title: "WorkflowExecutionObjectPreviewResponse",
+} as const
+
+export const $WorkflowExecutionObjectRequest = {
+  properties: {
+    event_id: {
+      type: "integer",
+      minimum: 1,
+      title: "Event Id",
+      description: "Temporal history event ID",
+    },
+    field: {
+      $ref: "#/components/schemas/WorkflowExecutionObjectField",
+      default: "action_result",
+    },
+  },
+  type: "object",
+  required: ["event_id"],
+  title: "WorkflowExecutionObjectRequest",
 } as const
 
 export const $WorkflowExecutionRead = {

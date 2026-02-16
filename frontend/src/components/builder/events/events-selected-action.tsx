@@ -20,6 +20,7 @@ import {
 import { getWorkflowEventIcon } from "@/components/builder/events/events-workflow"
 import { MessagePart } from "@/components/chat/chat-session-pane"
 import { CodeBlock } from "@/components/code-block"
+import { ExternalObjectResult } from "@/components/executions/external-object-result"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Spinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -52,6 +53,7 @@ import {
   type WorkflowExecutionEventCompact,
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
+import { isExternalStoredObject } from "@/lib/stored-object"
 import { useWorkflowBuilder } from "@/providers/builder"
 
 type TabType = "input" | "result" | "interaction"
@@ -154,6 +156,7 @@ function ActionEventView({
   }
   return (
     <ActionEventDetails
+      executionId={execution.id}
       eventRef={selectedRef}
       status={execution.status}
       events={execution.events}
@@ -192,12 +195,16 @@ export function SuccessEvent({
   event,
   type,
   eventRef,
+  executionId,
+  eventId,
   defaultExpanded = true,
   defaultTab = "nested",
 }: {
   event: WorkflowExecutionEventCompact
   type: Omit<TabType, "interaction">
   eventRef: string
+  executionId: string
+  eventId: number
   defaultExpanded?: boolean
   defaultTab?: "nested" | "flat"
 }) {
@@ -215,6 +222,8 @@ export function SuccessEvent({
         <ActionResultViewer
           result={event.action_result}
           eventRef={eventRef}
+          executionId={executionId}
+          eventId={eventId}
           defaultExpanded={defaultExpanded}
           defaultTab={defaultTab}
         />
@@ -226,11 +235,15 @@ export function SuccessEvent({
 function ActionResultViewer({
   result,
   eventRef,
+  executionId,
+  eventId,
   defaultExpanded = true,
   defaultTab = "nested",
 }: {
   result: unknown
   eventRef: string
+  executionId: string
+  eventId: number
   defaultExpanded?: boolean
   defaultTab?: "nested" | "flat"
 }) {
@@ -240,6 +253,16 @@ function ActionResultViewer({
         <CircleDot className="size-3 text-muted-foreground" />
         <span>This action returned no result (null).</span>
       </div>
+    )
+  }
+
+  if (isExternalStoredObject(result)) {
+    return (
+      <ExternalObjectResult
+        executionId={executionId}
+        eventId={eventId}
+        external={result}
+      />
     )
   }
 
@@ -296,11 +319,13 @@ function StreamDetails({
 
 function ActionEventContent({
   actionEvent,
+  executionId,
   type,
   eventRef,
   streamIdPlaceholder,
 }: {
   actionEvent: WorkflowExecutionEventCompact
+  executionId: string
   type: Omit<TabType, "interaction">
   eventRef: string
   streamIdPlaceholder?: string
@@ -373,6 +398,8 @@ function ActionEventContent({
               <ActionResultViewer
                 result={actionEvent.action_result}
                 eventRef={eventRef}
+                executionId={executionId}
+                eventId={actionEvent.source_event_id}
                 defaultExpanded={true}
                 defaultTab="nested"
               />
@@ -400,7 +427,13 @@ function ActionEventContent({
           {type === "result" && action_error ? (
             <ErrorEvent failure={action_error} />
           ) : (
-            <SuccessEvent event={actionEvent} type={type} eventRef={eventRef} />
+            <SuccessEvent
+              event={actionEvent}
+              type={type}
+              eventRef={eventRef}
+              executionId={executionId}
+              eventId={actionEvent.source_event_id}
+            />
           )}
         </div>
       )
@@ -409,11 +442,13 @@ function ActionEventContent({
 }
 
 export function ActionEventDetails({
+  executionId,
   eventRef,
   status,
   events,
   type,
 }: {
+  executionId: string
   eventRef: string
   status: WorkflowExecutionReadCompact["status"]
   events: WorkflowExecutionEventCompact[]
@@ -443,6 +478,7 @@ export function ActionEventDetails({
     return (
       <ActionEventContent
         actionEvent={actionEventsForRef[0]}
+        executionId={executionId}
         type={type}
         eventRef={eventRef}
         streamIdPlaceholder="Input is the same for all events"
@@ -466,6 +502,7 @@ export function ActionEventDetails({
             <div key="session-streams">
               <ActionSessionCarousel
                 events={eventsWithSessions}
+                executionId={executionId}
                 type={type}
                 eventRef={eventRef}
               />
@@ -479,6 +516,7 @@ export function ActionEventDetails({
         <div key={key}>
           <ActionEventContent
             actionEvent={actionEvent}
+            executionId={executionId}
             type={type}
             eventRef={eventRef}
           />
@@ -493,6 +531,7 @@ export function ActionEventDetails({
     <div key={actionEvent.stream_id ?? actionEvent.source_event_id}>
       <ActionEventContent
         actionEvent={actionEvent}
+        executionId={executionId}
         type={type}
         eventRef={eventRef}
       />
@@ -502,10 +541,12 @@ export function ActionEventDetails({
 
 function ActionSessionCarousel({
   events,
+  executionId,
   type,
   eventRef,
 }: {
   events: WorkflowExecutionEventCompact[]
+  executionId: string
   type: Omit<TabType, "interaction">
   eventRef: string
 }) {
@@ -580,6 +621,7 @@ function ActionSessionCarousel({
             >
               <ActionEventContent
                 actionEvent={actionEvent}
+                executionId={executionId}
                 type={type}
                 eventRef={eventRef}
               />

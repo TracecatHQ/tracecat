@@ -88,6 +88,23 @@ class TestStoredObject:
         assert stored.ref is ref
         assert isinstance(stored, ExternalObject)
 
+    def test_json_schema_requires_discriminator_type(self):
+        """OpenAPI schema should require discriminator `type`."""
+        inline_required = InlineObject.model_json_schema().get("required", [])
+        external_required = ExternalObject.model_json_schema().get("required", [])
+        assert "type" in inline_required
+        assert "type" in external_required
+
+    def test_model_dump_exclude_unset_includes_discriminator_type(self):
+        """Discriminator `type` must survive exclude_unset serialization."""
+        inline = InlineObject(data={"foo": "bar"})
+        external = ExternalObject(
+            ref=ObjectRef(bucket="bucket", key="key", size_bytes=1000, sha256="hash")
+        )
+
+        assert inline.model_dump(exclude_unset=True)["type"] == "inline"
+        assert external.model_dump(exclude_unset=True)["type"] == "external"
+
     def test_pattern_matching(self):
         """Test pattern matching works with the tagged union."""
         inline = InlineObject(data=42)
