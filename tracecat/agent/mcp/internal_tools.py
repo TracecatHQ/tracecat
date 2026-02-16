@@ -18,6 +18,7 @@ from typing import Any, TypedDict
 
 from pydantic import BaseModel, Field
 
+from tracecat import config
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.preset.schemas import AgentPresetRead, AgentPresetUpdate
 from tracecat.agent.session.schemas import (
@@ -304,10 +305,10 @@ class _ListSessionsParams(BaseModel):
     """Parameters for list_sessions."""
 
     limit: int = Field(
-        default=50,
+        default=config.TRACECAT__LIMIT_AGENT_SESSIONS_DEFAULT,
         description="Maximum number of sessions to return.",
-        ge=1,
-        le=100,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_STANDARD_MAX,
     )
 
 

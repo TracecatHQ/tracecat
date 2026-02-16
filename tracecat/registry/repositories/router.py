@@ -3,10 +3,11 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
+from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole
@@ -348,7 +349,11 @@ async def list_repository_commits(
     session: AsyncDBSession,
     repository_id: uuid.UUID,
     branch: str = "main",
-    limit: int = 10,
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_COMMITS_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_STANDARD_MAX,
+    ),
 ) -> list[GitCommitInfo]:
     """List commits from a specific registry repository."""
     repos_service = RegistryReposService(session, role)

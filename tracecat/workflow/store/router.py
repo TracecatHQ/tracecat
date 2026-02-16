@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, status
 
+from tracecat import config
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.common import DSLInput
@@ -74,10 +75,10 @@ async def list_workflow_commits(
         max_length=255,
     ),
     limit: int = Query(
-        default=10,
+        default=config.TRACECAT__LIMIT_COMMITS_DEFAULT,
         description="Maximum number of commits to return",
-        ge=1,
-        le=100,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_STANDARD_MAX,
     ),
 ) -> list[GitCommitInfo]:
     """Get commit list for workflow repository via GitHub App.

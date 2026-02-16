@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.db.dependencies import AsyncDBSession
@@ -29,7 +30,11 @@ WorkspaceUser = Annotated[
 async def list_items(
     role: WorkspaceUser,
     session: AsyncDBSession,
-    limit: int = Query(default=20, ge=1, le=100),
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_STANDARD_MAX,
+    ),
     cursor: str | None = Query(default=None),
     reverse: bool = Query(default=False),
     order_by: str | None = Query(

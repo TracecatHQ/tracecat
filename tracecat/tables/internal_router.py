@@ -46,7 +46,11 @@ class TableCreateRequest(BaseModel):
 class TableLookupRequest(BaseModel):
     columns: list[str]
     values: list[Any]
-    limit: int | None = None
+    limit: int | None = Field(
+        default=None,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__MAX_ROWS_CLIENT_POSTGRES,
+    )
 
 
 class TableExistsRequest(BaseModel):
@@ -61,7 +65,11 @@ class TableSearchRequest(BaseModel):
     updated_before: datetime | None = None
     updated_after: datetime | None = None
     offset: int = Field(default=0, ge=0)
-    limit: int = Field(default=100, ge=1)
+    limit: int = Field(
+        default=config.TRACECAT__LIMIT_TABLE_SEARCH_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__MAX_ROWS_CLIENT_POSTGRES,
+    )
 
 
 class TableRowUpdate(BaseModel):
@@ -395,7 +403,11 @@ async def download_table(
     session: AsyncDBSession,
     table_name: str,
     format: TableDownloadFormat | None = Query(default=None),
-    limit: int = Query(default=1000, ge=1, le=1000),
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_TABLE_DOWNLOAD_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__MAX_ROWS_CLIENT_POSTGRES,
+    ),
 ) -> list[dict[str, Any]] | str:
     """Download table data as JSON, NDJSON, CSV, or Markdown."""
     service = TablesService(session, role=role)
@@ -411,7 +423,7 @@ async def download_table(
     rows: list[dict[str, Any]] = []
     cursor: str | None = None
     while len(rows) < limit:
-        page_size = min(limit - len(rows), 200)
+        page_size = min(limit - len(rows), config.TRACECAT__LIMIT_CURSOR_MAX)
         rows_page = await service.list_rows(
             table=table,
             params=CursorPaginationParams(

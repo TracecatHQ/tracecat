@@ -8,6 +8,7 @@ from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import tracecat.agent.adapter.vercel
+from tracecat import config
 from tracecat.agent.schemas import AgentOutput
 from tracecat.agent.types import ClaudeSDKMessageTA
 from tracecat.auth.dependencies import WorkspaceUserRole
@@ -79,7 +80,11 @@ async def list_workflow_executions(
     workflow_id: OptionalAnyWorkflowIDQuery,
     trigger_types: set[TriggerType] | None = Query(None, alias="trigger"),
     triggered_by_user_id: UserID | SpecialUserID | None = Query(None, alias="user_id"),
-    limit: int | None = Query(None),
+    limit: int | None = Query(
+        None,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_WORKFLOW_EXECUTIONS_MAX,
+    ),
 ) -> list[WorkflowExecutionReadMinimal]:
     """List all workflow executions."""
     service = await WorkflowExecutionsService.connect(role=role)
@@ -90,12 +95,23 @@ async def list_workflow_executions(
                 detail="User ID is required to filter by user ID",
             )
         triggered_by_user_id = role.user_id
-    limit = limit or await get_setting("app_executions_query_limit") or 100
+    configured_limit = await get_setting("app_executions_query_limit")
+    effective_limit = limit if limit is not None else configured_limit
+    if effective_limit is None:
+        effective_limit = config.TRACECAT__LIMIT_WORKFLOW_EXECUTIONS_DEFAULT
+    try:
+        effective_limit = int(effective_limit)
+    except (TypeError, ValueError):
+        effective_limit = config.TRACECAT__LIMIT_WORKFLOW_EXECUTIONS_DEFAULT
+    effective_limit = max(
+        config.TRACECAT__LIMIT_MIN,
+        min(effective_limit, config.TRACECAT__LIMIT_WORKFLOW_EXECUTIONS_MAX),
+    )
     executions = await service.list_executions(
         workflow_id=workflow_id,
         trigger_types=trigger_types,
         triggered_by_user_id=triggered_by_user_id,
-        limit=limit,
+        limit=effective_limit,
     )
     return [
         WorkflowExecutionReadMinimal.from_dataclass(execution)

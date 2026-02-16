@@ -3,6 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
+from tracecat import config
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 
 
@@ -76,7 +77,10 @@ class AppSettingsRead(BaseSettingsGroup):
     """Settings for the app."""
 
     app_registry_validation_enabled: bool
-    app_executions_query_limit: int
+    app_executions_query_limit: int = Field(
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_WORKFLOW_EXECUTIONS_MAX,
+    )
     app_interactions_enabled: bool
     app_workflow_export_enabled: bool
     app_create_workspace_on_register: bool
@@ -91,7 +95,9 @@ class AppSettingsUpdate(BaseSettingsGroup):
         default=False, description="Whether registry validation is enabled."
     )
     app_executions_query_limit: int = Field(
-        default=100,
+        default=config.TRACECAT__LIMIT_WORKFLOW_EXECUTIONS_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_WORKFLOW_EXECUTIONS_MAX,
         description="The maximum number of executions to return in a single query.",
     )
     app_interactions_enabled: bool = Field(

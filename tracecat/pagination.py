@@ -10,13 +10,20 @@ import sqlalchemy as sa
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
+
 T = TypeVar("T")
 
 
 class CursorPaginationParams(BaseModel):
     """Parameters for cursor-based pagination."""
 
-    limit: int = Field(default=20, ge=1, le=200, description="Maximum items per page")
+    limit: int = Field(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+        description="Maximum items per page",
+    )
     cursor: str | None = Field(default=None, description="Cursor for pagination")
     reverse: bool = Field(default=False, description="Reverse pagination direction")
 

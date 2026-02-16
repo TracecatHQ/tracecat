@@ -342,7 +342,11 @@ async def list_rows(
     role: WorkspaceUser,
     session: AsyncDBSession,
     table_id: TableID,
-    limit: int = Query(default=20, ge=1, le=100),
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_STANDARD_MAX,
+    ),
     cursor: str | None = Query(default=None),
     reverse: bool = Query(default=False),
     order_by: str | None = Query(default=None, description="Column name to order by"),

@@ -15,6 +15,7 @@ from starlette.status import (
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
 
+from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
@@ -90,7 +91,12 @@ async def list_cases(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
-    limit: int = Query(20, ge=1, le=200, description="Maximum items per page"),
+    limit: int = Query(
+        config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CASES_MAX,
+        description="Maximum items per page",
+    ),
     cursor: str | None = Query(None, description="Cursor for pagination"),
     reverse: bool = Query(False, description="Reverse pagination direction"),
     search_term: str | None = Query(
@@ -225,7 +231,12 @@ async def search_cases(
     tags: list[str] | None = Query(
         None, description="Filter by tag IDs or slugs (AND logic)"
     ),
-    limit: int | None = Query(None, description="Maximum number of cases to return"),
+    limit: int | None = Query(
+        None,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CASES_MAX,
+        description="Maximum number of cases to return",
+    ),
     order_by: Literal["created_at", "updated_at", "priority", "severity", "status"]
     | None = Query(
         None,
