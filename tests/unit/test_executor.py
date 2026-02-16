@@ -655,9 +655,7 @@ async def test_direct_backend_execute(
     async def mock_execute_with_context(self, input, role, resolved_context):
         return {"input": input.task.args}
 
-    monkeypatch.setattr(
-        TestBackend, "_execute_with_context", mock_execute_with_context
-    )
+    monkeypatch.setattr(TestBackend, "_execute_with_context", mock_execute_with_context)
 
     backend = TestBackend()
     resolved_context = ResolvedContext(

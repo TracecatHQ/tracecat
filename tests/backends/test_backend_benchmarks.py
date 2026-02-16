@@ -220,9 +220,7 @@ class TestSimpleActionLatency:
         min_ms = min(times) * 1000
         max_ms = max(times) * 1000
 
-        print(
-            f"\nDirect backend latency (n={len(times)}, successes={success_count}):"
-        )
+        print(f"\nDirect backend latency (n={len(times)}, successes={success_count}):")
         print(f"  Mean: {avg_ms:.2f}ms")
         print(f"  Min:  {min_ms:.2f}ms")
         print(f"  Max:  {max_ms:.2f}ms")

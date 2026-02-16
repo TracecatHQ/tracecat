@@ -195,8 +195,6 @@ def test_alembic_upgrade_waits_for_lock_release(
 
         stdout, stderr = proc.communicate(timeout=30)
         assert proc.returncode == 0, (
-            "Alembic upgrade failed.\n"
-            f"stdout:\n{stdout}\n"
-            f"stderr:\n{stderr}"
+            f"Alembic upgrade failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
         )
     engine.dispose()

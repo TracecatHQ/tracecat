@@ -78,7 +78,9 @@ def _make_resolved_context() -> ResolvedContext:
 
 
 @pytest.mark.anyio
-async def test_direct_backend_uses_subprocess_runner(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_direct_backend_uses_subprocess_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     backend = DirectBackend()
     input_data = _make_input()
     role = _make_role()
@@ -112,7 +114,9 @@ async def test_direct_backend_uses_subprocess_runner(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.anyio
-async def test_direct_backend_fails_without_tarballs(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_direct_backend_fails_without_tarballs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     backend = DirectBackend()
     input_data = _make_input()
     role = _make_role()
@@ -121,7 +125,10 @@ async def test_direct_backend_fails_without_tarballs(monkeypatch: pytest.MonkeyP
     async def _get_tarballs(_input: RunActionInput, _role: Role) -> list[str]:
         return []
 
-    monkeypatch.setattr("tracecat.executor.backends.direct.config.TRACECAT__LOCAL_REPOSITORY_ENABLED", False)
+    monkeypatch.setattr(
+        "tracecat.executor.backends.direct.config.TRACECAT__LOCAL_REPOSITORY_ENABLED",
+        False,
+    )
     monkeypatch.setattr(backend, "_get_tarball_uris", _get_tarballs)
 
     result = await backend.execute(
@@ -136,7 +143,9 @@ async def test_direct_backend_fails_without_tarballs(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.anyio
-async def test_direct_backend_maps_runner_error(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_direct_backend_maps_runner_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     backend = DirectBackend()
     input_data = _make_input()
     role = _make_role()

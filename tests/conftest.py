@@ -277,9 +277,8 @@ def default_org(db: None, env_sandbox: None) -> Iterator[None]:
 
             # Handle stale/shared DB state where the canonical slug already exists
             # with a different org ID (for example from previous CI runs).
-            if (
-                existing_slug_owner is not None
-                and str(existing_slug_owner) != str(TEST_ORG_ID)
+            if existing_slug_owner is not None and str(existing_slug_owner) != str(
+                TEST_ORG_ID
             ):
                 fallback_slug = f"{org_slug}-{TEST_DB_CONFIG.test_db_name[:8]}"
                 logger.warning(
