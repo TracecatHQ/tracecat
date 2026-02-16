@@ -283,8 +283,6 @@ import type {
   GraphGetGraphData,
   GraphGetGraphResponse,
   InboxListItemsData,
-  InboxListItemsPaginatedData,
-  InboxListItemsPaginatedResponse,
   InboxListItemsResponse,
   IntegrationsConnectProviderData,
   IntegrationsConnectProviderResponse,
@@ -316,6 +314,8 @@ import type {
   OrganizationAcceptInvitationResponse,
   OrganizationCreateInvitationData,
   OrganizationCreateInvitationResponse,
+  OrganizationDeleteOrganizationData,
+  OrganizationDeleteOrganizationResponse,
   OrganizationDeleteOrgMemberData,
   OrganizationDeleteOrgMemberResponse,
   OrganizationDeleteSessionData,
@@ -3073,6 +3073,31 @@ export const organizationGetOrganization =
   }
 
 /**
+ * Delete Organization
+ * Delete the current organization.
+ *
+ * Restricted to organization owners and platform superusers.
+ * @param data The data for the request.
+ * @param data.confirm Must exactly match the organization name.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const organizationDeleteOrganization = (
+  data: OrganizationDeleteOrganizationData = {}
+): CancelablePromise<OrganizationDeleteOrganizationResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/organization",
+    query: {
+      confirm: data.confirm,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Organization Domains
  * List domains assigned to the current organization.
  * @returns tracecat__organization__schemas__OrgDomainRead Successful Response
@@ -4123,6 +4148,7 @@ export const adminUpdateOrganization = (
  * Delete organization.
  * @param data The data for the request.
  * @param data.orgId
+ * @param data.confirm Must exactly match the organization name.
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -4134,6 +4160,9 @@ export const adminDeleteOrganization = (
     url: "/admin/organizations/{org_id}",
     path: {
       org_id: data.orgId,
+    },
+    query: {
+      confirm: data.confirm,
     },
     errors: {
       422: "Validation Error",
@@ -4828,36 +4857,6 @@ export const adminRegistryPromoteRegistryVersion = (
 
 /**
  * List Items
- * List all inbox items for the workspace.
- *
- * Returns inbox items aggregated from all registered providers,
- * sorted by status priority (pending first) then by creation time.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.limit
- * @param data.offset
- * @returns InboxItemRead Successful Response
- * @throws ApiError
- */
-export const inboxListItems = (
-  data: InboxListItemsData
-): CancelablePromise<InboxListItemsResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/inbox",
-    query: {
-      limit: data.limit,
-      offset: data.offset,
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Items Paginated
  * List inbox items with cursor-based pagination.
  *
  * Supports sorting by created_at, updated_at, or status.
@@ -4872,12 +4871,12 @@ export const inboxListItems = (
  * @returns CursorPaginatedResponse_InboxItemRead_ Successful Response
  * @throws ApiError
  */
-export const inboxListItemsPaginated = (
-  data: InboxListItemsPaginatedData
-): CancelablePromise<InboxListItemsPaginatedResponse> => {
+export const inboxListItems = (
+  data: InboxListItemsData
+): CancelablePromise<InboxListItemsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/inbox/paginated",
+    url: "/inbox/items",
     query: {
       limit: data.limit,
       cursor: data.cursor,

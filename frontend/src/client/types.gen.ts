@@ -7147,6 +7147,15 @@ export type UsersSearchUserResponse = UserRead
 export type OrganizationGetOrganizationResponse =
   tracecat__organization__schemas__OrgRead
 
+export type OrganizationDeleteOrganizationData = {
+  /**
+   * Must exactly match the organization name.
+   */
+  confirm?: string | null
+}
+
+export type OrganizationDeleteOrganizationResponse = void
+
 export type OrganizationListOrganizationDomainsResponse =
   Array<tracecat__organization__schemas__OrgDomainRead>
 
@@ -7445,6 +7454,10 @@ export type AdminUpdateOrganizationResponse =
   tracecat_ee__admin__organizations__schemas__OrgRead
 
 export type AdminDeleteOrganizationData = {
+  /**
+   * Must exactly match the organization name.
+   */
+  confirm?: string | null
   orgId: string
 }
 
@@ -7651,14 +7664,6 @@ export type AdminRegistryPromoteRegistryVersionResponse =
   tracecat__admin__registry__schemas__RegistryVersionPromoteResponse
 
 export type InboxListItemsData = {
-  limit?: number
-  offset?: number
-  workspaceId: string
-}
-
-export type InboxListItemsResponse = Array<InboxItemRead>
-
-export type InboxListItemsPaginatedData = {
   cursor?: string | null
   limit?: number
   /**
@@ -7673,8 +7678,7 @@ export type InboxListItemsPaginatedData = {
   workspaceId: string
 }
 
-export type InboxListItemsPaginatedResponse =
-  CursorPaginatedResponse_InboxItemRead_
+export type InboxListItemsResponse = CursorPaginatedResponse_InboxItemRead_
 
 export type EditorListFunctionsData = {
   workspaceId: string
@@ -10094,6 +10098,19 @@ export type $OpenApiTs = {
         200: tracecat__organization__schemas__OrgRead
       }
     }
+    delete: {
+      req: OrganizationDeleteOrganizationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
   }
   "/organization/domains": {
     get: {
@@ -11123,24 +11140,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/inbox": {
+  "/inbox/items": {
     get: {
       req: InboxListItemsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<InboxItemRead>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/inbox/paginated": {
-    get: {
-      req: InboxListItemsPaginatedData
       res: {
         /**
          * Successful Response
