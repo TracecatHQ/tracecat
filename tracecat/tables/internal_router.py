@@ -407,11 +407,20 @@ async def download_table(
             detail=str(exc),
         ) from exc
 
-    rows_page = await service.list_rows(
-        table=table,
-        params=CursorPaginationParams(limit=limit, cursor=None, reverse=False),
-    )
-    json_safe_rows = to_jsonable_python(rows_page.items, fallback=str)
+    # Download supports up to 1000 rows, while cursor pagination caps page size at 200.
+    rows: list[dict[str, Any]] = []
+    cursor: str | None = None
+    while len(rows) < limit:
+        page_size = min(limit - len(rows), 200)
+        rows_page = await service.list_rows(
+            table=table,
+            params=CursorPaginationParams(limit=page_size, cursor=cursor, reverse=False),
+        )
+        rows.extend(rows_page.items)
+        if not rows_page.has_more or rows_page.next_cursor is None:
+            break
+        cursor = rows_page.next_cursor
+    json_safe_rows = to_jsonable_python(rows, fallback=str)
 
     if format is None:
         return json_safe_rows
