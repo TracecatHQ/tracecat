@@ -75,7 +75,17 @@ async def ensure_bucket_exists(bucket: str) -> None:
             if error_code == "404":
                 # Bucket doesn't exist, create it
                 try:
-                    await s3_client.create_bucket(Bucket=bucket)
+                    create_bucket_kwargs: dict[str, object] = {"Bucket": bucket}
+                    # AWS S3 requires a location constraint for all regions except us-east-1.
+                    # MinIO and other S3-compatible endpoints generally do not.
+                    if not config.TRACECAT__BLOB_STORAGE_ENDPOINT:
+                        region = s3_client.meta.region_name
+                        if region and region != "us-east-1":
+                            create_bucket_kwargs["CreateBucketConfiguration"] = {
+                                "LocationConstraint": region
+                            }
+
+                    await s3_client.create_bucket(**create_bucket_kwargs)
                     logger.info("Created bucket", bucket=bucket)
                 except ClientError as create_error:
                     logger.error(
