@@ -491,6 +491,26 @@ class TestCoreListCases:
         )
         assert result == [mock_case_dict]
 
+    async def test_list_cases_with_paginate_true(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ):
+        """Test listing cases with pagination metadata."""
+        mock_cases_client.list_cases.return_value = {
+            "items": [mock_case_dict],
+            "next_cursor": "cursor-1",
+            "prev_cursor": None,
+            "has_more": True,
+            "has_previous": False,
+            "total_estimate": 1,
+        }
+
+        result = await list_cases(limit=5, paginate=True)
+
+        mock_cases_client.list_cases.assert_called_once_with(limit=5)
+        assert isinstance(result, dict)
+        assert result["items"] == [mock_case_dict]
+        assert result["next_cursor"] == "cursor-1"
+
     async def test_list_cases_empty_result(self, mock_cases_client: AsyncMock):
         """Test listing cases when no cases exist."""
         mock_cases_client.list_cases.return_value = {"items": []}
@@ -536,6 +556,26 @@ class TestCoreSearchCases:
 
         mock_cases_client.list_cases.assert_called_once_with(limit=5)
         assert result == [mock_case_dict]
+
+    async def test_search_cases_with_paginate_true(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ):
+        """search_cases should return pagination metadata when requested."""
+        mock_cases_client.list_cases.return_value = {
+            "items": [mock_case_dict],
+            "next_cursor": "cursor-1",
+            "prev_cursor": None,
+            "has_more": True,
+            "has_previous": False,
+            "total_estimate": 1,
+        }
+
+        result = await search_cases(limit=5, paginate=True)
+
+        mock_cases_client.list_cases.assert_called_once_with(limit=5)
+        assert isinstance(result, dict)
+        assert result["items"] == [mock_case_dict]
+        assert result["next_cursor"] == "cursor-1"
 
     async def test_search_cases_with_ordering(
         self, mock_cases_client: AsyncMock, mock_case_dict

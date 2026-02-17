@@ -136,6 +136,10 @@ async def search_rows(
         int,
         Doc("The maximum number of rows to return."),
     ] = 100,
+    paginate: Annotated[
+        bool,
+        Doc("If true, return cursor pagination metadata along with items."),
+    ] = False,
 ) -> types.TableSearchResponse | list[dict[str, Any]]:
     if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise ValueError(
@@ -158,7 +162,12 @@ async def search_rows(
     if cursor is not None:
         params["cursor"] = cursor
     params["reverse"] = reverse
-    return await get_context().tables.search_rows(**params)
+    response = await get_context().tables.search_rows(**params)
+    if paginate:
+        return response
+    if isinstance(response, dict):
+        return response.get("items")
+    return response
 
 
 @registry.register(

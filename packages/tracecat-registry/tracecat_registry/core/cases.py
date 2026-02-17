@@ -320,7 +320,11 @@ async def list_cases(
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
     ] = None,
-) -> list[types.CaseReadMinimal]:
+    paginate: Annotated[
+        bool,
+        Doc("If true, return cursor pagination metadata along with items."),
+    ] = False,
+) -> list[types.CaseReadMinimal] | types.CaseListResponse:
     if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise TracecatValidationError(
             detail=f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}"
@@ -354,6 +358,8 @@ async def list_cases(
     if sort is not None:
         params["sort"] = sort
     response = await get_context().cases.list_cases(**params)
+    if paginate:
+        return response
     return response["items"]
 
 
@@ -421,7 +427,11 @@ async def search_cases(
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
     ] = None,
-) -> list[types.CaseReadMinimal]:
+    paginate: Annotated[
+        bool,
+        Doc("If true, return cursor pagination metadata along with items."),
+    ] = False,
+) -> list[types.CaseReadMinimal] | types.CaseListResponse:
     """Alias for list_cases with identical inputs/outputs."""
     return await list_cases(
         search_term=search_term,
@@ -438,6 +448,7 @@ async def search_cases(
         limit=limit,
         order_by=order_by,
         sort=sort,
+        paginate=paginate,
     )
 
 

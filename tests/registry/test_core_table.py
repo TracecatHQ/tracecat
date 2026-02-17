@@ -375,6 +375,33 @@ class TestCoreSearchRecords:
             limit=50,
             reverse=False,
         )
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0] == mock_row
+
+    async def test_search_rows_with_paginate_true(
+        self, mock_tables_client: AsyncMock, mock_row
+    ):
+        """search_rows should return pagination metadata when requested."""
+        mock_tables_client.search_rows.return_value = {
+            "items": [mock_row],
+            "next_cursor": "cursor-1",
+            "prev_cursor": None,
+            "has_more": True,
+            "has_previous": False,
+        }
+
+        result = await search_rows(
+            table="test_table",
+            limit=50,
+            paginate=True,
+        )
+
+        mock_tables_client.search_rows.assert_called_once_with(
+            table="test_table",
+            limit=50,
+            reverse=False,
+        )
         assert isinstance(result, dict)
         assert len(result["items"]) == 1
         assert result["items"][0] == mock_row
@@ -437,9 +464,9 @@ class TestCoreSearchRecords:
             cursor="cursor-1",
             reverse=False,
         )
-        assert isinstance(result, dict)
-        assert len(result["items"]) == 1
-        assert result["items"][0] == mock_row
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0] == mock_row
 
 
 @pytest.mark.anyio
