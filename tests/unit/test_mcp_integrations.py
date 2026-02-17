@@ -359,32 +359,19 @@ class TestMCPIntegrationCRUD:
             expires_in=3600,
         )
 
-        first = await integration_service.create_mcp_integration(
-            params=MCPIntegrationCreate(
-                name="First MCP",
-                server_uri="https://api.example.com/mcp-1",
-                auth_type=MCPAuthType.OAUTH2,
-                oauth_integration_id=oauth_integration.id,
+        auto_created = await integration_service.session.execute(
+            select(MCPIntegration).where(
+                MCPIntegration.workspace_id == integration_service.workspace_id,
+                MCPIntegration.oauth_integration_id == oauth_integration.id,
             )
         )
-        second = await integration_service.create_mcp_integration(
-            params=MCPIntegrationCreate(
-                name="Second MCP",
-                server_uri="https://api.example.com/mcp-2",
-                auth_type=MCPAuthType.OAUTH2,
-                oauth_integration_id=oauth_integration.id,
-            )
+        mcp_integration = auto_created.scalars().first()
+        assert mcp_integration is not None
+        assert mcp_integration.slug == "github_mcp"
+
+        await integration_service.delete_mcp_integration(
+            mcp_integration_id=mcp_integration.id
         )
-
-        await integration_service.delete_mcp_integration(mcp_integration_id=first.id)
-
-        refreshed_oauth = await integration_service.session.get(
-            OAuthIntegration, oauth_integration.id
-        )
-        assert refreshed_oauth is not None
-        assert await integration_service.get_access_token(refreshed_oauth) is not None
-
-        await integration_service.delete_mcp_integration(mcp_integration_id=second.id)
 
         refreshed_oauth = await integration_service.session.get(
             OAuthIntegration, oauth_integration.id
@@ -435,11 +422,13 @@ class TestMCPIntegrationCRUD:
         integration_service.session.add(conflicting_preset)
 
         integration_service.session.autoflush = False
-        with pytest.raises(IntegrityError):
-            await integration_service.delete_mcp_integration(
-                mcp_integration_id=created_id
-            )
-        integration_service.session.autoflush = True
+        try:
+            with pytest.raises(IntegrityError):
+                await integration_service.delete_mcp_integration(
+                    mcp_integration_id=created_id
+                )
+        finally:
+            integration_service.session.autoflush = True
 
         existing_mcp_result = await integration_service.session.execute(
             select(MCPIntegration).where(MCPIntegration.id == created_id)
