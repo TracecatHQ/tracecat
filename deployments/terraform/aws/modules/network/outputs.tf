@@ -22,3 +22,8 @@ output "acm_certificate_arn" {
   description = "ARN of the validated ACM certificate"
   value       = aws_acm_certificate_validation.tracecat.certificate_arn
 }
+
+output "nat_gateway_eips" {
+  description = "Public Elastic IPs attached to NAT gateways for outbound traffic"
+  value       = aws_eip.nat[*].public_ip
+}

@@ -79,6 +79,11 @@ output "acm_certificate_arn" {
   value       = module.network.acm_certificate_arn
 }
 
+output "nat_gateway_eips" {
+  description = "Public Elastic IPs attached to NAT gateways for outbound traffic allowlisting"
+  value       = module.network.nat_gateway_eips
+}
+
 output "local_dns_namespace" {
   description = "The local DNS namespace for ECS services"
   value       = module.ecs.local_dns_namespace

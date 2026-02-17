@@ -67,3 +67,4 @@ terraform apply
 - `s3_attachments_bucket_name`
 - `s3_registry_bucket_name`
 - `s3_workflow_bucket_name`
+- `nat_gateway_eips` (outbound allowlisting IPs; public identifiers, not secrets)
