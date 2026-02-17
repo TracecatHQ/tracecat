@@ -1,25 +1,27 @@
 ---
 title: Script actions
-description: Execute custom Python scripts in a sandboxed environment.
+description: Execute custom Python scripts.
 icon: code
 ---
 
 ## Python Script Action
 
-Use the `core.script.run_python` action to execute Python code in a sandboxed runtime.
-This isolates script execution from the host system while providing access to popular Python libraries.
+Use the `core.script.run_python` action to execute Python code.
 You can include 3rd-party Python packages in your script by adding them to the `dependencies` field.
 
 <Warning>
-### Production requirement: enable nsjail
+### Security model: `nsjail` is required for true sandboxing
 
-For production deployments, you **must** run Python script actions with **nsjail enabled**.
+`core.script.run_python` is only sandboxed when `nsjail` is enabled.
 
-- `docker compose` deployments have nsjail disabled by default
-- AWS Fargate deployments have nsjail disabled by default
-- Helm chart / Kubernetes deployments have nsjail enabled by default
+Without `nsjail`, execution relies on an AST validator. That is **not** a true sandbox and breakouts are possible.
+In that mode, you are responsible for protecting your own environment and code.
 
-Do not run `core.script.run_python` in production without nsjail.
+For production deployments, enable `nsjail` before running script actions.
+
+- `docker compose` deployments have `nsjail` disabled by default
+- AWS Fargate deployments have `nsjail` disabled by default
+- Helm chart / Kubernetes deployments have `nsjail` enabled by default
 </Warning>
 
 <Note>
