@@ -50,7 +50,7 @@ dependencies = [
     "httpx==0.28.1",
     "jsonpath_ng==1.7.0",
     "lark==1.1.9",
-    "litellm[proxy]==1.80.16",
+    "litellm[proxy]==1.81.13",
     "loguru==0.7.3",
     "marshmallow==3.26.2",
     "minio==7.2.18",

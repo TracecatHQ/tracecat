@@ -1819,9 +1819,34 @@ export type Code = {
 
 export type lang = "yaml" | "python"
 
+/**
+ * Handle to a collection manifest stored in blob storage.
+ *
+ * Represents huge collections without embedding list[StoredObject] in history.
+ * The manifest contains chunk references for paged access.
+ *
+ * This is a small, history-safe handle. The actual data lives in chunked
+ * blobs referenced by the manifest.
+ *
+ * Attributes:
+ * manifest_ref: Reference to the manifest blob containing chunk refs.
+ * count: Total number of elements in the collection.
+ * chunk_size: Number of items per chunk.
+ * element_kind: Whether elements are raw values or StoredObject handles.
+ * schema_version: Manifest schema version for forward compatibility.
+ */
 export type CollectionObject = {
-  [key: string]: unknown
+  typename?: string | null
+  type: "collection"
+  manifest_ref: ObjectRef
+  count: number
+  chunk_size: number
+  element_kind: "value" | "stored_object"
+  schema_version?: number
+  index?: number | null
 }
+
+export type element_kind = "value" | "stored_object"
 
 /**
  * Payload to continue a CE run after collecting approvals.
@@ -2429,8 +2454,13 @@ export type ExpressionValidationResponse = {
   tokens?: Array<SyntaxToken>
 }
 
+/**
+ * Data externalized to blob storage.
+ */
 export type ExternalObject = {
-  [key: string]: unknown
+  typename?: string | null
+  type: "external"
+  ref: ObjectRef
 }
 
 /**
@@ -2834,8 +2864,13 @@ export type InferredColumn = {
   field_type: SqlType
 }
 
+/**
+ * Data stored inline (not externalized).
+ */
 export type InlineObject = {
-  [key: string]: unknown
+  typename?: string | null
+  type: "inline"
+  data: unknown
 }
 
 export type Integer = {
@@ -3206,6 +3241,25 @@ export type OAuth2AuthorizeResponse = {
  * Grant type for OAuth 2.0.
  */
 export type OAuthGrantType = "authorization_code" | "client_credentials"
+
+/**
+ * Reference to an externalized object in blob storage.
+ *
+ * This is a typed reference that replaces large payloads in workflow context.
+ * Only dereference ObjectRef instances created by Tracecat - never arbitrary URIs.
+ */
+export type ObjectRef = {
+  backend?: "s3"
+  bucket: string
+  key: string
+  size_bytes: number
+  sha256: string
+  content_type?: string
+  encoding?: "json" | "json+zstd" | "json+gzip"
+  created_at?: string
+}
+
+export type encoding = "json" | "json+zstd" | "json+gzip"
 
 /**
  * Create organization request.
@@ -5900,6 +5954,71 @@ export type WorkflowExecutionEventStatus =
   | "UNKNOWN"
   | "DETACHED"
 
+export type WorkflowExecutionObjectDownloadResponse = {
+  /**
+   * Pre-signed download URL
+   */
+  download_url: string
+  /**
+   * Suggested file name
+   */
+  file_name: string
+  /**
+   * MIME type of the object
+   */
+  content_type: string
+  /**
+   * Object size in bytes
+   */
+  size_bytes: number
+  /**
+   * Presigned URL expiry in seconds
+   */
+  expires_in_seconds: number
+}
+
+export type WorkflowExecutionObjectField = "action_result"
+
+export type WorkflowExecutionObjectPreviewResponse = {
+  /**
+   * Preview text content
+   */
+  content: string
+  /**
+   * MIME type of the object
+   */
+  content_type: string
+  /**
+   * Total object size in bytes
+   */
+  size_bytes: number
+  /**
+   * Number of bytes used for preview
+   */
+  preview_bytes: number
+  /**
+   * Whether preview is truncated due to size limits
+   */
+  truncated: boolean
+  /**
+   * Encoding used to decode preview text
+   */
+  encoding: "utf-8" | "unknown"
+}
+
+/**
+ * Encoding used to decode preview text
+ */
+export type encoding2 = "utf-8" | "unknown"
+
+export type WorkflowExecutionObjectRequest = {
+  /**
+   * Temporal history event ID
+   */
+  event_id: number
+  field?: WorkflowExecutionObjectField
+}
+
 export type WorkflowExecutionRead = {
   /**
    * The ID of the workflow execution
@@ -6820,6 +6939,24 @@ export type WorkflowExecutionsGetWorkflowExecutionCompactData = {
 
 export type WorkflowExecutionsGetWorkflowExecutionCompactResponse =
   WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+
+export type WorkflowExecutionsGetWorkflowExecutionObjectDownloadData = {
+  executionId: string
+  requestBody: WorkflowExecutionObjectRequest
+  workspaceId: string
+}
+
+export type WorkflowExecutionsGetWorkflowExecutionObjectDownloadResponse =
+  WorkflowExecutionObjectDownloadResponse
+
+export type WorkflowExecutionsGetWorkflowExecutionObjectPreviewData = {
+  executionId: string
+  requestBody: WorkflowExecutionObjectRequest
+  workspaceId: string
+}
+
+export type WorkflowExecutionsGetWorkflowExecutionObjectPreviewResponse =
+  WorkflowExecutionObjectPreviewResponse
 
 export type WorkflowExecutionsCreateDraftWorkflowExecutionData = {
   requestBody: WorkflowExecutionCreate
@@ -9543,6 +9680,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/{execution_id}/objects/download": {
+    post: {
+      req: WorkflowExecutionsGetWorkflowExecutionObjectDownloadData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowExecutionObjectDownloadResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/{execution_id}/objects/preview": {
+    post: {
+      req: WorkflowExecutionsGetWorkflowExecutionObjectPreviewData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowExecutionObjectPreviewResponse
         /**
          * Validation Error
          */

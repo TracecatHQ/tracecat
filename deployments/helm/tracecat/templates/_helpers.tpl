@@ -651,6 +651,7 @@ Merges: common + temporal + postgres + redis + worker-specific
 {{- define "tracecat.env.worker" -}}
 {{ include "tracecat.env.common" . }}
 {{ include "tracecat.env.temporal" . }}
+{{ include "tracecat.env.blobStorage" . }}
 {{ include "tracecat.env.postgres" . }}
 {{ include "tracecat.env.redis" . }}
 {{- if .Values.tracecat.temporal.metrics.enabled }}

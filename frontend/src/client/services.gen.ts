@@ -536,6 +536,10 @@ import type {
   WorkflowExecutionsGetWorkflowExecutionCompactData,
   WorkflowExecutionsGetWorkflowExecutionCompactResponse,
   WorkflowExecutionsGetWorkflowExecutionData,
+  WorkflowExecutionsGetWorkflowExecutionObjectDownloadData,
+  WorkflowExecutionsGetWorkflowExecutionObjectDownloadResponse,
+  WorkflowExecutionsGetWorkflowExecutionObjectPreviewData,
+  WorkflowExecutionsGetWorkflowExecutionObjectPreviewResponse,
   WorkflowExecutionsGetWorkflowExecutionResponse,
   WorkflowExecutionsListWorkflowExecutionsData,
   WorkflowExecutionsListWorkflowExecutionsResponse,
@@ -1951,6 +1955,66 @@ export const workflowExecutionsGetWorkflowExecutionCompact = (
     query: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workflow Execution Object Download
+ * Generate a presigned download URL for a workflow execution result object.
+ * @param data The data for the request.
+ * @param data.executionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowExecutionObjectDownloadResponse Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsGetWorkflowExecutionObjectDownload = (
+  data: WorkflowExecutionsGetWorkflowExecutionObjectDownloadData
+): CancelablePromise<WorkflowExecutionsGetWorkflowExecutionObjectDownloadResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflow-executions/{execution_id}/objects/download",
+    path: {
+      execution_id: data.executionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workflow Execution Object Preview
+ * Fetch a bounded text preview for a workflow execution result object.
+ * @param data The data for the request.
+ * @param data.executionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowExecutionObjectPreviewResponse Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsGetWorkflowExecutionObjectPreview = (
+  data: WorkflowExecutionsGetWorkflowExecutionObjectPreviewData
+): CancelablePromise<WorkflowExecutionsGetWorkflowExecutionObjectPreviewResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflow-executions/{execution_id}/objects/preview",
+    path: {
+      execution_id: data.executionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

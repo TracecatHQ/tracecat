@@ -1,5 +1,5 @@
 import pytest
-from litellm.proxy.proxy_server import ProxyException
+from litellm.proxy._types import ProxyException
 
 from tracecat.agent.gateway import _inject_provider_credentials
 
