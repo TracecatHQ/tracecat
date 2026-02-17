@@ -19,10 +19,11 @@ def to_jsonable_python(value: Any) -> Any:
     return _to_jsonable_python(value, fallback=fallback, exclude_none=True)
 
 
-# Maximum number of rows that can be returned from client-facing queries
-MAX_ROWS_CLIENT_POSTGRES = int(
-    os.environ.get("TRACECAT__MAX_ROWS_CLIENT_POSTGRES", 1000)
-)
+# API list/search limits (mirror tracecat/config.py where relevant)
+TRACECAT__LIMIT_MIN = 1
+TRACECAT__LIMIT_DEFAULT = 20
+TRACECAT__LIMIT_CURSOR_MAX = 200
+TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX = 1000
 
 # File upload limits
 TRACECAT__MAX_FILE_SIZE_BYTES = int(

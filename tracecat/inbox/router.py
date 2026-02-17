@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.db.dependencies import AsyncDBSession
@@ -25,28 +26,15 @@ WorkspaceUser = Annotated[
 ]
 
 
-@router.get("")
+@router.get("/items")
 async def list_items(
     role: WorkspaceUser,
     session: AsyncDBSession,
-    limit: int = Query(default=100, ge=1, le=1000),
-    offset: int = Query(default=0, ge=0),
-) -> list[InboxItemRead]:
-    """List all inbox items for the workspace.
-
-    Returns inbox items aggregated from all registered providers,
-    sorted by status priority (pending first) then by creation time.
-    """
-    providers = get_inbox_providers(session, role)
-    service = InboxService(session, role, providers)
-    return await service.list_items(limit=limit, offset=offset)
-
-
-@router.get("/paginated")
-async def list_items_paginated(
-    role: WorkspaceUser,
-    session: AsyncDBSession,
-    limit: int = Query(default=20, ge=1, le=100),
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
     cursor: str | None = Query(default=None),
     reverse: bool = Query(default=False),
     order_by: str | None = Query(
@@ -66,7 +54,7 @@ async def list_items_paginated(
     service = InboxService(session, role, providers)
 
     try:
-        return await service.list_items_paginated(
+        return await service.list_items(
             limit=limit,
             cursor=cursor,
             reverse=reverse,

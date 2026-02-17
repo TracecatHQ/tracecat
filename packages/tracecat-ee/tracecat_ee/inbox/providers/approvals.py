@@ -34,33 +34,6 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
     async def list_items(
         self,
         *,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> list[InboxItemRead]:
-        """List workflow approval items with simple pagination."""
-        # Query workflow-initiated sessions with approvals
-        stmt = (
-            select(AgentSession)
-            .join(Approval, AgentSession.id == Approval.session_id)
-            .where(
-                AgentSession.workspace_id == self.workspace_id,
-                AgentSession.parent_session_id.is_(None),  # Exclude forked sessions
-                AgentSession.entity_type == "workflow",  # Workflow-only
-            )
-            .distinct()
-            .order_by(AgentSession.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-
-        result = await self.session.execute(stmt)
-        sessions = result.scalars().all()
-
-        return await self._enrich_sessions(sessions)
-
-    async def list_items_paginated(
-        self,
-        *,
         limit: int = 20,
         cursor: str | None = None,
         reverse: bool = False,

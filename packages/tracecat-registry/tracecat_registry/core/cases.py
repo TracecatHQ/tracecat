@@ -46,6 +46,10 @@ StatusType = Literal[
 ]
 
 
+def _as_list_filter[T](value: T | list[T]) -> list[T]:
+    return value if isinstance(value, list) else [value]
+
+
 @registry.register(
     default_title="Create case",
     display_group="Cases",
@@ -259,55 +263,33 @@ async def get_case(
     namespace="core.cases",
 )
 async def list_cases(
-    limit: Annotated[
-        int,
-        Doc("Maximum number of cases to return."),
-    ] = 100,
-    order_by: Annotated[
-        Literal["created_at", "updated_at", "priority", "severity", "status"] | None,
-        Doc("The field to order the cases by."),
-    ] = None,
-    sort: Annotated[
-        Literal["asc", "desc"] | None,
-        Doc("The direction to order the cases by."),
-    ] = None,
-) -> list[types.CaseReadMinimal]:
-    if limit > config.MAX_ROWS_CLIENT_POSTGRES:
-        raise TracecatValidationError(
-            detail=f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
-        )
-
-    params: dict[str, Any] = {"limit": limit}
-    if order_by is not None:
-        params["order_by"] = order_by
-    if sort is not None:
-        params["sort"] = sort
-    response = await get_context().cases.list_cases(**params)
-    return response["items"]
-
-
-@registry.register(
-    default_title="Search cases",
-    display_group="Cases",
-    description="Search cases based on various criteria.",
-    namespace="core.cases",
-)
-async def search_cases(
     search_term: Annotated[
         str | None,
         Doc("Text to search for in case summary and description."),
     ] = None,
     status: Annotated[
-        StatusType | None,
+        StatusType | list[StatusType] | None,
         Doc("Filter by case status."),
     ] = None,
     priority: Annotated[
-        PriorityType | None,
+        PriorityType | list[PriorityType] | None,
         Doc("Filter by case priority."),
     ] = None,
     severity: Annotated[
-        SeverityType | None,
+        SeverityType | list[SeverityType] | None,
         Doc("Filter by case severity."),
+    ] = None,
+    tags: Annotated[
+        list[str] | None,
+        Doc("Filter by tag IDs or refs (AND logic)."),
+    ] = None,
+    assignee_id: Annotated[
+        str | list[str] | None,
+        Doc("Filter by assignee ID or 'unassigned'."),
+    ] = None,
+    dropdown: Annotated[
+        list[str] | None,
+        Doc("Filter by dropdown values in definition_ref:option_ref format."),
     ] = None,
     start_time: Annotated[
         datetime | str | None,
@@ -325,45 +307,44 @@ async def search_cases(
         datetime | str | None,
         Doc("Filter cases updated after this time."),
     ] = None,
+    limit: Annotated[
+        int,
+        Doc("Maximum number of cases to return."),
+    ] = 100,
     order_by: Annotated[
-        Literal["created_at", "updated_at", "priority", "severity", "status"] | None,
+        Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
+        | None,
         Doc("The field to order the cases by."),
     ] = None,
     sort: Annotated[
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
     ] = None,
-    tags: Annotated[
-        list[str] | None,
-        Doc("Filter by tag IDs or refs (AND logic)."),
-    ] = None,
-    limit: Annotated[
-        int,
-        Doc("Maximum number of cases to return."),
-    ] = 100,
-) -> list[types.CaseReadMinimal]:
-    if limit > config.MAX_ROWS_CLIENT_POSTGRES:
+    paginate: Annotated[
+        bool,
+        Doc("If true, return cursor pagination metadata along with items."),
+    ] = False,
+) -> list[types.CaseReadMinimal] | types.CaseListResponse:
+    if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise TracecatValidationError(
-            detail=f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
+            detail=f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}"
         )
 
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = {"limit": limit}
     if search_term is not None:
         params["search_term"] = search_term
     if status is not None:
-        params["status"] = status
+        params["status"] = _as_list_filter(status)
     if priority is not None:
-        params["priority"] = priority
+        params["priority"] = _as_list_filter(priority)
     if severity is not None:
-        params["severity"] = severity
+        params["severity"] = _as_list_filter(severity)
     if tags is not None:
         params["tags"] = tags
-    if limit is not None:
-        params["limit"] = limit
-    if order_by is not None:
-        params["order_by"] = order_by
-    if sort is not None:
-        params["sort"] = sort
+    if assignee_id is not None:
+        params["assignee_id"] = _as_list_filter(assignee_id)
+    if dropdown is not None:
+        params["dropdown"] = dropdown
     if start_time is not None:
         params["start_time"] = start_time
     if end_time is not None:
@@ -372,7 +353,103 @@ async def search_cases(
         params["updated_before"] = updated_before
     if updated_after is not None:
         params["updated_after"] = updated_after
-    return await get_context().cases.search_cases(**params)
+    if order_by is not None:
+        params["order_by"] = order_by
+    if sort is not None:
+        params["sort"] = sort
+    response = await get_context().cases.list_cases(**params)
+    if paginate:
+        return response
+    return response["items"]
+
+
+@registry.register(
+    default_title="Search cases",
+    display_group="Cases",
+    description="Search cases based on various criteria.",
+    namespace="core.cases",
+)
+async def search_cases(
+    search_term: Annotated[
+        str | None,
+        Doc("Text to search for in case summary and description."),
+    ] = None,
+    status: Annotated[
+        StatusType | list[StatusType] | None,
+        Doc("Filter by case status."),
+    ] = None,
+    priority: Annotated[
+        PriorityType | list[PriorityType] | None,
+        Doc("Filter by case priority."),
+    ] = None,
+    severity: Annotated[
+        SeverityType | list[SeverityType] | None,
+        Doc("Filter by case severity."),
+    ] = None,
+    tags: Annotated[
+        list[str] | None,
+        Doc("Filter by tag IDs or refs (AND logic)."),
+    ] = None,
+    assignee_id: Annotated[
+        str | list[str] | None,
+        Doc("Filter by assignee ID or 'unassigned'."),
+    ] = None,
+    dropdown: Annotated[
+        list[str] | None,
+        Doc("Filter by dropdown values in definition_ref:option_ref format."),
+    ] = None,
+    start_time: Annotated[
+        datetime | str | None,
+        Doc("Filter cases created after this time."),
+    ] = None,
+    end_time: Annotated[
+        datetime | str | None,
+        Doc("Filter cases created before this time."),
+    ] = None,
+    updated_before: Annotated[
+        datetime | str | None,
+        Doc("Filter cases updated before this time."),
+    ] = None,
+    updated_after: Annotated[
+        datetime | str | None,
+        Doc("Filter cases updated after this time."),
+    ] = None,
+    limit: Annotated[
+        int,
+        Doc("Maximum number of cases to return."),
+    ] = 100,
+    order_by: Annotated[
+        Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
+        | None,
+        Doc("The field to order the cases by."),
+    ] = None,
+    sort: Annotated[
+        Literal["asc", "desc"] | None,
+        Doc("The direction to order the cases by."),
+    ] = None,
+    paginate: Annotated[
+        bool,
+        Doc("If true, return cursor pagination metadata along with items."),
+    ] = False,
+) -> list[types.CaseReadMinimal] | types.CaseListResponse:
+    """Alias for list_cases with identical inputs/outputs."""
+    return await list_cases(
+        search_term=search_term,
+        status=status,
+        priority=priority,
+        severity=severity,
+        tags=tags,
+        assignee_id=assignee_id,
+        dropdown=dropdown,
+        start_time=start_time,
+        end_time=end_time,
+        updated_before=updated_before,
+        updated_after=updated_after,
+        limit=limit,
+        order_by=order_by,
+        sort=sort,
+        paginate=paginate,
+    )
 
 
 @registry.register(

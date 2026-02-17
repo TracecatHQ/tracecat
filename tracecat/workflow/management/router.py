@@ -21,6 +21,7 @@ from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
+from tracecat import config
 from tracecat.auth.api_keys import generate_api_key
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.common import DBConstraints
@@ -90,7 +91,11 @@ async def list_workflows(
         alias="tag",
     ),
     # limit=0 returns all workflows
-    limit: int = Query(default=20, ge=0, le=100),
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_WORKFLOW_LIST_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
     cursor: str | None = Query(default=None),
     reverse: bool = Query(default=False),
 ) -> CursorPaginatedResponse[WorkflowReadMinimal]:
@@ -100,7 +105,7 @@ async def list_workflows(
     # Handle limit=0 to return all workflows
     if limit == 0:
         # Fetch all workflows without pagination
-        workflows_with_defns = await service.list_workflows(
+        workflows_with_defns = await service.list_all_workflows(
             tags=filter_tags, reverse=reverse
         )
 
@@ -114,7 +119,7 @@ async def list_workflows(
         )
 
     # Get paginated workflows
-    paginated_response = await service.list_workflows_paginated(
+    paginated_response = await service.list_workflows(
         CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
         tags=filter_tags,
     )

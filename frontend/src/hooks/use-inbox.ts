@@ -6,8 +6,8 @@ import {
   type AgentSessionEntity,
   type InboxItemRead,
   type InboxItemStatus,
-  type InboxListItemsPaginatedResponse,
-  inboxListItemsPaginated,
+  type InboxListItemsResponse,
+  inboxListItems,
 } from "@/client"
 import type { AgentStatusTone, InboxSessionItem } from "@/lib/agents"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
@@ -153,9 +153,9 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const computeRefetchInterval = useCallback(
     (
       query: Query<
-        InboxListItemsPaginatedResponse,
+        InboxListItemsResponse,
         TracecatApiError,
-        InboxListItemsPaginatedResponse,
+        InboxListItemsResponse,
         readonly unknown[]
       >
     ) => {
@@ -195,14 +195,10 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     isLoading,
     error,
     refetch,
-  } = useQuery<
-    InboxListItemsPaginatedResponse,
-    TracecatApiError,
-    InboxSessionItem[]
-  >({
+  } = useQuery<InboxListItemsResponse, TracecatApiError, InboxSessionItem[]>({
     queryKey: ["inbox-items", workspaceId, limit],
     queryFn: () =>
-      inboxListItemsPaginated({
+      inboxListItems({
         workspaceId,
         limit,
       }),

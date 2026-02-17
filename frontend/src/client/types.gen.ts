@@ -7832,14 +7832,6 @@ export type AdminRegistryPromoteRegistryVersionResponse =
   tracecat__admin__registry__schemas__RegistryVersionPromoteResponse
 
 export type InboxListItemsData = {
-  limit?: number
-  offset?: number
-  workspaceId: string
-}
-
-export type InboxListItemsResponse = Array<InboxItemRead>
-
-export type InboxListItemsPaginatedData = {
   cursor?: string | null
   limit?: number
   /**
@@ -7854,8 +7846,7 @@ export type InboxListItemsPaginatedData = {
   workspaceId: string
 }
 
-export type InboxListItemsPaginatedResponse =
-  CursorPaginatedResponse_InboxItemRead_
+export type InboxListItemsResponse = CursorPaginatedResponse_InboxItemRead_
 
 export type EditorListFunctionsData = {
   workspaceId: string
@@ -8233,6 +8224,10 @@ export type CasesListCasesData = {
    */
   dropdown?: Array<string> | null
   /**
+   * Return cases created at or before this timestamp
+   */
+  endTime?: string | null
+  /**
    * Maximum items per page
    */
   limit?: number
@@ -8268,6 +8263,10 @@ export type CasesListCasesData = {
    */
   sort?: "asc" | "desc" | null
   /**
+   * Return cases created at or after this timestamp
+   */
+  startTime?: string | null
+  /**
    * Filter by case status
    */
   status?: Array<CaseStatus> | null
@@ -8275,6 +8274,14 @@ export type CasesListCasesData = {
    * Filter by tag IDs or slugs (AND logic)
    */
   tags?: Array<string> | null
+  /**
+   * Return cases updated at or after this timestamp
+   */
+  updatedAfter?: string | null
+  /**
+   * Return cases updated at or before this timestamp
+   */
+  updatedBefore?: string | null
   workspaceId: string
 }
 
@@ -8289,15 +8296,27 @@ export type CasesCreateCaseResponse = unknown
 
 export type CasesSearchCasesData = {
   /**
+   * Filter by assignee ID or 'unassigned'
+   */
+  assigneeId?: Array<string> | null
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  /**
+   * Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
+   */
+  dropdown?: Array<string> | null
+  /**
    * Return cases created at or before this timestamp
    */
   endTime?: string | null
   /**
-   * Maximum number of cases to return
+   * Maximum items per page
    */
-  limit?: number | null
+  limit?: number
   /**
-   * Column name to order by (e.g. created_at, updated_at, priority, severity, status). Default: created_at
+   * Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
    */
   orderBy?:
     | "created_at"
@@ -8305,11 +8324,16 @@ export type CasesSearchCasesData = {
     | "priority"
     | "severity"
     | "status"
+    | "tasks"
     | null
   /**
    * Filter by case priority
    */
   priority?: Array<CasePriority> | null
+  /**
+   * Reverse pagination direction
+   */
+  reverse?: boolean
   /**
    * Text to search for in case summary, description, or short ID
    */
@@ -8345,7 +8369,7 @@ export type CasesSearchCasesData = {
   workspaceId: string
 }
 
-export type CasesSearchCasesResponse = Array<CaseReadMinimal>
+export type CasesSearchCasesResponse = CursorPaginatedResponse_CaseReadMinimal_
 
 export type CasesGetCaseData = {
   caseId: string
@@ -11363,24 +11387,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/inbox": {
+  "/inbox/items": {
     get: {
       req: InboxListItemsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<InboxItemRead>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/inbox/paginated": {
-    get: {
-      req: InboxListItemsPaginatedData
       res: {
         /**
          * Successful Response
@@ -12166,7 +12175,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<CaseReadMinimal>
+        200: CursorPaginatedResponse_CaseReadMinimal_
         /**
          * Validation Error
          */

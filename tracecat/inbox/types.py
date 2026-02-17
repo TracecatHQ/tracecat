@@ -38,15 +38,6 @@ class InboxProvider(Protocol):
     async def list_items(
         self,
         *,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> list[InboxItemRead]:
-        """List inbox items with simple offset pagination."""
-        ...
-
-    async def list_items_paginated(
-        self,
-        *,
         limit: int = 20,
         cursor: str | None = None,
         reverse: bool = False,

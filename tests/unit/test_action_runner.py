@@ -528,7 +528,11 @@ class TestActionRunner:
         request = requests[0]
         assert request["path"] == "/internal/tables/customers/search"
         assert request["authorization"] == "Bearer test-executor-token"
-        assert request["payload"] == {"search_term": "alice", "limit": 1, "offset": 0}
+        assert request["payload"] == {
+            "search_term": "alice",
+            "limit": 1,
+            "reverse": False,
+        }
 
     @pytest.mark.anyio
     async def test_execute_action_invalid_json_response(

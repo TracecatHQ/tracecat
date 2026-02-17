@@ -78,9 +78,9 @@ async def lookup_many(
         Doc("The maximum number of rows to return."),
     ] = 100,
 ) -> list[dict[str, Any]]:
-    if limit > config.MAX_ROWS_CLIENT_POSTGRES:
+    if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise ValueError(
-            f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
+            f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}"
         )
 
     params: dict[str, Any] = {
@@ -124,18 +124,26 @@ async def search_rows(
         datetime | None,
         Doc("Filter rows updated after this time."),
     ] = None,
-    offset: Annotated[
-        int,
-        Doc("The number of rows to skip."),
-    ] = 0,
+    cursor: Annotated[
+        str | None,
+        Doc("Cursor for pagination."),
+    ] = None,
+    reverse: Annotated[
+        bool,
+        Doc("Reverse pagination direction."),
+    ] = False,
     limit: Annotated[
         int,
         Doc("The maximum number of rows to return."),
     ] = 100,
-) -> list[dict[str, Any]]:
-    if limit > config.MAX_ROWS_CLIENT_POSTGRES:
+    paginate: Annotated[
+        bool,
+        Doc("If true, return cursor pagination metadata along with items."),
+    ] = False,
+) -> types.TableSearchResponse | list[dict[str, Any]]:
+    if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise ValueError(
-            f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
+            f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}"
         )
 
     params: dict[str, Any] = {"table": table}
@@ -151,9 +159,15 @@ async def search_rows(
         params["updated_after"] = updated_after
     if limit is not None:
         params["limit"] = limit
-    if offset is not None:
-        params["offset"] = offset
-    return await get_context().tables.search_rows(**params)
+    if cursor is not None:
+        params["cursor"] = cursor
+    params["reverse"] = reverse
+    response = await get_context().tables.search_rows(**params)
+    if paginate:
+        return response
+    if isinstance(response, dict):
+        return response.get("items")
+    return response
 
 
 @registry.register(
@@ -324,10 +338,14 @@ async def download(
         Literal["json", "ndjson", "csv", "markdown"] | None,
         Doc("The format to download the table data in."),
     ] = None,
-    limit: Annotated[int, Doc("The maximum number of rows to download.")] = 1000,
+    limit: Annotated[
+        int, Doc("The maximum number of rows to download.")
+    ] = config.TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX,
 ) -> list[dict[str, Any]] | str:
-    if limit > 1000:
-        raise ValueError("Cannot return more than 1000 rows")
+    if limit > config.TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX:
+        raise ValueError(
+            f"Cannot return more than {config.TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX} rows"
+        )
 
     params: dict[str, Any] = {"table": name}
     if format is not None:

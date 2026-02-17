@@ -9,6 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
+from tracecat import config
 from tracecat.agent.adapter import vercel
 from tracecat.agent.session.schemas import (
     AgentSessionCreate,
@@ -74,7 +75,10 @@ async def list_sessions(
         None, description="Filter by parent session ID (for finding forked sessions)"
     ),
     limit: int = Query(
-        50, ge=1, le=100, description="Maximum number of sessions to return"
+        config.TRACECAT__LIMIT_AGENT_SESSIONS_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+        description="Maximum number of sessions to return",
     ),
 ) -> list[AgentSessionRead | ChatReadMinimal]:
     """List agent sessions for the current workspace with optional filtering.

@@ -100,7 +100,6 @@ class SettingsService(BaseOrgService):
         value_type: str | None = None,
         is_encrypted: bool | None = None,
         limit: int | None = None,
-        offset: int | None = None,
     ) -> Sequence[OrganizationSetting]:
         """List organization settings with optional filters.
 
@@ -109,7 +108,6 @@ class SettingsService(BaseOrgService):
             value_type: Filter settings by their value type
             is_encrypted: Filter settings by their encryption status
             limit: Maximum number of settings to return
-            offset: Number of settings to skip for pagination
 
         Returns:
             Sequence[OrganizationSetting]: List of matching organization settings
@@ -127,8 +125,6 @@ class SettingsService(BaseOrgService):
                 OrganizationSetting.is_encrypted == is_encrypted
             )
 
-        if offset is not None:
-            statement = statement.offset(offset)
         if limit is not None:
             statement = statement.limit(limit)
 

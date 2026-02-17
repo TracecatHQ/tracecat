@@ -194,7 +194,6 @@ class AgentSessionService(BaseWorkspaceService):
         exclude_entity_types: list[AgentSessionEntity] | None = None,
         parent_session_id: uuid.UUID | None = None,
         limit: int = 100,
-        offset: int = 0,
     ) -> list[AgentSessionRead | ChatReadMinimal]:
         """List agent sessions and legacy chats for the workspace.
 
@@ -208,7 +207,6 @@ class AgentSessionService(BaseWorkspaceService):
             exclude_entity_types: Entity types to exclude from results.
             parent_session_id: Filter by parent session ID (for finding forked sessions).
             limit: Maximum number of results.
-            offset: Number of results to skip.
 
         Returns:
             List of AgentSessionRead or ChatReadMinimal (legacy, read-only).
@@ -264,9 +262,9 @@ class AgentSessionService(BaseWorkspaceService):
             # ChatReadMinimal has is_readonly=True by default
             items.append(ChatReadMinimal.model_validate(c, from_attributes=True))
 
-        # Sort by created_at descending and apply pagination
+        # Sort by created_at descending and apply limit
         items.sort(key=lambda x: x.created_at, reverse=True)
-        return items[offset : offset + limit]
+        return items[:limit]
 
     @audit_log(resource_type="agent_session", action="update")
     async def update_session(

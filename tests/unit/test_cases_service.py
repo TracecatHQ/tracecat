@@ -1,16 +1,24 @@
 import uuid  # noqa: I001
 import asyncio
+from datetime import UTC, datetime, timedelta
+from typing import Literal
 from unittest.mock import patch, MagicMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.schemas import CaseCreate, CaseFieldCreate, CaseUpdate
+from tracecat.cases.schemas import (
+    CaseCreate,
+    CaseFieldCreate,
+    CaseReadMinimal,
+    CaseUpdate,
+)
 from tracecat.cases.service import CaseFieldsService, CasesService
 from tracecat.tables.enums import SqlType
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.pagination import CursorPaginationParams
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -62,6 +70,24 @@ def case_create_params() -> CaseCreate:
         priority=CasePriority.MEDIUM,
         severity=CaseSeverity.LOW,
     )
+
+
+async def _list_cases(
+    cases_service: CasesService,
+    *,
+    limit: int = 100,
+    order_by: Literal[
+        "created_at", "updated_at", "priority", "severity", "status", "tasks"
+    ]
+    | None = None,
+    sort: Literal["asc", "desc"] | None = None,
+) -> list[CaseReadMinimal]:
+    response = await cases_service.list_cases(
+        CursorPaginationParams(limit=limit, cursor=None, reverse=False),
+        order_by=order_by,
+        sort=sort,
+    )
+    return response.items
 
 
 @pytest.mark.anyio
@@ -142,7 +168,7 @@ class TestCasesService:
         )
 
         # List all cases
-        cases = await cases_service.list_cases()
+        cases = await _list_cases(cases_service)
         assert len(cases) >= 2
         case_ids = {case.id for case in cases}
         assert case1.id in case_ids
@@ -165,7 +191,7 @@ class TestCasesService:
             )
 
         # List cases with limit
-        cases = await cases_service.list_cases(limit=2)
+        cases = await _list_cases(cases_service, limit=2)
         assert len(cases) == 2
 
     async def test_list_cases_with_order_by(self, cases_service: CasesService) -> None:
@@ -191,8 +217,8 @@ class TestCasesService:
             )
         )
 
-        # Test ordering by priority (default ascending)
-        cases = await cases_service.list_cases(order_by="priority")
+        # Test ordering by priority ascending
+        cases = await _list_cases(cases_service, order_by="priority", sort="asc")
 
         # Verify cases are ordered correctly (low priority should come first)
         # Find the indices of our test cases
@@ -237,7 +263,7 @@ class TestCasesService:
         )
 
         # Test explicit ascending ordering by severity
-        cases = await cases_service.list_cases(order_by="severity", sort="asc")
+        cases = await _list_cases(cases_service, order_by="severity", sort="asc")
 
         # Find the indices of our test cases
         low_idx = next(
@@ -281,7 +307,7 @@ class TestCasesService:
         )
 
         # Test descending ordering by status
-        cases = await cases_service.list_cases(order_by="status", sort="desc")
+        cases = await _list_cases(cases_service, order_by="status", sort="desc")
 
         # Find the indices of our test cases
         new_idx = next(
@@ -328,7 +354,7 @@ class TestCasesService:
         )
 
         # Test ascending order (oldest first)
-        asc_cases = await cases_service.list_cases(order_by="created_at", sort="asc")
+        asc_cases = await _list_cases(cases_service, order_by="created_at", sort="asc")
 
         # Find the indices of our test cases
         first_idx_asc = next(
@@ -346,7 +372,9 @@ class TestCasesService:
         assert first_idx_asc < second_idx_asc
 
         # Test descending order (newest first)
-        desc_cases = await cases_service.list_cases(order_by="created_at", sort="desc")
+        desc_cases = await _list_cases(
+            cases_service, order_by="created_at", sort="desc"
+        )
 
         # Find the indices of our test cases
         first_idx_desc = next(
@@ -609,17 +637,11 @@ class TestCasesService:
         # relationship configuration, which should automatically handle
         # deleting related fields when a case is deleted
 
-    async def test_search_cases_with_date_filters(
+    async def test_search_cases_aliases_list_cases(
         self, cases_service: CasesService
     ) -> None:
-        """Test searching cases with date filtering capabilities."""
-        from datetime import UTC, datetime, timedelta
-
-        # Create cases with specific timing
-        base_time = datetime.now(UTC)
-
-        # Create first case
-        first_case = await cases_service.create_case(
+        """search_cases should be a strict alias for list_cases."""
+        await cases_service.create_case(
             CaseCreate(
                 summary="First Case",
                 description="This is the first case",
@@ -628,57 +650,38 @@ class TestCasesService:
                 severity=CaseSeverity.LOW,
             )
         )
-        first_created = first_case.created_at
-
-        # Wait a bit and create second case
         await asyncio.sleep(0.01)
-
-        second_case = await cases_service.create_case(
+        await cases_service.create_case(
             CaseCreate(
                 summary="Second Case",
                 description="This is the second case",
-                status=CaseStatus.NEW,
+                status=CaseStatus.IN_PROGRESS,
                 priority=CasePriority.HIGH,
                 severity=CaseSeverity.MEDIUM,
             )
         )
-        second_created = second_case.created_at
 
-        # Test filtering by start_time
-        cases = await cases_service.search_cases(
-            start_time=first_created - timedelta(seconds=1)
+        params = CursorPaginationParams(limit=10, cursor=None, reverse=False)
+        list_response = await cases_service.list_cases(
+            params,
+            search_term="Case",
+            status=[CaseStatus.NEW, CaseStatus.IN_PROGRESS],
+            order_by="created_at",
+            sort="asc",
         )
-        case_ids = {case.id for case in cases}
-        assert first_case.id in case_ids
-        assert second_case.id in case_ids
-
-        # Test filtering by end_time (should exclude second case)
-        cases = await cases_service.search_cases(
-            end_time=first_created + timedelta(milliseconds=5)
+        search_response = await cases_service.search_cases(
+            params=params,
+            search_term="Case",
+            status=[CaseStatus.NEW, CaseStatus.IN_PROGRESS],
+            start_time=datetime.now(UTC) - timedelta(days=1),
+            end_time=datetime.now(UTC) + timedelta(days=1),
+            updated_after=datetime.now(UTC) - timedelta(days=1),
+            updated_before=datetime.now(UTC) + timedelta(days=1),
+            order_by="created_at",
+            sort="asc",
         )
-        case_ids = {case.id for case in cases}
-        assert first_case.id in case_ids
-        assert second_case.id not in case_ids
 
-        # Test filtering by updated_after (should find second case)
-        cases = await cases_service.search_cases(updated_after=first_created)
-        case_ids = {case.id for case in cases}
-        assert second_case.id in case_ids
-
-        # Test filtering by updated_before (should find first case)
-        cases = await cases_service.search_cases(updated_before=second_created)
-        case_ids = {case.id for case in cases}
-        assert first_case.id in case_ids
-
-        # Test combining date filters with other search parameters
-        cases = await cases_service.search_cases(
-            priority=CasePriority.HIGH,
-            start_time=first_created,
-            end_time=base_time + timedelta(minutes=1),
-        )
-        case_ids = {case.id for case in cases}
-        assert second_case.id in case_ids
-        assert first_case.id not in case_ids  # Different priority
+        assert search_response.model_dump() == list_response.model_dump()
 
     async def test_create_case_with_nonexistent_field(
         self, cases_service: CasesService
@@ -734,7 +737,7 @@ class TestCasesService:
         )  # Should not expose DB details
 
         # Verify the case was NOT created (transaction rolled back)
-        cases = await cases_service.list_cases()
+        cases = await _list_cases(cases_service)
         assert len(cases) == 0
 
     async def test_create_case_atomic_rollback_on_field_error(
@@ -757,5 +760,5 @@ class TestCasesService:
             await cases_service.create_case(params)
 
         # Verify the case was NOT created (entire transaction rolled back)
-        cases = await cases_service.list_cases()
+        cases = await _list_cases(cases_service)
         assert len(cases) == 0, "Case should not exist if fields creation failed"

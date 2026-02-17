@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import tracecat_registry.core.table as table_core
+from tracecat_registry import config
 from tracecat_registry.core.table import (
     create_table,
     delete_row,
@@ -124,6 +125,22 @@ class TestCoreIsInTable:
 @pytest.mark.anyio
 class TestCoreLookupMany:
     """Test cases for the lookup_many UDF."""
+
+    async def test_lookup_many_limit_validation(
+        self, mock_tables_client: AsyncMock
+    ) -> None:
+        """lookup_many should reject limits above table row cap."""
+        with pytest.raises(
+            ValueError,
+            match=f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}",
+        ):
+            await lookup_many(
+                table="test_table",
+                column="name",
+                value="John Doe",
+                limit=config.TRACECAT__LIMIT_CURSOR_MAX + 1,
+            )
+        mock_tables_client.lookup_many.assert_not_called()
 
     async def test_lookup_many_success(self, mock_tables_client: AsyncMock, mock_row):
         """Test successful multiple row lookup."""
@@ -323,30 +340,103 @@ class TestCoreGetTableMetadata:
 class TestCoreSearchRecords:
     """Test cases for the search_rows UDF."""
 
+    async def test_search_rows_limit_validation(
+        self, mock_tables_client: AsyncMock
+    ) -> None:
+        """search_rows should reject limits above cursor pagination cap."""
+        with pytest.raises(
+            ValueError,
+            match=f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}",
+        ):
+            await search_rows(
+                table="test_table",
+                limit=config.TRACECAT__LIMIT_CURSOR_MAX + 1,
+            )
+        mock_tables_client.search_rows.assert_not_called()
+
     async def test_search_rows_basic(self, mock_tables_client: AsyncMock, mock_row):
         """Test basic record search without date filters."""
-        mock_tables_client.search_rows.return_value = [mock_row]
+        mock_tables_client.search_rows.return_value = {
+            "items": [mock_row],
+            "next_cursor": "cursor-1",
+            "prev_cursor": None,
+            "has_more": True,
+            "has_previous": False,
+        }
 
         result = await search_rows(
             table="test_table",
             limit=50,
-            offset=10,
         )
 
         # Only non-None parameters are passed to the client
         mock_tables_client.search_rows.assert_called_once_with(
             table="test_table",
             limit=50,
-            offset=10,
+            reverse=False,
         )
+        assert isinstance(result, list)
         assert len(result) == 1
         assert result[0] == mock_row
+
+    async def test_search_rows_with_paginate_true(
+        self, mock_tables_client: AsyncMock, mock_row
+    ):
+        """search_rows should return pagination metadata when requested."""
+        mock_tables_client.search_rows.return_value = {
+            "items": [mock_row],
+            "next_cursor": "cursor-1",
+            "prev_cursor": None,
+            "has_more": True,
+            "has_previous": False,
+        }
+
+        result = await search_rows(
+            table="test_table",
+            limit=50,
+            paginate=True,
+        )
+
+        mock_tables_client.search_rows.assert_called_once_with(
+            table="test_table",
+            limit=50,
+            reverse=False,
+        )
+        assert isinstance(result, dict)
+        assert len(result["items"]) == 1
+        assert result["items"][0] == mock_row
+        assert result["next_cursor"] == "cursor-1"
+
+    async def test_search_rows_legacy_list_response(
+        self, mock_tables_client: AsyncMock
+    ):
+        """Legacy list responses should pass through without raising."""
+        legacy_rows = [{"id": "row-1", "name": "Alice"}]
+        mock_tables_client.search_rows.return_value = legacy_rows
+
+        result = await search_rows(
+            table="test_table",
+            limit=50,
+        )
+
+        mock_tables_client.search_rows.assert_called_once_with(
+            table="test_table",
+            limit=50,
+            reverse=False,
+        )
+        assert result == legacy_rows
 
     async def test_search_rows_with_date_filters(
         self, mock_tables_client: AsyncMock, mock_row
     ):
         """Test record search with date filtering capabilities."""
-        mock_tables_client.search_rows.return_value = [mock_row]
+        mock_tables_client.search_rows.return_value = {
+            "items": [mock_row],
+            "next_cursor": None,
+            "prev_cursor": None,
+            "has_more": False,
+            "has_previous": False,
+        }
 
         start_time = datetime.now(UTC) - timedelta(days=1)
         end_time = datetime.now(UTC)
@@ -356,7 +446,7 @@ class TestCoreSearchRecords:
         result = await search_rows(
             table="test_table",
             limit=50,
-            offset=10,
+            cursor="cursor-1",
             start_time=start_time,
             end_time=end_time,
             updated_after=updated_after,
@@ -371,8 +461,10 @@ class TestCoreSearchRecords:
             updated_before=updated_before,
             updated_after=updated_after,
             limit=50,
-            offset=10,
+            cursor="cursor-1",
+            reverse=False,
         )
+        assert isinstance(result, list)
         assert len(result) == 1
         assert result[0] == mock_row
 
@@ -429,6 +521,22 @@ class TestCoreInsertRows:
 @pytest.mark.anyio
 class TestCoreDownloadTable:
     """Test cases for the download_table UDF."""
+
+    async def test_download_table_limit_validation(
+        self, mock_tables_client: AsyncMock
+    ) -> None:
+        """download should reject limits above table row cap."""
+        with pytest.raises(
+            ValueError,
+            match=(
+                f"Cannot return more than {config.TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX} rows"
+            ),
+        ):
+            await download(
+                name="test_table",
+                limit=config.TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX + 1,
+            )
+        mock_tables_client.download.assert_not_called()
 
     async def test_download_table_no_format(self, mock_tables_client: AsyncMock):
         """Test downloading table data without format (returns list of dicts)."""

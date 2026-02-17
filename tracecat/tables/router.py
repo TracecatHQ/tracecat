@@ -346,7 +346,11 @@ async def list_rows(
     role: WorkspaceUser,
     session: AsyncDBSession,
     table_id: TableID,
-    limit: int = Query(default=20, ge=1, le=100),
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
     cursor: str | None = Query(default=None),
     reverse: bool = Query(default=False),
     order_by: str | None = Query(default=None, description="Column name to order by"),
@@ -371,9 +375,7 @@ async def list_rows(
     )
 
     try:
-        response = await service.list_rows_paginated(
-            table, params, order_by=order_by, sort=sort
-        )
+        response = await service.list_rows(table, params, order_by=order_by, sort=sort)
     except ValueError as e:
         logger.warning(f"Invalid request for list rows: {e}")
         raise HTTPException(

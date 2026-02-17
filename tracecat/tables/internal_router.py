@@ -19,6 +19,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.expressions.functions import tabulate
 from tracecat.logger import logger
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
@@ -45,7 +46,11 @@ class TableCreateRequest(BaseModel):
 class TableLookupRequest(BaseModel):
     columns: list[str]
     values: list[Any]
-    limit: int | None = None
+    limit: int | None = Field(
+        default=None,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    )
 
 
 class TableExistsRequest(BaseModel):
@@ -59,8 +64,13 @@ class TableSearchRequest(BaseModel):
     end_time: datetime | None = None
     updated_before: datetime | None = None
     updated_after: datetime | None = None
-    offset: int = Field(default=0, ge=0)
-    limit: int = Field(default=100, ge=1)
+    cursor: str | None = None
+    reverse: bool = False
+    limit: int = Field(
+        default=config.TRACECAT__LIMIT_TABLE_SEARCH_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    )
 
 
 class TableRowUpdate(BaseModel):
@@ -166,14 +176,11 @@ async def lookup_rows(
     params: TableLookupRequest,
 ) -> list[dict[str, Any]]:
     """Lookup rows matching column/value pairs."""
-    if (
-        params.limit is not None
-        and params.limit > config.TRACECAT__MAX_ROWS_CLIENT_POSTGRES
-    ):
+    if params.limit is not None and params.limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"Limit cannot be greater than {config.TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
+                f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}"
             ),
         )
     service = TablesService(session, role=role)
@@ -231,15 +238,8 @@ async def search_rows(
     session: AsyncDBSession,
     table_name: str,
     params: TableSearchRequest,
-) -> list[dict[str, Any]]:
+) -> CursorPaginatedResponse[dict[str, Any]]:
     """Search rows in a table with optional filters."""
-    if params.limit > config.TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"Limit cannot be greater than {config.TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
-            ),
-        )
     service = TablesService(session, role=role)
     try:
         table = await service.get_table_by_name(table_name)
@@ -250,15 +250,18 @@ async def search_rows(
         ) from exc
 
     try:
-        return await service.search_rows(
+        return await service.list_rows(
             table,
+            params=CursorPaginationParams(
+                limit=params.limit,
+                cursor=params.cursor,
+                reverse=params.reverse,
+            ),
             search_term=params.search_term,
             start_time=coerce_optional_to_utc_datetime(params.start_time),
             end_time=coerce_optional_to_utc_datetime(params.end_time),
             updated_before=coerce_optional_to_utc_datetime(params.updated_before),
             updated_after=coerce_optional_to_utc_datetime(params.updated_after),
-            limit=params.limit,
-            offset=params.offset,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -394,7 +397,11 @@ async def download_table(
     session: AsyncDBSession,
     table_name: str,
     format: TableDownloadFormat | None = Query(default=None),
-    limit: int = Query(default=1000, ge=1, le=1000),
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_TABLE_DOWNLOAD_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX,
+    ),
 ) -> list[dict[str, Any]] | str:
     """Download table data as JSON, NDJSON, CSV, or Markdown."""
     service = TablesService(session, role=role)
@@ -406,7 +413,21 @@ async def download_table(
             detail=str(exc),
         ) from exc
 
-    rows = await service.list_rows(table=table, limit=limit)
+    # Download uses cursor pagination in chunks and is capped by download max.
+    rows: list[dict[str, Any]] = []
+    cursor: str | None = None
+    while len(rows) < limit:
+        page_size = min(limit - len(rows), config.TRACECAT__LIMIT_CURSOR_MAX)
+        rows_page = await service.list_rows(
+            table=table,
+            params=CursorPaginationParams(
+                limit=page_size, cursor=cursor, reverse=False
+            ),
+        )
+        rows.extend(rows_page.items)
+        if not rows_page.has_more or rows_page.next_cursor is None:
+            break
+        cursor = rows_page.next_cursor
     json_safe_rows = to_jsonable_python(rows, fallback=str)
 
     if format is None:

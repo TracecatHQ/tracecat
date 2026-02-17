@@ -347,6 +347,15 @@ Available predefined roles:
 - `ServiceRole`: Internal service role
 - `OrgAdminUser`: Organization admin user
 
+### Pagination
+- **MUST use cursor-based pagination** for all list/search endpoints that can return multiple records. Do not introduce offset/page-number pagination for new APIs.
+- Use `CursorPaginationParams` (or the module's equivalent cursor schema) as the input contract and return a typed paginated response with `items` and `next_cursor`.
+- Keep routes idiomatic: collection endpoints stay on the base resource path (for example, `/items`, `/cases`, `/workflows`). Do not add `/paginated` suffix routes.
+- Avoid duplicate APIs for the same behavior (for example, `list_*` + `list_*_paginated`). Keep one canonical list/search implementation per resource.
+- Service methods should expose a single paginated list/search entrypoint. If both `list_*` and `search_*` exist with identical behavior, make one call the other instead of duplicating query logic.
+- Enforce `limit` bounds consistently at both route and schema level (`Query(ge=..., le=...)` plus Pydantic field constraints), using shared config constants from `tracecat/config.py`.
+- Cursor contracts must be stable: sort order and cursor encoding/decoding must produce deterministic pagination without missing or duplicate rows.
+
 ### Frontend Standards
 - Use kebab-case for file names
 - Use camelCase for functions/variables, UPPERCASE_SNAKE_CASE for constants

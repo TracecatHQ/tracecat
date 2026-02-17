@@ -6,6 +6,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from tracecat import config
 from tracecat.admin.registry.schemas import (
     RegistryStatusResponse,
     RegistrySyncResponse,
@@ -88,7 +89,11 @@ async def list_registry_versions(
     role: SuperuserRole,
     session: AsyncDBSession,
     repository_id: uuid.UUID | None = Query(None),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(
+        config.TRACECAT__LIMIT_REGISTRY_VERSIONS_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
 ) -> list[RegistryVersionRead]:
     """List registry versions with optional filtering."""
     service = AdminRegistryService(session, role)

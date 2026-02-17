@@ -283,8 +283,6 @@ import type {
   GraphGetGraphData,
   GraphGetGraphResponse,
   InboxListItemsData,
-  InboxListItemsPaginatedData,
-  InboxListItemsPaginatedResponse,
   InboxListItemsResponse,
   IntegrationsConnectProviderData,
   IntegrationsConnectProviderResponse,
@@ -4927,36 +4925,6 @@ export const adminRegistryPromoteRegistryVersion = (
 
 /**
  * List Items
- * List all inbox items for the workspace.
- *
- * Returns inbox items aggregated from all registered providers,
- * sorted by status priority (pending first) then by creation time.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.limit
- * @param data.offset
- * @returns InboxItemRead Successful Response
- * @throws ApiError
- */
-export const inboxListItems = (
-  data: InboxListItemsData
-): CancelablePromise<InboxListItemsResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/inbox",
-    query: {
-      limit: data.limit,
-      offset: data.offset,
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Items Paginated
  * List inbox items with cursor-based pagination.
  *
  * Supports sorting by created_at, updated_at, or status.
@@ -4971,12 +4939,12 @@ export const inboxListItems = (
  * @returns CursorPaginatedResponse_InboxItemRead_ Successful Response
  * @throws ApiError
  */
-export const inboxListItemsPaginated = (
-  data: InboxListItemsPaginatedData
-): CancelablePromise<InboxListItemsPaginatedResponse> => {
+export const inboxListItems = (
+  data: InboxListItemsData
+): CancelablePromise<InboxListItemsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/inbox/paginated",
+    url: "/inbox/items",
     query: {
       limit: data.limit,
       cursor: data.cursor,
@@ -6369,6 +6337,10 @@ export const tablesImportCsv = (
  * @param data.assigneeId Filter by assignee ID or 'unassigned'
  * @param data.tags Filter by tag IDs or slugs (AND logic)
  * @param data.dropdown Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
+ * @param data.startTime Return cases created at or after this timestamp
+ * @param data.endTime Return cases created at or before this timestamp
+ * @param data.updatedAfter Return cases updated at or after this timestamp
+ * @param data.updatedBefore Return cases updated at or before this timestamp
  * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
@@ -6391,6 +6363,10 @@ export const casesListCases = (
       assignee_id: data.assigneeId,
       tags: data.tags,
       dropdown: data.dropdown,
+      start_time: data.startTime,
+      end_time: data.endTime,
+      updated_after: data.updatedAfter,
+      updated_before: data.updatedBefore,
       order_by: data.orderBy,
       sort: data.sort,
       workspace_id: data.workspaceId,
@@ -6429,22 +6405,26 @@ export const casesCreateCase = (
 
 /**
  * Search Cases
- * Search cases based on various criteria.
+ * Alias for list_cases.
  * @param data The data for the request.
  * @param data.workspaceId
+ * @param data.limit Maximum items per page
+ * @param data.cursor Cursor for pagination
+ * @param data.reverse Reverse pagination direction
  * @param data.searchTerm Text to search for in case summary, description, or short ID
  * @param data.status Filter by case status
  * @param data.priority Filter by case priority
  * @param data.severity Filter by case severity
  * @param data.tags Filter by tag IDs or slugs (AND logic)
- * @param data.limit Maximum number of cases to return
- * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status). Default: created_at
- * @param data.sort Direction to sort (asc or desc)
+ * @param data.dropdown Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
  * @param data.startTime Return cases created at or after this timestamp
  * @param data.endTime Return cases created at or before this timestamp
  * @param data.updatedAfter Return cases updated at or after this timestamp
  * @param data.updatedBefore Return cases updated at or before this timestamp
- * @returns CaseReadMinimal Successful Response
+ * @param data.assigneeId Filter by assignee ID or 'unassigned'
+ * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
+ * @param data.sort Direction to sort (asc or desc)
+ * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
 export const casesSearchCases = (
@@ -6454,18 +6434,22 @@ export const casesSearchCases = (
     method: "GET",
     url: "/cases/search",
     query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
       search_term: data.searchTerm,
       status: data.status,
       priority: data.priority,
       severity: data.severity,
       tags: data.tags,
-      limit: data.limit,
-      order_by: data.orderBy,
-      sort: data.sort,
+      dropdown: data.dropdown,
       start_time: data.startTime,
       end_time: data.endTime,
       updated_after: data.updatedAfter,
       updated_before: data.updatedBefore,
+      assignee_id: data.assigneeId,
+      order_by: data.orderBy,
+      sort: data.sort,
       workspace_id: data.workspaceId,
     },
     errors: {

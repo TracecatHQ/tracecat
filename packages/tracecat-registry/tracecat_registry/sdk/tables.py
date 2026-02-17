@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from tracecat_registry import types
 from tracecat_registry.sdk.types import UNSET, Unset, is_set
@@ -106,9 +106,10 @@ class TablesClient:
         end_time: datetime | str | Unset = UNSET,
         updated_before: datetime | str | Unset = UNSET,
         updated_after: datetime | str | Unset = UNSET,
-        offset: int | Unset = UNSET,
+        cursor: str | Unset = UNSET,
+        reverse: bool | Unset = UNSET,
         limit: int | Unset = UNSET,
-    ) -> list[dict[str, Any]]:
+    ) -> types.TableSearchResponse | list[dict[str, Any]]:
         """Search rows with optional filters."""
         data: dict[str, Any] = {}
         if is_set(search_term):
@@ -135,14 +136,20 @@ class TablesClient:
                 if isinstance(updated_after, datetime)
                 else updated_after
             )
-        if is_set(offset):
-            data["offset"] = offset
+        if is_set(cursor):
+            data["cursor"] = cursor
+        if is_set(reverse):
+            data["reverse"] = reverse
         if is_set(limit):
             data["limit"] = limit
-        rows = await self._client.post(f"/tables/{table}/search", json=data)
-        if not isinstance(rows, list):
+        response = await self._client.post(f"/tables/{table}/search", json=data)
+        if isinstance(response, list):
+            return cast(list[dict[str, Any]], response)
+        if not isinstance(response, dict) or not isinstance(
+            response.get("items"), list
+        ):
             raise ValueError("Unexpected search response")
-        return rows
+        return cast(types.TableSearchResponse, response)
 
     async def insert_row(
         self,

@@ -565,10 +565,42 @@ TRACECAT__S3_CONCURRENCY_LIMIT = int(
 )
 """Maximum number of concurrent S3 operations to prevent resource exhaustion. Defaults to 50."""
 
-TRACECAT__MAX_ROWS_CLIENT_POSTGRES = int(
-    os.environ.get("TRACECAT__MAX_ROWS_CLIENT_POSTGRES") or 1000
-)
-"""Maximum number of rows that can be returned from PostgreSQL client queries. Defaults to 1,000."""
+# === API List/Search Limits === #
+TRACECAT__LIMIT_MIN = 1
+"""Minimum list/search page size."""
+
+TRACECAT__LIMIT_DEFAULT = 20
+"""Default list/search page size."""
+
+TRACECAT__LIMIT_CURSOR_MAX = 200
+"""Maximum page size for cursor-pagination and case list/search endpoints."""
+
+TRACECAT__LIMIT_WORKFLOW_LIST_MIN = 0
+"""Minimum workflow list limit (0 means unpaginated/all)."""
+
+TRACECAT__LIMIT_AGENT_SESSIONS_DEFAULT = 50
+"""Default page size for agent session listing."""
+
+TRACECAT__LIMIT_REGISTRY_VERSIONS_DEFAULT = 50
+"""Default page size for registry version listing."""
+
+TRACECAT__LIMIT_COMMITS_DEFAULT = 10
+"""Default page size for commit listing endpoints."""
+
+TRACECAT__LIMIT_WORKFLOW_EXECUTIONS_DEFAULT = 100
+"""Default page size for workflow execution listing."""
+
+TRACECAT__LIMIT_WORKFLOW_EXECUTIONS_MAX = 1000
+"""Maximum page size for workflow execution listing."""
+
+TRACECAT__LIMIT_TABLE_SEARCH_DEFAULT = min(100, TRACECAT__LIMIT_CURSOR_MAX)
+"""Default page size for internal table search."""
+
+TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX = 1000
+"""Maximum row count for internal table downloads."""
+
+TRACECAT__LIMIT_TABLE_DOWNLOAD_DEFAULT = TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX
+"""Default row count for internal table download."""
 
 # === Context Compression === #
 TRACECAT__CONTEXT_COMPRESSION_ENABLED = os.environ.get(
