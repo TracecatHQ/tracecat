@@ -1,5 +1,7 @@
 """Tests for UnsafePidExecutor fallback mode."""
 
+import asyncio
+
 import pytest
 
 from tracecat.sandbox.unsafe_pid_executor import (
@@ -68,6 +70,36 @@ class TestUnsafePidExecutor:
         assert len(warnings) == 1
 
     @pytest.mark.anyio
+    async def test_pid_probe_timeout_handles_process_lookup_error(
+        self, executor: UnsafePidExecutor, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class FakeProbe:
+            returncode = None
+
+            async def wait(self) -> int:
+                return 0
+
+            def kill(self) -> None:
+                raise ProcessLookupError
+
+        async def fake_create_subprocess_exec(*args, **kwargs):
+            return FakeProbe()
+
+        async def fake_wait_for(*args, **kwargs):
+            raise TimeoutError
+
+        monkeypatch.setattr(
+            "tracecat.sandbox.unsafe_pid_executor.shutil.which", lambda *_: "unshare"
+        )
+        monkeypatch.setattr(
+            asyncio, "create_subprocess_exec", fake_create_subprocess_exec
+        )
+        monkeypatch.setattr(asyncio, "wait_for", fake_wait_for)
+
+        available = await executor._is_pid_namespace_available()
+        assert not available
+
+    @pytest.mark.anyio
     async def test_execute_basic_script(self, executor: UnsafePidExecutor) -> None:
         script = """
 def main():
@@ -108,7 +140,7 @@ def main():
         assert result.output == "value"
 
     @pytest.mark.anyio
-    async def test_allow_network_warning_logs_only_when_enabled(
+    async def test_network_isolation_warning_logs_once_when_disallowed(
         self, executor: UnsafePidExecutor, caplog: pytest.LogCaptureFixture
     ) -> None:
         script = """
@@ -116,15 +148,26 @@ def main():
     return "ok"
 """
         caplog.clear()
-        await executor.execute(script=script)
-        assert not any(
-            "allow_network is not enforced without nsjail" in record.message
+        await executor.execute(script=script, allow_network=False)
+        await executor.execute(script=script, allow_network=False)
+        warnings = [
+            record
             for record in caplog.records
-        )
+            if "Network isolation is not enforced without nsjail" in record.message
+        ]
+        assert len(warnings) == 1
 
+    @pytest.mark.anyio
+    async def test_no_network_warning_when_network_is_explicitly_allowed(
+        self, executor: UnsafePidExecutor, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        script = """
+def main():
+    return "ok"
+"""
         caplog.clear()
         await executor.execute(script=script, allow_network=True)
-        assert any(
-            "allow_network is not enforced without nsjail" in record.message
+        assert not any(
+            "Network isolation is not enforced without nsjail" in record.message
             for record in caplog.records
         )

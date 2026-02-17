@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -156,6 +157,7 @@ class UnsafePidExecutor:
         self._pid_namespace_available: bool | None = None
         self._pid_namespace_probe_error: str | None = None
         self._pid_isolation_warning_emitted = False
+        self._network_isolation_warning_emitted = False
 
         self.package_cache.mkdir(parents=True, exist_ok=True)
         self.uv_cache.mkdir(parents=True, exist_ok=True)
@@ -198,7 +200,8 @@ class UnsafePidExecutor:
                     f"unshare probe exited with status {probe.returncode}"
                 )
         except TimeoutError:
-            probe.kill()
+            with suppress(ProcessLookupError):
+                probe.kill()
             await probe.wait()
             self._pid_namespace_probe_error = "unshare probe timed out"
             self._pid_namespace_available = False
@@ -305,10 +308,11 @@ class UnsafePidExecutor:
             timeout_seconds = TRACECAT__SANDBOX_DEFAULT_TIMEOUT
 
         start_time = time.time()
-        if allow_network:
-            logger.info(
-                "allow_network is not enforced without nsjail; configure nsjail for network isolation"
+        if not allow_network and not self._network_isolation_warning_emitted:
+            logger.warning(
+                "Network isolation is not enforced without nsjail; scripts may still access network"
             )
+            self._network_isolation_warning_emitted = True
 
         work_dir = Path(tempfile.mkdtemp(prefix="unsafe-pid-sandbox-"))
 
