@@ -1,11 +1,12 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { KeyIcon, Upload, X } from "lucide-react"
-import { type ChangeEvent, useEffect, useRef, useState } from "react"
-import { type ControllerRenderProps, useForm } from "react-hook-form"
+import { KeyIcon } from "lucide-react"
+import { useEffect, useState } from "react"
+import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ServiceAccountJsonUploader } from "@/components/service-account-json-uploader"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -36,94 +37,6 @@ interface AgentCredentialsDialogProps {
 
 function isJsonCredentialField(fieldKey: string): boolean {
   return fieldKey === "GOOGLE_API_CREDENTIALS"
-}
-
-interface JsonCredentialInputProps {
-  field: ControllerRenderProps<Record<string, string>, string>
-}
-
-function JsonCredentialInput({ field }: JsonCredentialInputProps) {
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const [fileName, setFileName] = useState<string | null>(null)
-
-  const clearSelection = () => {
-    field.onChange("")
-    setFileName(null)
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ""
-    }
-  }
-
-  const onUpload = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) {
-      return
-    }
-
-    if (!file.name.toLowerCase().endsWith(".json")) {
-      clearSelection()
-      return
-    }
-
-    const reader = new FileReader()
-    reader.onload = () => {
-      const text = typeof reader.result === "string" ? reader.result : ""
-      try {
-        const parsed = JSON.parse(text)
-        const isObject =
-          typeof parsed === "object" &&
-          parsed !== null &&
-          !Array.isArray(parsed)
-        if (!isObject || parsed.type !== "service_account") {
-          clearSelection()
-          return
-        }
-      } catch {
-        clearSelection()
-        return
-      }
-
-      field.onChange(text)
-      setFileName(file.name)
-    }
-    reader.readAsText(file)
-    event.target.value = ""
-  }
-
-  return (
-    <div className="space-y-2">
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".json,application/json"
-        className="hidden"
-        onChange={onUpload}
-      />
-      <Button
-        type="button"
-        variant="outline"
-        className="w-full"
-        onClick={() => fileInputRef.current?.click()}
-      >
-        <Upload className="mr-2 size-4" />
-        Upload service account JSON
-      </Button>
-      {fileName && (
-        <div className="flex items-center justify-between rounded-md border px-3 py-2 text-xs">
-          <span className="truncate text-muted-foreground">{fileName}</span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            onClick={clearSelection}
-          >
-            <X className="size-3.5" />
-          </Button>
-        </div>
-      )}
-    </div>
-  )
 }
 
 export function AgentCredentialsDialog({
@@ -264,7 +177,22 @@ export function AgentCredentialsDialog({
                     </FormLabel>
                     <FormControl>
                       {isJsonCredentialField(field.key) ? (
-                        <JsonCredentialInput field={formField} />
+                        <ServiceAccountJsonUploader
+                          value={formField.value ?? ""}
+                          onChange={formField.onChange}
+                          onError={(message) => {
+                            form.setError(field.key, {
+                              type: "manual",
+                              message,
+                            })
+                          }}
+                          onClearError={() => {
+                            form.clearErrors(field.key)
+                          }}
+                          placeholder="Drag & drop the JSON key (.json) or choose a file"
+                          existingConfigured={false}
+                          hasError={Boolean(form.formState.errors[field.key])}
+                        />
                       ) : (
                         <Input
                           type={field.type}
