@@ -22,6 +22,8 @@ This includes both:
 
 AWS Fargate deployments have `nsjail` **disabled by default**. Do **not** run these workloads in production until you explicitly enable it.
 
+Fargate does not provide the required permissions model for `nsjail`. For production workloads that execute untrusted code, we recommend Kubernetes (Helm chart), where `nsjail` is enabled by default.
+
 For comparison: Helm chart / Kubernetes deployments have `nsjail` enabled by default.
 </Warning>
 

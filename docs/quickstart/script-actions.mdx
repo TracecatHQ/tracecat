@@ -21,6 +21,7 @@ For production deployments, enable `nsjail` before running script actions.
 
 - `docker compose` deployments have `nsjail` disabled by default
 - AWS Fargate deployments have `nsjail` disabled by default
+- AWS Fargate does not provide the required permissions model for `nsjail`; use Kubernetes (Helm chart) for production untrusted-code workloads
 - Helm chart / Kubernetes deployments have `nsjail` enabled by default
 </Warning>
 
