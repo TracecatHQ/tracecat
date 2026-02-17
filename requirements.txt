@@ -399,6 +399,7 @@ cffi==2.0.0 \
     #   argon2-cffi-bindings
     #   cryptography
     #   pynacl
+    #   pyroscope-io
     #   soundfile
 cfgv==3.5.0 \
     --hash=sha256:a8dc6b26ad22ff227d2634a65cb388215ce6cc96bbcc5cfde7641ae87e8dacc0 \
@@ -1045,7 +1046,6 @@ grpcio==1.75.1 \
     --hash=sha256:f86e92275710bea3000cb79feca1762dc0ad3b27830dd1a74e82ab321d4ee464
     # via
     #   grpcio-tools
-    #   litellm
     #   tracecat-registry
 grpcio-tools==1.75.1 \
     --hash=sha256:004bc5327593eea48abd03be3188e757c3ca0039079587a6aac24275127cac20 \
@@ -1378,17 +1378,17 @@ ldap3==2.9.1 \
     --hash=sha256:5869596fc4948797020d3f03b7939da938778a0f9e2009f7a072ccf92b8e8d70 \
     --hash=sha256:f3e7fc4718e3f09dda568b57100095e0ce58633bcabbed8667ce3f8fbaa4229f
     # via tracecat-registry
-litellm==1.80.16 \
-    --hash=sha256:21be641b350561b293b831addb25249676b72ebff973a5a1d73b5d7cf35bcd1d \
-    --hash=sha256:f96233649f99ab097f7d8a3ff9898680207b9eea7d2e23f438074a3dbcf50cca
+litellm==1.81.13 \
+    --hash=sha256:083788d9c94e3371ff1c42e40e0e8198c497772643292a65b1bc91a3b3b537ea \
+    --hash=sha256:ae4aea2a55e85993f5f6dd36d036519422d24812a1a3e8540d9e987f2d7a4304
     # via tracecat
-litellm-enterprise==0.1.27 \
-    --hash=sha256:41b9d41d04123f492060a742091006dc1d182b54ce3a1c0e18ee75d623c63e91 \
-    --hash=sha256:aa40c87f7c8df64beb79e75f71e1b5c0a458350efa68527e3491e6f27f2cbd57
+litellm-enterprise==0.1.32 \
+    --hash=sha256:5648f982f92a3a2323ed49c3eee61e281e4ccb284dd8c45ee997dadea0f56a5a \
+    --hash=sha256:db043d2628e6a6a1369b3d582360fc5c6676bb213b53a4e6dd35d0c563d4d3e5
     # via litellm
-litellm-proxy-extras==0.4.21 \
-    --hash=sha256:83a1734e9773610945230606012e602bbcbfba1c60fde836d51102c1a296f166 \
-    --hash=sha256:fa0e012984aa8e5114f88f4bad53d6abb589e5ca3eab445f74f8ddeceb62d848
+litellm-proxy-extras==0.4.40 \
+    --hash=sha256:291cc5556b739d7b17b1ff79cd8881505cc560c6d5c0706302075550ae02c4bb \
+    --hash=sha256:964c151ec56a40c5d7b3532888dd19db9203306d4a70a3c54fb2eb0a1bcff154
     # via litellm
 lockfile==0.12.2 \
     --hash=sha256:6aed02de03cba24efabcd600b30540140634fc06cfa603822d508d5361e9f799 \
@@ -2340,6 +2340,12 @@ pyreadline3==3.5.4 ; sys_platform == 'win32' \
     --hash=sha256:8d57d53039a1c75adba8e50dd3d992b28143480816187ea5efbd5c78e6c885b7 \
     --hash=sha256:eaf8e6cc3c49bcccf145fc6067ba8643d1df34d604a1ec0eccbf7a18e6d3fae6
     # via polyfile
+pyroscope-io==0.8.16 ; sys_platform != 'win32' \
+    --hash=sha256:6b91ce5b240f8de756c16a17022ca8e25ef8a4eed461c7d074b8a0841cf7b445 \
+    --hash=sha256:86f0f047554ff62bd92c3e5a26bc2809ccd467d11fbacb9fef898ba299dbda59 \
+    --hash=sha256:dc98355e27c0b7b61f27066500fe1045b70e9459bb8b9a3082bc4755cb6392b6 \
+    --hash=sha256:e07edcfd59f5bdce42948b92c9b118c824edbd551730305f095a6b9af401a9e8
+    # via litellm
 pysaml2==7.5.0 \
     --hash=sha256:bc6627cc344476a83c757f440a73fda1369f13b6fda1b4e16bca63ffbabb5318 \
     --hash=sha256:f36871d4e5ee857c6b85532e942550d2cf90ea4ee943d75eb681044bbc4f54f7

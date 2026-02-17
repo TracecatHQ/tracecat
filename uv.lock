@@ -2204,13 +2204,12 @@ wheels = [
 
 [[package]]
 name = "litellm"
-version = "1.80.16"
+version = "1.81.13"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
     { name = "click" },
     { name = "fastuuid" },
-    { name = "grpcio" },
     { name = "httpx" },
     { name = "importlib-metadata" },
     { name = "jinja2" },
@@ -2221,9 +2220,9 @@ dependencies = [
     { name = "tiktoken" },
     { name = "tokenizers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ac/cc/03bf7849c62587db0fb7c46f427d6a49290750752d3189a0bd95d4b78587/litellm-1.80.16.tar.gz", hash = "sha256:f96233649f99ab097f7d8a3ff9898680207b9eea7d2e23f438074a3dbcf50cca", size = 13384256, upload-time = "2026-01-13T08:52:23.067Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/72/80/b6cb799e7100953d848e106d0575db34c75bc3b57f31f2eefdfb1e23655f/litellm-1.81.13.tar.gz", hash = "sha256:083788d9c94e3371ff1c42e40e0e8198c497772643292a65b1bc91a3b3b537ea", size = 16562861, upload-time = "2026-02-17T02:00:47.466Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/53/4d/73fdb12223bdb01889134eb75525fcc768b1724255f2b87072dd6743c6e1/litellm-1.80.16-py3-none-any.whl", hash = "sha256:21be641b350561b293b831addb25249676b72ebff973a5a1d73b5d7cf35bcd1d", size = 11682530, upload-time = "2026-01-13T08:52:19.951Z" },
+    { url = "https://files.pythonhosted.org/packages/be/f3/fffb7932870163cea7addc392165647a9a8a5489967de486c854226f1141/litellm-1.81.13-py3-none-any.whl", hash = "sha256:ae4aea2a55e85993f5f6dd36d036519422d24812a1a3e8540d9e987f2d7a4304", size = 14587505, upload-time = "2026-02-17T02:00:44.22Z" },
 ]
 
 [package.optional-dependencies]
@@ -2244,6 +2243,7 @@ proxy = [
     { name = "polars" },
     { name = "pyjwt" },
     { name = "pynacl" },
+    { name = "pyroscope-io", marker = "sys_platform != 'win32'" },
     { name = "python-multipart" },
     { name = "pyyaml" },
     { name = "rich" },
@@ -2256,20 +2256,20 @@ proxy = [
 
 [[package]]
 name = "litellm-enterprise"
-version = "0.1.27"
+version = "0.1.32"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b6/b5/2304eed58f0142b3570c50580b451db9b7709012d5b436c2100783ae2220/litellm_enterprise-0.1.27.tar.gz", hash = "sha256:aa40c87f7c8df64beb79e75f71e1b5c0a458350efa68527e3491e6f27f2cbd57", size = 46829, upload-time = "2025-12-18T00:01:33.398Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f0/b0/1d181e5f9b62b3747aba3ed57bad1c6cfabd4da0d47c2c739c72ef7ee0a9/litellm_enterprise-0.1.32.tar.gz", hash = "sha256:5648f982f92a3a2323ed49c3eee61e281e4ccb284dd8c45ee997dadea0f56a5a", size = 53648, upload-time = "2026-02-14T21:39:47.702Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7e/23/ec61a6aa76b6938d3de8cad206875b0500e1df234fa3535b282b1a4850b5/litellm_enterprise-0.1.27-py3-none-any.whl", hash = "sha256:41b9d41d04123f492060a742091006dc1d182b54ce3a1c0e18ee75d623c63e91", size = 108107, upload-time = "2025-12-18T00:01:31.966Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/df/1d928e4f46a2136297020ab873d343e9e2c8015a6873200101a3e7dca2f4/litellm_enterprise-0.1.32-py3-none-any.whl", hash = "sha256:db043d2628e6a6a1369b3d582360fc5c6676bb213b53a4e6dd35d0c563d4d3e5", size = 117096, upload-time = "2026-02-14T21:39:46.324Z" },
 ]
 
 [[package]]
 name = "litellm-proxy-extras"
-version = "0.4.21"
+version = "0.4.40"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/6f/1b/18fd5dd6b89bc7f10ea9af49fdb7239dcb77cf59c80030016ac2bc7284d2/litellm_proxy_extras-0.4.21.tar.gz", hash = "sha256:fa0e012984aa8e5114f88f4bad53d6abb589e5ca3eab445f74f8ddeceb62d848", size = 21364, upload-time = "2026-01-10T20:00:27.403Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/54/88/d5d2c5812d13772aafa202b0c459d0bd54f648d009fcd7316240e5f6f347/litellm_proxy_extras-0.4.40.tar.gz", hash = "sha256:964c151ec56a40c5d7b3532888dd19db9203306d4a70a3c54fb2eb0a1bcff154", size = 25525, upload-time = "2026-02-16T19:21:22.994Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f2/26/920d1a89196fe0ffb55d054312dbf5c2110cbffabbc77c71df0f0455c270/litellm_proxy_extras-0.4.21-py3-none-any.whl", hash = "sha256:83a1734e9773610945230606012e602bbcbfba1c60fde836d51102c1a296f166", size = 47136, upload-time = "2026-01-10T20:00:25.849Z" },
+    { url = "https://files.pythonhosted.org/packages/88/55/939f6f7bbbc66be6388b3a59d63500ddac77ed030b1cc9bf6f7cf239397c/litellm_proxy_extras-0.4.40-py3-none-any.whl", hash = "sha256:291cc5556b739d7b17b1ff79cd8881505cc560c6d5c0706302075550ae02c4bb", size = 57362, upload-time = "2026-02-16T19:21:21.662Z" },
 ]
 
 [[package]]
@@ -3767,6 +3767,20 @@ wheels = [
 ]
 
 [[package]]
+name = "pyroscope-io"
+version = "0.8.16"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cffi" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a8/50/607b38b120ba8adad954119ba512c53590c793f0cf7f009ba6549e4e1d77/pyroscope_io-0.8.16-py2.py3-none-macosx_11_0_arm64.whl", hash = "sha256:e07edcfd59f5bdce42948b92c9b118c824edbd551730305f095a6b9af401a9e8", size = 3138869, upload-time = "2026-01-22T06:23:24.664Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/c1/90fc335f2224da86d49016ebe15fb4f709c7b8853d4b5beced5a052d9ea3/pyroscope_io-0.8.16-py2.py3-none-macosx_11_0_x86_64.whl", hash = "sha256:dc98355e27c0b7b61f27066500fe1045b70e9459bb8b9a3082bc4755cb6392b6", size = 3375865, upload-time = "2026-01-22T06:23:27.736Z" },
+    { url = "https://files.pythonhosted.org/packages/39/7a/261f53ede16b7db19984ec80480572b8e9aa3be0ffc82f62650c4b9ca7d6/pyroscope_io-0.8.16-py2.py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:86f0f047554ff62bd92c3e5a26bc2809ccd467d11fbacb9fef898ba299dbda59", size = 3236172, upload-time = "2026-01-22T06:23:29.107Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/8f/88d792e9cacd6ff3bd9a50100586ddc665e02a917662c17d30931f778542/pyroscope_io-0.8.16-py2.py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:6b91ce5b240f8de756c16a17022ca8e25ef8a4eed461c7d074b8a0841cf7b445", size = 3485288, upload-time = "2026-01-22T06:23:32Z" },
+]
+
+[[package]]
 name = "pysaml2"
 version = "7.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4859,7 +4873,7 @@ requires-dist = [
     { name = "httpx", specifier = "==0.28.1" },
     { name = "jsonpath-ng", specifier = "==1.7.0" },
     { name = "lark", specifier = "==1.1.9" },
-    { name = "litellm", extras = ["proxy"], specifier = "==1.80.16" },
+    { name = "litellm", extras = ["proxy"], specifier = "==1.81.13" },
     { name = "loguru", specifier = "==0.7.3" },
     { name = "marshmallow", specifier = "==3.26.2" },
     { name = "minio", specifier = "==7.2.18" },
