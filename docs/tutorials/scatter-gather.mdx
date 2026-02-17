@@ -50,9 +50,10 @@ collection: [
   It will not work if you try to gather data that was not scattered.
 </Note>
 
-![Gather](/img/tutorials/scatter-gather/gather.png)
-
 The gather action takes a list of scattered data and gathers it back into a single list.
+
+The gather action itself always returns `null`.
+To use gathered data, reference it in a downstream action (for example, a reshape action) and use that downstream action's result.
 
 ```yaml
 items: ${{ ACTIONS.some_action_after_scatter.result }}
@@ -91,8 +92,11 @@ In this example, we'll scatter a list of integers, filter out the odd numbers wi
     ```yaml
     items: ${{ ACTIONS.reshape.result }}
     ```
+  </Step>
+  <Step title="Use gathered output">
+    Because gather returns `null`, add a downstream action to consume the gathered values.
 
-    ![Gather](/img/tutorials/scatter-gather/gather.png)
+    Use the downstream action's output as the final result for this branch (instead of reading `ACTIONS.gather.result` directly).
   </Step>
   <Step title="Run workflow">
     Notice how the results for actions after the scatter action are shown as N individual items.
