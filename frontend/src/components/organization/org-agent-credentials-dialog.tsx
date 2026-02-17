@@ -1,9 +1,9 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { KeyIcon } from "lucide-react"
-import { useEffect, useState } from "react"
-import { useForm } from "react-hook-form"
+import { KeyIcon, Upload } from "lucide-react"
+import { type ChangeEvent, useEffect, useRef, useState } from "react"
+import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
@@ -25,6 +25,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { useProviderCredentialConfig } from "@/lib/hooks"
 
 interface AgentCredentialsDialogProps {
@@ -32,6 +33,59 @@ interface AgentCredentialsDialogProps {
   isOpen: boolean
   onClose: () => void
   onSuccess: () => void
+}
+
+function isJsonCredentialField(fieldKey: string): boolean {
+  return fieldKey === "GOOGLE_API_CREDENTIALS"
+}
+
+interface JsonCredentialInputProps {
+  field: ControllerRenderProps<Record<string, string>, string>
+}
+
+function JsonCredentialInput({ field }: JsonCredentialInputProps) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  const onUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) {
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = typeof reader.result === "string" ? reader.result : ""
+      field.onChange(text)
+    }
+    reader.readAsText(file)
+    event.target.value = ""
+  }
+
+  return (
+    <div className="space-y-2">
+      <Textarea
+        value={field.value ?? ""}
+        onChange={field.onChange}
+        placeholder="Paste service account JSON"
+        className="min-h-36 font-mono text-xs"
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={onUpload}
+      />
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full"
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <Upload className="mr-2 size-4" />
+        Upload JSON
+      </Button>
+    </div>
+  )
 }
 
 export function AgentCredentialsDialog({
@@ -43,11 +97,9 @@ export function AgentCredentialsDialog({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Fetch provider credential configuration
   const { providerConfig, providerConfigLoading, providerConfigError } =
     useProviderCredentialConfig(provider)
 
-  // Dynamic schema based on provider config from API
   const getCredentialsSchema = () => {
     if (!providerConfig?.fields) {
       return z.object({})
@@ -58,11 +110,9 @@ export function AgentCredentialsDialog({
       z.ZodString | z.ZodOptional<z.ZodString>
     > = {}
     for (const field of providerConfig.fields) {
-      // If required is explicitly false or undefined, make the field optional
       if (field.required === false) {
         schemaFields[field.key] = z.string().optional()
       } else {
-        // Default to required (when required is true or undefined)
         schemaFields[field.key] = z
           .string()
           .min(1, `${field.label} is required`)
@@ -71,14 +121,13 @@ export function AgentCredentialsDialog({
     return z.object(schemaFields)
   }
 
-  const form = useForm({
+  const form = useForm<Record<string, string>>({
     resolver:
       provider && providerConfig
         ? zodResolver(getCredentialsSchema())
         : undefined,
   })
 
-  // Reset form when provider or config changes
   useEffect(() => {
     if (provider && providerConfig) {
       form.reset()
@@ -122,12 +171,10 @@ export function AgentCredentialsDialog({
 
   if (!provider) return null
 
-  // Show loading state while fetching config
   if (providerConfigLoading) {
     return <CenteredSpinner />
   }
 
-  // Show error state if config fetch failed
   if (providerConfigError || !providerConfig) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
@@ -178,11 +225,15 @@ export function AgentCredentialsDialog({
                       )}
                     </FormLabel>
                     <FormControl>
-                      <Input
-                        type={field.type}
-                        placeholder={`Enter your ${field.label.toLowerCase()}`}
-                        {...formField}
-                      />
+                      {isJsonCredentialField(field.key) ? (
+                        <JsonCredentialInput field={formField} />
+                      ) : (
+                        <Input
+                          type={field.type}
+                          placeholder={`Enter your ${field.label.toLowerCase()}`}
+                          {...formField}
+                        />
+                      )}
                     </FormControl>
                     <FormDescription>{field.description}</FormDescription>
                     <FormMessage />

@@ -219,6 +219,45 @@ def _inject_provider_credentials(
                 )
             data["api_key"] = api_key
 
+        case "gemini":
+            api_key = creds.get("GEMINI_API_KEY")
+            if not api_key:
+                logger.warning(
+                    "Required credential key missing for provider", provider=provider
+                )
+                raise ProxyException(
+                    message="Provider credentials incomplete",
+                    type="auth_error",
+                    param=None,
+                    code=401,
+                )
+            data["api_key"] = api_key
+
+        case "vertex_ai":
+            credentials = creds.get("GOOGLE_API_CREDENTIALS")
+            project = creds.get("GOOGLE_CLOUD_PROJECT")
+            model_name = creds.get("VERTEX_AI_MODEL")
+            if not credentials or not project or not model_name:
+                logger.warning(
+                    "Required Vertex AI config keys missing",
+                    provider=provider,
+                    has_credentials=bool(credentials),
+                    has_project=bool(project),
+                    has_model_name=bool(model_name),
+                )
+                raise ProxyException(
+                    message="Vertex AI requires GOOGLE_API_CREDENTIALS, GOOGLE_CLOUD_PROJECT, and VERTEX_AI_MODEL",
+                    type="config_error",
+                    param=None,
+                    code=400,
+                )
+
+            data["vertex_credentials"] = credentials
+            data["vertex_project"] = project
+            data["model"] = f"vertex_ai/{model_name}"
+            if location := creds.get("GOOGLE_CLOUD_LOCATION"):
+                data["vertex_location"] = location
+
         case "bedrock":
             if bearer_token := creds.get("AWS_BEARER_TOKEN_BEDROCK"):
                 data["api_key"] = bearer_token

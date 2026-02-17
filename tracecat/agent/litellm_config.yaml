@@ -32,6 +32,28 @@ model_list:
     litellm_params:
       model: anthropic/claude-opus-4-5-20251101
 
+  # Gemini models
+  - model_name: gemini-2.5-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+
+  - model_name: gemini-2.5-pro
+    litellm_params:
+      model: gemini/gemini-2.5-pro
+
+  - model_name: gemini-3-flash
+    litellm_params:
+      model: gemini/gemini-3-flash
+
+  - model_name: gemini-3-pro
+    litellm_params:
+      model: gemini/gemini-3-pro
+
+  # Vertex AI wildcard - catches vertex_ai/<model-name> models
+  - model_name: vertex_ai/*
+    litellm_params:
+      model: vertex_ai/*
+
   # Bedrock wildcard - catches dynamically-set ARN models (bedrock/arn:aws:...)
   - model_name: bedrock/*
     litellm_params:

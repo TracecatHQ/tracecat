@@ -314,6 +314,16 @@ class AgentManagementService(BaseOrgService):
                 )
             model_config = model_config.model_copy(update={"name": model_name})
 
+        # For Vertex AI, the model name comes from credentials
+        elif provider == "vertex_ai":
+            model_name = credentials.get("VERTEX_AI_MODEL")
+            if not model_name:
+                raise TracecatNotFoundError(
+                    "No Vertex AI model configured. Please set "
+                    "VERTEX_AI_MODEL in your Vertex AI credentials."
+                )
+            model_config = model_config.model_copy(update={"name": model_name})
+
         # Use the credentials directly in the environment sandbox
         with secrets_manager.env_sandbox(credentials):
             yield model_config

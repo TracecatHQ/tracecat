@@ -71,6 +71,46 @@ MODEL_CONFIGS = {
             "required": ["anthropic"],
         },
     ),
+    "gemini-2.5-flash": ModelConfig(
+        name="gemini-2.5-flash",
+        provider="gemini",
+        org_secret_name="agent-gemini-credentials",
+        secrets={
+            "required": ["gemini"],
+        },
+    ),
+    "gemini-2.5-pro": ModelConfig(
+        name="gemini-2.5-pro",
+        provider="gemini",
+        org_secret_name="agent-gemini-credentials",
+        secrets={
+            "required": ["gemini"],
+        },
+    ),
+    "gemini-3-flash": ModelConfig(
+        name="gemini-3-flash",
+        provider="gemini",
+        org_secret_name="agent-gemini-credentials",
+        secrets={
+            "required": ["gemini"],
+        },
+    ),
+    "gemini-3-pro": ModelConfig(
+        name="gemini-3-pro",
+        provider="gemini",
+        org_secret_name="agent-gemini-credentials",
+        secrets={
+            "required": ["gemini"],
+        },
+    ),
+    "vertex_ai": ModelConfig(
+        name="vertex_ai",  # Placeholder; model name from VERTEX_AI_MODEL will be used at runtime
+        provider="vertex_ai",
+        org_secret_name="agent-vertex_ai-credentials",
+        secrets={
+            "required": ["vertex_ai"],
+        },
+    ),
     "bedrock": ModelConfig(
         name="bedrock",  # Placeholder; actual model ID from AWS_MODEL_ID credential will be used at runtime
         provider="bedrock",
@@ -174,6 +214,49 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 label="Region",
                 type="text",
                 description="The AWS region where you want to use Bedrock (e.g., us-east-1).",
+            ),
+        ],
+    ),
+    "gemini": ProviderCredentialConfig(
+        provider="gemini",
+        label="Gemini API",
+        fields=[
+            ProviderCredentialField(
+                key="GEMINI_API_KEY",
+                label="API Key",
+                type="password",
+                description="Your Gemini API key from Google AI Studio.",
+            )
+        ],
+    ),
+    "vertex_ai": ProviderCredentialConfig(
+        provider="vertex_ai",
+        label="Google Vertex AI",
+        fields=[
+            ProviderCredentialField(
+                key="GOOGLE_API_CREDENTIALS",
+                label="Service account JSON",
+                type="password",
+                description="Service account JSON key with Vertex AI permissions.",
+            ),
+            ProviderCredentialField(
+                key="GOOGLE_CLOUD_PROJECT",
+                label="Google Cloud project",
+                type="text",
+                description="Google Cloud project ID used for Vertex AI requests.",
+            ),
+            ProviderCredentialField(
+                key="VERTEX_AI_MODEL",
+                label="Model name",
+                type="text",
+                description="Vertex model name (e.g., gemini-3-flash).",
+            ),
+            ProviderCredentialField(
+                key="GOOGLE_CLOUD_LOCATION",
+                label="Location",
+                type="text",
+                description="Vertex AI region (e.g., us-central1).",
+                required=False,
             ),
         ],
     ),

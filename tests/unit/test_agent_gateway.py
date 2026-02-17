@@ -4,6 +4,42 @@ from litellm.proxy._types import ProxyException
 from tracecat.agent.gateway import _inject_provider_credentials
 
 
+def test_gemini_injects_api_key():
+    data = {"model": "gemini-2.5-flash"}
+    creds = {"GEMINI_API_KEY": "test-gemini-key"}
+
+    _inject_provider_credentials(data, "gemini", creds)
+
+    assert data["api_key"] == "test-gemini-key"
+
+
+def test_vertex_ai_injects_project_credentials_and_model():
+    data = {"model": "vertex_ai"}
+    creds = {
+        "GOOGLE_API_CREDENTIALS": '{"type":"service_account"}',
+        "GOOGLE_CLOUD_PROJECT": "my-gcp-project",
+        "VERTEX_AI_MODEL": "gemini-2.5-flash",
+        "GOOGLE_CLOUD_LOCATION": "us-central1",
+    }
+
+    _inject_provider_credentials(data, "vertex_ai", creds)
+
+    assert data["vertex_credentials"] == '{"type":"service_account"}'
+    assert data["vertex_project"] == "my-gcp-project"
+    assert data["vertex_location"] == "us-central1"
+    assert data["model"] == "vertex_ai/gemini-2.5-flash"
+
+
+def test_vertex_ai_requires_credentials_project_and_model():
+    data = {"model": "vertex_ai"}
+    creds = {
+        "GOOGLE_API_CREDENTIALS": '{"type":"service_account"}',
+    }
+
+    with pytest.raises(ProxyException):
+        _inject_provider_credentials(data, "vertex_ai", creds)
+
+
 def test_bedrock_falls_back_to_ambient_iam_role_when_static_keys_missing():
     data = {"model": "bedrock"}
     creds = {
