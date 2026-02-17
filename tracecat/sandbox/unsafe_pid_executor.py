@@ -203,9 +203,7 @@ class UnsafePidExecutor:
             return ["unshare", "--pid", "--fork", "--kill-child", *base_cmd]
 
         if not self._pid_isolation_warning_emitted:
-            message = (
-                "PID namespace isolation unavailable; running script without PID isolation"
-            )
+            message = "PID namespace isolation unavailable; running script without PID isolation"
             logger.warning(message, reason=self._pid_namespace_probe_error)
             module_logger.warning(message)
             self._pid_isolation_warning_emitted = True
@@ -295,9 +293,7 @@ class UnsafePidExecutor:
 
         start_time = time.time()
         if not allow_network and not self._network_isolation_warning_emitted:
-            message = (
-                "Network isolation is not enforced without nsjail; scripts may still access network"
-            )
+            message = "Network isolation is not enforced without nsjail; scripts may still access network"
             logger.warning(message)
             module_logger.warning(message)
             self._network_isolation_warning_emitted = True
