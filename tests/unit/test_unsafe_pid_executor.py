@@ -26,7 +26,7 @@ class TestUnsafePidExecutor:
         cmd = executor._build_execution_cmd(
             "python3", executor.cache_dir / "wrapper.py"
         )
-        assert cmd[:4] == ["unshare", "--pid", "--fork", "--mount-proc"]
+        assert cmd[:4] == ["unshare", "--pid", "--fork", "--kill-child"]
 
     @pytest.mark.anyio
     async def test_execute_basic_script(self, executor: UnsafePidExecutor) -> None:

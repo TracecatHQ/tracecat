@@ -268,7 +268,7 @@ class UnsafePidExecutor:
 
         try:
             probe = subprocess.run(
-                ["unshare", "--pid", "--fork", "--mount-proc", "true"],
+                ["unshare", "--pid", "--fork", "--kill-child", "true"],
                 check=False,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -282,7 +282,7 @@ class UnsafePidExecutor:
     def _build_execution_cmd(self, python_path: str, wrapper_path: Path) -> list[str]:
         base_cmd = [python_path, str(wrapper_path)]
         if self._is_pid_namespace_available():
-            return ["unshare", "--pid", "--fork", "--mount-proc", *base_cmd]
+            return ["unshare", "--pid", "--fork", "--kill-child", *base_cmd]
 
         logger.warning(
             "PID namespace isolation unavailable; running script without PID isolation"
@@ -478,7 +478,10 @@ class UnsafePidExecutor:
         except (SandboxTimeoutError, PackageInstallError):
             raise
         except Exception as e:
-            logger.exception("Unexpected error in unsafe PID executor")
+            logger.error(
+                "Unexpected error in unsafe PID executor",
+                error_type=type(e).__name__,
+            )
             raise SandboxExecutionError(
                 f"Unexpected error: {type(e).__name__}: {e}"
             ) from e
