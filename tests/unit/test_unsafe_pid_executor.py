@@ -4,16 +4,7 @@ import asyncio
 
 import pytest
 
-from tracecat.sandbox.unsafe_pid_executor import (
-    UnsafePidExecutor,
-    _extract_package_name,
-)
-
-
-class TestDependencyParsing:
-    def test_extract_package_name(self) -> None:
-        assert _extract_package_name("requests==2.31.0") == "requests"
-        assert _extract_package_name("py-ocsf-models>=0.8.0") == "py_ocsf_models"
+from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
 
 
 class TestUnsafePidExecutor:
