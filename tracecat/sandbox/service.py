@@ -25,8 +25,8 @@ from tracecat.sandbox.exceptions import (
     SandboxExecutionError,
 )
 from tracecat.sandbox.executor import NsjailExecutor
-from tracecat.sandbox.safe_executor import SafePythonExecutor
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig
+from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
 
 
@@ -84,7 +84,7 @@ class SandboxService:
 
         # Initialize executors lazily based on availability
         self._nsjail_executor: NsjailExecutor | None = None
-        self._safe_executor: SafePythonExecutor | None = None
+        self._unsafe_pid_executor: UnsafePidExecutor | None = None
 
     def _is_nsjail_available(self) -> bool:
         """Check if nsjail sandbox is available and configured.
@@ -108,11 +108,11 @@ class SandboxService:
         return self._nsjail_executor
 
     @property
-    def safe_executor(self) -> SafePythonExecutor:
-        """Get the safe executor, creating it if needed."""
-        if self._safe_executor is None:
-            self._safe_executor = SafePythonExecutor(cache_dir=str(self.cache_dir))
-        return self._safe_executor
+    def unsafe_pid_executor(self) -> UnsafePidExecutor:
+        """Get the unsafe PID executor, creating it if needed."""
+        if self._unsafe_pid_executor is None:
+            self._unsafe_pid_executor = UnsafePidExecutor(cache_dir=str(self.cache_dir))
+        return self._unsafe_pid_executor
 
     @asynccontextmanager
     async def _create_job_dir(self) -> AsyncIterator[Path]:
@@ -298,7 +298,7 @@ class SandboxService:
         This is the main entry point for script execution. It automatically
         selects the appropriate executor based on nsjail availability:
         - If nsjail is available: Uses full OS-level isolation
-        - If nsjail is unavailable: Uses safe executor with AST validation
+        - If nsjail is unavailable: Uses fallback executor with PID isolation
 
         Args:
             script: Python script content to execute.
@@ -306,7 +306,7 @@ class SandboxService:
             dependencies: List of pip packages to install.
             timeout_seconds: Maximum execution time (default from config).
             allow_network: Whether to allow network access during execution.
-                Note: Without nsjail, this only controls import validation.
+                Note: Without nsjail, this is best-effort and not OS-enforced.
             env_vars: Environment variables to set in the sandbox.
             workspace_id: Optional workspace ID for multi-tenant cache isolation.
                 When provided, package caches are scoped to the workspace,
@@ -317,7 +317,6 @@ class SandboxService:
 
         Raises:
             SandboxExecutionError: If script execution fails.
-            SandboxValidationError: If script fails validation (safe executor only).
             PackageInstallError: If package installation fails.
             SandboxTimeoutError: If execution times out.
         """
@@ -338,11 +337,12 @@ class SandboxService:
             )
         else:
             logger.info(
-                "nsjail not available, using safe Python executor. "
+                "nsjail not available, using unsafe PID executor. "
+                "Using PID namespace isolation when available. "
                 "For full OS-level isolation, set TRACECAT__DISABLE_NSJAIL=false "
                 "and ensure nsjail is installed with the sandbox rootfs."
             )
-            result = await self.safe_executor.execute(
+            result = await self.unsafe_pid_executor.execute(
                 script=script,
                 inputs=inputs,
                 dependencies=dependencies,
@@ -355,7 +355,7 @@ class SandboxService:
             if not result.success:
                 error_msg = result.error or "Unknown error"
                 logger.error(
-                    "Script execution failed (safe executor)",
+                    "Script execution failed (unsafe PID executor)",
                     error=error_msg,
                     stdout=result.stdout[:500] if result.stdout else None,
                     stderr=result.stderr[:500] if result.stderr else None,

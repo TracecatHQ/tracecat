@@ -20,9 +20,13 @@ This includes both:
 - `core.script.run_python` actions
 - Custom registry actions that execute code pulled from third-party sources
 
-AWS Fargate deployments have `nsjail` **disabled by default**. Do **not** run these workloads in production until you explicitly enable it.
+AWS Fargate deployments have `nsjail` **disabled by default**. In that mode, script execution falls back to `unsafe_pid_executor` subprocess isolation.
 
-Fargate does not provide the required permissions model for `nsjail`. For production workloads that execute untrusted code, we recommend Kubernetes (Helm chart), where `nsjail` is enabled by default.
+`unsafe_pid_executor` uses PID namespace isolation only when `unshare --pid` is permitted. On Fargate this is typically unavailable, so scripts generally run without PID namespace isolation.
+
+Additionally, in fallback mode `allow_network` is not OS-enforced and should be treated as best-effort only.
+
+Fargate does not provide the required permissions model for `nsjail`. For production workloads that execute untrusted code, we still recommend Kubernetes (Helm chart), where `nsjail` is enabled by default.
 
 For comparison: Helm chart / Kubernetes deployments have `nsjail` enabled by default.
 </Warning>

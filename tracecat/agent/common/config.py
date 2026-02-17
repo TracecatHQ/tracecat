@@ -25,7 +25,7 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
 TRACECAT__DISABLE_NSJAIL = os.environ.get(
     "TRACECAT__DISABLE_NSJAIL", "true"
 ).lower() in ("true", "1")
-"""Disable nsjail sandbox and use safe Python executor instead."""
+"""Disable nsjail sandbox and use the unsafe PID executor instead."""
 
 # === Well-known socket paths (internal to agent worker) === #
 
