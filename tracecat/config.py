@@ -396,10 +396,10 @@ TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS = [
 TRACECAT__DISABLE_NSJAIL = os.environ.get(
     "TRACECAT__DISABLE_NSJAIL", "true"
 ).lower() in ("true", "1")
-"""Disable nsjail sandbox and use safe Python executor instead.
+"""Disable nsjail sandbox and use the unsafe PID executor instead.
 
-When True (default), uses SafePythonExecutor with AST-based validation and import
-restrictions. This mode works without privileged Docker mode but has less isolation.
+When True (default), uses UnsafePidExecutor with best-effort PID namespace
+isolation. This mode works without privileged Docker mode but has less isolation.
 
 When False, uses nsjail sandbox for full OS-level isolation. Requires:
 - Linux with kernel >= 4.6

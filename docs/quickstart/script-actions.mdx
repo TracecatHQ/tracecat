@@ -14,14 +14,14 @@ You can include 3rd-party Python packages in your script by adding them to the `
 
 `core.script.run_python` is only sandboxed when `nsjail` is enabled.
 
-Without `nsjail`, execution relies on an AST validator. That is **not** a true sandbox and breakouts are possible.
-In that mode, you are responsible for protecting your own environment and code.
+Without `nsjail`, execution falls back to the `unsafe_pid_executor` subprocess runtime, which uses PID namespace isolation when available.
+This is stronger than AST filtering, but it is still not equivalent to full `nsjail` isolation (no mount/network cgroup controls).
 
-For production deployments, enable `nsjail` before running script actions.
+For production deployments with untrusted code, enable `nsjail` before running script actions.
 
 - `docker compose` deployments have `nsjail` disabled by default
 - AWS Fargate deployments have `nsjail` disabled by default
-- AWS Fargate does not provide the required permissions model for `nsjail`; use Kubernetes (Helm chart) for production untrusted-code workloads
+- AWS Fargate does not provide the required permissions model for `nsjail`; fallback PID isolation works there, but Kubernetes (Helm chart) is still recommended for highest isolation
 - Helm chart / Kubernetes deployments have `nsjail` enabled by default
 </Warning>
 

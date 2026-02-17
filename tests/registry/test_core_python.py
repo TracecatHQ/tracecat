@@ -809,8 +809,7 @@ The sandbox requires:
 - Sandbox rootfs at /var/lib/tracecat/sandbox-rootfs
 - SYS_ADMIN capability (configured in docker-compose)
 
-Note: Safe executor fallback tests are in tests/unit/test_safe_executor_integration.py
-and tests/unit/test_safe_executor.py. These tests run without nsjail and
+Note: Unsafe PID executor fallback tests are in tests/unit/test_unsafe_pid_executor.py. These tests run without nsjail and
 will pass on any system with Python 3.12+.
 """
     )
