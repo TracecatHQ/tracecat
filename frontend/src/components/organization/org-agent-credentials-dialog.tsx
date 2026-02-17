@@ -1,7 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { KeyIcon, Upload } from "lucide-react"
+import { KeyIcon, Upload, X } from "lucide-react"
 import { type ChangeEvent, useEffect, useRef, useState } from "react"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
@@ -25,7 +25,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import { useProviderCredentialConfig } from "@/lib/hooks"
 
 interface AgentCredentialsDialogProps {
@@ -45,16 +44,47 @@ interface JsonCredentialInputProps {
 
 function JsonCredentialInput({ field }: JsonCredentialInputProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [fileName, setFileName] = useState<string | null>(null)
+
+  const clearSelection = () => {
+    field.onChange("")
+    setFileName(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""
+    }
+  }
 
   const onUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) {
       return
     }
+
+    if (!file.name.toLowerCase().endsWith(".json")) {
+      clearSelection()
+      return
+    }
+
     const reader = new FileReader()
     reader.onload = () => {
       const text = typeof reader.result === "string" ? reader.result : ""
+      try {
+        const parsed = JSON.parse(text)
+        const isObject =
+          typeof parsed === "object" &&
+          parsed !== null &&
+          !Array.isArray(parsed)
+        if (!isObject || parsed.type !== "service_account") {
+          clearSelection()
+          return
+        }
+      } catch {
+        clearSelection()
+        return
+      }
+
       field.onChange(text)
+      setFileName(file.name)
     }
     reader.readAsText(file)
     event.target.value = ""
@@ -62,12 +92,6 @@ function JsonCredentialInput({ field }: JsonCredentialInputProps) {
 
   return (
     <div className="space-y-2">
-      <Textarea
-        value={field.value ?? ""}
-        onChange={field.onChange}
-        placeholder="Paste service account JSON"
-        className="min-h-36 font-mono text-xs"
-      />
       <input
         ref={fileInputRef}
         type="file"
@@ -82,8 +106,22 @@ function JsonCredentialInput({ field }: JsonCredentialInputProps) {
         onClick={() => fileInputRef.current?.click()}
       >
         <Upload className="mr-2 size-4" />
-        Upload JSON
+        Upload service account JSON
       </Button>
+      {fileName && (
+        <div className="flex items-center justify-between rounded-md border px-3 py-2 text-xs">
+          <span className="truncate text-muted-foreground">{fileName}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-6"
+            onClick={clearSelection}
+          >
+            <X className="size-3.5" />
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
