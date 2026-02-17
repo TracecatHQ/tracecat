@@ -531,6 +531,16 @@ class ActionRunner:
         if env_vars:
             env.update(env_vars)
 
+        # Ensure SDK context is available for registry actions executed by minimal_runner.
+        if resolved_context is not None:
+            env["TRACECAT__API_URL"] = config.TRACECAT__API_URL
+            env["TRACECAT__WORKSPACE_ID"] = resolved_context.workspace_id
+            env["TRACECAT__WORKFLOW_ID"] = resolved_context.workflow_id
+            env["TRACECAT__RUN_ID"] = resolved_context.run_id
+            env["TRACECAT__WF_EXEC_ID"] = str(input.run_context.wf_exec_id)
+            env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
+            env["TRACECAT__EXECUTOR_TOKEN"] = resolved_context.executor_token
+
         # Build PYTHONPATH with multiple registry paths (deterministic order)
         pythonpath_parts = [str(p) for p in registry_paths if p.exists()]
         existing_pythonpath = env.get("PYTHONPATH", "")
