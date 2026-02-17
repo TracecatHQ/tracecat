@@ -464,7 +464,9 @@ class CasesService(BaseWorkspaceService):
             if sort_column == "tasks":
                 return task_counts.get(case.id, {}).get("total", 0)
             if enum_sort_values is not None:
-                return _enum_sort_rank(getattr(case, sort_column, None), enum_sort_values)
+                return _enum_sort_rank(
+                    getattr(case, sort_column, None), enum_sort_values
+                )
             return getattr(case, sort_column, None)
 
         if has_more and cases:

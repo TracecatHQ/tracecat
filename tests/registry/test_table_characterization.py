@@ -632,6 +632,7 @@ class TestSearchRows:
             search_term="Security",
         )
 
+        assert isinstance(result, dict)
         assert len(result["items"]) == 2
         titles = [r["title"] for r in result["items"]]
         assert "Security Alert" in titles
@@ -654,6 +655,7 @@ class TestSearchRows:
             limit=3,
         )
 
+        assert isinstance(result, dict)
         assert len(result["items"]) == 3
 
     async def test_search_rows_no_matches(
@@ -672,6 +674,7 @@ class TestSearchRows:
             search_term="Nonexistent",
         )
 
+        assert isinstance(result, dict)
         assert result["items"] == []
 
 
