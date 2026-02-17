@@ -460,14 +460,17 @@ class IntegrationService(BaseWorkspaceService):
 
     async def disconnect_integration(self, *, integration: OAuthIntegration) -> None:
         """Disconnect a user's integration for a specific provider."""
-        # Wipe all tokens
+        self._disconnect_integration_state(integration=integration)
+        self.session.add(integration)
+        await self.session.commit()
+
+    def _disconnect_integration_state(self, *, integration: OAuthIntegration) -> None:
+        """Apply disconnected token state to an integration without committing."""
         integration.encrypted_access_token = b""
         integration.encrypted_refresh_token = None
         integration.expires_at = None
         integration.scope = None  # Granted scopes
         integration.requested_scopes = None
-        self.session.add(integration)
-        await self.session.commit()
 
     async def remove_integration(self, *, integration: OAuthIntegration) -> None:
         """Remove a user's integration for a specific provider."""
@@ -989,16 +992,17 @@ class IntegrationService(BaseWorkspaceService):
             # Create new MCP integration
             metadata = provider_impl.metadata
 
-            # Clean up name: remove " MCP" suffix (e.g., "GitHub MCP" -> "GitHub")
-            clean_name = metadata.name
-            if clean_name.endswith(" MCP"):
-                clean_name = clean_name[:-4]  # Remove " MCP"
-
-            slug = await self._generate_mcp_integration_slug(name=clean_name)
+            # Use provider ID as slug to preserve underscores for icon mapping
+            slug = provider_impl.id
+            if await self._mcp_integration_slug_taken(slug):
+                slug = await self._generate_mcp_integration_slug(
+                    name=metadata.name, requested_slug=provider_impl.id
+                )
 
             mcp_integration = MCPIntegration(
                 workspace_id=self.workspace_id,
-                name=clean_name,
+                # Keep provider metadata display names as-is (including "MCP" suffixes).
+                name=metadata.name,
                 description=metadata.description,
                 slug=slug,
                 server_uri=provider_impl.mcp_server_uri,
@@ -1032,8 +1036,11 @@ class IntegrationService(BaseWorkspaceService):
         self, *, name: str, requested_slug: str | None = None
     ) -> str:
         """Generate a unique slug for an MCP integration."""
-        base_source = requested_slug or name
-        slug = slugify(base_source, separator="-") or uuid4().hex[:8]
+        if requested_slug:
+            # Preserve underscores for provider IDs used by icon mapping.
+            slug = slugify(requested_slug, separator="_") or uuid4().hex[:8]
+        else:
+            slug = slugify(name, separator="-") or uuid4().hex[:8]
 
         candidate = slug
         suffix = 1
@@ -1041,6 +1048,18 @@ class IntegrationService(BaseWorkspaceService):
             candidate = f"{slug}-{suffix}"
             suffix += 1
         return candidate
+
+    async def _is_mcp_lifecycle_owned_oauth_integration(
+        self, *, integration: OAuthIntegration
+    ) -> bool:
+        """Return whether OAuth integration is owned by MCP provider lifecycle."""
+        provider_impl = await self.resolve_provider_impl(
+            provider_key=ProviderKey(
+                id=integration.provider_id,
+                grant_type=integration.grant_type,
+            )
+        )
+        return bool(provider_impl and issubclass(provider_impl, MCPAuthProvider))
 
     async def _mcp_integration_slug_taken(self, slug: str) -> bool:
         """Check if an MCP integration slug is already taken."""
@@ -1218,8 +1237,53 @@ class IntegrationService(BaseWorkspaceService):
             .values(mcp_integrations=AgentPreset.mcp_integrations.op("-")(id_str))
         )
 
-        await self.session.delete(mcp_integration)
-        await self.session.commit()
+        try:
+            # If backed by an OAuth integration, lock it to serialize deletes for shared refs.
+            oauth_integration = None
+            oauth_integration_id = mcp_integration.oauth_integration_id
+            if oauth_integration_id:
+                oauth_integration_result = await self.session.execute(
+                    select(OAuthIntegration)
+                    .where(
+                        OAuthIntegration.id == oauth_integration_id,
+                        OAuthIntegration.workspace_id == self.workspace_id,
+                    )
+                    .with_for_update()
+                )
+                oauth_integration = oauth_integration_result.scalars().first()
+
+            await self.session.delete(mcp_integration)
+            await self.session.flush()
+
+            if oauth_integration and oauth_integration_id:
+                remaining_refs_result = await self.session.execute(
+                    select(MCPIntegration.id)
+                    .where(
+                        MCPIntegration.workspace_id == self.workspace_id,
+                        MCPIntegration.oauth_integration_id == oauth_integration_id,
+                    )
+                    .limit(1)
+                )
+                has_remaining_refs = remaining_refs_result.scalars().first() is not None
+
+                if (
+                    not has_remaining_refs
+                    and await self._is_mcp_lifecycle_owned_oauth_integration(
+                        integration=oauth_integration
+                    )
+                ):
+                    self._disconnect_integration_state(integration=oauth_integration)
+                    self.session.add(oauth_integration)
+                    self.logger.info(
+                        "Disconnected backing OAuth integration",
+                        oauth_integration_id=oauth_integration_id,
+                        provider_id=oauth_integration.provider_id,
+                    )
+
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
 
         self.logger.info(
             "Deleted MCP integration",

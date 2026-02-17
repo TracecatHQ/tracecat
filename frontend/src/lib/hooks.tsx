@@ -4524,6 +4524,14 @@ export function useDeleteMcpIntegration(workspaceId: string) {
       queryClient.invalidateQueries({
         queryKey: ["mcp-integrations", workspaceId],
       })
+      // Also refresh OAuth providers/integrations since the backing OAuth
+      // integration is disconnected on the backend
+      queryClient.invalidateQueries({
+        queryKey: ["providers", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["integrations", workspaceId],
+      })
       toast({
         title: "MCP integration deleted",
         description: "The integration has been removed",

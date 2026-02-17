@@ -524,7 +524,11 @@ export default function IntegrationsPage() {
       return
     }
 
-    const provider = providers.find((item) => item.id === connectParam)
+    const provider = providers.find(
+      (item) =>
+        item.id === connectParam &&
+        (connectGrantType == null || item.grant_type === connectGrantType)
+    )
     if (!provider) {
       lastHandledConnectRef.current = handleKey
       return
