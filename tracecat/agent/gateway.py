@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import Request
 from litellm.caching.dual_cache import DualCache
 from litellm.integrations.custom_logger import CustomLogger
-from litellm.proxy.proxy_server import ProxyException, UserAPIKeyAuth
+from litellm.proxy._types import ProxyException, UserAPIKeyAuth
 from litellm.types.utils import CallTypesLiteral
 
 from tracecat.agent.service import AgentManagementService
