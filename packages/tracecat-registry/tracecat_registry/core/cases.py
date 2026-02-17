@@ -404,6 +404,10 @@ async def search_cases(
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
     ] = None,
+    include_rows: Annotated[
+        bool,
+        Doc("Include linked case table rows and row metadata."),
+    ] = False,
     paginate: Annotated[
         bool,
         Doc("If true, return cursor pagination metadata along with items."),
@@ -444,6 +448,8 @@ async def search_cases(
         params["updated_after"] = updated_after
     if order_by is not None:
         params["order_by"] = order_by
+    if include_rows:
+        params["include_rows"] = include_rows
     if sort is not None:
         params["sort"] = sort
     response = await get_context().cases.search_cases(**params)
@@ -633,6 +639,7 @@ async def link_case_table_row(
         raise TracecatValidationError(detail=f"Invalid UUID: {e}") from e
 
     case_client = get_context().cases
+    await case_client.get_case(case_id)
 
     linked: list[types.CaseTableRowRead] = []
     for row_id in unique_row_ids:
@@ -691,6 +698,7 @@ async def unlink_case_table_row(
         raise TracecatValidationError(detail=f"Invalid UUID: {e}") from e
 
     case_client = get_context().cases
+    await case_client.get_case(case_id)
 
     deleted: list[str] = []
     cursor: str | None = None

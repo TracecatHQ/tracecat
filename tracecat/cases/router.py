@@ -200,6 +200,10 @@ async def search_cases(
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
     ),
+    include_rows: bool = Query(
+        False,
+        description="Include linked case table rows and row metadata.",
+    ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """Search cases with cursor-based pagination, filtering, and sorting."""
     service = CasesService(session, role)

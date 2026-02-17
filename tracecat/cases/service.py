@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.sql.elements import ColumnElement
 
+import tracecat.cases.rows.service as case_rows_module
 from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
@@ -475,11 +476,7 @@ class CasesService(BaseWorkspaceService):
 
         rows_by_case_id: dict[uuid.UUID, list[CaseTableRowRead]] = {}
         if include_rows and cases:
-            # Imported lazily to avoid circular import:
-            # cases.service -> cases.rows.service -> cases.service
-            from tracecat.cases.rows.service import CaseTableRowService
-
-            case_rows_service = CaseTableRowService(
+            case_rows_service = case_rows_module.CaseTableRowService(
                 session=self.session, role=self.role
             )
             rows_by_case_id = await case_rows_service.list_case_rows_for_cases(
@@ -594,12 +591,14 @@ class CasesService(BaseWorkspaceService):
         ]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
+        include_rows: bool = False,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """List cases with a simplified default search query."""
         return await self.search_cases(
             params=CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
             order_by=order_by,
             sort=sort,
+            include_rows=include_rows,
         )
 
     async def get_case(

@@ -6442,6 +6442,7 @@ export const casesCreateCase = (
  * @param data.assigneeId Filter by assignee ID or 'unassigned'
  * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
+ * @param data.includeRows Include linked case table rows and row metadata.
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -6468,6 +6469,7 @@ export const casesSearchCases = (
       assignee_id: data.assigneeId,
       order_by: data.orderBy,
       sort: data.sort,
+      include_rows: data.includeRows,
       workspace_id: data.workspaceId,
     },
     errors: {

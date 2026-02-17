@@ -9,16 +9,18 @@ from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
+from asyncpg.exceptions import UndefinedTableError
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+import tracecat.cases.service as cases_service
 from tracecat.auth.types import Role
 from tracecat.cases.rows.schemas import CaseTableRowLink, CaseTableRowRead
 from tracecat.cases.schemas import TableRowLinkedEvent, TableRowUnlinkedEvent
-from tracecat.cases.service import CaseEventsService
 from tracecat.contexts import ctx_run
 from tracecat.db.models import Case, CaseTableRow, Table
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.logger import logger
 from tracecat.pagination import (
     BaseCursorPaginator,
@@ -27,6 +29,15 @@ from tracecat.pagination import (
 )
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TablesService
+
+MAX_CASE_ROW_LINKS = 50
+
+
+def _is_missing_table_error(exc: ProgrammingError) -> bool:
+    root_exc: BaseException = exc
+    while (cause := root_exc.__cause__) is not None:
+        root_exc = cause
+    return isinstance(root_exc, UndefinedTableError)
 
 
 class CaseTableRowService(BaseWorkspaceService):
@@ -37,7 +48,9 @@ class CaseTableRowService(BaseWorkspaceService):
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
         self.tables_service = TablesService(session=session, role=role)
-        self.events_service = CaseEventsService(session=session, role=role)
+        self.events_service = cases_service.CaseEventsService(
+            session=session, role=role
+        )
 
     async def _serialize_links(
         self, links: Sequence[CaseTableRow]
@@ -54,17 +67,25 @@ class CaseTableRowService(BaseWorkspaceService):
 
         row_data_by_table: dict[uuid.UUID, dict[uuid.UUID, dict[str, Any]]] = {}
         for table_id, table_links in links_by_table.items():
-            table = table_cache.get(table_id)
-            if table is None:
-                table = await self.tables_service.get_table(table_id)
-                table_cache[table_id] = table
-
             try:
+                table = table_cache.get(table_id)
+                if table is None:
+                    table = await self.tables_service.get_table(table_id)
+                    table_cache[table_id] = table
                 row_data_by_table[table_id] = await self.tables_service.get_rows_by_ids(
                     table,
                     [link.row_id for link in table_links],
                 )
-            except Exception as exc:
+            except TracecatNotFoundError as exc:
+                logger.warning(
+                    "Failed to load linked case table rows",
+                    table_id=table_id,
+                    error=str(exc),
+                )
+                row_data_by_table[table_id] = {}
+            except ProgrammingError as exc:
+                if not _is_missing_table_error(exc):
+                    raise
                 logger.warning(
                     "Failed to load linked case table rows",
                     table_id=table_id,
@@ -150,6 +171,7 @@ class CaseTableRowService(BaseWorkspaceService):
 
         next_cursor = None
         prev_cursor = None
+        has_previous = params.cursor is not None
         if links:
             if has_more:
                 last_link = links[-1]
@@ -169,13 +191,14 @@ class CaseTableRowService(BaseWorkspaceService):
         if params.reverse:
             items = list(reversed(items))
             next_cursor, prev_cursor = prev_cursor, next_cursor
+            has_more, has_previous = has_previous, has_more
 
         return CursorPaginatedResponse(
             items=items,
             next_cursor=next_cursor,
             prev_cursor=prev_cursor,
             has_more=has_more,
-            has_previous=params.cursor is not None,
+            has_previous=has_previous,
             total_estimate=None,
         )
 
@@ -256,6 +279,20 @@ class CaseTableRowService(BaseWorkspaceService):
         )
         if existing_link is not None:
             return existing_link
+
+        count_stmt = (
+            sa.select(sa.func.count())
+            .select_from(CaseTableRow)
+            .where(
+                CaseTableRow.workspace_id == self.workspace_id,
+                CaseTableRow.case_id == case.id,
+            )
+        )
+        existing_count = int(await self.session.scalar(count_stmt) or 0)
+        if existing_count >= MAX_CASE_ROW_LINKS:
+            raise TracecatValidationError(
+                f"A case can have at most {MAX_CASE_ROW_LINKS} linked table rows"
+            )
 
         run_ctx = ctx_run.get()
         link = CaseTableRow(

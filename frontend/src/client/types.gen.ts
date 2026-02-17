@@ -8429,6 +8429,10 @@ export type CasesSearchCasesData = {
    */
   endTime?: string | null
   /**
+   * Include linked case table rows and row metadata.
+   */
+  includeRows?: boolean
+  /**
    * Maximum items per page
    */
   limit?: number

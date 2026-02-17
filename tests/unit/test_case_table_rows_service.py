@@ -13,6 +13,8 @@ from tracecat.cases.rows.service import CaseTableRowService
 from tracecat.cases.schemas import CaseCreate
 from tracecat.cases.service import CasesService
 from tracecat.db.models import CaseTableRow, Table
+from tracecat.exceptions import TracecatValidationError
+from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
@@ -189,3 +191,102 @@ async def test_list_case_rows_for_cases_groups_rows(
     assert len(rows_by_case[case_two.id]) == 1
     assert rows_by_case[case_one.id][0].row_id == row_id_one
     assert rows_by_case[case_two.id][0].row_id == row_id_two
+
+
+@pytest.mark.anyio
+async def test_list_case_rows_reverse_pagination_flags(
+    session: AsyncSession,
+    svc_role: Role,
+    cases_service: CasesService,
+    tables_service: TablesService,
+) -> None:
+    case = await _create_case(cases_service)
+    table, row_id_one = await _create_table_with_row(tables_service)
+    row_two = await tables_service.insert_row(
+        table, TableRowInsert(data={"value": "world"})
+    )
+    row_id_two = uuid.UUID(str(row_two["id"]))
+
+    service = CaseTableRowService(session=session, role=svc_role)
+    await service.link_case_row(
+        case, CaseTableRowLink(table_id=table.id, row_id=row_id_one)
+    )
+    await service.link_case_row(
+        case, CaseTableRowLink(table_id=table.id, row_id=row_id_two)
+    )
+
+    first_page = await service.list_case_table_rows(
+        case,
+        CursorPaginationParams(limit=1, cursor=None, reverse=False),
+    )
+    assert first_page.next_cursor is not None
+
+    second_page = await service.list_case_table_rows(
+        case,
+        CursorPaginationParams(limit=1, cursor=first_page.next_cursor, reverse=False),
+    )
+    assert second_page.prev_cursor is not None
+
+    reverse_page = await service.list_case_table_rows(
+        case,
+        CursorPaginationParams(limit=1, cursor=second_page.prev_cursor, reverse=True),
+    )
+    assert len(reverse_page.items) == 1
+    assert reverse_page.items[0].id == first_page.items[0].id
+    assert reverse_page.has_more is True
+    assert reverse_page.has_previous is False
+
+
+@pytest.mark.anyio
+async def test_list_case_rows_does_not_swallow_unexpected_errors(
+    session: AsyncSession,
+    svc_role: Role,
+    cases_service: CasesService,
+    tables_service: TablesService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = await _create_case(cases_service)
+    table, row_id = await _create_table_with_row(tables_service)
+    service = CaseTableRowService(session=session, role=svc_role)
+    await service.link_case_row(
+        case, CaseTableRowLink(table_id=table.id, row_id=row_id)
+    )
+
+    async def _explode(
+        *args: object, **kwargs: object
+    ) -> dict[uuid.UUID, dict[str, object]]:
+        del args, kwargs
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(service.tables_service, "get_rows_by_ids", _explode)
+    with pytest.raises(RuntimeError, match="boom"):
+        await service.list_case_rows_for_cases([case.id])
+
+
+@pytest.mark.anyio
+async def test_link_case_row_enforces_max_links_per_case(
+    session: AsyncSession,
+    svc_role: Role,
+    cases_service: CasesService,
+    tables_service: TablesService,
+) -> None:
+    case = await _create_case(cases_service)
+    table, row_id = await _create_table_with_row(tables_service)
+
+    for _ in range(50):
+        session.add(
+            CaseTableRow(
+                workspace_id=svc_role.workspace_id,
+                case_id=case.id,
+                table_id=table.id,
+                row_id=uuid.uuid4(),
+            )
+        )
+    await session.commit()
+
+    service = CaseTableRowService(session=session, role=svc_role)
+    with pytest.raises(TracecatValidationError, match="at most 50 linked table rows"):
+        await service.link_case_row(
+            case,
+            CaseTableRowLink(table_id=table.id, row_id=row_id),
+        )
