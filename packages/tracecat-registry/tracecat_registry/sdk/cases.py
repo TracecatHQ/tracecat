@@ -76,16 +76,28 @@ class CasesClient:
 
         return await self._client.post("/cases", json=data)
 
-    async def get_case(self, case_id: str) -> types.CaseRead:
+    async def get_case(
+        self,
+        case_id: str,
+        *,
+        include_rows: bool | Unset = UNSET,
+    ) -> types.CaseRead:
         """Get a case by ID.
 
         Args:
             case_id: The case UUID.
+            include_rows: Include linked case table rows and row metadata.
 
         Returns:
             Case data.
         """
-        return await self._client.get(f"/cases/{case_id}")
+        params: dict[str, Any] = {}
+        if is_set(include_rows):
+            params["include_rows"] = include_rows
+        return await self._client.get(
+            f"/cases/{case_id}",
+            params=params if params else None,
+        )
 
     async def update_case(
         self,
@@ -200,6 +212,7 @@ class CasesClient:
         end_time: datetime | str | Unset = UNSET,
         updated_after: datetime | str | Unset = UNSET,
         updated_before: datetime | str | Unset = UNSET,
+        include_rows: bool | Unset = UNSET,
     ) -> types.CaseListResponse:
         """Search cases with filtering and pagination."""
         params: dict[str, Any] = {"limit": limit}
@@ -233,7 +246,9 @@ class CasesClient:
             )
         if is_set(end_time):
             params["end_time"] = (
-                end_time.isoformat() if isinstance(end_time, datetime) else end_time
+                end_time.isoformat()
+                if isinstance(end_time, datetime)
+                else end_time
             )
         if is_set(updated_after):
             params["updated_after"] = (
@@ -247,6 +262,8 @@ class CasesClient:
                 if isinstance(updated_before, datetime)
                 else updated_before
             )
+        if is_set(include_rows):
+            params["include_rows"] = include_rows
 
         return await self._client.get("/cases/search", params=params)
 
@@ -520,6 +537,55 @@ class CasesClient:
             Case events with user info.
         """
         return await self._client.get(f"/cases/{case_id}/events")
+
+    # === Case Table Rows === #
+
+    async def list_case_rows(
+        self,
+        case_id: str,
+        *,
+        limit: int = 200,
+        cursor: str | Unset = UNSET,
+        reverse: bool | Unset = UNSET,
+    ) -> dict[str, Any]:
+        """List row links for a case with cursor pagination."""
+        params: dict[str, Any] = {"limit": limit}
+        if is_set(cursor):
+            params["cursor"] = cursor
+        if is_set(reverse):
+            params["reverse"] = reverse
+        return await self._client.get(f"/cases/{case_id}/rows", params=params)
+
+    async def link_case_row(
+        self,
+        case_id: str,
+        *,
+        table_id: str,
+        row_id: str,
+    ) -> types.CaseTableRowRead:
+        """Link one table row to a case."""
+        return await self._client.post(
+            f"/cases/{case_id}/rows",
+            json={"table_id": table_id, "row_id": row_id},
+        )
+
+    async def unlink_case_row(self, case_id: str, *, link_id: str) -> None:
+        """Unlink one case table row link by link ID."""
+        await self._client.delete(f"/cases/{case_id}/rows/{link_id}")
+
+    async def add_case_row(
+        self,
+        case_id: str,
+        *,
+        table_id: str,
+        row_id: str,
+    ) -> types.CaseTableRowRead:
+        """Backward-compatible alias for link_case_row."""
+        return await self.link_case_row(case_id, table_id=table_id, row_id=row_id)
+
+    async def delete_case_row(self, case_id: str, *, link_id: str) -> None:
+        """Backward-compatible alias for unlink_case_row."""
+        await self.unlink_case_row(case_id, link_id=link_id)
 
     # === User Assignment === #
 

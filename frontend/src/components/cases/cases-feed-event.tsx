@@ -2,12 +2,14 @@ import {
   BracesIcon,
   ClockPlusIcon,
   EyeIcon,
+  LinkIcon,
   type LucideIcon,
   PaperclipIcon,
   PencilIcon,
   PencilLineIcon,
   PlusIcon,
   TrashIcon,
+  UnlinkIcon,
   UserIcon,
   UserXIcon,
 } from "lucide-react"
@@ -24,6 +26,8 @@ import type {
   ReopenedEventRead,
   SeverityChangedEventRead,
   StatusChangedEventRead,
+  TableRowLinkedEventRead,
+  TableRowUnlinkedEventRead,
   TaskAssigneeChangedEventRead,
   TaskCreatedEventRead,
   TaskDeletedEventRead,
@@ -681,6 +685,42 @@ export function TaskWorkflowChangedEvent({
         <span className="font-medium max-w-32 inline-block truncate align-bottom">
           {event.title}
         </span>
+      </span>
+    </div>
+  )
+}
+
+export function TableRowLinkedEvent({
+  event,
+  actor,
+}: {
+  event: TableRowLinkedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={LinkIcon} />
+      <span>
+        <EventActor user={actor} /> linked a row from{" "}
+        <span className="font-medium">{event.table_name}</span>
+      </span>
+    </div>
+  )
+}
+
+export function TableRowUnlinkedEvent({
+  event,
+  actor,
+}: {
+  event: TableRowUnlinkedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={UnlinkIcon} />
+      <span>
+        <EventActor user={actor} /> unlinked a row from{" "}
+        <span className="font-medium">{event.table_name}</span>
       </span>
     </div>
   )

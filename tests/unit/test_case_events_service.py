@@ -18,6 +18,8 @@ from tracecat.cases.schemas import (
     ReopenedEvent,
     SeverityChangedEvent,
     StatusChangedEvent,
+    TableRowLinkedEvent,
+    TableRowUnlinkedEvent,
     UpdatedEvent,
 )
 from tracecat.cases.service import CaseEventsService, CasesService
@@ -264,6 +266,46 @@ class TestCaseEventsService:
         assert created_event.data["changes"][2]["field"] == "field3"
         assert created_event.data["changes"][2]["old"] is None
         assert created_event.data["changes"][2]["new"] == "added"
+
+    async def test_create_table_row_linked_event(
+        self, case_events_service: CaseEventsService, test_case
+    ) -> None:
+        table_id = uuid.uuid4()
+        row_id = uuid.uuid4()
+        event_data = TableRowLinkedEvent(
+            type=CaseEventType.TABLE_ROW_LINKED,
+            table_id=table_id,
+            row_id=row_id,
+            table_name="lookup_table",
+        )
+
+        created_event = await case_events_service.create_event(test_case, event_data)
+
+        assert created_event.case_id == test_case.id
+        assert created_event.type == CaseEventType.TABLE_ROW_LINKED
+        assert created_event.data["table_id"] == str(table_id)
+        assert created_event.data["row_id"] == str(row_id)
+        assert created_event.data["table_name"] == "lookup_table"
+
+    async def test_create_table_row_unlinked_event(
+        self, case_events_service: CaseEventsService, test_case
+    ) -> None:
+        table_id = uuid.uuid4()
+        row_id = uuid.uuid4()
+        event_data = TableRowUnlinkedEvent(
+            type=CaseEventType.TABLE_ROW_UNLINKED,
+            table_id=table_id,
+            row_id=row_id,
+            table_name="lookup_table",
+        )
+
+        created_event = await case_events_service.create_event(test_case, event_data)
+
+        assert created_event.case_id == test_case.id
+        assert created_event.type == CaseEventType.TABLE_ROW_UNLINKED
+        assert created_event.data["table_id"] == str(table_id)
+        assert created_event.data["row_id"] == str(row_id)
+        assert created_event.data["table_name"] == "lookup_table"
 
     async def test_list_events_empty_case(
         self, case_events_service: CaseEventsService, test_case

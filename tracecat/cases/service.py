@@ -27,6 +27,7 @@ from tracecat.cases.enums import (
     CaseStatus,
     CaseTaskStatus,
 )
+from tracecat.cases.rows.schemas import CaseTableRowRead
 from tracecat.cases.schemas import (
     AssigneeChangedEvent,
     CaseCommentCreate,
@@ -207,6 +208,7 @@ class CasesService(BaseWorkspaceService):
         ]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
+        include_rows: bool = False,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """Search cases with cursor-based pagination and filtering."""
         paginator = BaseCursorPaginator(self.session)
@@ -471,6 +473,19 @@ class CasesService(BaseWorkspaceService):
         # Fetch task counts for all cases in one query (needed for cursor generation if sorting by tasks)
         task_counts = await self.get_task_counts([case.id for case in cases])
 
+        rows_by_case_id: dict[uuid.UUID, list[CaseTableRowRead]] = {}
+        if include_rows and cases:
+            # Imported lazily to avoid circular import:
+            # cases.service -> cases.rows.service -> cases.service
+            from tracecat.cases.rows.service import CaseTableRowService
+
+            case_rows_service = CaseTableRowService(
+                session=self.session, role=self.role
+            )
+            rows_by_case_id = await case_rows_service.list_case_rows_for_cases(
+                [case.id for case in cases]
+            )
+
         # Generate cursors with sort column info for proper pagination
         next_cursor = None
         prev_cursor = None
@@ -554,6 +569,7 @@ class CasesService(BaseWorkspaceService):
                     else None,
                     tags=tag_reads,
                     dropdown_values=dropdown_reads,
+                    rows=rows_by_case_id.get(case.id, []) if include_rows else [],
                     num_tasks_completed=task_counts[case.id]["completed"],
                     num_tasks_total=task_counts[case.id]["total"],
                 )

@@ -2041,6 +2041,12 @@ class Case(WorkspaceModel):
         back_populates="case",
         cascade="all, delete",
     )
+    table_row_links: Mapped[list[CaseTableRow]] = relationship(
+        "CaseTableRow",
+        back_populates="case",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
     dropdown_values: Mapped[list[CaseDropdownValue]] = relationship(
         "CaseDropdownValue",
         back_populates="case",
@@ -2172,6 +2178,46 @@ class CaseTask(WorkspaceModel):
     case: Mapped[Case] = relationship("Case", back_populates="tasks")
     assignee: Mapped[User | None] = relationship("User", lazy="selectin")
     workflow: Mapped[Workflow | None] = relationship("Workflow", lazy="selectin")
+
+
+class CaseTableRow(WorkspaceModel):
+    """Link table between cases and table rows."""
+
+    __tablename__ = "case_table_row"
+    __table_args__ = (
+        UniqueConstraint(
+            "case_id", "table_id", "row_id", name="uq_case_table_row_link"
+        ),
+        Index("idx_case_table_row_case", "case_id"),
+        Index("idx_case_table_row_table", "table_id"),
+        Index("idx_case_table_row_case_table", "case_id", "table_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    table_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("tables.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    row_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        nullable=False,
+        doc="Row ID from the dynamic table (workspace schema)",
+    )
+
+    case: Mapped[Case] = relationship("Case", back_populates="table_row_links")
+    table: Mapped[Table] = relationship("Table", lazy="selectin")
 
 
 class Interaction(WorkspaceModel):

@@ -684,6 +684,32 @@ class BaseTablesService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Row {row_id} not found in table {table.name}")
         return row
 
+    async def get_rows_by_ids(
+        self, table: Table, row_ids: Sequence[UUID]
+    ) -> dict[UUID, dict[str, Any]]:
+        """Fetch multiple rows by ID from a table."""
+        if not row_ids:
+            return {}
+
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        conn = await self.session.connection()
+        stmt = (
+            sa.select("*")
+            .select_from(sa.table(sanitized_table_name, schema=schema_name))
+            .where(sa.column("id").in_(list(row_ids)))
+        )
+        result = await conn.execute(stmt)
+
+        rows: dict[UUID, dict[str, Any]] = {}
+        for row in result.mappings().all():
+            raw_id = row.get("id")
+            if raw_id is None:
+                continue
+            resolved_id = raw_id if isinstance(raw_id, UUID) else UUID(str(raw_id))
+            rows[resolved_id] = dict(row)
+        return rows
+
     async def insert_row(
         self,
         table: Table,

@@ -22,6 +22,7 @@ from tracecat.auth.users import search_users
 from tracecat.cases.durations.schemas import CaseDurationMetric
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.rows.service import CaseTableRowService
 from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
     CaseCommentCreate,
@@ -174,6 +175,10 @@ async def search_cases(
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
     ),
+    include_rows: bool = Query(
+        False,
+        description="Include linked case table rows and row metadata.",
+    ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     service = CasesService(session, role)
 
@@ -237,6 +242,7 @@ async def search_cases(
             updated_before=updated_before,
             order_by=order_by,
             sort=sort,
+            include_rows=include_rows,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for search cases: {e}")
@@ -260,6 +266,10 @@ async def get_case(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
+    include_rows: bool = Query(
+        False,
+        description="Include linked case table rows and row metadata.",
+    ),
 ) -> CaseRead:
     service = CasesService(session, role)
     case = await service.get_case(case_id, track_view=True)
@@ -290,6 +300,10 @@ async def get_case(
     tag_reads = [
         CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
     ]
+    rows = []
+    if include_rows:
+        rows_service = CaseTableRowService(session, role)
+        rows = await rows_service.list_case_rows_for_case(case)
 
     return CaseRead(
         id=case.id,
@@ -307,6 +321,7 @@ async def get_case(
         fields=final_fields,
         payload=case.payload,
         tags=tag_reads,
+        rows=rows,
     )
 
 

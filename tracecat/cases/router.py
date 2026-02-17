@@ -23,6 +23,7 @@ from tracecat.auth.users import search_users
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.rows.service import CaseTableRowService
 from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
     CaseCommentCreate,
@@ -109,6 +110,10 @@ async def list_cases(
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
     ),
+    include_rows: bool = Query(
+        False,
+        description="Include linked case table rows and row metadata.",
+    ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """List cases with default filtering and sorting options."""
     service = CasesService(session, role)
@@ -120,6 +125,7 @@ async def list_cases(
             reverse=reverse,
             order_by=order_by,
             sort=sort,
+            include_rows=include_rows,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for list cases: {e}")
@@ -286,6 +292,10 @@ async def get_case(
     role: WorkspaceUser,
     session: AsyncDBSession,
     case_id: uuid.UUID,
+    include_rows: bool = Query(
+        False,
+        description="Include linked case table rows and row metadata.",
+    ),
 ) -> CaseRead:
     """Get a specific case."""
     service = CasesService(session, role)
@@ -322,6 +332,10 @@ async def get_case(
     # Dropdown values
     dropdown_service = CaseDropdownValuesService(session, role)
     dropdown_reads = await dropdown_service.list_values_for_case(case.id)
+    rows = []
+    if include_rows:
+        rows_service = CaseTableRowService(session, role)
+        rows = await rows_service.list_case_rows_for_case(case)
 
     # Match up the fields with the case field definitions
     return CaseRead(
@@ -341,6 +355,7 @@ async def get_case(
         payload=case.payload,
         tags=tag_reads,
         dropdown_values=dropdown_reads,
+        rows=rows,
     )
 
 

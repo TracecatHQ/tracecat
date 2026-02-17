@@ -14,6 +14,8 @@ from tracecat_registry.sdk.exceptions import (
     TracecatValidationError,
 )
 
+MAX_CASE_ROW_LINKS = 50
+
 
 PriorityType = Literal[
     "unknown",
@@ -252,8 +254,15 @@ async def get_case(
         str,
         Doc("The ID of the case to retrieve."),
     ],
+    include_rows: Annotated[
+        bool,
+        Doc("Include linked case table rows and row metadata."),
+    ] = False,
 ) -> types.CaseRead:
-    return await get_context().cases.get_case(case_id)
+    params: dict[str, Any] = {}
+    if include_rows:
+        params["include_rows"] = include_rows
+    return await get_context().cases.get_case(case_id, **params)
 
 
 @registry.register(
@@ -288,6 +297,10 @@ async def list_cases(
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
     ] = None,
+    include_rows: Annotated[
+        bool,
+        Doc("Include linked case table rows and row metadata."),
+    ] = False,
     paginate: Annotated[
         bool,
         Doc("If true, return cursor pagination metadata along with items."),
@@ -307,6 +320,8 @@ async def list_cases(
         params["order_by"] = order_by
     if sort is not None:
         params["sort"] = sort
+    if include_rows:
+        params["include_rows"] = include_rows
     response = await get_context().cases.list_cases(**params)
     if paginate:
         return response
@@ -570,6 +585,141 @@ async def remove_case_tag(
     ],
 ) -> None:
     await get_context().cases.remove_tag(case_id, tag_id=tag)
+
+
+@registry.register(
+    default_title="Link row to case",
+    display_group="Cases",
+    description="Link one or more existing table rows to a case.",
+    namespace="core.cases",
+)
+async def link_case_table_row(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to link rows to."),
+    ],
+    table_id: Annotated[
+        str,
+        Doc("The ID of the table that owns the rows."),
+    ],
+    row_ids: Annotated[
+        list[str],
+        Doc(
+            "One or more table row IDs to link (maximum "
+            f"{MAX_CASE_ROW_LINKS} rows per invocation)."
+        ),
+    ],
+) -> list[types.CaseTableRowRead]:
+    if not row_ids:
+        raise TracecatValidationError(detail="At least one row ID must be provided")
+    if len(row_ids) > MAX_CASE_ROW_LINKS:
+        raise TracecatValidationError(
+            detail=f"A maximum of {MAX_CASE_ROW_LINKS} row IDs can be linked at once"
+        )
+
+    # Validate IDs up front.
+    try:
+        UUID(case_id)
+        UUID(table_id)
+        unique_row_ids: list[str] = []
+        seen: set[str] = set()
+        for row_id in row_ids:
+            normalized = str(UUID(row_id))
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            unique_row_ids.append(normalized)
+    except ValueError as e:
+        raise TracecatValidationError(detail=f"Invalid UUID: {e}") from e
+
+    case_client = get_context().cases
+
+    linked: list[types.CaseTableRowRead] = []
+    for row_id in unique_row_ids:
+        linked.append(
+            await case_client.link_case_row(
+                case_id,
+                table_id=table_id,
+                row_id=row_id,
+            )
+        )
+    return linked
+
+
+@registry.register(
+    default_title="Unlink row from case",
+    display_group="Cases",
+    description="Unlink one or more table rows from a case.",
+    namespace="core.cases",
+)
+async def unlink_case_table_row(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to unlink rows from."),
+    ],
+    table_id: Annotated[
+        str,
+        Doc("The ID of the table that owns the rows."),
+    ],
+    row_ids: Annotated[
+        list[str],
+        Doc(
+            "One or more table row IDs to unlink (maximum "
+            f"{MAX_CASE_ROW_LINKS} rows per invocation)."
+        ),
+    ],
+) -> dict[str, list[str]]:
+    if not row_ids:
+        raise TracecatValidationError(detail="At least one row ID must be provided")
+    if len(row_ids) > MAX_CASE_ROW_LINKS:
+        raise TracecatValidationError(
+            detail=f"A maximum of {MAX_CASE_ROW_LINKS} row IDs can be unlinked at once"
+        )
+
+    try:
+        UUID(case_id)
+        normalized_table_id = str(UUID(table_id))
+        target_row_ids: list[str] = []
+        remaining: set[str] = set()
+        for row_id in row_ids:
+            normalized = str(UUID(row_id))
+            if normalized in remaining:
+                continue
+            remaining.add(normalized)
+            target_row_ids.append(normalized)
+    except ValueError as e:
+        raise TracecatValidationError(detail=f"Invalid UUID: {e}") from e
+
+    case_client = get_context().cases
+
+    deleted: list[str] = []
+    cursor: str | None = None
+    while remaining:
+        if cursor is None:
+            response = await case_client.list_case_rows(case_id, limit=200)
+        else:
+            response = await case_client.list_case_rows(
+                case_id,
+                limit=200,
+                cursor=cursor,
+            )
+
+        items = response.get("items", [])
+        for item in items:
+            item_row_id = str(item["row_id"])
+            item_table_id = str(item["table_id"])
+            if item_table_id != normalized_table_id or item_row_id not in remaining:
+                continue
+
+            await case_client.unlink_case_row(case_id, link_id=str(item["id"]))
+            deleted.append(item_row_id)
+            remaining.remove(item_row_id)
+
+        cursor = response.get("next_cursor")
+        if not cursor or not response.get("has_more"):
+            break
+
+    return {"deleted": deleted}
 
 
 async def _upload_attachment(

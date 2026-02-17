@@ -32,6 +32,7 @@ import {
 } from "@/components/cases/case-panel-selectors"
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CasePayloadSection } from "@/components/cases/case-payload-section"
+import { CaseTableRowsSection } from "@/components/cases/case-table-rows-section"
 import { CaseTasksSection } from "@/components/cases/case-tasks-section"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { CaseFeed } from "@/components/cases/cases-feed"
@@ -316,6 +317,14 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                   />
                 </div>
               )}
+
+              {/* Table Rows Section */}
+              <div className="mb-6">
+                <CaseTableRowsSection
+                  caseId={caseId}
+                  workspaceId={workspaceId}
+                />
+              </div>
 
               <Tabs
                 value={activeTab}
