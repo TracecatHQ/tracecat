@@ -30,6 +30,7 @@ from tracecat.agent.session.activities import (
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 
 
 @pytest.fixture
@@ -41,6 +42,7 @@ def mock_role() -> Role:
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-agent-executor"],
     )
 
 

@@ -37,6 +37,7 @@ from temporalio.worker import Worker
 from tests.shared import TEST_WF_ID, generate_test_exec_id, to_data, to_inline
 from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
@@ -2088,6 +2089,7 @@ async def test_scheduled_workflow_legacy_role_auto_heals_organization_id(
         type="service",
         service_id="tracecat-schedule-runner",
         workspace_id=workspace_id,
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-schedule-runner"],
     )
     run_args = DSLRunArgs(
         role=legacy_schedule_role,

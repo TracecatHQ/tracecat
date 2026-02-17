@@ -105,6 +105,53 @@ class TestScopeMatches:
         assert scope_matches("*:*", "workflow:read") is True
 
 
+class TestScopeImplication:
+    """Tests for scope implication (update implies read)."""
+
+    def test_update_implies_read(self):
+        assert scope_matches("workflow:update", "workflow:read") is True
+        assert scope_matches("integration:update", "integration:read") is True
+        assert scope_matches("case:update", "case:read") is True
+
+    def test_update_implies_read_nested_resource(self):
+        assert scope_matches("org:settings:update", "org:settings:read") is True
+        assert scope_matches("org:member:update", "org:member:read") is True
+
+    def test_create_does_not_imply_read(self):
+        assert scope_matches("workflow:create", "workflow:read") is False
+
+    def test_delete_does_not_imply_read(self):
+        assert scope_matches("workflow:delete", "workflow:read") is False
+
+    def test_execute_does_not_imply_read(self):
+        assert scope_matches("workflow:execute", "workflow:read") is False
+
+    def test_update_does_not_imply_other_actions(self):
+        assert scope_matches("workflow:update", "workflow:create") is False
+        assert scope_matches("workflow:update", "workflow:delete") is False
+        assert scope_matches("workflow:update", "workflow:execute") is False
+
+    def test_update_does_not_cross_resources(self):
+        assert scope_matches("workflow:update", "case:read") is False
+        assert scope_matches("integration:update", "workflow:read") is False
+
+    def test_has_scope_via_implication(self):
+        scopes = frozenset({"workflow:update"})
+        assert has_scope(scopes, "workflow:read") is True
+        assert has_scope(scopes, "workflow:update") is True
+        assert has_scope(scopes, "workflow:delete") is False
+
+    def test_get_missing_scopes_with_implication(self):
+        scopes = frozenset({"workflow:update"})
+        missing = get_missing_scopes(scopes, {"workflow:read", "workflow:update"})
+        assert missing == set()
+
+    def test_wildcard_not_affected_by_implication(self):
+        # Wildcards already cover everything, implication shouldn't interfere
+        assert scope_matches("workflow:*", "workflow:read") is True
+        assert scope_matches("workflow:*", "workflow:update") is True
+
+
 class TestHasScope:
     """Tests for has_scope function."""
 

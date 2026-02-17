@@ -50,6 +50,7 @@ async def ensure_organization_defaults(
         service_id="tracecat-service",
         organization_id=org_id,
         is_platform_superuser=True,
+        scopes=frozenset({"*"}),
     )
 
     # Ensure settings exist (idempotent)

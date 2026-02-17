@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentPreset, MCPIntegration, OAuthIntegration
+from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.providers.base import (
     MCPAuthProvider,
@@ -849,6 +850,7 @@ class TestMCPIntegrationWorkspaceIsolation:
             organization_id=svc_workspace.organization_id,
             user_id=svc_role.user_id,
             service_id="tracecat-api",
+            scopes=ADMIN_SCOPES,
         )
         service2 = IntegrationService(session=session, role=role2)
 
@@ -902,6 +904,7 @@ class TestMCPIntegrationWorkspaceIsolation:
             organization_id=svc_workspace.organization_id,
             user_id=svc_role.user_id,
             service_id="tracecat-api",
+            scopes=ADMIN_SCOPES,
         )
         service2 = IntegrationService(session=session, role=role2)
 

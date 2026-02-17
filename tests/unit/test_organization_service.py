@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole
+from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_MEMBER_SCOPES
 from tracecat.db.models import (
     AccessToken,
     Organization,
@@ -140,6 +141,7 @@ def create_admin_role(organization_id: uuid.UUID, user_id: uuid.UUID) -> Role:
         org_role=OrgRole.ADMIN,
         service_id="tracecat-api",
         is_platform_superuser=False,
+        scopes=ORG_ADMIN_SCOPES,
     )
 
 
@@ -152,6 +154,7 @@ def create_superuser_role(organization_id: uuid.UUID, user_id: uuid.UUID) -> Rol
         org_role=OrgRole.OWNER,
         service_id="tracecat-api",
         is_platform_superuser=True,
+        scopes=ORG_ADMIN_SCOPES,
     )
 
 
@@ -1053,6 +1056,7 @@ class TestOrganizationServiceInvitations:
             user_id=user_in_org2.id,
             organization_id=org2.id,
             service_id="tracecat-api",
+            scopes=ORG_MEMBER_SCOPES,
         )
         user_service = OrgService(session, role=user_role)
         membership = await user_service.accept_invitation(invitation.token)
@@ -1089,6 +1093,7 @@ class TestOrganizationServiceInvitations:
             user_id=user_in_org2.id,
             organization_id=org2.id,
             service_id="tracecat-api",
+            scopes=ORG_MEMBER_SCOPES,
         )
         user_service = OrgService(session, role=user_role)
         await user_service.accept_invitation(invitation.token)
@@ -1134,6 +1139,7 @@ class TestOrganizationServiceInvitations:
             user_id=different_user.id,
             organization_id=org2.id,
             service_id="tracecat-api",
+            scopes=ORG_MEMBER_SCOPES,
         )
         different_service = OrgService(session, role=different_role)
 
@@ -1168,6 +1174,7 @@ class TestOrganizationServiceInvitations:
             user_id=user_in_org2.id,
             organization_id=org2.id,
             service_id="tracecat-api",
+            scopes=ORG_MEMBER_SCOPES,
         )
         user_service = OrgService(session, role=user_role)
 

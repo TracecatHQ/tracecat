@@ -1649,7 +1649,10 @@ class TablesService(BaseTablesService):
 
     async def _cleanup_failed_import(self, table: Table) -> None:
         try:
-            await self.delete_table(table)
+            # Use base implementation for internal rollback cleanup so import
+            # failure handling does not depend on external delete scope grants.
+            await super().delete_table(table)
+            await self.session.commit()
         except Exception as cleanup_error:
             logger.error(
                 "Failed to clean up table after import failure",

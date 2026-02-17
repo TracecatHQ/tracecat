@@ -475,7 +475,7 @@ async def list_invitations(
 
 
 @router.delete("/invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("org:member:remove")
+@require_scope("org:member:invite")
 async def revoke_invitation(
     *,
     role: OrgUserRole,

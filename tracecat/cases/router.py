@@ -452,7 +452,7 @@ async def list_comments(
 
 
 @cases_router.post("/{case_id}/comments", status_code=HTTP_201_CREATED)
-@require_scope("case:create")
+@require_scope("case:update")
 async def create_comment(
     *,
     role: WorkspaceUser,

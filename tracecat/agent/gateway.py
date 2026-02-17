@@ -16,6 +16,7 @@ from litellm.types.utils import CallTypesLiteral
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 
@@ -38,6 +39,7 @@ async def get_provider_credentials(
         service_id="tracecat-llm-gateway",
         workspace_id=workspace_id,
         organization_id=organization_id,
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-llm-gateway"],
     )
 
     async with AgentManagementService.with_session(role=role) as service:

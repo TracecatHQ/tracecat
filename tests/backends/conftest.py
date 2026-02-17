@@ -28,6 +28,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.schemas import ExecutionContext
 from tracecat.executor.schemas import (
     ActionImplementation,
@@ -338,14 +340,13 @@ def benchmark_role() -> Role:
 
     Uses the default workspace that has the registry synced.
     """
-    from tracecat.auth.types import Role
-
     return Role(
         type="service",
         service_id="tracecat-executor",
         workspace_id=uuid.UUID("38be3315-c172-4332-aea6-53fc4b93f053"),
         organization_id=uuid.UUID("00000000-0000-4444-aaaa-000000000000"),
         user_id=uuid.uuid4(),
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-executor"],
     )
 
 

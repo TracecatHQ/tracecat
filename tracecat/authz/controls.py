@@ -17,6 +17,13 @@ T = TypeVar("T", bound=Callable[..., Coroutine[Any, Any, Any] | Any])
 # Only * is allowed as wildcard, no ? or [] patterns
 SCOPE_PATTERN = re.compile(r"^[a-z0-9:_.*-]+$")
 
+# Scope implication: an "update" grant implicitly satisfies a "read" requirement
+# on the same resource. This reflects the logical invariant that you cannot update
+# a resource without being able to read it. No other actions imply each other.
+_ACTION_IMPLIES: dict[str, frozenset[str]] = {
+    "update": frozenset({"read"}),
+}
+
 
 def _attach_wrapped_signature(
     wrapper: Callable[..., Any], wrapped: Callable[..., Any]
@@ -40,11 +47,36 @@ def validate_scope_string(scope: str) -> bool:
     return bool(SCOPE_PATTERN.match(scope))
 
 
+def _implied_scopes(granted_scope: str) -> list[str]:
+    """Derive additional scopes implied by a granted scope.
+
+    For example, "integration:update" implies "integration:read" because
+    you cannot update a resource without reading it.
+
+    Only applies to scopes without wildcards whose final segment has an
+    entry in _ACTION_IMPLIES.
+    """
+    if "*" in granted_scope:
+        return []
+    parts = granted_scope.rsplit(":", maxsplit=1)
+    if len(parts) != 2:
+        return []
+    prefix, action = parts
+    implied_actions = _ACTION_IMPLIES.get(action)
+    if not implied_actions:
+        return []
+    return [f"{prefix}:{implied}" for implied in implied_actions]
+
+
 def scope_matches(granted_scope: str, required_scope: str) -> bool:
     """Check if a granted scope (potentially with wildcards) matches a required scope.
 
     Uses fnmatch-style matching with only * as the wildcard character.
     * matches any sequence of characters.
+
+    Scope implication: ``update`` on a resource implicitly satisfies a ``read``
+    requirement on the same resource (e.g. ``workflow:update`` satisfies
+    ``workflow:read``).
 
     Args:
         granted_scope: A scope that was granted (may contain wildcards)
@@ -56,6 +88,7 @@ def scope_matches(granted_scope: str, required_scope: str) -> bool:
     Examples:
         scope_matches("workflow:*", "workflow:read") -> True
         scope_matches("workflow:read", "workflow:read") -> True
+        scope_matches("workflow:update", "workflow:read") -> True
         scope_matches("action:core.*:execute", "action:core.http_request:execute") -> True
         scope_matches("action:*:execute", "action:tools.okta.list_users:execute") -> True
         scope_matches("*", "anything:here") -> True
@@ -65,8 +98,10 @@ def scope_matches(granted_scope: str, required_scope: str) -> bool:
         return True
 
     if "*" not in granted_scope:
-        # No wildcard - exact match required
-        return granted_scope == required_scope
+        # Exact match or implication check
+        if granted_scope == required_scope:
+            return True
+        return required_scope in _implied_scopes(granted_scope)
 
     # Use fnmatch for wildcard matching (avoids regex backtracking issues)
     return fnmatch(required_scope, granted_scope)
@@ -163,6 +198,11 @@ def require_action_scope(action_key: str) -> None:
             missing_scopes=[f"action:{action_key}:execute"],
         )
     user_scopes = role.scopes
+    if user_scopes is None:
+        raise ScopeDeniedError(
+            required_scopes=[f"action:{action_key}:execute"],
+            missing_scopes=[f"action:{action_key}:execute"],
+        )
 
     # Platform superuser has "*" scope - bypass all checks
     if "*" in user_scopes:
@@ -232,12 +272,10 @@ def require_scope(*scopes: str, require_all: bool = True) -> Callable[[T], T]:
             )
 
         user_scopes = role.scopes
-
-        # For service-layer checks, allow legacy/internal service calls that pass a
-        # role object without resolved scopes. Router-level checks still use ctx_role.
-        if method_role is not None and not user_scopes:
-            logger.debug("Skipping service scope check; role has no resolved scopes")
-            return
+        if user_scopes is None:
+            raise ScopeDeniedError(
+                required_scopes=list(required), missing_scopes=list(required)
+            )
 
         # Platform superuser has "*" scope - bypass all checks
         if "*" in user_scopes:

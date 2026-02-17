@@ -7,6 +7,7 @@ import pytest
 from github.GithubException import GithubException
 
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.git.types import GitUrl
@@ -82,6 +83,7 @@ def workflow_sync_service(workspace_id, organization_id):
         service_id="tracecat-api",
         workspace_id=workspace_id,
         organization_id=organization_id,
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-api"],
     )
     return WorkflowSyncService(session=mock_session, role=role)
 
@@ -96,6 +98,7 @@ def workflow_import_service(workspace_id, organization_id):
         service_id="tracecat-api",
         workspace_id=workspace_id,
         organization_id=organization_id,
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-api"],
     )
     return WorkflowImportService(session=mock_session, role=role)
 

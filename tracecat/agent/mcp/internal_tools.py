@@ -27,6 +27,7 @@ from tracecat.agent.session.schemas import (
 )
 from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import (
     TracecatValidationError,
@@ -89,6 +90,7 @@ def _build_role(claims: MCPTokenClaims) -> Role:
         workspace_id=claims.workspace_id,
         organization_id=claims.organization_id,
         user_id=claims.user_id,
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"],
     )
 
 

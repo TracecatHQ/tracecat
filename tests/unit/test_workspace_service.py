@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole, WorkspaceRole
+from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.db.models import (
     Membership,
     Organization,
@@ -239,6 +240,7 @@ def create_workspace_admin_role(
         workspace_id=workspace_id,
         workspace_role=WorkspaceRole.ADMIN,
         service_id="tracecat-api",
+        scopes=ADMIN_SCOPES,
     )
 
 

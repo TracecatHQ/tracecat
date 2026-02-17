@@ -42,6 +42,7 @@ from tracecat.api.app import app
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import get_async_session
 from tracecat.db.models import Workspace
@@ -57,6 +58,7 @@ async def table_test_role(svc_workspace: Workspace) -> Role:
         organization_id=svc_workspace.organization_id,
         user_id=uuid.uuid4(),
         service_id="tracecat-runner",
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-runner"],
     )
 
 

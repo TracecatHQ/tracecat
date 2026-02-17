@@ -97,7 +97,7 @@ async def create_scope(
 ) -> ScopeRead:
     """Create a custom scope.
 
-    Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
+    Requires: org:rbac:create scope
     """
     service = RBACService(session, role=role)
     try:
@@ -129,7 +129,7 @@ async def delete_scope(
 
     Only custom scopes can be deleted. System and registry scopes are protected.
 
-    Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
+    Requires: org:rbac:delete scope
     """
     service = RBACService(session, role=role)
     try:
@@ -219,7 +219,7 @@ async def create_role(
 ) -> RoleReadWithScopes:
     """Create a custom role.
 
-    Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
+    Requires: org:rbac:create scope
     """
     service = RBACService(session, role=role)
     try:
@@ -260,7 +260,7 @@ async def update_role(
 ) -> RoleReadWithScopes:
     """Update a role.
 
-    Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
+    Requires: org:rbac:update scope
     """
     service = RBACService(session, role=role)
     try:
@@ -303,7 +303,7 @@ async def delete_role(
 
     Roles with active assignments must have all assignments removed first.
 
-    Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
+    Requires: org:rbac:delete scope
     """
     service = RBACService(session, role=role)
     try:
@@ -409,7 +409,7 @@ async def create_group(
 ) -> GroupReadWithMembers:
     """Create a group.
 
-    Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
+    Requires: org:rbac:create scope
     """
     service = RBACService(session, role=role)
     try:
@@ -446,7 +446,7 @@ async def update_group(
 ) -> GroupReadWithMembers:
     """Update a group.
 
-    Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
+    Requires: org:rbac:update scope
     """
     service = RBACService(session, role=role)
     try:
@@ -497,7 +497,7 @@ async def delete_group(
 
     This will also delete all group assignments and memberships.
 
-    Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
+    Requires: org:rbac:delete scope
     """
     service = RBACService(session, role=role)
     try:
@@ -515,7 +515,7 @@ async def delete_group(
     "/{group_id}/members",
     status_code=status.HTTP_201_CREATED,
 )
-@require_scope("org:rbac:create")
+@require_scope("org:rbac:update")
 async def add_group_member(
     *,
     role: OrgUserRole,
@@ -525,7 +525,7 @@ async def add_group_member(
 ) -> dict[str, str]:
     """Add a member to a group.
 
-    Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
+    Requires: org:rbac:update scope
     """
     service = RBACService(session, role=role)
     try:
@@ -548,7 +548,7 @@ async def add_group_member(
     "/{group_id}/members/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-@require_scope("org:rbac:delete")
+@require_scope("org:rbac:update")
 async def remove_group_member(
     *,
     role: OrgUserRole,
@@ -558,7 +558,7 @@ async def remove_group_member(
 ) -> None:
     """Remove a member from a group.
 
-    Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
+    Requires: org:rbac:update scope
     """
     service = RBACService(session, role=role)
     try:
@@ -663,7 +663,7 @@ async def create_assignment(
     assignment that applies to all workspaces. Each group can have at most
     one assignment per workspace (or one org-wide assignment).
 
-    Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
+    Requires: org:rbac:create scope
     """
     service = RBACService(session, role=role)
     try:
@@ -706,7 +706,7 @@ async def update_assignment(
 ) -> GroupRoleAssignmentReadWithDetails:
     """Update a group assignment (change role).
 
-    Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
+    Requires: org:rbac:update scope
     """
     service = RBACService(session, role=role)
     try:
@@ -739,7 +739,7 @@ async def delete_assignment(
 ) -> None:
     """Delete a group assignment.
 
-    Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
+    Requires: org:rbac:delete scope
     """
     service = RBACService(session, role=role)
     try:
@@ -844,7 +844,7 @@ async def create_user_assignment(
     assignment that applies to all workspaces. Each user can have at most
     one assignment per workspace (or one org-wide assignment).
 
-    Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
+    Requires: org:rbac:create scope
     """
     service = RBACService(session, role=role)
     try:
@@ -887,7 +887,7 @@ async def update_user_assignment(
 ) -> UserRoleAssignmentReadWithDetails:
     """Update a user role assignment (change role).
 
-    Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
+    Requires: org:rbac:update scope
     """
     service = RBACService(session, role=role)
     try:
@@ -920,7 +920,7 @@ async def delete_user_assignment(
 ) -> None:
     """Delete a user role assignment.
 
-    Requires: one of org:rbac:create, org:rbac:update, or org:rbac:delete scopes
+    Requires: org:rbac:delete scope
     """
     service = RBACService(session, role=role)
     try:

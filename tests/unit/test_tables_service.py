@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
+from tracecat.authz.scopes import EDITOR_SCOPES
 from tracecat.db.models import Table
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
@@ -43,6 +44,7 @@ async def svc_editor_role(svc_workspace) -> Role:  # type: ignore[override]
         workspace_role=WorkspaceRole.EDITOR,
         user_id=uuid4(),
         service_id="tracecat-api",
+        scopes=EDITOR_SCOPES,
     )
 
 

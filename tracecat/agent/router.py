@@ -113,7 +113,7 @@ async def get_provider_credential_config(
 
 
 @router.post("/credentials", status_code=status.HTTP_201_CREATED)
-@require_scope("agent:create")
+@require_scope("agent:update")
 async def create_provider_credentials(
     *,
     params: ModelCredentialCreate,
@@ -159,7 +159,7 @@ async def update_provider_credentials(
 
 
 @router.delete("/credentials/{provider}")
-@require_scope("agent:delete")
+@require_scope("agent:update")
 async def delete_provider_credentials(
     *,
     provider: str,

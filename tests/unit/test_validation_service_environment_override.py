@@ -14,6 +14,7 @@ import uuid
 import pytest
 
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement, DSLConfig
 from tracecat.expressions.common import ExprType
@@ -299,6 +300,7 @@ class TestSecretValidationWithEnvironmentOverride:
             service_id="tracecat-api",
             workspace_id=uuid.uuid4(),
             user_id=uuid.uuid4(),
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-api"],
         )
 
         dsl = DSLInput(
@@ -400,6 +402,7 @@ class TestSecretValidationWithEnvironmentOverride:
             service_id="tracecat-api",
             workspace_id=uuid.uuid4(),
             user_id=uuid.uuid4(),
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-api"],
         )
 
         dsl = DSLInput(

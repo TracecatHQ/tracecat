@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.cases.attachments.schemas import CaseAttachmentCreate
 from tracecat.cases.attachments.service import CaseAttachmentService
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
@@ -362,6 +363,7 @@ async def test_delete_authorization_basic_vs_admin(
         organization_id=attachments_service.role.organization_id,
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
+        scopes=ADMIN_SCOPES,
     )
     other_svc = CaseAttachmentService(session=session, role=other_role)
     with pytest.raises(TracecatAuthorizationError):

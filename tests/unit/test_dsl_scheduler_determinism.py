@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 import pytest
 
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.enums import EdgeType
 from tracecat.dsl.scheduler import DSLScheduler
@@ -65,6 +66,7 @@ async def test_queue_tasks_is_deterministic() -> None:
         service_id="tracecat-runner",
         workspace_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-runner"],
     )
     test_run_context = RunContext(
         wf_id=wf_id,

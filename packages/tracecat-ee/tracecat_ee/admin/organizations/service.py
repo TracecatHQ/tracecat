@@ -14,6 +14,7 @@ from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditAction
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
     Organization,
     OrganizationDomain,
@@ -451,6 +452,7 @@ class AdminOrgService(BasePlatformService):
             type="service",
             service_id="tracecat-service",
             organization_id=org_id,
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
         )
 
         # Get repository

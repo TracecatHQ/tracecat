@@ -69,7 +69,7 @@ async def list_presets(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-@require_scope("agent:update")
+@require_scope("agent:create")
 async def create_preset(
     *,
     role: ExecutorWorkspaceRole,

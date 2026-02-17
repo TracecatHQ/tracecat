@@ -11,6 +11,7 @@ from pydantic import BaseModel, SecretStr, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import OAuthIntegration
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.integrations.enums import OAuthGrantType
@@ -181,6 +182,7 @@ class TestIntegrationService:
             user_id=uuid.uuid4(),
             workspace_id=None,
             service_id="tracecat-service",
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
         )
 
         # Attempt to create service without workspace should raise error

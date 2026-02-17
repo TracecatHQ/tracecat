@@ -4485,7 +4485,7 @@ export type Role = {
     | "tracecat-service"
     | "tracecat-ui"
   is_platform_superuser?: boolean
-  scopes?: Array<string>
+  scopes?: Array<string> | null
 }
 
 export type type3 = "user" | "service"

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, overload
 
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.contexts import ctx_env, ctx_run, get_env
-from tracecat.exceptions import TracecatCredentialsError
+from tracecat.exceptions import ScopeDeniedError, TracecatCredentialsError
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
@@ -264,6 +264,8 @@ async def get_action_secrets(
                             for key in missing_expr_keys
                         ],
                     )
+        except ScopeDeniedError:
+            raise
         except TracecatCredentialsError:
             raise
         except Exception as e:

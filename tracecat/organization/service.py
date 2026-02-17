@@ -289,7 +289,6 @@ class OrgService(BaseOrgService):
             )
         return updated_user, org_role
 
-    @require_scope("org:member:invite")
     @audit_log(resource_type="organization_member", action="create")
     async def add_member(
         self,
@@ -377,7 +376,7 @@ class OrgService(BaseOrgService):
             for s in result.scalars().all()
         ]
 
-    @require_scope("org:settings:update")
+    @require_scope("org:member:remove")
     @audit_log(resource_type="organization_session", action="delete")
     async def delete_session(self, session_id: SessionID) -> None:
         """Delete a session by its ID (must belong to a user in this organization)."""
@@ -671,7 +670,7 @@ class OrgService(BaseOrgService):
 
         return membership
 
-    @require_scope("org:member:remove")
+    @require_scope("org:member:invite")
     @audit_log(resource_type="organization_invitation", action="revoke")
     async def revoke_invitation(
         self, invitation_id: uuid.UUID

@@ -42,8 +42,8 @@ class Role(BaseModel):
     service_id: InternalServiceID = Field(frozen=True)
     is_platform_superuser: bool = Field(default=False, frozen=True)
     """Whether this role belongs to a platform superuser (User.is_superuser=True)."""
-    scopes: frozenset[str] = Field(default=frozenset(), frozen=True)
-    """Effective scopes for this role. Computed during authentication."""
+    scopes: frozenset[str] | None = Field(default=None, frozen=True)
+    """Effective scopes for this role. None means unresolved/unset."""
 
     @property
     def is_superuser(self) -> bool:

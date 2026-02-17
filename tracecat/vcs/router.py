@@ -54,7 +54,7 @@ async def get_github_app_manifest(
 
 
 @github_router.get("/install")
-@require_scope("org:settings:read")
+@require_scope("org:settings:update")
 async def github_app_install_callback(
     *,
     session: AsyncDBSession,

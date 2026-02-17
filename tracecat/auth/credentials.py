@@ -420,7 +420,16 @@ def TemporaryRole(
 ):
     """An async context manager to authenticate a user or service."""
     prev_role = ctx_role.get()
-    temp_role = Role(type=type, user_id=user_id, service_id=service_id)
+    temp_role = Role(
+        type=type,
+        user_id=user_id,
+        service_id=service_id,
+        scopes=(
+            SERVICE_PRINCIPAL_SCOPES.get(service_id, frozenset())
+            if type == "service"
+            else frozenset()
+        ),
+    )
     ctx_role.set(temp_role)
     try:
         yield temp_role

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import Future, RetryError
 
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.triggers.consumer import CaseTriggerConsumer
 from tracecat.db.models import CaseTrigger, Workflow
 
@@ -57,6 +58,7 @@ def _build_role(workspace_id: uuid.UUID) -> Role:
         organization_id=uuid.uuid4(),
         user_id=None,
         service_id="tracecat-case-triggers",
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-case-triggers"],
     )
 
 

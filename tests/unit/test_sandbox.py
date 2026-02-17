@@ -9,6 +9,7 @@ from pydantic import SecretStr
 from tracecat.auth.credentials import TemporaryRole
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role, get_env
 from tracecat.db.models import Secret
 from tracecat.exceptions import TracecatCredentialsError
@@ -67,6 +68,7 @@ async def test_auth_sandbox_without_secrets(test_role, mock_user_id):
                 type="service",
                 user_id=mock_user_id,
                 service_id="tracecat-service",
+                scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
             )
 
 

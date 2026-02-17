@@ -457,7 +457,7 @@ class IntegrationService(BaseWorkspaceService):
         )
         return integration
 
-    @require_scope("integration:delete")
+    @require_scope("integration:update")
     async def disconnect_integration(self, *, integration: OAuthIntegration) -> None:
         """Disconnect a user's integration for a specific provider."""
         self._disconnect_integration_state(integration=integration)

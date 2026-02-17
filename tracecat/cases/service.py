@@ -1136,7 +1136,7 @@ class CaseCommentsService(BaseWorkspaceService):
             # Return in the same format as the join query for consistency
             return [(comment, None) for comment in result.scalars().all()]
 
-    @require_scope("case:create")
+    @require_scope("case:update")
     async def create_comment(
         self, case: Case, params: CaseCommentCreate
     ) -> CaseComment:

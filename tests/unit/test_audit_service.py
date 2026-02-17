@@ -13,6 +13,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditEvent
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.contexts import ctx_role
 
 
@@ -25,6 +26,7 @@ def role() -> Role:
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
         workspace_role=None,
+        scopes=ADMIN_SCOPES,
     )
 
 

@@ -15,6 +15,7 @@ from tenacity import RetryError
 
 from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Case, CaseEvent, CaseTrigger, Workspace
 from tracecat.dsl.common import DSLInput
@@ -280,6 +281,7 @@ class CaseTriggerConsumer:
             organization_id=workspace.organization_id,
             user_id=None,
             service_id="tracecat-case-triggers",
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-case-triggers"],
         )
         self._workspace_role_cache[workspace_id] = role
         return role

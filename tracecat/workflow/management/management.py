@@ -729,7 +729,6 @@ class WorkflowsManagementService(BaseWorkspaceService):
             await self.session.refresh(workflow)
         return workflow
 
-    @require_scope("workflow:create")
     async def create_actions_from_dsl(
         self, dsl: DSLInput, workflow_id: uuid.UUID
     ) -> list[Action]:

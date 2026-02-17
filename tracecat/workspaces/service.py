@@ -13,6 +13,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.authz.enums import OrgRole, OwnerType, WorkspaceRole
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
     Invitation,
@@ -125,6 +126,7 @@ class WorkspaceService(BaseOrgService):
             organization_id=self.organization_id,
             workspace_id=workspace.id,
             workspace_role=WorkspaceRole.ADMIN,
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
         )
         case_fields_service = CaseFieldsService(
             session=self.session, role=bootstrap_role
@@ -181,6 +183,7 @@ class WorkspaceService(BaseOrgService):
             organization_id=self.organization_id,
             workspace_id=workspace.id,
             workspace_role=WorkspaceRole.ADMIN,
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
         )
 
         # Delete Temporal schedules before workspace deletion

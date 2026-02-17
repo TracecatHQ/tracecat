@@ -14055,13 +14055,19 @@ export const $Role = {
       default: false,
     },
     scopes: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      uniqueItems: true,
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          uniqueItems: true,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Scopes",
-      default: [],
     },
   },
   type: "object",

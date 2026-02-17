@@ -36,6 +36,7 @@ from temporalio.worker import Worker
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
     Organization,
     PlatformRegistryRepository,
@@ -153,6 +154,7 @@ def module_test_role(mock_org_id) -> Role:
         workspace_id=STATIC_WORKSPACE_ID,
         organization_id=STATIC_ORGANIZATION_ID,
         service_id="tracecat-runner",
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-runner"],
     )
 
 
@@ -997,6 +999,7 @@ class TestMultitenantWorkloads:
                 workspace_id=workspace_id or uuid.uuid4(),
                 organization_id=uuid.uuid4(),
                 user_id=uuid.UUID("00000000-0000-4444-aaaa-000000000000"),
+                scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-runner"],
             )
 
         return _create

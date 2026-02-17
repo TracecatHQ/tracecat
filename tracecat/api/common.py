@@ -54,6 +54,7 @@ def bootstrap_role(organization_id: OrganizationID | None = None) -> Role:
         service_id="tracecat-bootstrap",
         organization_id=organization_id,
         is_platform_superuser=True,
+        scopes=frozenset({"*"}),
     )
 
 

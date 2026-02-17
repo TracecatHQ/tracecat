@@ -180,6 +180,7 @@ async def test_integration_scope_guards(
 @pytest.mark.parametrize(
     ("endpoint", "required_scope"),
     [
+        (vcs_router.github_app_install_callback, "org:settings:update"),
         (vcs_router.save_github_app_credentials, "org:settings:update"),
         (vcs_router.delete_github_app_credentials, "org:settings:delete"),
         (vcs_router.get_github_app_credentials_status, "org:settings:read"),

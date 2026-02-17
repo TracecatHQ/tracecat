@@ -11,6 +11,7 @@ from tracecat_ee.rbac.service import RBACService
 
 from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole, ScopeSource
+from tracecat.authz.scopes import ORG_ADMIN_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
     Organization,
@@ -92,6 +93,7 @@ def role(org: Organization, user: User) -> Role:
         organization_id=org.id,
         org_role=OrgRole.ADMIN,
         service_id="tracecat-api",
+        scopes=ORG_ADMIN_SCOPES,
     )
 
 
