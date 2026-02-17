@@ -6,21 +6,86 @@ These tests cover tarball caching, cache key computation, and execution logic.
 from __future__ import annotations
 
 import asyncio
+import json
 import tempfile
+import threading
 import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.executor.action_runner import ActionRunner, _parse_s3_uri
-from tracecat.executor.schemas import ExecutorActionErrorInfo
+from tracecat.executor.schemas import (
+    ActionImplementation,
+    ExecutorActionErrorInfo,
+    ResolvedContext,
+)
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
+
+
+@contextmanager
+def _mock_tracecat_api_server(expected_token: str):
+    """Start a lightweight HTTP server for SDK integration testing."""
+    state: dict[str, object] = {"requests": []}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802
+            content_length = int(self.headers.get("Content-Length", "0"))
+            raw_body = self.rfile.read(content_length)
+            payload = json.loads(raw_body.decode() or "{}")
+            authorization = self.headers.get("Authorization")
+
+            requests = state["requests"]
+            if isinstance(requests, list):
+                requests.append(
+                    {
+                        "path": self.path,
+                        "payload": payload,
+                        "authorization": authorization,
+                    }
+                )
+
+            if self.path != "/internal/tables/customers/search":
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"detail":"Not Found"}')
+                return
+
+            if authorization != f"Bearer {expected_token}":
+                self.send_response(401)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"detail":"Unauthorized"}')
+                return
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'[{"id":"row-1","name":"Alice"}]')
+
+        def log_message(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        yield base_url, state
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
 
 
 @pytest.fixture
@@ -354,6 +419,116 @@ class TestActionRunner:
             assert isinstance(result, ExecutorActionErrorInfo)
             assert result.type == "ValueError"
             assert result.message == "Invalid input"
+
+    @pytest.mark.anyio
+    async def test_execute_action_sets_sdk_context_env(
+        self, temp_cache_dir, mock_run_action_input, mock_role
+    ):
+        """Test direct subprocess execution sets SDK auth/context env vars."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+
+        import orjson
+
+        success_response = orjson.dumps({"success": True, "result": {"data": "test"}})
+        captured_env: dict[str, str] = {}
+
+        resolved_context = ResolvedContext(
+            secrets={},
+            variables={},
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name="core.table.search_rows",
+                module="tracecat_registry.core.table",
+                name="search_rows",
+            ),
+            evaluated_args={"table": "customers"},
+            workspace_id=str(mock_role.workspace_id),
+            workflow_id=str(mock_run_action_input.run_context.wf_id),
+            run_id=str(mock_run_action_input.run_context.wf_run_id),
+            executor_token="test-executor-token",
+        )
+
+        async def create_subprocess_exec_side_effect(*args, **kwargs):  # noqa: ARG001
+            env = kwargs.get("env")
+            assert isinstance(env, dict)
+            captured_env.update(env)
+
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 0
+            mock_proc.communicate = AsyncMock(return_value=(success_response, b""))
+            return mock_proc
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=create_subprocess_exec_side_effect,
+        ):
+            result = await runner._execute_direct(
+                input=mock_run_action_input,
+                role=mock_role,
+                registry_paths=[base_dir],
+                timeout=10.0,
+                resolved_context=resolved_context,
+            )
+
+        assert result == {"data": "test"}
+        assert captured_env["TRACECAT__API_URL"] == config.TRACECAT__API_URL
+        assert captured_env["TRACECAT__WORKSPACE_ID"] == resolved_context.workspace_id
+        assert captured_env["TRACECAT__WORKFLOW_ID"] == resolved_context.workflow_id
+        assert captured_env["TRACECAT__RUN_ID"] == resolved_context.run_id
+        assert captured_env["TRACECAT__WF_EXEC_ID"] == str(
+            mock_run_action_input.run_context.wf_exec_id
+        )
+        assert (
+            captured_env["TRACECAT__ENVIRONMENT"]
+            == mock_run_action_input.run_context.environment
+        )
+        assert captured_env["TRACECAT__EXECUTOR_TOKEN"] == "test-executor-token"
+
+    @pytest.mark.anyio
+    async def test_execute_action_registry_sdk_call_succeeds(
+        self, temp_cache_dir, mock_run_action_input, mock_role, monkeypatch
+    ):
+        """Test direct subprocess can execute a real registry SDK table call."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+
+        resolved_context = ResolvedContext(
+            secrets={},
+            variables={},
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name="core.table.search_rows",
+                module="tracecat_registry.core.table",
+                name="search_rows",
+            ),
+            evaluated_args={"table": "customers", "search_term": "alice", "limit": 1},
+            workspace_id=str(mock_role.workspace_id),
+            workflow_id=str(mock_run_action_input.run_context.wf_id),
+            run_id=str(mock_run_action_input.run_context.wf_run_id),
+            executor_token="test-executor-token",
+        )
+
+        with _mock_tracecat_api_server("test-executor-token") as (api_url, state):
+            monkeypatch.setattr(config, "TRACECAT__API_URL", api_url)
+            result = await runner._execute_direct(
+                input=mock_run_action_input,
+                role=mock_role,
+                registry_paths=[base_dir],
+                timeout=10.0,
+                resolved_context=resolved_context,
+            )
+
+        assert result == [{"id": "row-1", "name": "Alice"}]
+        requests = state["requests"]
+        assert isinstance(requests, list)
+        assert len(requests) == 1
+        request = requests[0]
+        assert request["path"] == "/internal/tables/customers/search"
+        assert request["authorization"] == "Bearer test-executor-token"
+        assert request["payload"] == {"search_term": "alice", "limit": 1, "offset": 0}
 
     @pytest.mark.anyio
     async def test_execute_action_invalid_json_response(
