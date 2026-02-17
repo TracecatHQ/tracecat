@@ -403,7 +403,7 @@ async def download_table(
     limit: int = Query(
         default=config.TRACECAT__LIMIT_TABLE_DOWNLOAD_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__MAX_ROWS_CLIENT_POSTGRES,
+        le=1000,
     ),
 ) -> list[dict[str, Any]] | str:
     """Download table data as JSON, NDJSON, CSV, or Markdown."""
