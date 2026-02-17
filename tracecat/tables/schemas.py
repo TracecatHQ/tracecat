@@ -169,7 +169,7 @@ class TableRowBatchUpdate(BaseModel):
     """Request body for batch updating rows."""
 
     row_ids: list[UUID] = Field(..., min_length=1, max_length=1000)
-    data: dict[str, Any]
+    data: dict[str, Any] = Field(..., min_length=1)
 
 
 class TableRowBatchUpdateResponse(BaseModel):

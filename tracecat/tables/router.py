@@ -570,7 +570,7 @@ async def batch_delete_rows(
             detail=str(e),
         ) from e
     except DBAPIError as e:
-        logger.exception("Database error occurred during batch row delete")
+        logger.error("Database error occurred during batch row delete")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A database error occurred. Please check your input and try again.",
@@ -603,7 +603,7 @@ async def batch_update_rows(
             detail=str(e),
         ) from e
     except DBAPIError as e:
-        logger.exception("Database error occurred during batch row update")
+        logger.error("Database error occurred during batch row update")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A database error occurred. Please check your input and try again.",

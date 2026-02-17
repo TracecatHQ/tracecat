@@ -49,8 +49,16 @@ export function DynamicInput({
         <Input
           type="number"
           placeholder="Enter an integer"
-          value={field.value as number}
-          onChange={(e) => field.onChange(Number(e.target.value))}
+          value={
+            field.value === null || field.value === undefined
+              ? ""
+              : (field.value as number)
+          }
+          onChange={(e) =>
+            field.onChange(
+              e.target.value === "" ? null : Number(e.target.value)
+            )
+          }
         />
       )
     case "NUMERIC":
@@ -59,8 +67,16 @@ export function DynamicInput({
           type="number"
           step="any"
           placeholder="Enter a number"
-          value={field.value as number}
-          onChange={(e) => field.onChange(Number(e.target.value))}
+          value={
+            field.value === null || field.value === undefined
+              ? ""
+              : (field.value as number)
+          }
+          onChange={(e) =>
+            field.onChange(
+              e.target.value === "" ? null : Number(e.target.value)
+            )
+          }
         />
       )
     case "JSONB":

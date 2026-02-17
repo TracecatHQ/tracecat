@@ -146,10 +146,29 @@ export function AgGridTable({
   const handleGridReady = useCallback(
     (event: GridReadyEvent) => {
       setGridApi(event.api)
-      updateSelection({ gridApi: event.api, tableId: id, columns })
+      updateSelection({
+        gridApi: event.api,
+        tableId: id,
+        columns,
+        selectedCount: 0,
+        selectedRowIds: [],
+      })
     },
     [updateSelection, id, columns]
   )
+
+  // Keep selection context in sync when table id or columns change after grid init
+  useEffect(() => {
+    if (gridApi) {
+      updateSelection({
+        tableId: id,
+        columns,
+        selectedCount: 0,
+        selectedRowIds: [],
+      })
+      gridApi.deselectAll()
+    }
+  }, [id, columns, gridApi, updateSelection])
 
   const handleSelectionChanged = useCallback(
     (event: SelectionChangedEvent) => {

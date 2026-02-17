@@ -15159,6 +15159,7 @@ export const $TableRowBatchUpdate = {
     data: {
       additionalProperties: true,
       type: "object",
+      minProperties: 1,
       title: "Data",
     },
   },
