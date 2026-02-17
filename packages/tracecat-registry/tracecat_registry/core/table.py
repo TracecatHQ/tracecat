@@ -137,9 +137,9 @@ async def search_rows(
         Doc("The maximum number of rows to return."),
     ] = 100,
 ) -> types.TableSearchResponse | list[dict[str, Any]]:
-    if limit > config.MAX_ROWS_CLIENT_POSTGRES:
+    if limit > config.MAX_TABLE_SEARCH_CLIENT_POSTGRES:
         raise ValueError(
-            f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
+            f"Limit cannot be greater than {config.MAX_TABLE_SEARCH_CLIENT_POSTGRES}"
         )
 
     params: dict[str, Any] = {"table": table}

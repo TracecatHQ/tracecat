@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import tracecat_registry.core.table as table_core
+from tracecat_registry import config
 from tracecat_registry.core.table import (
     create_table,
     delete_row,
@@ -322,6 +323,20 @@ class TestCoreGetTableMetadata:
 @pytest.mark.anyio
 class TestCoreSearchRecords:
     """Test cases for the search_rows UDF."""
+
+    async def test_search_rows_limit_validation(
+        self, mock_tables_client: AsyncMock
+    ) -> None:
+        """search_rows should reject limits above cursor pagination cap."""
+        with pytest.raises(
+            ValueError,
+            match=f"Limit cannot be greater than {config.MAX_TABLE_SEARCH_CLIENT_POSTGRES}",
+        ):
+            await search_rows(
+                table="test_table",
+                limit=config.MAX_TABLE_SEARCH_CLIENT_POSTGRES + 1,
+            )
+        mock_tables_client.search_rows.assert_not_called()
 
     async def test_search_rows_basic(self, mock_tables_client: AsyncMock, mock_row):
         """Test basic record search without date filters."""

@@ -30,6 +30,12 @@ MAX_CASES_CLIENT_POSTGRES = min(
     int(os.environ.get("TRACECAT__LIMIT_CASES_MAX", 200)),
 )
 
+# Maximum table search page size for cursor-based /tables/{table}/search endpoint
+MAX_TABLE_SEARCH_CLIENT_POSTGRES = min(
+    MAX_ROWS_CLIENT_POSTGRES,
+    int(os.environ.get("TRACECAT__LIMIT_CURSOR_MAX", 200)),
+)
+
 # File upload limits
 TRACECAT__MAX_FILE_SIZE_BYTES = int(
     os.environ.get("TRACECAT__MAX_FILE_SIZE_BYTES", 20 * 1024 * 1024)  # Default 20MB
