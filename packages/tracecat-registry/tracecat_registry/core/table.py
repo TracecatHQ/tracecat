@@ -331,11 +331,11 @@ async def download(
     ] = None,
     limit: Annotated[
         int, Doc("The maximum number of rows to download.")
-    ] = config.TRACECAT__LIMIT_CURSOR_MAX,
+    ] = config.TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX,
 ) -> list[dict[str, Any]] | str:
-    if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
+    if limit > config.TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX:
         raise ValueError(
-            f"Cannot return more than {config.TRACECAT__LIMIT_CURSOR_MAX} rows"
+            f"Cannot return more than {config.TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX} rows"
         )
 
     params: dict[str, Any] = {"table": name}

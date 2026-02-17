@@ -501,11 +501,13 @@ class TestCoreDownloadTable:
         """download should reject limits above table row cap."""
         with pytest.raises(
             ValueError,
-            match=(f"Cannot return more than {config.TRACECAT__LIMIT_CURSOR_MAX} rows"),
+            match=(
+                f"Cannot return more than {config.TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX} rows"
+            ),
         ):
             await download(
                 name="test_table",
-                limit=config.TRACECAT__LIMIT_CURSOR_MAX + 1,
+                limit=config.TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX + 1,
             )
         mock_tables_client.download.assert_not_called()
 

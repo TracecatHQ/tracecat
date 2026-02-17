@@ -400,7 +400,7 @@ async def download_table(
     limit: int = Query(
         default=config.TRACECAT__LIMIT_TABLE_DOWNLOAD_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+        le=config.TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX,
     ),
 ) -> list[dict[str, Any]] | str:
     """Download table data as JSON, NDJSON, CSV, or Markdown."""
@@ -413,7 +413,7 @@ async def download_table(
             detail=str(exc),
         ) from exc
 
-    # Download uses cursor pagination in chunks and is capped at 200 rows total.
+    # Download uses cursor pagination in chunks and is capped by download max.
     rows: list[dict[str, Any]] = []
     cursor: str | None = None
     while len(rows) < limit:

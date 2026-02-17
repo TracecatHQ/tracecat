@@ -596,7 +596,10 @@ TRACECAT__LIMIT_WORKFLOW_EXECUTIONS_MAX = 1000
 TRACECAT__LIMIT_TABLE_SEARCH_DEFAULT = min(100, TRACECAT__LIMIT_CURSOR_MAX)
 """Default page size for internal table search."""
 
-TRACECAT__LIMIT_TABLE_DOWNLOAD_DEFAULT = TRACECAT__LIMIT_CURSOR_MAX
+TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX = 1000
+"""Maximum row count for internal table downloads."""
+
+TRACECAT__LIMIT_TABLE_DOWNLOAD_DEFAULT = TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX
 """Default row count for internal table download."""
 
 # === Context Compression === #
