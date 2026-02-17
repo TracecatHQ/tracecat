@@ -1,14 +1,29 @@
 ---
 title: Script actions
-description: Execute custom Python scripts in a sandboxed environment.
+description: Execute custom Python scripts.
 icon: code
 ---
 
 ## Python Script Action
 
-Use the `core.script.run_python` action to execute Python code in a sandboxed WebAssembly environment using Pyodide.
-This ensures isolation from the host system while providing access to popular Python libraries.
+Use the `core.script.run_python` action to execute Python code.
 You can include 3rd-party Python packages in your script by adding them to the `dependencies` field.
+
+<Warning>
+### Security model: `nsjail` is required for true sandboxing
+
+`core.script.run_python` is only sandboxed when `nsjail` is enabled.
+
+Without `nsjail`, execution relies on an AST validator. That is **not** a true sandbox and breakouts are possible.
+In that mode, you are responsible for protecting your own environment and code.
+
+For production deployments, enable `nsjail` before running script actions.
+
+- `docker compose` deployments have `nsjail` disabled by default
+- AWS Fargate deployments have `nsjail` disabled by default
+- AWS Fargate does not provide the required permissions model for `nsjail`; use Kubernetes (Helm chart) for production untrusted-code workloads
+- Helm chart / Kubernetes deployments have `nsjail` enabled by default
+</Warning>
 
 <Note>
 - Scripts must contain at least one function

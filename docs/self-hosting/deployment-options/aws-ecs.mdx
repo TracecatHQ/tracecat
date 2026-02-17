@@ -9,6 +9,24 @@ icon: aws
   Default `auth_types` is `saml`, so configure SAML before first login.
 </Warning>
 
+
+<Warning>
+## ⚠️ Critical security requirement for code execution
+
+If you run untrusted or third-party code in production, you **must enable `nsjail`**.
+
+This includes both:
+
+- `core.script.run_python` actions
+- Custom registry actions that execute code pulled from third-party sources
+
+AWS Fargate deployments have `nsjail` **disabled by default**. Do **not** run these workloads in production until you explicitly enable it.
+
+Fargate does not provide the required permissions model for `nsjail`. For production workloads that execute untrusted code, we recommend Kubernetes (Helm chart), where `nsjail` is enabled by default.
+
+For comparison: Helm chart / Kubernetes deployments have `nsjail` enabled by default.
+</Warning>
+
 ## Prerequisites
 
 - [Terraform](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli)
