@@ -259,8 +259,8 @@ async def list_workspace_members(
         for m in memberships
     ]
 
-    # Include pending invitations for admin users
-    if role.is_privileged:
+    # Include pending invitations for admin users (org/platform admins or workspace admins)
+    if role.is_privileged or role.workspace_role == WorkspaceRole.ADMIN:
         ws_service = WorkspaceService(session, role=role)
         invitations = await ws_service.list_invitations(
             workspace_id, status=InvitationStatus.PENDING
