@@ -19,6 +19,11 @@ output "acm_certificate_arn" {
   value       = module.network.acm_certificate_arn
 }
 
+output "nat_gateway_eips" {
+  description = "Public Elastic IPs attached to NAT gateways for outbound allowlisting"
+  value       = module.network.nat_gateway_eips
+}
+
 # EKS Outputs
 output "cluster_endpoint" {
   description = "Endpoint for the EKS cluster"

@@ -252,6 +252,16 @@ terraform apply \
 terraform apply
 ```
 
+## Outbound allowlisting (Elastic, etc.)
+
+If a third-party service needs Tracecat egress IPs (for example, Elastic IP allowlists), use the NAT Gateway EIPs:
+
+```bash
+terraform output nat_gateway_eips
+```
+
+These are the stable outbound IPs for workloads running in private subnets (including `executor` and `agent-executor`).
+
 If `spot_node_group_enabled=true` (default), add this target to stage 2:
 
 ```bash
