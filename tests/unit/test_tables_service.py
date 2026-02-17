@@ -7,11 +7,13 @@ import pytest
 from sqlalchemy.exc import DBAPIError, StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.db.models import Table
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
+from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
@@ -81,19 +83,54 @@ async def table(tables_service: TablesService) -> Table:
     return table
 
 
+async def _list_rows_page(
+    tables_service: TablesService,
+    table: Table,
+    *,
+    limit: int = 100,
+    cursor: str | None = None,
+    reverse: bool = False,
+):
+    """List rows in tests using cursor semantics with deterministic ordering."""
+    return await tables_service.list_rows(
+        table,
+        params=CursorPaginationParams(
+            limit=limit,
+            cursor=cursor,
+            reverse=reverse,
+        ),
+        order_by="created_at",
+        sort="asc",
+    )
+
+
 async def _list_rows(
     tables_service: TablesService,
     table: Table,
     *,
     limit: int = 100,
-    offset: int = 0,
+    cursor: str | None = None,
+    reverse: bool = False,
 ) -> list[dict[str, Any]]:
-    """List rows in tests using offset semantics."""
-    return await tables_service.search_rows(
-        table,
-        limit=limit,
-        offset=offset,
-    )
+    """List rows in tests using cursor semantics."""
+    rows: list[dict[str, Any]] = []
+    next_cursor = cursor
+
+    while len(rows) < limit:
+        page_limit = min(limit - len(rows), config.TRACECAT__LIMIT_CURSOR_MAX)
+        page = await _list_rows_page(
+            tables_service,
+            table,
+            limit=page_limit,
+            cursor=next_cursor,
+            reverse=reverse,
+        )
+        rows.extend(page.items)
+        if not page.has_more or page.next_cursor is None:
+            break
+        next_cursor = page.next_cursor
+
+    return rows
 
 
 @pytest.mark.anyio
@@ -681,7 +718,7 @@ class TestTableRows:
         assert result["age"] == 40
 
     async def test_list_rows(self, tables_service: TablesService, table: Table) -> None:
-        """Test listing rows with pagination using limit and offset."""
+        """Test listing rows with cursor-based pagination."""
         # Insert multiple test rows
         test_data = [
             {"name": "Alice", "age": 25},
@@ -694,25 +731,46 @@ class TestTableRows:
         for data in test_data:
             await tables_service.insert_row(table, TableRowInsert(data=data))
 
-        # Test default pagination (limit=100, offset=0)
+        # Test default pagination
         all_rows = await _list_rows(tables_service, table)
         assert len(all_rows) == 5
 
-        # Test with limit
-        limited_rows = await _list_rows(tables_service, table, limit=2)
-        assert len(limited_rows) == 2
-        assert limited_rows[0]["name"] == "Alice"
-        assert limited_rows[1]["name"] == "Bob"
+        # Test first page
+        first_page = await _list_rows_page(tables_service, table, limit=2)
+        assert len(first_page.items) == 2
+        assert [row["id"] for row in first_page.items] == [
+            row["id"] for row in all_rows[:2]
+        ]
+        assert first_page.has_more is True
+        assert first_page.next_cursor is not None
 
-        # Test with offset
-        offset_rows = await _list_rows(tables_service, table, offset=2, limit=2)
-        assert len(offset_rows) == 2
-        assert offset_rows[0]["name"] == "Carol"
-        assert offset_rows[1]["name"] == "David"
+        # Test second page using cursor
+        second_page = await _list_rows_page(
+            tables_service,
+            table,
+            limit=2,
+            cursor=first_page.next_cursor,
+        )
+        assert len(second_page.items) == 2
+        assert [row["id"] for row in second_page.items] == [
+            row["id"] for row in all_rows[2:4]
+        ]
+        assert second_page.has_more is True
+        assert second_page.next_cursor is not None
 
-        # Test with offset that exceeds available rows
-        empty_rows = await _list_rows(tables_service, table, offset=10)
-        assert len(empty_rows) == 0
+        # Final page should contain the remainder and no next cursor
+        final_page = await _list_rows_page(
+            tables_service,
+            table,
+            limit=2,
+            cursor=second_page.next_cursor,
+        )
+        assert len(final_page.items) == 1
+        assert [row["id"] for row in final_page.items] == [
+            row["id"] for row in all_rows[4:5]
+        ]
+        assert final_page.has_more is False
+        assert final_page.next_cursor is None
 
     async def test_batch_insert_rows(
         self, tables_service: TablesService, table: Table

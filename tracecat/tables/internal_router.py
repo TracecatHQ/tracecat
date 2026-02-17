@@ -19,7 +19,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.expressions.functions import tabulate
 from tracecat.logger import logger
-from tracecat.pagination import CursorPaginationParams
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
@@ -64,11 +64,12 @@ class TableSearchRequest(BaseModel):
     end_time: datetime | None = None
     updated_before: datetime | None = None
     updated_after: datetime | None = None
-    offset: int = Field(default=0, ge=0)
+    cursor: str | None = None
+    reverse: bool = False
     limit: int = Field(
         default=config.TRACECAT__LIMIT_TABLE_SEARCH_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__MAX_ROWS_CLIENT_POSTGRES,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
     )
 
 
@@ -240,15 +241,8 @@ async def search_rows(
     session: AsyncDBSession,
     table_name: str,
     params: TableSearchRequest,
-) -> list[dict[str, Any]]:
+) -> CursorPaginatedResponse[dict[str, Any]]:
     """Search rows in a table with optional filters."""
-    if params.limit > config.TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"Limit cannot be greater than {config.TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
-            ),
-        )
     service = TablesService(session, role=role)
     try:
         table = await service.get_table_by_name(table_name)
@@ -259,15 +253,18 @@ async def search_rows(
         ) from exc
 
     try:
-        return await service.search_rows(
+        return await service.list_rows(
             table,
+            params=CursorPaginationParams(
+                limit=params.limit,
+                cursor=params.cursor,
+                reverse=params.reverse,
+            ),
             search_term=params.search_term,
             start_time=coerce_optional_to_utc_datetime(params.start_time),
             end_time=coerce_optional_to_utc_datetime(params.end_time),
             updated_before=coerce_optional_to_utc_datetime(params.updated_before),
             updated_after=coerce_optional_to_utc_datetime(params.updated_after),
-            limit=params.limit,
-            offset=params.offset,
         )
     except ValueError as exc:
         raise HTTPException(

@@ -325,28 +325,40 @@ class TestCoreSearchRecords:
 
     async def test_search_rows_basic(self, mock_tables_client: AsyncMock, mock_row):
         """Test basic record search without date filters."""
-        mock_tables_client.search_rows.return_value = [mock_row]
+        mock_tables_client.search_rows.return_value = {
+            "items": [mock_row],
+            "next_cursor": "cursor-1",
+            "prev_cursor": None,
+            "has_more": True,
+            "has_previous": False,
+        }
 
         result = await search_rows(
             table="test_table",
             limit=50,
-            offset=10,
         )
 
         # Only non-None parameters are passed to the client
         mock_tables_client.search_rows.assert_called_once_with(
             table="test_table",
             limit=50,
-            offset=10,
+            reverse=False,
         )
-        assert len(result) == 1
-        assert result[0] == mock_row
+        assert len(result["items"]) == 1
+        assert result["items"][0] == mock_row
+        assert result["next_cursor"] == "cursor-1"
 
     async def test_search_rows_with_date_filters(
         self, mock_tables_client: AsyncMock, mock_row
     ):
         """Test record search with date filtering capabilities."""
-        mock_tables_client.search_rows.return_value = [mock_row]
+        mock_tables_client.search_rows.return_value = {
+            "items": [mock_row],
+            "next_cursor": None,
+            "prev_cursor": None,
+            "has_more": False,
+            "has_previous": False,
+        }
 
         start_time = datetime.now(UTC) - timedelta(days=1)
         end_time = datetime.now(UTC)
@@ -356,7 +368,7 @@ class TestCoreSearchRecords:
         result = await search_rows(
             table="test_table",
             limit=50,
-            offset=10,
+            cursor="cursor-1",
             start_time=start_time,
             end_time=end_time,
             updated_after=updated_after,
@@ -371,10 +383,11 @@ class TestCoreSearchRecords:
             updated_before=updated_before,
             updated_after=updated_after,
             limit=50,
-            offset=10,
+            cursor="cursor-1",
+            reverse=False,
         )
-        assert len(result) == 1
-        assert result[0] == mock_row
+        assert len(result["items"]) == 1
+        assert result["items"][0] == mock_row
 
 
 @pytest.mark.anyio

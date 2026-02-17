@@ -124,15 +124,19 @@ async def search_rows(
         datetime | None,
         Doc("Filter rows updated after this time."),
     ] = None,
-    offset: Annotated[
-        int,
-        Doc("The number of rows to skip."),
-    ] = 0,
+    cursor: Annotated[
+        str | None,
+        Doc("Cursor for pagination."),
+    ] = None,
+    reverse: Annotated[
+        bool,
+        Doc("Reverse pagination direction."),
+    ] = False,
     limit: Annotated[
         int,
         Doc("The maximum number of rows to return."),
     ] = 100,
-) -> list[dict[str, Any]]:
+) -> types.TableSearchResponse:
     if limit > config.MAX_ROWS_CLIENT_POSTGRES:
         raise ValueError(
             f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
@@ -151,8 +155,9 @@ async def search_rows(
         params["updated_after"] = updated_after
     if limit is not None:
         params["limit"] = limit
-    if offset is not None:
-        params["offset"] = offset
+    if cursor is not None:
+        params["cursor"] = cursor
+    params["reverse"] = reverse
     return await get_context().tables.search_rows(**params)
 
 

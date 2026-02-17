@@ -584,6 +584,17 @@ class TableRead(TypedDict):
     columns: list[TableColumnRead]
 
 
+class TableSearchResponse(TypedDict):
+    """Cursor-paginated table row search response."""
+
+    items: list[dict[str, Any]]
+    next_cursor: str | None
+    prev_cursor: str | None
+    has_more: bool
+    has_previous: bool
+    total_estimate: NotRequired[int | None]
+
+
 # ============================================================================
 # Agent Types
 # ============================================================================

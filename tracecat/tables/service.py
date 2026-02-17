@@ -24,6 +24,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_workspace_role
@@ -1038,134 +1039,31 @@ class BaseTablesService(BaseWorkspaceService):
         updated_before: datetime | None = None,
         updated_after: datetime | None = None,
         limit: int | None = None,
-        offset: int = 0,
-    ) -> list[dict[str, Any]]:
-        """Search rows in a table with optional text search and filtering.
-
-        Args:
-            table: The table to search in
-            search_term: Text to search for across all text and JSONB columns
-            start_time: Filter records created after this time
-            end_time: Filter records created before this time
-            updated_before: Filter records updated before this time
-            updated_after: Filter records updated after this time
-            limit: Maximum number of rows to return
-            offset: Number of rows to skip
-
-        Returns:
-            List of matching rows as dictionaries
-
-        Raises:
-            TracecatNotFoundError: If the table does not exist
-            ValueError: If search parameters are invalid
-        """
-        schema_name = self._get_schema_name()
-        sanitized_table_name = self._sanitize_identifier(table.name)
-        conn = await self.session.connection()
-
-        # Build the base query
-        stmt = sa.select(sa.text("*")).select_from(
-            sa.table(sanitized_table_name, schema=schema_name)
+        cursor: str | None = None,
+        reverse: bool = False,
+        order_by: str | None = None,
+        sort: Literal["asc", "desc"] | None = None,
+    ) -> CursorPaginatedResponse[dict[str, Any]]:
+        """Search rows in a table using cursor-based pagination."""
+        page_limit = (
+            limit if limit is not None else config.TRACECAT__LIMIT_TABLE_SEARCH_DEFAULT
         )
-
-        # Build WHERE conditions
-        where_conditions = []
-
-        # Add text search conditions
-        if search_term:
-            # Validate search term to prevent abuse
-            if len(search_term) > 1000:
-                raise ValueError("Search term cannot exceed 1000 characters")
-            if "\x00" in search_term:
-                raise ValueError("Search term cannot contain null bytes")
-
-            # Get all text-searchable columns (TEXT and JSONB types)
-            searchable_columns = [
-                col.name
-                for col in table.columns
-                if col.type
-                in (
-                    SqlType.TEXT.value,
-                    SqlType.JSONB.value,
-                    SqlType.SELECT.value,
-                    SqlType.MULTI_SELECT.value,
-                )
-            ]
-
-            if searchable_columns:
-                # Use SQLAlchemy's concat function for proper parameter binding
-                search_pattern = sa.func.concat("%", search_term, "%")
-                search_conditions = []
-                for col_name in searchable_columns:
-                    sanitized_col = self._sanitize_identifier(col_name)
-                    if col_name in [
-                        c.name
-                        for c in table.columns
-                        if c.type in (SqlType.JSONB.value, SqlType.MULTI_SELECT.value)
-                    ]:
-                        # For JSONB columns, convert to text for searching
-                        search_conditions.append(
-                            sa.func.cast(sa.column(sanitized_col), sa.TEXT).ilike(
-                                search_pattern
-                            )
-                        )
-                    else:
-                        # For TEXT columns, search directly
-                        search_conditions.append(
-                            sa.column(sanitized_col).ilike(search_pattern)
-                        )
-                where_conditions.append(sa.or_(*search_conditions))
-            else:
-                # No searchable columns found, search_term will have no effect
-                self.logger.warning(
-                    "No searchable columns found for text search",
-                    table=table.name,
-                    search_term=search_term,
-                )
-
-        # Add date filters
-        if start_time is not None:
-            where_conditions.append(sa.column("created_at") >= start_time)
-
-        if end_time is not None:
-            where_conditions.append(sa.column("created_at") <= end_time)
-
-        if updated_after is not None:
-            where_conditions.append(sa.column("updated_at") >= updated_after)
-
-        if updated_before is not None:
-            where_conditions.append(sa.column("updated_at") <= updated_before)
-
-        # Apply WHERE conditions if any
-        if where_conditions:
-            stmt = stmt.where(sa.and_(*where_conditions))
-
-        # Apply limit and offset
-        if limit is not None:
-            stmt = stmt.limit(limit)
-        if offset > 0:
-            stmt = stmt.offset(offset)
-
-        try:
-            result = await conn.execute(stmt)
-            return [dict(row) for row in result.mappings().all()]
-        except ProgrammingError as e:
-            while (cause := e.__cause__) is not None:
-                e = cause
-            if isinstance(e, UndefinedTableError):
-                raise TracecatNotFoundError(
-                    f"Table '{table.name}' does not exist"
-                ) from e
-            raise ValueError(str(e)) from e
-        except Exception as e:
-            self.logger.error(
-                "Unexpected DB exception occurred during search",
-                kind=type(e).__name__,
-                error=str(e),
-                table=table.name,
-                schema=schema_name,
-            )
-            raise
+        params = CursorPaginationParams(
+            limit=page_limit,
+            cursor=cursor,
+            reverse=reverse,
+        )
+        return await self.list_rows(
+            table=table,
+            params=params,
+            search_term=search_term,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
+            order_by=order_by,
+            sort=sort,
+        )
 
     async def list_rows(
         self,
@@ -1962,18 +1860,58 @@ class TableEditorService(BaseWorkspaceService):
         await self.session.flush()
 
     async def list_rows(
-        self, *, limit: int = 100, offset: int = 0
-    ) -> list[dict[str, Any]]:
-        """List all rows in a table."""
+        self,
+        *,
+        limit: int = 100,
+        cursor: str | None = None,
+        reverse: bool = False,
+    ) -> CursorPaginatedResponse[dict[str, Any]]:
+        """List rows with cursor-based pagination ordered by row ID."""
         conn = await self.session.connection()
-        stmt = (
-            sa.select("*")
-            .select_from(sa.table(self.table_name, schema=self.schema_name))
-            .limit(limit)
-            .offset(offset)
+        stmt = sa.select("*").select_from(
+            sa.table(self.table_name, schema=self.schema_name)
         )
+
+        if cursor:
+            cursor_data = BaseCursorPaginator.decode_cursor(cursor)
+            cursor_id = UUID(cursor_data.id)
+            if reverse:
+                stmt = stmt.where(sa.column("id") < cursor_id)
+            else:
+                stmt = stmt.where(sa.column("id") > cursor_id)
+
+        if reverse:
+            stmt = stmt.order_by(sa.column("id").desc())
+        else:
+            stmt = stmt.order_by(sa.column("id").asc())
+
+        stmt = stmt.limit(limit + 1)
         result = await conn.execute(stmt)
-        return [dict(row) for row in result.mappings().all()]
+        rows = [dict(row) for row in result.mappings().all()]
+
+        has_more = len(rows) > limit
+        if has_more:
+            rows = rows[:limit]
+
+        next_cursor: str | None = None
+        prev_cursor: str | None = None
+        if rows:
+            if has_more:
+                next_cursor = BaseCursorPaginator.encode_cursor(rows[-1]["id"])
+            if cursor:
+                prev_cursor = BaseCursorPaginator.encode_cursor(rows[0]["id"])
+
+        if reverse:
+            rows = list(reversed(rows))
+            next_cursor, prev_cursor = prev_cursor, next_cursor
+
+        return CursorPaginatedResponse(
+            items=rows,
+            next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
+            has_more=has_more,
+            has_previous=cursor is not None,
+        )
 
     async def get_row(self, row_id: UUID) -> dict[str, Any]:
         """Get a row by ID."""
