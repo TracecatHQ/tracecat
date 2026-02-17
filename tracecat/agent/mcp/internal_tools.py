@@ -308,7 +308,7 @@ class _ListSessionsParams(BaseModel):
         default=config.TRACECAT__LIMIT_AGENT_SESSIONS_DEFAULT,
         description="Maximum number of sessions to return.",
         ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_STANDARD_MAX,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
     )
 
 

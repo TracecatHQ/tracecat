@@ -126,6 +126,22 @@ class TestCoreIsInTable:
 class TestCoreLookupMany:
     """Test cases for the lookup_many UDF."""
 
+    async def test_lookup_many_limit_validation(
+        self, mock_tables_client: AsyncMock
+    ) -> None:
+        """lookup_many should reject limits above table row cap."""
+        with pytest.raises(
+            ValueError,
+            match=f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}",
+        ):
+            await lookup_many(
+                table="test_table",
+                column="name",
+                value="John Doe",
+                limit=config.TRACECAT__LIMIT_CURSOR_MAX + 1,
+            )
+        mock_tables_client.lookup_many.assert_not_called()
+
     async def test_lookup_many_success(self, mock_tables_client: AsyncMock, mock_row):
         """Test successful multiple row lookup."""
         mock_rows = [mock_row, {**mock_row, "id": str(uuid.uuid4()), "age": 25}]
@@ -330,11 +346,11 @@ class TestCoreSearchRecords:
         """search_rows should reject limits above cursor pagination cap."""
         with pytest.raises(
             ValueError,
-            match=f"Limit cannot be greater than {config.MAX_TABLE_SEARCH_CLIENT_POSTGRES}",
+            match=f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}",
         ):
             await search_rows(
                 table="test_table",
-                limit=config.MAX_TABLE_SEARCH_CLIENT_POSTGRES + 1,
+                limit=config.TRACECAT__LIMIT_CURSOR_MAX + 1,
             )
         mock_tables_client.search_rows.assert_not_called()
 
@@ -478,6 +494,20 @@ class TestCoreInsertRows:
 @pytest.mark.anyio
 class TestCoreDownloadTable:
     """Test cases for the download_table UDF."""
+
+    async def test_download_table_limit_validation(
+        self, mock_tables_client: AsyncMock
+    ) -> None:
+        """download should reject limits above table row cap."""
+        with pytest.raises(
+            ValueError,
+            match=(f"Cannot return more than {config.TRACECAT__LIMIT_CURSOR_MAX} rows"),
+        ):
+            await download(
+                name="test_table",
+                limit=config.TRACECAT__LIMIT_CURSOR_MAX + 1,
+            )
+        mock_tables_client.download.assert_not_called()
 
     async def test_download_table_no_format(self, mock_tables_client: AsyncMock):
         """Test downloading table data without format (returns list of dicts)."""

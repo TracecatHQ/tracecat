@@ -78,9 +78,9 @@ async def lookup_many(
         Doc("The maximum number of rows to return."),
     ] = 100,
 ) -> list[dict[str, Any]]:
-    if limit > config.MAX_ROWS_CLIENT_POSTGRES:
+    if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise ValueError(
-            f"Limit cannot be greater than {config.MAX_ROWS_CLIENT_POSTGRES}"
+            f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}"
         )
 
     params: dict[str, Any] = {
@@ -137,9 +137,9 @@ async def search_rows(
         Doc("The maximum number of rows to return."),
     ] = 100,
 ) -> types.TableSearchResponse | list[dict[str, Any]]:
-    if limit > config.MAX_TABLE_SEARCH_CLIENT_POSTGRES:
+    if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise ValueError(
-            f"Limit cannot be greater than {config.MAX_TABLE_SEARCH_CLIENT_POSTGRES}"
+            f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}"
         )
 
     params: dict[str, Any] = {"table": table}
@@ -329,10 +329,14 @@ async def download(
         Literal["json", "ndjson", "csv", "markdown"] | None,
         Doc("The format to download the table data in."),
     ] = None,
-    limit: Annotated[int, Doc("The maximum number of rows to download.")] = 1000,
+    limit: Annotated[
+        int, Doc("The maximum number of rows to download.")
+    ] = config.TRACECAT__LIMIT_CURSOR_MAX,
 ) -> list[dict[str, Any]] | str:
-    if limit > 1000:
-        raise ValueError("Cannot return more than 1000 rows")
+    if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
+        raise ValueError(
+            f"Cannot return more than {config.TRACECAT__LIMIT_CURSOR_MAX} rows"
+        )
 
     params: dict[str, Any] = {"table": name}
     if format is not None:

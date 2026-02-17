@@ -12,9 +12,8 @@ from typing_extensions import Doc
 from tracecat_registry import RegistrySecret, config, registry, secrets
 
 
-# Maximum number of rows to return from a query
-# This can be overridden via TRACECAT__MAX_ROWS_CLIENT_POSTGRES env var
-DEFAULT_MAX_ROWS = config.MAX_ROWS_CLIENT_POSTGRES
+# Maximum number of rows to return from a query by default
+DEFAULT_MAX_ROWS = config.TRACECAT__LIMIT_CURSOR_MAX
 
 # Registry secret for SQL connections
 sql_secret = RegistrySecret(

@@ -77,7 +77,7 @@ async def list_sessions(
     limit: int = Query(
         config.TRACECAT__LIMIT_AGENT_SESSIONS_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_STANDARD_MAX,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
         description="Maximum number of sessions to return",
     ),
 ) -> list[AgentSessionRead | ChatReadMinimal]:

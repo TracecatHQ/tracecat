@@ -449,6 +449,48 @@ class TestCoreListCases:
         )
         assert result == [mock_case_dict]
 
+    async def test_list_cases_with_filters(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ):
+        """Test listing cases with all supported filter inputs."""
+        mock_cases_client.list_cases.return_value = {"items": [mock_case_dict]}
+        now = datetime.now(UTC)
+
+        result = await list_cases(
+            search_term="investigate",
+            status="in_progress",
+            priority=["high"],
+            severity="critical",
+            tags=["tag-one", "tag-two"],
+            assignee_id="unassigned",
+            dropdown=["environment:prod"],
+            start_time=now,
+            end_time=now,
+            updated_before=now,
+            updated_after=now,
+            limit=25,
+            order_by="updated_at",
+            sort="asc",
+        )
+
+        mock_cases_client.list_cases.assert_called_once_with(
+            search_term="investigate",
+            status=["in_progress"],
+            priority=["high"],
+            severity=["critical"],
+            tags=["tag-one", "tag-two"],
+            assignee_id=["unassigned"],
+            dropdown=["environment:prod"],
+            start_time=now,
+            end_time=now,
+            updated_before=now,
+            updated_after=now,
+            limit=25,
+            order_by="updated_at",
+            sort="asc",
+        )
+        assert result == [mock_case_dict]
+
     async def test_list_cases_empty_result(self, mock_cases_client: AsyncMock):
         """Test listing cases when no cases exist."""
         mock_cases_client.list_cases.return_value = {"items": []}
@@ -464,9 +506,9 @@ class TestCoreListCases:
 
         with pytest.raises(
             TracecatValidationError,
-            match=f"Limit cannot be greater than {config.MAX_CASES_CLIENT_POSTGRES}",
+            match=f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}",
         ):
-            await list_cases(limit=config.MAX_CASES_CLIENT_POSTGRES + 1)
+            await list_cases(limit=config.TRACECAT__LIMIT_CURSOR_MAX + 1)
 
 
 @pytest.mark.anyio
@@ -510,6 +552,48 @@ class TestCoreSearchCases:
         )
         assert result == [mock_case_dict]
 
+    async def test_search_cases_forwards_all_filters(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ):
+        """search_cases should forward all filter inputs to list_cases."""
+        mock_cases_client.list_cases.return_value = {"items": [mock_case_dict]}
+        now = datetime.now(UTC)
+
+        result = await search_cases(
+            search_term="investigate",
+            status="in_progress",
+            priority="high",
+            severity=["critical"],
+            tags=["tag-one", "tag-two"],
+            assignee_id=["unassigned"],
+            dropdown=["environment:prod"],
+            start_time=now,
+            end_time=now,
+            updated_before=now,
+            updated_after=now,
+            limit=25,
+            order_by="tasks",
+            sort="desc",
+        )
+
+        mock_cases_client.list_cases.assert_called_once_with(
+            search_term="investigate",
+            status=["in_progress"],
+            priority=["high"],
+            severity=["critical"],
+            tags=["tag-one", "tag-two"],
+            assignee_id=["unassigned"],
+            dropdown=["environment:prod"],
+            start_time=now,
+            end_time=now,
+            updated_before=now,
+            updated_after=now,
+            limit=25,
+            order_by="tasks",
+            sort="desc",
+        )
+        assert result == [mock_case_dict]
+
     async def test_search_cases_empty_result(self, mock_cases_client: AsyncMock):
         """search_cases should return empty list when list_cases does."""
         mock_cases_client.list_cases.return_value = {"items": []}
@@ -525,9 +609,9 @@ class TestCoreSearchCases:
 
         with pytest.raises(
             TracecatValidationError,
-            match=f"Limit cannot be greater than {config.MAX_CASES_CLIENT_POSTGRES}",
+            match=f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}",
         ):
-            await search_cases(limit=config.MAX_CASES_CLIENT_POSTGRES + 1)
+            await search_cases(limit=config.TRACECAT__LIMIT_CURSOR_MAX + 1)
 
 
 @pytest.mark.anyio

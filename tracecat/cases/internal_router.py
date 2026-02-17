@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -74,7 +75,7 @@ async def list_cases(
     limit: int = Query(
         config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CASES_MAX,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
         description="Maximum items per page",
     ),
     cursor: str | None = Query(None, description="Cursor for pagination"),
@@ -95,6 +96,22 @@ async def list_cases(
     ),
     tags: list[str] | None = Query(
         None, description="Filter by tag IDs or slugs (AND logic)"
+    ),
+    dropdown: list[str] | None = Query(
+        None,
+        description="Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)",
+    ),
+    start_time: datetime | None = Query(
+        None, description="Return cases created at or after this timestamp"
+    ),
+    end_time: datetime | None = Query(
+        None, description="Return cases created at or before this timestamp"
+    ),
+    updated_after: datetime | None = Query(
+        None, description="Return cases updated at or after this timestamp"
+    ),
+    updated_before: datetime | None = Query(
+        None, description="Return cases updated at or before this timestamp"
     ),
     order_by: Literal[
         "created_at", "updated_at", "priority", "severity", "status", "tasks"
@@ -140,6 +157,18 @@ async def list_cases(
                     detail=f"Invalid assignee_id: {identifier}",
                 ) from e
 
+    parsed_dropdown_filters: dict[str, list[str]] | None = None
+    if dropdown:
+        parsed_dropdown_filters = {}
+        for entry in dropdown:
+            if ":" not in entry:
+                raise HTTPException(
+                    status_code=HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid dropdown filter format: {entry!r}. Expected 'definition_ref:option_ref'.",
+                )
+            def_ref, opt_ref = entry.split(":", 1)
+            parsed_dropdown_filters.setdefault(def_ref, []).append(opt_ref)
+
     try:
         cases = await service.list_cases(
             pagination_params,
@@ -150,6 +179,11 @@ async def list_cases(
             assignee_ids=parsed_assignee_ids or None,
             include_unassigned=include_unassigned,
             tag_ids=tag_ids if tag_ids else None,
+            dropdown_filters=parsed_dropdown_filters,
+            start_time=start_time,
+            end_time=end_time,
+            updated_after=updated_after,
+            updated_before=updated_before,
             order_by=order_by,
             sort=sort,
         )
@@ -178,7 +212,7 @@ async def search_cases(
     limit: int = Query(
         config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CASES_MAX,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
         description="Maximum items per page",
     ),
     cursor: str | None = Query(None, description="Cursor for pagination"),
@@ -199,6 +233,22 @@ async def search_cases(
     ),
     tags: list[str] | None = Query(
         None, description="Filter by tag IDs or slugs (AND logic)"
+    ),
+    dropdown: list[str] | None = Query(
+        None,
+        description="Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)",
+    ),
+    start_time: datetime | None = Query(
+        None, description="Return cases created at or after this timestamp"
+    ),
+    end_time: datetime | None = Query(
+        None, description="Return cases created at or before this timestamp"
+    ),
+    updated_after: datetime | None = Query(
+        None, description="Return cases updated at or after this timestamp"
+    ),
+    updated_before: datetime | None = Query(
+        None, description="Return cases updated at or before this timestamp"
     ),
     order_by: Literal[
         "created_at", "updated_at", "priority", "severity", "status", "tasks"
@@ -223,6 +273,11 @@ async def search_cases(
         severity=severity,
         assignee_id=assignee_id,
         tags=tags,
+        dropdown=dropdown,
+        start_time=start_time,
+        end_time=end_time,
+        updated_after=updated_after,
+        updated_before=updated_before,
         order_by=order_by,
         sort=sort,
     )

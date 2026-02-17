@@ -166,6 +166,10 @@ async def test_list_cases_with_filters(
                 "priority": "medium",
                 "severity": "medium",
                 "search_term": "Test",
+                "start_time": "2024-01-01T00:00:00Z",
+                "end_time": "2024-01-31T23:59:59Z",
+                "updated_after": "2024-01-01T00:00:00Z",
+                "updated_before": "2024-01-31T23:59:59Z",
             },
         )
 
@@ -516,4 +520,54 @@ async def test_search_cases_success(
         data = response.json()
         assert len(data["items"]) == 1
         assert data["items"][0]["summary"] == "Test Case Summary"
+        mock_svc.list_cases.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_search_cases_forwards_date_filters(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """Test GET /cases/search forwards date filters through the list alias."""
+    with (
+        patch.object(cases_router, "CasesService") as MockService,
+    ):
+        mock_svc = AsyncMock()
+
+        mock_case_read = CaseReadMinimal(
+            id=mock_case.id,
+            created_at=mock_case.created_at,
+            updated_at=mock_case.updated_at,
+            short_id=mock_case.short_id,
+            summary=mock_case.summary,
+            status=mock_case.status,
+            priority=mock_case.priority,
+            severity=mock_case.severity,
+            assignee=None,
+            tags=[],
+            num_tasks_completed=0,
+            num_tasks_total=0,
+        )
+        mock_svc.list_cases.return_value = CursorPaginatedResponse(
+            items=[mock_case_read],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+        )
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            "/cases/search",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "start_time": "2024-01-01T00:00:00Z",
+                "end_time": "2024-01-31T23:59:59Z",
+                "updated_after": "2024-01-15T00:00:00Z",
+                "updated_before": "2024-01-31T23:59:59Z",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
         mock_svc.list_cases.assert_called_once()

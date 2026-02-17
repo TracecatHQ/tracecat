@@ -78,7 +78,7 @@ async def list_workflow_commits(
         default=config.TRACECAT__LIMIT_COMMITS_DEFAULT,
         description="Maximum number of commits to return",
         ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_STANDARD_MAX,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
     ),
 ) -> list[GitCommitInfo]:
     """Get commit list for workflow repository via GitHub App.

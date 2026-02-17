@@ -571,6 +571,44 @@ class TestSearchCases:
         assert len(searched) == 3
         assert searched == listed
 
+    async def test_search_cases_matches_list_cases_with_filters(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """search_cases should preserve list_cases filtering behavior."""
+        await create_case(
+            summary="Investigate malware alert",
+            description="High confidence match",
+            status="new",
+            priority="high",
+            severity="critical",
+        )
+        await create_case(
+            summary="Routine phishing triage",
+            description="Low confidence signal",
+            status="closed",
+            priority="low",
+            severity="low",
+        )
+
+        listed = await list_cases(
+            search_term="malware",
+            status="new",
+            priority="high",
+            severity="critical",
+            limit=10,
+        )
+        searched = await search_cases(
+            search_term="malware",
+            status="new",
+            priority="high",
+            severity="critical",
+            limit=10,
+        )
+
+        assert searched == listed
+        assert len(searched) == 1
+        assert searched[0]["summary"] == "Investigate malware alert"
+
 
 # =============================================================================
 # delete_case characterization tests

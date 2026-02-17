@@ -8040,6 +8040,10 @@ export type CasesListCasesData = {
    */
   dropdown?: Array<string> | null
   /**
+   * Return cases created at or before this timestamp
+   */
+  endTime?: string | null
+  /**
    * Maximum items per page
    */
   limit?: number
@@ -8075,6 +8079,10 @@ export type CasesListCasesData = {
    */
   sort?: "asc" | "desc" | null
   /**
+   * Return cases created at or after this timestamp
+   */
+  startTime?: string | null
+  /**
    * Filter by case status
    */
   status?: Array<CaseStatus> | null
@@ -8082,6 +8090,14 @@ export type CasesListCasesData = {
    * Filter by tag IDs or slugs (AND logic)
    */
   tags?: Array<string> | null
+  /**
+   * Return cases updated at or after this timestamp
+   */
+  updatedAfter?: string | null
+  /**
+   * Return cases updated at or before this timestamp
+   */
+  updatedBefore?: string | null
   workspaceId: string
 }
 
@@ -8108,6 +8124,10 @@ export type CasesSearchCasesData = {
    */
   dropdown?: Array<string> | null
   /**
+   * Return cases created at or before this timestamp
+   */
+  endTime?: string | null
+  /**
    * Maximum items per page
    */
   limit?: number
@@ -8143,6 +8163,10 @@ export type CasesSearchCasesData = {
    */
   sort?: "asc" | "desc" | null
   /**
+   * Return cases created at or after this timestamp
+   */
+  startTime?: string | null
+  /**
    * Filter by case status
    */
   status?: Array<CaseStatus> | null
@@ -8150,6 +8174,14 @@ export type CasesSearchCasesData = {
    * Filter by tag IDs or slugs (AND logic)
    */
   tags?: Array<string> | null
+  /**
+   * Return cases updated at or after this timestamp
+   */
+  updatedAfter?: string | null
+  /**
+   * Return cases updated at or before this timestamp
+   */
+  updatedBefore?: string | null
   workspaceId: string
 }
 

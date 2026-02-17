@@ -815,7 +815,9 @@ class TestTableRows:
         )
 
         for i in range(5):
-            await editor.insert_row(TableRowInsert(data={"name": f"Editor{i}", "age": i}))
+            await editor.insert_row(
+                TableRowInsert(data={"name": f"Editor{i}", "age": i})
+            )
 
         first_page = await editor.list_rows(limit=2)
         assert first_page.next_cursor is not None

@@ -6209,6 +6209,10 @@ export const tablesImportCsv = (
  * @param data.assigneeId Filter by assignee ID or 'unassigned'
  * @param data.tags Filter by tag IDs or slugs (AND logic)
  * @param data.dropdown Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
+ * @param data.startTime Return cases created at or after this timestamp
+ * @param data.endTime Return cases created at or before this timestamp
+ * @param data.updatedAfter Return cases updated at or after this timestamp
+ * @param data.updatedBefore Return cases updated at or before this timestamp
  * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
@@ -6231,6 +6235,10 @@ export const casesListCases = (
       assignee_id: data.assigneeId,
       tags: data.tags,
       dropdown: data.dropdown,
+      start_time: data.startTime,
+      end_time: data.endTime,
+      updated_after: data.updatedAfter,
+      updated_before: data.updatedBefore,
       order_by: data.orderBy,
       sort: data.sort,
       workspace_id: data.workspaceId,
@@ -6281,6 +6289,10 @@ export const casesCreateCase = (
  * @param data.severity Filter by case severity
  * @param data.tags Filter by tag IDs or slugs (AND logic)
  * @param data.dropdown Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
+ * @param data.startTime Return cases created at or after this timestamp
+ * @param data.endTime Return cases created at or before this timestamp
+ * @param data.updatedAfter Return cases updated at or after this timestamp
+ * @param data.updatedBefore Return cases updated at or before this timestamp
  * @param data.assigneeId Filter by assignee ID or 'unassigned'
  * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
@@ -6303,6 +6315,10 @@ export const casesSearchCases = (
       severity: data.severity,
       tags: data.tags,
       dropdown: data.dropdown,
+      start_time: data.startTime,
+      end_time: data.endTime,
+      updated_after: data.updatedAfter,
+      updated_before: data.updatedBefore,
       assignee_id: data.assigneeId,
       order_by: data.orderBy,
       sort: data.sort,

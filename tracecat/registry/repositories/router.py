@@ -352,7 +352,7 @@ async def list_repository_commits(
     limit: int = Query(
         default=config.TRACECAT__LIMIT_COMMITS_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_STANDARD_MAX,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
     ),
 ) -> list[GitCommitInfo]:
     """List commits from a specific registry repository."""

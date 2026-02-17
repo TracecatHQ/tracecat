@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
@@ -159,8 +160,13 @@ class CasesClient:
         severity: list[CaseSeverity] | Unset = UNSET,
         assignee_id: list[str] | Unset = UNSET,
         tags: list[str] | Unset = UNSET,
+        dropdown: list[str] | Unset = UNSET,
         order_by: str | Unset = UNSET,
         sort: Literal["asc", "desc"] | Unset = UNSET,
+        start_time: datetime | str | Unset = UNSET,
+        end_time: datetime | str | Unset = UNSET,
+        updated_after: datetime | str | Unset = UNSET,
+        updated_before: datetime | str | Unset = UNSET,
     ) -> types.CaseListResponse:
         """List cases with filtering and pagination.
 
@@ -174,8 +180,13 @@ class CasesClient:
             severity: Filter by severity(ies).
             assignee_id: Filter by assignee ID(s).
             tags: Filter by tag names/IDs.
+            dropdown: Filter by dropdown values using definition_ref:option_ref.
             order_by: Column to order by.
             sort: Sort direction.
+            start_time: Cases created after (ISO format or datetime).
+            end_time: Cases created before (ISO format or datetime).
+            updated_after: Cases updated after (ISO format or datetime).
+            updated_before: Cases updated before (ISO format or datetime).
 
         Returns:
             Paginated list of cases with cursor.
@@ -197,10 +208,34 @@ class CasesClient:
             params["assignee_id"] = assignee_id
         if is_set(tags):
             params["tags"] = tags
+        if is_set(dropdown):
+            params["dropdown"] = dropdown
         if is_set(order_by):
             params["order_by"] = order_by
         if is_set(sort):
             params["sort"] = sort
+        if is_set(start_time):
+            params["start_time"] = (
+                start_time.isoformat()
+                if isinstance(start_time, datetime)
+                else start_time
+            )
+        if is_set(end_time):
+            params["end_time"] = (
+                end_time.isoformat() if isinstance(end_time, datetime) else end_time
+            )
+        if is_set(updated_after):
+            params["updated_after"] = (
+                updated_after.isoformat()
+                if isinstance(updated_after, datetime)
+                else updated_after
+            )
+        if is_set(updated_before):
+            params["updated_before"] = (
+                updated_before.isoformat()
+                if isinstance(updated_before, datetime)
+                else updated_before
+            )
 
         return await self._client.get("/cases", params=params)
 
@@ -216,8 +251,13 @@ class CasesClient:
         severity: list[CaseSeverity] | Unset = UNSET,
         assignee_id: list[str] | Unset = UNSET,
         tags: list[str] | Unset = UNSET,
+        dropdown: list[str] | Unset = UNSET,
         order_by: str | Unset = UNSET,
         sort: Literal["asc", "desc"] | Unset = UNSET,
+        start_time: datetime | str | Unset = UNSET,
+        end_time: datetime | str | Unset = UNSET,
+        updated_after: datetime | str | Unset = UNSET,
+        updated_before: datetime | str | Unset = UNSET,
     ) -> types.CaseListResponse:
         """Alias for list_cases with identical inputs/outputs."""
         return await self.list_cases(
@@ -230,8 +270,13 @@ class CasesClient:
             severity=severity,
             assignee_id=assignee_id,
             tags=tags,
+            dropdown=dropdown,
             order_by=order_by,
             sort=sort,
+            start_time=start_time,
+            end_time=end_time,
+            updated_after=updated_after,
+            updated_before=updated_before,
         )
 
     # === Comments === #

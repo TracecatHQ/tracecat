@@ -1,4 +1,5 @@
 import base64
+from datetime import datetime
 import posixpath
 from typing import Annotated, Any, Literal
 from urllib.parse import unquote, urlsplit
@@ -43,6 +44,10 @@ StatusType = Literal[
     "closed",
     "other",
 ]
+
+
+def _as_list_filter[T](value: T | list[T]) -> list[T]:
+    return value if isinstance(value, list) else [value]
 
 
 @registry.register(
@@ -258,12 +263,57 @@ async def get_case(
     namespace="core.cases",
 )
 async def list_cases(
+    search_term: Annotated[
+        str | None,
+        Doc("Text to search for in case summary and description."),
+    ] = None,
+    status: Annotated[
+        StatusType | list[StatusType] | None,
+        Doc("Filter by case status."),
+    ] = None,
+    priority: Annotated[
+        PriorityType | list[PriorityType] | None,
+        Doc("Filter by case priority."),
+    ] = None,
+    severity: Annotated[
+        SeverityType | list[SeverityType] | None,
+        Doc("Filter by case severity."),
+    ] = None,
+    tags: Annotated[
+        list[str] | None,
+        Doc("Filter by tag IDs or refs (AND logic)."),
+    ] = None,
+    assignee_id: Annotated[
+        str | list[str] | None,
+        Doc("Filter by assignee ID or 'unassigned'."),
+    ] = None,
+    dropdown: Annotated[
+        list[str] | None,
+        Doc("Filter by dropdown values in definition_ref:option_ref format."),
+    ] = None,
+    start_time: Annotated[
+        datetime | str | None,
+        Doc("Filter cases created after this time."),
+    ] = None,
+    end_time: Annotated[
+        datetime | str | None,
+        Doc("Filter cases created before this time."),
+    ] = None,
+    updated_before: Annotated[
+        datetime | str | None,
+        Doc("Filter cases updated before this time."),
+    ] = None,
+    updated_after: Annotated[
+        datetime | str | None,
+        Doc("Filter cases updated after this time."),
+    ] = None,
     limit: Annotated[
         int,
         Doc("Maximum number of cases to return."),
     ] = 100,
     order_by: Annotated[
-        Literal["created_at", "updated_at", "priority", "severity", "status"] | None,
+        Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
+        | None,
         Doc("The field to order the cases by."),
     ] = None,
     sort: Annotated[
@@ -271,12 +321,34 @@ async def list_cases(
         Doc("The direction to order the cases by."),
     ] = None,
 ) -> list[types.CaseReadMinimal]:
-    if limit > config.MAX_CASES_CLIENT_POSTGRES:
+    if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise TracecatValidationError(
-            detail=f"Limit cannot be greater than {config.MAX_CASES_CLIENT_POSTGRES}"
+            detail=f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}"
         )
 
     params: dict[str, Any] = {"limit": limit}
+    if search_term is not None:
+        params["search_term"] = search_term
+    if status is not None:
+        params["status"] = _as_list_filter(status)
+    if priority is not None:
+        params["priority"] = _as_list_filter(priority)
+    if severity is not None:
+        params["severity"] = _as_list_filter(severity)
+    if tags is not None:
+        params["tags"] = tags
+    if assignee_id is not None:
+        params["assignee_id"] = _as_list_filter(assignee_id)
+    if dropdown is not None:
+        params["dropdown"] = dropdown
+    if start_time is not None:
+        params["start_time"] = start_time
+    if end_time is not None:
+        params["end_time"] = end_time
+    if updated_before is not None:
+        params["updated_before"] = updated_before
+    if updated_after is not None:
+        params["updated_after"] = updated_after
     if order_by is not None:
         params["order_by"] = order_by
     if sort is not None:
@@ -292,12 +364,57 @@ async def list_cases(
     namespace="core.cases",
 )
 async def search_cases(
+    search_term: Annotated[
+        str | None,
+        Doc("Text to search for in case summary and description."),
+    ] = None,
+    status: Annotated[
+        StatusType | list[StatusType] | None,
+        Doc("Filter by case status."),
+    ] = None,
+    priority: Annotated[
+        PriorityType | list[PriorityType] | None,
+        Doc("Filter by case priority."),
+    ] = None,
+    severity: Annotated[
+        SeverityType | list[SeverityType] | None,
+        Doc("Filter by case severity."),
+    ] = None,
+    tags: Annotated[
+        list[str] | None,
+        Doc("Filter by tag IDs or refs (AND logic)."),
+    ] = None,
+    assignee_id: Annotated[
+        str | list[str] | None,
+        Doc("Filter by assignee ID or 'unassigned'."),
+    ] = None,
+    dropdown: Annotated[
+        list[str] | None,
+        Doc("Filter by dropdown values in definition_ref:option_ref format."),
+    ] = None,
+    start_time: Annotated[
+        datetime | str | None,
+        Doc("Filter cases created after this time."),
+    ] = None,
+    end_time: Annotated[
+        datetime | str | None,
+        Doc("Filter cases created before this time."),
+    ] = None,
+    updated_before: Annotated[
+        datetime | str | None,
+        Doc("Filter cases updated before this time."),
+    ] = None,
+    updated_after: Annotated[
+        datetime | str | None,
+        Doc("Filter cases updated after this time."),
+    ] = None,
     limit: Annotated[
         int,
         Doc("Maximum number of cases to return."),
     ] = 100,
     order_by: Annotated[
-        Literal["created_at", "updated_at", "priority", "severity", "status"] | None,
+        Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
+        | None,
         Doc("The field to order the cases by."),
     ] = None,
     sort: Annotated[
@@ -306,7 +423,22 @@ async def search_cases(
     ] = None,
 ) -> list[types.CaseReadMinimal]:
     """Alias for list_cases with identical inputs/outputs."""
-    return await list_cases(limit=limit, order_by=order_by, sort=sort)
+    return await list_cases(
+        search_term=search_term,
+        status=status,
+        priority=priority,
+        severity=severity,
+        tags=tags,
+        assignee_id=assignee_id,
+        dropdown=dropdown,
+        start_time=start_time,
+        end_time=end_time,
+        updated_before=updated_before,
+        updated_after=updated_after,
+        limit=limit,
+        order_by=order_by,
+        sort=sort,
+    )
 
 
 @registry.register(

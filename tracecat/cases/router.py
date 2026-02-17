@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Annotated, Literal
 
 from asyncpg import DuplicateColumnError
@@ -93,7 +94,7 @@ async def list_cases(
     limit: int = Query(
         config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CASES_MAX,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
         description="Maximum items per page",
     ),
     cursor: str | None = Query(None, description="Cursor for pagination"),
@@ -118,6 +119,18 @@ async def list_cases(
     dropdown: list[str] | None = Query(
         None,
         description="Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)",
+    ),
+    start_time: datetime | None = Query(
+        None, description="Return cases created at or after this timestamp"
+    ),
+    end_time: datetime | None = Query(
+        None, description="Return cases created at or before this timestamp"
+    ),
+    updated_after: datetime | None = Query(
+        None, description="Return cases updated at or after this timestamp"
+    ),
+    updated_before: datetime | None = Query(
+        None, description="Return cases updated at or before this timestamp"
     ),
     order_by: Literal[
         "created_at", "updated_at", "priority", "severity", "status", "tasks"
@@ -191,6 +204,10 @@ async def list_cases(
             include_unassigned=include_unassigned,
             tag_ids=tag_ids if tag_ids else None,
             dropdown_filters=parsed_dropdown_filters,
+            start_time=start_time,
+            end_time=end_time,
+            updated_after=updated_after,
+            updated_before=updated_before,
             order_by=order_by,
             sort=sort,
         )
@@ -219,7 +236,7 @@ async def search_cases(
     limit: int = Query(
         config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CASES_MAX,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
         description="Maximum items per page",
     ),
     cursor: str | None = Query(None, description="Cursor for pagination"),
@@ -241,6 +258,18 @@ async def search_cases(
     dropdown: list[str] | None = Query(
         None,
         description="Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)",
+    ),
+    start_time: datetime | None = Query(
+        None, description="Return cases created at or after this timestamp"
+    ),
+    end_time: datetime | None = Query(
+        None, description="Return cases created at or before this timestamp"
+    ),
+    updated_after: datetime | None = Query(
+        None, description="Return cases updated at or after this timestamp"
+    ),
+    updated_before: datetime | None = Query(
+        None, description="Return cases updated at or before this timestamp"
     ),
     assignee_id: list[str] | None = Query(
         None, description="Filter by assignee ID or 'unassigned'"
@@ -270,6 +299,10 @@ async def search_cases(
         assignee_id=assignee_id,
         tags=tags,
         dropdown=dropdown,
+        start_time=start_time,
+        end_time=end_time,
+        updated_after=updated_after,
+        updated_before=updated_before,
         order_by=order_by,
         sort=sort,
     )

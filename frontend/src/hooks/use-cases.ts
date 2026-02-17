@@ -127,6 +127,12 @@ function getDateBoundsFromFilter(filter: CaseDateFilterValue): {
   }
 }
 
+function toEndOfDay(date: Date): Date {
+  const end = new Date(date)
+  end.setHours(23, 59, 59, 999)
+  return end
+}
+
 // Default filter value (no filter)
 export const DEFAULT_DATE_FILTER: CaseDateFilterValue = {
   type: "preset",
@@ -234,6 +240,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   // Exclude filtering is done client-side
   const queryParams = useMemo(() => {
     const normalizedSearch = searchQuery.trim()
+    const updatedBounds = getDateBoundsFromFilter(updatedAfter)
+    const createdBounds = getDateBoundsFromFilter(createdAfter)
     return {
       searchTerm: normalizedSearch.length > 0 ? normalizedSearch : undefined,
       status:
@@ -266,6 +274,14 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         }
         return entries.length > 0 ? entries : undefined
       })(),
+      startTime: createdBounds.start?.toISOString(),
+      endTime: createdBounds.end
+        ? toEndOfDay(createdBounds.end).toISOString()
+        : undefined,
+      updatedAfter: updatedBounds.start?.toISOString(),
+      updatedBefore: updatedBounds.end
+        ? toEndOfDay(updatedBounds.end).toISOString()
+        : undefined,
       limit,
       cursor: currentCursor,
       orderBy: "updated_at" as const,
@@ -284,6 +300,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     tagFilter,
     tagMode,
     dropdownFilters,
+    updatedAfter,
+    createdAfter,
     limit,
     currentCursor,
     updatedAtSort,
@@ -299,6 +317,10 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         assigneeId: queryParams.assigneeId ?? null,
         tags: queryParams.tags ?? null,
         dropdown: queryParams.dropdown ?? null,
+        startTime: queryParams.startTime ?? null,
+        endTime: queryParams.endTime ?? null,
+        updatedAfter: queryParams.updatedAfter ?? null,
+        updatedBefore: queryParams.updatedBefore ?? null,
         limit: queryParams.limit,
         sort: queryParams.sort,
       }),
@@ -310,6 +332,10 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       queryParams.assigneeId,
       queryParams.tags,
       queryParams.dropdown,
+      queryParams.startTime,
+      queryParams.endTime,
+      queryParams.updatedAfter,
+      queryParams.updatedBefore,
       queryParams.limit,
       queryParams.sort,
     ]
@@ -384,12 +410,9 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   )
   const hasPreviousPage = currentPage > 0
 
-  // Apply client-side filtering (exclude mode filters + date filters)
+  // Apply client-side filtering (exclude mode filters only).
   const filteredCases = useMemo(() => {
     if (!cases) return []
-
-    const updatedBounds = getDateBoundsFromFilter(updatedAfter)
-    const createdBounds = getDateBoundsFromFilter(createdAfter)
 
     const filtered = cases.filter((caseData) => {
       // Exclude mode filters (client-side)
@@ -418,38 +441,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
           )
           const optRef = dvMatch?.option_ref
           if (optRef && state.values.includes(optRef)) return false
-        }
-      }
-
-      // Updated after filter
-      if (updatedBounds.start || updatedBounds.end) {
-        const caseUpdated = new Date(caseData.updated_at)
-        if (updatedBounds.start && caseUpdated < updatedBounds.start) {
-          return false
-        }
-        if (updatedBounds.end) {
-          // Set end of day for the end date
-          const endOfDay = new Date(updatedBounds.end)
-          endOfDay.setHours(23, 59, 59, 999)
-          if (caseUpdated > endOfDay) {
-            return false
-          }
-        }
-      }
-
-      // Created after filter
-      if (createdBounds.start || createdBounds.end) {
-        const caseCreated = new Date(caseData.created_at)
-        if (createdBounds.start && caseCreated < createdBounds.start) {
-          return false
-        }
-        if (createdBounds.end) {
-          // Set end of day for the end date
-          const endOfDay = new Date(createdBounds.end)
-          endOfDay.setHours(23, 59, 59, 999)
-          if (caseCreated > endOfDay) {
-            return false
-          }
         }
       }
 
@@ -512,8 +503,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     tagMode,
     tagSortDirection,
     dropdownFilters,
-    updatedAfter,
-    createdAfter,
   ])
 
   return {

@@ -1,5 +1,6 @@
 import uuid  # noqa: I001
 import asyncio
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 from unittest.mock import patch, MagicMock
 
@@ -672,6 +673,10 @@ class TestCasesService:
             params=params,
             search_term="Case",
             status=[CaseStatus.NEW, CaseStatus.IN_PROGRESS],
+            start_time=datetime.now(UTC) - timedelta(days=1),
+            end_time=datetime.now(UTC) + timedelta(days=1),
+            updated_after=datetime.now(UTC) - timedelta(days=1),
+            updated_before=datetime.now(UTC) + timedelta(days=1),
             order_by="created_at",
             sort="asc",
         )

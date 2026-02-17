@@ -49,7 +49,7 @@ class TableLookupRequest(BaseModel):
     limit: int | None = Field(
         default=None,
         ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__MAX_ROWS_CLIENT_POSTGRES,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
     )
 
 
@@ -176,14 +176,11 @@ async def lookup_rows(
     params: TableLookupRequest,
 ) -> list[dict[str, Any]]:
     """Lookup rows matching column/value pairs."""
-    if (
-        params.limit is not None
-        and params.limit > config.TRACECAT__MAX_ROWS_CLIENT_POSTGRES
-    ):
+    if params.limit is not None and params.limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"Limit cannot be greater than {config.TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
+                f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}"
             ),
         )
     service = TablesService(session, role=role)
@@ -403,7 +400,7 @@ async def download_table(
     limit: int = Query(
         default=config.TRACECAT__LIMIT_TABLE_DOWNLOAD_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
-        le=1000,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
     ),
 ) -> list[dict[str, Any]] | str:
     """Download table data as JSON, NDJSON, CSV, or Markdown."""
@@ -416,7 +413,7 @@ async def download_table(
             detail=str(exc),
         ) from exc
 
-    # Download supports up to 1000 rows, while cursor pagination caps page size at 200.
+    # Download uses cursor pagination in chunks and is capped at 200 rows total.
     rows: list[dict[str, Any]] = []
     cursor: str | None = None
     while len(rows) < limit:

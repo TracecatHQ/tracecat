@@ -94,7 +94,7 @@ async def list_workflows(
     limit: int = Query(
         default=config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_WORKFLOW_LIST_MIN,
-        le=config.TRACECAT__LIMIT_STANDARD_MAX,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
     ),
     cursor: str | None = Query(default=None),
     reverse: bool = Query(default=False),

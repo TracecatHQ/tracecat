@@ -198,6 +198,10 @@ class CasesService(BaseWorkspaceService):
         include_unassigned: bool = False,
         tag_ids: list[uuid.UUID] | None = None,
         dropdown_filters: dict[str, list[str]] | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        updated_before: datetime | None = None,
+        updated_after: datetime | None = None,
         order_by: Literal[
             "created_at", "updated_at", "priority", "severity", "status", "tasks"
         ]
@@ -312,6 +316,19 @@ class CasesService(BaseWorkspaceService):
                         )
                     )
                 )
+
+        # Apply date filters
+        if start_time is not None:
+            filters.append(Case.created_at >= start_time)
+
+        if end_time is not None:
+            filters.append(Case.created_at <= end_time)
+
+        if updated_after is not None:
+            filters.append(Case.updated_at >= updated_after)
+
+        if updated_before is not None:
+            filters.append(Case.updated_at <= updated_before)
 
         for clause in filters:
             stmt = stmt.where(clause)
@@ -562,6 +579,10 @@ class CasesService(BaseWorkspaceService):
         include_unassigned: bool = False,
         tag_ids: list[uuid.UUID] | None = None,
         dropdown_filters: dict[str, list[str]] | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        updated_before: datetime | None = None,
+        updated_after: datetime | None = None,
         order_by: Literal[
             "created_at", "updated_at", "priority", "severity", "status", "tasks"
         ]
@@ -579,6 +600,10 @@ class CasesService(BaseWorkspaceService):
             include_unassigned=include_unassigned,
             tag_ids=tag_ids,
             dropdown_filters=dropdown_filters,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
             order_by=order_by,
             sort=sort,
         )
