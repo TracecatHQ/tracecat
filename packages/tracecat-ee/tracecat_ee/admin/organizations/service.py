@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import orjson
+from pydantic import ValidationError
 from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -33,6 +34,14 @@ from tracecat.organization.management import (
 )
 from tracecat.secrets.encryption import encrypt_value
 from tracecat.service import BasePlatformService
+from tracecat.settings.schemas import (
+    AgentSettingsUpdate,
+    AppSettingsUpdate,
+    AuditSettingsUpdate,
+    BaseSettingsGroup,
+    GitSettingsUpdate,
+    SAMLSettingsUpdate,
+)
 from tracecat_ee.admin.organizations.schemas import (
     OrgCreate,
     OrgDomainCreate,
@@ -47,6 +56,18 @@ from tracecat_ee.admin.organizations.schemas import (
     OrgUpdate,
 )
 
+_SYSTEM_SETTING_GROUPS: tuple[type[BaseSettingsGroup], ...] = (
+    AgentSettingsUpdate,
+    GitSettingsUpdate,
+    SAMLSettingsUpdate,
+    AppSettingsUpdate,
+    AuditSettingsUpdate,
+)
+
+_SYSTEM_SETTING_GROUP_BY_KEY: dict[str, type[BaseSettingsGroup]] = {
+    key: group for group in _SYSTEM_SETTING_GROUPS for key in group.keys()
+}
+
 
 class AdminOrgService(BasePlatformService):
     """Platform-level organization management."""
@@ -58,6 +79,23 @@ class AdminOrgService(BasePlatformService):
         return orjson.dumps(
             value, default=to_jsonable_python, option=orjson.OPT_SORT_KEYS
         )
+
+    def _validate_system_setting_value(self, key: str, value: Any) -> None:
+        """Validate known system setting payloads with canonical schema types."""
+        setting_group = _SYSTEM_SETTING_GROUP_BY_KEY.get(key)
+        if setting_group is None:
+            return
+
+        try:
+            setting_group.model_validate({key: value})
+        except ValidationError as e:
+            first_error = e.errors(include_url=False)[0]
+            location = ".".join(str(part) for part in first_error.get("loc", ()))
+            message = first_error.get("msg", "Invalid value")
+            detail = f"{location}: {message}" if location else message
+            raise ValueError(
+                f"Invalid value for organization setting {key!r}: {detail}"
+            ) from e
 
     async def list_organizations(self) -> Sequence[OrgRead]:
         """List all organizations."""
@@ -153,6 +191,7 @@ class AdminOrgService(BasePlatformService):
             )
         if not setting.is_encrypted:
             raise ValueError(f"Organization setting {key!r} is not encrypted")
+        self._validate_system_setting_value(key, value)
 
         encryption_key = config.TRACECAT__DB_ENCRYPTION_KEY
         if not encryption_key:

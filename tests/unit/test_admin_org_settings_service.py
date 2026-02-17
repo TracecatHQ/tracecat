@@ -159,3 +159,78 @@ async def test_reset_encrypted_org_setting_not_found(
             "audit_webhook_url",
             value="https://example.com/new",
         )
+
+
+@pytest.mark.anyio
+async def test_reset_encrypted_org_setting_rejects_invalid_system_setting_value(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    org_a: Organization,
+) -> None:
+    key = _encryption_key()
+    encrypted_value = encrypt_value(
+        orjson.dumps({"X-Test": "old-value"}),
+        key=key,
+    )
+    setting = OrganizationSetting(
+        organization_id=org_a.id,
+        key="audit_webhook_custom_headers",
+        value=encrypted_value,
+        value_type="json",
+        is_encrypted=True,
+    )
+    session.add(setting)
+    await session.commit()
+
+    service = AdminOrgService(session, role=platform_role)
+    with pytest.raises(ValueError, match="Invalid value for organization setting"):
+        await service.reset_encrypted_org_setting(
+            org_a.id,
+            "audit_webhook_custom_headers",
+            value=["not", "a", "dict"],
+        )
+
+    refreshed = await session.scalar(
+        select(OrganizationSetting).where(
+            OrganizationSetting.organization_id == org_a.id,
+            OrganizationSetting.key == "audit_webhook_custom_headers",
+        )
+    )
+    assert refreshed is not None
+    decrypted = decrypt_value(refreshed.value, key=key)
+    assert orjson.loads(decrypted) == {"X-Test": "old-value"}
+
+
+@pytest.mark.anyio
+async def test_reset_encrypted_org_setting_allows_unknown_encrypted_setting_key(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    org_a: Organization,
+) -> None:
+    key = _encryption_key()
+    setting = OrganizationSetting(
+        organization_id=org_a.id,
+        key="custom_encrypted_setting",
+        value=encrypt_value(orjson.dumps({"old": True}), key=key),
+        value_type="json",
+        is_encrypted=True,
+    )
+    session.add(setting)
+    await session.commit()
+
+    service = AdminOrgService(session, role=platform_role)
+    await service.reset_encrypted_org_setting(
+        org_a.id,
+        "custom_encrypted_setting",
+        value=["recoverable", {"payload": 1}],
+    )
+
+    refreshed = await session.scalar(
+        select(OrganizationSetting).where(
+            OrganizationSetting.organization_id == org_a.id,
+            OrganizationSetting.key == "custom_encrypted_setting",
+        )
+    )
+    assert refreshed is not None
+    decrypted = decrypt_value(refreshed.value, key=key)
+    assert orjson.loads(decrypted) == ["recoverable", {"payload": 1}]
