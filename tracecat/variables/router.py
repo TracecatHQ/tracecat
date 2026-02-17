@@ -30,15 +30,6 @@ WorkspaceUser = Annotated[
     ),
 ]
 
-WorkspaceAdminUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
-
 
 @router.get("/search", response_model=list[VariableRead])
 @require_scope("variable:read")
@@ -92,7 +83,7 @@ async def list_variables(
 @require_scope("variable:read")
 async def get_variable_by_name(
     *,
-    role: WorkspaceAdminUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     variable_name: str,
     environment: str | None = Query(None),
@@ -113,7 +104,7 @@ async def get_variable_by_name(
 @require_scope("variable:create")
 async def create_variable(
     *,
-    role: WorkspaceAdminUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     params: VariableCreate,
 ) -> VariableRead:
@@ -133,7 +124,7 @@ async def create_variable(
 @require_scope("variable:update")
 async def update_variable_by_id(
     *,
-    role: WorkspaceAdminUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     variable_id: VariableID,
     params: VariableUpdate,
@@ -159,7 +150,7 @@ async def update_variable_by_id(
 @require_scope("variable:delete")
 async def delete_variable_by_id(
     *,
-    role: WorkspaceAdminUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     variable_id: VariableID,
 ) -> None:

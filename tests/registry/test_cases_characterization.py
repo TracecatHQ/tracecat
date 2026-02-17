@@ -73,7 +73,7 @@ from tracecat.cases.durations.schemas import (
 )
 from tracecat.cases.durations.service import CaseDurationDefinitionService
 from tracecat.cases.enums import CaseEventType
-from tracecat.cases.router import WorkspaceAdminUser, WorkspaceUser
+from tracecat.cases.router import WorkspaceUser
 from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import get_async_session
@@ -168,7 +168,6 @@ async def cases_ctx(
         ExecutorWorkspaceRole,
         WorkspaceUserRole,
         WorkspaceUser,
-        WorkspaceAdminUser,
         ServiceRole,
         OrgUserRole,
     ]

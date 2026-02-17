@@ -37,15 +37,6 @@ WorkspaceUser = Annotated[
     ),
 ]
 
-WorkspaceAdminUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
-
 
 @router.get("/search", response_model=list[SecretRead])
 @require_scope("secret:read")
@@ -122,7 +113,7 @@ async def list_secret_definitions(
 @require_scope("secret:read")
 async def get_secret_by_name(
     *,
-    role: WorkspaceAdminUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     secret_name: str,
 ) -> SecretRead:
@@ -142,7 +133,7 @@ async def get_secret_by_name(
 @require_scope("secret:create")
 async def create_secret(
     *,
-    role: WorkspaceAdminUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     params: SecretCreate,
 ) -> None:
@@ -166,7 +157,7 @@ async def create_secret(
 @require_scope("secret:update")
 async def update_secret_by_id(
     *,
-    role: WorkspaceAdminUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     secret_id: AnySecretIDPath,
     params: SecretUpdate,
@@ -196,7 +187,7 @@ async def update_secret_by_id(
 @require_scope("secret:delete")
 async def delete_secret_by_id(
     *,
-    role: WorkspaceAdminUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     secret_id: AnySecretIDPath,
 ) -> None:

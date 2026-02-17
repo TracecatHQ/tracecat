@@ -189,6 +189,7 @@ class OrgService(BaseOrgService):
                 yield user_manager
 
     # === Manage members ===
+    @require_scope("org:member:read")
     async def list_members(self) -> Sequence[tuple[User, OrgRole]]:
         """
         Retrieve a list of all members in the organization with their roles.

@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.identifiers import InternalServiceID, OrganizationID, UserID, WorkspaceID
@@ -32,6 +32,8 @@ class Role(BaseModel):
     - Used for internal services to authenticate with the API.
     - A service's `user_id` is the user it's acting on behalf of. This can be None for internal services.
     """
+
+    model_config = ConfigDict(extra="allow")
 
     type: Literal["user", "service"] = Field(frozen=True)
     workspace_id: WorkspaceID | None = Field(default=None, frozen=True)

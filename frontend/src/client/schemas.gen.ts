@@ -14070,6 +14070,7 @@ export const $Role = {
       title: "Scopes",
     },
   },
+  additionalProperties: true,
   type: "object",
   required: ["type", "service_id"],
   title: "Role",

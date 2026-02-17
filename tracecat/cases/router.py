@@ -73,15 +73,6 @@ WorkspaceUser = Annotated[
         require_workspace="yes",
     ),
 ]
-WorkspaceAdminUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
-
 
 # Case Management
 
@@ -405,7 +396,7 @@ async def update_case(
 @require_scope("case:delete")
 async def delete_case(
     *,
-    role: WorkspaceAdminUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     case_id: uuid.UUID,
 ) -> None:
@@ -556,7 +547,7 @@ async def list_fields(
 @require_scope("case:create")
 async def create_field(
     *,
-    role: WorkspaceAdminUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     params: CaseFieldCreate,
 ) -> None:
@@ -580,7 +571,7 @@ async def create_field(
 @require_scope("case:update")
 async def update_field(
     *,
-    role: WorkspaceAdminUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     field_id: str,
     params: CaseFieldUpdate,
@@ -594,7 +585,7 @@ async def update_field(
 @require_scope("case:delete")
 async def delete_field(
     *,
-    role: WorkspaceAdminUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     field_id: str,
 ) -> None:

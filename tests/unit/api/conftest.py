@@ -23,9 +23,6 @@ from tracecat.cases.router import WorkspaceUser
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session
 from tracecat.secrets.router import (
-    WorkspaceAdminUser,
-)
-from tracecat.secrets.router import (
     WorkspaceUser as SecretsWorkspaceUser,
 )
 from tracecat.tables.router import (
@@ -66,7 +63,6 @@ def client() -> Generator[TestClient, None, None]:
         OrganizationUserRole,
         OrganizationAdminUserRole,
         SecretsWorkspaceUser,
-        WorkspaceAdminUser,
         OrgUserRole,
         TablesWorkspaceUser,
         TablesWorkspaceEditorUser,
