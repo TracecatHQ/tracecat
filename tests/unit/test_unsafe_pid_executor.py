@@ -37,6 +37,37 @@ class TestUnsafePidExecutor:
         assert cmd[:4] == ["unshare", "--pid", "--fork", "--kill-child"]
 
     @pytest.mark.anyio
+    async def test_pid_isolation_warning_logged_once(
+        self,
+        executor: UnsafePidExecutor,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        async def pid_namespace_unavailable() -> bool:
+            return False
+
+        monkeypatch.setattr(
+            executor,
+            "_is_pid_namespace_available",
+            pid_namespace_unavailable,
+        )
+        executor._pid_namespace_probe_error = "fargate restriction"
+
+        await executor._build_execution_cmd(
+            "python3", executor.cache_dir / "wrapper.py"
+        )
+        await executor._build_execution_cmd(
+            "python3", executor.cache_dir / "wrapper.py"
+        )
+
+        warnings = [
+            record
+            for record in caplog.records
+            if "PID namespace isolation unavailable" in record.message
+        ]
+        assert len(warnings) == 1
+
+    @pytest.mark.anyio
     async def test_execute_basic_script(self, executor: UnsafePidExecutor) -> None:
         script = """
 def main():

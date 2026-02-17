@@ -154,6 +154,8 @@ class UnsafePidExecutor:
         self.package_cache = self.cache_dir / "unsafe-pid-packages"
         self.uv_cache = self.cache_dir / "uv-cache"
         self._pid_namespace_available: bool | None = None
+        self._pid_namespace_probe_error: str | None = None
+        self._pid_isolation_warning_emitted = False
 
         self.package_cache.mkdir(parents=True, exist_ok=True)
         self.uv_cache.mkdir(parents=True, exist_ok=True)
@@ -175,6 +177,7 @@ class UnsafePidExecutor:
             return self._pid_namespace_available
 
         if shutil.which("unshare") is None:
+            self._pid_namespace_probe_error = "unshare binary not found"
             self._pid_namespace_available = False
             return False
 
@@ -190,11 +193,17 @@ class UnsafePidExecutor:
             )
             await asyncio.wait_for(probe.wait(), timeout=2)
             self._pid_namespace_available = probe.returncode == 0
+            if not self._pid_namespace_available:
+                self._pid_namespace_probe_error = (
+                    f"unshare probe exited with status {probe.returncode}"
+                )
         except TimeoutError:
             probe.kill()
             await probe.wait()
+            self._pid_namespace_probe_error = "unshare probe timed out"
             self._pid_namespace_available = False
-        except Exception:
+        except Exception as e:
+            self._pid_namespace_probe_error = f"unshare probe failed: {e}"
             self._pid_namespace_available = False
         return self._pid_namespace_available
 
@@ -205,9 +214,12 @@ class UnsafePidExecutor:
         if await self._is_pid_namespace_available():
             return ["unshare", "--pid", "--fork", "--kill-child", *base_cmd]
 
-        logger.warning(
-            "PID namespace isolation unavailable; running script without PID isolation"
-        )
+        if not self._pid_isolation_warning_emitted:
+            logger.warning(
+                "PID namespace isolation unavailable; running script without PID isolation",
+                reason=self._pid_namespace_probe_error,
+            )
+            self._pid_isolation_warning_emitted = True
         return base_cmd
 
     async def _create_venv(self, venv_path: Path) -> None:
