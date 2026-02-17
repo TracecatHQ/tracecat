@@ -1,6 +1,7 @@
 import re
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -150,6 +151,31 @@ class TableRowInsertBatchResponse(BaseModel):
     """Response for batch insert operation."""
 
     rows_inserted: int
+
+
+class TableRowBatchDelete(BaseModel):
+    """Request body for batch deleting rows."""
+
+    row_ids: list[UUID] = Field(..., min_length=1, max_length=1000)
+
+
+class TableRowBatchDeleteResponse(BaseModel):
+    """Response for batch delete operation."""
+
+    rows_deleted: int
+
+
+class TableRowBatchUpdate(BaseModel):
+    """Request body for batch updating rows."""
+
+    row_ids: list[UUID] = Field(..., min_length=1, max_length=1000)
+    data: dict[str, Any] = Field(..., min_length=1)
+
+
+class TableRowBatchUpdateResponse(BaseModel):
+    """Response for batch update operation."""
+
+    rows_updated: int
 
 
 class TableReadMinimal(Schema):

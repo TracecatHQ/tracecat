@@ -437,8 +437,12 @@ import type {
   SettingsUpdateGitSettingsResponse,
   SettingsUpdateSamlSettingsData,
   SettingsUpdateSamlSettingsResponse,
+  TablesBatchDeleteRowsData,
+  TablesBatchDeleteRowsResponse,
   TablesBatchInsertRowsData,
   TablesBatchInsertRowsResponse,
+  TablesBatchUpdateRowsData,
+  TablesBatchUpdateRowsResponse,
   TablesCreateColumnData,
   TablesCreateColumnResponse,
   TablesCreateTableData,
@@ -6220,6 +6224,66 @@ export const tablesBatchInsertRows = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/tables/{table_id}/rows/batch",
+    path: {
+      table_id: data.tableId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Batch Delete Rows
+ * Delete multiple rows from a table.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TableRowBatchDeleteResponse Successful Response
+ * @throws ApiError
+ */
+export const tablesBatchDeleteRows = (
+  data: TablesBatchDeleteRowsData
+): CancelablePromise<TablesBatchDeleteRowsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/tables/{table_id}/rows/batch-delete",
+    path: {
+      table_id: data.tableId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Batch Update Rows
+ * Update multiple rows in a table with the same data.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TableRowBatchUpdateResponse Successful Response
+ * @throws ApiError
+ */
+export const tablesBatchUpdateRows = (
+  data: TablesBatchUpdateRowsData
+): CancelablePromise<TablesBatchUpdateRowsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/tables/{table_id}/rows/batch-update",
     path: {
       table_id: data.tableId,
     },

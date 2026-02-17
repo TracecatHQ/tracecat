@@ -7,6 +7,7 @@ import type {
   ColDef,
   GridApi,
   GridReadyEvent,
+  SelectionChangedEvent,
   SuppressKeyboardEventParams,
   ValueFormatterParams,
 } from "ag-grid-community"
@@ -20,6 +21,7 @@ import { AgGridColumnHeader } from "@/components/tables/ag-grid-column-header"
 import { AgGridContextMenu } from "@/components/tables/ag-grid-context-menu"
 import { AgGridPagination } from "@/components/tables/ag-grid-pagination"
 import { tracecatTheme } from "@/components/tables/ag-grid-theme"
+import { useTableSelection } from "@/components/tables/table-selection-context"
 import { useTablesPagination } from "@/hooks/pagination/use-tables-pagination"
 import { useUpdateRow } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -106,6 +108,7 @@ export function AgGridTable({
   const [pageSize, setPageSize] = useState(20)
   const [gridApi, setGridApi] = useState<GridApi | null>(null)
   const { updateRow } = useUpdateRow()
+  const { updateSelection } = useTableSelection()
 
   const {
     data: rows,
@@ -140,9 +143,43 @@ export function AgGridTable({
     [goToFirstPage]
   )
 
-  const handleGridReady = useCallback((event: GridReadyEvent) => {
-    setGridApi(event.api)
-  }, [])
+  const handleGridReady = useCallback(
+    (event: GridReadyEvent) => {
+      setGridApi(event.api)
+      updateSelection({
+        gridApi: event.api,
+        tableId: id,
+        columns,
+        selectedCount: 0,
+        selectedRowIds: [],
+      })
+    },
+    [updateSelection, id, columns]
+  )
+
+  // Keep selection context in sync when table id or columns change after grid init
+  useEffect(() => {
+    if (gridApi) {
+      updateSelection({
+        tableId: id,
+        columns,
+        selectedCount: 0,
+        selectedRowIds: [],
+      })
+      gridApi.deselectAll()
+    }
+  }, [id, columns, gridApi, updateSelection])
+
+  const handleSelectionChanged = useCallback(
+    (event: SelectionChangedEvent) => {
+      const selectedRows = event.api.getSelectedRows() as TableRowRead[]
+      updateSelection({
+        selectedCount: selectedRows.length,
+        selectedRowIds: selectedRows.map((r) => r.id),
+      })
+    },
+    [updateSelection]
+  )
 
   const handleCellValueChanged = useCallback(
     (event: CellValueChangedEvent) => {
@@ -220,6 +257,7 @@ export function AgGridTable({
             getRowId={(params) => params.data.id}
             onGridReady={handleGridReady}
             onCellValueChanged={handleCellValueChanged}
+            onSelectionChanged={handleSelectionChanged}
             selectionColumnDef={{
               cellClass: "ag-selection-col-aligned",
               headerClass: "ag-selection-col-aligned",

@@ -4840,6 +4840,37 @@ export type TableReadMinimal = {
 }
 
 /**
+ * Request body for batch deleting rows.
+ */
+export type TableRowBatchDelete = {
+  row_ids: Array<string>
+}
+
+/**
+ * Response for batch delete operation.
+ */
+export type TableRowBatchDeleteResponse = {
+  rows_deleted: number
+}
+
+/**
+ * Request body for batch updating rows.
+ */
+export type TableRowBatchUpdate = {
+  row_ids: Array<string>
+  data: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Response for batch update operation.
+ */
+export type TableRowBatchUpdateResponse = {
+  rows_updated: number
+}
+
+/**
  * Insert model for a table row.
  */
 export type TableRowInsert = {
@@ -8156,6 +8187,22 @@ export type TablesBatchInsertRowsData = {
 }
 
 export type TablesBatchInsertRowsResponse = TableRowInsertBatchResponse
+
+export type TablesBatchDeleteRowsData = {
+  requestBody: TableRowBatchDelete
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesBatchDeleteRowsResponse = TableRowBatchDeleteResponse
+
+export type TablesBatchUpdateRowsData = {
+  requestBody: TableRowBatchUpdate
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesBatchUpdateRowsResponse = TableRowBatchUpdateResponse
 
 export type TablesImportTableFromCsvData = {
   formData: Body_tables_import_table_from_csv
@@ -12017,6 +12064,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: TableRowInsertBatchResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/tables/{table_id}/rows/batch-delete": {
+    post: {
+      req: TablesBatchDeleteRowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableRowBatchDeleteResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/tables/{table_id}/rows/batch-update": {
+    post: {
+      req: TablesBatchUpdateRowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableRowBatchUpdateResponse
         /**
          * Validation Error
          */
