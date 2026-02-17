@@ -3286,6 +3286,24 @@ export type OrgDomainUpdate = {
 }
 
 /**
+ * Reset encrypted organization setting request.
+ */
+export type OrgEncryptedSettingResetRequest = {
+  value: unknown
+}
+
+/**
+ * Reset encrypted organization setting response.
+ */
+export type OrgEncryptedSettingResetResponse = {
+  organization_id: string
+  key: string
+  value_type: string
+  is_encrypted: boolean
+  updated_at: string
+}
+
+/**
  * Request body for accepting an organization invitation via token.
  */
 export type OrgInvitationAccept = {
@@ -7600,6 +7618,15 @@ export type AdminDeleteOrganizationData = {
 
 export type AdminDeleteOrganizationResponse = void
 
+export type AdminResetEncryptedOrgSettingData = {
+  key: string
+  orgId: string
+  requestBody: OrgEncryptedSettingResetRequest
+}
+
+export type AdminResetEncryptedOrgSettingResponse =
+  OrgEncryptedSettingResetResponse
+
 export type AdminListOrganizationDomainsData = {
   orgId: string
 }
@@ -10895,6 +10922,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/settings/{key}/reset-encrypted": {
+    post: {
+      req: AdminResetEncryptedOrgSettingData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrgEncryptedSettingResetResponse
         /**
          * Validation Error
          */

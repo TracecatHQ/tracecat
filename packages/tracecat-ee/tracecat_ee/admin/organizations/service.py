@@ -5,11 +5,15 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 
+import orjson
+from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
+from tracecat import config
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditAction
@@ -17,6 +21,7 @@ from tracecat.auth.types import AccessLevel, Role
 from tracecat.db.models import (
     Organization,
     OrganizationDomain,
+    OrganizationSetting,
     RegistryRepository,
     RegistryVersion,
 )
@@ -26,12 +31,14 @@ from tracecat.organization.management import (
     delete_organization_with_cleanup,
     validate_organization_delete_confirmation,
 )
+from tracecat.secrets.encryption import encrypt_value
 from tracecat.service import BasePlatformService
 from tracecat_ee.admin.organizations.schemas import (
     OrgCreate,
     OrgDomainCreate,
     OrgDomainRead,
     OrgDomainUpdate,
+    OrgEncryptedSettingResetResponse,
     OrgRead,
     OrgRegistryRepositoryRead,
     OrgRegistrySyncResponse,
@@ -45,6 +52,12 @@ class AdminOrgService(BasePlatformService):
     """Platform-level organization management."""
 
     service_name = "admin_org"
+
+    def _serialize_setting_value(self, value: Any) -> bytes:
+        """Serialize a setting value for encrypted storage."""
+        return orjson.dumps(
+            value, default=to_jsonable_python, option=orjson.OPT_SORT_KEYS
+        )
 
     async def list_organizations(self) -> Sequence[OrgRead]:
         """List all organizations."""
@@ -117,6 +130,48 @@ class AdminOrgService(BasePlatformService):
             operator_user_id=self.role.user_id,
         )
         await self.session.commit()
+
+    async def reset_encrypted_org_setting(
+        self,
+        org_id: uuid.UUID,
+        key: str,
+        *,
+        value: Any,
+    ) -> OrgEncryptedSettingResetResponse:
+        """Reset an encrypted organization setting with the active Fernet key."""
+        await self._require_organization(org_id)
+
+        stmt = select(OrganizationSetting).where(
+            OrganizationSetting.organization_id == org_id,
+            OrganizationSetting.key == key,
+        )
+        result = await self.session.execute(stmt)
+        setting = result.scalar_one_or_none()
+        if setting is None:
+            raise ValueError(
+                f"Organization setting {key!r} not found in organization {org_id}"
+            )
+        if not setting.is_encrypted:
+            raise ValueError(f"Organization setting {key!r} is not encrypted")
+
+        encryption_key = config.TRACECAT__DB_ENCRYPTION_KEY
+        if not encryption_key:
+            raise RuntimeError("TRACECAT__DB_ENCRYPTION_KEY is not set")
+
+        value_bytes = self._serialize_setting_value(value)
+        setting.value = encrypt_value(value_bytes, key=encryption_key)
+
+        self.session.add(setting)
+        await self.session.commit()
+        await self.session.refresh(setting)
+
+        return OrgEncryptedSettingResetResponse(
+            organization_id=setting.organization_id,
+            key=setting.key,
+            value_type=setting.value_type,
+            is_encrypted=setting.is_encrypted,
+            updated_at=setting.updated_at,
+        )
 
     # Org Domain Methods
 
