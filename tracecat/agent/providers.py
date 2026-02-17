@@ -85,7 +85,7 @@ def get_model(
                 model_name=model_name,
                 provider=GoogleProvider(api_key=secrets.get("GEMINI_API_KEY")),
             )
-        case "gemini_vertex":
+        case "gemini_vertex" | "vertex_ai":
             credentials = service_account.Credentials.from_service_account_info(
                 orjson.loads(secrets.get("GOOGLE_API_CREDENTIALS")),
                 scopes=["https://www.googleapis.com/auth/cloud-platform"],

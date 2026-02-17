@@ -6,6 +6,7 @@ import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ServiceAccountJsonUploader } from "@/components/service-account-json-uploader"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -34,6 +35,10 @@ interface AgentCredentialsDialogProps {
   onSuccess: () => void
 }
 
+function isJsonCredentialField(fieldKey: string): boolean {
+  return fieldKey === "GOOGLE_API_CREDENTIALS"
+}
+
 export function AgentCredentialsDialog({
   provider,
   isOpen,
@@ -43,11 +48,9 @@ export function AgentCredentialsDialog({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Fetch provider credential configuration
   const { providerConfig, providerConfigLoading, providerConfigError } =
     useProviderCredentialConfig(provider)
 
-  // Dynamic schema based on provider config from API
   const getCredentialsSchema = () => {
     if (!providerConfig?.fields) {
       return z.object({})
@@ -58,11 +61,9 @@ export function AgentCredentialsDialog({
       z.ZodString | z.ZodOptional<z.ZodString>
     > = {}
     for (const field of providerConfig.fields) {
-      // If required is explicitly false or undefined, make the field optional
       if (field.required === false) {
         schemaFields[field.key] = z.string().optional()
       } else {
-        // Default to required (when required is true or undefined)
         schemaFields[field.key] = z
           .string()
           .min(1, `${field.label} is required`)
@@ -71,14 +72,13 @@ export function AgentCredentialsDialog({
     return z.object(schemaFields)
   }
 
-  const form = useForm({
+  const form = useForm<Record<string, string>>({
     resolver:
       provider && providerConfig
         ? zodResolver(getCredentialsSchema())
         : undefined,
   })
 
-  // Reset form when provider or config changes
   useEffect(() => {
     if (provider && providerConfig) {
       form.reset()
@@ -122,12 +122,10 @@ export function AgentCredentialsDialog({
 
   if (!provider) return null
 
-  // Show loading state while fetching config
   if (providerConfigLoading) {
     return <CenteredSpinner />
   }
 
-  // Show error state if config fetch failed
   if (providerConfigError || !providerConfig) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
@@ -178,11 +176,30 @@ export function AgentCredentialsDialog({
                       )}
                     </FormLabel>
                     <FormControl>
-                      <Input
-                        type={field.type}
-                        placeholder={`Enter your ${field.label.toLowerCase()}`}
-                        {...formField}
-                      />
+                      {isJsonCredentialField(field.key) ? (
+                        <ServiceAccountJsonUploader
+                          value={formField.value ?? ""}
+                          onChange={formField.onChange}
+                          onError={(message) => {
+                            form.setError(field.key, {
+                              type: "manual",
+                              message,
+                            })
+                          }}
+                          onClearError={() => {
+                            form.clearErrors(field.key)
+                          }}
+                          placeholder="Drag & drop the JSON key (.json) or choose a file"
+                          existingConfigured={false}
+                          hasError={Boolean(form.formState.errors[field.key])}
+                        />
+                      ) : (
+                        <Input
+                          type={field.type}
+                          placeholder={`Enter your ${field.label.toLowerCase()}`}
+                          {...formField}
+                        />
+                      )}
                     </FormControl>
                     <FormDescription>{field.description}</FormDescription>
                     <FormMessage />
