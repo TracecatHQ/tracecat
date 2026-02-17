@@ -6,7 +6,7 @@ For end-to-end integration tests, see test_cases_characterization.py.
 
 import base64
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -471,152 +471,52 @@ class TestCoreListCases:
 
 @pytest.mark.anyio
 class TestCoreSearchCases:
-    """Test cases for the search_cases UDF."""
+    """Test cases for search_cases UDF alias behavior."""
 
     async def test_search_cases_no_params(
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):
-        """Test searching cases without any parameters."""
-        mock_cases_client.search_cases.return_value = [mock_case_dict]
+        """search_cases should route through list_cases."""
+        mock_cases_client.list_cases.return_value = {"items": [mock_case_dict]}
 
         result = await search_cases()
 
-        mock_cases_client.search_cases.assert_called_once_with(limit=100)
-        assert result == [mock_case_dict]
-
-    async def test_search_cases_with_search_term(
-        self, mock_cases_client: AsyncMock, mock_case_dict
-    ):
-        """Test searching cases with search_term parameter."""
-        mock_cases_client.search_cases.return_value = [mock_case_dict]
-
-        result = await search_cases(search_term="test")
-
-        mock_cases_client.search_cases.assert_called_once_with(
-            search_term="test",
-            limit=100,
-        )
-        assert result == [mock_case_dict]
-
-    async def test_search_cases_with_status(
-        self, mock_cases_client: AsyncMock, mock_case_dict
-    ):
-        """Test searching cases with status parameter."""
-        mock_cases_client.search_cases.return_value = [mock_case_dict]
-
-        result = await search_cases(status="in_progress")
-
-        mock_cases_client.search_cases.assert_called_once_with(
-            status="in_progress",
-            limit=100,
-        )
-        assert result == [mock_case_dict]
-
-    async def test_search_cases_with_priority(
-        self, mock_cases_client: AsyncMock, mock_case_dict
-    ):
-        """Test searching cases with priority parameter."""
-        mock_cases_client.search_cases.return_value = [mock_case_dict]
-
-        result = await search_cases(priority="high")
-
-        mock_cases_client.search_cases.assert_called_once_with(
-            priority="high",
-            limit=100,
-        )
-        assert result == [mock_case_dict]
-
-    async def test_search_cases_with_severity(
-        self, mock_cases_client: AsyncMock, mock_case_dict
-    ):
-        """Test searching cases with severity parameter."""
-        mock_cases_client.search_cases.return_value = [mock_case_dict]
-
-        result = await search_cases(severity="critical")
-
-        mock_cases_client.search_cases.assert_called_once_with(
-            severity="critical",
-            limit=100,
-        )
-        assert result == [mock_case_dict]
-
-    async def test_search_cases_with_tags(
-        self, mock_cases_client: AsyncMock, mock_case_dict
-    ):
-        """Test searching cases using tag identifiers."""
-        mock_cases_client.search_cases.return_value = [mock_case_dict]
-
-        result = await search_cases(tags=["tag-one", "tag-two"])
-
-        mock_cases_client.search_cases.assert_called_once_with(
-            tags=["tag-one", "tag-two"],
-            limit=100,
-        )
+        mock_cases_client.list_cases.assert_called_once_with(limit=100)
         assert result == [mock_case_dict]
 
     async def test_search_cases_with_limit(
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):
-        """Test searching cases with limit parameter."""
-        mock_cases_client.search_cases.return_value = [mock_case_dict]
+        """search_cases should forward list_cases limit parameter."""
+        mock_cases_client.list_cases.return_value = {"items": [mock_case_dict]}
 
         result = await search_cases(limit=5)
 
-        mock_cases_client.search_cases.assert_called_once_with(limit=5)
+        mock_cases_client.list_cases.assert_called_once_with(limit=5)
         assert result == [mock_case_dict]
 
     async def test_search_cases_with_ordering(
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):
-        """Test searching cases with ordering parameters."""
-        mock_cases_client.search_cases.return_value = [mock_case_dict]
+        """search_cases should forward list_cases ordering parameters."""
+        mock_cases_client.list_cases.return_value = {"items": [mock_case_dict]}
 
         result = await search_cases(order_by="created_at", sort="desc")
 
-        mock_cases_client.search_cases.assert_called_once_with(
+        mock_cases_client.list_cases.assert_called_once_with(
             order_by="created_at",
             sort="desc",
             limit=100,
         )
         assert result == [mock_case_dict]
 
-    async def test_search_cases_with_multiple_params(
-        self, mock_cases_client: AsyncMock, mock_case_dict
-    ):
-        """Test searching cases with multiple parameters."""
-        mock_cases_client.search_cases.return_value = [mock_case_dict]
-
-        result = await search_cases(
-            search_term="test",
-            status="new",
-            priority="high",
-            severity="critical",
-            limit=10,
-            order_by="updated_at",
-            sort="asc",
-        )
-
-        mock_cases_client.search_cases.assert_called_once_with(
-            search_term="test",
-            status="new",
-            priority="high",
-            severity="critical",
-            limit=10,
-            order_by="updated_at",
-            sort="asc",
-        )
-        assert result == [mock_case_dict]
-
     async def test_search_cases_empty_result(self, mock_cases_client: AsyncMock):
-        """Test searching cases when no cases match the criteria."""
-        mock_cases_client.search_cases.return_value = []
+        """search_cases should return empty list when list_cases does."""
+        mock_cases_client.list_cases.return_value = {"items": []}
 
-        result = await search_cases(search_term="nonexistent")
+        result = await search_cases()
 
-        mock_cases_client.search_cases.assert_called_once_with(
-            search_term="nonexistent",
-            limit=100,
-        )
+        mock_cases_client.list_cases.assert_called_once_with(limit=100)
         assert result == []
 
     async def test_search_cases_limit_validation(self, mock_cases_client: AsyncMock):
@@ -628,51 +528,6 @@ class TestCoreSearchCases:
             match=f"Limit cannot be greater than {config.MAX_CASES_CLIENT_POSTGRES}",
         ):
             await search_cases(limit=config.MAX_CASES_CLIENT_POSTGRES + 1)
-
-
-@pytest.mark.anyio
-class TestCoreSearchCasesWithDateFilters:
-    """Test cases for search_cases UDF with date filtering."""
-
-    async def test_search_cases_with_date_filters(
-        self, mock_cases_client: AsyncMock, mock_case_dict
-    ):
-        """Test searching cases with date filtering capabilities."""
-        mock_cases_client.search_cases.return_value = [mock_case_dict]
-
-        start_time = datetime.now(UTC) - timedelta(days=1)
-        end_time = datetime.now(UTC)
-        updated_after = datetime.now(UTC) - timedelta(hours=1)
-        updated_before = datetime.now(UTC) + timedelta(hours=1)
-
-        result = await search_cases(
-            search_term="test",
-            status="new",
-            priority="high",
-            severity="critical",
-            limit=10,
-            order_by="updated_at",
-            sort="asc",
-            start_time=start_time,
-            end_time=end_time,
-            updated_after=updated_after,
-            updated_before=updated_before,
-        )
-
-        mock_cases_client.search_cases.assert_called_once_with(
-            search_term="test",
-            status="new",
-            priority="high",
-            severity="critical",
-            limit=10,
-            order_by="updated_at",
-            sort="asc",
-            start_time=start_time,
-            end_time=end_time,
-            updated_before=updated_before,
-            updated_after=updated_after,
-        )
-        assert result == [mock_case_dict]
 
 
 @pytest.mark.anyio

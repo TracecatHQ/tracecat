@@ -8096,15 +8096,23 @@ export type CasesCreateCaseResponse = unknown
 
 export type CasesSearchCasesData = {
   /**
-   * Return cases created at or before this timestamp
+   * Filter by assignee ID or 'unassigned'
    */
-  endTime?: string | null
+  assigneeId?: Array<string> | null
   /**
-   * Maximum number of cases to return
+   * Cursor for pagination
    */
-  limit?: number | null
+  cursor?: string | null
   /**
-   * Column name to order by (e.g. created_at, updated_at, priority, severity, status). Default: created_at
+   * Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
+   */
+  dropdown?: Array<string> | null
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  /**
+   * Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
    */
   orderBy?:
     | "created_at"
@@ -8112,11 +8120,16 @@ export type CasesSearchCasesData = {
     | "priority"
     | "severity"
     | "status"
+    | "tasks"
     | null
   /**
    * Filter by case priority
    */
   priority?: Array<CasePriority> | null
+  /**
+   * Reverse pagination direction
+   */
+  reverse?: boolean
   /**
    * Text to search for in case summary, description, or short ID
    */
@@ -8130,10 +8143,6 @@ export type CasesSearchCasesData = {
    */
   sort?: "asc" | "desc" | null
   /**
-   * Return cases created at or after this timestamp
-   */
-  startTime?: string | null
-  /**
    * Filter by case status
    */
   status?: Array<CaseStatus> | null
@@ -8141,18 +8150,10 @@ export type CasesSearchCasesData = {
    * Filter by tag IDs or slugs (AND logic)
    */
   tags?: Array<string> | null
-  /**
-   * Return cases updated at or after this timestamp
-   */
-  updatedAfter?: string | null
-  /**
-   * Return cases updated at or before this timestamp
-   */
-  updatedBefore?: string | null
   workspaceId: string
 }
 
-export type CasesSearchCasesResponse = Array<CaseReadMinimal>
+export type CasesSearchCasesResponse = CursorPaginatedResponse_CaseReadMinimal_
 
 export type CasesGetCaseData = {
   caseId: string
@@ -11898,7 +11899,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<CaseReadMinimal>
+        200: CursorPaginatedResponse_CaseReadMinimal_
         /**
          * Validation Error
          */

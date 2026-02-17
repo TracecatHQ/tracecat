@@ -1301,6 +1301,7 @@ class BaseTablesService(BaseWorkspaceService):
         has_more = len(rows) > params.limit
         if has_more:
             rows = rows[: params.limit]
+        has_previous = params.cursor is not None
 
         # Generate cursors with sort column info for proper pagination
         next_cursor = None
@@ -1329,13 +1330,14 @@ class BaseTablesService(BaseWorkspaceService):
         if params.reverse:
             rows = list(reversed(rows))
             next_cursor, prev_cursor = prev_cursor, next_cursor
+            has_more, has_previous = has_previous, has_more
 
         return CursorPaginatedResponse(
             items=rows,
             next_cursor=next_cursor,
             prev_cursor=prev_cursor,
             has_more=has_more,
-            has_previous=params.cursor is not None,
+            has_previous=has_previous,
         )
 
     async def batch_insert_rows(
@@ -1892,6 +1894,7 @@ class TableEditorService(BaseWorkspaceService):
         has_more = len(rows) > limit
         if has_more:
             rows = rows[:limit]
+        has_previous = cursor is not None
 
         next_cursor: str | None = None
         prev_cursor: str | None = None
@@ -1904,13 +1907,14 @@ class TableEditorService(BaseWorkspaceService):
         if reverse:
             rows = list(reversed(rows))
             next_cursor, prev_cursor = prev_cursor, next_cursor
+            has_more, has_previous = has_previous, has_more
 
         return CursorPaginatedResponse(
             items=rows,
             next_cursor=next_cursor,
             prev_cursor=prev_cursor,
             has_more=has_more,
-            has_previous=cursor is not None,
+            has_previous=has_previous,
         )
 
     async def get_row(self, row_id: UUID) -> dict[str, Any]:

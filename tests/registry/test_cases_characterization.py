@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import base64
 import uuid
-from datetime import UTC
 from typing import get_args
 
 import pytest
@@ -544,131 +543,33 @@ class TestListCases:
 
 @pytest.mark.anyio
 class TestSearchCases:
-    """Characterization tests for search_cases UDF."""
+    """Characterization tests for search_cases UDF alias behavior."""
 
-    async def test_search_cases_by_text(
+    async def test_search_cases_matches_list_cases(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """Search cases finds cases matching search term."""
-        await create_case(summary="Security Alert", description="Suspicious activity")
-        await create_case(summary="System Update", description="Patch applied")
-        await create_case(summary="Security Patch", description="Critical fix")
+        """search_cases should return the same result as list_cases."""
+        await create_case(summary="Case A", description="A")
+        await create_case(summary="Case B", description="B")
 
-        result = await search_cases(search_term="Security")
+        listed = await list_cases(limit=10, order_by="created_at", sort="desc")
+        searched = await search_cases(limit=10, order_by="created_at", sort="desc")
 
-        # Note: search_cases returns Case (from to_dict), different shape than list_cases
-        TypeAdapter(list[types.CaseReadMinimal]).validate_python(result)
+        TypeAdapter(list[types.CaseReadMinimal]).validate_python(searched)
+        assert searched == listed
 
-        assert len(result) >= 2
-        summaries = [c["summary"] for c in result]
-        assert "Security Alert" in summaries
-        assert "Security Patch" in summaries
-
-    async def test_search_cases_by_status(
+    async def test_search_cases_respects_limit(
         self, db, session: AsyncSession, cases_ctx: Role
     ):
-        """Search cases filters by status."""
-        await create_case(
-            summary="Active Case", description="Active", status="in_progress"
-        )
-        await create_case(summary="Closed Case", description="Closed", status="closed")
-
-        result = await search_cases(status="in_progress")
-
-        assert len(result) >= 1
-        assert all(c["status"] == "in_progress" for c in result)
-
-    async def test_search_cases_by_priority(
-        self, db, session: AsyncSession, cases_ctx: Role
-    ):
-        """Search cases filters by priority."""
-        await create_case(
-            summary="Critical Case", description="Urgent", priority="critical"
-        )
-        await create_case(summary="Low Case", description="Not urgent", priority="low")
-
-        result = await search_cases(priority="critical")
-
-        assert len(result) >= 1
-        assert all(c["priority"] == "critical" for c in result)
-
-    async def test_search_cases_by_severity(
-        self, db, session: AsyncSession, cases_ctx: Role
-    ):
-        """Search cases filters by severity."""
-        await create_case(
-            summary="High Severity Case", description="Critical", severity="high"
-        )
-        await create_case(
-            summary="Low Severity Case", description="Minor", severity="low"
-        )
-
-        result = await search_cases(severity="high")
-
-        assert len(result) >= 1
-        assert all(c["severity"] == "high" for c in result)
-
-    async def test_search_cases_with_date_range(
-        self, db, session: AsyncSession, cases_ctx: Role
-    ):
-        """Search cases with date range filters."""
-        from datetime import datetime, timedelta
-
-        # Create a case
-        await create_case(
-            summary="Date Range Test Case",
-            description="Testing date filters",
-        )
-
-        # Search with start_time from yesterday
-        yesterday = datetime.now(UTC) - timedelta(days=1)
-        result = await search_cases(start_time=yesterday)
-
-        assert isinstance(result, list)
-        # Should include our recently created case
-        summaries = [c["summary"] for c in result]
-        assert "Date Range Test Case" in summaries
-
-    async def test_search_cases_with_order_and_limit(
-        self, db, session: AsyncSession, cases_ctx: Role
-    ):
-        """Search cases respects order_by, sort, and limit."""
+        """search_cases should apply the same limit semantics as list_cases."""
         for i in range(5):
-            await create_case(
-                summary=f"Ordered Case {i}",
-                description=f"Description {i}",
-                priority="medium",
-            )
+            await create_case(summary=f"Case {i}", description=f"Description {i}")
 
-        result = await search_cases(
-            priority="medium",
-            order_by="created_at",
-            sort="desc",
-            limit=3,
-        )
+        searched = await search_cases(limit=3)
+        listed = await list_cases(limit=3)
 
-        assert len(result) <= 3
-
-    async def test_search_cases_by_tags(
-        self, db, session: AsyncSession, cases_ctx: Role
-    ):
-        """Search cases filters by tags."""
-        case = await create_case(
-            summary="Tagged Search Case",
-            description="Case with tag for search",
-        )
-        tag_name = f"search-tag-{uuid.uuid4().hex[:8]}"
-        await add_case_tag(
-            case_id=str(case["id"]),
-            tag=tag_name,
-            create_if_missing=True,
-        )
-
-        result = await search_cases(tags=[tag_name])
-
-        assert len(result) >= 1
-        summaries = [c["summary"] for c in result]
-        assert "Tagged Search Case" in summaries
+        assert len(searched) == 3
+        assert searched == listed
 
 
 # =============================================================================

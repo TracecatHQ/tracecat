@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy.exc import DBAPIError, NoResultFound, ProgrammingError
+from sqlalchemy.exc import DBAPIError, NoResultFound
 from starlette.status import (
     HTTP_200_OK,
     HTTP_201_CREATED,
@@ -176,6 +175,14 @@ async def search_cases(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
+    limit: int = Query(
+        config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CASES_MAX,
+        description="Maximum items per page",
+    ),
+    cursor: str | None = Query(None, description="Cursor for pagination"),
+    reverse: bool = Query(False, description="Reverse pagination direction"),
     search_term: str | None = Query(
         None,
         description="Text to search for in case summary, description, or short ID",
@@ -187,101 +194,38 @@ async def search_cases(
     severity: list[CaseSeverity] | None = Query(
         None, description="Filter by case severity"
     ),
+    assignee_id: list[str] | None = Query(
+        None, description="Filter by assignee ID or 'unassigned'"
+    ),
     tags: list[str] | None = Query(
         None, description="Filter by tag IDs or slugs (AND logic)"
     ),
-    limit: int | None = Query(
-        None,
-        ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CASES_MAX,
-        description="Maximum number of cases to return",
-    ),
-    order_by: Literal["created_at", "updated_at", "priority", "severity", "status"]
+    order_by: Literal[
+        "created_at", "updated_at", "priority", "severity", "status", "tasks"
+    ]
     | None = Query(
         None,
-        description="Column name to order by (e.g. created_at, updated_at, priority, severity, status). Default: created_at",
+        description="Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at",
     ),
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
     ),
-    start_time: datetime | None = Query(
-        None, description="Return cases created at or after this timestamp"
-    ),
-    end_time: datetime | None = Query(
-        None, description="Return cases created at or before this timestamp"
-    ),
-    updated_after: datetime | None = Query(
-        None, description="Return cases updated at or after this timestamp"
-    ),
-    updated_before: datetime | None = Query(
-        None, description="Return cases updated at or before this timestamp"
-    ),
-) -> list[CaseReadMinimal]:
-    service = CasesService(session, role)
-
-    tag_ids: list[uuid.UUID] = []
-    if tags:
-        tags_service = CaseTagsService(session, role)
-        for tag_identifier in tags:
-            try:
-                tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
-                tag_ids.append(tag.id)
-            except NoResultFound:
-                continue
-
-    try:
-        cases = await service.search_cases(
-            search_term=search_term,
-            status=status,
-            priority=priority,
-            severity=severity,
-            tag_ids=tag_ids,
-            limit=limit,
-            order_by=order_by,
-            sort=sort,
-            start_time=start_time,
-            end_time=end_time,
-            updated_after=updated_after,
-            updated_before=updated_before,
-        )
-    except ProgrammingError as exc:
-        logger.exception(
-            "Failed to search cases due to invalid filter parameters", exc_info=exc
-        )
-        await session.rollback()
-        raise HTTPException(
-            status_code=HTTP_400_BAD_REQUEST,
-            detail="Invalid filter parameters supplied for case search",
-        ) from exc
-
-    task_counts = await service.get_task_counts([case.id for case in cases])
-
-    case_responses: list[CaseReadMinimal] = []
-    for case in cases:
-        tag_reads = [
-            CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
-        ]
-
-        case_responses.append(
-            CaseReadMinimal(
-                id=case.id,
-                created_at=case.created_at,
-                updated_at=case.updated_at,
-                short_id=case.short_id,
-                summary=case.summary,
-                status=case.status,
-                priority=case.priority,
-                severity=case.severity,
-                assignee=UserRead.model_validate(case.assignee, from_attributes=True)
-                if case.assignee
-                else None,
-                tags=tag_reads,
-                num_tasks_completed=task_counts[case.id]["completed"],
-                num_tasks_total=task_counts[case.id]["total"],
-            )
-        )
-
-    return case_responses
+) -> CursorPaginatedResponse[CaseReadMinimal]:
+    return await list_cases(
+        role=role,
+        session=session,
+        limit=limit,
+        cursor=cursor,
+        reverse=reverse,
+        search_term=search_term,
+        status=status,
+        priority=priority,
+        severity=severity,
+        assignee_id=assignee_id,
+        tags=tags,
+        order_by=order_by,
+        sort=sort,
+    )
 
 
 @router.get("/{case_id}")

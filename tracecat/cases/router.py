@@ -1,5 +1,4 @@
 import uuid
-from datetime import datetime
 from typing import Annotated, Literal
 
 from asyncpg import DuplicateColumnError
@@ -217,6 +216,14 @@ async def search_cases(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
+    limit: int = Query(
+        config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CASES_MAX,
+        description="Maximum items per page",
+    ),
+    cursor: str | None = Query(None, description="Cursor for pagination"),
+    reverse: bool = Query(False, description="Reverse pagination direction"),
     search_term: str | None = Query(
         None,
         description="Text to search for in case summary, description, or short ID",
@@ -231,103 +238,41 @@ async def search_cases(
     tags: list[str] | None = Query(
         None, description="Filter by tag IDs or slugs (AND logic)"
     ),
-    limit: int | None = Query(
+    dropdown: list[str] | None = Query(
         None,
-        ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CASES_MAX,
-        description="Maximum number of cases to return",
+        description="Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)",
     ),
-    order_by: Literal["created_at", "updated_at", "priority", "severity", "status"]
+    assignee_id: list[str] | None = Query(
+        None, description="Filter by assignee ID or 'unassigned'"
+    ),
+    order_by: Literal[
+        "created_at", "updated_at", "priority", "severity", "status", "tasks"
+    ]
     | None = Query(
         None,
-        description="Column name to order by (e.g. created_at, updated_at, priority, severity, status). Default: created_at",
+        description="Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at",
     ),
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
     ),
-    start_time: datetime | None = Query(
-        None, description="Return cases created at or after this timestamp"
-    ),
-    end_time: datetime | None = Query(
-        None, description="Return cases created at or before this timestamp"
-    ),
-    updated_after: datetime | None = Query(
-        None, description="Return cases updated at or after this timestamp"
-    ),
-    updated_before: datetime | None = Query(
-        None, description="Return cases updated at or before this timestamp"
-    ),
-) -> list[CaseReadMinimal]:
-    """Search cases based on various criteria."""
-    service = CasesService(session, role)
-
-    # Convert tag identifiers to IDs
-    tag_ids = []
-    if tags:
-        tags_service = CaseTagsService(session, role)
-        for tag_identifier in tags:
-            try:
-                tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
-                tag_ids.append(tag.id)
-            except NoResultFound:
-                # Skip tags that do not exist in the workspace
-                continue
-
-    try:
-        cases = await service.search_cases(
-            search_term=search_term,
-            status=status,
-            priority=priority,
-            severity=severity,
-            tag_ids=tag_ids,
-            limit=limit,
-            order_by=order_by,
-            sort=sort,
-            start_time=start_time,
-            end_time=end_time,
-            updated_after=updated_after,
-            updated_before=updated_before,
-        )
-    except ProgrammingError as exc:
-        logger.exception(
-            "Failed to search cases due to invalid filter parameters", exc_info=exc
-        )
-        await session.rollback()
-        raise HTTPException(
-            status_code=HTTP_400_BAD_REQUEST,
-            detail="Invalid filter parameters supplied for case search",
-        ) from exc
-
-    # Fetch task counts for all cases
-    task_counts = await service.get_task_counts([case.id for case in cases])
-
-    # Build case responses with tags (tags are already loaded via selectinload)
-    case_responses = []
-    for case in cases:
-        tag_reads = [
-            CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
-        ]
-
-        case_responses.append(
-            CaseReadMinimal(
-                id=case.id,
-                created_at=case.created_at,
-                updated_at=case.updated_at,
-                short_id=case.short_id,
-                summary=case.summary,
-                status=case.status,
-                priority=case.priority,
-                severity=case.severity,
-                assignee=UserRead.model_validate(case.assignee, from_attributes=True)
-                if case.assignee
-                else None,
-                tags=tag_reads,
-                num_tasks_completed=task_counts[case.id]["completed"],
-                num_tasks_total=task_counts[case.id]["total"],
-            )
-        )
-
-    return case_responses
+) -> CursorPaginatedResponse[CaseReadMinimal]:
+    """Alias for list_cases."""
+    return await list_cases(
+        role=role,
+        session=session,
+        limit=limit,
+        cursor=cursor,
+        reverse=reverse,
+        search_term=search_term,
+        status=status,
+        priority=priority,
+        severity=severity,
+        assignee_id=assignee_id,
+        tags=tags,
+        dropdown=dropdown,
+        order_by=order_by,
+        sort=sort,
+    )
 
 
 @cases_router.get("/{case_id}")

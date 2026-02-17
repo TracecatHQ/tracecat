@@ -1,5 +1,4 @@
 import base64
-from datetime import datetime
 import posixpath
 from typing import Annotated, Any, Literal
 from urllib.parse import unquote, urlsplit
@@ -293,38 +292,10 @@ async def list_cases(
     namespace="core.cases",
 )
 async def search_cases(
-    search_term: Annotated[
-        str | None,
-        Doc("Text to search for in case summary and description."),
-    ] = None,
-    status: Annotated[
-        StatusType | None,
-        Doc("Filter by case status."),
-    ] = None,
-    priority: Annotated[
-        PriorityType | None,
-        Doc("Filter by case priority."),
-    ] = None,
-    severity: Annotated[
-        SeverityType | None,
-        Doc("Filter by case severity."),
-    ] = None,
-    start_time: Annotated[
-        datetime | str | None,
-        Doc("Filter cases created after this time."),
-    ] = None,
-    end_time: Annotated[
-        datetime | str | None,
-        Doc("Filter cases created before this time."),
-    ] = None,
-    updated_before: Annotated[
-        datetime | str | None,
-        Doc("Filter cases updated before this time."),
-    ] = None,
-    updated_after: Annotated[
-        datetime | str | None,
-        Doc("Filter cases updated after this time."),
-    ] = None,
+    limit: Annotated[
+        int,
+        Doc("Maximum number of cases to return."),
+    ] = 100,
     order_by: Annotated[
         Literal["created_at", "updated_at", "priority", "severity", "status"] | None,
         Doc("The field to order the cases by."),
@@ -333,46 +304,9 @@ async def search_cases(
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
     ] = None,
-    tags: Annotated[
-        list[str] | None,
-        Doc("Filter by tag IDs or refs (AND logic)."),
-    ] = None,
-    limit: Annotated[
-        int,
-        Doc("Maximum number of cases to return."),
-    ] = 100,
 ) -> list[types.CaseReadMinimal]:
-    if limit > config.MAX_CASES_CLIENT_POSTGRES:
-        raise TracecatValidationError(
-            detail=f"Limit cannot be greater than {config.MAX_CASES_CLIENT_POSTGRES}"
-        )
-
-    params: dict[str, Any] = {}
-    if search_term is not None:
-        params["search_term"] = search_term
-    if status is not None:
-        params["status"] = status
-    if priority is not None:
-        params["priority"] = priority
-    if severity is not None:
-        params["severity"] = severity
-    if tags is not None:
-        params["tags"] = tags
-    if limit is not None:
-        params["limit"] = limit
-    if order_by is not None:
-        params["order_by"] = order_by
-    if sort is not None:
-        params["sort"] = sort
-    if start_time is not None:
-        params["start_time"] = start_time
-    if end_time is not None:
-        params["end_time"] = end_time
-    if updated_before is not None:
-        params["updated_before"] = updated_before
-    if updated_after is not None:
-        params["updated_after"] = updated_after
-    return await get_context().cases.search_cases(**params)
+    """Alias for list_cases with identical inputs/outputs."""
+    return await list_cases(limit=limit, order_by=order_by, sort=sort)
 
 
 @registry.register(

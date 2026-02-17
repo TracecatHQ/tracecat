@@ -109,7 +109,7 @@ class TablesClient:
         cursor: str | Unset = UNSET,
         reverse: bool | Unset = UNSET,
         limit: int | Unset = UNSET,
-    ) -> types.TableSearchResponse:
+    ) -> types.TableSearchResponse | list[dict[str, Any]]:
         """Search rows with optional filters."""
         data: dict[str, Any] = {}
         if is_set(search_term):
@@ -143,6 +143,8 @@ class TablesClient:
         if is_set(limit):
             data["limit"] = limit
         response = await self._client.post(f"/tables/{table}/search", json=data)
+        if isinstance(response, list):
+            return cast(list[dict[str, Any]], response)
         if not isinstance(response, dict) or not isinstance(
             response.get("items"), list
         ):

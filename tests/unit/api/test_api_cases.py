@@ -472,15 +472,33 @@ async def test_search_cases_success(
     test_admin_role: Role,
     mock_case: Case,
 ) -> None:
-    """Test GET /cases/search with search term."""
+    """Test GET /cases/search delegates to list_cases shape/response."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
     ):
         mock_svc = AsyncMock()
-        mock_svc.search_cases.return_value = [mock_case]
-        mock_svc.get_task_counts.return_value = {
-            mock_case.id: {"completed": 0, "total": 0}
-        }
+
+        mock_case_read = CaseReadMinimal(
+            id=mock_case.id,
+            created_at=mock_case.created_at,
+            updated_at=mock_case.updated_at,
+            short_id=mock_case.short_id,
+            summary=mock_case.summary,
+            status=mock_case.status,
+            priority=mock_case.priority,
+            severity=mock_case.severity,
+            assignee=None,
+            tags=[],
+            num_tasks_completed=0,
+            num_tasks_total=0,
+        )
+        mock_svc.list_cases.return_value = CursorPaginatedResponse(
+            items=[mock_case_read],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+        )
         MockService.return_value = mock_svc
 
         # Make request
@@ -496,5 +514,6 @@ async def test_search_cases_success(
         # Assertions
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["summary"] == "Test Case Summary"
+        assert len(data["items"]) == 1
+        assert data["items"][0]["summary"] == "Test Case Summary"
+        mock_svc.list_cases.assert_called_once()

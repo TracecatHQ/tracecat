@@ -23,7 +23,7 @@ from tracecat.tables.schemas import (
     TableRowInsert,
     TableUpdate,
 )
-from tracecat.tables.service import TablesService
+from tracecat.tables.service import TableEditorService, TablesService
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -771,6 +771,64 @@ class TestTableRows:
         ]
         assert final_page.has_more is False
         assert final_page.next_cursor is None
+
+    async def test_list_rows_reverse_pagination_flags(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Reverse pagination flags should match the returned page direction."""
+        # Insert enough rows to paginate
+        for i in range(5):
+            await tables_service.insert_row(
+                table, TableRowInsert(data={"name": f"User{i}", "age": 20 + i})
+            )
+
+        all_rows = await _list_rows(tables_service, table)
+        first_page = await _list_rows_page(tables_service, table, limit=2)
+
+        # Navigate backward from the first forward page cursor.
+        reverse_page = await _list_rows_page(
+            tables_service,
+            table,
+            limit=2,
+            cursor=first_page.next_cursor,
+            reverse=True,
+        )
+
+        # The reverse page should contain only rows before the cursor.
+        assert [row["id"] for row in reverse_page.items] == [all_rows[0]["id"]]
+
+        # In response direction:
+        # - has_more: there is a forward page available (cursor origin and newer items)
+        # - has_previous: there are no older rows before this reverse page
+        assert reverse_page.has_more is True
+        assert reverse_page.has_previous is False
+
+    async def test_table_editor_list_rows_reverse_pagination_flags(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """TableEditorService reverse pagination should expose forward-facing flags."""
+        editor = TableEditorService(
+            tables_service.session,
+            tables_service.role,
+            table_name=table.name,
+            schema_name=tables_service._get_schema_name(),
+        )
+
+        for i in range(5):
+            await editor.insert_row(TableRowInsert(data={"name": f"Editor{i}", "age": i}))
+
+        first_page = await editor.list_rows(limit=2)
+        assert first_page.next_cursor is not None
+
+        reverse_page = await editor.list_rows(
+            limit=2, cursor=first_page.next_cursor, reverse=True
+        )
+
+        assert len(reverse_page.items) == 1
+        assert reverse_page.has_more is True
+        assert reverse_page.has_previous is False
+        assert reverse_page.next_cursor is not None
+        assert reverse_page.prev_cursor is None
 
     async def test_batch_insert_rows(
         self, tables_service: TablesService, table: Table

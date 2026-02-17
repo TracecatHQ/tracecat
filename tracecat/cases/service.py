@@ -10,7 +10,7 @@ from sqlalchemy import and_, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import UUID, insert
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased, selectinload
+from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -110,6 +110,34 @@ def _normalize_filter_values(values: Any) -> list[Any]:
                 unique.append(value)
         return unique
     return [values]
+
+
+# Semantic sort order for enum-backed case fields.
+CASE_PRIORITY_SORT_ORDER = tuple(priority.value for priority in CasePriority)
+CASE_SEVERITY_SORT_ORDER = tuple(severity.value for severity in CaseSeverity)
+CASE_STATUS_SORT_ORDER = tuple(status.value for status in CaseStatus)
+
+
+def _enum_sort_expr(column: Any, ordered_values: Sequence[str]) -> ColumnElement[int]:
+    """Build a SQL expression that sorts enum/text values by semantic order."""
+    return sa.case(
+        *[
+            (column == enum_value, index)
+            for index, enum_value in enumerate(ordered_values)
+        ],
+        else_=len(ordered_values),
+    )
+
+
+def _enum_sort_rank(value: Any, ordered_values: Sequence[str]) -> int:
+    """Map enum/text values to their semantic sort rank."""
+    normalized_value = getattr(value, "value", value)
+    if not isinstance(normalized_value, str):
+        return len(ordered_values)
+    try:
+        return ordered_values.index(normalized_value)
+    except ValueError:
+        return len(ordered_values)
 
 
 # Treat multiple views inside this window as a single "view" to avoid spam.
@@ -305,8 +333,9 @@ class CasesService(BaseWorkspaceService):
             sort_column = "case_number"
 
         # Validate and get sort attribute
-        # For "tasks", use a correlated subquery to count tasks; otherwise use Case column
+        # For "tasks", use a correlated subquery; for enum fields, sort by semantic rank.
         task_count_expr: ColumnElement[int] | None = None
+        enum_sort_values: Sequence[str] | None = None
         if sort_column == "tasks":
             task_count_expr = func.coalesce(
                 select(func.count())
@@ -316,6 +345,15 @@ class CasesService(BaseWorkspaceService):
                 0,
             )
             sort_attr = task_count_expr
+        elif sort_column == "priority":
+            enum_sort_values = CASE_PRIORITY_SORT_ORDER
+            sort_attr = _enum_sort_expr(Case.priority, enum_sort_values)
+        elif sort_column == "severity":
+            enum_sort_values = CASE_SEVERITY_SORT_ORDER
+            sort_attr = _enum_sort_expr(Case.severity, enum_sort_values)
+        elif sort_column == "status":
+            enum_sort_values = CASE_STATUS_SORT_ORDER
+            sort_attr = _enum_sort_expr(Case.status, enum_sort_values)
         else:
             sort_attr = getattr(Case, sort_column)
 
@@ -330,20 +368,14 @@ class CasesService(BaseWorkspaceService):
             cursor_has_sort_value = (
                 cursor_data.sort_column == sort_column and cursor_sort_value is not None
             )
+            if cursor_has_sort_value and sort_column == "tasks":
+                cursor_has_sort_value = isinstance(cursor_sort_value, int)
+            elif cursor_has_sort_value and enum_sort_values is not None:
+                cursor_has_sort_value = isinstance(cursor_sort_value, int)
 
             if cursor_has_sort_value:
-                # Use sort column value for cursor filtering (proper pagination)
-                # For "tasks" column, we need to compare against the task count subquery
-                if sort_column == "tasks":
-                    if task_count_expr is None:
-                        raise TracecatException(
-                            "task_count_expr must be initialized for task sorting"
-                        )
-                    sort_filter_col = task_count_expr
-                    sort_cursor_value = cursor_sort_value  # Integer comparison
-                else:
-                    sort_filter_col = getattr(Case, sort_column)
-                    sort_cursor_value = cursor_sort_value
+                sort_filter_col = sort_attr
+                sort_cursor_value = cursor_sort_value
 
                 # Composite filtering: (sort_col, id) matches ORDER BY
                 # Use id as tie-breaker since it's always unique
@@ -427,13 +459,17 @@ class CasesService(BaseWorkspaceService):
         prev_cursor = None
         has_previous = params.cursor is not None
 
+        def get_cursor_sort_value(case: Case) -> datetime | str | int | float | None:
+            """Encode cursor sort values using the same semantics as ORDER BY."""
+            if sort_column == "tasks":
+                return task_counts.get(case.id, {}).get("total", 0)
+            if enum_sort_values is not None:
+                return _enum_sort_rank(getattr(case, sort_column, None), enum_sort_values)
+            return getattr(case, sort_column, None)
+
         if has_more and cases:
             last_case = cases[-1]
-            sort_value = (
-                task_counts.get(last_case.id, {}).get("total", 0)
-                if sort_column == "tasks"
-                else getattr(last_case, sort_column, None)
-            )
+            sort_value = get_cursor_sort_value(last_case)
             next_cursor = paginator.encode_cursor(
                 last_case.id,
                 sort_column=sort_column,
@@ -442,11 +478,7 @@ class CasesService(BaseWorkspaceService):
 
         if params.cursor and cases:
             first_case = cases[0]
-            sort_value = (
-                task_counts.get(first_case.id, {}).get("total", 0)
-                if sort_column == "tasks"
-                else getattr(first_case, sort_column, None)
-            )
+            sort_value = get_cursor_sort_value(first_case)
             # For reverse pagination, swap the cursor meaning
             if params.reverse:
                 next_cursor = paginator.encode_cursor(
@@ -519,119 +551,35 @@ class CasesService(BaseWorkspaceService):
 
     async def search_cases(
         self,
+        params: CursorPaginationParams,
         search_term: str | None = None,
         status: CaseStatus | Sequence[CaseStatus] | None = None,
         priority: CasePriority | Sequence[CasePriority] | None = None,
         severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
+        assignee_ids: Sequence[uuid.UUID] | None = None,
+        include_unassigned: bool = False,
         tag_ids: list[uuid.UUID] | None = None,
-        start_time: datetime | None = None,
-        end_time: datetime | None = None,
-        updated_before: datetime | None = None,
-        updated_after: datetime | None = None,
-        order_by: Literal["created_at", "updated_at", "priority", "severity", "status"]
+        dropdown_filters: dict[str, list[str]] | None = None,
+        order_by: Literal[
+            "created_at", "updated_at", "priority", "severity", "status", "tasks"
+        ]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
-        limit: int | None = None,
-    ) -> Sequence[Case]:
-        """Search cases based on various criteria.
-
-        Args:
-            search_term: Text to search for in case summary, description, or short ID
-            status: Filter by case status
-            priority: Filter by case priority
-            severity: Filter by case severity
-            start_time: Filter by case creation time
-            end_time: Filter by case creation time
-            updated_before: Filter by case update time
-            updated_after: Filter by case update time
-            order_by: Field to order the cases by
-            sort: Direction to sort (asc or desc)
-            limit: Maximum number of cases to return
-
-        Returns:
-            Sequence of cases matching the search criteria
-        """
-        statement = (
-            select(Case)
-            .where(Case.workspace_id == self.workspace_id)
-            .options(selectinload(Case.tags))
-            .options(selectinload(Case.assignee))
+    ) -> CursorPaginatedResponse[CaseReadMinimal]:
+        """Alias for list_cases with identical inputs/outputs."""
+        return await self.list_cases(
+            params=params,
+            search_term=search_term,
+            status=status,
+            priority=priority,
+            severity=severity,
+            assignee_ids=assignee_ids,
+            include_unassigned=include_unassigned,
+            tag_ids=tag_ids,
+            dropdown_filters=dropdown_filters,
+            order_by=order_by,
+            sort=sort,
         )
-
-        # Apply search term filter (search in summary and description)
-        if search_term:
-            # Validate search term to prevent abuse
-            if len(search_term) > 1000:
-                raise ValueError("Search term cannot exceed 1000 characters")
-            if "\x00" in search_term:
-                raise ValueError("Search term cannot contain null bytes")
-
-            # Use SQLAlchemy's concat function for proper parameter binding
-            search_pattern = func.concat("%", search_term, "%")
-            # Build short_id expression in SQL: 'CASE-' + lpad(case_number, 4, '0')
-            short_id_expr = func.concat(
-                "CASE-", func.lpad(cast(Case.case_number, sa.String), 4, "0")
-            )
-            statement = statement.where(
-                or_(
-                    Case.summary.ilike(search_pattern),
-                    Case.description.ilike(search_pattern),
-                    short_id_expr.ilike(search_pattern),
-                )
-            )
-
-        # Apply status filter
-        if normalized_statuses := _normalize_filter_values(status):
-            statement = statement.where(Case.status.in_(normalized_statuses))
-
-        # Apply priority filter
-        if normalized_priorities := _normalize_filter_values(priority):
-            statement = statement.where(Case.priority.in_(normalized_priorities))
-
-        # Apply severity filter
-        normalized_severities = _normalize_filter_values(severity)
-        if normalized_severities:
-            statement = statement.where(Case.severity.in_(normalized_severities))
-
-        # Apply tag filtering if specified (AND logic for multiple tags)
-        if tag_ids:
-            for tag_id in tag_ids:
-                # Self-join for each tag to ensure case has ALL specified tags
-                tag_alias = aliased(CaseTagLink)
-                statement = statement.join(
-                    tag_alias,
-                    and_(tag_alias.case_id == Case.id, tag_alias.tag_id == tag_id),
-                )
-
-        # Apply date filters
-        if start_time is not None:
-            statement = statement.where(Case.created_at >= start_time)
-
-        if end_time is not None:
-            statement = statement.where(Case.created_at <= end_time)
-
-        if updated_after is not None:
-            statement = statement.where(Case.updated_at >= updated_after)
-
-        if updated_before is not None:
-            statement = statement.where(Case.updated_at <= updated_before)
-
-        # Apply limit
-        if limit is not None:
-            statement = statement.limit(limit)
-
-        # Apply ordering
-        if order_by is not None:
-            attr = getattr(Case, order_by)
-            if sort == "asc":
-                statement = statement.order_by(attr.asc())
-            elif sort == "desc":
-                statement = statement.order_by(attr.desc())
-            else:
-                statement = statement.order_by(attr)
-
-        result = await self.session.execute(statement)
-        return result.scalars().all()
 
     async def get_case(
         self, case_id: uuid.UUID, *, track_view: bool = False

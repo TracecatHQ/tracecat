@@ -344,9 +344,29 @@ class TestCoreSearchRecords:
             limit=50,
             reverse=False,
         )
+        assert isinstance(result, dict)
         assert len(result["items"]) == 1
         assert result["items"][0] == mock_row
         assert result["next_cursor"] == "cursor-1"
+
+    async def test_search_rows_legacy_list_response(
+        self, mock_tables_client: AsyncMock
+    ):
+        """Legacy list responses should pass through without raising."""
+        legacy_rows = [{"id": "row-1", "name": "Alice"}]
+        mock_tables_client.search_rows.return_value = legacy_rows
+
+        result = await search_rows(
+            table="test_table",
+            limit=50,
+        )
+
+        mock_tables_client.search_rows.assert_called_once_with(
+            table="test_table",
+            limit=50,
+            reverse=False,
+        )
+        assert result == legacy_rows
 
     async def test_search_rows_with_date_filters(
         self, mock_tables_client: AsyncMock, mock_row
@@ -386,6 +406,7 @@ class TestCoreSearchRecords:
             cursor="cursor-1",
             reverse=False,
         )
+        assert isinstance(result, dict)
         assert len(result["items"]) == 1
         assert result["items"][0] == mock_row
 

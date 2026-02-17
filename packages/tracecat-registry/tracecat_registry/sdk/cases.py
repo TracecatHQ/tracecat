@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
@@ -153,6 +152,7 @@ class CasesClient:
         *,
         limit: int = 20,
         cursor: str | Unset = UNSET,
+        reverse: bool | Unset = UNSET,
         search_term: str | Unset = UNSET,
         status: list[CaseStatus] | Unset = UNSET,
         priority: list[CasePriority] | Unset = UNSET,
@@ -167,6 +167,7 @@ class CasesClient:
         Args:
             limit: Maximum items per page.
             cursor: Pagination cursor.
+            reverse: Reverse pagination direction.
             search_term: Text to search in summary/description.
             status: Filter by status(es).
             priority: Filter by priority(ies).
@@ -182,6 +183,8 @@ class CasesClient:
         params: dict[str, Any] = {"limit": limit}
         if is_set(cursor):
             params["cursor"] = cursor
+        if is_set(reverse):
+            params["reverse"] = reverse
         if is_set(search_term):
             params["search_term"] = search_term
         if is_set(status):
@@ -204,79 +207,32 @@ class CasesClient:
     async def search_cases(
         self,
         *,
+        limit: int = 20,
+        cursor: str | Unset = UNSET,
+        reverse: bool | Unset = UNSET,
         search_term: str | Unset = UNSET,
-        status: CaseStatus | Unset = UNSET,
-        priority: CasePriority | Unset = UNSET,
-        severity: CaseSeverity | Unset = UNSET,
+        status: list[CaseStatus] | Unset = UNSET,
+        priority: list[CasePriority] | Unset = UNSET,
+        severity: list[CaseSeverity] | Unset = UNSET,
+        assignee_id: list[str] | Unset = UNSET,
         tags: list[str] | Unset = UNSET,
-        limit: int | Unset = UNSET,
         order_by: str | Unset = UNSET,
         sort: Literal["asc", "desc"] | Unset = UNSET,
-        start_time: datetime | str | Unset = UNSET,
-        end_time: datetime | str | Unset = UNSET,
-        updated_after: datetime | str | Unset = UNSET,
-        updated_before: datetime | str | Unset = UNSET,
-    ) -> list[types.CaseReadMinimal]:
-        """Search cases with filtering.
-
-        Args:
-            search_term: Text to search.
-            status: Filter by status.
-            priority: Filter by priority.
-            severity: Filter by severity.
-            tags: Filter by tag names/IDs.
-            limit: Maximum results.
-            order_by: Column to order by.
-            sort: Sort direction.
-            start_time: Cases created after (ISO format or datetime).
-            end_time: Cases created before (ISO format or datetime).
-            updated_after: Cases updated after (ISO format or datetime).
-            updated_before: Cases updated before (ISO format or datetime).
-
-        Returns:
-            List of matching cases.
-        """
-        params: dict[str, Any] = {}
-        if is_set(search_term):
-            params["search_term"] = search_term
-        if is_set(status):
-            params["status"] = status
-        if is_set(priority):
-            params["priority"] = priority
-        if is_set(severity):
-            params["severity"] = severity
-        if is_set(tags):
-            params["tags"] = tags
-        if is_set(limit):
-            params["limit"] = limit
-        if is_set(order_by):
-            params["order_by"] = order_by
-        if is_set(sort):
-            params["sort"] = sort
-        if is_set(start_time):
-            params["start_time"] = (
-                start_time.isoformat()
-                if isinstance(start_time, datetime)
-                else start_time
-            )
-        if is_set(end_time):
-            params["end_time"] = (
-                end_time.isoformat() if isinstance(end_time, datetime) else end_time
-            )
-        if is_set(updated_after):
-            params["updated_after"] = (
-                updated_after.isoformat()
-                if isinstance(updated_after, datetime)
-                else updated_after
-            )
-        if is_set(updated_before):
-            params["updated_before"] = (
-                updated_before.isoformat()
-                if isinstance(updated_before, datetime)
-                else updated_before
-            )
-
-        return await self._client.get("/cases/search", params=params)
+    ) -> types.CaseListResponse:
+        """Alias for list_cases with identical inputs/outputs."""
+        return await self.list_cases(
+            limit=limit,
+            cursor=cursor,
+            reverse=reverse,
+            search_term=search_term,
+            status=status,
+            priority=priority,
+            severity=severity,
+            assignee_id=assignee_id,
+            tags=tags,
+            order_by=order_by,
+            sort=sort,
+        )
 
     # === Comments === #
 
