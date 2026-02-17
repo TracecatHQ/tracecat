@@ -3260,7 +3260,6 @@ export type OrgInvitationRead = {
   expires_at: string
   created_at: string
   accepted_at: string | null
-  workspace_invitations_created?: number
 }
 
 /**

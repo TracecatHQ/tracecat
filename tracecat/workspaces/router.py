@@ -601,7 +601,11 @@ async def accept_workspace_invitation(
     may not belong to the workspace yet. Uses AuthenticatedUserOnly
     which only requires an authenticated user.
     """
-    assert role.user_id is not None
+    if role.user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User is not authenticated",
+        )
     try:
         await accept_workspace_invitation_for_user(
             session,

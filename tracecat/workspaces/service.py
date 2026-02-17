@@ -142,14 +142,13 @@ async def accept_workspace_invitation_for_user(
     )
 
     # Log audit attempt
-    async with AuditService.with_session(audit_role, session=session) as svc:
-        await svc.create_event(
-            resource_type="workspace_invitation",
-            action="accept",
-            resource_id=invitation.id,
-            status=AuditEventStatus.ATTEMPT,
-        )
-
+    svc = AuditService(session=session, role=audit_role)
+    await svc.create_event(
+        resource_type="workspace_invitation",
+        action="accept",
+        resource_id=invitation.id,
+        status=AuditEventStatus.ATTEMPT,
+    )
     try:
         # Atomically update invitation status only if still PENDING.
         # This prevents TOCTOU race conditions where an admin might revoke
@@ -190,23 +189,20 @@ async def accept_workspace_invitation_for_user(
     except Exception:
         await session.rollback()
         # Log audit failure
-        async with AuditService.with_session(audit_role, session=session) as svc:
-            await svc.create_event(
-                resource_type="workspace_invitation",
-                action="accept",
-                resource_id=invitation.id,
-                status=AuditEventStatus.FAILURE,
-            )
-        raise
-
-    # Log audit success
-    async with AuditService.with_session(audit_role, session=session) as svc:
         await svc.create_event(
             resource_type="workspace_invitation",
             action="accept",
             resource_id=invitation.id,
-            status=AuditEventStatus.SUCCESS,
+            status=AuditEventStatus.FAILURE,
         )
+        raise
+    # Log audit success
+    await svc.create_event(
+        resource_type="workspace_invitation",
+        action="accept",
+        resource_id=invitation.id,
+        status=AuditEventStatus.SUCCESS,
+    )
 
     return membership
 
@@ -420,7 +416,7 @@ class WorkspaceService(BaseOrgService):
         now = datetime.now(UTC)
         existing_stmt = select(Invitation).where(
             Invitation.workspace_id == workspace_id,
-            Invitation.email == params.email,
+            Invitation.email == params.email.lower(),
             Invitation.status == InvitationStatus.PENDING,
             Invitation.expires_at > now,
         )
@@ -435,7 +431,7 @@ class WorkspaceService(BaseOrgService):
 
         invitation = Invitation(
             workspace_id=workspace_id,
-            email=params.email,
+            email=params.email.lower(),
             role=params.role,
             status=InvitationStatus.PENDING,
             invited_by=self.role.user_id if self.role else None,
@@ -452,7 +448,7 @@ class WorkspaceService(BaseOrgService):
                 # Check if the existing invitation is expired - if so, delete and retry
                 existing_stmt = select(Invitation).where(
                     Invitation.workspace_id == workspace_id,
-                    Invitation.email == params.email,
+                    Invitation.email == params.email.lower(),
                 )
                 result = await self.session.execute(existing_stmt)
                 existing_invitation = result.scalar_one_or_none()

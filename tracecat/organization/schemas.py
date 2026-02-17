@@ -104,7 +104,6 @@ class OrgInvitationRead(BaseModel):
     expires_at: datetime
     created_at: datetime
     accepted_at: datetime | None
-    workspace_invitations_created: int = 0
 
 
 class OrgInvitationReadMinimal(BaseModel):

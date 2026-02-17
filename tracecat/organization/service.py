@@ -6,8 +6,8 @@ from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, cast, delete, func, select, update
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import and_, cast, delete, func, or_, select, update
+from sqlalchemy.dialects.postgresql import UUID, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager
 
@@ -491,7 +491,7 @@ class OrgService(BaseOrgService):
         email: str,
         role: OrgRole = OrgRole.MEMBER,
         workspace_assignments: list[WorkspaceAssignment] | None = None,
-    ) -> tuple[OrganizationInvitation, int]:
+    ) -> OrganizationInvitation:
         """Create an invitation to join the organization.
 
         Optionally also creates workspace invitations for the specified
@@ -504,7 +504,7 @@ class OrgService(BaseOrgService):
                 to create workspace invitations for.
 
         Returns:
-            Tuple of (OrganizationInvitation, workspace_invitation_count).
+            OrganizationInvitation: The created invitation record.
         """
         if self.role is None or self.role.user_id is None:
             raise TracecatAuthorizationError(
@@ -534,10 +534,10 @@ class OrgService(BaseOrgService):
                 f"{email} is already a member of this organization"
             )
 
-        # Check for existing invitation (case-insensitive)
+        # Check for existing invitation
         existing_stmt = select(OrganizationInvitation).where(
             OrganizationInvitation.organization_id == self.organization_id,
-            func.lower(OrganizationInvitation.email) == email.lower(),
+            OrganizationInvitation.email == email.lower(),
         )
         existing_result = await self.session.execute(existing_stmt)
         existing = existing_result.scalar_one_or_none()
@@ -557,7 +557,7 @@ class OrgService(BaseOrgService):
 
         invitation = OrganizationInvitation(
             organization_id=self.organization_id,
-            email=email,
+            email=email.lower(),
             role=role,
             invited_by=self.role.user_id,
             token=secrets.token_urlsafe(32),
@@ -567,23 +567,22 @@ class OrgService(BaseOrgService):
         self.session.add(invitation)
 
         # Create workspace invitations if requested
-        ws_invite_count = 0
         if workspace_assignments:
-            ws_invite_count = await self._create_workspace_invitations(
+            await self._create_workspace_invitations(
                 email=email,
                 assignments=workspace_assignments,
             )
 
         await self.session.commit()
         await self.session.refresh(invitation)
-        return invitation, ws_invite_count
+        return invitation
 
     async def _create_workspace_invitations(
         self,
         *,
         email: str,
         assignments: list[WorkspaceAssignment],
-    ) -> int:
+    ) -> None:
         """Create workspace invitations for the given assignments.
 
         Validates that each workspace belongs to this organization.
@@ -591,9 +590,6 @@ class OrgService(BaseOrgService):
         Replaces expired/revoked invitations.
 
         Must be called within an existing transaction (before commit).
-
-        Returns:
-            Number of workspace invitations created.
         """
         assert self.role is not None and self.role.user_id is not None
 
@@ -614,41 +610,40 @@ class OrgService(BaseOrgService):
 
         now = datetime.now(UTC)
         expires_at = now + timedelta(days=7)
-        count = 0
+        normalized_email = email.lower()
 
         for assignment in assignments:
-            # Check for existing workspace invitation
-            existing_stmt = select(Invitation).where(
-                Invitation.workspace_id == assignment.workspace_id,
-                func.lower(Invitation.email) == email.lower(),
+            # Upsert: insert new invitation or replace expired/non-pending ones.
+            # Skips active pending invitations (ON CONFLICT WHERE clause won't match).
+            stmt = (
+                insert(Invitation)
+                .values(
+                    workspace_id=assignment.workspace_id,
+                    email=normalized_email,
+                    role=assignment.role,
+                    status=InvitationStatus.PENDING,
+                    invited_by=self.role.user_id,
+                    token=secrets.token_urlsafe(32),
+                    expires_at=expires_at,
+                    accepted_at=None,
+                )
+                .on_conflict_do_update(
+                    index_elements=[Invitation.workspace_id, Invitation.email],
+                    set_={
+                        "role": assignment.role,
+                        "status": InvitationStatus.PENDING,
+                        "invited_by": self.role.user_id,
+                        "token": secrets.token_urlsafe(32),
+                        "expires_at": expires_at,
+                        "accepted_at": None,
+                    },
+                    where=or_(
+                        Invitation.status != InvitationStatus.PENDING,
+                        Invitation.expires_at <= now,
+                    ),
+                )
             )
-            existing_result = await self.session.execute(existing_stmt)
-            existing_inv = existing_result.scalar_one_or_none()
-
-            if existing_inv:
-                if (
-                    existing_inv.status == InvitationStatus.PENDING
-                    and existing_inv.expires_at > now
-                ):
-                    # Already has a valid pending invitation, skip
-                    continue
-                # Expired or revoked/accepted - delete to allow new one
-                await self.session.delete(existing_inv)
-                await self.session.flush()
-
-            ws_invitation = Invitation(
-                workspace_id=assignment.workspace_id,
-                email=email,
-                role=assignment.role,
-                status=InvitationStatus.PENDING,
-                invited_by=self.role.user_id,
-                token=secrets.token_urlsafe(32),
-                expires_at=expires_at,
-            )
-            self.session.add(ws_invitation)
-            count += 1
-
-        return count
+            await self.session.execute(stmt)
 
     @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def list_invitations(

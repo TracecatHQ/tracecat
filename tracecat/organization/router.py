@@ -3,7 +3,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import AuthenticatedUserOnly, OptionalUserDep, RoleACL
@@ -446,7 +446,7 @@ async def create_invitation(
     """
     service = OrgService(session, role=role)
     try:
-        invitation, ws_invite_count = await service.create_invitation(
+        invitation = await service.create_invitation(
             email=params.email,
             role=params.role,
             workspace_assignments=params.workspace_assignments or None,
@@ -473,7 +473,6 @@ async def create_invitation(
         expires_at=invitation.expires_at,
         created_at=invitation.created_at,
         accepted_at=invitation.accepted_at,
-        workspace_invitations_created=ws_invite_count,
     )
 
 
@@ -574,7 +573,7 @@ async def list_my_pending_invitations(
             User.id == OrganizationInvitation.invited_by,  # pyright: ignore[reportArgumentType]
         )
         .where(
-            func.lower(OrganizationInvitation.email) == user.email.lower(),
+            OrganizationInvitation.email == user.email.lower(),
             OrganizationInvitation.status == InvitationStatus.PENDING,
             OrganizationInvitation.expires_at > now,
         )

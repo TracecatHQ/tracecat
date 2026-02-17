@@ -10105,11 +10105,6 @@ export const $OrgInvitationRead = {
       ],
       title: "Accepted At",
     },
-    workspace_invitations_created: {
-      type: "integer",
-      title: "Workspace Invitations Created",
-      default: 0,
-    },
   },
   type: "object",
   required: [
