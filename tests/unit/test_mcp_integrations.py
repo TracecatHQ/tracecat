@@ -12,10 +12,12 @@ import uuid
 
 import pytest
 from pydantic import SecretStr
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
-from tracecat.db.models import OAuthIntegration
+from tracecat.db.models import AgentPreset, MCPIntegration, OAuthIntegration
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.providers.base import (
     MCPAuthProvider,
@@ -278,6 +280,180 @@ class TestMCPIntegrationCRUD:
             mcp_integration_id=created.id
         )
         assert retrieved is None
+
+    async def test_delete_mcp_integration_shared_oauth_keeps_tokens(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Test deleting one MCP integration keeps shared OAuth tokens."""
+        first = await integration_service.create_mcp_integration(
+            params=MCPIntegrationCreate(
+                name="First MCP",
+                server_uri="https://api.example.com/mcp-1",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+        second = await integration_service.create_mcp_integration(
+            params=MCPIntegrationCreate(
+                name="Second MCP",
+                server_uri="https://api.example.com/mcp-2",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+
+        deleted = await integration_service.delete_mcp_integration(
+            mcp_integration_id=first.id
+        )
+        assert deleted is True
+
+        remaining = await integration_service.get_mcp_integration(
+            mcp_integration_id=second.id
+        )
+        assert remaining is not None
+
+        refreshed_oauth = await integration_service.session.get(
+            OAuthIntegration, oauth_integration.id
+        )
+        assert refreshed_oauth is not None
+        assert await integration_service.get_access_token(refreshed_oauth) is not None
+
+    async def test_delete_mcp_integration_last_reference_regular_oauth_keeps_tokens(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Test deleting last reference does not clear non-MCP provider tokens."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPIntegrationCreate(
+                name="Regular OAuth MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+
+        await integration_service.delete_mcp_integration(mcp_integration_id=created.id)
+
+        refreshed_oauth = await integration_service.session.get(
+            OAuthIntegration, oauth_integration.id
+        )
+        assert refreshed_oauth is not None
+        assert await integration_service.get_access_token(refreshed_oauth) is not None
+
+    async def test_delete_mcp_integration_last_reference_disconnects_mcp_provider_oauth(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Test deleting the last MCP reference disconnects MCP-provider OAuth tokens."""
+        provider_key = ProviderKey(
+            id="github_mcp",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        oauth_integration = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=SecretStr("test_access_token"),
+            refresh_token=SecretStr("test_refresh_token"),
+            expires_in=3600,
+        )
+
+        first = await integration_service.create_mcp_integration(
+            params=MCPIntegrationCreate(
+                name="First MCP",
+                server_uri="https://api.example.com/mcp-1",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+        second = await integration_service.create_mcp_integration(
+            params=MCPIntegrationCreate(
+                name="Second MCP",
+                server_uri="https://api.example.com/mcp-2",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+
+        await integration_service.delete_mcp_integration(mcp_integration_id=first.id)
+
+        refreshed_oauth = await integration_service.session.get(
+            OAuthIntegration, oauth_integration.id
+        )
+        assert refreshed_oauth is not None
+        assert await integration_service.get_access_token(refreshed_oauth) is not None
+
+        await integration_service.delete_mcp_integration(mcp_integration_id=second.id)
+
+        refreshed_oauth = await integration_service.session.get(
+            OAuthIntegration, oauth_integration.id
+        )
+        assert refreshed_oauth is not None
+        assert await integration_service.get_access_token(refreshed_oauth) is None
+        assert refreshed_oauth.encrypted_access_token == b""
+        assert refreshed_oauth.encrypted_refresh_token is None
+        assert refreshed_oauth.expires_at is None
+        assert refreshed_oauth.scope is None
+        assert refreshed_oauth.requested_scopes is None
+
+    async def test_delete_mcp_integration_rolls_back_on_disconnect_failure(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Test delete rollback preserves MCP and preset references on DB failure."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPIntegrationCreate(
+                name="Rollback MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+        created_id = created.id
+
+        preset = AgentPreset(
+            workspace_id=integration_service.workspace_id,
+            name="Rollback preset",
+            slug="rollback-preset",
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            mcp_integrations=[str(created_id)],
+        )
+        integration_service.session.add(preset)
+        await integration_service.session.commit()
+        preset_id = preset.id
+
+        conflicting_preset = AgentPreset(
+            workspace_id=integration_service.workspace_id,
+            name="Rollback preset conflict",
+            slug="rollback-preset",
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+        )
+        integration_service.session.add(conflicting_preset)
+
+        integration_service.session.autoflush = False
+        with pytest.raises(IntegrityError):
+            await integration_service.delete_mcp_integration(
+                mcp_integration_id=created_id
+            )
+        integration_service.session.autoflush = True
+
+        existing_mcp_result = await integration_service.session.execute(
+            select(MCPIntegration).where(MCPIntegration.id == created_id)
+        )
+        existing_mcp = existing_mcp_result.scalars().first()
+        assert existing_mcp is not None
+
+        refreshed_preset_result = await integration_service.session.execute(
+            select(AgentPreset).where(AgentPreset.id == preset_id)
+        )
+        refreshed_preset = refreshed_preset_result.scalars().first()
+        assert refreshed_preset is not None
+        assert refreshed_preset.mcp_integrations is not None
+        assert str(created_id) in refreshed_preset.mcp_integrations
 
 
 @pytest.mark.anyio
@@ -594,6 +770,30 @@ class TestMCPIntegrationValidation:
                 params=params
             )
             assert mcp_integration.slug == expected_slug
+
+    async def test_requested_slug_preserves_underscores_on_fallback(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Test requested_slug fallback preserves underscore-based provider IDs."""
+        existing = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Existing MCP",
+            description=None,
+            slug="github_mcp",
+            server_uri="https://api.example.com/mcp",
+            auth_type=MCPAuthType.NONE,
+            oauth_integration_id=None,
+            encrypted_headers=None,
+        )
+        integration_service.session.add(existing)
+        await integration_service.session.commit()
+
+        slug = await integration_service._generate_mcp_integration_slug(
+            name="GitHub MCP",
+            requested_slug="github_mcp",
+        )
+        assert slug == "github_mcp-1"
 
     async def test_update_nonexistent_integration(
         self,
