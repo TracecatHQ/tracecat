@@ -8,6 +8,7 @@ cannot run (for example, without SYS_ADMIN).
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -30,6 +31,8 @@ from tracecat.sandbox.exceptions import (
     SandboxTimeoutError,
 )
 from tracecat.sandbox.types import SandboxResult
+
+module_logger = logging.getLogger(__name__)
 
 SAFE_WRAPPER_SCRIPT = '''
 import inspect
@@ -124,26 +127,6 @@ if __name__ == "__main__":
 '''
 
 
-def _extract_dependency_base_name(dependency: str) -> str:
-    """Extract base package name from dependency spec (without version/extras)."""
-    name = dependency.strip()
-    if ";" in name:
-        name = name.split(";", 1)[0].strip()
-    if "@" in name:
-        name = name.split("@", 1)[0].strip()
-    for sep in ("==", ">=", "<=", ">", "<", "~=", "!=", "["):
-        if sep in name:
-            name = name.split(sep, 1)[0].strip()
-            break
-    return name.strip()
-
-
-def _extract_package_name(dependency: str) -> str:
-    """Extract base package name from dependency spec."""
-    base_name = _extract_dependency_base_name(dependency)
-    return base_name.replace("-", "_")
-
-
 class UnsafePidExecutor:
     """Executor for Python scripts without nsjail, using subprocess isolation."""
 
@@ -183,6 +166,7 @@ class UnsafePidExecutor:
             self._pid_namespace_available = False
             return False
 
+        probe: asyncio.subprocess.Process | None = None
         try:
             probe = await asyncio.create_subprocess_exec(
                 "unshare",
@@ -200,9 +184,10 @@ class UnsafePidExecutor:
                     f"unshare probe exited with status {probe.returncode}"
                 )
         except TimeoutError:
-            with suppress(ProcessLookupError):
-                probe.kill()
-            await probe.wait()
+            if probe is not None:
+                with suppress(ProcessLookupError):
+                    probe.kill()
+                await probe.wait()
             self._pid_namespace_probe_error = "unshare probe timed out"
             self._pid_namespace_available = False
         except Exception as e:
@@ -218,10 +203,11 @@ class UnsafePidExecutor:
             return ["unshare", "--pid", "--fork", "--kill-child", *base_cmd]
 
         if not self._pid_isolation_warning_emitted:
-            logger.warning(
-                "PID namespace isolation unavailable; running script without PID isolation",
-                reason=self._pid_namespace_probe_error,
+            message = (
+                "PID namespace isolation unavailable; running script without PID isolation"
             )
+            logger.warning(message, reason=self._pid_namespace_probe_error)
+            module_logger.warning(message)
             self._pid_isolation_warning_emitted = True
         return base_cmd
 
@@ -309,9 +295,11 @@ class UnsafePidExecutor:
 
         start_time = time.time()
         if not allow_network and not self._network_isolation_warning_emitted:
-            logger.warning(
+            message = (
                 "Network isolation is not enforced without nsjail; scripts may still access network"
             )
+            logger.warning(message)
+            module_logger.warning(message)
             self._network_isolation_warning_emitted = True
 
         work_dir = Path(tempfile.mkdtemp(prefix="unsafe-pid-sandbox-"))
