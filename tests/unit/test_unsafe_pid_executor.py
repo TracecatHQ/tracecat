@@ -1,6 +1,7 @@
 """Tests for UnsafePidExecutor fallback mode."""
 
 import asyncio
+import logging
 
 import pytest
 
@@ -44,6 +45,7 @@ class TestUnsafePidExecutor:
             "_is_pid_namespace_available",
             pid_namespace_unavailable,
         )
+        caplog.set_level(logging.WARNING, logger="tracecat.sandbox.unsafe_pid_executor")
         executor._pid_namespace_probe_error = "fargate restriction"
 
         await executor._build_execution_cmd(
@@ -138,6 +140,7 @@ def main():
 def main():
     return "ok"
 """
+        caplog.set_level(logging.WARNING, logger="tracecat.sandbox.unsafe_pid_executor")
         caplog.clear()
         await executor.execute(script=script, allow_network=False)
         await executor.execute(script=script, allow_network=False)
@@ -156,6 +159,7 @@ def main():
 def main():
     return "ok"
 """
+        caplog.set_level(logging.WARNING, logger="tracecat.sandbox.unsafe_pid_executor")
         caplog.clear()
         await executor.execute(script=script, allow_network=True)
         assert not any(
