@@ -88,7 +88,7 @@ interface CasePanelContentProps {
 
 export function CasePanelView({ caseId }: CasePanelContentProps) {
   const workspaceId = useWorkspaceId()
-  const { members } = useWorkspaceMembers(workspaceId)
+  const { activeMembers: members } = useWorkspaceMembers(workspaceId)
   const router = useRouter()
   const searchParams = useSearchParams()
   const { isFeatureEnabled } = useFeatureFlag()

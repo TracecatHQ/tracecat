@@ -36,7 +36,6 @@ import type {
   CaseSeverity,
   CaseStatus,
   CaseTagRead,
-  WorkspaceMember,
 } from "@/client"
 import {
   PRIORITIES,
@@ -74,6 +73,7 @@ import type {
   CasesRecencySort,
   DropdownFilterState,
 } from "@/hooks/use-cases"
+import type { ActiveWorkspaceMember } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
@@ -553,7 +553,7 @@ interface CasesHeaderProps {
   onUpdatedAtSortChange: (value: CasesRecencySort) => void
   limit: number
   onLimitChange: (limit: number) => void
-  members?: WorkspaceMember[]
+  members?: ActiveWorkspaceMember[]
   tags?: CaseTagRead[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
   dropdownFilters: Record<string, DropdownFilterState>

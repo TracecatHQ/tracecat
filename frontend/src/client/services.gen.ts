@@ -326,6 +326,8 @@ import type {
   OrganizationGetInvitationTokenData,
   OrganizationGetInvitationTokenResponse,
   OrganizationGetOrganizationResponse,
+  OrganizationListMemberWorkspaceMembershipsData,
+  OrganizationListMemberWorkspaceMembershipsResponse,
   OrganizationListMyPendingInvitationsResponse,
   OrganizationListOrganizationDomainsResponse,
   OrganizationListOrgMembersResponse,
@@ -585,6 +587,8 @@ import type {
   WorkflowsUpdateWorkflowResponse,
   WorkflowsValidateWorkflowEntrypointData,
   WorkflowsValidateWorkflowEntrypointResponse,
+  WorkspacesAcceptWorkspaceInvitationData,
+  WorkspacesAcceptWorkspaceInvitationResponse,
   WorkspacesCreateWorkspaceData,
   WorkspacesCreateWorkspaceInvitationData,
   WorkspacesCreateWorkspaceInvitationResponse,
@@ -595,6 +599,10 @@ import type {
   WorkspacesDeleteWorkspaceMembershipData,
   WorkspacesDeleteWorkspaceMembershipResponse,
   WorkspacesDeleteWorkspaceResponse,
+  WorkspacesGetInvitationByTokenData,
+  WorkspacesGetInvitationByTokenResponse,
+  WorkspacesGetInvitationTokenData,
+  WorkspacesGetInvitationTokenResponse,
   WorkspacesGetWorkspaceData,
   WorkspacesGetWorkspaceMembershipData,
   WorkspacesGetWorkspaceMembershipResponse,
@@ -945,10 +953,10 @@ export const workspacesDeleteWorkspace = (
 
 /**
  * List Workspace Members
- * List members of a workspace.
+ * List members and pending invitations of a workspace.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns WorkspaceMember Successful Response
+ * @returns WorkspaceMemberOrInvitation Successful Response
  * @throws ApiError
  */
 export const workspacesListWorkspaceMembers = (
@@ -1177,6 +1185,89 @@ export const workspacesRevokeWorkspaceInvitation = (
       workspace_id: data.workspaceId,
       invitation_id: data.invitationId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Invitation Token
+ * Get the token for a specific invitation (admin only).
+ *
+ * This endpoint is used to generate shareable invitation links.
+ *
+ * Access Level
+ * ------------
+ * - Workspace Admin: Can get invitation tokens to share magic links.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.invitationId
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const workspacesGetInvitationToken = (
+  data: WorkspacesGetInvitationTokenData
+): CancelablePromise<WorkspacesGetInvitationTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/invitations/{invitation_id}/token",
+    path: {
+      workspace_id: data.workspaceId,
+      invitation_id: data.invitationId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Invitation By Token
+ * Get minimal invitation details by token (public endpoint for UI).
+ *
+ * Returns workspace name and inviter info for the acceptance page.
+ * If user is authenticated, also returns whether their email matches the invitation.
+ * @param data The data for the request.
+ * @param data.token
+ * @returns WorkspaceInvitationReadMinimal Successful Response
+ * @throws ApiError
+ */
+export const workspacesGetInvitationByToken = (
+  data: WorkspacesGetInvitationByTokenData
+): CancelablePromise<WorkspacesGetInvitationByTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/invitations/token/{token}",
+    path: {
+      token: data.token,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Accept Workspace Invitation
+ * Accept an invitation and join the workspace.
+ *
+ * This endpoint doesn't require workspace context since the user
+ * may not belong to the workspace yet. Uses AuthenticatedUserOnly
+ * which only requires an authenticated user.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const workspacesAcceptWorkspaceInvitation = (
+  data: WorkspacesAcceptWorkspaceInvitationData
+): CancelablePromise<WorkspacesAcceptWorkspaceInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/invitations/accept",
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
@@ -3260,6 +3351,32 @@ export const organizationUpdateOrgMember = (
 }
 
 /**
+ * List Member Workspace Memberships
+ * List workspace memberships for an org member.
+ *
+ * Returns all workspaces the user belongs to within this organization,
+ * along with their workspace role.
+ * @param data The data for the request.
+ * @param data.userId
+ * @returns UserWorkspaceMembership Successful Response
+ * @throws ApiError
+ */
+export const organizationListMemberWorkspaceMemberships = (
+  data: OrganizationListMemberWorkspaceMembershipsData
+): CancelablePromise<OrganizationListMemberWorkspaceMembershipsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/members/{user_id}/workspace-memberships",
+    path: {
+      user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Sessions
  * @returns SessionRead Successful Response
  * @throws ApiError
@@ -3297,6 +3414,9 @@ export const organizationDeleteSession = (
 /**
  * Create Invitation
  * Create an invitation to join the organization.
+ *
+ * Optionally assigns the invitee to workspaces by creating workspace
+ * invitations alongside the org invitation.
  * @param data The data for the request.
  * @param data.requestBody
  * @returns OrgInvitationRead Successful Response

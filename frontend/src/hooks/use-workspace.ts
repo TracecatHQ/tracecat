@@ -1,8 +1,9 @@
 "use client"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMemo } from "react"
 import {
   type ApiError,
-  type WorkspaceMember,
+  type WorkspaceMemberOrInvitation,
   type WorkspaceMembershipRead,
   type WorkspaceRead,
   type WorkspacesCreateWorkspaceMembershipData,
@@ -121,15 +122,29 @@ export function useWorkspaceMutations() {
   }
 }
 
+/** A workspace member with a guaranteed user_id (excludes pending invitations). */
+export type ActiveWorkspaceMember = WorkspaceMemberOrInvitation & {
+  user_id: string
+}
+
 export function useWorkspaceMembers(workspaceId: string) {
   const {
     data: members,
     isLoading: membersLoading,
     error: membersError,
-  } = useQuery<WorkspaceMember[], ApiError>({
+  } = useQuery<WorkspaceMemberOrInvitation[], ApiError>({
     queryKey: ["workspace", workspaceId, "members"],
     queryFn: () => workspacesListWorkspaceMembers({ workspaceId }),
   })
 
-  return { members, membersLoading, membersError }
+  /** Only active members (have user_id), safe for assignee selectors. */
+  const activeMembers = useMemo<ActiveWorkspaceMember[]>(
+    () =>
+      (members ?? []).filter(
+        (m): m is ActiveWorkspaceMember => m.user_id != null
+      ),
+    [members]
+  )
+
+  return { members, activeMembers, membersLoading, membersError }
 }

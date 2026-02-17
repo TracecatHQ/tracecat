@@ -410,7 +410,8 @@ function CasesSelectionActionsBar() {
   const [isApplyingTags, setIsApplyingTags] = useState(false)
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
-  const { members, membersLoading } = useWorkspaceMembers(workspaceId)
+  const { activeMembers: members, membersLoading } =
+    useWorkspaceMembers(workspaceId)
   const { caseTags, caseTagsIsLoading } = useCaseTagCatalog(workspaceId)
 
   // All callbacks must be defined before any early returns to satisfy React's rules of hooks

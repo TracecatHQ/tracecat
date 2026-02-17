@@ -120,6 +120,21 @@ class WorkspaceMember(Schema):
     workspace_role: WorkspaceRole
 
 
+class WorkspaceMemberOrInvitation(Schema):
+    """Unified member representation — covers active members and pending invitations."""
+
+    user_id: UserID | None = None
+    invitation_id: InvitationID | None = None
+    email: EmailStr
+    first_name: str | None = None
+    last_name: str | None = None
+    workspace_role: WorkspaceRole
+    status: str  # "active" or "pending"
+    token: str | None = None
+    expires_at: datetime | None = None
+    created_at: datetime | None = None
+
+
 class WorkspaceRead(Schema):
     id: WorkspaceID
     name: str
@@ -167,9 +182,40 @@ class WorkspaceInvitationRead(Schema):
     expires_at: datetime
     accepted_at: datetime | None
     created_at: datetime
+    token: str | None = None
 
 
 class WorkspaceInvitationList(Schema):
     """Query params for listing workspace invitations."""
 
     status: InvitationStatus | None = None
+
+
+class WorkspaceInvitationReadMinimal(Schema):
+    """Minimal response for public token-based invitation lookup.
+
+    Excludes sensitive fields to reduce information disclosure
+    when querying by token.
+    """
+
+    workspace_id: WorkspaceID
+    workspace_name: str
+    organization_name: str
+    inviter_name: str | None
+    inviter_email: str | None
+    role: WorkspaceRole
+    status: InvitationStatus
+    expires_at: datetime
+    email_matches: bool | None = None
+    """Whether the authenticated user's email matches the invitation.
+
+    - None: User is not authenticated
+    - True: User's email matches the invitation
+    - False: User's email does not match the invitation
+    """
+
+
+class WorkspaceInvitationAccept(Schema):
+    """Request body for accepting a workspace invitation via token."""
+
+    token: str

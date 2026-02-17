@@ -7,9 +7,12 @@ from datetime import UTC, datetime, timedelta
 from pydantic import UUID4
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, noload, selectinload
 
+from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
+from tracecat.audit.service import AuditService
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.controls import require_org_role, require_workspace_role
 from tracecat.authz.enums import OrgRole, OwnerType, WorkspaceRole
@@ -37,6 +40,171 @@ from tracecat.workspaces.schemas import (
     WorkspaceSearch,
     WorkspaceUpdate,
 )
+
+
+async def accept_workspace_invitation_for_user(
+    session: AsyncSession,
+    *,
+    user_id: UserID,
+    token: str,
+) -> Membership:
+    """Accept a workspace invitation and create workspace membership.
+
+    This is a standalone function (not a method) because invitation acceptance
+    doesn't require organization/workspace context - the user may not belong to
+    the workspace or organization yet.
+
+    Uses optimistic locking via conditional UPDATE to prevent TOCTOU race
+    conditions - the status check and update happen atomically in a single
+    database operation.
+
+    Args:
+        session: Database session.
+        user_id: The ID of the user accepting the invitation.
+        token: The unique invitation token.
+
+    Returns:
+        Membership: The created workspace membership record.
+
+    Raises:
+        TracecatNotFoundError: If the invitation doesn't exist.
+        TracecatValidationError: If the invitation is expired, revoked,
+            or already accepted, or if the user's email doesn't match
+            the invitation email.
+    """
+    # Fetch invitation by token with workspace eager loaded
+    invitation_result = await session.execute(
+        select(Invitation)
+        .where(Invitation.token == token)
+        .options(selectinload(Invitation.workspace))
+    )
+    invitation = invitation_result.scalar_one_or_none()
+    if invitation is None:
+        raise TracecatNotFoundError("Invitation not found")
+
+    # Fetch user to validate email
+    user_result = await session.execute(
+        select(User).where(User.id == user_id)  # pyright: ignore[reportArgumentType]
+    )
+    user = user_result.scalar_one_or_none()
+    if user is None:
+        raise TracecatValidationError("User not found")
+
+    # Verify email match (case-insensitive)
+    if user.email.lower() != invitation.email.lower():
+        raise TracecatValidationError(
+            "This invitation was sent to a different email address"
+        )
+
+    # Check expiry before attempting atomic update
+    if invitation.expires_at < datetime.now(UTC):
+        raise TracecatValidationError("Invitation has expired")
+
+    # Get the workspace to find the organization
+    workspace = invitation.workspace
+    organization_id = workspace.organization_id
+
+    # Check if user is already a member of the organization
+    org_membership_stmt = select(OrganizationMembership).where(
+        OrganizationMembership.user_id == user_id,
+        OrganizationMembership.organization_id == organization_id,
+    )
+    result = await session.execute(org_membership_stmt)
+    org_membership = result.scalar_one_or_none()
+
+    # If not in org, auto-create org membership
+    if org_membership is None:
+        org_membership = OrganizationMembership(
+            user_id=user_id,
+            organization_id=organization_id,
+            role=OrgRole.MEMBER,
+        )
+        session.add(org_membership)
+        await session.flush()
+
+    # Check if user is already a member of the workspace
+    ws_membership_stmt = select(Membership).where(
+        Membership.user_id == user_id,
+        Membership.workspace_id == invitation.workspace_id,
+    )
+    result = await session.execute(ws_membership_stmt)
+    if result.scalar_one_or_none():
+        raise TracecatValidationError("User is already a member of this workspace")
+
+    # Create role scoped to invitation's workspace for audit logging
+    audit_role = Role(
+        type="user",
+        user_id=user_id,
+        organization_id=organization_id,
+        workspace_id=invitation.workspace_id,
+        access_level=AccessLevel.BASIC,
+        service_id="tracecat-api",
+    )
+
+    # Log audit attempt
+    svc = AuditService(session=session, role=audit_role)
+    await svc.create_event(
+        resource_type="workspace_invitation",
+        action="accept",
+        resource_id=invitation.id,
+        status=AuditEventStatus.ATTEMPT,
+    )
+    try:
+        # Atomically update invitation status only if still PENDING.
+        # This prevents TOCTOU race conditions where an admin might revoke
+        # the invitation between our check and commit.
+        now = datetime.now(UTC)
+        update_result = await session.execute(
+            update(Invitation)
+            .where(
+                Invitation.id == invitation.id,
+                Invitation.status == InvitationStatus.PENDING,
+            )
+            .values(status=InvitationStatus.ACCEPTED, accepted_at=now)
+        )
+
+        if update_result.rowcount == 0:  # pyright: ignore[reportAttributeAccessIssue]
+            # Status changed between fetch and update - re-fetch for accurate error
+            await session.refresh(invitation)
+            if invitation.status == InvitationStatus.ACCEPTED:
+                raise TracecatValidationError("Invitation has already been accepted")
+            if invitation.status == InvitationStatus.REVOKED:
+                raise TracecatValidationError("Invitation has been revoked")
+            # Shouldn't reach here, but handle gracefully
+            raise TracecatValidationError("Invitation is no longer valid")
+
+        # Create workspace membership with the invited role
+        membership = Membership(
+            user_id=user_id,
+            workspace_id=invitation.workspace_id,
+            role=invitation.role,
+        )
+        session.add(membership)
+
+        await session.commit()
+        await session.refresh(membership)
+    except TracecatValidationError:
+        # Re-raise validation errors without logging as failure (expected user errors)
+        raise
+    except Exception:
+        await session.rollback()
+        # Log audit failure
+        await svc.create_event(
+            resource_type="workspace_invitation",
+            action="accept",
+            resource_id=invitation.id,
+            status=AuditEventStatus.FAILURE,
+        )
+        raise
+    # Log audit success
+    await svc.create_event(
+        resource_type="workspace_invitation",
+        action="accept",
+        resource_id=invitation.id,
+        status=AuditEventStatus.SUCCESS,
+    )
+
+    return membership
 
 
 class WorkspaceService(BaseOrgService):
@@ -248,7 +416,7 @@ class WorkspaceService(BaseOrgService):
         now = datetime.now(UTC)
         existing_stmt = select(Invitation).where(
             Invitation.workspace_id == workspace_id,
-            Invitation.email == params.email,
+            Invitation.email == params.email.lower(),
             Invitation.status == InvitationStatus.PENDING,
             Invitation.expires_at > now,
         )
@@ -263,7 +431,7 @@ class WorkspaceService(BaseOrgService):
 
         invitation = Invitation(
             workspace_id=workspace_id,
-            email=params.email,
+            email=params.email.lower(),
             role=params.role,
             status=InvitationStatus.PENDING,
             invited_by=self.role.user_id if self.role else None,
@@ -280,7 +448,7 @@ class WorkspaceService(BaseOrgService):
                 # Check if the existing invitation is expired - if so, delete and retry
                 existing_stmt = select(Invitation).where(
                     Invitation.workspace_id == workspace_id,
-                    Invitation.email == params.email,
+                    Invitation.email == params.email.lower(),
                 )
                 result = await self.session.execute(existing_stmt)
                 existing_invitation = result.scalar_one_or_none()
@@ -323,6 +491,28 @@ class WorkspaceService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    @require_workspace_role(WorkspaceRole.ADMIN)
+    async def get_invitation(
+        self,
+        workspace_id: WorkspaceID,
+        invitation_id: InvitationID,
+    ) -> Invitation | None:
+        """Get a specific invitation by ID.
+
+        Args:
+            workspace_id: The workspace the invitation belongs to.
+            invitation_id: The invitation ID.
+
+        Returns:
+            The invitation if found, None otherwise.
+        """
+        statement = select(Invitation).where(
+            Invitation.id == invitation_id,
+            Invitation.workspace_id == workspace_id,
+        )
+        result = await self.session.execute(statement)
+        return result.scalar_one_or_none()
+
     async def get_invitation_by_token(self, token: str) -> Invitation | None:
         """Retrieve an invitation by its unique token.
 
@@ -338,7 +528,10 @@ class WorkspaceService(BaseOrgService):
         statement = (
             select(Invitation)
             .where(Invitation.token == token)
-            .options(selectinload(Invitation.workspace))
+            .options(
+                selectinload(Invitation.workspace),
+                selectinload(Invitation.inviter),
+            )
         )
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
@@ -371,11 +564,23 @@ class WorkspaceService(BaseOrgService):
         Raises:
             TracecatNotFoundError: If the invitation is not found.
             TracecatValidationError: If the invitation is expired, already
-                accepted, or revoked.
+                accepted, revoked, or email doesn't match.
         """
         invitation = await self.get_invitation_by_token(token)
         if invitation is None:
             raise TracecatNotFoundError("Invitation not found")
+
+        # Validate user's email matches invitation email
+        user_result = await self.session.execute(
+            select(User).where(User.id == user_id)  # pyright: ignore[reportArgumentType]
+        )
+        user = user_result.scalar_one_or_none()
+        if user is None:
+            raise TracecatValidationError("User not found")
+        if user.email.lower() != invitation.email.lower():
+            raise TracecatValidationError(
+                "This invitation was sent to a different email address"
+            )
 
         # Check expiry before attempting atomic update
         if invitation.expires_at < datetime.now(UTC):
@@ -393,7 +598,7 @@ class WorkspaceService(BaseOrgService):
         result = await self.session.execute(org_membership_stmt)
         org_membership = result.scalar_one_or_none()
 
-        # If not in org, auto-create as MEMBER
+        # If not in org, auto-create org membership
         if org_membership is None:
             org_membership = OrganizationMembership(
                 user_id=user_id,
@@ -435,7 +640,7 @@ class WorkspaceService(BaseOrgService):
             # Shouldn't reach here, but handle gracefully
             raise TracecatValidationError("Invitation is no longer valid")
 
-        # Create workspace membership
+        # Create workspace membership with the invited role
         membership = Membership(
             user_id=user_id,
             workspace_id=invitation.workspace_id,

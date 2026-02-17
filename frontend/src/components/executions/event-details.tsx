@@ -203,7 +203,7 @@ export function EventGeneralInfo({ event }: { event: WorkflowExecutionEvent }) {
   const { max_attempts, timeout } = action_retry_policy || {}
 
   const workspaceId = useWorkspaceId()
-  const { members } = useWorkspaceMembers(workspaceId)
+  const { activeMembers: members } = useWorkspaceMembers(workspaceId)
 
   const triggeredBy = React.useMemo(() => {
     if (!role) {

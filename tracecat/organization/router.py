@@ -3,7 +3,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import AuthenticatedUserOnly, OptionalUserDep, RoleACL
@@ -37,6 +37,7 @@ from tracecat.organization.schemas import (
     OrgMemberStatus,
     OrgPendingInvitationRead,
     OrgRead,
+    UserWorkspaceMembership,
 )
 from tracecat.organization.service import OrgService, accept_invitation_for_user
 
@@ -312,6 +313,7 @@ async def list_org_members(
                     status=OrgMemberStatus.INVITED,
                     expires_at=inv.expires_at,
                     created_at=inv.created_at,
+                    token=inv.token,
                 )
             )
 
@@ -335,7 +337,7 @@ async def delete_org_member(
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Action cannot be performed. Check if user is a superuser or has active sessions.",
+            detail="Cannot remove member due to a database constraint.",
         ) from e
     except TracecatAuthorizationError as e:
         raise HTTPException(
@@ -371,6 +373,30 @@ async def update_org_member(
     except TracecatAuthorizationError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+        ) from e
+
+
+@router.get(
+    "/members/{user_id}/workspace-memberships",
+    response_model=list[UserWorkspaceMembership],
+)
+async def list_member_workspace_memberships(
+    *,
+    role: OrgAdminRole,
+    session: AsyncDBSession,
+    user_id: UserID,
+) -> list[UserWorkspaceMembership]:
+    """List workspace memberships for an org member.
+
+    Returns all workspaces the user belongs to within this organization,
+    along with their workspace role.
+    """
+    service = OrgService(session, role=role)
+    try:
+        return await service.list_member_workspace_memberships(user_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         ) from e
 
 
@@ -414,12 +440,17 @@ async def create_invitation(
     session: AsyncDBSession,
     params: OrgInvitationCreate,
 ) -> OrgInvitationRead:
-    """Create an invitation to join the organization."""
+    """Create an invitation to join the organization.
+
+    Optionally assigns the invitee to workspaces by creating workspace
+    invitations alongside the org invitation.
+    """
     service = OrgService(session, role=role)
     try:
         invitation = await service.create_invitation(
             email=params.email,
             role=params.role,
+            workspace_assignments=params.workspace_assignments or None,
         )
     except TracecatAuthorizationError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
@@ -443,6 +474,7 @@ async def create_invitation(
         expires_at=invitation.expires_at,
         created_at=invitation.created_at,
         accepted_at=invitation.accepted_at,
+        token=invitation.token,
     )
 
 
@@ -543,7 +575,7 @@ async def list_my_pending_invitations(
             User.id == OrganizationInvitation.invited_by,  # pyright: ignore[reportArgumentType]
         )
         .where(
-            func.lower(OrganizationInvitation.email) == user.email.lower(),
+            OrganizationInvitation.email == user.email.lower(),
             OrganizationInvitation.status == InvitationStatus.PENDING,
             OrganizationInvitation.expires_at > now,
         )

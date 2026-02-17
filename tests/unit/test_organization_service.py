@@ -263,7 +263,7 @@ class TestOrganizationServiceDeleteMember:
         user_in_org1: User,
         admin_in_org1: User,
     ):
-        """Test delete_member removes user when they're in the same organization."""
+        """Test delete_member removes memberships but preserves the user account."""
         user_id = user_in_org1.id
 
         role = create_admin_role(org1.id, admin_in_org1.id)
@@ -271,9 +271,18 @@ class TestOrganizationServiceDeleteMember:
 
         await service.delete_member(user_id)
 
-        # Verify user was deleted
-        result = await session.execute(select(User).where(User.id == user_id))  # pyright: ignore[reportArgumentType]
+        # Verify organization membership was removed
+        result = await session.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user_id,
+                OrganizationMembership.organization_id == org1.id,
+            )
+        )
         assert result.scalar_one_or_none() is None
+
+        # Verify user account is preserved
+        user_result = await session.execute(select(User).where(User.id == user_id))  # pyright: ignore[reportArgumentType]
+        assert user_result.scalar_one_or_none() is not None
 
     @pytest.mark.anyio
     async def test_delete_member_in_different_organization_raises(
@@ -321,7 +330,7 @@ class TestOrganizationServiceDeleteMember:
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = OrgService(session, role=role)
 
-        with pytest.raises(TracecatAuthorizationError, match="Cannot delete superuser"):
+        with pytest.raises(TracecatAuthorizationError, match="Cannot remove superuser"):
             await service.delete_member(superuser.id)
 
         # Verify superuser was NOT deleted

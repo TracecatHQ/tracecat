@@ -71,7 +71,7 @@ export function CaseTaskDialog({
   workspaceId,
   onCreateSuccess,
 }: CaseTaskDialogProps) {
-  const { members } = useWorkspaceMembers(workspaceId)
+  const { activeMembers: members } = useWorkspaceMembers(workspaceId)
   const { workflows } = useWorkflowManager()
   const isEditMode = !!task
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)

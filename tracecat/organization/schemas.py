@@ -4,8 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, EmailStr
 
-from tracecat.authz.enums import OrgRole
-from tracecat.identifiers import OrganizationID, UserID
+from tracecat.authz.enums import OrgRole, WorkspaceRole
+from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.invitations.enums import InvitationStatus
 
 # Members
@@ -30,6 +30,7 @@ class OrgMemberRead(BaseModel):
     last_login_at: datetime | None = None
     expires_at: datetime | None = None
     created_at: datetime | None = None
+    token: str | None = None
 
 
 class OrgMemberDetail(BaseModel):
@@ -69,11 +70,27 @@ class OrgDomainRead(BaseModel):
 # Invitations
 
 
+class WorkspaceAssignment(BaseModel):
+    """Workspace + role pair for assigning a user to a workspace at invite time."""
+
+    workspace_id: WorkspaceID
+    role: WorkspaceRole = WorkspaceRole.EDITOR
+
+
 class OrgInvitationCreate(BaseModel):
     """Request body for creating an organization invitation."""
 
     email: EmailStr
     role: OrgRole = OrgRole.MEMBER
+    workspace_assignments: list[WorkspaceAssignment] = []
+
+
+class UserWorkspaceMembership(BaseModel):
+    """A user's membership in a workspace, for org-level viewing."""
+
+    workspace_id: WorkspaceID
+    workspace_name: str
+    role: WorkspaceRole
 
 
 class OrgInvitationRead(BaseModel):
@@ -88,6 +105,7 @@ class OrgInvitationRead(BaseModel):
     expires_at: datetime
     created_at: datetime
     accepted_at: datetime | None
+    token: str | None = None
 
 
 class OrgInvitationReadMinimal(BaseModel):

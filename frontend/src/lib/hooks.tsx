@@ -142,6 +142,7 @@ import {
   organizationCreateInvitation,
   organizationDeleteOrgMember,
   organizationDeleteSession,
+  organizationListMemberWorkspaceMemberships,
   organizationListOrgMembers,
   organizationListSessions,
   organizationRevokeInvitation,
@@ -286,6 +287,8 @@ import {
   type WorkflowsMoveWorkflowToFolderData,
   type WorkflowsRemoveTagData,
   type WorkspaceCreate,
+  type WorkspaceInvitationCreate,
+  type WorkspaceInvitationRead,
   type WorkspaceReadMinimal,
   type WorkspaceUpdate,
   workflowExecutionsCreateDraftWorkflowExecution,
@@ -300,8 +303,11 @@ import {
   workflowsMoveWorkflowToFolder,
   workflowsRemoveTag,
   workspacesCreateWorkspace,
+  workspacesCreateWorkspaceInvitation,
   workspacesDeleteWorkspace,
+  workspacesListWorkspaceInvitations,
   workspacesListWorkspaces,
+  workspacesRevokeWorkspaceInvitation,
   workspacesUpdateWorkspace,
 } from "@/client"
 import {
@@ -2189,6 +2195,113 @@ export function useOrgMembers() {
     createInvitation,
     createInvitationIsPending,
     revokeInvitation,
+  }
+}
+
+export function useOrgMemberWorkspaces(userId: string | null | undefined) {
+  const { data: workspaceMemberships, isLoading: workspaceMembershipsLoading } =
+    useQuery({
+      queryKey: ["org-member-workspaces", userId],
+      queryFn: async () =>
+        await organizationListMemberWorkspaceMemberships({
+          userId: userId as string,
+        }),
+      enabled: !!userId,
+    })
+
+  return {
+    workspaceMemberships,
+    workspaceMembershipsLoading,
+  }
+}
+
+export function useWorkspaceInvitations(
+  workspaceId: string,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
+  const queryClient = useQueryClient()
+
+  const {
+    data: invitations,
+    isLoading,
+    error,
+  } = useQuery<WorkspaceInvitationRead[]>({
+    queryKey: ["workspace-invitations", workspaceId],
+    queryFn: async () =>
+      await workspacesListWorkspaceInvitations({ workspaceId }),
+    enabled: !!workspaceId && enabled,
+  })
+
+  const {
+    mutateAsync: createInvitation,
+    isPending: createPending,
+    error: createError,
+  } = useMutation({
+    mutationFn: async (params: WorkspaceInvitationCreate) =>
+      await workspacesCreateWorkspaceInvitation({
+        workspaceId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-invitations", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace", workspaceId, "members"],
+      })
+      // Note: No toast here - the calling component handles success feedback
+    },
+    onError: (error: TracecatApiError) => {
+      const apiError = error as TracecatApiError
+      const detail = apiError.body?.detail
+      toast({
+        title: "Failed to create invitation",
+        description: typeof detail === "string" ? detail : apiError.message,
+        variant: "destructive",
+      })
+    },
+  })
+
+  const {
+    mutateAsync: revokeInvitation,
+    isPending: revokePending,
+    error: revokeError,
+  } = useMutation({
+    mutationFn: async (invitationId: string) =>
+      await workspacesRevokeWorkspaceInvitation({ workspaceId, invitationId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-invitations", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace", workspaceId, "members"],
+      })
+      toast({
+        title: "Invitation revoked",
+        description: "Invitation has been revoked.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      const apiError = error as TracecatApiError
+      const detail = apiError.body?.detail
+      toast({
+        title: "Failed to revoke invitation",
+        description: typeof detail === "string" ? detail : apiError.message,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    invitations,
+    isLoading,
+    error,
+    createInvitation,
+    createPending,
+    createError,
+    revokeInvitation,
+    revokePending,
+    revokeError,
   }
 }
 

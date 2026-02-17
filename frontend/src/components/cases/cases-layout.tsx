@@ -11,7 +11,6 @@ import {
   type CaseTagRead,
   type CaseUpdate,
   casesUpdateCase,
-  type WorkspaceMember,
 } from "@/client"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import { CasesAccordion } from "@/components/cases/cases-accordion"
@@ -28,6 +27,7 @@ import type {
   CasesRecencySort,
   UseCasesFilters,
 } from "@/hooks/use-cases"
+import type { ActiveWorkspaceMember } from "@/hooks/use-workspace"
 import { useDeleteCase } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -36,7 +36,7 @@ interface CasesLayoutProps {
   isLoading: boolean
   error: Error | null
   filters: UseCasesFilters
-  members?: WorkspaceMember[]
+  members?: ActiveWorkspaceMember[]
   tags?: CaseTagRead[]
   onSearchChange: (query: string) => void
   onStatusChange: (status: CaseStatus[]) => void

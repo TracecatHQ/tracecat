@@ -3298,6 +3298,7 @@ export type OrgInvitationAccept = {
 export type OrgInvitationCreate = {
   email: string
   role?: OrgRole
+  workspace_assignments?: Array<WorkspaceAssignment>
 }
 
 /**
@@ -3313,6 +3314,7 @@ export type OrgInvitationRead = {
   expires_at: string
   created_at: string
   accepted_at: string | null
+  token?: string | null
 }
 
 /**
@@ -3360,6 +3362,7 @@ export type OrgMemberRead = {
   last_login_at?: string | null
   expires_at?: string | null
   created_at?: string | null
+  token?: string | null
 }
 
 export type OrgMemberStatus = "active" | "inactive" | "invited"
@@ -5633,6 +5636,15 @@ export type UserUpdate = {
   } | null
 }
 
+/**
+ * A user's membership in a workspace, for org-level viewing.
+ */
+export type UserWorkspaceMembership = {
+  workspace_id: string
+  workspace_name: string
+  role: WorkspaceRole
+}
+
 export type ValidationDetail = {
   type: string
   msg: string
@@ -6350,10 +6362,25 @@ export type WorkflowUpdate = {
   error_handler?: string | null
 }
 
+/**
+ * Workspace + role pair for assigning a user to a workspace at invite time.
+ */
+export type WorkspaceAssignment = {
+  workspace_id: string
+  role?: WorkspaceRole
+}
+
 export type WorkspaceCreate = {
   name: string
   settings?: WorkspaceSettingsUpdate | null
   organization_id?: string | null
+}
+
+/**
+ * Request body for accepting a workspace invitation via token.
+ */
+export type WorkspaceInvitationAccept = {
+  token: string
 }
 
 /**
@@ -6377,14 +6404,41 @@ export type WorkspaceInvitationRead = {
   expires_at: string
   accepted_at: string | null
   created_at: string
+  token?: string | null
 }
 
-export type WorkspaceMember = {
-  user_id: string
-  first_name: string | null
-  last_name: string | null
+/**
+ * Minimal response for public token-based invitation lookup.
+ *
+ * Excludes sensitive fields to reduce information disclosure
+ * when querying by token.
+ */
+export type WorkspaceInvitationReadMinimal = {
+  workspace_id: string
+  workspace_name: string
+  organization_name: string
+  inviter_name: string | null
+  inviter_email: string | null
+  role: WorkspaceRole
+  status: InvitationStatus
+  expires_at: string
+  email_matches?: boolean | null
+}
+
+/**
+ * Unified member representation — covers active members and pending invitations.
+ */
+export type WorkspaceMemberOrInvitation = {
+  user_id?: string | null
+  invitation_id?: string | null
   email: string
+  first_name?: string | null
+  last_name?: string | null
   workspace_role: WorkspaceRole
+  status: string
+  token?: string | null
+  expires_at?: string | null
+  created_at?: string | null
 }
 
 export type WorkspaceMembershipCreate = {
@@ -6684,7 +6738,8 @@ export type WorkspacesListWorkspaceMembersData = {
   workspaceId: string
 }
 
-export type WorkspacesListWorkspaceMembersResponse = Array<WorkspaceMember>
+export type WorkspacesListWorkspaceMembersResponse =
+  Array<WorkspaceMemberOrInvitation>
 
 export type WorkspacesListWorkspaceMembershipsData = {
   workspaceId: string
@@ -6744,6 +6799,30 @@ export type WorkspacesRevokeWorkspaceInvitationData = {
 }
 
 export type WorkspacesRevokeWorkspaceInvitationResponse = void
+
+export type WorkspacesGetInvitationTokenData = {
+  invitationId: string
+  workspaceId: string
+}
+
+export type WorkspacesGetInvitationTokenResponse = {
+  [key: string]: string
+}
+
+export type WorkspacesGetInvitationByTokenData = {
+  token: string
+}
+
+export type WorkspacesGetInvitationByTokenResponse =
+  WorkspaceInvitationReadMinimal
+
+export type WorkspacesAcceptWorkspaceInvitationData = {
+  requestBody: WorkspaceInvitationAccept
+}
+
+export type WorkspacesAcceptWorkspaceInvitationResponse = {
+  [key: string]: string
+}
 
 export type WorkflowsListWorkflowsData = {
   cursor?: string | null
@@ -7343,6 +7422,13 @@ export type OrganizationUpdateOrgMemberData = {
 }
 
 export type OrganizationUpdateOrgMemberResponse = OrgMemberDetail
+
+export type OrganizationListMemberWorkspaceMembershipsData = {
+  userId: string
+}
+
+export type OrganizationListMemberWorkspaceMembershipsResponse =
+  Array<UserWorkspaceMembership>
 
 export type OrganizationListSessionsResponse = Array<SessionRead>
 
@@ -9231,7 +9317,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkspaceMember>
+        200: Array<WorkspaceMemberOrInvitation>
         /**
          * Validation Error
          */
@@ -9344,6 +9430,55 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/invitations/{invitation_id}/token": {
+    get: {
+      req: WorkspacesGetInvitationTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/invitations/token/{token}": {
+    get: {
+      req: WorkspacesGetInvitationByTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceInvitationReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/invitations/accept": {
+    post: {
+      req: WorkspacesAcceptWorkspaceInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
         /**
          * Validation Error
          */
@@ -10410,6 +10545,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: OrgMemberDetail
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/members/{user_id}/workspace-memberships": {
+    get: {
+      req: OrganizationListMemberWorkspaceMembershipsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<UserWorkspaceMembership>
         /**
          * Validation Error
          */

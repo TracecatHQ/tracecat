@@ -7,7 +7,6 @@ import type {
   CasePriority,
   CaseSeverity,
   CaseStatus,
-  WorkspaceMember,
 } from "@/client"
 import {
   PRIORITIES,
@@ -24,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import UserAvatar from "@/components/user-avatar"
+import type { ActiveWorkspaceMember } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
 import { cn, linearStyles } from "@/lib/utils"
 
@@ -274,7 +274,7 @@ export const UNASSIGNED = "__UNASSIGNED__" as const
 
 interface AssigneeSelectProps {
   assignee?: AssigneeInfo | null
-  workspaceMembers: WorkspaceMember[]
+  workspaceMembers: ActiveWorkspaceMember[]
   onValueChange: (assignee?: AssigneeInfo | null) => void
   showLabel?: boolean
   triggerClassName?: string

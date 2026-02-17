@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import (
@@ -6,13 +7,20 @@ from fastapi import (
     HTTPException,
     status,
 )
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.orm import selectinload
 
-from tracecat.auth.credentials import RoleACL
+from tracecat.auth.credentials import (
+    AuthenticatedUserOnly,
+    OptionalUserDep,
+    RoleACL,
+)
 from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.service import MembershipService
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import Invitation, Organization
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatManagementError,
@@ -20,13 +28,16 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.identifiers import InvitationID, UserID, WorkspaceID
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.logger import logger
 from tracecat.workspaces.schemas import (
     WorkspaceCreate,
+    WorkspaceInvitationAccept,
     WorkspaceInvitationCreate,
     WorkspaceInvitationList,
     WorkspaceInvitationRead,
-    WorkspaceMember,
+    WorkspaceInvitationReadMinimal,
+    WorkspaceMemberOrInvitation,
     WorkspaceMembershipCreate,
     WorkspaceMembershipRead,
     WorkspaceMembershipUpdate,
@@ -36,7 +47,10 @@ from tracecat.workspaces.schemas import (
     WorkspaceSettingsRead,
     WorkspaceUpdate,
 )
-from tracecat.workspaces.service import WorkspaceService
+from tracecat.workspaces.service import (
+    WorkspaceService,
+    accept_workspace_invitation_for_user,
+)
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -228,11 +242,45 @@ async def list_workspace_members(
     role: WorkspaceUserInPath,
     workspace_id: WorkspaceID,
     session: AsyncDBSession,
-) -> list[WorkspaceMember]:
-    """List members of a workspace."""
+) -> list[WorkspaceMemberOrInvitation]:
+    """List members and pending invitations of a workspace."""
     service = MembershipService(session, role=role)
     memberships = await service.list_workspace_members(workspace_id)
-    return memberships
+
+    result: list[WorkspaceMemberOrInvitation] = [
+        WorkspaceMemberOrInvitation(
+            user_id=m.user_id,
+            email=m.email,
+            first_name=m.first_name,
+            last_name=m.last_name,
+            workspace_role=m.workspace_role,
+            status="active",
+        )
+        for m in memberships
+    ]
+
+    # Include pending invitations for admin users (org/platform admins or workspace admins)
+    if role.is_privileged or role.workspace_role == WorkspaceRole.ADMIN:
+        ws_service = WorkspaceService(session, role=role)
+        invitations = await ws_service.list_invitations(
+            workspace_id, status=InvitationStatus.PENDING
+        )
+        now = datetime.now(UTC)
+        for inv in invitations:
+            if inv.expires_at > now:
+                result.append(
+                    WorkspaceMemberOrInvitation(
+                        invitation_id=inv.id,
+                        email=inv.email,
+                        workspace_role=inv.role,
+                        status="pending",
+                        token=inv.token,
+                        expires_at=inv.expires_at,
+                        created_at=inv.created_at,
+                    )
+                )
+
+    return result
 
 
 @router.get("/{workspace_id}/memberships")
@@ -398,6 +446,7 @@ async def create_workspace_invitation(
         expires_at=invitation.expires_at,
         accepted_at=invitation.accepted_at,
         created_at=invitation.created_at,
+        token=invitation.token,
     )
 
 
@@ -434,6 +483,7 @@ async def list_workspace_invitations(
             expires_at=inv.expires_at,
             accepted_at=inv.accepted_at,
             created_at=inv.created_at,
+            token=inv.token,
         )
         for inv in invitations
     ]
@@ -473,4 +523,146 @@ async def revoke_workspace_invitation(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
+        ) from e
+
+
+@router.get("/{workspace_id}/invitations/{invitation_id}/token")
+async def get_invitation_token(
+    *,
+    role: WorkspaceAdminUserInPath,
+    workspace_id: WorkspaceID,
+    invitation_id: InvitationID,
+    session: AsyncDBSession,
+) -> dict[str, str]:
+    """Get the token for a specific invitation (admin only).
+
+    This endpoint is used to generate shareable invitation links.
+
+    Access Level
+    ------------
+    - Workspace Admin: Can get invitation tokens to share magic links.
+    """
+    service = WorkspaceService(session, role=role)
+    try:
+        invitation = await service.get_invitation(workspace_id, invitation_id)
+        if invitation is None:
+            raise TracecatNotFoundError("Invitation not found")
+        return {"token": invitation.token}
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User does not have permission to access invitation tokens",
+        ) from e
+
+
+@router.get(
+    "/invitations/token/{token}",
+    response_model=WorkspaceInvitationReadMinimal,
+)
+async def get_invitation_by_token(
+    *,
+    session: AsyncDBSession,
+    token: str,
+    user: OptionalUserDep = None,
+) -> WorkspaceInvitationReadMinimal:
+    """Get minimal invitation details by token (public endpoint for UI).
+
+    Returns workspace name and inviter info for the acceptance page.
+    If user is authenticated, also returns whether their email matches the invitation.
+    """
+    # Query invitation directly without WorkspaceService since we don't have org context yet
+    result = await session.execute(
+        select(Invitation)
+        .where(Invitation.token == token)
+        .options(
+            selectinload(Invitation.workspace),
+            selectinload(Invitation.inviter),
+        )
+    )
+    invitation = result.scalar_one_or_none()
+    if invitation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found",
+        )
+
+    # Load related data for the response
+    workspace = invitation.workspace
+    inviter = invitation.inviter
+
+    # Query organization separately (no relationship on Workspace)
+    org_result = await session.execute(
+        select(Organization).where(Organization.id == workspace.organization_id)
+    )
+    organization = org_result.scalar_one()
+
+    # Get workspace role from the invitation
+    workspace_role = invitation.role or WorkspaceRole.VIEWER
+
+    # Check if user's email matches (if authenticated)
+    email_matches: bool | None = None
+    if user is not None:
+        email_matches = user.email.lower() == invitation.email.lower()
+
+    return WorkspaceInvitationReadMinimal(
+        workspace_id=workspace.id,
+        workspace_name=workspace.name,
+        organization_name=organization.name,
+        inviter_name=(
+            f"{inviter.first_name} {inviter.last_name}".strip()
+            if inviter and (inviter.first_name or inviter.last_name)
+            else None
+        ),
+        inviter_email=inviter.email if inviter else None,
+        role=workspace_role,
+        status=invitation.status,
+        expires_at=invitation.expires_at,
+        email_matches=email_matches,
+    )
+
+
+@router.post("/invitations/accept")
+async def accept_workspace_invitation(
+    *,
+    role: AuthenticatedUserOnly,
+    session: AsyncDBSession,
+    params: WorkspaceInvitationAccept,
+) -> dict[str, str]:
+    """Accept an invitation and join the workspace.
+
+    This endpoint doesn't require workspace context since the user
+    may not belong to the workspace yet. Uses AuthenticatedUserOnly
+    which only requires an authenticated user.
+    """
+    if role.user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User is not authenticated",
+        )
+    try:
+        await accept_workspace_invitation_for_user(
+            session,
+            user_id=role.user_id,
+            token=params.token,
+        )
+        return {"message": "Invitation accepted successfully"}
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except IntegrityError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User is already a member of this workspace",
         ) from e
