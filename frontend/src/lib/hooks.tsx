@@ -2242,6 +2242,9 @@ export function useWorkspaceInvitations(
       queryClient.invalidateQueries({
         queryKey: ["workspace-invitations", workspaceId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace", workspaceId, "members"],
+      })
       // Note: No toast here - the calling component handles success feedback
     },
     onError: (error: TracecatApiError) => {
@@ -2265,6 +2268,9 @@ export function useWorkspaceInvitations(
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["workspace-invitations", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace", workspaceId, "members"],
       })
       toast({
         title: "Invitation revoked",

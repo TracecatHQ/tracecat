@@ -30,6 +30,7 @@ class OrgMemberRead(BaseModel):
     last_login_at: datetime | None = None
     expires_at: datetime | None = None
     created_at: datetime | None = None
+    token: str | None = None
 
 
 class OrgMemberDetail(BaseModel):
@@ -104,6 +105,7 @@ class OrgInvitationRead(BaseModel):
     expires_at: datetime
     created_at: datetime
     accepted_at: datetime | None
+    token: str | None = None
 
 
 class OrgInvitationReadMinimal(BaseModel):

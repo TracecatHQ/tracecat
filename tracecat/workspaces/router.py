@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import (
@@ -27,6 +28,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.identifiers import InvitationID, UserID, WorkspaceID
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.logger import logger
 from tracecat.workspaces.schemas import (
     WorkspaceCreate,
@@ -35,7 +37,7 @@ from tracecat.workspaces.schemas import (
     WorkspaceInvitationList,
     WorkspaceInvitationRead,
     WorkspaceInvitationReadMinimal,
-    WorkspaceMember,
+    WorkspaceMemberOrInvitation,
     WorkspaceMembershipCreate,
     WorkspaceMembershipRead,
     WorkspaceMembershipUpdate,
@@ -240,11 +242,45 @@ async def list_workspace_members(
     role: WorkspaceUserInPath,
     workspace_id: WorkspaceID,
     session: AsyncDBSession,
-) -> list[WorkspaceMember]:
-    """List members of a workspace."""
+) -> list[WorkspaceMemberOrInvitation]:
+    """List members and pending invitations of a workspace."""
     service = MembershipService(session, role=role)
     memberships = await service.list_workspace_members(workspace_id)
-    return memberships
+
+    result: list[WorkspaceMemberOrInvitation] = [
+        WorkspaceMemberOrInvitation(
+            user_id=m.user_id,
+            email=m.email,
+            first_name=m.first_name,
+            last_name=m.last_name,
+            workspace_role=m.workspace_role,
+            status="active",
+        )
+        for m in memberships
+    ]
+
+    # Include pending invitations for admin users
+    if role.is_privileged:
+        ws_service = WorkspaceService(session, role=role)
+        invitations = await ws_service.list_invitations(
+            workspace_id, status=InvitationStatus.PENDING
+        )
+        now = datetime.now(UTC)
+        for inv in invitations:
+            if inv.expires_at > now:
+                result.append(
+                    WorkspaceMemberOrInvitation(
+                        invitation_id=inv.id,
+                        email=inv.email,
+                        workspace_role=inv.role,
+                        status="pending",
+                        token=inv.token,
+                        expires_at=inv.expires_at,
+                        created_at=inv.created_at,
+                    )
+                )
+
+    return result
 
 
 @router.get("/{workspace_id}/memberships")
@@ -410,6 +446,7 @@ async def create_workspace_invitation(
         expires_at=invitation.expires_at,
         accepted_at=invitation.accepted_at,
         created_at=invitation.created_at,
+        token=invitation.token,
     )
 
 
@@ -446,6 +483,7 @@ async def list_workspace_invitations(
             expires_at=inv.expires_at,
             accepted_at=inv.accepted_at,
             created_at=inv.created_at,
+            token=inv.token,
         )
         for inv in invitations
     ]

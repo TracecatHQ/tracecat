@@ -15,12 +15,12 @@ import type {
   CaseReadMinimal,
   CaseStatus,
   CaseTagRead,
-  WorkspaceMember,
 } from "@/client"
 import { CaseItem } from "@/components/cases/case-item"
 import type { SortDirection } from "@/components/cases/cases-header"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import type { CasesRecencySort } from "@/hooks/use-cases"
+import type { ActiveWorkspaceMember } from "@/hooks/use-workspace"
 import { cn } from "@/lib/utils"
 
 // Define the status groups we want to display
@@ -83,7 +83,7 @@ interface CasesAccordionProps {
   onCheckChange: (id: string, checked: boolean) => void
   onDeleteRequest?: (caseData: CaseReadMinimal) => void
   tags?: CaseTagRead[]
-  members?: WorkspaceMember[]
+  members?: ActiveWorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
   /** When any sort direction is active, preserve the order from the hook */
   prioritySortDirection?: SortDirection

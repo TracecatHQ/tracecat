@@ -120,6 +120,21 @@ class WorkspaceMember(Schema):
     workspace_role: WorkspaceRole
 
 
+class WorkspaceMemberOrInvitation(Schema):
+    """Unified member representation — covers active members and pending invitations."""
+
+    user_id: UserID | None = None
+    invitation_id: InvitationID | None = None
+    email: EmailStr
+    first_name: str | None = None
+    last_name: str | None = None
+    workspace_role: WorkspaceRole
+    status: str  # "active" or "pending"
+    token: str | None = None
+    expires_at: datetime | None = None
+    created_at: datetime | None = None
+
+
 class WorkspaceRead(Schema):
     id: WorkspaceID
     name: str
@@ -167,6 +182,7 @@ class WorkspaceInvitationRead(Schema):
     expires_at: datetime
     accepted_at: datetime | None
     created_at: datetime
+    token: str | None = None
 
 
 class WorkspaceInvitationList(Schema):

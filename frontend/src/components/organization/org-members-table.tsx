@@ -9,10 +9,9 @@ import { z } from "zod"
 import {
   type OrgMemberRead,
   type OrgRole,
-  organizationGetInvitationToken,
   type UserRole,
   type WorkspaceRole,
-  workspacesCreateWorkspaceInvitation,
+  workspacesCreateWorkspaceMembership,
   workspacesUpdateWorkspaceMembership,
 } from "@/client"
 import {
@@ -524,13 +523,9 @@ export function OrgMembersTable() {
                               <>
                                 <DropdownMenuItem
                                   onSelect={async () => {
-                                    if (!member.invitation_id) return
+                                    if (!member.token) return
                                     try {
-                                      const { token } =
-                                        await organizationGetInvitationToken({
-                                          invitationId: member.invitation_id,
-                                        })
-                                      const url = `${window.location.origin}/invitations/accept?token=${token}`
+                                      const url = `${window.location.origin}/invitations/accept?token=${member.token}`
                                       await navigator.clipboard.writeText(url)
                                       toast({
                                         title: "Copied",
@@ -674,29 +669,29 @@ function AssignToWorkspaceDialog({
   const { workspaces } = useWorkspaceManager()
 
   const handleSubmit = useCallback(async () => {
-    if (!member?.email || !workspaceId) return
+    if (!member?.user_id || !workspaceId) return
     setIsPending(true)
     try {
-      await workspacesCreateWorkspaceInvitation({
+      await workspacesCreateWorkspaceMembership({
         workspaceId,
-        requestBody: { email: member.email, role: wsRole },
+        requestBody: { user_id: member.user_id, role: wsRole },
       })
       toast({
-        title: "Workspace invitation sent",
-        description: `${member.email} has been invited to the workspace.`,
+        title: "Added to workspace",
+        description: `${member.email} has been added to the workspace.`,
       })
       onOpenChange(false)
     } catch {
       toast({
         title: "Failed to assign workspace",
         description:
-          "An error occurred while creating the workspace invitation.",
+          "An error occurred while adding the member to the workspace.",
         variant: "destructive",
       })
     } finally {
       setIsPending(false)
     }
-  }, [member?.email, workspaceId, wsRole, onOpenChange])
+  }, [member?.user_id, member?.email, workspaceId, wsRole, onOpenChange])
 
   // Reset state when dialog opens
   useEffect(() => {
@@ -712,7 +707,7 @@ function AssignToWorkspaceDialog({
         <DialogHeader>
           <DialogTitle>Assign to workspace</DialogTitle>
           <DialogDescription>
-            Invite {member?.email} to a workspace.
+            Add {member?.email} to a workspace.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -752,8 +747,11 @@ function AssignToWorkspaceDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={!workspaceId || isPending}>
-            {isPending ? "Sending..." : "Assign"}
+          <Button
+            onClick={handleSubmit}
+            disabled={!workspaceId || !member?.user_id || isPending}
+          >
+            {isPending ? "Adding..." : "Assign"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -768,7 +766,7 @@ function ChangeUserRoleDialog({
 }: {
   selectedUser: OrgMemberRead | null
   setOpen: (open: boolean) => void
-  onConfirm: (role: UserRole) => void
+  onConfirm: (role: UserRole) => Promise<void>
 }) {
   const [newRole, setNewRole] = useState<UserRole>("basic")
   const [wsRoleChanges, setWsRoleChanges] = useState<
@@ -788,7 +786,7 @@ function ChangeUserRoleDialog({
     setIsSaving(true)
     try {
       // Update org role
-      onConfirm(newRole)
+      await onConfirm(newRole)
 
       // Update changed workspace roles
       const updates = Object.entries(wsRoleChanges)

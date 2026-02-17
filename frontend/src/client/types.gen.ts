@@ -3260,6 +3260,7 @@ export type OrgInvitationRead = {
   expires_at: string
   created_at: string
   accepted_at: string | null
+  token?: string | null
 }
 
 /**
@@ -3307,6 +3308,7 @@ export type OrgMemberRead = {
   last_login_at?: string | null
   expires_at?: string | null
   created_at?: string | null
+  token?: string | null
 }
 
 export type OrgMemberStatus = "active" | "inactive" | "invited"
@@ -6252,6 +6254,7 @@ export type WorkspaceInvitationRead = {
   expires_at: string
   accepted_at: string | null
   created_at: string
+  token?: string | null
 }
 
 /**
@@ -6272,12 +6275,20 @@ export type WorkspaceInvitationReadMinimal = {
   email_matches?: boolean | null
 }
 
-export type WorkspaceMember = {
-  user_id: string
-  first_name: string | null
-  last_name: string | null
+/**
+ * Unified member representation — covers active members and pending invitations.
+ */
+export type WorkspaceMemberOrInvitation = {
+  user_id?: string | null
+  invitation_id?: string | null
   email: string
+  first_name?: string | null
+  last_name?: string | null
   workspace_role: WorkspaceRole
+  status: string
+  token?: string | null
+  expires_at?: string | null
+  created_at?: string | null
 }
 
 export type WorkspaceMembershipCreate = {
@@ -6577,7 +6588,8 @@ export type WorkspacesListWorkspaceMembersData = {
   workspaceId: string
 }
 
-export type WorkspacesListWorkspaceMembersResponse = Array<WorkspaceMember>
+export type WorkspacesListWorkspaceMembersResponse =
+  Array<WorkspaceMemberOrInvitation>
 
 export type WorkspacesListWorkspaceMembershipsData = {
   workspaceId: string
@@ -9097,7 +9109,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkspaceMember>
+        200: Array<WorkspaceMemberOrInvitation>
         /**
          * Validation Error
          */

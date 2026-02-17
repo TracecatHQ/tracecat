@@ -313,6 +313,7 @@ async def list_org_members(
                     status=OrgMemberStatus.INVITED,
                     expires_at=inv.expires_at,
                     created_at=inv.created_at,
+                    token=inv.token,
                 )
             )
 
@@ -473,6 +474,7 @@ async def create_invitation(
         expires_at=invitation.expires_at,
         created_at=invitation.created_at,
         accepted_at=invitation.accepted_at,
+        token=invitation.token,
     )
 
 

@@ -46,7 +46,7 @@ export default function CasesPage() {
     currentPage,
   } = useCases()
 
-  const { members } = useWorkspaceMembers(workspaceId)
+  const { activeMembers: members } = useWorkspaceMembers(workspaceId)
   const { caseTags } = useCaseTagCatalog(workspaceId)
   const { isFeatureEnabled } = useFeatureFlag()
   const caseDropdownsEnabled = isFeatureEnabled("case-dropdowns")

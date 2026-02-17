@@ -947,10 +947,10 @@ export const workspacesDeleteWorkspace = (
 
 /**
  * List Workspace Members
- * List members of a workspace.
+ * List members and pending invitations of a workspace.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns WorkspaceMember Successful Response
+ * @returns WorkspaceMemberOrInvitation Successful Response
  * @throws ApiError
  */
 export const workspacesListWorkspaceMembers = (

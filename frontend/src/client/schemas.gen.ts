@@ -10105,6 +10105,17 @@ export const $OrgInvitationRead = {
       ],
       title: "Accepted At",
     },
+    token: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token",
+    },
   },
   type: "object",
   required: [
@@ -10362,6 +10373,17 @@ export const $OrgMemberRead = {
         },
       ],
       title: "Created At",
+    },
+    token: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token",
     },
   },
   type: "object",
@@ -20298,6 +20320,17 @@ export const $WorkspaceInvitationRead = {
       format: "date-time",
       title: "Created At",
     },
+    token: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token",
+    },
   },
   type: "object",
   required: [
@@ -20393,12 +20426,36 @@ Excludes sensitive fields to reduce information disclosure
 when querying by token.`,
 } as const
 
-export const $WorkspaceMember = {
+export const $WorkspaceMemberOrInvitation = {
   properties: {
     user_id: {
-      type: "string",
-      format: "uuid",
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "User Id",
+    },
+    invitation_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Invitation Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
     },
     first_name: {
       anyOf: [
@@ -20422,18 +20479,54 @@ export const $WorkspaceMember = {
       ],
       title: "Last Name",
     },
-    email: {
-      type: "string",
-      format: "email",
-      title: "Email",
-    },
     workspace_role: {
       $ref: "#/components/schemas/WorkspaceRole",
     },
+    status: {
+      type: "string",
+      title: "Status",
+    },
+    token: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token",
+    },
+    expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expires At",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
   },
   type: "object",
-  required: ["user_id", "first_name", "last_name", "email", "workspace_role"],
-  title: "WorkspaceMember",
+  required: ["email", "workspace_role", "status"],
+  title: "WorkspaceMemberOrInvitation",
+  description:
+    "Unified member representation — covers active members and pending invitations.",
 } as const
 
 export const $WorkspaceMembershipCreate = {

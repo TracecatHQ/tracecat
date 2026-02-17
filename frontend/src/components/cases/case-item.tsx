@@ -23,7 +23,6 @@ import type {
   CaseSeverity,
   CaseStatus,
   CaseTagRead,
-  WorkspaceMember,
 } from "@/client"
 import {
   casesAddTag,
@@ -58,6 +57,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { toast } from "@/components/ui/use-toast"
+import type { ActiveWorkspaceMember } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -70,7 +70,7 @@ interface CaseItemProps {
   onClick: () => void
   onDeleteRequest?: (caseData: CaseReadMinimal) => void
   tags?: CaseTagRead[]
-  members?: WorkspaceMember[]
+  members?: ActiveWorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
 }
 
