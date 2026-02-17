@@ -83,6 +83,15 @@ from tracecat.db.models import User, Workspace
 _CASE_FIELDS_SCHEMA_LOCK_ID = 0x7472616365636174  # "tracecat" in hex
 
 
+def _case_items(
+    result: list[types.CaseReadMinimal] | types.CaseListResponse,
+) -> list[types.CaseReadMinimal]:
+    """Normalize list/search case UDF outputs to case items."""
+    if isinstance(result, list):
+        return result
+    return result["items"]
+
+
 @pytest.fixture
 async def cases_test_role(svc_workspace: Workspace) -> Role:
     """Create a service role for case UDF tests."""
@@ -486,10 +495,9 @@ class TestListCases:
         await create_case(summary="Case 1", description="Description 1")
         await create_case(summary="Case 2", description="Description 2")
 
-        result = await list_cases()
+        result = _case_items(await list_cases())
 
         TypeAdapter(list[types.CaseReadMinimal]).validate_python(result)
-        assert isinstance(result, list)
         assert len(result) >= 2
         summaries = [c["summary"] for c in result]
         assert "Case 1" in summaries
@@ -502,7 +510,7 @@ class TestListCases:
         for i in range(5):
             await create_case(summary=f"Case {i}", description=f"Description {i}")
 
-        result = await list_cases(limit=3)
+        result = _case_items(await list_cases(limit=3))
 
         assert len(result) == 3
 
@@ -514,9 +522,10 @@ class TestListCases:
         await create_case(summary="High Priority", description="High", priority="high")
 
         # Order by priority descending
-        result = await list_cases(order_by="priority", sort="desc", limit=10)
+        result = _case_items(
+            await list_cases(order_by="priority", sort="desc", limit=10)
+        )
 
-        assert isinstance(result, list)
         assert len(result) >= 2
 
     async def test_list_cases_order_by_created_at(
@@ -526,11 +535,12 @@ class TestListCases:
         await create_case(summary="First Case", description="First")
         await create_case(summary="Second Case", description="Second")
 
-        result_asc = await list_cases(order_by="created_at", sort="asc", limit=10)
-        result_desc = await list_cases(order_by="created_at", sort="desc", limit=10)
-
-        assert isinstance(result_asc, list)
-        assert isinstance(result_desc, list)
+        result_asc = _case_items(
+            await list_cases(order_by="created_at", sort="asc", limit=10)
+        )
+        result_desc = _case_items(
+            await list_cases(order_by="created_at", sort="desc", limit=10)
+        )
         # The order should be different
         if len(result_asc) >= 2 and len(result_desc) >= 2:
             assert result_asc[0]["id"] != result_desc[0]["id"]
@@ -552,8 +562,12 @@ class TestSearchCases:
         await create_case(summary="Case A", description="A")
         await create_case(summary="Case B", description="B")
 
-        listed = await list_cases(limit=10, order_by="created_at", sort="desc")
-        searched = await search_cases(limit=10, order_by="created_at", sort="desc")
+        listed = _case_items(
+            await list_cases(limit=10, order_by="created_at", sort="desc")
+        )
+        searched = _case_items(
+            await search_cases(limit=10, order_by="created_at", sort="desc")
+        )
 
         TypeAdapter(list[types.CaseReadMinimal]).validate_python(searched)
         assert searched == listed
@@ -565,8 +579,8 @@ class TestSearchCases:
         for i in range(5):
             await create_case(summary=f"Case {i}", description=f"Description {i}")
 
-        searched = await search_cases(limit=3)
-        listed = await list_cases(limit=3)
+        searched = _case_items(await search_cases(limit=3))
+        listed = _case_items(await list_cases(limit=3))
 
         assert len(searched) == 3
         assert searched == listed
@@ -590,19 +604,23 @@ class TestSearchCases:
             severity="low",
         )
 
-        listed = await list_cases(
-            search_term="malware",
-            status="new",
-            priority="high",
-            severity="critical",
-            limit=10,
+        listed = _case_items(
+            await list_cases(
+                search_term="malware",
+                status="new",
+                priority="high",
+                severity="critical",
+                limit=10,
+            )
         )
-        searched = await search_cases(
-            search_term="malware",
-            status="new",
-            priority="high",
-            severity="critical",
-            limit=10,
+        searched = _case_items(
+            await search_cases(
+                search_term="malware",
+                status="new",
+                priority="high",
+                severity="critical",
+                limit=10,
+            )
         )
 
         assert searched == listed
