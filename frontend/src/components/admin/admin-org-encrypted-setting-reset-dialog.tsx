@@ -38,6 +38,55 @@ const SUGGESTED_ENCRYPTED_KEYS = [
   "saml_idp_metadata_url",
 ]
 
+function isStringRecord(value: unknown): value is Record<string, string> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false
+  }
+  return Object.values(value).every((item) => typeof item === "string")
+}
+
+function getExpectedTypeMessage(key: string): string | null {
+  switch (key) {
+    case "audit_webhook_url":
+    case "saml_idp_metadata_url":
+      return "Expected type: string | null"
+    case "audit_webhook_custom_headers":
+      return "Expected type: object<string, string> | null"
+    default:
+      return null
+  }
+}
+
+function getExpectedExample(key: string): string | null {
+  switch (key) {
+    case "audit_webhook_url":
+    case "saml_idp_metadata_url":
+      return '"https://example.com/webhook"'
+    case "audit_webhook_custom_headers":
+      return '{"X-Tracecat-Token":"secret"}'
+    default:
+      return null
+  }
+}
+
+function validateKnownSettingValue(key: string, value: unknown): string | null {
+  switch (key) {
+    case "audit_webhook_url":
+    case "saml_idp_metadata_url":
+      if (value === null || typeof value === "string") {
+        return null
+      }
+      return "Expected a JSON string or null."
+    case "audit_webhook_custom_headers":
+      if (value === null || isStringRecord(value)) {
+        return null
+      }
+      return "Expected a JSON object with string values, or null."
+    default:
+      return null
+  }
+}
+
 function getErrorDetail(error: unknown, fallback: string): string {
   if (typeof error === "object" && error !== null) {
     const apiError = error as ApiErrorLike
@@ -97,6 +146,16 @@ export function AdminOrgEncryptedSettingResetDialog({
         title: "Invalid JSON value",
         description:
           "Enter a valid JSON value. For strings, wrap the value in double quotes.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const valueValidationError = validateKnownSettingValue(key, parsedValue)
+    if (valueValidationError) {
+      toast({
+        title: "Invalid value for setting",
+        description: `${valueValidationError} (${key})`,
         variant: "destructive",
       })
       return
@@ -165,9 +224,21 @@ export function AdminOrgEncryptedSettingResetDialog({
               disabled={resetPending}
             />
             <p className="text-xs text-muted-foreground">
-              Use valid JSON. Example string:{" "}
-              <span className="font-mono">&quot;https://example.com&quot;</span>
-              .
+              Use valid JSON.
+              {getExpectedTypeMessage(settingKey.trim())
+                ? ` ${getExpectedTypeMessage(settingKey.trim())}.`
+                : " For unknown keys, only JSON syntax is validated in the UI."}
+            </p>
+            {getExpectedExample(settingKey.trim()) ? (
+              <p className="text-xs text-muted-foreground">
+                Example:{" "}
+                <span className="font-mono">
+                  {getExpectedExample(settingKey.trim())}
+                </span>
+              </p>
+            ) : null}
+            <p className="text-xs text-muted-foreground">
+              For plain strings, wrap the value in double quotes.
             </p>
           </div>
         </div>
