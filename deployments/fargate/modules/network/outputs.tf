@@ -17,3 +17,7 @@ output "private_route_table_ids" {
 output "acm_certificate_arn" {
   value = aws_acm_certificate.this.arn
 }
+
+output "nat_gateway_eips" {
+  value = aws_eip.gw[*].public_ip
+}
