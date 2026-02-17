@@ -9,12 +9,10 @@ import asyncio
 import hashlib
 import json
 import os
-import re
 import shutil
 import subprocess
 import tempfile
 import time
-from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -139,11 +137,6 @@ def _extract_dependency_base_name(dependency: str) -> str:
     return name.strip()
 
 
-def _normalize_distribution_name(name: str) -> str:
-    """Normalize a distribution name using PEP 503 rules."""
-    return re.sub(r"[-_.]+", "-", name).lower()
-
-
 def _extract_package_name(dependency: str) -> str:
     """Extract base package name from dependency spec."""
     base_name = _extract_dependency_base_name(dependency)
@@ -177,88 +170,7 @@ class UnsafePidExecutor:
             hash_input = "\n".join(normalized)
         return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
 
-    def _iter_site_packages_paths(self, venv_path: Path) -> list[Path]:
-        candidates: list[Path] = []
-        for lib_dir in ("lib", "lib64"):
-            lib_root = venv_path / lib_dir
-            if not lib_root.exists():
-                continue
-            for py_dir in sorted(lib_root.glob("python*")):
-                for subdir in ("site-packages", "dist-packages"):
-                    site_packages = py_dir / subdir
-                    if site_packages.exists():
-                        candidates.append(site_packages)
-
-        windows_site_packages = venv_path / "Lib" / "site-packages"
-        if windows_site_packages.exists():
-            candidates.append(windows_site_packages)
-
-        return candidates
-
-    def _get_dependency_import_names(
-        self,
-        venv_path: Path,
-        dependencies: list[str],
-    ) -> set[str]:
-        if not dependencies:
-            return set()
-
-        normalized_deps = {
-            _normalize_distribution_name(_extract_dependency_base_name(dep))
-            for dep in dependencies
-        }
-        normalized_deps.discard("")
-        if not normalized_deps:
-            return set()
-
-        import_names: set[str] = set()
-        for site_packages in self._iter_site_packages_paths(venv_path):
-            try:
-                distributions = metadata.distributions(path=[str(site_packages)])
-            except Exception as exc:
-                logger.debug(
-                    "Failed to read dependency metadata",
-                    site_packages=str(site_packages),
-                    error=str(exc),
-                )
-                continue
-
-            for dist in distributions:
-                dist_name = dist.metadata.get("Name")
-                if not dist_name:
-                    continue
-                if _normalize_distribution_name(dist_name) not in normalized_deps:
-                    continue
-
-                top_level = dist.read_text("top_level.txt")
-                if top_level:
-                    for line in top_level.splitlines():
-                        module_name = line.strip()
-                        if module_name:
-                            import_names.add(module_name)
-                else:
-                    import_names.add(_extract_package_name(dist_name))
-
-        return import_names
-
-    def _get_allowed_modules(
-        self,
-        dependencies: list[str],
-        venv_path: Path | None = None,
-    ) -> set[str]:
-        allowed: set[str] = set()
-        for dep in dependencies:
-            base_name = _extract_dependency_base_name(dep)
-            if not base_name:
-                continue
-            allowed.add(base_name.replace("-", "_"))
-
-        if venv_path is not None:
-            allowed.update(self._get_dependency_import_names(venv_path, dependencies))
-
-        return allowed
-
-    def _is_pid_namespace_available(self) -> bool:
+    async def _is_pid_namespace_available(self) -> bool:
         if self._pid_namespace_available is not None:
             return self._pid_namespace_available
 
@@ -267,21 +179,30 @@ class UnsafePidExecutor:
             return False
 
         try:
-            probe = subprocess.run(
-                ["unshare", "--pid", "--fork", "--kill-child", "true"],
-                check=False,
+            probe = await asyncio.create_subprocess_exec(
+                "unshare",
+                "--pid",
+                "--fork",
+                "--kill-child",
+                "true",
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=2,
             )
+            await asyncio.wait_for(probe.wait(), timeout=2)
             self._pid_namespace_available = probe.returncode == 0
+        except TimeoutError:
+            probe.kill()
+            await probe.wait()
+            self._pid_namespace_available = False
         except Exception:
             self._pid_namespace_available = False
         return self._pid_namespace_available
 
-    def _build_execution_cmd(self, python_path: str, wrapper_path: Path) -> list[str]:
+    async def _build_execution_cmd(
+        self, python_path: str, wrapper_path: Path
+    ) -> list[str]:
         base_cmd = [python_path, str(wrapper_path)]
-        if self._is_pid_namespace_available():
+        if await self._is_pid_namespace_available():
             return ["unshare", "--pid", "--fork", "--kill-child", *base_cmd]
 
         logger.warning(
@@ -372,7 +293,7 @@ class UnsafePidExecutor:
             timeout_seconds = TRACECAT__SANDBOX_DEFAULT_TIMEOUT
 
         start_time = time.time()
-        if not allow_network:
+        if allow_network:
             logger.info(
                 "allow_network is not enforced without nsjail; configure nsjail for network isolation"
             )
@@ -426,7 +347,7 @@ class UnsafePidExecutor:
             if env_vars:
                 exec_env.update(env_vars)
 
-            cmd = self._build_execution_cmd(python_path, wrapper_path)
+            cmd = await self._build_execution_cmd(python_path, wrapper_path)
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,

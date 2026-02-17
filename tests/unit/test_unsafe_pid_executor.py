@@ -19,11 +19,19 @@ class TestUnsafePidExecutor:
     def executor(self, tmp_path) -> UnsafePidExecutor:
         return UnsafePidExecutor(cache_dir=str(tmp_path))
 
-    def test_build_execution_cmd_with_pid_namespace(
+    @pytest.mark.anyio
+    async def test_build_execution_cmd_with_pid_namespace(
         self, executor: UnsafePidExecutor, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(executor, "_is_pid_namespace_available", lambda: True)
-        cmd = executor._build_execution_cmd(
+        async def pid_namespace_available() -> bool:
+            return True
+
+        monkeypatch.setattr(
+            executor,
+            "_is_pid_namespace_available",
+            pid_namespace_available,
+        )
+        cmd = await executor._build_execution_cmd(
             "python3", executor.cache_dir / "wrapper.py"
         )
         assert cmd[:4] == ["unshare", "--pid", "--fork", "--kill-child"]
@@ -39,6 +47,7 @@ def main():
         assert result.output == 42
 
     @pytest.mark.anyio
+    @pytest.mark.integration
     async def test_execute_does_not_inherit_process_env(
         self, executor: UnsafePidExecutor, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -66,3 +75,25 @@ def main():
         result = await executor.execute(script=script, env_vars={"INJECTED": "value"})
         assert result.success
         assert result.output == "value"
+
+    @pytest.mark.anyio
+    async def test_allow_network_warning_logs_only_when_enabled(
+        self, executor: UnsafePidExecutor, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        script = """
+def main():
+    return "ok"
+"""
+        caplog.clear()
+        await executor.execute(script=script)
+        assert not any(
+            "allow_network is not enforced without nsjail" in record.message
+            for record in caplog.records
+        )
+
+        caplog.clear()
+        await executor.execute(script=script, allow_network=True)
+        assert any(
+            "allow_network is not enforced without nsjail" in record.message
+            for record in caplog.records
+        )
