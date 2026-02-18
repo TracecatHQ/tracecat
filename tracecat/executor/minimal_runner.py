@@ -13,7 +13,9 @@ Key design:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
+import io
 import os
 import warnings
 from collections.abc import Mapping
@@ -339,8 +341,29 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         if evaluated_args is None:
             raise ValueError("Missing evaluated_args in resolved_context")
 
-        # Run the action with pre-evaluated args
-        result = run_action_minimal(action_impl, evaluated_args, secrets)
+        # Run the action with pre-evaluated args.
+        # Capture action-level stdout/stderr to prevent protocol corruption.
+        # The direct executor parses this process stdout as JSON bytes.
+        action_stdout = io.StringIO()
+        action_stderr = io.StringIO()
+        with (
+            contextlib.redirect_stdout(action_stdout),
+            contextlib.redirect_stderr(action_stderr),
+        ):
+            result = run_action_minimal(action_impl, evaluated_args, secrets)
+
+        if captured_stdout := action_stdout.getvalue().strip():
+            warnings.warn(
+                f"Action emitted stdout output that was suppressed: {captured_stdout[:500]}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        if captured_stderr := action_stderr.getvalue().strip():
+            warnings.warn(
+                f"Action emitted stderr output that was suppressed: {captured_stderr[:500]}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
         return {"success": True, "result": result}
 
