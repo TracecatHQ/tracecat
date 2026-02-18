@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import sys
 import types
+from typing import Any
 
 from tracecat.executor import minimal_runner
 
 
 def test_main_minimal_suppresses_action_stdout_and_stderr(monkeypatch) -> None:
-    test_module = types.ModuleType("test_module")
+    test_module: Any = types.ModuleType("test_module")
 
     def noisy_action() -> dict[str, str]:
         print("noisy stdout line")
@@ -42,7 +43,7 @@ def test_main_minimal_suppresses_action_stdout_and_stderr(monkeypatch) -> None:
 def test_main_minimal_returns_structured_error_for_action_exceptions(
     monkeypatch,
 ) -> None:
-    test_module = types.ModuleType("test_module")
+    test_module: Any = types.ModuleType("test_module")
 
     def boom_action() -> None:
         raise ValueError("boom")
