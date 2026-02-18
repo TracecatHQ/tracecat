@@ -152,6 +152,8 @@ class CasesClient:
         self,
         *,
         limit: int = 20,
+        cursor: str | Unset = UNSET,
+        reverse: bool | Unset = UNSET,
         order_by: str | Unset = UNSET,
         sort: Literal["asc", "desc"] | Unset = UNSET,
     ) -> types.CaseListResponse:
@@ -159,6 +161,8 @@ class CasesClient:
 
         Args:
             limit: Maximum items per page.
+            cursor: Pagination cursor.
+            reverse: Reverse pagination direction.
             order_by: Column to order by.
             sort: Sort direction.
 
@@ -166,6 +170,10 @@ class CasesClient:
             Paginated list of cases with cursor metadata.
         """
         params: dict[str, Any] = {"limit": limit}
+        if is_set(cursor):
+            params["cursor"] = cursor
+        if is_set(reverse):
+            params["reverse"] = reverse
         if is_set(order_by):
             params["order_by"] = order_by
         if is_set(sort):

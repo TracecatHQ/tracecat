@@ -571,6 +571,8 @@ class CasesService(BaseWorkspaceService):
     async def list_cases(
         self,
         limit: int,
+        cursor: str | None = None,
+        reverse: bool = False,
         order_by: Literal[
             "created_at", "updated_at", "priority", "severity", "status", "tasks"
         ]
@@ -579,7 +581,7 @@ class CasesService(BaseWorkspaceService):
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """List cases with a simplified default search query."""
         return await self.search_cases(
-            params=CursorPaginationParams(limit=limit, cursor=None, reverse=False),
+            params=CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
             order_by=order_by,
             sort=sort,
         )

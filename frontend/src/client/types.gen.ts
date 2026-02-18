@@ -8212,6 +8212,10 @@ export type TablesImportCsvResponse = TableRowInsertBatchResponse
 
 export type CasesListCasesData = {
   /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  /**
    * Maximum items per page
    */
   limit?: number
@@ -8226,6 +8230,10 @@ export type CasesListCasesData = {
     | "status"
     | "tasks"
     | null
+  /**
+   * Reverse pagination direction
+   */
+  reverse?: boolean
   /**
    * Direction to sort (asc or desc)
    */

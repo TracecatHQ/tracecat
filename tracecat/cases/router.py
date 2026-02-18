@@ -97,6 +97,8 @@ async def list_cases(
         le=config.TRACECAT__LIMIT_CURSOR_MAX,
         description="Maximum items per page",
     ),
+    cursor: str | None = Query(None, description="Cursor for pagination"),
+    reverse: bool = Query(False, description="Reverse pagination direction"),
     order_by: Literal[
         "created_at", "updated_at", "priority", "severity", "status", "tasks"
     ]
@@ -114,6 +116,8 @@ async def list_cases(
     try:
         cases = await service.list_cases(
             limit=limit,
+            cursor=cursor,
+            reverse=reverse,
             order_by=order_by,
             sort=sort,
         )

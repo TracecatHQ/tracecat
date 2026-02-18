@@ -6328,6 +6328,8 @@ export const tablesImportCsv = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.limit Maximum items per page
+ * @param data.cursor Cursor for pagination
+ * @param data.reverse Reverse pagination direction
  * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
@@ -6341,6 +6343,8 @@ export const casesListCases = (
     url: "/cases",
     query: {
       limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
       order_by: data.orderBy,
       sort: data.sort,
       workspace_id: data.workspaceId,

@@ -267,6 +267,14 @@ async def list_cases(
         int,
         Doc("Maximum number of cases to return."),
     ] = 100,
+    cursor: Annotated[
+        str | None,
+        Doc("Pagination cursor. Only used when paginate=true."),
+    ] = None,
+    reverse: Annotated[
+        bool,
+        Doc("Reverse pagination direction. Only used when paginate=true."),
+    ] = False,
     order_by: Annotated[
         Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
         | None,
@@ -287,6 +295,10 @@ async def list_cases(
         )
 
     params: dict[str, Any] = {"limit": limit}
+    if paginate and cursor is not None:
+        params["cursor"] = cursor
+    if paginate and reverse:
+        params["reverse"] = reverse
     if order_by is not None:
         params["order_by"] = order_by
     if sort is not None:
@@ -352,6 +364,14 @@ async def search_cases(
         int,
         Doc("Maximum number of cases to return."),
     ] = 100,
+    cursor: Annotated[
+        str | None,
+        Doc("Pagination cursor. Only used when paginate=true."),
+    ] = None,
+    reverse: Annotated[
+        bool,
+        Doc("Reverse pagination direction. Only used when paginate=true."),
+    ] = False,
     order_by: Annotated[
         Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
         | None,
@@ -373,6 +393,10 @@ async def search_cases(
         )
 
     params: dict[str, Any] = {"limit": limit}
+    if paginate and cursor is not None:
+        params["cursor"] = cursor
+    if paginate and reverse:
+        params["reverse"] = reverse
     if search_term is not None:
         params["search_term"] = search_term
     if status is not None:
