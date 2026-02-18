@@ -126,12 +126,6 @@ variable "spot_node_max_size" {
 }
 
 # Tracecat Configuration
-variable "tracecat_version" {
-  description = "Version of the Tracecat Helm chart to deploy"
-  type        = string
-  default     = ""
-}
-
 variable "tracecat_image_tag" {
   description = "Docker image tag for Tracecat services"
   type        = string

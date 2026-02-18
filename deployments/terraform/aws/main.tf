@@ -41,7 +41,6 @@ module "eks" {
   # Tracecat Configuration
   domain_name            = var.domain_name
   hosted_zone_id         = var.hosted_zone_id
-  tracecat_version       = var.tracecat_version
   tracecat_image_tag     = var.tracecat_image_tag
   tracecat_ingress_split = var.tracecat_ingress_split
   superadmin_email       = var.superadmin_email
