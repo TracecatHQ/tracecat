@@ -405,7 +405,7 @@ class TestCaseAssigneeIntegration:
 
         # Get all cases
         all_cases = (
-            await cases_service.list_cases(
+            await cases_service.search_cases(
                 CursorPaginationParams(limit=100, cursor=None, reverse=False)
             )
         ).items

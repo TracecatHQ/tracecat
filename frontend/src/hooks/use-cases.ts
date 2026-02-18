@@ -8,8 +8,8 @@ import {
   type CaseReadMinimal,
   type CaseSeverity,
   type CaseStatus,
-  type CasesListCasesResponse,
-  casesListCases,
+  type CasesSearchCasesResponse,
+  casesSearchCases,
 } from "@/client"
 import type { FilterMode, SortDirection } from "@/components/cases/cases-header"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
@@ -370,10 +370,10 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     isLoading,
     error,
     refetch,
-  } = useQuery<CasesListCasesResponse, TracecatApiError>({
+  } = useQuery<CasesSearchCasesResponse, TracecatApiError>({
     queryKey: ["cases", workspaceId, serverQueryKey, currentCursor],
     queryFn: () =>
-      casesListCases({
+      casesSearchCases({
         workspaceId,
         ...queryParams,
       }),

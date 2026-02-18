@@ -80,6 +80,57 @@ async def list_cases(
     ),
     cursor: str | None = Query(None, description="Cursor for pagination"),
     reverse: bool = Query(False, description="Reverse pagination direction"),
+    order_by: Literal[
+        "created_at", "updated_at", "priority", "severity", "status", "tasks"
+    ]
+    | None = Query(
+        None,
+        description="Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at",
+    ),
+    sort: Literal["asc", "desc"] | None = Query(
+        None, description="Direction to sort (asc or desc)"
+    ),
+) -> CursorPaginatedResponse[CaseReadMinimal]:
+    service = CasesService(session, role)
+
+    try:
+        cases = await service.list_cases(
+            limit=limit,
+            cursor=cursor,
+            reverse=reverse,
+            order_by=order_by,
+            sort=sort,
+        )
+    except ValueError as e:
+        logger.warning(f"Invalid request for list cases: {e}")
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail="Invalid request for list cases",
+        ) from e
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to list cases: {e}")
+        raise HTTPException(
+            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve cases",
+        ) from e
+    return cases
+
+
+@router.get("/search")
+async def search_cases(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    limit: int = Query(
+        config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+        description="Maximum items per page",
+    ),
+    cursor: str | None = Query(None, description="Cursor for pagination"),
+    reverse: bool = Query(False, description="Reverse pagination direction"),
     search_term: str | None = Query(
         None,
         description="Text to search for in case summary, description, or short ID",
@@ -170,7 +221,7 @@ async def list_cases(
             parsed_dropdown_filters.setdefault(def_ref, []).append(opt_ref)
 
     try:
-        cases = await service.list_cases(
+        return await service.search_cases(
             pagination_params,
             search_term=search_term,
             status=status,
@@ -188,99 +239,19 @@ async def list_cases(
             sort=sort,
         )
     except ValueError as e:
-        logger.warning(f"Invalid request for list cases: {e}")
+        logger.warning(f"Invalid request for search cases: {e}")
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
-            detail="Invalid request for list cases",
+            detail="Invalid request for search cases",
         ) from e
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to list cases: {e}")
+        logger.error(f"Failed to search cases: {e}")
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve cases",
         ) from e
-    return cases
-
-
-@router.get("/search")
-async def search_cases(
-    *,
-    role: ExecutorWorkspaceRole,
-    session: AsyncDBSession,
-    limit: int = Query(
-        config.TRACECAT__LIMIT_DEFAULT,
-        ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CURSOR_MAX,
-        description="Maximum items per page",
-    ),
-    cursor: str | None = Query(None, description="Cursor for pagination"),
-    reverse: bool = Query(False, description="Reverse pagination direction"),
-    search_term: str | None = Query(
-        None,
-        description="Text to search for in case summary, description, or short ID",
-    ),
-    status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
-    priority: list[CasePriority] | None = Query(
-        None, description="Filter by case priority"
-    ),
-    severity: list[CaseSeverity] | None = Query(
-        None, description="Filter by case severity"
-    ),
-    assignee_id: list[str] | None = Query(
-        None, description="Filter by assignee ID or 'unassigned'"
-    ),
-    tags: list[str] | None = Query(
-        None, description="Filter by tag IDs or slugs (AND logic)"
-    ),
-    dropdown: list[str] | None = Query(
-        None,
-        description="Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)",
-    ),
-    start_time: datetime | None = Query(
-        None, description="Return cases created at or after this timestamp"
-    ),
-    end_time: datetime | None = Query(
-        None, description="Return cases created at or before this timestamp"
-    ),
-    updated_after: datetime | None = Query(
-        None, description="Return cases updated at or after this timestamp"
-    ),
-    updated_before: datetime | None = Query(
-        None, description="Return cases updated at or before this timestamp"
-    ),
-    order_by: Literal[
-        "created_at", "updated_at", "priority", "severity", "status", "tasks"
-    ]
-    | None = Query(
-        None,
-        description="Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at",
-    ),
-    sort: Literal["asc", "desc"] | None = Query(
-        None, description="Direction to sort (asc or desc)"
-    ),
-) -> CursorPaginatedResponse[CaseReadMinimal]:
-    return await list_cases(
-        role=role,
-        session=session,
-        limit=limit,
-        cursor=cursor,
-        reverse=reverse,
-        search_term=search_term,
-        status=status,
-        priority=priority,
-        severity=severity,
-        assignee_id=assignee_id,
-        tags=tags,
-        dropdown=dropdown,
-        start_time=start_time,
-        end_time=end_time,
-        updated_after=updated_after,
-        updated_before=updated_before,
-        order_by=order_by,
-        sort=sort,
-    )
 
 
 @router.get("/{case_id}")

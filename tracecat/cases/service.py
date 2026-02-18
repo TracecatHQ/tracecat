@@ -187,7 +187,7 @@ class CasesService(BaseWorkspaceService):
 
         return counts
 
-    async def list_cases(
+    async def search_cases(
         self,
         params: CursorPaginationParams,
         search_term: str | None = None,
@@ -208,7 +208,7 @@ class CasesService(BaseWorkspaceService):
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
-        """List cases with cursor-based pagination and filtering."""
+        """Search cases with cursor-based pagination and filtering."""
         paginator = BaseCursorPaginator(self.session)
         filters: list[Any] = [Case.workspace_id == self.workspace_id]
 
@@ -568,42 +568,20 @@ class CasesService(BaseWorkspaceService):
             total_estimate=total_estimate,
         )
 
-    async def search_cases(
+    async def list_cases(
         self,
-        params: CursorPaginationParams,
-        search_term: str | None = None,
-        status: CaseStatus | Sequence[CaseStatus] | None = None,
-        priority: CasePriority | Sequence[CasePriority] | None = None,
-        severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
-        assignee_ids: Sequence[uuid.UUID] | None = None,
-        include_unassigned: bool = False,
-        tag_ids: list[uuid.UUID] | None = None,
-        dropdown_filters: dict[str, list[str]] | None = None,
-        start_time: datetime | None = None,
-        end_time: datetime | None = None,
-        updated_before: datetime | None = None,
-        updated_after: datetime | None = None,
+        limit: int,
+        cursor: str | None = None,
+        reverse: bool = False,
         order_by: Literal[
             "created_at", "updated_at", "priority", "severity", "status", "tasks"
         ]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
-        """Alias for list_cases with identical inputs/outputs."""
-        return await self.list_cases(
-            params=params,
-            search_term=search_term,
-            status=status,
-            priority=priority,
-            severity=severity,
-            assignee_ids=assignee_ids,
-            include_unassigned=include_unassigned,
-            tag_ids=tag_ids,
-            dropdown_filters=dropdown_filters,
-            start_time=start_time,
-            end_time=end_time,
-            updated_before=updated_before,
-            updated_after=updated_after,
+        """List cases with a simplified default search query."""
+        return await self.search_cases(
+            params=CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
             order_by=order_by,
             sort=sort,
         )

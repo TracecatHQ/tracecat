@@ -8239,21 +8239,9 @@ export type TablesImportCsvResponse = TableRowInsertBatchResponse
 
 export type CasesListCasesData = {
   /**
-   * Filter by assignee ID or 'unassigned'
-   */
-  assigneeId?: Array<string> | null
-  /**
    * Cursor for pagination
    */
   cursor?: string | null
-  /**
-   * Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
-   */
-  dropdown?: Array<string> | null
-  /**
-   * Return cases created at or before this timestamp
-   */
-  endTime?: string | null
   /**
    * Maximum items per page
    */
@@ -8270,45 +8258,13 @@ export type CasesListCasesData = {
     | "tasks"
     | null
   /**
-   * Filter by case priority
-   */
-  priority?: Array<CasePriority> | null
-  /**
    * Reverse pagination direction
    */
   reverse?: boolean
   /**
-   * Text to search for in case summary, description, or short ID
-   */
-  searchTerm?: string | null
-  /**
-   * Filter by case severity
-   */
-  severity?: Array<CaseSeverity> | null
-  /**
    * Direction to sort (asc or desc)
    */
   sort?: "asc" | "desc" | null
-  /**
-   * Return cases created at or after this timestamp
-   */
-  startTime?: string | null
-  /**
-   * Filter by case status
-   */
-  status?: Array<CaseStatus> | null
-  /**
-   * Filter by tag IDs or slugs (AND logic)
-   */
-  tags?: Array<string> | null
-  /**
-   * Return cases updated at or after this timestamp
-   */
-  updatedAfter?: string | null
-  /**
-   * Return cases updated at or before this timestamp
-   */
-  updatedBefore?: string | null
   workspaceId: string
 }
 

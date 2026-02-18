@@ -5,9 +5,9 @@ import type {
   CaseReadMinimal,
   CaseSeverity,
   CaseStatus,
-  CasesListCasesData,
+  CasesSearchCasesData,
 } from "@/client"
-import { casesListCases } from "@/client"
+import { casesSearchCases } from "@/client"
 import {
   type CursorPaginationResponse,
   useCursorPagination,
@@ -36,10 +36,10 @@ export function useCasesPagination({
   tags,
 }: UseCasesPaginationParams) {
   // Wrapper function to adapt the API response to our generic interface
-  const adaptedCasesListCases = async (
-    params: CasesListCasesData
+  const adaptedCasesSearchCases = async (
+    params: CasesSearchCasesData
   ): Promise<CursorPaginationResponse<CaseReadMinimal>> => {
-    const response = await casesListCases({
+    const response = await casesSearchCases({
       ...params,
       searchTerm,
       status: status && status.length ? status : null,
@@ -58,7 +58,7 @@ export function useCasesPagination({
     }
   }
 
-  return useCursorPagination<CaseReadMinimal, CasesListCasesData>({
+  return useCursorPagination<CaseReadMinimal, CasesSearchCasesData>({
     workspaceId,
     limit,
     queryKey: [
@@ -74,6 +74,6 @@ export function useCasesPagination({
         : null,
       tags ? [...tags].sort().join(",") : null,
     ],
-    queryFn: adaptedCasesListCases,
+    queryFn: adaptedCasesSearchCases,
   })
 }
