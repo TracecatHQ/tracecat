@@ -1,8 +1,6 @@
 """RBAC scope definitions for Tracecat.
 
-This module defines the default scope sets for:
-- System workspace roles (Viewer, Editor, Admin)
-- Organization roles (Owner, Admin, Member)
+This module defines the default scope sets for preset roles.
 
 Scopes follow the OAuth 2.0 format: `{resource}:{action}`
 
@@ -17,7 +15,7 @@ Standard actions (ordered by privilege):
 from __future__ import annotations
 
 # =============================================================================
-# Viewer Role Scopes (read-only)
+# Workspace Role Scopes
 # =============================================================================
 
 VIEWER_SCOPES: frozenset[str] = frozenset(
@@ -32,10 +30,6 @@ VIEWER_SCOPES: frozenset[str] = frozenset(
         "workspace:member:read",
     }
 )
-
-# =============================================================================
-# Editor Role Scopes (create/edit, no delete or admin)
-# =============================================================================
 
 EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
     {
@@ -55,10 +49,6 @@ EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
         "action:core.*:execute",
     }
 )
-
-# =============================================================================
-# Admin Role Scopes (full workspace capabilities)
-# =============================================================================
 
 ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
     {
@@ -81,21 +71,11 @@ ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
 )
 
 # =============================================================================
-# Preset Role -> Scope Set Mapping
-# =============================================================================
-
-PRESET_ROLE_SCOPES: dict[str, frozenset[str]] = {
-    "workspace-viewer": VIEWER_SCOPES,
-    "workspace-editor": EDITOR_SCOPES,
-    "workspace-admin": ADMIN_SCOPES,
-}
-
-# =============================================================================
 # Organization Role Scopes
 # =============================================================================
 
-# Note: Org OWNER/ADMIN roles grant implicit access to ALL workspaces in the org.
-# These scopes define WHAT they can do, not WHERE (tier determines container access).
+# Org OWNER/ADMIN roles grant implicit access to ALL workspaces in the org.
+# These scopes define WHAT they can do, not WHERE.
 
 ORG_OWNER_SCOPES: frozenset[str] = frozenset(
     {
@@ -220,10 +200,15 @@ ORG_MEMBER_SCOPES: frozenset[str] = frozenset(
 )
 
 # =============================================================================
-# Organization Role -> Scope Set Mapping
+# Preset Role -> Scope Set Mapping
 # =============================================================================
 
-ORG_ROLE_SCOPES: dict[str, frozenset[str]] = {
+PRESET_ROLE_SCOPES: dict[str, frozenset[str]] = {
+    # Workspace roles
+    "workspace-viewer": VIEWER_SCOPES,
+    "workspace-editor": EDITOR_SCOPES,
+    "workspace-admin": ADMIN_SCOPES,
+    # Organization roles
     "organization-owner": ORG_OWNER_SCOPES,
     "organization-admin": ORG_ADMIN_SCOPES,
     "organization-member": ORG_MEMBER_SCOPES,

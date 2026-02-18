@@ -49,6 +49,7 @@ from tracecat.auth.users import (
     auth_backend,
     fastapi_users,
 )
+from tracecat.authz.seeding import seed_all_system_data
 from tracecat.cases.attachments.internal_router import (
     router as internal_case_attachments_router,
 )
@@ -75,6 +76,7 @@ from tracecat.cases.tags.router import router as case_tags_router
 from tracecat.cases.triggers.consumer import start_case_trigger_consumer
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
 from tracecat.feature_flags import (
@@ -154,6 +156,9 @@ async def lifespan(app: FastAPI):
         )
 
     await ensure_default_organization()
+
+    async with get_async_session_context_manager() as session:
+        await setup_rbac_defaults(session)
 
     # Spawn platform registry sync as background task (non-blocking)
     # Uses leader election to prevent race conditions across multiple API processes
@@ -235,6 +240,16 @@ async def setup_workspace_defaults(session: AsyncSession, admin_role: Role):
             logger.info("Default workspace created", workspace=default_workspace)
         except IntegrityError:
             logger.info("Default workspace already exists, skipping")
+
+
+async def setup_rbac_defaults(session: AsyncSession):
+    """Seed system scopes and roles for RBAC."""
+    try:
+        result = await seed_all_system_data(session)
+        logger.info("RBAC defaults seeded", **result)
+    except Exception as e:
+        logger.warning("Failed to seed RBAC defaults", error=str(e))
+        # Don't fail startup if seeding fails - RBAC tables may not exist yet
 
 
 # Catch-all exception handler to prevent stack traces from leaking

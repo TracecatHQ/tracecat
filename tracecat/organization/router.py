@@ -353,13 +353,13 @@ async def update_org_member(
 ) -> OrgMemberDetail:
     service = OrgService(session, role=role)
     try:
-        user, org_role = await service.update_member(user_id, params)
+        user, role_info = await service.update_member(user_id, params)
         return OrgMemberDetail(
             user_id=user.id,
             first_name=user.first_name,
             last_name=user.last_name,
             email=user.email,
-            role=org_role,
+            role=role_info,
             is_active=user.is_active,
             is_verified=user.is_verified,
             last_login_at=user.last_login_at,
@@ -444,6 +444,32 @@ async def create_invitation(
         created_at=invitation.created_at,
         accepted_at=invitation.accepted_at,
     )
+
+
+@router.get("/invitations", response_model=list[OrgInvitationRead])
+async def list_invitations(
+    *,
+    role: OrgAdminRole,
+    session: AsyncDBSession,
+    invitation_status: InvitationStatus | None = Query(None, alias="status"),
+) -> list[OrgInvitationRead]:
+    """List invitations for the organization."""
+    service = OrgService(session, role=role)
+    invitations = await service.list_invitations(status=invitation_status)
+    return [
+        OrgInvitationRead(
+            id=inv.id,
+            organization_id=inv.organization_id,
+            email=inv.email,
+            role=inv.role,
+            status=inv.status,
+            invited_by=inv.invited_by,
+            expires_at=inv.expires_at,
+            created_at=inv.created_at,
+            accepted_at=inv.accepted_at,
+        )
+        for inv in invitations
+    ]
 
 
 @router.delete("/invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
