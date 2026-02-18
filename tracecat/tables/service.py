@@ -867,7 +867,6 @@ class BaseTablesService(BaseWorkspaceService):
         await conn.execute(stmt)
         await self.session.flush()
 
-    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def batch_delete_rows(self, table: Table, row_ids: list[UUID]) -> int:
         """Delete multiple rows from the table.
 
@@ -887,7 +886,6 @@ class BaseTablesService(BaseWorkspaceService):
         await self.session.flush()
         return result.rowcount
 
-    @require_workspace_role(WorkspaceRole.ADMIN, WorkspaceRole.EDITOR)
     async def batch_update_rows(
         self, table: Table, row_ids: list[UUID], data: dict[str, Any]
     ) -> int:

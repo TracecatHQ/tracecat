@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole
-from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_MEMBER_SCOPES
+from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_MEMBER_SCOPES, ORG_OWNER_SCOPES
 from tracecat.db.models import (
     AccessToken,
     Organization,
@@ -358,7 +358,7 @@ class TestOrganizationServiceDeleteOrganization:
             type="user",
             user_id=admin_in_org1.id,
             organization_id=org1.id,
-            access_level=AccessLevel.ADMIN,
+            scopes=ORG_OWNER_SCOPES,
             org_role=OrgRole.OWNER,
             service_id="tracecat-api",
             is_platform_superuser=False,
@@ -389,8 +389,8 @@ class TestOrganizationServiceDeleteOrganization:
             type="user",
             user_id=admin_in_org1.id,
             organization_id=org1.id,
-            access_level=AccessLevel.ADMIN,
             org_role=OrgRole.OWNER,
+            scopes=ORG_OWNER_SCOPES,
             service_id="tracecat-api",
             is_platform_superuser=False,
         )

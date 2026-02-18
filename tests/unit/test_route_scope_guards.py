@@ -100,7 +100,6 @@ async def test_table_update_row_requires_table_update_scope() -> None:
     ("endpoint", "required_scope"),
     [
         (inbox_router.list_items, "inbox:read"),
-        (inbox_router.list_items_paginated, "inbox:read"),
     ],
 )
 async def test_inbox_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:

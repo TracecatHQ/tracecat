@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
+from tracecat.cases.service import CaseFieldsService
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
     Membership,
@@ -30,7 +31,6 @@ from tracecat.tiers.exceptions import DefaultTierNotConfiguredError
 from tracecat.tiers.service import TierService
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workspaces.service import WorkspaceService
-from tracecat.cases.service import CaseFieldsService
 
 
 async def ensure_organization_defaults(

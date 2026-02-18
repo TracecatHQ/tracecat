@@ -250,6 +250,7 @@ async def get_workflow_execution_compact(
 
 
 @router.post("/{execution_id:path}/objects/download")
+@require_scope("workflow:read")
 async def get_workflow_execution_object_download(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
@@ -313,6 +314,7 @@ async def get_workflow_execution_object_download(
 
 
 @router.post("/{execution_id:path}/objects/preview")
+@require_scope("workflow:read")
 async def get_workflow_execution_object_preview(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,

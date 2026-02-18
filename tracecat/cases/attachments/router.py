@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
 from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
+from tracecat.authz.controls import require_scope
 from tracecat.cases.attachments.schemas import (
     CaseAttachmentCreate,
     CaseAttachmentDownloadResponse,
@@ -39,6 +40,7 @@ WorkspaceUser = Annotated[
 
 
 @router.get("")
+@require_scope("case:read")
 async def list_attachments(
     *,
     role: WorkspaceUser,
@@ -77,6 +79,7 @@ async def list_attachments(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
+@require_scope("case:update")
 async def create_attachment(
     *,
     role: WorkspaceUser,
@@ -331,6 +334,7 @@ async def create_attachment(
 
 
 @router.get("/{attachment_id}")
+@require_scope("case:read")
 async def download_attachment(
     *,
     role: WorkspaceUser,
@@ -400,6 +404,7 @@ async def download_attachment(
 @router.delete(
     "/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
 )
+@require_scope("case:update")
 async def delete_attachment(
     *,
     role: WorkspaceUser,

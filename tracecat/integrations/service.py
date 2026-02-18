@@ -14,7 +14,12 @@ from sqlalchemy import and_, or_, select, update
 
 from tracecat import config
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import MCPIntegration, OAuthIntegration, WorkspaceOAuthProvider
+from tracecat.db.models import (
+    AgentPreset,
+    MCPIntegration,
+    OAuthIntegration,
+    WorkspaceOAuthProvider,
+)
 from tracecat.identifiers import UserID
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.providers import get_provider_class

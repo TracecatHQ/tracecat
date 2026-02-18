@@ -70,7 +70,7 @@ async def list_attachments(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-@require_scope("case:create")
+@require_scope("case:update")
 async def create_attachment(
     *,
     role: ExecutorWorkspaceRole,
@@ -222,7 +222,7 @@ async def download_attachment_content(
 
 
 @router.delete("/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("case:delete")
+@require_scope("case:update")
 async def delete_attachment(
     *,
     role: ExecutorWorkspaceRole,

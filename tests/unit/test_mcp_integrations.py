@@ -17,8 +17,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
-from tracecat.db.models import AgentPreset, MCPIntegration, OAuthIntegration
 from tracecat.authz.scopes import ADMIN_SCOPES
+from tracecat.db.models import AgentPreset, MCPIntegration, OAuthIntegration
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.providers.base import (
     MCPAuthProvider,

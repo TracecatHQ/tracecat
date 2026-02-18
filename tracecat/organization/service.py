@@ -327,7 +327,7 @@ class OrgService(BaseOrgService):
         return membership
 
     @audit_log(resource_type="organization", action="delete")
-    @require_org_role(OrgRole.OWNER)
+    @require_scope("org:delete")
     async def delete_organization(self, *, confirmation: str | None) -> None:
         """Delete the current organization and all associated resources."""
         statement = select(Organization).where(Organization.id == self.organization_id)
