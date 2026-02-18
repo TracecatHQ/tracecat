@@ -8097,6 +8097,7 @@ export const $FeatureFlag = {
     "case-durations",
     "case-tasks",
     "case-triggers",
+    "rbac",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum.",
@@ -8801,6 +8802,374 @@ export const $GraphResponse = {
   description: `Response for GET /workflows/{id}/graph.
 
 Returns the canonical graph projection from Actions.`,
+} as const
+
+export const $GroupCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 128,
+      minLength: 1,
+      title: "Name",
+      description: "Group name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 512,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Optional description of the group",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "GroupCreate",
+  description: "Create schema for a group.",
+} as const
+
+export const $GroupList = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/GroupReadWithMembers",
+      },
+      type: "array",
+      title: "Items",
+    },
+    total: {
+      type: "integer",
+      title: "Total",
+    },
+  },
+  type: "object",
+  required: ["items", "total"],
+  title: "GroupList",
+  description: "Response schema for listing groups.",
+} as const
+
+export const $GroupMemberAdd = {
+  properties: {
+    user_id: {
+      type: "string",
+      format: "uuid",
+      title: "User Id",
+      description: "User ID to add to the group",
+    },
+  },
+  type: "object",
+  required: ["user_id"],
+  title: "GroupMemberAdd",
+  description: "Schema for adding a member to a group.",
+} as const
+
+export const $GroupMemberRead = {
+  properties: {
+    user_id: {
+      type: "string",
+      format: "uuid",
+      title: "User Id",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+    added_at: {
+      type: "string",
+      format: "date-time",
+      title: "Added At",
+    },
+  },
+  type: "object",
+  required: ["user_id", "email", "added_at"],
+  title: "GroupMemberRead",
+  description: "Read schema for a group member.",
+} as const
+
+export const $GroupReadWithMembers = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    created_by: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created By",
+    },
+    members: {
+      items: {
+        $ref: "#/components/schemas/GroupMemberRead",
+      },
+      type: "array",
+      title: "Members",
+    },
+    member_count: {
+      type: "integer",
+      title: "Member Count",
+      default: 0,
+    },
+  },
+  type: "object",
+  required: ["id", "name", "organization_id", "created_at", "updated_at"],
+  title: "GroupReadWithMembers",
+  description: "Read schema for a group with its members.",
+} as const
+
+export const $GroupRoleAssignmentCreate = {
+  properties: {
+    group_id: {
+      type: "string",
+      format: "uuid",
+      title: "Group Id",
+      description: "Group ID to assign",
+    },
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+      description: "Role ID to assign to the group",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+      description:
+        "Workspace ID for workspace-level assignment. If None, creates org-wide assignment.",
+    },
+  },
+  type: "object",
+  required: ["group_id", "role_id"],
+  title: "GroupRoleAssignmentCreate",
+  description: "Create schema for a group assignment.",
+} as const
+
+export const $GroupRoleAssignmentList = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/GroupRoleAssignmentReadWithDetails",
+      },
+      type: "array",
+      title: "Items",
+    },
+    total: {
+      type: "integer",
+      title: "Total",
+    },
+  },
+  type: "object",
+  required: ["items", "total"],
+  title: "GroupRoleAssignmentList",
+  description: "Response schema for listing group assignments.",
+} as const
+
+export const $GroupRoleAssignmentReadWithDetails = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    group_id: {
+      type: "string",
+      format: "uuid",
+      title: "Group Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    assigned_at: {
+      type: "string",
+      format: "date-time",
+      title: "Assigned At",
+    },
+    assigned_by: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assigned By",
+    },
+    group_name: {
+      type: "string",
+      title: "Group Name",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    workspace_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Name",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "group_id",
+    "role_id",
+    "assigned_at",
+    "group_name",
+    "role_name",
+  ],
+  title: "GroupRoleAssignmentReadWithDetails",
+  description:
+    "Read schema for a group assignment with group and role details.",
+} as const
+
+export const $GroupRoleAssignmentUpdate = {
+  properties: {
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+      description: "New role ID to assign",
+    },
+  },
+  type: "object",
+  required: ["role_id"],
+  title: "GroupRoleAssignmentUpdate",
+  description: "Update schema for a group assignment (change role only).",
+} as const
+
+export const $GroupUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 128,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+      description: "Group name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 512,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Optional description of the group",
+    },
+  },
+  type: "object",
+  title: "GroupUpdate",
+  description: "Update schema for a group.",
 } as const
 
 export const $HTTPValidationError = {
@@ -10432,7 +10801,8 @@ export const $OrgMemberDetail = {
       title: "Email",
     },
     role: {
-      $ref: "#/components/schemas/OrgRole",
+      type: "string",
+      title: "Role",
     },
     is_active: {
       type: "boolean",
@@ -13666,6 +14036,203 @@ Service roles
 - A service's \`user_id\` is the user it's acting on behalf of. This can be None for internal services.`,
 } as const
 
+export const $RoleCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 128,
+      minLength: 1,
+      title: "Name",
+      description: "Role name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 512,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Optional description of the role",
+    },
+    scope_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Scope Ids",
+      description: "List of scope IDs to assign to the role",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "RoleCreate",
+  description: "Create schema for a custom role.",
+} as const
+
+export const $RoleList = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/RoleReadWithScopes",
+      },
+      type: "array",
+      title: "Items",
+    },
+    total: {
+      type: "integer",
+      title: "Total",
+    },
+  },
+  type: "object",
+  required: ["items", "total"],
+  title: "RoleList",
+  description: "Response schema for listing roles.",
+} as const
+
+export const $RoleReadWithScopes = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    created_by: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created By",
+    },
+    scopes: {
+      items: {
+        $ref: "#/components/schemas/ScopeRead",
+      },
+      type: "array",
+      title: "Scopes",
+    },
+    is_system: {
+      type: "boolean",
+      title: "Is System",
+      description: "Whether this is a system role (admin, editor, viewer).",
+      readOnly: true,
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "organization_id",
+    "created_at",
+    "updated_at",
+    "is_system",
+  ],
+  title: "RoleReadWithScopes",
+  description: "Read schema for a role with its scopes.",
+} as const
+
+export const $RoleUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 128,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+      description: "Role name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 512,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Optional description of the role",
+    },
+    scope_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            format: "uuid",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Scope Ids",
+      description:
+        "List of scope IDs to assign to the role (replaces existing)",
+    },
+  },
+  type: "object",
+  title: "RoleUpdate",
+  description: "Update schema for a role.",
+} as const
+
 export const $RunActionInput = {
   properties: {
     task: {
@@ -14241,6 +14808,144 @@ export const $ScheduleUpdate = {
   },
   type: "object",
   title: "ScheduleUpdate",
+} as const
+
+export const $ScopeCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      pattern: "^[a-z0-9:_.*-]+$",
+      title: "Name",
+      description: "Scope name in format resource:action (e.g., 'custom:read')",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 512,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Optional description of the scope",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "ScopeCreate",
+  description: "Create schema for a custom scope.",
+} as const
+
+export const $ScopeList = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ScopeRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    total: {
+      type: "integer",
+      title: "Total",
+    },
+  },
+  type: "object",
+  required: ["items", "total"],
+  title: "ScopeList",
+  description: "Response schema for listing scopes.",
+} as const
+
+export const $ScopeRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    resource: {
+      type: "string",
+      title: "Resource",
+    },
+    action: {
+      type: "string",
+      title: "Action",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    source: {
+      $ref: "#/components/schemas/ScopeSource",
+    },
+    source_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Ref",
+    },
+    organization_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Organization Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "resource",
+    "action",
+    "source",
+    "created_at",
+    "updated_at",
+  ],
+  title: "ScopeRead",
+  description: "Read schema for a scope.",
+} as const
+
+export const $ScopeSource = {
+  type: "string",
+  enum: ["platform", "custom"],
+  title: "ScopeSource",
+  description: "Source/ownership of a scope definition.",
 } as const
 
 export const $SecretCreate = {
@@ -17860,6 +18565,179 @@ export const $UserRole = {
   type: "string",
   enum: ["basic", "admin"],
   title: "UserRole",
+} as const
+
+export const $UserRoleAssignmentCreate = {
+  properties: {
+    user_id: {
+      type: "string",
+      format: "uuid",
+      title: "User Id",
+      description: "User ID to assign role to",
+    },
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+      description: "Role ID to assign to the user",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+      description:
+        "Workspace ID for workspace-level assignment. If None, creates org-wide assignment.",
+    },
+  },
+  type: "object",
+  required: ["user_id", "role_id"],
+  title: "UserRoleAssignmentCreate",
+  description: "Create schema for a user role assignment.",
+} as const
+
+export const $UserRoleAssignmentList = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/UserRoleAssignmentReadWithDetails",
+      },
+      type: "array",
+      title: "Items",
+    },
+    total: {
+      type: "integer",
+      title: "Total",
+    },
+  },
+  type: "object",
+  required: ["items", "total"],
+  title: "UserRoleAssignmentList",
+  description: "Response schema for listing user role assignments.",
+} as const
+
+export const $UserRoleAssignmentReadWithDetails = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    user_id: {
+      type: "string",
+      format: "uuid",
+      title: "User Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    assigned_at: {
+      type: "string",
+      format: "date-time",
+      title: "Assigned At",
+    },
+    assigned_by: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assigned By",
+    },
+    user_email: {
+      type: "string",
+      title: "User Email",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    workspace_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Name",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "user_id",
+    "role_id",
+    "assigned_at",
+    "user_email",
+    "role_name",
+  ],
+  title: "UserRoleAssignmentReadWithDetails",
+  description:
+    "Read schema for a user role assignment with user and role details.",
+} as const
+
+export const $UserRoleAssignmentUpdate = {
+  properties: {
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+      description: "New role ID to assign",
+    },
+  },
+  type: "object",
+  required: ["role_id"],
+  title: "UserRoleAssignmentUpdate",
+  description: "Update schema for a user role assignment (change role only).",
+} as const
+
+export const $UserScopesRead = {
+  properties: {
+    scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Scopes",
+      description: "List of effective scope strings for the user",
+    },
+  },
+  type: "object",
+  required: ["scopes"],
+  title: "UserScopesRead",
+  description: "Read schema for a user's effective scopes.",
 } as const
 
 export const $UserUpdate = {

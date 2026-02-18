@@ -366,6 +366,56 @@ import type {
   PublicIncomingWebhookWaitResponse,
   PublicReceiveInteractionData,
   PublicReceiveInteractionResponse,
+  RbacAddGroupMemberData,
+  RbacAddGroupMemberResponse,
+  RbacCreateAssignmentData,
+  RbacCreateAssignmentResponse,
+  RbacCreateGroupData,
+  RbacCreateGroupResponse,
+  RbacCreateRoleData,
+  RbacCreateRoleResponse,
+  RbacCreateScopeData,
+  RbacCreateScopeResponse,
+  RbacCreateUserAssignmentData,
+  RbacCreateUserAssignmentResponse,
+  RbacDeleteAssignmentData,
+  RbacDeleteAssignmentResponse,
+  RbacDeleteGroupData,
+  RbacDeleteGroupResponse,
+  RbacDeleteRoleData,
+  RbacDeleteRoleResponse,
+  RbacDeleteScopeData,
+  RbacDeleteScopeResponse,
+  RbacDeleteUserAssignmentData,
+  RbacDeleteUserAssignmentResponse,
+  RbacGetAssignmentData,
+  RbacGetAssignmentResponse,
+  RbacGetGroupData,
+  RbacGetGroupResponse,
+  RbacGetRoleData,
+  RbacGetRoleResponse,
+  RbacGetScopeData,
+  RbacGetScopeResponse,
+  RbacGetUserAssignmentData,
+  RbacGetUserAssignmentResponse,
+  RbacListAssignmentsData,
+  RbacListAssignmentsResponse,
+  RbacListGroupsResponse,
+  RbacListRolesResponse,
+  RbacListScopesData,
+  RbacListScopesResponse,
+  RbacListUserAssignmentsData,
+  RbacListUserAssignmentsResponse,
+  RbacRemoveGroupMemberData,
+  RbacRemoveGroupMemberResponse,
+  RbacUpdateAssignmentData,
+  RbacUpdateAssignmentResponse,
+  RbacUpdateGroupData,
+  RbacUpdateGroupResponse,
+  RbacUpdateRoleData,
+  RbacUpdateRoleResponse,
+  RbacUpdateUserAssignmentData,
+  RbacUpdateUserAssignmentResponse,
   RegistryActionsCreateRegistryActionData,
   RegistryActionsCreateRegistryActionResponse,
   RegistryActionsDeleteRegistryActionData,
@@ -503,6 +553,7 @@ import type {
   TriggersUpdateCaseTriggerResponse,
   TriggersUpdateWebhookData,
   TriggersUpdateWebhookResponse,
+  UsersGetMyScopesResponse,
   UsersSearchUserData,
   UsersSearchUserResponse,
   UsersUsersCurrentUserResponse,
@@ -8636,6 +8687,685 @@ export const vcsGetGithubAppCredentialsStatus =
       url: "/organization/vcs/github/credentials/status",
     })
   }
+
+/**
+ * Get My Scopes
+ * Get the current user's effective scopes.
+ *
+ * Scopes are computed from DB-driven role assignments during auth
+ * (UserRoleAssignment + GroupRoleAssignment → Role → RoleScope → Scope).
+ * @returns UserScopesRead Successful Response
+ * @throws ApiError
+ */
+export const usersGetMyScopes =
+  (): CancelablePromise<UsersGetMyScopesResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/users/me/scopes",
+    })
+  }
+
+/**
+ * List Scopes
+ * List scopes available to the organization.
+ *
+ * Requires: org:rbac:read scope
+ * @param data The data for the request.
+ * @param data.includeSystem Include system/registry scopes
+ * @param data.source Filter by scope source
+ * @returns ScopeList Successful Response
+ * @throws ApiError
+ */
+export const rbacListScopes = (
+  data: RbacListScopesData = {}
+): CancelablePromise<RbacListScopesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/rbac/scopes",
+    query: {
+      include_system: data.includeSystem,
+      source: data.source,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Scope
+ * Create a custom scope.
+ *
+ * Requires: org:rbac:manage scope
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ScopeRead Successful Response
+ * @throws ApiError
+ */
+export const rbacCreateScope = (
+  data: RbacCreateScopeData
+): CancelablePromise<RbacCreateScopeResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/rbac/scopes",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Scope
+ * Get a scope by ID.
+ *
+ * Requires: org:rbac:read scope
+ * @param data The data for the request.
+ * @param data.scopeId
+ * @returns ScopeRead Successful Response
+ * @throws ApiError
+ */
+export const rbacGetScope = (
+  data: RbacGetScopeData
+): CancelablePromise<RbacGetScopeResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/rbac/scopes/{scope_id}",
+    path: {
+      scope_id: data.scopeId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Scope
+ * Delete a custom scope.
+ *
+ * Only custom scopes can be deleted. System and registry scopes are protected.
+ *
+ * Requires: org:rbac:manage scope
+ * @param data The data for the request.
+ * @param data.scopeId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const rbacDeleteScope = (
+  data: RbacDeleteScopeData
+): CancelablePromise<RbacDeleteScopeResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/rbac/scopes/{scope_id}",
+    path: {
+      scope_id: data.scopeId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Roles
+ * List roles for the organization.
+ *
+ * Requires: org:rbac:read scope
+ * @returns RoleList Successful Response
+ * @throws ApiError
+ */
+export const rbacListRoles = (): CancelablePromise<RbacListRolesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/rbac/roles",
+  })
+}
+
+/**
+ * Create Role
+ * Create a custom role.
+ *
+ * Requires: org:rbac:manage scope
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns RoleReadWithScopes Successful Response
+ * @throws ApiError
+ */
+export const rbacCreateRole = (
+  data: RbacCreateRoleData
+): CancelablePromise<RbacCreateRoleResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/rbac/roles",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Role
+ * Get a role by ID with its scopes.
+ *
+ * Requires: org:rbac:read scope
+ * @param data The data for the request.
+ * @param data.roleId
+ * @returns RoleReadWithScopes Successful Response
+ * @throws ApiError
+ */
+export const rbacGetRole = (
+  data: RbacGetRoleData
+): CancelablePromise<RbacGetRoleResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/rbac/roles/{role_id}",
+    path: {
+      role_id: data.roleId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Role
+ * Update a role.
+ *
+ * Requires: org:rbac:manage scope
+ * @param data The data for the request.
+ * @param data.roleId
+ * @param data.requestBody
+ * @returns RoleReadWithScopes Successful Response
+ * @throws ApiError
+ */
+export const rbacUpdateRole = (
+  data: RbacUpdateRoleData
+): CancelablePromise<RbacUpdateRoleResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/rbac/roles/{role_id}",
+    path: {
+      role_id: data.roleId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Role
+ * Delete a role.
+ *
+ * Roles with active assignments must have all assignments removed first.
+ *
+ * Requires: org:rbac:manage scope
+ * @param data The data for the request.
+ * @param data.roleId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const rbacDeleteRole = (
+  data: RbacDeleteRoleData
+): CancelablePromise<RbacDeleteRoleResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/rbac/roles/{role_id}",
+    path: {
+      role_id: data.roleId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Groups
+ * List groups for the organization.
+ *
+ * Requires: org:rbac:read scope
+ * @returns GroupList Successful Response
+ * @throws ApiError
+ */
+export const rbacListGroups = (): CancelablePromise<RbacListGroupsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/rbac/groups",
+  })
+}
+
+/**
+ * Create Group
+ * Create a group.
+ *
+ * Requires: org:rbac:manage scope
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns GroupReadWithMembers Successful Response
+ * @throws ApiError
+ */
+export const rbacCreateGroup = (
+  data: RbacCreateGroupData
+): CancelablePromise<RbacCreateGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/rbac/groups",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Group
+ * Get a group by ID with its members.
+ *
+ * Requires: org:rbac:read scope
+ * @param data The data for the request.
+ * @param data.groupId
+ * @returns GroupReadWithMembers Successful Response
+ * @throws ApiError
+ */
+export const rbacGetGroup = (
+  data: RbacGetGroupData
+): CancelablePromise<RbacGetGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/rbac/groups/{group_id}",
+    path: {
+      group_id: data.groupId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Group
+ * Update a group.
+ *
+ * Requires: org:rbac:manage scope
+ * @param data The data for the request.
+ * @param data.groupId
+ * @param data.requestBody
+ * @returns GroupReadWithMembers Successful Response
+ * @throws ApiError
+ */
+export const rbacUpdateGroup = (
+  data: RbacUpdateGroupData
+): CancelablePromise<RbacUpdateGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/rbac/groups/{group_id}",
+    path: {
+      group_id: data.groupId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Group
+ * Delete a group.
+ *
+ * This will also delete all group assignments and memberships.
+ *
+ * Requires: org:rbac:manage scope
+ * @param data The data for the request.
+ * @param data.groupId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const rbacDeleteGroup = (
+  data: RbacDeleteGroupData
+): CancelablePromise<RbacDeleteGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/rbac/groups/{group_id}",
+    path: {
+      group_id: data.groupId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Add Group Member
+ * Add a member to a group.
+ *
+ * Requires: org:rbac:manage scope
+ * @param data The data for the request.
+ * @param data.groupId
+ * @param data.requestBody
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const rbacAddGroupMember = (
+  data: RbacAddGroupMemberData
+): CancelablePromise<RbacAddGroupMemberResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/rbac/groups/{group_id}/members",
+    path: {
+      group_id: data.groupId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Remove Group Member
+ * Remove a member from a group.
+ *
+ * Requires: org:rbac:manage scope
+ * @param data The data for the request.
+ * @param data.groupId
+ * @param data.userId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const rbacRemoveGroupMember = (
+  data: RbacRemoveGroupMemberData
+): CancelablePromise<RbacRemoveGroupMemberResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/rbac/groups/{group_id}/members/{user_id}",
+    path: {
+      group_id: data.groupId,
+      user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Assignments
+ * List group assignments for the organization.
+ *
+ * Requires: org:rbac:read scope
+ * @param data The data for the request.
+ * @param data.groupId Filter by group ID
+ * @param data.workspaceId Filter by workspace ID
+ * @returns GroupRoleAssignmentList Successful Response
+ * @throws ApiError
+ */
+export const rbacListAssignments = (
+  data: RbacListAssignmentsData = {}
+): CancelablePromise<RbacListAssignmentsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/rbac/assignments",
+    query: {
+      group_id: data.groupId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Assignment
+ * Create a group assignment.
+ *
+ * Assigns a role to a group. If workspace_id is None, creates an org-wide
+ * assignment that applies to all workspaces. Each group can have at most
+ * one assignment per workspace (or one org-wide assignment).
+ *
+ * Requires: org:rbac:manage scope
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns GroupRoleAssignmentReadWithDetails Successful Response
+ * @throws ApiError
+ */
+export const rbacCreateAssignment = (
+  data: RbacCreateAssignmentData
+): CancelablePromise<RbacCreateAssignmentResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/rbac/assignments",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Assignment
+ * Get a group assignment by ID.
+ *
+ * Requires: org:rbac:read scope
+ * @param data The data for the request.
+ * @param data.assignmentId
+ * @returns GroupRoleAssignmentReadWithDetails Successful Response
+ * @throws ApiError
+ */
+export const rbacGetAssignment = (
+  data: RbacGetAssignmentData
+): CancelablePromise<RbacGetAssignmentResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/rbac/assignments/{assignment_id}",
+    path: {
+      assignment_id: data.assignmentId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Assignment
+ * Update a group assignment (change role).
+ *
+ * Requires: org:rbac:manage scope
+ * @param data The data for the request.
+ * @param data.assignmentId
+ * @param data.requestBody
+ * @returns GroupRoleAssignmentReadWithDetails Successful Response
+ * @throws ApiError
+ */
+export const rbacUpdateAssignment = (
+  data: RbacUpdateAssignmentData
+): CancelablePromise<RbacUpdateAssignmentResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/rbac/assignments/{assignment_id}",
+    path: {
+      assignment_id: data.assignmentId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Assignment
+ * Delete a group assignment.
+ *
+ * Requires: org:rbac:manage scope
+ * @param data The data for the request.
+ * @param data.assignmentId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const rbacDeleteAssignment = (
+  data: RbacDeleteAssignmentData
+): CancelablePromise<RbacDeleteAssignmentResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/rbac/assignments/{assignment_id}",
+    path: {
+      assignment_id: data.assignmentId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List User Assignments
+ * List user role assignments for the organization.
+ *
+ * Requires: org:rbac:read scope
+ * @param data The data for the request.
+ * @param data.userId Filter by user ID
+ * @param data.workspaceId Filter by workspace ID
+ * @returns UserRoleAssignmentList Successful Response
+ * @throws ApiError
+ */
+export const rbacListUserAssignments = (
+  data: RbacListUserAssignmentsData = {}
+): CancelablePromise<RbacListUserAssignmentsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/rbac/user-assignments",
+    query: {
+      user_id: data.userId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create User Assignment
+ * Create a user role assignment.
+ *
+ * Assigns a role directly to a user. If workspace_id is None, creates an org-wide
+ * assignment that applies to all workspaces. Each user can have at most
+ * one assignment per workspace (or one org-wide assignment).
+ *
+ * Requires: org:rbac:manage scope
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns UserRoleAssignmentReadWithDetails Successful Response
+ * @throws ApiError
+ */
+export const rbacCreateUserAssignment = (
+  data: RbacCreateUserAssignmentData
+): CancelablePromise<RbacCreateUserAssignmentResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/rbac/user-assignments",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get User Assignment
+ * Get a user role assignment by ID.
+ *
+ * Requires: org:rbac:read scope
+ * @param data The data for the request.
+ * @param data.assignmentId
+ * @returns UserRoleAssignmentReadWithDetails Successful Response
+ * @throws ApiError
+ */
+export const rbacGetUserAssignment = (
+  data: RbacGetUserAssignmentData
+): CancelablePromise<RbacGetUserAssignmentResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/rbac/user-assignments/{assignment_id}",
+    path: {
+      assignment_id: data.assignmentId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update User Assignment
+ * Update a user role assignment (change role).
+ *
+ * Requires: org:rbac:manage scope
+ * @param data The data for the request.
+ * @param data.assignmentId
+ * @param data.requestBody
+ * @returns UserRoleAssignmentReadWithDetails Successful Response
+ * @throws ApiError
+ */
+export const rbacUpdateUserAssignment = (
+  data: RbacUpdateUserAssignmentData
+): CancelablePromise<RbacUpdateUserAssignmentResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/rbac/user-assignments/{assignment_id}",
+    path: {
+      assignment_id: data.assignmentId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete User Assignment
+ * Delete a user role assignment.
+ *
+ * Requires: org:rbac:manage scope
+ * @param data The data for the request.
+ * @param data.assignmentId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const rbacDeleteUserAssignment = (
+  data: RbacDeleteUserAssignmentData
+): CancelablePromise<RbacDeleteUserAssignmentResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/rbac/user-assignments/{assignment_id}",
+    path: {
+      assignment_id: data.assignmentId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * Users:Current User

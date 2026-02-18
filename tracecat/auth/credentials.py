@@ -48,7 +48,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import (
-    Role as RoleModel,
+    Role as DBRole,
 )
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
@@ -134,8 +134,8 @@ async def _compute_effective_scopes_cached(
         user_scopes = (
             select(Scope.name)
             .join(RoleScope, RoleScope.scope_id == Scope.id)
-            .join(RoleModel, RoleModel.id == RoleScope.role_id)
-            .join(UserRoleAssignment, UserRoleAssignment.role_id == RoleModel.id)
+            .join(DBRole, DBRole.id == RoleScope.role_id)
+            .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
             .where(
                 UserRoleAssignment.user_id == user_id,
                 UserRoleAssignment.organization_id == organization_id,
@@ -152,8 +152,8 @@ async def _compute_effective_scopes_cached(
         group_scopes = (
             select(Scope.name)
             .join(RoleScope, RoleScope.scope_id == Scope.id)
-            .join(RoleModel, RoleModel.id == RoleScope.role_id)
-            .join(GroupRoleAssignment, GroupRoleAssignment.role_id == RoleModel.id)
+            .join(DBRole, DBRole.id == RoleScope.role_id)
+            .join(GroupRoleAssignment, GroupRoleAssignment.role_id == DBRole.id)
             .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
             .where(
                 GroupMember.user_id == user_id,
@@ -661,7 +661,6 @@ async def _validate_role(
         "Computed effective scopes",
         scope_count=len(scopes),
     )
-
     return role.model_copy(update={"scopes": scopes})
 
 
@@ -723,6 +722,7 @@ async def _role_dependency(
         require_workspace=require_workspace,
         min_access_level=min_access_level,
     )
+
     ctx_role.set(role)
     return role
 
