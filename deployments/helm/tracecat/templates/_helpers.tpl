@@ -34,13 +34,28 @@ Create chart name and version for chart label
 {{- end }}
 
 {{/*
+Shared backend image tag used by backend workloads and version labels
+*/}}
+{{- define "tracecat.imageTag" -}}
+{{- .Values.image.tag | default .Chart.AppVersion -}}
+{{- end }}
+
+{{/*
+UI image tag used by frontend workload
+*/}}
+{{- define "tracecat.uiImageTag" -}}
+{{- .Values.uiImage.tag | default .Chart.AppVersion -}}
+{{- end }}
+
+{{/*
 Common labels
 */}}
 {{- define "tracecat.labels" -}}
 helm.sh/chart: {{ include "tracecat.chart" . }}
 {{ include "tracecat.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- $version := include "tracecat.imageTag" . | trim }}
+{{- if $version }}
+app.kubernetes.io/version: {{ $version | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}

@@ -39,7 +39,7 @@ spec:
       {{- include "tracecat.podScheduling" (dict "root" . "component" "agent-executor") | nindent 6 }}
       containers:
         - name: agent-executor
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ include "tracecat.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "-m", "tracecat.agent.worker"]
           {{- if not .Values.tracecat.sandbox.disableNsjail }}

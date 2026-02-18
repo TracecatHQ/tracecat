@@ -94,13 +94,13 @@ serviceAccount:
 image:
   repository: ghcr.io/tracecathq/tracecat
   pullPolicy: IfNotPresent
-  # tag: "" # Defaults to Chart.AppVersion
+  # tag: "" # Backend tag + app.kubernetes.io/version label. Defaults to Chart.AppVersion.
 
 # Frontend image configuration
 uiImage:
   repository: ghcr.io/tracecathq/tracecat-ui
   pullPolicy: IfNotPresent
-  # tag: "" # Defaults to Chart.AppVersion
+  # tag: "" # UI tag only. Defaults to Chart.AppVersion.
 
 securityContext:
   fsGroup: 1001

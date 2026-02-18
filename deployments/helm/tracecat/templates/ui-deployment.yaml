@@ -26,7 +26,7 @@ spec:
       {{- include "tracecat.podScheduling" (dict "root" . "component" "ui") | nindent 6 }}
       containers:
         - name: ui
-          image: "{{ .Values.uiImage.repository }}:{{ .Values.uiImage.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.uiImage.repository }}:{{ include "tracecat.uiImageTag" . }}"
           imagePullPolicy: {{ .Values.uiImage.pullPolicy }}
           ports:
             - name: http

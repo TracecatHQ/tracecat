@@ -54,7 +54,7 @@ spec:
               echo "PostgreSQL is ready"
       containers:
         - name: migrations
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ include "tracecat.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["/bin/sh", "-ec"]
           args:
