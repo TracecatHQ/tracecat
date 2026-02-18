@@ -39,6 +39,12 @@ export function MembersViewToggle({
   const { isFeatureEnabled } = useFeatureFlag()
   const rbacEnabled = isFeatureEnabled("rbac")
 
+  // Don't render the toggle at all when RBAC is disabled —
+  // a single "Members" button in a toggle group is pointless.
+  if (!rbacEnabled) {
+    return null
+  }
+
   const toggleItems = [
     {
       mode: MembersViewMode.Members,
@@ -46,7 +52,6 @@ export function MembersViewToggle({
       tooltip: "Members",
       href: membersHref,
       ariaLabel: "Members view",
-      requiresScope: false,
     },
     {
       mode: MembersViewMode.Roles,
@@ -54,7 +59,6 @@ export function MembersViewToggle({
       tooltip: "Roles",
       href: rolesHref,
       ariaLabel: "Roles view",
-      requiresScope: true,
     },
     {
       mode: MembersViewMode.Groups,
@@ -62,73 +66,56 @@ export function MembersViewToggle({
       tooltip: "Groups",
       href: groupsHref,
       ariaLabel: "Groups view",
-      requiresScope: true,
     },
   ] as const
 
   return (
-    <div
-      className={cn(
-        "inline-flex items-center rounded-md border bg-transparent",
-        className
-      )}
-    >
-      <TooltipProvider>
-        {toggleItems.map((item, index) => {
-          const Icon = item.icon
-          const isActive = view === item.mode
-          const isFirst = index === 0
-          const isLast = index === toggleItems.length - 1
-          const roundedClass = cn({
-            "rounded-l-sm": isFirst,
-            "rounded-none": !isFirst && !isLast,
-            "rounded-r-sm": isLast,
-          })
-          const baseClasses = cn(
-            "flex size-7 items-center justify-center transition-colors",
-            roundedClass,
-            isActive
-              ? "bg-background text-accent-foreground"
-              : "bg-accent text-muted-foreground hover:bg-muted/50"
-          )
-
-          const content = (
-            <Tooltip key={item.mode}>
-              <TooltipTrigger asChild>
-                <Link
-                  href={item.href}
-                  className={baseClasses}
-                  aria-current={isActive ? "page" : undefined}
-                  aria-label={item.ariaLabel}
-                >
-                  <Icon className="size-3.5" />
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{item.tooltip}</p>
-              </TooltipContent>
-            </Tooltip>
-          )
-
-          if (item.requiresScope) {
-            if (!rbacEnabled) {
-              return null
-            }
-            return (
-              <ScopeGuard
-                key={item.mode}
-                scope={rbacScope}
-                fallback={null}
-                loading={null}
-              >
-                {content}
-              </ScopeGuard>
+    <ScopeGuard scope={rbacScope} fallback={null} loading={null}>
+      <div
+        className={cn(
+          "inline-flex items-center rounded-md border bg-transparent",
+          className
+        )}
+      >
+        <TooltipProvider>
+          {toggleItems.map((item, index) => {
+            const Icon = item.icon
+            const isActive = view === item.mode
+            const isFirst = index === 0
+            const isLast = index === toggleItems.length - 1
+            const roundedClass = cn({
+              "rounded-l-sm": isFirst,
+              "rounded-none": !isFirst && !isLast,
+              "rounded-r-sm": isLast,
+            })
+            const baseClasses = cn(
+              "flex size-7 items-center justify-center transition-colors",
+              roundedClass,
+              isActive
+                ? "bg-background text-accent-foreground"
+                : "bg-accent text-muted-foreground hover:bg-muted/50"
             )
-          }
 
-          return content
-        })}
-      </TooltipProvider>
-    </div>
+            return (
+              <Tooltip key={item.mode}>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={item.href}
+                    className={baseClasses}
+                    aria-current={isActive ? "page" : undefined}
+                    aria-label={item.ariaLabel}
+                  >
+                    <Icon className="size-3.5" />
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{item.tooltip}</p>
+                </TooltipContent>
+              </Tooltip>
+            )
+          })}
+        </TooltipProvider>
+      </div>
+    </ScopeGuard>
   )
 }

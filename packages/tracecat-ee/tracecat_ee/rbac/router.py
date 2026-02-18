@@ -165,6 +165,7 @@ async def list_roles(
             RoleReadWithScopes(
                 id=r.id,
                 name=r.name,
+                slug=r.slug,
                 description=r.description,
                 organization_id=r.organization_id,
                 created_at=r.created_at,
@@ -196,6 +197,7 @@ async def get_role(
         return RoleReadWithScopes(
             id=db_role.id,
             name=db_role.name,
+            slug=db_role.slug,
             description=db_role.description,
             organization_id=db_role.organization_id,
             created_at=db_role.created_at,
@@ -231,6 +233,7 @@ async def create_role(
         return RoleReadWithScopes(
             id=db_role.id,
             name=db_role.name,
+            slug=db_role.slug,
             description=db_role.description,
             organization_id=db_role.organization_id,
             created_at=db_role.created_at,
@@ -273,6 +276,7 @@ async def update_role(
         return RoleReadWithScopes(
             id=db_role.id,
             name=db_role.name,
+            slug=db_role.slug,
             description=db_role.description,
             organization_id=db_role.organization_id,
             created_at=db_role.created_at,

@@ -7,7 +7,6 @@ import pytest
 
 from tracecat.auth import credentials
 from tracecat.auth.types import Role
-from tracecat.authz.enums import OrgRole, WorkspaceRole
 
 
 @pytest.mark.anyio
@@ -114,8 +113,6 @@ async def test_compute_effective_scopes_falls_back_to_legacy_memberships(
         user_id=user_id,
         organization_id=organization_id,
         workspace_id=workspace_id,
-        org_role=OrgRole.ADMIN,
-        workspace_role=WorkspaceRole.EDITOR,
     )
 
     scopes = await credentials.compute_effective_scopes(role)
@@ -150,7 +147,6 @@ async def test_compute_effective_scopes_skips_legacy_fallback_with_rbac_assignme
         service_id="tracecat-api",
         user_id=user_id,
         organization_id=organization_id,
-        org_role=OrgRole.OWNER,
     )
 
     scopes = await credentials.compute_effective_scopes(role)

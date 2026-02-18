@@ -11,7 +11,6 @@ from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.users import current_active_user
 from tracecat.authz.controls import require_scope
-from tracecat.authz.enums import OrgRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import (
     Organization,
@@ -19,6 +18,10 @@ from tracecat.db.models import (
     OrganizationInvitation,
     OrganizationMembership,
     User,
+    UserRoleAssignment,
+)
+from tracecat.db.models import (
+    Role as RoleModel,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -216,7 +219,7 @@ async def get_current_org_member(
 
     # Query user and membership directly (no admin access required)
     statement = (
-        select(User, OrganizationMembership.role)
+        select(User)
         .join(
             OrganizationMembership,
             OrganizationMembership.user_id == User.id,  # pyright: ignore[reportArgumentType]
@@ -229,44 +232,47 @@ async def get_current_org_member(
         )
     )
     result = await session.execute(statement)
-    row = result.one_or_none()
+    user = result.scalar_one_or_none()
 
-    if row is not None:
-        user, org_role = row
-
-        return OrgMemberDetail(
-            user_id=user.id,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            email=user.email,
-            role=org_role,
-            is_active=user.is_active,
-            is_verified=user.is_verified,
-            last_login_at=user.last_login_at,
-        )
-
-    # No explicit membership found - check if user is a platform superuser
-    # Superusers have implicit owner access to all organizations
-    if role.is_platform_superuser:
+    if user is None and role.is_platform_superuser:
+        # Superusers have implicit owner access to all organizations
         user_result = await session.execute(
             select(User).where(User.id == role.user_id)  # pyright: ignore[reportArgumentType]
         )
         user = user_result.scalar_one_or_none()
-        if user is not None:
-            return OrgMemberDetail(
-                user_id=user.id,
-                first_name=user.first_name,
-                last_name=user.last_name,
-                email=user.email,
-                role=OrgRole.OWNER,  # Superusers have implicit owner role
-                is_active=user.is_active,
-                is_verified=user.is_verified,
-                last_login_at=user.last_login_at,
-            )
 
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="User is not a member of this organization",
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User is not a member of this organization",
+        )
+
+    # Get role name from RBAC assignment
+    rbac_stmt = (
+        select(RoleModel.name)
+        .join(UserRoleAssignment, UserRoleAssignment.role_id == RoleModel.id)
+        .where(
+            UserRoleAssignment.user_id == user.id,
+            UserRoleAssignment.organization_id == role.organization_id,
+            UserRoleAssignment.workspace_id.is_(None),
+        )
+    )
+    rbac_result = await session.execute(rbac_stmt)
+    role_name = rbac_result.scalar_one_or_none()
+
+    # Superusers always show as Owner
+    if role_name is None and role.is_platform_superuser:
+        role_name = "Owner"
+
+    return OrgMemberDetail(
+        user_id=user.id,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        email=user.email,
+        role=role_name or "Member",
+        is_active=user.is_active,
+        is_verified=user.is_verified,
+        last_login_at=user.last_login_at,
     )
 
 
@@ -281,30 +287,56 @@ async def list_org_members(
     members = await service.list_members()
     now = datetime.now(UTC)
 
-    result: list[OrgMemberRead] = [
-        OrgMemberRead(
-            user_id=user.id,
-            email=user.email,
-            role=org_role,
-            status=OrgMemberStatus.ACTIVE
-            if user.is_active
-            else OrgMemberStatus.INACTIVE,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            last_login_at=user.last_login_at,
+    # Build a map of user_id -> RBAC role name for org-wide assignments
+    user_ids = [user.id for user in members]
+    rbac_stmt = (
+        select(UserRoleAssignment.user_id, RoleModel.name, RoleModel.slug)
+        .join(RoleModel, UserRoleAssignment.role_id == RoleModel.id)
+        .where(
+            UserRoleAssignment.organization_id == role.organization_id,
+            UserRoleAssignment.workspace_id.is_(None),
+            UserRoleAssignment.user_id.in_(user_ids),  # pyright: ignore[reportAttributeAccessIssue]
         )
-        for user, org_role in members
-    ]
+    )
+    rbac_result = await session.execute(rbac_stmt)
+    rbac_map: dict[str, tuple[str, str | None]] = {
+        str(row[0]): (row[1], row[2]) for row in rbac_result.all()
+    }
+
+    result: list[OrgMemberRead] = []
+    for user in members:
+        rbac_info = rbac_map.get(str(user.id))
+        if rbac_info:
+            role_name, role_slug = rbac_info
+        else:
+            role_name = "Member"
+            role_slug = "organization-member"
+        result.append(
+            OrgMemberRead(
+                user_id=user.id,
+                email=user.email,
+                role_name=role_name,
+                role_slug=role_slug,
+                status=OrgMemberStatus.ACTIVE
+                if user.is_active
+                else OrgMemberStatus.INACTIVE,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                last_login_at=user.last_login_at,
+            )
+        )
 
     # Add pending, non-expired invitations as "invited" members
     invitations = await service.list_invitations(status=InvitationStatus.PENDING)
     for inv in invitations:
         if inv.expires_at > now:
+            await session.refresh(inv, ["role_obj"])
             result.append(
                 OrgMemberRead(
                     invitation_id=inv.id,
                     email=inv.email,
-                    role=inv.role,
+                    role_name=inv.role_obj.name,
+                    role_slug=inv.role_obj.slug,
                     status=OrgMemberStatus.INVITED,
                     expires_at=inv.expires_at,
                     created_at=inv.created_at,
@@ -351,13 +383,25 @@ async def update_org_member(
 ) -> OrgMemberDetail:
     service = OrgService(session, role=role)
     try:
-        user, role_info = await service.update_member(user_id, params)
+        user = await service.update_member(user_id, params)
+        # Get role name from RBAC assignment
+        rbac_stmt = (
+            select(RoleModel.name)
+            .join(UserRoleAssignment, UserRoleAssignment.role_id == RoleModel.id)
+            .where(
+                UserRoleAssignment.user_id == user.id,
+                UserRoleAssignment.organization_id == role.organization_id,
+                UserRoleAssignment.workspace_id.is_(None),
+            )
+        )
+        rbac_result = await session.execute(rbac_stmt)
+        role_name = rbac_result.scalar_one_or_none() or "Member"
         return OrgMemberDetail(
             user_id=user.id,
             first_name=user.first_name,
             last_name=user.last_name,
             email=user.email,
-            role=role_info,
+            role=role_name,
             is_active=user.is_active,
             is_verified=user.is_verified,
             last_login_at=user.last_login_at,
@@ -420,7 +464,7 @@ async def create_invitation(
     try:
         invitation = await service.create_invitation(
             email=params.email,
-            role=params.role,
+            role_id=params.role_id,
         )
     except TracecatAuthorizationError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
@@ -434,11 +478,16 @@ async def create_invitation(
             status_code=status.HTTP_409_CONFLICT,
             detail="An invitation already exists for this email",
         ) from e
+
+    # Eagerly load role_obj for response
+    await session.refresh(invitation, ["role_obj"])
     return OrgInvitationRead(
         id=invitation.id,
         organization_id=invitation.organization_id,
         email=invitation.email,
-        role=invitation.role,
+        role_id=invitation.role_id,
+        role_name=invitation.role_obj.name,
+        role_slug=invitation.role_obj.slug,
         status=invitation.status,
         invited_by=invitation.invited_by,
         expires_at=invitation.expires_at,
@@ -458,12 +507,17 @@ async def list_invitations(
     """List invitations for the organization."""
     service = OrgService(session, role=role)
     invitations = await service.list_invitations(status=invitation_status)
+    # Eagerly load role_obj for each invitation
+    for inv in invitations:
+        await session.refresh(inv, ["role_obj"])
     return [
         OrgInvitationRead(
             id=inv.id,
             organization_id=inv.organization_id,
             email=inv.email,
-            role=inv.role,
+            role_id=inv.role_id,
+            role_name=inv.role_obj.name,
+            role_slug=inv.role_obj.slug,
             status=inv.status,
             invited_by=inv.invited_by,
             expires_at=inv.expires_at,
@@ -563,10 +617,14 @@ async def list_my_pending_invitations(
 
     now = datetime.now(UTC)
     statement = (
-        select(OrganizationInvitation, Organization, User)
+        select(OrganizationInvitation, Organization, User, RoleModel)
         .join(
             Organization,
             Organization.id == OrganizationInvitation.organization_id,  # pyright: ignore[reportArgumentType]
+        )
+        .join(
+            RoleModel,
+            RoleModel.id == OrganizationInvitation.role_id,  # pyright: ignore[reportArgumentType]
         )
         .outerjoin(
             User,
@@ -583,7 +641,7 @@ async def list_my_pending_invitations(
     rows = result.tuples().all()
 
     pending_invitations: list[OrgPendingInvitationRead] = []
-    for invitation, organization, inviter in rows:
+    for invitation, organization, inviter, role_obj in rows:
         inviter_name, inviter_email = _get_user_display_name_and_email(inviter)
 
         pending_invitations.append(
@@ -593,7 +651,8 @@ async def list_my_pending_invitations(
                 organization_name=organization.name,
                 inviter_name=inviter_name,
                 inviter_email=inviter_email,
-                role=invitation.role,
+                role_name=role_obj.name,
+                role_slug=role_obj.slug,
                 expires_at=invitation.expires_at,
             )
         )
@@ -627,6 +686,9 @@ async def get_invitation_by_token(
         )
         org = org_result.scalar_one()
 
+        # Fetch role name
+        await session.refresh(invitation, ["role_obj"])
+
         # Fetch inviter info if available
         inviter_name: str | None = None
         inviter_email: str | None = None
@@ -647,7 +709,8 @@ async def get_invitation_by_token(
             organization_name=org.name,
             inviter_name=inviter_name,
             inviter_email=inviter_email,
-            role=invitation.role,
+            role_name=invitation.role_obj.name,
+            role_slug=invitation.role_obj.slug,
             status=invitation.status,
             expires_at=invitation.expires_at,
             email_matches=email_matches,

@@ -4,9 +4,7 @@ The RBAC management endpoints (scopes, roles, groups, assignments) are
 available in the Enterprise Edition (tracecat_ee.rbac.router).
 """
 
-import uuid
-
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from tracecat.auth.dependencies import OrgUserRole

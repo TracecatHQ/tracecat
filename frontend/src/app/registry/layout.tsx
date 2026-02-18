@@ -13,8 +13,8 @@ export default function RegistryLayout({
   children: React.ReactNode
 }) {
   return (
-    <AuthGuard requireAuth>
-      <ScopeProvider>
+    <ScopeProvider>
+      <AuthGuard requireAuth>
         <SidebarProvider>
           <RegistrySidebar />
           <SidebarInset>
@@ -27,7 +27,7 @@ export default function RegistryLayout({
             </div>
           </SidebarInset>
         </SidebarProvider>
-      </ScopeProvider>
-    </AuthGuard>
+      </AuthGuard>
+    </ScopeProvider>
   )
 }

@@ -3458,7 +3458,7 @@ export type OrgInvitationAccept = {
  */
 export type OrgInvitationCreate = {
   email: string
-  role?: OrgRole
+  role_id: string
 }
 
 /**
@@ -3468,7 +3468,9 @@ export type OrgInvitationRead = {
   id: string
   organization_id: string
   email: string
-  role: OrgRole
+  role_id: string
+  role_name: string
+  role_slug?: string | null
   status: InvitationStatus
   invited_by: string | null
   expires_at: string
@@ -3487,7 +3489,8 @@ export type OrgInvitationReadMinimal = {
   organization_name: string
   inviter_name: string | null
   inviter_email: string | null
-  role: OrgRole
+  role_name: string
+  role_slug?: string | null
   status: InvitationStatus
   expires_at: string
   email_matches?: boolean | null
@@ -3514,7 +3517,8 @@ export type OrgMemberRead = {
   user_id?: string | null
   invitation_id?: string | null
   email: string
-  role: OrgRole
+  role_name: string
+  role_slug?: string | null
   status: OrgMemberStatus
   first_name?: string | null
   last_name?: string | null
@@ -3534,7 +3538,8 @@ export type OrgPendingInvitationRead = {
   organization_name: string
   inviter_name: string | null
   inviter_email: string | null
-  role: OrgRole
+  role_name: string
+  role_slug?: string | null
   expires_at: string
 }
 
@@ -3597,11 +3602,6 @@ export type OrgRegistryVersionRead = {
   tarball_uri?: string | null
   created_at: string
 }
-
-/**
- * Organization-level roles.
- */
-export type OrgRole = "member" | "admin" | "owner"
 
 /**
  * Update organization request.
@@ -4468,8 +4468,6 @@ export type Role = {
   type: "user" | "service"
   workspace_id?: string | null
   organization_id?: string | null
-  workspace_role?: WorkspaceRole | null
-  org_role?: OrgRole | null
   user_id?: string | null
   service_id:
     | "tracecat-api"
@@ -6695,7 +6693,7 @@ export type WorkspaceCreate = {
  */
 export type WorkspaceInvitationCreate = {
   email: string
-  role?: WorkspaceRole
+  role_id: string
 }
 
 /**
@@ -6705,7 +6703,9 @@ export type WorkspaceInvitationRead = {
   id: string
   workspace_id: string
   email: string
-  role: WorkspaceRole
+  role_id: string
+  role_name: string
+  role_slug?: string | null
   status: InvitationStatus
   invited_by: string | null
   expires_at: string
@@ -6718,23 +6718,19 @@ export type WorkspaceMember = {
   first_name: string | null
   last_name: string | null
   email: string
-  workspace_role: WorkspaceRole
+  role_name: string
 }
 
 export type WorkspaceMembershipCreate = {
   user_id: string
-  role?: WorkspaceRole
 }
 
 export type WorkspaceMembershipRead = {
   user_id: string
   workspace_id: string
-  role: WorkspaceRole
 }
 
-export type WorkspaceMembershipUpdate = {
-  role?: WorkspaceRole | null
-}
+export type WorkspaceMembershipUpdate = unknown
 
 export type WorkspaceRead = {
   id: string
@@ -6747,8 +6743,6 @@ export type WorkspaceReadMinimal = {
   id: string
   name: string
 }
-
-export type WorkspaceRole = "viewer" | "editor" | "admin"
 
 export type WorkspaceSettingsRead = {
   git_repo_url?: string | null
@@ -9271,13 +9265,6 @@ export type VcsDeleteGithubAppCredentialsResponse = void
 
 export type VcsGetGithubAppCredentialsStatusResponse =
   GitHubAppCredentialsStatus
-
-export type UsersGetMyScopesData = {
-  /**
-   * Workspace to get scopes for
-   */
-  workspaceId?: string | null
-}
 
 export type UsersGetMyScopesResponse = UserScopesRead
 
@@ -13794,16 +13781,11 @@ export type $OpenApiTs = {
   }
   "/users/me/scopes": {
     get: {
-      req: UsersGetMyScopesData
       res: {
         /**
          * Successful Response
          */
         200: UserScopesRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
       }
     }
   }

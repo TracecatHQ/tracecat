@@ -334,7 +334,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             await self._accept_invitation_atomically(user)
 
         # NOTE: We do NOT add users to any organization/workspace here unless invited.
-        # - Superusers have implicit access to all orgs (get OrgRole.OWNER in get_role_from_user)
+        # - Superusers have implicit access to all orgs (via is_platform_superuser)
         # - Regular users get org membership via invitation acceptance flow
         # - Workspace membership is managed separately by workspace admins
 

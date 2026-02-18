@@ -2,7 +2,7 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useCallback, useState } from "react"
-import type { WorkspaceMember, WorkspaceRead, WorkspaceRole } from "@/client"
+import type { WorkspaceMember, WorkspaceRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
@@ -48,7 +48,7 @@ import {
   useWorkspaceMembers,
   useWorkspaceMutations,
 } from "@/hooks/use-workspace"
-import { WorkspaceRoleEnum } from "@/lib/workspace"
+import { useRbacRoles } from "@/lib/hooks"
 
 export function WorkspaceMembersTable({
   workspace,
@@ -64,7 +64,7 @@ export function WorkspaceMembersTable({
   )
 
   const handleChangeRole = useCallback(
-    async (role: WorkspaceRole) => {
+    async (roleName: string) => {
       try {
         if (!selectedUser) {
           return toast({
@@ -72,17 +72,17 @@ export function WorkspaceMembersTable({
             description: "Please select a user to change role",
           })
         }
-        if (selectedUser.workspace_role === role) {
+        if (selectedUser.role_name === roleName) {
           return toast({
             title: "No changes made",
-            description: `User ${selectedUser.email} is already a ${role}`,
+            description: `User ${selectedUser.email} is already a ${roleName}`,
           })
         }
-        console.log("Changing role", selectedUser, role)
+        console.log("Changing role", selectedUser, roleName)
         await updateMember({
           userId: selectedUser.user_id,
           workspaceId: workspace.id,
-          requestBody: { role },
+          requestBody: {},
         })
       } catch (error) {
         console.log("Failed to change role", error)
@@ -161,7 +161,7 @@ export function WorkspaceMembersTable({
               enableHiding: false,
             },
             {
-              accessorKey: "workspace_role",
+              accessorKey: "role_name",
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
@@ -171,9 +171,7 @@ export function WorkspaceMembersTable({
               ),
               cell: ({ row }) => (
                 <div className="text-xs capitalize">
-                  {row.getValue<WorkspaceMember["workspace_role"]>(
-                    "workspace_role"
-                  )}
+                  {row.getValue<string>("role_name")}
                 </div>
               ),
               enableSorting: true,
@@ -280,30 +278,35 @@ function ChangeUserRoleDialog({
 }: {
   selectedUser: WorkspaceMember | null
   setOpen: (open: boolean) => void
-  onConfirm: (role: WorkspaceRole) => void
+  onConfirm: (roleName: string) => void
 }) {
-  const [newRole, setNewRole] = useState<WorkspaceRole>(
-    selectedUser?.workspace_role || "editor"
+  const [newRoleName, setNewRoleName] = useState<string>(
+    selectedUser?.role_name || "Editor"
   )
+  const { roles } = useRbacRoles()
+  const workspaceRoles = roles.filter(
+    (r) => !r.slug || r.slug.startsWith("workspace-")
+  )
+
   return (
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>Change User Role</DialogTitle>
+        <DialogTitle>Change user role</DialogTitle>
         <DialogDescription>
           Select a new role for {selectedUser?.email}
         </DialogDescription>
       </DialogHeader>
       <Select
-        value={newRole}
-        onValueChange={(value) => setNewRole(value as WorkspaceRole)}
+        value={newRoleName}
+        onValueChange={(value) => setNewRoleName(value)}
       >
         <SelectTrigger>
           <SelectValue placeholder="Select a role" />
         </SelectTrigger>
         <SelectContent>
-          {WorkspaceRoleEnum.map((role: WorkspaceRole) => (
-            <SelectItem key={role} value={role}>
-              <span className="capitalize">{role}</span>
+          {workspaceRoles.map((role) => (
+            <SelectItem key={role.id} value={role.name}>
+              {role.name}
             </SelectItem>
           ))}
         </SelectContent>
@@ -312,7 +315,7 @@ function ChangeUserRoleDialog({
         <Button variant="outline" onClick={() => setOpen(false)}>
           Cancel
         </Button>
-        <Button onClick={() => onConfirm(newRole)}>Change Role</Button>
+        <Button onClick={() => onConfirm(newRoleName)}>Change role</Button>
       </DialogFooter>
     </DialogContent>
   )

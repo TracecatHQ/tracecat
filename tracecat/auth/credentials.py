@@ -30,8 +30,7 @@ from tracecat.auth.users import (
     is_unprivileged,
     optional_current_active_user,
 )
-from tracecat.authz.enums import OrgRole, WorkspaceRole
-from tracecat.authz.scopes import PRESET_ROLE_SCOPES, SERVICE_PRINCIPAL_SCOPES
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
@@ -59,34 +58,6 @@ api_key_header_scheme = APIKeyHeader(name="x-tracecat-service-key", auto_error=F
 
 # Maximum number of memberships to cache per user to prevent memory exhaustion
 MAX_CACHED_MEMBERSHIPS = 1000
-
-_LEGACY_ORG_ROLE_TO_PRESET_SLUG: dict[OrgRole, str] = {
-    OrgRole.OWNER: "organization-owner",
-    OrgRole.ADMIN: "organization-admin",
-    OrgRole.MEMBER: "organization-member",
-}
-
-_LEGACY_WORKSPACE_ROLE_TO_PRESET_SLUG: dict[WorkspaceRole, str] = {
-    WorkspaceRole.ADMIN: "workspace-admin",
-    WorkspaceRole.EDITOR: "workspace-editor",
-    WorkspaceRole.VIEWER: "workspace-viewer",
-}
-
-
-def _legacy_membership_scopes(role: Role) -> frozenset[str]:
-    scopes: set[str] = set()
-
-    if role.org_role is not None:
-        org_slug = _LEGACY_ORG_ROLE_TO_PRESET_SLUG.get(role.org_role)
-        if org_slug is not None:
-            scopes.update(PRESET_ROLE_SCOPES[org_slug])
-
-    if role.workspace_role is not None:
-        workspace_slug = _LEGACY_WORKSPACE_ROLE_TO_PRESET_SLUG.get(role.workspace_role)
-        if workspace_slug is not None:
-            scopes.update(PRESET_ROLE_SCOPES[workspace_slug])
-
-    return frozenset(scopes)
 
 
 @alru_cache(maxsize=10000)
@@ -162,40 +133,13 @@ async def compute_effective_scopes(role: Role) -> frozenset[str]:
     scopes = await _compute_effective_scopes_cached(
         role.user_id, role.organization_id, role.workspace_id
     )
-    if scopes:
-        logger.debug(
-            "Resolved effective scopes from user RBAC",
-            user_id=role.user_id,
-            organization_id=role.organization_id,
-            workspace_id=role.workspace_id,
-            scope_count=len(scopes),
-            source="user_rbac",
-        )
-        return scopes
-
-    has_assignments = await _has_any_rbac_assignments_cached(
-        role.user_id, role.organization_id, role.workspace_id
-    )
-    if not has_assignments:
-        fallback_scopes = _legacy_membership_scopes(role)
-        if fallback_scopes:
-            logger.info(
-                "Resolved effective scopes from legacy membership roles",
-                user_id=role.user_id,
-                organization_id=role.organization_id,
-                workspace_id=role.workspace_id,
-                scope_count=len(fallback_scopes),
-                source="legacy_membership",
-            )
-            return fallback_scopes
-
     logger.debug(
         "Resolved effective scopes from user RBAC",
         user_id=role.user_id,
         organization_id=role.organization_id,
         workspace_id=role.workspace_id,
         scope_count=len(scopes),
-        source="user_rbac_empty",
+        source="user_rbac",
     )
     return scopes
 
@@ -258,75 +202,18 @@ async def _compute_effective_scopes_cached(
         return frozenset(result.scalars().all())
 
 
-@alru_cache(maxsize=10000, ttl=30)
-async def _has_any_rbac_assignments_cached(
-    user_id: uuid.UUID,
-    organization_id: uuid.UUID,
-    workspace_id: uuid.UUID | None,
-) -> bool:
-    async with get_async_session_context_manager() as session:
-        user_workspace_condition = (
-            or_(
-                UserRoleAssignment.workspace_id.is_(None),
-                UserRoleAssignment.workspace_id == workspace_id,
-            )
-            if workspace_id is not None
-            else UserRoleAssignment.workspace_id.is_(None)
-        )
-
-        user_assignment_stmt = (
-            select(UserRoleAssignment.id)
-            .where(
-                UserRoleAssignment.user_id == user_id,
-                UserRoleAssignment.organization_id == organization_id,
-                user_workspace_condition,
-            )
-            .limit(1)
-        )
-        user_assignment_result = await session.execute(user_assignment_stmt)
-        if user_assignment_result.scalar_one_or_none() is not None:
-            return True
-
-        group_workspace_condition = (
-            or_(
-                GroupRoleAssignment.workspace_id.is_(None),
-                GroupRoleAssignment.workspace_id == workspace_id,
-            )
-            if workspace_id is not None
-            else GroupRoleAssignment.workspace_id.is_(None)
-        )
-        group_assignment_stmt = (
-            select(GroupRoleAssignment.id)
-            .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
-            .where(
-                GroupMember.user_id == user_id,
-                GroupRoleAssignment.organization_id == organization_id,
-                group_workspace_condition,
-            )
-            .limit(1)
-        )
-        group_assignment_result = await session.execute(group_assignment_stmt)
-        return group_assignment_result.scalar_one_or_none() is not None
-
-
 def get_role_from_user(
     user: User,
     organization_id: uuid.UUID,
     workspace_id: uuid.UUID | None = None,
-    workspace_role: WorkspaceRole | None = None,
-    org_role: OrgRole | None = None,
     service_id: InternalServiceID = "tracecat-api",
 ) -> Role:
-    if user.is_superuser:
-        org_role = OrgRole.OWNER
     return Role(
         type="user",
         workspace_id=workspace_id,
         organization_id=organization_id,
         user_id=user.id,
         service_id=service_id,
-        workspace_role=workspace_role,
-        org_role=org_role,
         is_platform_superuser=user.is_superuser,
     )
 
@@ -382,17 +269,6 @@ async def _authenticate_service(
     # don't propagate x-tracecat-role-organization-id yet.
     if organization_id is None and workspace_id is not None:
         organization_id = await _get_workspace_org_id(workspace_id)
-    workspace_role = (
-        WorkspaceRole(ws_role)
-        if (ws_role := request.headers.get("x-tracecat-role-workspace-role"))
-        is not None
-        else None
-    )
-    org_role = (
-        OrgRole(org_role_str)
-        if (org_role_str := request.headers.get("x-tracecat-role-org-role")) is not None
-        else None
-    )
     # Parse scopes from header if present (for inter-service calls)
     scopes: frozenset[str] = frozenset()
     if scopes_header := request.headers.get("x-tracecat-role-scopes"):
@@ -406,8 +282,6 @@ async def _authenticate_service(
         user_id=user_id,
         workspace_id=workspace_id,
         organization_id=organization_id,
-        workspace_role=workspace_role,
-        org_role=org_role,
         scopes=scopes,
     )
 
@@ -623,20 +497,25 @@ async def _resolve_org_for_regular_user(
     )
 
 
-async def _get_org_role(
+async def _is_org_admin_via_rbac(
     session: AsyncSession,
     user_id: uuid.UUID,
     organization_id: uuid.UUID,
-) -> OrgRole | None:
-    """Fetch the user's organization-level role."""
-    org_mem_stmt = select(OrganizationMembership).where(
-        OrganizationMembership.user_id == user_id,
-        OrganizationMembership.organization_id == organization_id,
+) -> bool:
+    """Check if the user has an org-level admin/owner RBAC role assignment."""
+    stmt = (
+        select(UserRoleAssignment.id)
+        .join(DBRole, DBRole.id == UserRoleAssignment.role_id)
+        .where(
+            UserRoleAssignment.user_id == user_id,
+            UserRoleAssignment.organization_id == organization_id,
+            UserRoleAssignment.workspace_id.is_(None),
+            DBRole.slug.in_(["organization-owner", "organization-admin"]),
+        )
+        .limit(1)
     )
-    org_membership_result = await session.execute(org_mem_stmt)
-    if org_mem := org_membership_result.scalar_one_or_none():
-        return org_mem.role
-    return None
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none() is not None
 
 
 async def _authenticate_user(
@@ -653,9 +532,7 @@ async def _authenticate_user(
     2. Organization context resolution (superuser vs regular user)
     3. Role construction (authorization is enforced via scopes, not enum roles)
     """
-    workspace_role: WorkspaceRole | None = None
     organization_id: uuid.UUID
-    org_role: OrgRole | None = None
 
     if is_unprivileged(user) and workspace_id is not None:
         resolved_org_id = await _get_workspace_org_id(workspace_id)
@@ -666,12 +543,8 @@ async def _authenticate_user(
             )
         organization_id = resolved_org_id
 
-        # Check if user is an org owner/admin - they can access all workspaces
-        org_role = await _get_org_role(session, user.id, organization_id)
-        is_org_admin = org_role in (
-            OrgRole.OWNER,
-            OrgRole.ADMIN,
-        )  # Can't use Role.is_org_admin yet - Role not built
+        # Check if user is an org owner/admin via RBAC - they can access all workspaces
+        is_org_admin = await _is_org_admin_via_rbac(session, user.id, organization_id)
 
         if is_org_admin:
             logger.debug(
@@ -681,29 +554,22 @@ async def _authenticate_user(
             )
         else:
             # Regular user - validate workspace membership
-            membership_with_org = await _get_membership_with_cache(
+            await _get_membership_with_cache(
                 request=request,
                 session=session,
                 workspace_id=workspace_id,
                 user=user,
             )
-            workspace_role = membership_with_org.membership.role
     else:
         if user.is_superuser:
             organization_id = await _resolve_org_for_superuser(request, session)
         else:
             organization_id = await _resolve_org_for_regular_user(session, user)
 
-    # Fetch org-level role if not already fetched (backward compat)
-    if org_role is None:
-        org_role = await _get_org_role(session, user.id, organization_id)
-
     return get_role_from_user(
         user,
         workspace_id=workspace_id,
-        workspace_role=workspace_role,
         organization_id=organization_id,
-        org_role=org_role,
     )
 
 

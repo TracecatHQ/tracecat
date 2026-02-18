@@ -21,14 +21,17 @@ from tracecat.auth.users import (
     get_user_db_context,
     get_user_manager_context,
 )
-from tracecat.authz.controls import require_scope
-from tracecat.authz.enums import OrgRole
+from tracecat.authz.controls import has_scope, require_scope
 from tracecat.db.models import (
     AccessToken,
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
     User,
+    UserRoleAssignment,
+)
+from tracecat.db.models import (
+    Role as RoleModel,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -50,7 +53,7 @@ async def accept_invitation_for_user(
     user_id: UserID,
     token: str,
 ) -> OrganizationMembership:
-    """Accept an invitation and create organization membership.
+    """Accept an invitation and create organization membership + RBAC assignment.
 
     This is a standalone function (not a method) because invitation acceptance
     doesn't require organization context - the user may not belong to any
@@ -141,13 +144,21 @@ async def accept_invitation_for_user(
             # Shouldn't reach here, but handle gracefully
             raise TracecatAuthorizationError("Invitation is no longer valid")
 
-        # Create membership
+        # Create membership (still needed for org membership existence checks)
         membership = OrganizationMembership(
             user_id=user_id,
             organization_id=invitation.organization_id,
-            role=invitation.role,
         )
         session.add(membership)
+
+        # Create RBAC role assignment from invitation's role_id
+        assignment = UserRoleAssignment(
+            organization_id=invitation.organization_id,
+            user_id=user_id,
+            workspace_id=None,
+            role_id=invitation.role_id,
+        )
+        session.add(assignment)
 
         await session.commit()
         await session.refresh(membership)
@@ -190,19 +201,17 @@ class OrgService(BaseOrgService):
 
     # === Manage members ===
     @require_scope("org:member:read")
-    async def list_members(self) -> Sequence[tuple[User, OrgRole]]:
+    async def list_members(self) -> Sequence[User]:
         """
-        Retrieve a list of all members in the organization with their roles.
+        Retrieve a list of all members in the organization.
 
         This method queries the database to obtain all user records
-        associated with the organization via OrganizationMembership,
-        along with their organization role.
+        associated with the organization via OrganizationMembership.
 
         Returns:
-            Sequence[tuple[User, OrgRole]]: A sequence of tuples containing
-            User objects and their organization roles.
+            Sequence[User]: A sequence of User objects.
         """
-        statement = select(User, OrganizationMembership.role).join(
+        statement = select(User).join(
             OrganizationMembership,
             and_(
                 OrganizationMembership.user_id == User.id,
@@ -210,22 +219,22 @@ class OrgService(BaseOrgService):
             ),
         )
         result = await self.session.execute(statement)
-        return result.tuples().all()
+        return result.scalars().all()
 
-    async def get_member(self, user_id: UserID) -> tuple[User, OrgRole]:
+    async def get_member(self, user_id: UserID) -> User:
         """Retrieve a member of the organization by their user ID.
 
         Args:
             user_id (UserID): The unique identifier of the user.
 
         Returns:
-            tuple[User, OrgRole]: The user object and their organization role.
+            User: The user object.
 
         Raises:
             NoResultFound: If no user with the given ID exists in this organization.
         """
         statement = (
-            select(User, OrganizationMembership.role)
+            select(User)
             .join(
                 OrganizationMembership,
                 and_(
@@ -236,7 +245,7 @@ class OrgService(BaseOrgService):
             .where(cast(User.id, UUID) == user_id)
         )
         result = await self.session.execute(statement)
-        return result.tuples().one()
+        return result.scalar_one()
 
     @require_scope("org:member:remove")
     @audit_log(resource_type="organization_member", action="delete")
@@ -254,7 +263,7 @@ class OrgService(BaseOrgService):
         Raises:
             TracecatAuthorizationError: If the user is a superuser and cannot be deleted.
         """
-        user, _ = await self.get_member(user_id)
+        user = await self.get_member(user_id)
         if user.is_superuser:
             raise TracecatAuthorizationError("Cannot delete superuser")
         async with self._manager() as user_manager:
@@ -262,9 +271,7 @@ class OrgService(BaseOrgService):
 
     @require_scope("org:member:update")
     @audit_log(resource_type="organization_member", action="update")
-    async def update_member(
-        self, user_id: UserID, params: UserUpdate
-    ) -> tuple[User, OrgRole]:
+    async def update_member(self, user_id: UserID, params: UserUpdate) -> User:
         """
         Update a member of the organization.
 
@@ -276,19 +283,19 @@ class OrgService(BaseOrgService):
             params (UserUpdate): The parameters containing the updated user information.
 
         Returns:
-            tuple[User, OrgRole]: The updated user object and their organization role.
+            User: The updated user object.
 
         Raises:
             TracecatAuthorizationError: If the user is a superuser and cannot be updated.
         """
-        user, org_role = await self.get_member(user_id)
+        user = await self.get_member(user_id)
         if user.is_superuser:
             raise TracecatAuthorizationError("Cannot update superuser")
         async with self._manager() as user_manager:
             updated_user = await user_manager.update(
                 user_update=params, user=user, safe=True
             )
-        return updated_user, org_role
+        return updated_user
 
     @audit_log(resource_type="organization_member", action="create")
     async def add_member(
@@ -296,7 +303,6 @@ class OrgService(BaseOrgService):
         *,
         user_id: UserID,
         organization_id: OrganizationID,
-        role: OrgRole = OrgRole.MEMBER,
     ) -> OrganizationMembership:
         """Add a user to an organization.
 
@@ -306,12 +312,11 @@ class OrgService(BaseOrgService):
 
         Note: This method does not require scope checks as it is
         intended to be called by internal services (e.g., invitation service).
+        RBAC role assignment is handled separately.
 
         Args:
             user_id: The unique identifier of the user to add.
             organization_id: The unique identifier of the organization.
-            role: The role to assign to the user in the organization.
-                Defaults to OrgRole.MEMBER.
 
         Returns:
             OrganizationMembership: The created membership record.
@@ -319,7 +324,6 @@ class OrgService(BaseOrgService):
         membership = OrganizationMembership(
             user_id=user_id,
             organization_id=organization_id,
-            role=role,
         )
         self.session.add(membership)
         await self.session.commit()
@@ -406,13 +410,13 @@ class OrgService(BaseOrgService):
         self,
         *,
         email: str,
-        role: OrgRole = OrgRole.MEMBER,
+        role_id: uuid.UUID,
     ) -> OrganizationInvitation:
         """Create an invitation to join the organization.
 
         Args:
             email: Email address of the invitee.
-            role: Role to grant upon acceptance. Defaults to MEMBER.
+            role_id: RBAC role to assign upon acceptance.
 
         Returns:
             OrganizationInvitation: The created invitation record.
@@ -422,10 +426,22 @@ class OrgService(BaseOrgService):
                 "User must be authenticated to create invitation"
             )
 
-        # Prevent privilege escalation: only OWNER can create OWNER invitations
-        # Superusers can create any invitation regardless of membership
-        if role == OrgRole.OWNER and self.role.org_role != OrgRole.OWNER:
-            if not self.role.is_superuser:
+        # Validate role_id exists and belongs to this organization
+        role_result = await self.session.execute(
+            select(RoleModel).where(
+                RoleModel.id == role_id,
+                RoleModel.organization_id == self.organization_id,
+            )
+        )
+        role_obj = role_result.scalar_one_or_none()
+        if role_obj is None:
+            raise TracecatValidationError("Invalid role ID for this organization")
+
+        # Prevent privilege escalation: only owners (via scope) or superusers can assign owner role
+        if role_obj.slug == "organization-owner":
+            if not self.role.is_superuser and not has_scope(
+                self.role.scopes or frozenset(), "org:owner:assign"
+            ):
                 raise TracecatAuthorizationError(
                     "Only organization owners can create owner invitations"
                 )
@@ -469,7 +485,7 @@ class OrgService(BaseOrgService):
         invitation = OrganizationInvitation(
             organization_id=self.organization_id,
             email=email,
-            role=role,
+            role_id=role_id,
             invited_by=self.role.user_id,
             token=secrets.token_urlsafe(32),
             expires_at=datetime.now(UTC) + timedelta(days=7),
@@ -547,11 +563,12 @@ class OrgService(BaseOrgService):
         return invitation
 
     async def accept_invitation(self, token: str) -> OrganizationMembership:
-        """Accept an invitation and create organization membership.
+        """Accept an invitation and create organization membership + RBAC assignment.
 
         This method validates the invitation token, checks expiry and status,
-        then creates the membership record. Audit events are logged to the
-        invitation's target organization, not the user's current organization.
+        then creates the membership record and RBAC role assignment.
+        Audit events are logged to the invitation's target organization,
+        not the user's current organization.
 
         Uses optimistic locking via conditional UPDATE to prevent TOCTOU race
         conditions - the status check and update happen atomically in a single
@@ -633,13 +650,21 @@ class OrgService(BaseOrgService):
                 # Shouldn't reach here, but handle gracefully
                 raise TracecatAuthorizationError("Invitation is no longer valid")
 
-            # Create membership
+            # Create membership (still needed for org membership existence checks)
             membership = OrganizationMembership(
                 user_id=self.role.user_id,
                 organization_id=invitation.organization_id,
-                role=invitation.role,
             )
             self.session.add(membership)
+
+            # Create RBAC role assignment from invitation's role_id
+            assignment = UserRoleAssignment(
+                organization_id=invitation.organization_id,
+                user_id=self.role.user_id,
+                workspace_id=None,
+                role_id=invitation.role_id,
+            )
+            self.session.add(assignment)
 
             await self.session.commit()
             await self.session.refresh(membership)

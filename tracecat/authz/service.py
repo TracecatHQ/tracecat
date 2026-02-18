@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.authz.enums import WorkspaceRole
 from tracecat.contexts import ctx_role
-from tracecat.db.models import Membership, User, Workspace
+from tracecat.db.models import Membership, User, UserRoleAssignment, Workspace
+from tracecat.db.models import Role as DBRole
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.service import BaseService
 from tracecat.workspaces.schemas import (
@@ -51,22 +51,44 @@ class MembershipService(BaseService):
     async def list_workspace_members(
         self, workspace_id: WorkspaceID
     ) -> list[WorkspaceMember]:
-        """List all workspace members with their workspace roles."""
+        """List all workspace members with their workspace roles from RBAC."""
+        # Get workspace org_id for RBAC lookup
+        ws_stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
+        ws_result = await self.session.execute(ws_stmt)
+        org_id = ws_result.scalar_one_or_none()
+
+        # Get members
         statement = (
-            select(User, Membership.role)
+            select(User)
             .join(Membership, Membership.user_id == User.id)
             .where(Membership.workspace_id == workspace_id)
         )
         result = await self.session.execute(statement)
+        users = result.scalars().all()
+
+        # Build RBAC role map for workspace-scoped assignments
+        user_ids = [u.id for u in users]
+        rbac_stmt = (
+            select(UserRoleAssignment.user_id, DBRole.name)
+            .join(DBRole, DBRole.id == UserRoleAssignment.role_id)
+            .where(
+                UserRoleAssignment.workspace_id == workspace_id,
+                UserRoleAssignment.organization_id == org_id,
+                UserRoleAssignment.user_id.in_(user_ids),  # pyright: ignore[reportAttributeAccessIssue]
+            )
+        )
+        rbac_result = await self.session.execute(rbac_stmt)
+        rbac_map: dict[str, str] = {str(row[0]): row[1] for row in rbac_result.all()}
+
         return [
             WorkspaceMember(
                 user_id=user.id,
                 first_name=user.first_name,
                 last_name=user.last_name,
                 email=user.email,
-                workspace_role=WorkspaceRole(ws_role),
+                role_name=rbac_map.get(str(user.id), "Editor"),
             )
-            for user, ws_role in result.tuples().all()
+            for user in users
         ]
 
     async def get_membership(
@@ -126,7 +148,6 @@ class MembershipService(BaseService):
         membership = Membership(
             user_id=params.user_id,
             workspace_id=workspace_id,
-            role=params.role,
         )
         self.session.add(membership)
         await self.session.commit()

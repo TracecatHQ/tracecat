@@ -5505,7 +5505,7 @@ export function useUserScopes(workspaceId?: string) {
     error,
   } = useQuery<UserScopesRead>({
     queryKey: ["user-scopes", workspaceId],
-    queryFn: async () => await usersGetMyScopes({ workspaceId }),
+    queryFn: async () => await usersGetMyScopes(),
   })
 
   return {
