@@ -270,13 +270,13 @@ async def list_cases(
     cursor: Annotated[
         str | None,
         Doc(
-            "Pagination cursor used to fetch a specific page. Response metadata is returned when paginate=true."
+            "Pagination cursor used to fetch a specific page when paginate=true."
         ),
     ] = None,
     reverse: Annotated[
         bool,
         Doc(
-            "Reverse pagination direction. Response metadata is returned when paginate=true."
+            "Reverse pagination direction when paginate=true."
         ),
     ] = False,
     order_by: Annotated[
@@ -299,9 +299,9 @@ async def list_cases(
         )
 
     params: dict[str, Any] = {"limit": limit}
-    if cursor is not None:
+    if paginate and cursor is not None:
         params["cursor"] = cursor
-    if reverse:
+    if paginate and reverse:
         params["reverse"] = reverse
     if order_by is not None:
         params["order_by"] = order_by
@@ -371,13 +371,13 @@ async def search_cases(
     cursor: Annotated[
         str | None,
         Doc(
-            "Pagination cursor used to fetch a specific page. Response metadata is returned when paginate=true."
+            "Pagination cursor used to fetch a specific page when paginate=true."
         ),
     ] = None,
     reverse: Annotated[
         bool,
         Doc(
-            "Reverse pagination direction. Response metadata is returned when paginate=true."
+            "Reverse pagination direction when paginate=true."
         ),
     ] = False,
     order_by: Annotated[
@@ -401,9 +401,9 @@ async def search_cases(
         )
 
     params: dict[str, Any] = {"limit": limit}
-    if cursor is not None:
+    if paginate and cursor is not None:
         params["cursor"] = cursor
-    if reverse:
+    if paginate and reverse:
         params["reverse"] = reverse
     if search_term is not None:
         params["search_term"] = search_term

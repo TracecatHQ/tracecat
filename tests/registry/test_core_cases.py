@@ -449,10 +449,10 @@ class TestCoreListCases:
         )
         assert result == [mock_case_dict]
 
-    async def test_list_cases_with_cursor_params(
+    async def test_list_cases_ignores_cursor_params_when_paginate_false(
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):
-        """Test listing cases forwards cursor pagination controls."""
+        """Test listing cases ignores cursor controls when paginate is false."""
         mock_cases_client.list_cases.return_value = {"items": [mock_case_dict]}
 
         result = await list_cases(
@@ -465,8 +465,6 @@ class TestCoreListCases:
 
         mock_cases_client.list_cases.assert_called_once_with(
             limit=25,
-            cursor="cursor-1",
-            reverse=True,
             order_by="updated_at",
             sort="asc",
         )
@@ -485,9 +483,18 @@ class TestCoreListCases:
             "total_estimate": 1,
         }
 
-        result = await list_cases(limit=5, paginate=True)
+        result = await list_cases(
+            limit=5,
+            paginate=True,
+            cursor="cursor-1",
+            reverse=True,
+        )
 
-        mock_cases_client.list_cases.assert_called_once_with(limit=5)
+        mock_cases_client.list_cases.assert_called_once_with(
+            limit=5,
+            cursor="cursor-1",
+            reverse=True,
+        )
         assert isinstance(result, dict)
         assert result["items"] == [mock_case_dict]
         assert result["next_cursor"] == "cursor-1"
@@ -551,9 +558,18 @@ class TestCoreSearchCases:
             "total_estimate": 1,
         }
 
-        result = await search_cases(limit=5, paginate=True)
+        result = await search_cases(
+            limit=5,
+            paginate=True,
+            cursor="cursor-1",
+            reverse=True,
+        )
 
-        mock_cases_client.search_cases.assert_called_once_with(limit=5)
+        mock_cases_client.search_cases.assert_called_once_with(
+            limit=5,
+            cursor="cursor-1",
+            reverse=True,
+        )
         assert isinstance(result, dict)
         assert result["items"] == [mock_case_dict]
         assert result["next_cursor"] == "cursor-1"
@@ -573,10 +589,10 @@ class TestCoreSearchCases:
         )
         assert result == [mock_case_dict]
 
-    async def test_search_cases_with_cursor_params(
+    async def test_search_cases_ignores_cursor_params_when_paginate_false(
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):
-        """search_cases should forward cursor pagination controls."""
+        """search_cases should ignore cursor controls when paginate is false."""
         mock_cases_client.search_cases.return_value = {"items": [mock_case_dict]}
 
         result = await search_cases(
@@ -589,8 +605,6 @@ class TestCoreSearchCases:
 
         mock_cases_client.search_cases.assert_called_once_with(
             limit=25,
-            cursor="cursor-1",
-            reverse=True,
             order_by="updated_at",
             sort="asc",
         )
