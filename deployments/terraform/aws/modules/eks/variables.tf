@@ -113,7 +113,7 @@ variable "hosted_zone_id" {
 variable "tracecat_image_tag" {
   description = "Docker image tag for Tracecat services"
   type        = string
-  default     = "1.0.0-beta.12"
+  default     = "1.0.0-beta.13"
 }
 
 variable "tracecat_ingress_split" {
