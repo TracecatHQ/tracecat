@@ -1,6 +1,5 @@
 import uuid  # noqa: I001
 import asyncio
-from datetime import UTC, datetime, timedelta
 from typing import Literal
 from unittest.mock import patch, MagicMock
 
@@ -83,7 +82,7 @@ async def _list_cases(
     sort: Literal["asc", "desc"] | None = None,
 ) -> list[CaseReadMinimal]:
     response = await cases_service.list_cases(
-        CursorPaginationParams(limit=limit, cursor=None, reverse=False),
+        limit=limit,
         order_by=order_by,
         sort=sort,
     )
@@ -640,7 +639,7 @@ class TestCasesService:
     async def test_search_cases_aliases_list_cases(
         self, cases_service: CasesService
     ) -> None:
-        """search_cases should be a strict alias for list_cases."""
+        """search_cases should match default list_cases behavior when unfiltered."""
         await cases_service.create_case(
             CaseCreate(
                 summary="First Case",
@@ -663,20 +662,12 @@ class TestCasesService:
 
         params = CursorPaginationParams(limit=10, cursor=None, reverse=False)
         list_response = await cases_service.list_cases(
-            params,
-            search_term="Case",
-            status=[CaseStatus.NEW, CaseStatus.IN_PROGRESS],
+            limit=10,
             order_by="created_at",
             sort="asc",
         )
         search_response = await cases_service.search_cases(
             params=params,
-            search_term="Case",
-            status=[CaseStatus.NEW, CaseStatus.IN_PROGRESS],
-            start_time=datetime.now(UTC) - timedelta(days=1),
-            end_time=datetime.now(UTC) + timedelta(days=1),
-            updated_after=datetime.now(UTC) - timedelta(days=1),
-            updated_before=datetime.now(UTC) + timedelta(days=1),
             order_by="created_at",
             sort="asc",
         )
