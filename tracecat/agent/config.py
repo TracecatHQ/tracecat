@@ -87,16 +87,16 @@ MODEL_CONFIGS = {
             "required": ["gemini"],
         },
     ),
-    "gemini-3-flash": ModelConfig(
-        name="gemini-3-flash",
+    "gemini-3-flash-preview": ModelConfig(
+        name="gemini-3-flash-preview",
         provider="gemini",
         org_secret_name="agent-gemini-credentials",
         secrets={
             "required": ["gemini"],
         },
     ),
-    "gemini-3-pro": ModelConfig(
-        name="gemini-3-pro",
+    "gemini-3-pro-preview": ModelConfig(
+        name="gemini-3-pro-preview",
         provider="gemini",
         org_secret_name="agent-gemini-credentials",
         secrets={

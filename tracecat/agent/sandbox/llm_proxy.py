@@ -36,14 +36,15 @@ LLM_SOCKET_NAME = "llm.sock"
 MAX_BODY_SIZE = 10 * 1024 * 1024
 
 # Non-critical endpoints that should not trigger fatal errors on failure.
-# These are internal LiteLLM endpoints for telemetry, health checks, etc.
-# Errors on these endpoints are logged but don't fail the agent.
+# These are internal LiteLLM endpoints for telemetry, health checks, token
+# counting, etc. Errors on these endpoints are logged but don't fail the agent.
 _NON_CRITICAL_PATHS = frozenset(
     {
         "/api/event_logging/batch",
         "/health",
         "/health/liveliness",
         "/health/readiness",
+        "/v1/messages/count_tokens",
     }
 )
 
@@ -295,7 +296,9 @@ class LLMSocketProxy:
                 # Detect error responses from LiteLLM
                 if response.status_code >= 400:
                     # Check if this is a non-critical endpoint (telemetry, health checks, etc.)
-                    is_non_critical = request["path"] in _NON_CRITICAL_PATHS
+                    # Strip query string before matching (path may include ?beta=true etc.)
+                    path_without_query = request["path"].split("?", 1)[0]
+                    is_non_critical = path_without_query in _NON_CRITICAL_PATHS
 
                     # Read error body but only log metadata to avoid sensitive data leakage
                     try:
