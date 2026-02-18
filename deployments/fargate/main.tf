@@ -146,7 +146,6 @@ module "ecs" {
   caddy_cpu                       = var.caddy_cpu
   caddy_memory                    = var.caddy_memory
   db_instance_class               = var.db_instance_class
-  db_instance_size                = var.db_instance_size
   db_allocated_storage            = var.db_allocated_storage
   db_engine_version               = var.db_engine_version
 

@@ -159,7 +159,7 @@ variable "tracecat_secrets_arn" {
 variable "rds_instance_class" {
   description = "RDS instance class"
   type        = string
-  default     = "db.t4g.xlarge"
+  default     = "db.t4g.2xlarge"
 }
 
 variable "rds_engine_version" {

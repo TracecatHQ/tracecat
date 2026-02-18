@@ -554,12 +554,7 @@ variable "caddy_memory" {
 
 variable "db_instance_class" {
   type    = string
-  default = "db.t4g"
-}
-
-variable "db_instance_size" {
-  type    = string
-  default = "medium"
+  default = "db.t4g.2xlarge"
 }
 
 variable "db_allocated_storage" {
