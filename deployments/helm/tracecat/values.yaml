@@ -329,8 +329,8 @@ temporal:
               # Disable only if your DB role cannot CREATE DATABASE and DBs are pre-provisioned.
               createDatabase: true
               manageSchema: true
-              maxConns: 20
-              maxIdleConns: 20
+              maxConns: 50
+              maxIdleConns: 15
           visibility:
             sql:
               pluginName: postgres12
@@ -345,8 +345,8 @@ temporal:
               # Same cold-start behavior as the default store.
               createDatabase: true
               manageSchema: true
-              maxConns: 20
-              maxIdleConns: 20
+              maxConns: 50
+              maxIdleConns: 15
       # Namespace configuration (must be under server.config, not server)
       namespaces:
         create: true
