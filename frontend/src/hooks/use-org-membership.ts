@@ -2,7 +2,6 @@
 
 import { useQuery } from "@tanstack/react-query"
 import { type OrgMemberDetail, organizationGetCurrentOrgMember } from "@/client"
-import { useAuth } from "@/hooks/use-auth"
 
 /**
  * Hook to fetch the current user's organization membership.

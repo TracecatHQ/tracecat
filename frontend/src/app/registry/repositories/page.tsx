@@ -1,25 +1,15 @@
 "use client"
 
-import { useRouter } from "next/navigation"
-import { useEffect } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { RegistryRepositoriesTable } from "@/components/registry/registry-repos-table"
 
 export default function RegistryRepositoriesPage() {
-  const canAdministerOrg = useScopeCheck("org:registry:manage")
-  const router = useRouter()
-
-  const isLoading = canAdministerOrg === undefined
-
-  useEffect(() => {
-    if (canAdministerOrg === false) {
-      router.replace("/registry/actions")
-    }
-  }, [canAdministerOrg, router])
+  const canReadRegistry = useScopeCheck("org:registry:read")
+  const isLoading = canReadRegistry === undefined
 
   if (isLoading) return <CenteredSpinner />
-  if (!canAdministerOrg) return null
+  if (!canReadRegistry) return null
   return (
     <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[1000px] flex-col space-y-12">

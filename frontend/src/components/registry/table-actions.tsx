@@ -17,6 +17,8 @@ import { copyToClipboard } from "@/lib/utils"
 
 interface RepositoryActionsProps {
   repository: RegistryRepositoryReadMinimal
+  canUpdate: boolean
+  canDelete: boolean
   onSync: (repo: RegistryRepositoryReadMinimal) => void
   onDelete: (repo: RegistryRepositoryReadMinimal) => void
   onChangeCommit: (repo: RegistryRepositoryReadMinimal) => void
@@ -25,6 +27,8 @@ interface RepositoryActionsProps {
 
 export function RepositoryActions({
   repository,
+  canUpdate,
+  canDelete,
   onSync,
   onDelete,
   onChangeCommit,
@@ -116,16 +120,17 @@ export function RepositoryActions({
         </DropdownMenuItem>
       )}
 
-      {/* Admin-only actions would go here with proper permission check */}
-      <DropdownMenuItem
-        className="flex items-center text-xs"
-        onClick={handleSyncClick}
-      >
-        <RefreshCcw className="mr-2 size-4" />
-        <span>Sync from remote</span>
-      </DropdownMenuItem>
+      {canUpdate && (
+        <DropdownMenuItem
+          className="flex items-center text-xs"
+          onClick={handleSyncClick}
+        >
+          <RefreshCcw className="mr-2 size-4" />
+          <span>Sync from remote</span>
+        </DropdownMenuItem>
+      )}
 
-      {repository.origin.startsWith("git+ssh://") && (
+      {canUpdate && repository.origin.startsWith("git+ssh://") && (
         <DropdownMenuItem
           className="flex items-center text-xs"
           onClick={handleChangeCommitClick}
@@ -145,13 +150,15 @@ export function RepositoryActions({
         </DropdownMenuItem>
       )}
 
-      <DropdownMenuItem
-        className="flex items-center text-xs text-rose-600"
-        onClick={handleDeleteClick}
-      >
-        <TrashIcon className="mr-2 size-4" />
-        <span>Delete repository</span>
-      </DropdownMenuItem>
+      {canDelete && (
+        <DropdownMenuItem
+          className="flex items-center text-xs text-rose-600"
+          onClick={handleDeleteClick}
+        >
+          <TrashIcon className="mr-2 size-4" />
+          <span>Delete repository</span>
+        </DropdownMenuItem>
+      )}
     </DropdownMenuGroup>
   )
 }

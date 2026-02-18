@@ -28,7 +28,7 @@ import { toast } from "@/components/ui/use-toast"
 import { useRegistryActions } from "@/lib/hooks"
 
 export function RegistryActionsTable() {
-  const canAdministerOrg = useScopeCheck("org:registry:manage")
+  const canDeleteAction = useScopeCheck("org:registry:delete") === true
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useRegistryActions()
   const [selectedAction, setSelectedAction] =
@@ -251,7 +251,7 @@ export function RegistryActionsTable() {
                       <CopyIcon className="mr-2 size-4" />
                       <span>Copy action name</span>
                     </DropdownMenuItem>
-                    {canAdministerOrg && (
+                    {canDeleteAction && (
                       <>
                         <DeleteRegistryActionAlertDialogTrigger asChild>
                           <DropdownMenuItem

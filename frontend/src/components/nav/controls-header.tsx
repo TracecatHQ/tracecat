@@ -49,13 +49,13 @@ import {
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { Spinner } from "@/components/loading/spinner"
-import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
 import {
   MembersViewMode,
   MembersViewToggle,
 } from "@/components/members/members-view-toggle"
 import { CreateGroupButton } from "@/components/rbac/create-group-button"
 import { CreateRoleButton } from "@/components/rbac/create-role-button"
+import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
@@ -875,7 +875,7 @@ function MembersActions({ view }: { view: MembersViewMode }) {
         membersHref={`/workspaces/${workspaceId}/members`}
         rolesHref={`/workspaces/${workspaceId}/members/roles`}
         groupsHref={`/workspaces/${workspaceId}/members/groups`}
-        rbacScope="workspace:rbac:read"
+        rbacScope="org:rbac:read"
       />
       {actionButton}
     </>

@@ -4,6 +4,7 @@ import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { PlusIcon, SearchIcon, ShieldIcon } from "lucide-react"
 import { useMemo, useState } from "react"
 import type { RoleReadWithScopes } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   RbacBadge,
   RbacDetailRow,
@@ -59,6 +60,9 @@ export function OrgRbacRoles() {
   } = useRbacRoles()
 
   const { scopes } = useRbacScopes({ includeSystem: true })
+  const canCreateRole = useScopeCheck("org:rbac:create") === true
+  const canUpdateRole = useScopeCheck("org:rbac:update") === true
+  const canDeleteRole = useScopeCheck("org:rbac:delete") === true
 
   const filteredRoles = useMemo(() => {
     if (!searchQuery.trim()) return roles
@@ -146,12 +150,14 @@ export function OrgRbacRoles() {
               </div>
             }
             right={
-              <DialogTrigger asChild>
-                <Button size="sm" onClick={() => setIsCreateOpen(true)}>
-                  <PlusIcon className="mr-2 size-4" />
-                  Create role
-                </Button>
-              </DialogTrigger>
+              canCreateRole ? (
+                <DialogTrigger asChild>
+                  <Button size="sm" onClick={() => setIsCreateOpen(true)}>
+                    <PlusIcon className="mr-2 size-4" />
+                    Create role
+                  </Button>
+                </DialogTrigger>
+              ) : null
             }
           />
 
@@ -194,6 +200,8 @@ export function OrgRbacRoles() {
                     setIsEditOpen(true)
                   }}
                   onDelete={() => setSelectedRole(role)}
+                  canUpdateRole={canUpdateRole}
+                  canDeleteRole={canDeleteRole}
                 />
               ))}
             </RbacListContainer>
@@ -264,12 +272,16 @@ function RoleListItem({
   onExpandedChange,
   onEdit,
   onDelete,
+  canUpdateRole,
+  canDeleteRole,
 }: {
   role: RoleReadWithScopes
   isExpanded: boolean
   onExpandedChange: (expanded: boolean) => void
   onEdit: () => void
   onDelete: () => void
+  canUpdateRole: boolean
+  canDeleteRole: boolean
 }) {
   return (
     <RbacListItem
@@ -300,20 +312,24 @@ function RoleListItem({
             </DropdownMenuItem>
             {!role.is_system && (
               <>
-                <DropdownMenuSeparator />
-                <DialogTrigger asChild>
-                  <DropdownMenuItem onClick={onEdit}>
-                    Edit role
-                  </DropdownMenuItem>
-                </DialogTrigger>
-                <AlertDialogTrigger asChild>
-                  <DropdownMenuItem
-                    className="text-rose-500 focus:text-rose-600"
-                    onClick={onDelete}
-                  >
-                    Delete role
-                  </DropdownMenuItem>
-                </AlertDialogTrigger>
+                {(canUpdateRole || canDeleteRole) && <DropdownMenuSeparator />}
+                {canUpdateRole && (
+                  <DialogTrigger asChild>
+                    <DropdownMenuItem onClick={onEdit}>
+                      Edit role
+                    </DropdownMenuItem>
+                  </DialogTrigger>
+                )}
+                {canDeleteRole && (
+                  <AlertDialogTrigger asChild>
+                    <DropdownMenuItem
+                      className="text-rose-500 focus:text-rose-600"
+                      onClick={onDelete}
+                    >
+                      Delete role
+                    </DropdownMenuItem>
+                  </AlertDialogTrigger>
+                )}
               </>
             )}
           </DropdownMenuContent>

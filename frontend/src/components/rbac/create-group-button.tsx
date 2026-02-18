@@ -2,6 +2,7 @@
 
 import { PlusIcon } from "lucide-react"
 import { useState } from "react"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -18,10 +19,15 @@ import { Textarea } from "@/components/ui/textarea"
 import { useRbacGroups } from "@/lib/hooks"
 
 export function CreateGroupButton() {
+  const canCreateGroup = useScopeCheck("org:rbac:create") === true
   const [isOpen, setIsOpen] = useState(false)
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const { createGroup, createGroupIsPending } = useRbacGroups()
+
+  if (!canCreateGroup) {
+    return null
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

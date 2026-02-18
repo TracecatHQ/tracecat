@@ -1,7 +1,9 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import { DialogTrigger } from "@radix-ui/react-dialog"
 import { DotsHorizontalIcon, PlusIcon } from "@radix-ui/react-icons"
+import { FolderIcon, GlobeIcon, Trash2Icon } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -9,7 +11,6 @@ import {
   type OrgMemberRead,
   type OrgRole,
   organizationGetInvitationToken,
-  type UserRole,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
@@ -46,8 +47,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Label } from "@/components/ui/label"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Form,
   FormControl,
@@ -58,6 +57,8 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -72,34 +73,7 @@ import {
   useRbacUserAssignments,
   useWorkspaceManager,
 } from "@/lib/hooks"
-import { DialogTrigger } from "@radix-ui/react-dialog"
 import { toast } from "../ui/use-toast"
-
-function UserRolesCell({ userId }: { userId: string }) {
-  const { userAssignments } = useRbacUserAssignments({ userId })
-
-  if (userAssignments.length === 0) {
-    return <span className="text-muted-foreground">-</span>
-  }
-
-  // Get unique role names
-  const roleNames = [...new Set(userAssignments.map((a) => a.role_name))]
-
-  return (
-    <div className="flex flex-wrap gap-1">
-      {roleNames.slice(0, 2).map((roleName) => (
-        <Badge key={roleName} variant="secondary" className="text-[10px]">
-          {roleName}
-        </Badge>
-      ))}
-      {roleNames.length > 2 && (
-        <span className="text-[10px] text-muted-foreground">
-          +{roleNames.length - 2}
-        </span>
-      )}
-    </div>
-  )
-}
 
 const invitationFormSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -109,6 +83,7 @@ const invitationFormSchema = z.object({
 type InvitationFormValues = z.infer<typeof invitationFormSchema>
 
 function InviteMemberDialogButton() {
+  const canInviteMembers = useScopeCheck("org:member:invite") === true
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const { createInvitation, createInvitationIsPending } = useOrgMembers()
 
@@ -133,7 +108,7 @@ function InviteMemberDialogButton() {
     }
   }
 
-  if (!canAdministerOrg) {
+  if (!canInviteMembers) {
     return null
   }
 
@@ -229,34 +204,10 @@ export function OrgMembersTable() {
     null
   )
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
-  const { orgMembers, updateOrgMember, deleteOrgMember, revokeInvitation } =
-    useOrgMembers()
-
-  const handleChangeRole = async (role: UserRole) => {
-    try {
-      if (selectedMember?.user_id) {
-        if (selectedMember.role === role) {
-          toast({
-            title: "Update skipped",
-            description: `User ${selectedMember.email} is already a ${role} member`,
-          })
-          return
-        }
-        await updateOrgMember({
-          userId: selectedMember.user_id,
-          requestBody: { role },
-        })
-      }
-    } catch (error) {
-      console.error("Failed to change role", error)
-    } finally {
-      setIsChangeRoleOpen(false)
-      setSelectedMember(null)
-    }
-  }
-  const [isManageRolesOpen, setIsManageRolesOpen] = useState(false)
-  const canAdministerOrg = useScopeCheck("org:member:update")
-  const { orgMembers, deleteOrgMember } = useOrgMembers()
+  const canInviteMembers = useScopeCheck("org:member:invite") === true
+  const canRemoveMembers = useScopeCheck("org:member:remove") === true
+  const canReadRbac = useScopeCheck("org:rbac:read") === true
+  const { orgMembers, deleteOrgMember, revokeInvitation } = useOrgMembers()
 
   const handleRemoveMember = async () => {
     if (selectedMember?.user_id) {
@@ -429,7 +380,7 @@ export function OrgMembersTable() {
                       <DropdownMenuContent align="end">
                         {isInvited ? (
                           <>
-                            {canAdministerOrg && (
+                            {canInviteMembers && (
                               <>
                                 <DropdownMenuItem
                                   onSelect={async () => {
@@ -481,27 +432,35 @@ export function OrgMembersTable() {
                             >
                               Copy user ID
                             </DropdownMenuItem>
-                            {canAdministerOrg && (
+                            {(canReadRbac || canRemoveMembers) && (
                               <DropdownMenuGroup>
-                                <DialogTrigger asChild>
-                                  <DropdownMenuItem
-                                    onClick={() => {
-                                      setSelectedMember(member)
-                                      setIsChangeRoleOpen(true)
-                                    }}
-                                  >
-                                    Change role
-                                  </DropdownMenuItem>
-                                </DialogTrigger>
-                                <DropdownMenuSeparator />
-                                <AlertDialogTrigger asChild>
-                                  <DropdownMenuItem
-                                    className="text-rose-500 focus:text-rose-600"
-                                    onClick={() => setSelectedMember(member)}
-                                  >
-                                    Remove from organization
-                                  </DropdownMenuItem>
-                                </AlertDialogTrigger>
+                                {canReadRbac && (
+                                  <DialogTrigger asChild>
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        setSelectedMember(member)
+                                        setIsChangeRoleOpen(true)
+                                      }}
+                                    >
+                                      Manage roles
+                                    </DropdownMenuItem>
+                                  </DialogTrigger>
+                                )}
+                                {canRemoveMembers && (
+                                  <>
+                                    {canReadRbac && <DropdownMenuSeparator />}
+                                    <AlertDialogTrigger asChild>
+                                      <DropdownMenuItem
+                                        className="text-rose-500 focus:text-rose-600"
+                                        onClick={() =>
+                                          setSelectedMember(member)
+                                        }
+                                      >
+                                        Remove from organization
+                                      </DropdownMenuItem>
+                                    </AlertDialogTrigger>
+                                  </>
+                                )}
                               </DropdownMenuGroup>
                             )}
                           </>
@@ -542,10 +501,12 @@ export function OrgMembersTable() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-        <ManageUserRolesDialog
-          member={selectedMember}
-          onOpenChange={setIsChangeRoleOpen}
-        />
+        {selectedMember && (
+          <ManageUserRolesDialog
+            member={selectedMember}
+            onOpenChange={setIsChangeRoleOpen}
+          />
+        )}
       </Dialog>
     </div>
   )
@@ -560,6 +521,7 @@ function ManageUserRolesDialog({
 }) {
   const [roleId, setRoleId] = useState("")
   const [workspaceId, setWorkspaceId] = useState<string>("org-wide")
+  const userId = member.user_id ?? undefined
 
   const {
     userAssignments,
@@ -567,14 +529,17 @@ function ManageUserRolesDialog({
     createUserAssignmentIsPending,
     deleteUserAssignment,
     deleteUserAssignmentIsPending,
-  } = useRbacUserAssignments({ userId: member.user_id })
+  } = useRbacUserAssignments({ userId })
   const { roles } = useRbacRoles()
   const { workspaces } = useWorkspaceManager()
+  const canReadRbac = useScopeCheck("org:rbac:read") === true
+  const canCreateAssignment = useScopeCheck("org:rbac:create") === true
+  const canDeleteAssignment = useScopeCheck("org:rbac:delete") === true
 
   const handleAddRole = async () => {
-    if (!roleId) return
+    if (!roleId || !userId) return
     await createUserAssignment({
-      user_id: member.user_id,
+      user_id: userId,
       role_id: roleId,
       workspace_id: workspaceId === "org-wide" ? null : workspaceId,
     })
@@ -596,51 +561,53 @@ function ManageUserRolesDialog({
         </DialogDescription>
       </DialogHeader>
       <div className="space-y-4 py-4">
-        <div className="space-y-2">
-          <Label>Add role assignment</Label>
-          <div className="flex gap-2">
-            <Select value={roleId} onValueChange={setRoleId}>
-              <SelectTrigger className="flex-1">
-                <SelectValue placeholder="Select a role" />
-              </SelectTrigger>
-              <SelectContent>
-                {roles.map((role) => (
-                  <SelectItem key={role.id} value={role.id}>
-                    {role.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={workspaceId} onValueChange={setWorkspaceId}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Scope" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="org-wide">
-                  <div className="flex items-center gap-2">
-                    <GlobeIcon className="size-4 text-blue-500" />
-                    Organization
-                  </div>
-                </SelectItem>
-                {workspaces?.map((workspace) => (
-                  <SelectItem key={workspace.id} value={workspace.id}>
+        {canCreateAssignment && (
+          <div className="space-y-2">
+            <Label>Add role assignment</Label>
+            <div className="flex gap-2">
+              <Select value={roleId} onValueChange={setRoleId}>
+                <SelectTrigger className="flex-1">
+                  <SelectValue placeholder="Select a role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={workspaceId} onValueChange={setWorkspaceId}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Scope" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="org-wide">
                     <div className="flex items-center gap-2">
-                      <FolderIcon className="size-4 text-muted-foreground" />
-                      {workspace.name}
+                      <GlobeIcon className="size-4 text-blue-500" />
+                      Organization
                     </div>
                   </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              type="button"
-              onClick={handleAddRole}
-              disabled={!roleId || createUserAssignmentIsPending}
-            >
-              <PlusIcon className="size-4" />
-            </Button>
+                  {workspaces?.map((workspace) => (
+                    <SelectItem key={workspace.id} value={workspace.id}>
+                      <div className="flex items-center gap-2">
+                        <FolderIcon className="size-4 text-muted-foreground" />
+                        {workspace.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                onClick={handleAddRole}
+                disabled={!roleId || createUserAssignmentIsPending}
+              >
+                <PlusIcon className="size-4" />
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="space-y-2">
           <Label>Current role assignments ({userAssignments.length})</Label>
@@ -672,15 +639,17 @@ function ManageUserRolesDialog({
                         )}
                       </span>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleRemoveRole(assignment.id)}
-                      disabled={deleteUserAssignmentIsPending}
-                      className="text-rose-500 hover:text-rose-600"
-                    >
-                      <Trash2Icon className="size-4" />
-                    </Button>
+                    {canDeleteAssignment && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRemoveRole(assignment.id)}
+                        disabled={deleteUserAssignmentIsPending}
+                        className="text-rose-500 hover:text-rose-600"
+                      >
+                        <Trash2Icon className="size-4" />
+                      </Button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -694,6 +663,11 @@ function ManageUserRolesDialog({
           </ScrollArea>
         </div>
       </div>
+      {!canReadRbac && (
+        <p className="text-sm text-muted-foreground">
+          You do not have permission to manage RBAC assignments.
+        </p>
+      )}
       <DialogFooter>
         <Button variant="outline" onClick={() => onOpenChange(false)}>
           Done

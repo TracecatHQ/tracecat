@@ -2,6 +2,7 @@
 
 import { PlusIcon } from "lucide-react"
 import { useState } from "react"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { RoleFormDialog } from "@/components/rbac/role-form-dialog"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogTrigger } from "@/components/ui/dialog"
@@ -15,9 +16,14 @@ interface CreateRoleButtonProps {
 export function CreateRoleButton({
   workspaceOnly = false,
 }: CreateRoleButtonProps) {
+  const canCreateRole = useScopeCheck("org:rbac:create") === true
   const [isOpen, setIsOpen] = useState(false)
   const { createRole, createRoleIsPending } = useRbacRoles()
   const { scopes } = useRbacScopes({ includeSystem: true })
+
+  if (!canCreateRole) {
+    return null
+  }
 
   // Filter scopes based on context
   const filteredScopes = workspaceOnly

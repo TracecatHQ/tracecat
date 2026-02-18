@@ -37,7 +37,7 @@ export function OrgSessionsTable() {
     null
   )
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
-  const canAdministerOrg = useScopeCheck("org:member:update")
+  const canRemoveSession = useScopeCheck("org:member:remove")
   const { sessions, deleteSession } = useSessions()
 
   const handleRevokeSession = useCallback(async () => {
@@ -122,7 +122,7 @@ export function OrgSessionsTable() {
                       >
                         Copy user ID
                       </DropdownMenuItem>
-                      {canAdministerOrg && (
+                      {canRemoveSession === true && (
                         <DropdownMenuGroup>
                           <AlertDialogTrigger asChild>
                             <DropdownMenuItem
