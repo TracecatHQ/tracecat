@@ -573,6 +573,29 @@ class TestCoreSearchCases:
         )
         assert result == [mock_case_dict]
 
+    async def test_search_cases_with_cursor_params(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ):
+        """search_cases should forward cursor pagination controls."""
+        mock_cases_client.search_cases.return_value = {"items": [mock_case_dict]}
+
+        result = await search_cases(
+            limit=25,
+            cursor="cursor-1",
+            reverse=True,
+            order_by="updated_at",
+            sort="asc",
+        )
+
+        mock_cases_client.search_cases.assert_called_once_with(
+            limit=25,
+            cursor="cursor-1",
+            reverse=True,
+            order_by="updated_at",
+            sort="asc",
+        )
+        assert result == [mock_case_dict]
+
     async def test_search_cases_forwards_all_filters(
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):
