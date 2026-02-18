@@ -135,7 +135,7 @@ variable "tracecat_version" {
 variable "tracecat_image_tag" {
   description = "Docker image tag for Tracecat services"
   type        = string
-  default     = "1.0.0-beta.10"
+  default     = "1.0.0-beta.11"
 }
 
 variable "tracecat_ingress_split" {
