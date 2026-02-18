@@ -17,6 +17,7 @@ with workflow.unsafe.imports_passed_through():
     from pydantic_core import to_json
     from temporalio.exceptions import ApplicationError
 
+    from tracecat import config
     from tracecat.concurrency import cooperative
     from tracecat.contexts import ctx_stream_id
     from tracecat.dsl.action import (
@@ -52,12 +53,16 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.types import (
         ActionErrorInfo,
         ActionErrorInfoAdapter,
+        CompiledExprPlan,
         Task,
         TaskExceptionInfo,
     )
     from tracecat.exceptions import TaskUnreachable
     from tracecat.expressions.common import ExprContext
-    from tracecat.expressions.core import extract_expressions
+    from tracecat.expressions.core import (
+        extract_expression_contexts,
+        extract_expressions,
+    )
     from tracecat.logger import logger
     from tracecat.storage.object import (
         CollectionObject,
@@ -170,6 +175,11 @@ class DSLScheduler:
         self.task_streams: defaultdict[Task, list[StreamID]] = defaultdict(list)
         self.open_streams: dict[Task, int] = {}
         """Used to track the number of scopes that have been closed for an scatter"""
+        self._run_if_plans: dict[str, CompiledExprPlan] = {}
+        """Compiled dependency plans for task run_if expressions."""
+        for task in dsl.actions:
+            if task.run_if:
+                self._run_if_plans[task.ref] = self._compile_expr_plan(task.run_if)
 
         self.logger.debug(
             "Scheduler config",
@@ -182,6 +192,19 @@ class DSLScheduler:
     def _adj_sort_key(adj: AdjDst) -> tuple[str, str]:
         dst_ref, edge_type = adj
         return dst_ref, edge_type.value
+
+    @staticmethod
+    def _compile_expr_plan(expression: str) -> CompiledExprPlan:
+        ctxs = extract_expression_contexts(expression)
+        return CompiledExprPlan(
+            expression=expression,
+            action_refs=tuple(sorted(ctxs.get(ExprContext.ACTIONS, ()))),
+            needs_trigger=bool(ctxs.get(ExprContext.TRIGGER)),
+            needs_env=bool(ctxs.get(ExprContext.ENV)),
+            needs_vars=bool(ctxs.get(ExprContext.VARS)),
+            needs_local_var=bool(ctxs.get(ExprContext.LOCAL_VARS)),
+            needs_secrets=bool(ctxs.get(ExprContext.SECRETS)),
+        )
 
     @property
     def workspace_id(self) -> str:
@@ -673,10 +696,48 @@ class DSLScheduler:
         """Check if a task should be skipped based on its `run_if` condition."""
         run_if = stmt.run_if
         if run_if is not None:
-            context = self.build_stream_aware_context(stmt, task.stream_id)
-            self.logger.debug("`run_if` condition", run_if=run_if)
+            use_minimal_context = config.TRACECAT__DSL_RUN_IF_MINIMAL_CONTEXT_ENABLED
+            enable_shadow_compare = config.TRACECAT__DSL_RUN_IF_SHADOW_COMPARE_ENABLED
+            self.logger.debug(
+                "`run_if` condition",
+                run_if=run_if,
+                use_minimal_context=use_minimal_context,
+                enable_shadow_compare=enable_shadow_compare,
+            )
             try:
-                expr_result = await self.resolve_expression(run_if, context)
+                if enable_shadow_compare:
+                    minimal_context = self.build_run_if_context(stmt, task.stream_id)
+                    minimal_result = await self.resolve_expression(run_if, minimal_context)
+
+                    legacy_context = self.build_stream_aware_context(stmt, task.stream_id)
+                    legacy_result = await self.resolve_expression(run_if, legacy_context)
+                    minimal_bool = bool(minimal_result)
+                    legacy_bool = bool(legacy_result)
+                    if minimal_bool != legacy_bool:
+                        self.logger.warning(
+                            "`run_if` shadow compare mismatch",
+                            task=task,
+                            run_if=run_if,
+                            minimal_result=minimal_result,
+                            legacy_result=legacy_result,
+                        )
+                    self.logger.info(
+                        "`run_if` shadow compare metrics",
+                        task=task,
+                        minimal_context_size_bytes=self._context_size_bytes(
+                            minimal_context
+                        ),
+                        legacy_context_size_bytes=self._context_size_bytes(
+                            legacy_context
+                        ),
+                    )
+                    expr_result = legacy_result
+                elif use_minimal_context:
+                    minimal_context = self.build_run_if_context(stmt, task.stream_id)
+                    expr_result = await self.resolve_expression(run_if, minimal_context)
+                else:
+                    legacy_context = self.build_stream_aware_context(stmt, task.stream_id)
+                    expr_result = await self.resolve_expression(run_if, legacy_context)
             except Exception as e:
                 raise ApplicationError(
                     f"Error evaluating `run_if` condition: {e}",
@@ -1235,6 +1296,42 @@ class DSLScheduler:
         new_context = self._root_context.copy()
         new_context.update(ACTIONS=resolved_actions)
         return new_context
+
+    def build_run_if_context(
+        self, task: ActionStatement, stream_id: StreamID
+    ) -> ExecutionContext:
+        """Build the minimal context needed to evaluate a task run_if."""
+        plan = self._run_if_plans.get(task.ref)
+        if plan is None:
+            return self.build_stream_aware_context(task, stream_id)
+
+        resolved_actions: dict[str, TaskResult] = {}
+        for action_ref in plan.action_refs:
+            result = self.get_stream_aware_action_result(action_ref, stream_id)
+            if result is not None:
+                resolved_actions[action_ref] = result
+
+        run_if_context = ExecutionContext(
+            ACTIONS=resolved_actions, TRIGGER=self._root_context.get("TRIGGER")
+        )
+
+        # Preserve existing behavior by carrying optional root contexts through.
+        if "ENV" in self._root_context:
+            run_if_context["ENV"] = self._root_context["ENV"]
+        if "SECRETS" in self._root_context:
+            run_if_context["SECRETS"] = self._root_context["SECRETS"]
+        if "VARS" in self._root_context:
+            run_if_context["VARS"] = self._root_context["VARS"]
+        if "var" in self._root_context:
+            run_if_context["var"] = self._root_context["var"]
+        return run_if_context
+
+    @staticmethod
+    def _context_size_bytes(context: ExecutionContext) -> int | None:
+        try:
+            return len(to_json(context, fallback=str))
+        except Exception:
+            return None
 
     def get_stream_aware_action_result(
         self, action_ref: str, stream_id: StreamID

@@ -624,6 +624,18 @@ TRACECAT__WORKFLOW_RETURN_STRATEGY: Literal["context", "minimal"] = cast(
 )
 """Strategy to use when returning a value from a workflow. Supported: context, minimal. Defaults to minimal."""
 
+TRACECAT__DSL_RUN_IF_MINIMAL_CONTEXT_ENABLED = (
+    os.environ.get("TRACECAT__DSL_RUN_IF_MINIMAL_CONTEXT_ENABLED", "false").lower()
+    in ("true", "1")
+)
+"""Enable minimal run_if context building using precompiled expression dependencies."""
+
+TRACECAT__DSL_RUN_IF_SHADOW_COMPARE_ENABLED = (
+    os.environ.get("TRACECAT__DSL_RUN_IF_SHADOW_COMPARE_ENABLED", "false").lower()
+    in ("true", "1")
+)
+"""Enable run_if shadow compare mode (minimal context vs legacy context)."""
+
 # === Redis config === #
 REDIS_CHAT_TTL_SECONDS = int(
     os.environ.get("REDIS_CHAT_TTL_SECONDS") or 3 * 24 * 60 * 60  # 3 days
