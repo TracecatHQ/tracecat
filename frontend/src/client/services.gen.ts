@@ -6324,23 +6324,10 @@ export const tablesImportCsv = (
 
 /**
  * List Cases
- * List cases with cursor-based pagination, filtering, and sorting.
+ * List cases with default filtering and sorting options.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.limit Maximum items per page
- * @param data.cursor Cursor for pagination
- * @param data.reverse Reverse pagination direction
- * @param data.searchTerm Text to search for in case summary, description, or short ID
- * @param data.status Filter by case status
- * @param data.priority Filter by case priority
- * @param data.severity Filter by case severity
- * @param data.assigneeId Filter by assignee ID or 'unassigned'
- * @param data.tags Filter by tag IDs or slugs (AND logic)
- * @param data.dropdown Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
- * @param data.startTime Return cases created at or after this timestamp
- * @param data.endTime Return cases created at or before this timestamp
- * @param data.updatedAfter Return cases updated at or after this timestamp
- * @param data.updatedBefore Return cases updated at or before this timestamp
  * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
@@ -6354,19 +6341,6 @@ export const casesListCases = (
     url: "/cases",
     query: {
       limit: data.limit,
-      cursor: data.cursor,
-      reverse: data.reverse,
-      search_term: data.searchTerm,
-      status: data.status,
-      priority: data.priority,
-      severity: data.severity,
-      assignee_id: data.assigneeId,
-      tags: data.tags,
-      dropdown: data.dropdown,
-      start_time: data.startTime,
-      end_time: data.endTime,
-      updated_after: data.updatedAfter,
-      updated_before: data.updatedBefore,
       order_by: data.orderBy,
       sort: data.sort,
       workspace_id: data.workspaceId,
@@ -6405,7 +6379,7 @@ export const casesCreateCase = (
 
 /**
  * Search Cases
- * Alias for list_cases.
+ * Search cases with cursor-based pagination, filtering, and sorting.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.limit Maximum items per page

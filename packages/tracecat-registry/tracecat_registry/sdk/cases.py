@@ -152,6 +152,31 @@ class CasesClient:
         self,
         *,
         limit: int = 20,
+        order_by: str | Unset = UNSET,
+        sort: Literal["asc", "desc"] | Unset = UNSET,
+    ) -> types.CaseListResponse:
+        """List cases using default server-side filtering.
+
+        Args:
+            limit: Maximum items per page.
+            order_by: Column to order by.
+            sort: Sort direction.
+
+        Returns:
+            Paginated list of cases with cursor metadata.
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if is_set(order_by):
+            params["order_by"] = order_by
+        if is_set(sort):
+            params["sort"] = sort
+
+        return await self._client.get("/cases", params=params)
+
+    async def search_cases(
+        self,
+        *,
+        limit: int = 20,
         cursor: str | Unset = UNSET,
         reverse: bool | Unset = UNSET,
         search_term: str | Unset = UNSET,
@@ -168,29 +193,7 @@ class CasesClient:
         updated_after: datetime | str | Unset = UNSET,
         updated_before: datetime | str | Unset = UNSET,
     ) -> types.CaseListResponse:
-        """List cases with filtering and pagination.
-
-        Args:
-            limit: Maximum items per page.
-            cursor: Pagination cursor.
-            reverse: Reverse pagination direction.
-            search_term: Text to search in summary/description.
-            status: Filter by status(es).
-            priority: Filter by priority(ies).
-            severity: Filter by severity(ies).
-            assignee_id: Filter by assignee ID(s).
-            tags: Filter by tag names/IDs.
-            dropdown: Filter by dropdown values using definition_ref:option_ref.
-            order_by: Column to order by.
-            sort: Sort direction.
-            start_time: Cases created after (ISO format or datetime).
-            end_time: Cases created before (ISO format or datetime).
-            updated_after: Cases updated after (ISO format or datetime).
-            updated_before: Cases updated before (ISO format or datetime).
-
-        Returns:
-            Paginated list of cases with cursor.
-        """
+        """Search cases with filtering and pagination."""
         params: dict[str, Any] = {"limit": limit}
         if is_set(cursor):
             params["cursor"] = cursor
@@ -237,47 +240,7 @@ class CasesClient:
                 else updated_before
             )
 
-        return await self._client.get("/cases", params=params)
-
-    async def search_cases(
-        self,
-        *,
-        limit: int = 20,
-        cursor: str | Unset = UNSET,
-        reverse: bool | Unset = UNSET,
-        search_term: str | Unset = UNSET,
-        status: list[CaseStatus] | Unset = UNSET,
-        priority: list[CasePriority] | Unset = UNSET,
-        severity: list[CaseSeverity] | Unset = UNSET,
-        assignee_id: list[str] | Unset = UNSET,
-        tags: list[str] | Unset = UNSET,
-        dropdown: list[str] | Unset = UNSET,
-        order_by: str | Unset = UNSET,
-        sort: Literal["asc", "desc"] | Unset = UNSET,
-        start_time: datetime | str | Unset = UNSET,
-        end_time: datetime | str | Unset = UNSET,
-        updated_after: datetime | str | Unset = UNSET,
-        updated_before: datetime | str | Unset = UNSET,
-    ) -> types.CaseListResponse:
-        """Alias for list_cases with identical inputs/outputs."""
-        return await self.list_cases(
-            limit=limit,
-            cursor=cursor,
-            reverse=reverse,
-            search_term=search_term,
-            status=status,
-            priority=priority,
-            severity=severity,
-            assignee_id=assignee_id,
-            tags=tags,
-            dropdown=dropdown,
-            order_by=order_by,
-            sort=sort,
-            start_time=start_time,
-            end_time=end_time,
-            updated_after=updated_after,
-            updated_before=updated_before,
-        )
+        return await self._client.get("/cases/search", params=params)
 
     # === Comments === #
 

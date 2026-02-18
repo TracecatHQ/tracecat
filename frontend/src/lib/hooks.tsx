@@ -57,10 +57,10 @@ import {
   type CaseRead,
   type CaseReadMinimal,
   type CasesGetCaseData,
-  type CasesListCasesData,
   type CasesListCommentsData,
   type CasesListTagsData,
   type CasesListTasksData,
+  type CasesSearchCasesData,
   type CaseTagCreate,
   type CaseTagRead,
   type CaseTagsCreateCaseTagData,
@@ -86,13 +86,13 @@ import {
   casesDeleteComment,
   casesDeleteTask,
   casesGetCase,
-  casesListCases,
   casesListComments,
   casesListEventsWithUsers,
   casesListFields,
   casesListTags,
   casesListTasks,
   casesRemoveTag,
+  casesSearchCases,
   casesSetCaseDropdownValue,
   casesUpdateCase,
   casesUpdateComment,
@@ -3460,7 +3460,7 @@ export function useImportTableFromCsv() {
   }
 }
 
-export function useListCases({ workspaceId }: CasesListCasesData) {
+export function useSearchCases({ workspaceId }: CasesSearchCasesData) {
   const {
     data: cases,
     isLoading: casesIsLoading,
@@ -3468,7 +3468,7 @@ export function useListCases({ workspaceId }: CasesListCasesData) {
   } = useQuery<CaseReadMinimal[], TracecatApiError>({
     queryKey: ["cases", workspaceId],
     queryFn: async () => {
-      const response = await casesListCases({ workspaceId })
+      const response = await casesSearchCases({ workspaceId })
       return response.items
     },
   })
