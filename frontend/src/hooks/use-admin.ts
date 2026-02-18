@@ -13,6 +13,7 @@ import {
   type AdminListUsersResponse,
   type AdminRegistryGetRegistryStatusResponse,
   type AdminRegistryListRegistryVersionsResponse,
+  type AdminResetEncryptedOrgSettingResponse,
   type AdminUserCreate,
   type AdminUserRead,
   adminCreateOrganization,
@@ -39,6 +40,7 @@ import {
   adminRegistryPromoteRegistryVersion,
   adminRegistrySyncAllRepositories,
   adminRegistrySyncRepository,
+  adminResetEncryptedOrgSetting,
   adminSyncOrgRepository,
   adminUpdateOrganization,
   adminUpdateOrganizationDomain,
@@ -152,6 +154,39 @@ export function useAdminOrganization(orgId: string) {
     error,
     updateOrganization,
     updatePending,
+  }
+}
+
+export function useAdminOrgEncryptedSettingReset(orgId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: resetEncryptedSetting,
+    isPending: resetPending,
+    error,
+  } = useMutation<
+    AdminResetEncryptedOrgSettingResponse,
+    Error,
+    { key: string; value: unknown }
+  >({
+    mutationFn: ({ key, value }) =>
+      adminResetEncryptedOrgSetting({
+        orgId,
+        key,
+        requestBody: { value },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "organizations", orgId],
+      })
+      queryClient.invalidateQueries({ queryKey: ["admin", "organizations"] })
+    },
+  })
+
+  return {
+    resetEncryptedSetting,
+    resetPending,
+    error,
   }
 }
 

@@ -69,6 +69,8 @@ import type {
   AdminRegistrySyncAllRepositoriesResponse,
   AdminRegistrySyncRepositoryData,
   AdminRegistrySyncRepositoryResponse,
+  AdminResetEncryptedOrgSettingData,
+  AdminResetEncryptedOrgSettingResponse,
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
   AdminUpdateOrganizationData,
@@ -4232,6 +4234,34 @@ export const adminDeleteOrganization = (
     query: {
       confirm: data.confirm,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Reset Encrypted Org Setting
+ * Reset an existing encrypted organization setting.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.key
+ * @param data.requestBody
+ * @returns OrgEncryptedSettingResetResponse Successful Response
+ * @throws ApiError
+ */
+export const adminResetEncryptedOrgSetting = (
+  data: AdminResetEncryptedOrgSettingData
+): CancelablePromise<AdminResetEncryptedOrgSettingResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/organizations/{org_id}/settings/{key}/reset-encrypted",
+    path: {
+      org_id: data.orgId,
+      key: data.key,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

@@ -34,6 +34,16 @@ class OrgRead(BaseModel):
     updated_at: datetime | None = None
 
 
+class OrgEncryptedSettingResetResponse(BaseModel):
+    """Encrypted organization setting reset response."""
+
+    organization_id: uuid.UUID
+    key: str
+    value_type: str
+    is_encrypted: bool
+    updated_at: datetime
+
+
 class RepositorySyncResult(BaseModel):
     """Result of syncing a single repository."""
 

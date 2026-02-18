@@ -10169,6 +10169,55 @@ export const $OrgDomainUpdate = {
   description: "Update organization domain request.",
 } as const
 
+export const $OrgEncryptedSettingResetRequest = {
+  properties: {
+    value: {
+      title: "Value",
+    },
+  },
+  type: "object",
+  required: ["value"],
+  title: "OrgEncryptedSettingResetRequest",
+  description: "Reset encrypted organization setting request.",
+} as const
+
+export const $OrgEncryptedSettingResetResponse = {
+  properties: {
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    key: {
+      type: "string",
+      title: "Key",
+    },
+    value_type: {
+      type: "string",
+      title: "Value Type",
+    },
+    is_encrypted: {
+      type: "boolean",
+      title: "Is Encrypted",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "organization_id",
+    "key",
+    "value_type",
+    "is_encrypted",
+    "updated_at",
+  ],
+  title: "OrgEncryptedSettingResetResponse",
+  description: "Reset encrypted organization setting response.",
+} as const
+
 export const $OrgInvitationAccept = {
   properties: {
     token: {
