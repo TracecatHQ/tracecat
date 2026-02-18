@@ -2,8 +2,8 @@ apiVersion: v2
 name: tracecat
 description: Tracecat is the AI automation platform for mission critical work.
 type: application
-version: 0.3.13
-appVersion: "1.0.0-beta.11"
+version: 0.3.14
+appVersion: "1.0.0-beta.12"
 home: https://tracecat.com
 maintainers:
   - email: founders@tracecat.com
