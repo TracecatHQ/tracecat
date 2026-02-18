@@ -418,74 +418,55 @@ class TestCoreListCases:
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):
         """Test listing cases without any parameters."""
-        mock_cases_client.search_cases.return_value = {"items": [mock_case_dict]}
+        mock_cases_client.list_cases.return_value = {"items": [mock_case_dict]}
 
         result = await list_cases()
 
-        mock_cases_client.search_cases.assert_called_once_with(limit=100)
+        mock_cases_client.list_cases.assert_called_once_with(limit=100)
         assert result == [mock_case_dict]
 
     async def test_list_cases_with_limit(
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):
         """Test listing cases with limit parameter."""
-        mock_cases_client.search_cases.return_value = {"items": [mock_case_dict]}
+        mock_cases_client.list_cases.return_value = {"items": [mock_case_dict]}
 
         result = await list_cases(limit=5)
 
-        mock_cases_client.search_cases.assert_called_once_with(limit=5)
+        mock_cases_client.list_cases.assert_called_once_with(limit=5)
         assert result == [mock_case_dict]
 
     async def test_list_cases_with_ordering(
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):
         """Test listing cases with ordering parameters."""
-        mock_cases_client.search_cases.return_value = {"items": [mock_case_dict]}
+        mock_cases_client.list_cases.return_value = {"items": [mock_case_dict]}
 
         result = await list_cases(order_by="created_at", sort="desc")
 
-        mock_cases_client.search_cases.assert_called_once_with(
+        mock_cases_client.list_cases.assert_called_once_with(
             limit=100, order_by="created_at", sort="desc"
         )
         assert result == [mock_case_dict]
 
-    async def test_list_cases_with_filters(
+    async def test_list_cases_with_cursor_params(
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):
-        """Test searching cases with all supported filter inputs."""
-        mock_cases_client.search_cases.return_value = {"items": [mock_case_dict]}
-        now = datetime.now(UTC)
+        """Test listing cases forwards cursor pagination controls."""
+        mock_cases_client.list_cases.return_value = {"items": [mock_case_dict]}
 
-        result = await search_cases(
-            search_term="investigate",
-            status="in_progress",
-            priority=["high"],
-            severity="critical",
-            tags=["tag-one", "tag-two"],
-            assignee_id="unassigned",
-            dropdown=["environment:prod"],
-            start_time=now,
-            end_time=now,
-            updated_before=now,
-            updated_after=now,
+        result = await list_cases(
             limit=25,
+            cursor="cursor-1",
+            reverse=True,
             order_by="updated_at",
             sort="asc",
         )
 
-        mock_cases_client.search_cases.assert_called_once_with(
-            search_term="investigate",
-            status=["in_progress"],
-            priority=["high"],
-            severity=["critical"],
-            tags=["tag-one", "tag-two"],
-            assignee_id=["unassigned"],
-            dropdown=["environment:prod"],
-            start_time=now,
-            end_time=now,
-            updated_before=now,
-            updated_after=now,
+        mock_cases_client.list_cases.assert_called_once_with(
             limit=25,
+            cursor="cursor-1",
+            reverse=True,
             order_by="updated_at",
             sort="asc",
         )
@@ -495,7 +476,7 @@ class TestCoreListCases:
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):
         """Test listing cases with pagination metadata."""
-        mock_cases_client.search_cases.return_value = {
+        mock_cases_client.list_cases.return_value = {
             "items": [mock_case_dict],
             "next_cursor": "cursor-1",
             "prev_cursor": None,
@@ -506,18 +487,18 @@ class TestCoreListCases:
 
         result = await list_cases(limit=5, paginate=True)
 
-        mock_cases_client.search_cases.assert_called_once_with(limit=5)
+        mock_cases_client.list_cases.assert_called_once_with(limit=5)
         assert isinstance(result, dict)
         assert result["items"] == [mock_case_dict]
         assert result["next_cursor"] == "cursor-1"
 
     async def test_list_cases_empty_result(self, mock_cases_client: AsyncMock):
         """Test listing cases when no cases exist."""
-        mock_cases_client.search_cases.return_value = {"items": []}
+        mock_cases_client.list_cases.return_value = {"items": []}
 
         result = await list_cases()
 
-        mock_cases_client.search_cases.assert_called_once_with(limit=100)
+        mock_cases_client.list_cases.assert_called_once_with(limit=100)
         assert result == []
 
     async def test_list_cases_limit_validation(self, mock_cases_client: AsyncMock):
