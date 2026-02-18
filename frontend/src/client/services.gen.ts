@@ -552,7 +552,6 @@ import type {
   TriggersUpdateCaseTriggerResponse,
   TriggersUpdateWebhookData,
   TriggersUpdateWebhookResponse,
-  UsersGetMyScopesData,
   UsersGetMyScopesResponse,
   UsersSearchUserData,
   UsersSearchUserResponse,
@@ -8684,20 +8683,13 @@ export const vcsGetGithubAppCredentialsStatus =
  * @returns UserScopesRead Successful Response
  * @throws ApiError
  */
-export const usersGetMyScopes = (
-  data: UsersGetMyScopesData = {}
-): CancelablePromise<UsersGetMyScopesResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/users/me/scopes",
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
+export const usersGetMyScopes =
+  (): CancelablePromise<UsersGetMyScopesResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/users/me/scopes",
+    })
+  }
 
 /**
  * List Scopes

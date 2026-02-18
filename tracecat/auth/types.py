@@ -2,7 +2,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.identifiers import InternalServiceID, OrganizationID, UserID, WorkspaceID
 
 
@@ -38,8 +37,6 @@ class Role(BaseModel):
     type: Literal["user", "service"] = Field(frozen=True)
     workspace_id: WorkspaceID | None = Field(default=None, frozen=True)
     organization_id: OrganizationID | None = Field(default=None, frozen=True)
-    workspace_role: WorkspaceRole | None = Field(default=None, frozen=True)
-    org_role: OrgRole | None = Field(default=None, frozen=True)
     user_id: UserID | None = Field(default=None, frozen=True)
     service_id: InternalServiceID = Field(frozen=True)
     is_platform_superuser: bool = Field(default=False, frozen=True)
@@ -53,21 +50,13 @@ class Role(BaseModel):
         return self.is_platform_superuser
 
     @property
-    def is_org_admin(self) -> bool:
-        """Check if this role has org owner/admin privileges.
-
-        Org owners and admins can access all workspaces in their organization
-        without explicit workspace membership.
-        """
-        return self.org_role in (OrgRole.OWNER, OrgRole.ADMIN)
-
-    @property
     def is_privileged(self) -> bool:
-        """Check if this role has elevated privileges (platform admin or org admin).
+        """Check if this role has elevated privileges (platform admin).
 
-        Privileged roles bypass workspace membership checks.
+        Only platform superusers are considered privileged.
+        All other authorization is scope-based via RBAC.
         """
-        return self.is_platform_superuser or self.is_org_admin
+        return self.is_platform_superuser
 
     def to_headers(self) -> dict[str, str]:
         headers = {
@@ -80,10 +69,6 @@ class Role(BaseModel):
             headers["x-tracecat-role-workspace-id"] = str(self.workspace_id)
         if self.organization_id is not None:
             headers["x-tracecat-role-organization-id"] = str(self.organization_id)
-        if self.workspace_role is not None:
-            headers["x-tracecat-role-workspace-role"] = self.workspace_role.value
-        if self.org_role is not None:
-            headers["x-tracecat-role-org-role"] = self.org_role.value
         if self.scopes:
             headers["x-tracecat-role-scopes"] = ",".join(sorted(self.scopes))
         return headers

@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.types import Role
-from tracecat.authz.controls import require_scope, has_scope
+from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.service import MembershipService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
@@ -73,7 +73,7 @@ async def list_workspaces(
     service = WorkspaceService(session, role=role)
 
     # Org admins/owners have org:read scope and can see all workspaces
-    if has_scope(role.scopes, "org:read"):
+    if role.scopes and has_scope(role.scopes, "org:read"):
         workspaces = await service.admin_list_workspaces()
     else:
         if role.user_id is None:
@@ -233,7 +233,6 @@ async def list_workspace_memberships(
         WorkspaceMembershipRead(
             user_id=membership.user_id,
             workspace_id=membership.workspace_id,
-            role=membership.role,
         )
         for membership in memberships
     ]
@@ -325,7 +324,6 @@ async def get_workspace_membership(
     return WorkspaceMembershipRead(
         user_id=membership.user_id,
         workspace_id=membership.workspace_id,
-        role=membership.role,
     )
 
 
@@ -377,11 +375,15 @@ async def create_workspace_invitation(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         ) from e
+    # Eagerly load role_obj for response
+    await session.refresh(invitation, ["role_obj"])
     return WorkspaceInvitationRead(
         id=invitation.id,
         workspace_id=invitation.workspace_id,
         email=invitation.email,
-        role=invitation.role,
+        role_id=str(invitation.role_id),
+        role_name=invitation.role_obj.name,
+        role_slug=invitation.role_obj.slug,
         status=invitation.status,
         invited_by=invitation.invited_by,
         expires_at=invitation.expires_at,
@@ -413,12 +415,17 @@ async def list_workspace_invitations(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User does not have permission to list invitations",
         ) from e
+    # Eagerly load role_obj for each invitation
+    for inv in invitations:
+        await session.refresh(inv, ["role_obj"])
     return [
         WorkspaceInvitationRead(
             id=inv.id,
             workspace_id=inv.workspace_id,
             email=inv.email,
-            role=inv.role,
+            role_id=str(inv.role_id),
+            role_name=inv.role_obj.name,
+            role_slug=inv.role_obj.slug,
             status=inv.status,
             invited_by=inv.invited_by,
             expires_at=inv.expires_at,
@@ -465,4 +472,3 @@ async def revoke_workspace_invitation(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
- 

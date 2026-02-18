@@ -30,7 +30,6 @@ from temporalio.worker import Worker
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.authz.enums import OrgRole
 from tracecat.authz.scopes import (
     ADMIN_SCOPES,
     ORG_ADMIN_SCOPES,
@@ -996,7 +995,6 @@ async def test_admin_role(test_workspace, mock_org_id):
         user_id=mock_org_id,
         organization_id=mock_org_id,
         workspace_id=test_workspace.id,
-        org_role=OrgRole.ADMIN,
         service_id="tracecat-runner",
         scopes=ADMIN_SCOPES | ORG_ADMIN_SCOPES,
     )
@@ -1083,7 +1081,6 @@ async def test_workspace(test_organization, mock_org_id):
         type="service",
         service_id="tracecat-service",
         organization_id=mock_org_id,
-        org_role=OrgRole.OWNER,
         scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
     )
 
@@ -1288,7 +1285,6 @@ async def svc_admin_role(svc_workspace: Workspace) -> Role:
     """Service test fixture. Create a function scoped test role."""
     return Role(
         type="user",
-        org_role=OrgRole.ADMIN,
         workspace_id=svc_workspace.id,
         organization_id=svc_workspace.organization_id,
         user_id=uuid.uuid4(),

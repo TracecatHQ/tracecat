@@ -7,11 +7,7 @@ import { FolderIcon, GlobeIcon, Trash2Icon } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import {
-  type OrgMemberRead,
-  type OrgRole,
-  organizationGetInvitationToken,
-} from "@/client"
+import { type OrgMemberRead, organizationGetInvitationToken } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
@@ -77,7 +73,7 @@ import { toast } from "../ui/use-toast"
 
 const invitationFormSchema = z.object({
   email: z.string().email("Invalid email address"),
-  role: z.enum(["member", "admin", "owner"]),
+  role_id: z.string().uuid("Please select a role"),
 })
 
 type InvitationFormValues = z.infer<typeof invitationFormSchema>
@@ -86,12 +82,18 @@ function InviteMemberDialogButton() {
   const canInviteMembers = useScopeCheck("org:member:invite") === true
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const { createInvitation, createInvitationIsPending } = useOrgMembers()
+  const { roles } = useRbacRoles()
+
+  // Include organization preset roles and custom roles (custom roles have no slug prefix)
+  const orgRoles = roles.filter(
+    (r) => !r.slug || r.slug.startsWith("organization-")
+  )
 
   const form = useForm<InvitationFormValues>({
     resolver: zodResolver(invitationFormSchema),
     defaultValues: {
       email: "",
-      role: "member",
+      role_id: "",
     },
   })
 
@@ -99,7 +101,7 @@ function InviteMemberDialogButton() {
     try {
       await createInvitation({
         email: values.email,
-        role: values.role as OrgRole,
+        role_id: values.role_id,
       })
       form.reset()
       setIsCreateDialogOpen(false)
@@ -154,7 +156,7 @@ function InviteMemberDialogButton() {
             />
             <FormField
               control={form.control}
-              name="role"
+              name="role_id"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Role</FormLabel>
@@ -168,9 +170,11 @@ function InviteMemberDialogButton() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="member">Member</SelectItem>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="owner">Owner</SelectItem>
+                      {orgRoles.map((role) => (
+                        <SelectItem key={role.id} value={role.id}>
+                          {role.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   <FormDescription>
@@ -289,7 +293,7 @@ export function OrgMembersTable() {
                 enableHiding: false,
               },
               {
-                accessorKey: "role",
+                accessorKey: "role_name",
                 header: ({ column }) => (
                   <DataTableColumnHeader
                     className="text-xs"
@@ -298,8 +302,8 @@ export function OrgMembersTable() {
                   />
                 ),
                 cell: ({ row }) => (
-                  <div className="text-xs capitalize">
-                    {row.getValue<OrgMemberRead["role"]>("role")}
+                  <div className="text-xs">
+                    {row.getValue<string>("role_name")}
                   </div>
                 ),
                 enableSorting: true,

@@ -12,7 +12,7 @@ from sqlalchemy.orm import load_only, noload, selectinload
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.authz.enums import OrgRole, OwnerType, WorkspaceRole
+from tracecat.authz.enums import OwnerType
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
@@ -21,7 +21,11 @@ from tracecat.db.models import (
     OrganizationMembership,
     Ownership,
     User,
+    UserRoleAssignment,
     Workspace,
+)
+from tracecat.db.models import (
+    Role as RoleModel,
 )
 from tracecat.exceptions import (
     TracecatException,
@@ -128,7 +132,6 @@ class WorkspaceService(BaseOrgService):
             service_id="tracecat-service",
             organization_id=self.organization_id,
             workspace_id=workspace.id,
-            workspace_role=WorkspaceRole.ADMIN,
             scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
         )
         case_fields_service = CaseFieldsService(
@@ -185,7 +188,6 @@ class WorkspaceService(BaseOrgService):
             service_id="tracecat-service",
             organization_id=self.organization_id,
             workspace_id=workspace.id,
-            workspace_role=WorkspaceRole.ADMIN,
             scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
         )
 
@@ -238,7 +240,7 @@ class WorkspaceService(BaseOrgService):
 
         Args:
             workspace_id: The workspace to invite the user to.
-            params: The invitation parameters (email, role).
+            params: The invitation parameters (email, role_id).
 
         Returns:
             The created invitation.
@@ -247,6 +249,21 @@ class WorkspaceService(BaseOrgService):
             TracecatValidationError: If there is already a pending invitation
                 for this email in this workspace.
         """
+        import uuid as _uuid
+
+        role_id = _uuid.UUID(params.role_id)
+
+        # Validate role_id exists and belongs to this organization
+        role_result = await self.session.execute(
+            select(RoleModel).where(
+                RoleModel.id == role_id,
+                RoleModel.organization_id == self.organization_id,
+            )
+        )
+        role_obj = role_result.scalar_one_or_none()
+        if role_obj is None:
+            raise TracecatValidationError("Invalid role ID for this organization")
+
         # Check for existing pending invitation that hasn't expired
         now = datetime.now(UTC)
         existing_stmt = select(Invitation).where(
@@ -267,7 +284,7 @@ class WorkspaceService(BaseOrgService):
         invitation = Invitation(
             workspace_id=workspace_id,
             email=params.email,
-            role=params.role,
+            role_id=role_id,
             status=InvitationStatus.PENDING,
             invited_by=self.role.user_id if self.role else None,
             token=self._generate_invitation_token(),
@@ -395,14 +412,15 @@ class WorkspaceService(BaseOrgService):
         result = await self.session.execute(org_membership_stmt)
         org_membership = result.scalar_one_or_none()
 
-        # If not in org, auto-create as MEMBER
+        # If not in org, auto-create membership and assign org-member RBAC role
+        created_org_membership = False
         if org_membership is None:
             org_membership = OrganizationMembership(
                 user_id=user_id,
                 organization_id=organization_id,
-                role=OrgRole.MEMBER,
             )
             self.session.add(org_membership)
+            created_org_membership = True
             await self.session.flush()
 
         # Check if user is already a member of the workspace
@@ -441,9 +459,35 @@ class WorkspaceService(BaseOrgService):
         membership = Membership(
             user_id=user_id,
             workspace_id=invitation.workspace_id,
-            role=invitation.role,
         )
         self.session.add(membership)
+
+        # Create RBAC role assignment for the workspace
+        ws_assignment = UserRoleAssignment(
+            organization_id=organization_id,
+            user_id=user_id,
+            workspace_id=invitation.workspace_id,
+            role_id=invitation.role_id,
+        )
+        self.session.add(ws_assignment)
+
+        # If we auto-created org membership, also assign org-member RBAC role
+        if created_org_membership:
+            org_member_role_result = await self.session.execute(
+                select(RoleModel).where(
+                    RoleModel.organization_id == organization_id,
+                    RoleModel.slug == "organization-member",
+                )
+            )
+            org_member_role = org_member_role_result.scalar_one_or_none()
+            if org_member_role is not None:
+                org_assignment = UserRoleAssignment(
+                    organization_id=organization_id,
+                    user_id=user_id,
+                    workspace_id=None,
+                    role_id=org_member_role.id,
+                )
+                self.session.add(org_assignment)
 
         await self.session.commit()
         await self.session.refresh(membership)

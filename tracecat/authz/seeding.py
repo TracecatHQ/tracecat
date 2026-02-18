@@ -156,13 +156,13 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "Change member workspace roles",
     ),
     # Workspace RBAC administration (delegated to workspace admins)
-    (
+    ScopeDefinition(
         "workspace:rbac:read",
         "workspace:rbac",
         "read",
         "View workspace role assignments and group permissions",
     ),
-    (
+    ScopeDefinition(
         "workspace:rbac:manage",
         "workspace:rbac",
         "manage",

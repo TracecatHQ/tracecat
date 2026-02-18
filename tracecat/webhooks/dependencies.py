@@ -15,7 +15,6 @@ from sqlalchemy.exc import NoResultFound
 
 from tracecat.auth.api_keys import verify_api_key
 from tracecat.auth.types import Role
-from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
@@ -196,7 +195,6 @@ async def validate_incoming_webhook(
                 workspace_id=webhook.workspace_id,
                 organization_id=workspace.organization_id,
                 service_id="tracecat-runner",
-                workspace_role=WorkspaceRole.EDITOR,
                 scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-runner"],
             )
         )

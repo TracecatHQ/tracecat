@@ -4,7 +4,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, EmailStr
 
-from tracecat.authz.enums import OrgRole
 from tracecat.identifiers import OrganizationID, UserID
 from tracecat.invitations.enums import InvitationStatus
 
@@ -23,7 +22,8 @@ class OrgMemberRead(BaseModel):
     user_id: UserID | None = None
     invitation_id: UUID | None = None
     email: EmailStr
-    role: OrgRole
+    role_name: str
+    role_slug: str | None = None
     status: OrgMemberStatus
     first_name: str | None = None
     last_name: str | None = None
@@ -73,7 +73,7 @@ class OrgInvitationCreate(BaseModel):
     """Request body for creating an organization invitation."""
 
     email: EmailStr
-    role: OrgRole = OrgRole.MEMBER
+    role_id: UUID
 
 
 class OrgInvitationRead(BaseModel):
@@ -82,7 +82,9 @@ class OrgInvitationRead(BaseModel):
     id: UUID
     organization_id: OrganizationID
     email: EmailStr
-    role: OrgRole
+    role_id: UUID
+    role_name: str
+    role_slug: str | None = None
     status: InvitationStatus
     invited_by: UserID | None
     expires_at: datetime
@@ -101,7 +103,8 @@ class OrgInvitationReadMinimal(BaseModel):
     organization_name: str
     inviter_name: str | None
     inviter_email: str | None
-    role: OrgRole
+    role_name: str
+    role_slug: str | None = None
     status: InvitationStatus
     expires_at: datetime
     email_matches: bool | None = None
@@ -121,7 +124,8 @@ class OrgPendingInvitationRead(BaseModel):
     organization_name: str
     inviter_name: str | None
     inviter_email: str | None
-    role: OrgRole
+    role_name: str
+    role_slug: str | None = None
     expires_at: datetime
 
 

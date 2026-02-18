@@ -6,7 +6,7 @@ from sqlalchemy.exc import NoResultFound
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
-from tracecat.authz.enums import WorkspaceRole
+from tracecat.authz.controls import has_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import User
 
@@ -25,8 +25,10 @@ async def search_user(
     session: AsyncDBSession,
 ) -> UserRead:
     """Search for a user by email."""
-    # Platform admin, org owner/admin, or workspace admin can search users
-    if not (role.is_privileged or role.workspace_role == WorkspaceRole.ADMIN):
+    # Platform admin or users with org/workspace member read scope
+    if not (
+        role.is_privileged or has_scope(role.scopes or frozenset(), "org:member:read")
+    ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     if not email:

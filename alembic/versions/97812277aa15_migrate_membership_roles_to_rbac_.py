@@ -43,9 +43,9 @@ def upgrade() -> None:
         JOIN role AS r
           ON r.organization_id = om.organization_id
          AND r.slug = CASE om.role::text
-             WHEN 'owner' THEN 'organization-owner'
-             WHEN 'admin' THEN 'organization-admin'
-             WHEN 'member' THEN 'organization-member'
+             WHEN 'OWNER' THEN 'organization-owner'
+             WHEN 'ADMIN' THEN 'organization-admin'
+             WHEN 'MEMBER' THEN 'organization-member'
          END
         ON CONFLICT (user_id)
         WHERE workspace_id IS NULL

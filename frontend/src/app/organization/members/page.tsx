@@ -27,36 +27,38 @@ export default function MembersPage() {
             </p>
           </div>
         </div>
-        <Tabs defaultValue="members" className="w-full">
-          <TabsList className="inline-flex h-auto w-auto justify-start gap-0 rounded-none border-b border-border/30 bg-transparent p-0">
-            <TabsTrigger value="members" className={tabTriggerClassName}>
-              Members
-            </TabsTrigger>
-            {rbacEnabled && (
-              <ScopeGuard scope="org:rbac:read" fallback={null} loading={null}>
+        {rbacEnabled ? (
+          <ScopeGuard
+            scope="org:rbac:read"
+            fallback={<OrgMembersTable />}
+            loading={null}
+          >
+            <Tabs defaultValue="members" className="w-full">
+              <TabsList className="inline-flex h-auto w-auto justify-start gap-0 rounded-none border-b border-border/30 bg-transparent p-0">
+                <TabsTrigger value="members" className={tabTriggerClassName}>
+                  Members
+                </TabsTrigger>
                 <TabsTrigger value="roles" className={tabTriggerClassName}>
                   Roles
                 </TabsTrigger>
                 <TabsTrigger value="groups" className={tabTriggerClassName}>
                   Groups
                 </TabsTrigger>
-              </ScopeGuard>
-            )}
-          </TabsList>
-          <TabsContent value="members" className="mt-6">
-            <OrgMembersTable />
-          </TabsContent>
-          {rbacEnabled && (
-            <ScopeGuard scope="org:rbac:read" fallback={null} loading={null}>
+              </TabsList>
+              <TabsContent value="members" className="mt-6">
+                <OrgMembersTable />
+              </TabsContent>
               <TabsContent value="roles" className="mt-6">
                 <OrgRbacRoles />
               </TabsContent>
               <TabsContent value="groups" className="mt-6">
                 <OrgRbacGroups />
               </TabsContent>
-            </ScopeGuard>
-          )}
-        </Tabs>
+            </Tabs>
+          </ScopeGuard>
+        ) : (
+          <OrgMembersTable />
+        )}
       </div>
     </div>
   )
