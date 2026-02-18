@@ -1,7 +1,7 @@
 import uuid  # noqa: I001
 import asyncio
 from typing import Literal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -678,18 +678,20 @@ class TestCasesService:
         self, cases_service: CasesService
     ) -> None:
         params = CursorPaginationParams(limit=10, cursor=None, reverse=False)
-        expected_response = object()
-        mocked_list_cases = AsyncMock(return_value=expected_response)
+        list_response = await cases_service.list_cases(
+            limit=10,
+            include_rows=True,
+            order_by="created_at",
+            sort="asc",
+        )
+        search_response = await cases_service.search_cases(
+            params=params,
+            include_rows=True,
+            order_by="created_at",
+            sort="asc",
+        )
 
-        with patch.object(cases_service, "list_cases", mocked_list_cases):
-            result = await cases_service.search_cases(
-                params=params,
-                include_rows=True,
-            )
-
-        assert result is expected_response
-        assert mocked_list_cases.await_args is not None
-        assert mocked_list_cases.await_args.kwargs["include_rows"] is True
+        assert search_response.model_dump() == list_response.model_dump()
 
     async def test_create_case_with_nonexistent_field(
         self, cases_service: CasesService

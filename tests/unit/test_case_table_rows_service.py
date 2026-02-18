@@ -238,29 +238,48 @@ async def test_list_case_rows_reverse_pagination_flags(
 
 
 @pytest.mark.anyio
-async def test_list_case_rows_does_not_swallow_unexpected_errors(
+async def test_list_case_rows_recovers_after_missing_table_error(
     session: AsyncSession,
     svc_role: Role,
     cases_service: CasesService,
     tables_service: TablesService,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = await _create_case(cases_service)
-    table, row_id = await _create_table_with_row(tables_service)
+    missing_table, missing_row_id = await _create_table_with_row(tables_service)
+    healthy_table = await tables_service.create_table(
+        TableCreate(
+            name=f"table_{uuid.uuid4().hex[:8]}",
+            columns=[
+                TableColumnCreate(name="value", type=SqlType.TEXT, nullable=True),
+            ],
+        )
+    )
+    healthy_row = await tables_service.insert_row(
+        healthy_table,
+        TableRowInsert(data={"value": "world"}),
+    )
+    healthy_row_id = uuid.UUID(str(healthy_row["id"]))
+
     service = CaseTableRowService(session=session, role=svc_role)
     await service.link_case_row(
-        case, CaseTableRowLink(table_id=table.id, row_id=row_id)
+        case, CaseTableRowLink(table_id=missing_table.id, row_id=missing_row_id)
+    )
+    await service.link_case_row(
+        case, CaseTableRowLink(table_id=healthy_table.id, row_id=healthy_row_id)
     )
 
-    async def _explode(
-        *args: object, **kwargs: object
-    ) -> dict[uuid.UUID, dict[str, object]]:
-        del args, kwargs
-        raise RuntimeError("boom")
+    schema_name = tables_service._get_schema_name()
+    sanitized_table_name = tables_service._sanitize_identifier(missing_table.name)
+    conn = await session.connection()
+    await conn.execute(sa.text(f'DROP TABLE "{schema_name}"."{sanitized_table_name}"'))
+    await session.commit()
 
-    monkeypatch.setattr(service.tables_service, "get_rows_by_ids", _explode)
-    with pytest.raises(RuntimeError, match="boom"):
-        await service.list_case_rows_for_cases([case.id])
+    rows_by_case = await service.list_case_rows_for_cases([case.id])
+    assert len(rows_by_case[case.id]) == 2
+
+    rows_by_id = {row.row_id: row for row in rows_by_case[case.id]}
+    assert rows_by_id[missing_row_id].row_data == {}
+    assert rows_by_id[healthy_row_id].row_data["value"] == "world"
 
 
 @pytest.mark.anyio

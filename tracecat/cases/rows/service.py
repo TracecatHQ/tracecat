@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -19,7 +20,7 @@ from tracecat.auth.types import Role
 from tracecat.cases.rows.schemas import CaseTableRowLink, CaseTableRowRead
 from tracecat.cases.schemas import TableRowLinkedEvent, TableRowUnlinkedEvent
 from tracecat.contexts import ctx_run
-from tracecat.db.models import Case, CaseTableRow, Table
+from tracecat.db.models import Case, CaseTableRow
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.logger import logger
 from tracecat.pagination import (
@@ -31,6 +32,16 @@ from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TablesService
 
 MAX_CASE_ROW_LINKS = 50
+
+
+@dataclass(frozen=True)
+class _CaseRowLinkSnapshot:
+    id: uuid.UUID
+    case_id: uuid.UUID
+    table_id: uuid.UUID
+    row_id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
 
 
 def _is_missing_table_error(exc: ProgrammingError) -> bool:
@@ -58,34 +69,44 @@ class CaseTableRowService(BaseWorkspaceService):
         if not links:
             return []
 
-        links_by_table: dict[uuid.UUID, list[CaseTableRow]] = defaultdict(list)
-        table_cache: dict[uuid.UUID, Table] = {}
+        links_by_table: dict[uuid.UUID, list[_CaseRowLinkSnapshot]] = defaultdict(list)
+        table_name_by_id: dict[uuid.UUID, str] = {}
+        snapshots: list[_CaseRowLinkSnapshot] = []
         for link in links:
-            links_by_table[link.table_id].append(link)
+            snapshot = _CaseRowLinkSnapshot(
+                id=link.id,
+                case_id=link.case_id,
+                table_id=link.table_id,
+                row_id=link.row_id,
+                created_at=link.created_at,
+                updated_at=link.updated_at,
+            )
+            snapshots.append(snapshot)
+            links_by_table[snapshot.table_id].append(snapshot)
             if link.table is not None:
-                table_cache[link.table_id] = link.table
+                table_name_by_id[snapshot.table_id] = link.table.name
 
         row_data_by_table: dict[uuid.UUID, dict[uuid.UUID, dict[str, Any]]] = {}
         for table_id, table_links in links_by_table.items():
             try:
-                table = table_cache.get(table_id)
-                if table is None:
-                    table = await self.tables_service.get_table(table_id)
-                    table_cache[table_id] = table
-                row_data_by_table[table_id] = await self.tables_service.get_rows_by_ids(
-                    table,
-                    [link.row_id for link in table_links],
-                )
+                table = await self.tables_service.get_table(table_id)
+                table_name_by_id[table_id] = table.name
+                row_ids = [table_link.row_id for table_link in table_links]
+                try:
+                    async with self.session.begin_nested():
+                        row_data_by_table[
+                            table_id
+                        ] = await self.tables_service.get_rows_by_ids(table, row_ids)
+                except ProgrammingError as exc:
+                    if not _is_missing_table_error(exc):
+                        raise
+                    logger.warning(
+                        "Failed to load linked case table rows",
+                        table_id=table_id,
+                        error=str(exc),
+                    )
+                    row_data_by_table[table_id] = {}
             except TracecatNotFoundError as exc:
-                logger.warning(
-                    "Failed to load linked case table rows",
-                    table_id=table_id,
-                    error=str(exc),
-                )
-                row_data_by_table[table_id] = {}
-            except ProgrammingError as exc:
-                if not _is_missing_table_error(exc):
-                    raise
                 logger.warning(
                     "Failed to load linked case table rows",
                     table_id=table_id,
@@ -94,20 +115,21 @@ class CaseTableRowService(BaseWorkspaceService):
                 row_data_by_table[table_id] = {}
 
         serialized: list[CaseTableRowRead] = []
-        for link in links:
-            table = table_cache.get(link.table_id)
-            table_name = table.name if table is not None else "<unknown table>"
-            row_data = row_data_by_table.get(link.table_id, {}).get(link.row_id, {})
+        for snapshot in snapshots:
+            table_name = table_name_by_id.get(snapshot.table_id, "<unknown table>")
+            row_data = row_data_by_table.get(snapshot.table_id, {}).get(
+                snapshot.row_id, {}
+            )
             serialized.append(
                 CaseTableRowRead(
-                    id=link.id,
-                    case_id=link.case_id,
-                    table_id=link.table_id,
-                    row_id=link.row_id,
+                    id=snapshot.id,
+                    case_id=snapshot.case_id,
+                    table_id=snapshot.table_id,
+                    row_id=snapshot.row_id,
                     table_name=table_name,
                     row_data=row_data,
-                    created_at=link.created_at,
-                    updated_at=link.updated_at,
+                    created_at=snapshot.created_at,
+                    updated_at=snapshot.updated_at,
                 )
             )
         return serialized
