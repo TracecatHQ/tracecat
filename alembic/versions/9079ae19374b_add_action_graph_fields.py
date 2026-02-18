@@ -7,6 +7,8 @@ Create Date: 2025-12-03 15:22:20.734638
 """
 
 import json
+import re
+import uuid
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -19,6 +21,39 @@ revision: str = "9079ae19374b"
 down_revision: str | None = "4c6310af479d"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+
+
+_LEGACY_ACTION_ID_PATTERN = re.compile(r"^act-([0-9a-fA-F]{32})$")
+
+
+def _coerce_action_uuid(value: object) -> uuid.UUID | None:
+    """Coerce action IDs from legacy/current formats into UUID."""
+    if value is None:
+        return None
+    if isinstance(value, uuid.UUID):
+        return value
+
+    value_str = str(value)
+    if match := _LEGACY_ACTION_ID_PATTERN.fullmatch(value_str):
+        try:
+            return uuid.UUID(hex=match.group(1))
+        except ValueError:
+            return None
+
+    try:
+        return uuid.UUID(value_str)
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def _normalize_source_id(value: object) -> str:
+    """Normalize source_id to trigger-* or UUID string."""
+    source_id = str(value) if value is not None else ""
+    if source_id.startswith("trigger-"):
+        return source_id
+    if source_uuid := _coerce_action_uuid(source_id):
+        return str(source_uuid)
+    return source_id
 
 
 def upgrade() -> None:
@@ -139,14 +174,18 @@ def upgrade() -> None:
         for node in nodes:
             if node.get("type") != "udf":
                 continue
-            action_id = node.get("id")
+            action_id = _coerce_action_uuid(node.get("id"))
+            if action_id is None:
+                continue
             pos = node.get("position", {})
 
             # Find all incoming edges for this action (including trigger edges)
-            incoming = [e for e in edges if e.get("target") == action_id]
+            incoming = [
+                e for e in edges if _coerce_action_uuid(e.get("target")) == action_id
+            ]
             upstream = []
             for e in incoming:
-                source_id = e.get("source", "")
+                source_id = _normalize_source_id(e.get("source", ""))
                 is_trigger = source_id.startswith("trigger-")
 
                 # Support both camelCase and snake_case edge payloads.
@@ -173,7 +212,7 @@ def upgrade() -> None:
                     "x": pos.get("x", 0),
                     "y": pos.get("y", 0),
                     "edges": json.dumps(upstream),
-                    "id": action_id,
+                    "id": str(action_id),
                 },
             )
 
