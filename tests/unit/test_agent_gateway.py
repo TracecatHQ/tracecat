@@ -4,13 +4,23 @@ from litellm.proxy._types import ProxyException
 from tracecat.agent.gateway import _inject_provider_credentials
 
 
-def test_gemini_injects_api_key():
+def test_gemini_injects_api_key_and_prefixes_model():
     data = {"model": "gemini-2.5-flash"}
     creds = {"GEMINI_API_KEY": "test-gemini-key"}
 
     _inject_provider_credentials(data, "gemini", creds)
 
     assert data["api_key"] == "test-gemini-key"
+    assert data["model"] == "gemini/gemini-2.5-flash"
+
+
+def test_gemini_does_not_double_prefix_model():
+    data = {"model": "gemini/gemini-3-flash-preview"}
+    creds = {"GEMINI_API_KEY": "test-gemini-key"}
+
+    _inject_provider_credentials(data, "gemini", creds)
+
+    assert data["model"] == "gemini/gemini-3-flash-preview"
 
 
 def test_vertex_ai_injects_project_credentials_and_model():

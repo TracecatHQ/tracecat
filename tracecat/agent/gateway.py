@@ -232,6 +232,9 @@ def _inject_provider_credentials(
                     code=401,
                 )
             data["api_key"] = api_key
+            # Prefix model name for LiteLLM routing (e.g. gemini-2.5-flash -> gemini/gemini-2.5-flash)
+            if not data.get("model", "").startswith("gemini/"):
+                data["model"] = f"gemini/{data['model']}"
 
         case "vertex_ai":
             credentials = creds.get("GOOGLE_API_CREDENTIALS")
