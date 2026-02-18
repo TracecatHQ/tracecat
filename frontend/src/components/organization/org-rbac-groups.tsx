@@ -17,6 +17,7 @@ import type {
   GroupReadWithMembers,
   GroupRoleAssignmentReadWithDetails,
 } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   RbacDetailRow,
   RbacListContainer,
@@ -98,6 +99,9 @@ export function OrgRbacGroups() {
     removeGroupMember,
     removeGroupMemberIsPending,
   } = useRbacGroups()
+  const canCreateGroup = useScopeCheck("org:rbac:create") === true
+  const canUpdateGroup = useScopeCheck("org:rbac:update") === true
+  const canDeleteGroup = useScopeCheck("org:rbac:delete") === true
 
   const filteredGroups = useMemo(() => {
     if (!searchQuery.trim()) return groups
@@ -196,12 +200,14 @@ export function OrgRbacGroups() {
               </div>
             }
             right={
-              <DialogTrigger asChild>
-                <Button size="sm" onClick={() => setIsCreateOpen(true)}>
-                  <PlusIcon className="mr-2 size-4" />
-                  Create group
-                </Button>
-              </DialogTrigger>
+              canCreateGroup ? (
+                <DialogTrigger asChild>
+                  <Button size="sm" onClick={() => setIsCreateOpen(true)}>
+                    <PlusIcon className="mr-2 size-4" />
+                    Create group
+                  </Button>
+                </DialogTrigger>
+              ) : null
             }
           />
 
@@ -247,6 +253,8 @@ export function OrgRbacGroups() {
                     setIsEditOpen(true)
                   }}
                   onDelete={() => setSelectedGroup(group)}
+                  canManageGroups={canUpdateGroup}
+                  canDeleteGroups={canDeleteGroup}
                 />
               ))}
             </RbacListContainer>
@@ -276,7 +284,7 @@ export function OrgRbacGroups() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {isCreateOpen && (
+      {isCreateOpen && canCreateGroup && (
         <GroupFormDialog
           title="Create group"
           description="Create a new group to organize users and assign roles."
@@ -288,7 +296,7 @@ export function OrgRbacGroups() {
         />
       )}
 
-      {isEditOpen && selectedGroup && (
+      {isEditOpen && selectedGroup && canUpdateGroup && (
         <GroupFormDialog
           title="Edit group"
           description="Update the group's name and description."
@@ -307,7 +315,7 @@ export function OrgRbacGroups() {
       )}
 
       <Dialog open={isManageOpen} onOpenChange={setIsManageOpen}>
-        {selectedGroup && (
+        {selectedGroup && canUpdateGroup && (
           <GroupManageDialog
             group={selectedGroup}
             onAddMember={handleAddMember}
@@ -315,6 +323,9 @@ export function OrgRbacGroups() {
             isAddingMember={addGroupMemberIsPending}
             isRemovingMember={removeGroupMemberIsPending}
             onOpenChange={setIsManageOpen}
+            canManageMembers={canUpdateGroup}
+            canCreateAssignments={canCreateGroup}
+            canDeleteAssignments={canDeleteGroup}
           />
         )}
       </Dialog>
@@ -329,6 +340,8 @@ function GroupListItem({
   onManage,
   onEdit,
   onDelete,
+  canManageGroups,
+  canDeleteGroups,
 }: {
   group: GroupReadWithMembers
   isExpanded: boolean
@@ -336,6 +349,8 @@ function GroupListItem({
   onManage: () => void
   onEdit: () => void
   onDelete: () => void
+  canManageGroups: boolean
+  canDeleteGroups: boolean
 }) {
   const { assignments } = useRbacAssignments({ groupId: group.id })
 
@@ -379,22 +394,30 @@ function GroupListItem({
             >
               Copy group ID
             </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onManage}>
-              <UserPlusIcon className="mr-2 size-4" />
-              Manage group
-            </DropdownMenuItem>
-            <DialogTrigger asChild>
-              <DropdownMenuItem onClick={onEdit}>Edit group</DropdownMenuItem>
-            </DialogTrigger>
-            <AlertDialogTrigger asChild>
-              <DropdownMenuItem
-                className="text-rose-500 focus:text-rose-600"
-                onClick={onDelete}
-              >
-                Delete group
-              </DropdownMenuItem>
-            </AlertDialogTrigger>
+            {(canManageGroups || canDeleteGroups) && <DropdownMenuSeparator />}
+            {canManageGroups && (
+              <>
+                <DropdownMenuItem onClick={onManage}>
+                  <UserPlusIcon className="mr-2 size-4" />
+                  Manage group
+                </DropdownMenuItem>
+                <DialogTrigger asChild>
+                  <DropdownMenuItem onClick={onEdit}>
+                    Edit group
+                  </DropdownMenuItem>
+                </DialogTrigger>
+              </>
+            )}
+            {canDeleteGroups && (
+              <AlertDialogTrigger asChild>
+                <DropdownMenuItem
+                  className="text-rose-500 focus:text-rose-600"
+                  onClick={onDelete}
+                >
+                  Delete group
+                </DropdownMenuItem>
+              </AlertDialogTrigger>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       }
@@ -403,6 +426,7 @@ function GroupListItem({
         group={group}
         assignments={assignments}
         onManage={onManage}
+        canManageGroups={canManageGroups}
       />
     </RbacListItem>
   )
@@ -412,10 +436,12 @@ function GroupExpandedContent({
   group,
   assignments,
   onManage,
+  canManageGroups,
 }: {
   group: GroupReadWithMembers
   assignments: GroupRoleAssignmentReadWithDetails[]
   onManage: () => void
+  canManageGroups: boolean
 }) {
   return (
     <div className="space-y-3">
@@ -428,15 +454,17 @@ function GroupExpandedContent({
             {group.member_count} member
             {group.member_count !== 1 && "s"}
           </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-xs"
-            onClick={onManage}
-          >
-            <UserPlusIcon className="mr-1 size-3" />
-            Manage
-          </Button>
+          {canManageGroups && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={onManage}
+            >
+              <UserPlusIcon className="mr-1 size-3" />
+              Manage
+            </Button>
+          )}
         </div>
       </RbacDetailRow>
       <RbacDetailRow label="Role assignments">
@@ -555,6 +583,9 @@ function GroupManageDialog({
   isAddingMember,
   isRemovingMember,
   onOpenChange,
+  canManageMembers,
+  canCreateAssignments,
+  canDeleteAssignments,
 }: {
   group: GroupReadWithMembers
   onAddMember: (userId: string) => Promise<void>
@@ -562,6 +593,9 @@ function GroupManageDialog({
   isAddingMember: boolean
   isRemovingMember: boolean
   onOpenChange: (open: boolean) => void
+  canManageMembers: boolean
+  canCreateAssignments: boolean
+  canDeleteAssignments: boolean
 }) {
   const [selectedUserId, setSelectedUserId] = useState<string>("")
   const [selectedRoleId, setSelectedRoleId] = useState<string>("")
@@ -580,17 +614,22 @@ function GroupManageDialog({
 
   // Filter out users who are already members
   const existingMemberIds = new Set(group.members?.map((m) => m.user_id) ?? [])
-  const availableMembers =
-    orgMembers?.filter((m) => !existingMemberIds.has(m.user_id)) ?? []
+  const availableMembers = (orgMembers ?? []).flatMap((member) => {
+    const userId = member.user_id
+    if (!userId || existingMemberIds.has(userId)) {
+      return []
+    }
+    return [{ ...member, user_id: userId }]
+  })
 
   const handleAddMember = async () => {
-    if (!selectedUserId) return
+    if (!canManageMembers || !selectedUserId) return
     await onAddMember(selectedUserId)
     setSelectedUserId("")
   }
 
   const handleAddRole = async () => {
-    if (!selectedRoleId) return
+    if (!canCreateAssignments || !selectedRoleId) return
     await createAssignment({
       group_id: group.id,
       role_id: selectedRoleId,
@@ -602,6 +641,7 @@ function GroupManageDialog({
   }
 
   const handleRemoveRole = async (assignmentId: string) => {
+    if (!canDeleteAssignments) return
     await deleteAssignment(assignmentId)
   }
 
@@ -625,37 +665,42 @@ function GroupManageDialog({
           </TabsTrigger>
         </TabsList>
         <TabsContent value="members" className="mt-4 space-y-4">
-          <div className="space-y-2">
-            <Label>Add member</Label>
-            <div className="flex gap-2">
-              <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                <SelectTrigger className="flex-1">
-                  <SelectValue placeholder="Select a user" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableMembers.length === 0 ? (
-                    <p className="p-2 text-center text-sm text-muted-foreground">
-                      No available users
-                    </p>
-                  ) : (
-                    availableMembers.map((member) => (
-                      <SelectItem key={member.user_id} value={member.user_id}>
-                        {member.email}
-                        {member.first_name && ` (${member.first_name})`}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-              <Button
-                type="button"
-                onClick={handleAddMember}
-                disabled={!selectedUserId || isAddingMember}
-              >
-                <UserPlusIcon className="size-4" />
-              </Button>
+          {canManageMembers && (
+            <div className="space-y-2">
+              <Label>Add member</Label>
+              <div className="flex gap-2">
+                <Select
+                  value={selectedUserId}
+                  onValueChange={setSelectedUserId}
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue placeholder="Select a user" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableMembers.length === 0 ? (
+                      <p className="p-2 text-center text-sm text-muted-foreground">
+                        No available users
+                      </p>
+                    ) : (
+                      availableMembers.map((member) => (
+                        <SelectItem key={member.user_id} value={member.user_id}>
+                          {member.email}
+                          {member.first_name && ` (${member.first_name})`}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  onClick={handleAddMember}
+                  disabled={!selectedUserId || isAddingMember}
+                >
+                  <UserPlusIcon className="size-4" />
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="space-y-2">
             <Label>Current members ({group.members?.length ?? 0})</Label>
@@ -679,15 +724,17 @@ function GroupManageDialog({
                           </span>
                         )}
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onRemoveMember(member.user_id)}
-                        disabled={isRemovingMember}
-                        className="text-rose-500 hover:text-rose-600"
-                      >
-                        <UserMinusIcon className="size-4" />
-                      </Button>
+                      {canManageMembers && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onRemoveMember(member.user_id)}
+                          disabled={isRemovingMember}
+                          className="text-rose-500 hover:text-rose-600"
+                        >
+                          <UserMinusIcon className="size-4" />
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -703,57 +750,62 @@ function GroupManageDialog({
         </TabsContent>
 
         <TabsContent value="roles" className="mt-4 space-y-4">
-          <div className="space-y-2">
-            <Label>Add role assignment</Label>
-            <div className="flex gap-2">
-              <Select value={selectedRoleId} onValueChange={setSelectedRoleId}>
-                <SelectTrigger className="flex-1">
-                  <SelectValue placeholder="Select a role" />
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.map((role) => (
-                    <SelectItem key={role.id} value={role.id}>
-                      {role.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
-                value={selectedWorkspaceId}
-                onValueChange={setSelectedWorkspaceId}
-              >
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Scope" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="org-wide">
-                    <div className="flex items-center gap-2">
-                      <GlobeIcon className="size-4 text-blue-500" />
-                      Organization
-                    </div>
-                  </SelectItem>
-                  {workspaces?.map((workspace) => (
-                    <SelectItem key={workspace.id} value={workspace.id}>
+          {canCreateAssignments && (
+            <div className="space-y-2">
+              <Label>Add role assignment</Label>
+              <div className="flex gap-2">
+                <Select
+                  value={selectedRoleId}
+                  onValueChange={setSelectedRoleId}
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue placeholder="Select a role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roles.map((role) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        {role.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={selectedWorkspaceId}
+                  onValueChange={setSelectedWorkspaceId}
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Scope" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="org-wide">
                       <div className="flex items-center gap-2">
-                        <FolderIcon className="size-4 text-muted-foreground" />
-                        {workspace.name}
+                        <GlobeIcon className="size-4 text-blue-500" />
+                        Organization
                       </div>
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                type="button"
-                onClick={handleAddRole}
-                disabled={!selectedRoleId || createAssignmentIsPending}
-              >
-                <PlusIcon className="size-4" />
-              </Button>
+                    {workspaces?.map((workspace) => (
+                      <SelectItem key={workspace.id} value={workspace.id}>
+                        <div className="flex items-center gap-2">
+                          <FolderIcon className="size-4 text-muted-foreground" />
+                          {workspace.name}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  onClick={handleAddRole}
+                  disabled={!selectedRoleId || createAssignmentIsPending}
+                >
+                  <PlusIcon className="size-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                All members of this group will inherit the assigned roles.
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              All members of this group will inherit the assigned roles.
-            </p>
-          </div>
+          )}
 
           <div className="space-y-2">
             <Label>Current role assignments ({assignments.length})</Label>
@@ -785,15 +837,17 @@ function GroupManageDialog({
                           )}
                         </span>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleRemoveRole(assignment.id)}
-                        disabled={deleteAssignmentIsPending}
-                        className="text-rose-500 hover:text-rose-600"
-                      >
-                        <Trash2Icon className="size-4" />
-                      </Button>
+                      {canDeleteAssignments && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRemoveRole(assignment.id)}
+                          disabled={deleteAssignmentIsPending}
+                          className="text-rose-500 hover:text-rose-600"
+                        >
+                          <Trash2Icon className="size-4" />
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>

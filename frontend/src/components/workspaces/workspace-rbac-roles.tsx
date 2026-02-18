@@ -4,6 +4,7 @@ import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { InfoIcon, PlusIcon, SearchIcon, ShieldIcon } from "lucide-react"
 import { useMemo, useState } from "react"
 import type { RoleReadWithScopes } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   RbacBadge,
   RbacDetailRow,
@@ -68,6 +69,9 @@ export function WorkspaceRbacRoles({
   } = useRbacRoles()
 
   const { scopes } = useRbacScopes({ includeSystem: true })
+  const canCreateRole = useScopeCheck("org:rbac:create") === true
+  const canUpdateRole = useScopeCheck("org:rbac:update") === true
+  const canDeleteRole = useScopeCheck("org:rbac:delete") === true
 
   // Get assignments for this workspace to show which roles are in use
   const { assignments } = useRbacAssignments({ workspaceId })
@@ -168,7 +172,7 @@ export function WorkspaceRbacRoles({
               </div>
             }
             right={
-              hideCreateButton ? null : (
+              hideCreateButton || !canCreateRole ? null : (
                 <DialogTrigger asChild>
                   <Button size="sm" onClick={() => setIsCreateOpen(true)}>
                     <PlusIcon className="mr-2 size-4" />
@@ -231,6 +235,8 @@ export function WorkspaceRbacRoles({
                     setIsEditOpen(true)
                   }}
                   onDelete={() => setSelectedRole(role)}
+                  canUpdateRole={canUpdateRole}
+                  canDeleteRole={canDeleteRole}
                 />
               ))}
             </RbacListContainer>
@@ -304,6 +310,8 @@ function RoleListItem({
   onExpandedChange,
   onEdit,
   onDelete,
+  canUpdateRole,
+  canDeleteRole,
 }: {
   role: RoleReadWithScopes
   isAssigned: boolean
@@ -311,6 +319,8 @@ function RoleListItem({
   onExpandedChange: (expanded: boolean) => void
   onEdit: () => void
   onDelete: () => void
+  canUpdateRole: boolean
+  canDeleteRole: boolean
 }) {
   return (
     <RbacListItem
@@ -348,20 +358,24 @@ function RoleListItem({
             </DropdownMenuItem>
             {!role.is_system && (
               <>
-                <DropdownMenuSeparator />
-                <DialogTrigger asChild>
-                  <DropdownMenuItem onClick={onEdit}>
-                    Edit role
-                  </DropdownMenuItem>
-                </DialogTrigger>
-                <AlertDialogTrigger asChild>
-                  <DropdownMenuItem
-                    className="text-rose-500 focus:text-rose-600"
-                    onClick={onDelete}
-                  >
-                    Delete role
-                  </DropdownMenuItem>
-                </AlertDialogTrigger>
+                {(canUpdateRole || canDeleteRole) && <DropdownMenuSeparator />}
+                {canUpdateRole && (
+                  <DialogTrigger asChild>
+                    <DropdownMenuItem onClick={onEdit}>
+                      Edit role
+                    </DropdownMenuItem>
+                  </DialogTrigger>
+                )}
+                {canDeleteRole && (
+                  <AlertDialogTrigger asChild>
+                    <DropdownMenuItem
+                      className="text-rose-500 focus:text-rose-600"
+                      onClick={onDelete}
+                    >
+                      Delete role
+                    </DropdownMenuItem>
+                  </AlertDialogTrigger>
+                )}
               </>
             )}
           </DropdownMenuContent>

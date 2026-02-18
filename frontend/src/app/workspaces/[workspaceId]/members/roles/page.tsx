@@ -41,7 +41,7 @@ export default function WorkspaceRolesPage() {
     return <AlertNotification level="error" message="Workspace not found." />
   }
   return (
-    <ScopeGuard scope="workspace:rbac:read" fallback={null} loading={null}>
+    <ScopeGuard scope="org:rbac:read" fallback={null} loading={null}>
       <div className="size-full overflow-auto">
         <div className="container flex h-full max-w-[1200px] flex-col space-y-8 py-6">
           <div className="flex w-full">

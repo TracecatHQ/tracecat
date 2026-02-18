@@ -417,6 +417,13 @@ function UserAssignmentFormDialog({
   const { orgMembers } = useOrgMembers()
   const { roles } = useRbacRoles()
   const { workspaces } = useWorkspaceManager()
+  const selectableMembers = (orgMembers ?? []).flatMap((member) => {
+    const userId = member.user_id
+    if (!userId) {
+      return []
+    }
+    return [{ ...member, user_id: userId }]
+  })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -443,7 +450,7 @@ function UserAssignmentFormDialog({
                 <SelectValue placeholder="Select a user" />
               </SelectTrigger>
               <SelectContent>
-                {orgMembers?.map((member) => (
+                {selectableMembers.map((member) => (
                   <SelectItem key={member.user_id} value={member.user_id}>
                     {member.email}
                   </SelectItem>

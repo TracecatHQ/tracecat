@@ -1,8 +1,16 @@
 "use client"
 
+import { useScopeCheck } from "@/components/auth/scope-guard"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import { RegistryActionsTable } from "@/components/registry/registry-actions-table"
 
 export default function RegistryActionsPage() {
+  const canReadRegistry = useScopeCheck("org:registry:read")
+  const isLoading = canReadRegistry === undefined
+
+  if (isLoading) return <CenteredSpinner />
+  if (!canReadRegistry) return null
+
   return (
     <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[1000px] flex-col space-y-12">

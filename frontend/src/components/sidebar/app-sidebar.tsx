@@ -275,6 +275,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewTables = useScopeCheck("table:read")
   const canViewVariables = useScopeCheck("variable:read")
   const canViewSecrets = useScopeCheck("secret:read")
+  const canViewIntegrations = useScopeCheck("integration:read")
+  const canViewInbox = useScopeCheck("inbox:read")
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewCases = useScopeCheck("case:read")
   const canCreateCase = useScopeCheck("case:create")
@@ -331,6 +333,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/integrations`,
       icon: BlocksIcon,
       isActive: pathname?.startsWith(`${basePath}/integrations`),
+      visible: canViewIntegrations === true,
     },
     {
       title: "Members",
@@ -366,17 +369,19 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               )}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname?.startsWith(`${basePath}/inbox`)}
-                >
-                  <Link href={`${basePath}/inbox`}>
-                    <InboxIcon />
-                    <span>Inbox</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {canViewInbox === true && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname?.startsWith(`${basePath}/inbox`)}
+                  >
+                    <Link href={`${basePath}/inbox`}>
+                      <InboxIcon />
+                      <span>Inbox</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
             <CreateCaseDialog
               open={createCaseDialogOpen}

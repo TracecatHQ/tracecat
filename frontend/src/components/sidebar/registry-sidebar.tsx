@@ -22,19 +22,18 @@ import {
 export function RegistrySidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
-  const canAdministerOrg = useScopeCheck("org:registry:manage")
+  const canReadRegistry = useScopeCheck("org:registry:read")
   const pathname = usePathname()
 
   const navMain = [
-    {
-      title: "Actions",
-      url: "/registry/actions",
-      icon: BookOpenIcon,
-      isActive: pathname?.includes("/registry/actions"),
-    },
-    ...(canAdministerOrg
-      ? // Only show repositories if the user can administer the org
-        [
+    ...(canReadRegistry
+      ? [
+          {
+            title: "Actions",
+            url: "/registry/actions",
+            icon: BookOpenIcon,
+            isActive: pathname?.includes("/registry/actions"),
+          },
           {
             title: "Repositories",
             url: "/registry/repositories",
