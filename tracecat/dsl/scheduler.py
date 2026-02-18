@@ -707,10 +707,16 @@ class DSLScheduler:
             try:
                 if enable_shadow_compare:
                     minimal_context = self.build_run_if_context(stmt, task.stream_id)
-                    minimal_result = await self.resolve_expression(run_if, minimal_context)
+                    minimal_result = await self.resolve_expression(
+                        run_if, minimal_context
+                    )
 
-                    legacy_context = self.build_stream_aware_context(stmt, task.stream_id)
-                    legacy_result = await self.resolve_expression(run_if, legacy_context)
+                    legacy_context = self.build_stream_aware_context(
+                        stmt, task.stream_id
+                    )
+                    legacy_result = await self.resolve_expression(
+                        run_if, legacy_context
+                    )
                     minimal_bool = bool(minimal_result)
                     legacy_bool = bool(legacy_result)
                     if minimal_bool != legacy_bool:
@@ -736,7 +742,9 @@ class DSLScheduler:
                     minimal_context = self.build_run_if_context(stmt, task.stream_id)
                     expr_result = await self.resolve_expression(run_if, minimal_context)
                 else:
-                    legacy_context = self.build_stream_aware_context(stmt, task.stream_id)
+                    legacy_context = self.build_stream_aware_context(
+                        stmt, task.stream_id
+                    )
                     expr_result = await self.resolve_expression(run_if, legacy_context)
             except Exception as e:
                 raise ApplicationError(
