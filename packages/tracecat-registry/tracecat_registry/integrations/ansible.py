@@ -79,6 +79,10 @@ def run_playbook(
 
     extravars = extravars or {}
     runner_kwargs = runner_kwargs or {}
+    # Prevent ansible-runner from writing console output to stdout.
+    # Registry actions are executed in a subprocess where stdout must contain
+    # only the JSON protocol payload returned by minimal_runner.
+    runner_kwargs.setdefault("quiet", True)
 
     if "inventory" in runner_kwargs:
         raise ValueError(

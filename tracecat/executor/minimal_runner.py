@@ -13,8 +13,10 @@ Key design:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import os
+import sys
 import warnings
 from collections.abc import Mapping
 from types import ModuleType
@@ -50,6 +52,61 @@ except ImportError:
 
 # Static config (read once at module load, immutable)
 _API_URL = os.environ.get("TRACECAT__API_URL", "http://api:8000")
+_CAPTURED_OUTPUT_CHAR_LIMIT = 8192
+_SUPPRESSED_OUTPUT_PREVIEW_CHAR_LIMIT = 500
+
+
+class _CappedTextBuffer:
+    """Lightweight text buffer with a hard character cap."""
+
+    def __init__(self, limit: int) -> None:
+        self._limit = max(limit, 0)
+        self._size = 0
+        self._parts: list[str] = []
+        self.truncated = False
+
+    def write(self, text: str) -> int:
+        if not text:
+            return 0
+
+        text_len = len(text)
+        remaining = self._limit - self._size
+        if remaining > 0:
+            chunk = text[:remaining]
+            self._parts.append(chunk)
+            self._size += len(chunk)
+
+        if text_len > remaining:
+            self.truncated = True
+
+        return text_len
+
+    def flush(self) -> None:
+        return None
+
+    def getvalue(self) -> str:
+        return "".join(self._parts)
+
+
+def _emit_suppressed_output_notice(
+    *, stream_name: str, output: str, truncated: bool
+) -> None:
+    preview = output[:_SUPPRESSED_OUTPUT_PREVIEW_CHAR_LIMIT]
+    truncation_text = " (truncated)" if truncated else ""
+    message = (
+        f"Action emitted {stream_name} output that was suppressed"
+        f"{truncation_text}: {preview}"
+    )
+
+    try:
+        warnings.warn(message, RuntimeWarning, stacklevel=2)
+    except Exception:
+        try:
+            sys.stderr.write(f"{message}\n")
+            sys.stderr.flush()
+        except Exception:
+            # Never fail action execution due to telemetry emission issues.
+            return None
 
 
 def run_action_minimal(
@@ -339,8 +396,29 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         if evaluated_args is None:
             raise ValueError("Missing evaluated_args in resolved_context")
 
-        # Run the action with pre-evaluated args
-        result = run_action_minimal(action_impl, evaluated_args, secrets)
+        # Run the action with pre-evaluated args.
+        # Capture action-level stdout/stderr to prevent protocol corruption.
+        # The direct executor parses this process stdout as JSON bytes.
+        action_stdout = _CappedTextBuffer(_CAPTURED_OUTPUT_CHAR_LIMIT)
+        action_stderr = _CappedTextBuffer(_CAPTURED_OUTPUT_CHAR_LIMIT)
+        with (
+            contextlib.redirect_stdout(action_stdout),
+            contextlib.redirect_stderr(action_stderr),
+        ):
+            result = run_action_minimal(action_impl, evaluated_args, secrets)
+
+        if captured_stdout := action_stdout.getvalue().strip():
+            _emit_suppressed_output_notice(
+                stream_name="stdout",
+                output=captured_stdout,
+                truncated=action_stdout.truncated,
+            )
+        if captured_stderr := action_stderr.getvalue().strip():
+            _emit_suppressed_output_notice(
+                stream_name="stderr",
+                output=captured_stderr,
+                truncated=action_stderr.truncated,
+            )
 
         return {"success": True, "result": result}
 
