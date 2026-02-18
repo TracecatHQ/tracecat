@@ -476,7 +476,7 @@ async def test_search_cases_success(
     test_admin_role: Role,
     mock_case: Case,
 ) -> None:
-    """Test GET /cases/search delegates to list_cases shape/response."""
+    """Test GET /cases/search delegates to search_cases shape/response."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
     ):
@@ -496,7 +496,7 @@ async def test_search_cases_success(
             num_tasks_completed=0,
             num_tasks_total=0,
         )
-        mock_svc.list_cases.return_value = CursorPaginatedResponse(
+        mock_svc.search_cases.return_value = CursorPaginatedResponse(
             items=[mock_case_read],
             next_cursor=None,
             prev_cursor=None,
@@ -520,7 +520,7 @@ async def test_search_cases_success(
         data = response.json()
         assert len(data["items"]) == 1
         assert data["items"][0]["summary"] == "Test Case Summary"
-        mock_svc.list_cases.assert_called_once()
+        mock_svc.search_cases.assert_called_once()
 
 
 @pytest.mark.anyio
@@ -529,7 +529,7 @@ async def test_search_cases_forwards_date_filters(
     test_admin_role: Role,
     mock_case: Case,
 ) -> None:
-    """Test GET /cases/search forwards date filters through the list alias."""
+    """Test GET /cases/search forwards date filters to search_cases."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
     ):
@@ -549,7 +549,7 @@ async def test_search_cases_forwards_date_filters(
             num_tasks_completed=0,
             num_tasks_total=0,
         )
-        mock_svc.list_cases.return_value = CursorPaginatedResponse(
+        mock_svc.search_cases.return_value = CursorPaginatedResponse(
             items=[mock_case_read],
             next_cursor=None,
             prev_cursor=None,
@@ -570,4 +570,4 @@ async def test_search_cases_forwards_date_filters(
         )
 
         assert response.status_code == status.HTTP_200_OK
-        mock_svc.list_cases.assert_called_once()
+        mock_svc.search_cases.assert_called_once()

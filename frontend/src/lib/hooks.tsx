@@ -3460,15 +3460,15 @@ export function useImportTableFromCsv() {
   }
 }
 
-export function useSearchCases({ workspaceId }: CasesSearchCasesData) {
+export function useSearchCases(params: CasesSearchCasesData) {
   const {
     data: cases,
     isLoading: casesIsLoading,
     error: casesError,
   } = useQuery<CaseReadMinimal[], TracecatApiError>({
-    queryKey: ["cases", workspaceId],
+    queryKey: ["cases", "search", params],
     queryFn: async () => {
-      const response = await casesSearchCases({ workspaceId })
+      const response = await casesSearchCases(params)
       return response.items
     },
   })
