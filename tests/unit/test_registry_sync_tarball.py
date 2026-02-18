@@ -96,7 +96,9 @@ async def test_build_tarball_from_installed_environment_overlays_symlinked_packa
 
     with tarfile.open(result.tarball_path, "r:gz") as archive:
         tracecat_members = [
-            member for member in archive.getmembers() if member.name == "tracecat_registry"
+            member
+            for member in archive.getmembers()
+            if member.name == "tracecat_registry"
         ]
         assert tracecat_members
         assert all(not member.issym() for member in tracecat_members)
