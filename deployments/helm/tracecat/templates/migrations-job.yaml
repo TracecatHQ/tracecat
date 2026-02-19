@@ -62,7 +62,7 @@ spec:
               export PGSSLMODE="${TRACECAT__DB_SSLMODE:-require}"
               python3 -m alembic upgrade head
           env:
-            {{- include "tracecat.env.common" . | nindent 12 }}
+            {{- include "tracecat.env.migrations" . | nindent 12 }}
             {{- include "tracecat.env.postgres" . | nindent 12 }}
           resources:
             requests:
