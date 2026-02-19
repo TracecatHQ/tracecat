@@ -11,6 +11,8 @@ from tracecat.registry.constants import DEFAULT_LOCAL_REGISTRY_ORIGIN
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
+from tracecat.tiers.access import is_org_entitled
+from tracecat.tiers.enums import Entitlement
 
 
 async def ensure_org_repositories(session: AsyncSession, role: Role) -> None:
@@ -23,6 +25,31 @@ async def ensure_org_repositories(session: AsyncSession, role: Role) -> None:
     Note: Platform registry (base Tracecat registry) is NOT handled here -
     it's platform-scoped and handled by `sync_platform_registry_on_startup()` separately.
     """
+    remote_url = cast(
+        str | None,
+        await get_setting(
+            "git_repo_url",
+            role=role,
+        ),
+    )
+    needs_custom_registry = config.TRACECAT__LOCAL_REPOSITORY_ENABLED or bool(remote_url)
+    if needs_custom_registry:
+        if role.organization_id is None:
+            logger.warning(
+                "Skipping custom repository setup due to missing organization context"
+            )
+            return
+        entitled = await is_org_entitled(
+            session, role.organization_id, Entitlement.CUSTOM_REGISTRY
+        )
+        if not entitled:
+            logger.info(
+                "Skipping custom repository setup because entitlement is disabled",
+                organization_id=role.organization_id,
+                entitlement=Entitlement.CUSTOM_REGISTRY.value,
+            )
+            return
+
     repos_service = RegistryReposService(session, role=role)
 
     # Setup local repository
@@ -46,11 +73,7 @@ async def ensure_org_repositories(session: AsyncSession, role: Role) -> None:
                 logger.info("Created local repository", origin=local_origin)
 
     # Setup custom remote repository
-    if maybe_remote_url := await get_setting(
-        "git_repo_url",
-        role=role,
-    ):
-        remote_url = cast(str, maybe_remote_url)
+    if remote_url:
         parsed_url = urlparse(remote_url)
         logger.info("Ensuring remote registry repository exists", url=parsed_url)
 
