@@ -2,6 +2,7 @@
 
 import {
   BotIcon,
+  CalendarClockIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   GitBranchIcon,
@@ -64,6 +65,12 @@ export function OrganizationSidebar({
       url: "/organization/settings/app",
       icon: Settings2,
       isActive: pathname?.includes("/organization/settings/app"),
+    },
+    {
+      title: "Schedules",
+      url: "/organization/settings/schedules",
+      icon: CalendarClockIcon,
+      isActive: pathname?.includes("/organization/settings/schedules"),
     },
     {
       title: "Audit Logs",

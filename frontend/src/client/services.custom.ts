@@ -175,3 +175,76 @@ export const adminListOrgTiers = (
       422: "Validation Error",
     },
   })
+
+export type OrgScheduleTemporalStatus = "present" | "missing"
+export type OrgScheduleDbStatus = "online" | "offline"
+
+export type OrgScheduleTemporalItem = {
+  schedule_id: string
+  workspace_id: string
+  workspace_name: string
+  workflow_id: string | null
+  workflow_title: string | null
+  db_status: OrgScheduleDbStatus
+  temporal_status: OrgScheduleTemporalStatus
+  last_checked_at: string
+  error?: string | null
+}
+
+export type OrgScheduleTemporalSummary = {
+  total_schedules: number
+  present_count: number
+  missing_count: number
+}
+
+export type OrgScheduleTemporalSyncRead = {
+  summary: OrgScheduleTemporalSummary
+  items: OrgScheduleTemporalItem[]
+}
+
+export type OrgScheduleRecreateAction = "created" | "skipped_present" | "failed"
+
+export type OrgScheduleRecreateResult = {
+  schedule_id: string
+  action: OrgScheduleRecreateAction
+  error?: string | null
+}
+
+export type OrgScheduleRecreateResponse = {
+  processed_count: number
+  created_count: number
+  already_present_count: number
+  failed_count: number
+  results: OrgScheduleRecreateResult[]
+}
+
+export type OrganizationRecreateMissingTemporalSchedulesData = {
+  requestBody: {
+    schedule_ids?: string[] | null
+  }
+}
+
+export const organizationGetScheduleTemporalSync =
+  (): CancelablePromise<OrgScheduleTemporalSyncRead> =>
+    request(OpenAPI, {
+      method: "GET",
+      url: "/organization/schedules/temporal-sync",
+      errors: {
+        403: "Forbidden",
+        422: "Validation Error",
+      },
+    })
+
+export const organizationRecreateMissingTemporalSchedules = (
+  data: OrganizationRecreateMissingTemporalSchedulesData
+): CancelablePromise<OrgScheduleRecreateResponse> =>
+  request(OpenAPI, {
+    method: "POST",
+    url: "/organization/schedules/temporal-sync/recreate-missing",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      403: "Forbidden",
+      422: "Validation Error",
+    },
+  })

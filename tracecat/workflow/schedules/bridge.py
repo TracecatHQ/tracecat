@@ -45,6 +45,7 @@ async def create_schedule(
     start_at: datetime | None = None,
     end_at: datetime | None = None,
     timeout: float | None = None,
+    paused: bool = False,
 ) -> temporalio.client.ScheduleHandle:
     # Importing here to avoid circular imports...
     from tracecat.dsl.workflow import DSLWorkflow
@@ -95,6 +96,7 @@ async def create_schedule(
                 # Allow overlapping workflows to run in parallel
                 overlap=temporalio.client.ScheduleOverlapPolicy.ALLOW_ALL,
             ),
+            state=temporalio.client.ScheduleState(paused=paused),
         ),
     )
 
