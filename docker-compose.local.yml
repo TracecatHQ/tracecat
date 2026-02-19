@@ -419,10 +419,10 @@ services:
       - temporal
       - core
     ports:
-      - 8081:8080
+      - ${TEMPORAL_UI_PORT:-8081}:8081
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CORS_ORIGINS=http://localhost:8080
+      - TEMPORAL_CORS_ORIGINS=http://localhost:${TEMPORAL_UI_PORT:-8081}
     depends_on:
       - temporal
 
