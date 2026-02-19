@@ -17,6 +17,8 @@ import {
   Plus,
   RotateCcw,
   Save,
+  SlidersHorizontal,
+  Sparkles,
   ToggleLeft,
   Trash2,
   Type,
@@ -31,7 +33,7 @@ import {
   useRef,
   useState,
 } from "react"
-import { useFieldArray, useForm } from "react-hook-form"
+import { type UseFormReturn, useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 import type {
   AgentPresetCreate,
@@ -95,6 +97,7 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
   useAgentPreset,
@@ -414,73 +417,56 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
-      <ResizablePanelGroup direction="horizontal">
-        <ResizablePanel defaultSize={26} minSize={18}>
-          <AgentPresetChatPane
-            preset={selectedPreset ?? null}
-            workspaceId={workspaceId}
-          />
-        </ResizablePanel>
-        <ResizableHandle withHandle />
-        <ResizablePanel defaultSize={50} minSize={34}>
-          <AgentPresetForm
-            key={selectedPreset?.id ?? NEW_PRESET_ID}
-            preset={selectedPreset ?? null}
-            mode={selectedPreset ? "edit" : "create"}
-            actionSuggestions={actionSuggestions}
-            namespaceSuggestions={namespaceSuggestions}
-            modelOptionsByProvider={modelOptionsByProvider}
-            modelProviderOptions={modelProviderOptions}
-            mcpIntegrations={mcpIntegrationsForForm}
-            mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
-            isSaving={
-              selectedPreset
-                ? updateAgentPresetIsPending
-                : createAgentPresetIsPending
-            }
-            isDeleting={deleteAgentPresetIsPending}
-            onCreate={async (payload) => {
-              const created = await createAgentPreset(payload)
-              handleSetSelectedPresetId(created.id)
-              return created
-            }}
-            onUpdate={async (presetId, payload) => {
-              const updated = await updateAgentPreset({
-                presetId,
-                ...payload,
-              })
-              handleSetSelectedPresetId(updated.id)
-              return updated
-            }}
-            onDelete={
-              selectedPreset
-                ? async () => {
-                    await deleteAgentPreset({
-                      presetId: selectedPreset.id,
-                      presetName: selectedPreset.name,
-                    })
-                    const remaining =
-                      presets?.filter(
-                        (preset) => preset.id !== selectedPreset.id
-                      ) ?? []
-                    if (remaining.length > 0) {
-                      handleSetSelectedPresetId(remaining[0].id)
-                    } else {
-                      handleSetSelectedPresetId(NEW_PRESET_ID)
-                    }
-                  }
-                : undefined
-            }
-          />
-        </ResizablePanel>
-        <ResizableHandle withHandle />
-        <ResizablePanel defaultSize={30} minSize={20}>
-          <AgentPresetBuilderChatPane
-            preset={selectedPreset ?? null}
-            workspaceId={workspaceId}
-          />
-        </ResizablePanel>
-      </ResizablePanelGroup>
+      <AgentPresetForm
+        key={selectedPreset?.id ?? NEW_PRESET_ID}
+        preset={selectedPreset ?? null}
+        mode={selectedPreset ? "edit" : "create"}
+        workspaceId={workspaceId}
+        actionSuggestions={actionSuggestions}
+        namespaceSuggestions={namespaceSuggestions}
+        modelOptionsByProvider={modelOptionsByProvider}
+        modelProviderOptions={modelProviderOptions}
+        mcpIntegrations={mcpIntegrationsForForm}
+        mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
+        isSaving={
+          selectedPreset
+            ? updateAgentPresetIsPending
+            : createAgentPresetIsPending
+        }
+        isDeleting={deleteAgentPresetIsPending}
+        onCreate={async (payload) => {
+          const created = await createAgentPreset(payload)
+          handleSetSelectedPresetId(created.id)
+          return created
+        }}
+        onUpdate={async (presetId, payload) => {
+          const updated = await updateAgentPreset({
+            presetId,
+            ...payload,
+          })
+          handleSetSelectedPresetId(updated.id)
+          return updated
+        }}
+        onDelete={
+          selectedPreset
+            ? async () => {
+                await deleteAgentPreset({
+                  presetId: selectedPreset.id,
+                  presetName: selectedPreset.name,
+                })
+                const remaining =
+                  presets?.filter(
+                    (preset) => preset.id !== selectedPreset.id
+                  ) ?? []
+                if (remaining.length > 0) {
+                  handleSetSelectedPresetId(remaining[0].id)
+                } else {
+                  handleSetSelectedPresetId(NEW_PRESET_ID)
+                }
+              }
+            : undefined
+        }
+      />
     </div>
   )
 }
@@ -581,7 +567,21 @@ function AgentPresetChatPane({
 
   const renderBody = () => {
     if (!preset) {
-      return null
+      return (
+        <div className="flex h-full items-center justify-center px-4">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <MessageCircle />
+              </EmptyMedia>
+              <EmptyTitle>Live chat</EmptyTitle>
+              <EmptyDescription>
+                Save the agent to start chatting with it.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        </div>
+      )
     }
 
     if (providersStatusLoading) {
@@ -741,7 +741,7 @@ function AutoResizeTextarea({
       textarea.style.height = "auto"
       textarea.style.height = `${Math.max(
         textarea.scrollHeight,
-        3.5 * parseFloat(getComputedStyle(textarea).lineHeight)
+        2 * parseFloat(getComputedStyle(textarea).lineHeight)
       )}px`
     }
   }, [value])
@@ -752,7 +752,7 @@ function AutoResizeTextarea({
     textarea.style.height = "auto"
     textarea.style.height = `${Math.max(
       textarea.scrollHeight,
-      3.5 * parseFloat(getComputedStyle(textarea).lineHeight)
+      2 * parseFloat(getComputedStyle(textarea).lineHeight)
     )}px`
   }
 
@@ -769,23 +769,24 @@ function AutoResizeTextarea({
   )
 }
 
-function AgentPresetForm({
-  preset,
-  mode,
-  onCreate,
-  onUpdate,
-  onDelete,
-  isSaving,
-  isDeleting,
-  actionSuggestions,
-  namespaceSuggestions,
-  modelProviderOptions,
-  modelOptionsByProvider,
-  mcpIntegrations,
-  mcpIntegrationsIsLoading,
-}: {
+type AgentPresetFormMode = "create" | "edit"
+type AgentPresetSideTab =
+  | "live-chat"
+  | "assistant"
+  | "configuration"
+  | "structured-output"
+
+type McpIntegrationOption = {
+  id: string
+  name: string
+  description?: string | null
+  providerId?: string
+}
+
+type AgentPresetFormProps = {
   preset: AgentPresetRead | null
-  mode: "create" | "edit"
+  mode: AgentPresetFormMode
+  workspaceId: string
   onCreate: (payload: AgentPresetCreate) => Promise<AgentPresetRead>
   onUpdate: (
     presetId: string,
@@ -798,15 +799,28 @@ function AgentPresetForm({
   namespaceSuggestions: Suggestion[]
   modelProviderOptions: string[]
   modelOptionsByProvider: Record<string, { label: string; value: string }[]>
-  mcpIntegrations: {
-    id: string
-    name: string
-    description?: string | null
-    providerId?: string
-  }[]
+  mcpIntegrations: McpIntegrationOption[]
   mcpIntegrationsIsLoading: boolean
-}) {
+}
+
+function AgentPresetForm({
+  preset,
+  mode,
+  workspaceId,
+  onCreate,
+  onUpdate,
+  onDelete,
+  isSaving,
+  isDeleting,
+  actionSuggestions,
+  namespaceSuggestions,
+  modelProviderOptions,
+  modelOptionsByProvider,
+  mcpIntegrations,
+  mcpIntegrationsIsLoading,
+}: AgentPresetFormProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<AgentPresetSideTab>("live-chat")
 
   const form = useForm<AgentPresetFormValues>({
     resolver: zodResolver(agentPresetSchema),
@@ -843,7 +857,6 @@ function AgentPresetForm({
 
   const watchedName = form.watch("name")
   const providerValue = form.watch("model_provider")
-  const outputTypeKind = form.watch("outputTypeKind")
   const modelOptions = modelOptionsByProvider[providerValue] ?? []
 
   useEffect(() => {
@@ -884,16 +897,105 @@ function AgentPresetForm({
       Boolean(form.watch("model_provider")) &&
       Boolean(form.watch("model_name")))
 
+  const handleDeleteDialogChange = useCallback(
+    (nextOpen: boolean) => {
+      if (isDeleting) {
+        return
+      }
+      setDeleteDialogOpen(nextOpen)
+    },
+    [isDeleting]
+  )
+
+  const handleAddToolApproval = useCallback(() => {
+    appendToolApproval({
+      tool: "",
+      allow: true,
+    })
+  }, [appendToolApproval])
+
   return (
     <Form {...form}>
-      <div className="flex h-full flex-col">
-        <div className="flex flex-wrap items-start justify-between gap-4 border-b p-6 py-4">
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          void handleSubmit()
+        }}
+        className="h-full"
+      >
+        <ResizablePanelGroup direction="horizontal" className="h-full">
+          <ResizablePanel defaultSize={62} minSize={40}>
+            <AgentPresetDocumentPanel
+              form={form}
+              mode={mode}
+              isSaving={isSaving}
+              isDeleting={isDeleting}
+              canSubmit={canSubmit}
+              onDelete={onDelete}
+              deleteDialogOpen={deleteDialogOpen}
+              onDeleteDialogChange={handleDeleteDialogChange}
+              onConfirmDelete={handleConfirmDelete}
+            />
+          </ResizablePanel>
+
+          <ResizableHandle withHandle />
+
+          <ResizablePanel defaultSize={38} minSize={26}>
+            <AgentPresetRightPanel
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+              preset={preset}
+              workspaceId={workspaceId}
+              form={form}
+              isSaving={isSaving}
+              actionSuggestions={actionSuggestions}
+              namespaceSuggestions={namespaceSuggestions}
+              modelProviderOptions={modelProviderOptions}
+              modelOptionsByProvider={modelOptionsByProvider}
+              mcpIntegrations={mcpIntegrations}
+              mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
+              toolApprovalFields={toolApprovalFields}
+              onAddToolApproval={handleAddToolApproval}
+              onRemoveToolApproval={removeToolApproval}
+            />
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </form>
+    </Form>
+  )
+}
+
+function AgentPresetDocumentPanel({
+  form,
+  mode,
+  isSaving,
+  isDeleting,
+  canSubmit,
+  onDelete,
+  deleteDialogOpen,
+  onDeleteDialogChange,
+  onConfirmDelete,
+}: {
+  form: UseFormReturn<AgentPresetFormValues>
+  mode: AgentPresetFormMode
+  isSaving: boolean
+  isDeleting: boolean
+  canSubmit: boolean
+  onDelete?: () => Promise<void>
+  deleteDialogOpen: boolean
+  onDeleteDialogChange: (nextOpen: boolean) => void
+  onConfirmDelete: (event: MouseEvent<HTMLButtonElement>) => Promise<void>
+}) {
+  return (
+    <ScrollArea className="h-full">
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-0 px-10 py-10">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1 space-y-3">
             <FormField
               control={form.control}
               name="slug"
               render={({ field }) => (
-                <FormItem className="space-y-1">
+                <FormItem className="space-y-0">
                   <FormLabel className="sr-only">Slug</FormLabel>
                   <FormControl>
                     <input type="hidden" {...field} value={field.value ?? ""} />
@@ -905,11 +1007,11 @@ function AgentPresetForm({
               control={form.control}
               name="name"
               render={({ field }) => (
-                <FormItem className="space-y-1">
+                <FormItem className="space-y-0">
                   <FormLabel className="sr-only">Agent name</FormLabel>
                   <FormControl>
                     <Input
-                      className="h-auto w-full border-none bg-transparent px-0 text-lg font-semibold leading-tight text-foreground shadow-none outline-none transition-none placeholder:text-muted-foreground/40 focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
+                      className="h-auto w-full border-none bg-transparent px-0 text-3xl font-semibold leading-tight text-foreground shadow-none outline-none transition-none placeholder:text-muted-foreground/40 focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
                       placeholder="New agent preset"
                       disabled={isSaving}
                       {...field}
@@ -930,8 +1032,8 @@ function AgentPresetForm({
                       onChange={field.onChange}
                       onBlur={field.onBlur}
                       disabled={isSaving}
-                      placeholder="Short summary of what this agent does."
-                      className="w-full resize-none overflow-hidden border-none bg-transparent px-0 text-xs leading-tight text-foreground shadow-none outline-none transition-none placeholder:text-muted-foreground/40 focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
+                      placeholder="Describe this agent."
+                      className="w-full resize-none overflow-hidden border-none bg-transparent px-0 text-sm leading-relaxed text-muted-foreground shadow-none outline-none transition-none placeholder:text-muted-foreground/50 focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
                     />
                   </FormControl>
                 </FormItem>
@@ -940,13 +1042,12 @@ function AgentPresetForm({
           </div>
           <div className="flex items-center gap-2">
             <Button
-              type="button"
+              type="submit"
               variant="ghost"
               size="icon"
-              onClick={() => handleSubmit()}
               disabled={isSaving || !canSubmit}
               className={cn(
-                "h-7 w-7 p-1 hover:bg-primary hover:text-primary-foreground",
+                "h-8 w-8 p-1.5 hover:bg-primary hover:text-primary-foreground",
                 canSubmit && !isSaving && "bg-primary text-primary-foreground"
               )}
               aria-label="Save agent preset"
@@ -960,12 +1061,7 @@ function AgentPresetForm({
             {mode === "edit" && onDelete ? (
               <AlertDialog
                 open={deleteDialogOpen}
-                onOpenChange={(nextOpen) => {
-                  if (isDeleting) {
-                    return
-                  }
-                  setDeleteDialogOpen(nextOpen)
-                }}
+                onOpenChange={onDeleteDialogChange}
               >
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -974,7 +1070,7 @@ function AgentPresetForm({
                       variant="ghost"
                       size="icon"
                       disabled={isDeleting || isSaving}
-                      className="h-7 w-7 p-1"
+                      className="h-8 w-8 p-1.5"
                       aria-label="Open agent actions menu"
                     >
                       <MoreVertical className="size-4" />
@@ -986,7 +1082,7 @@ function AgentPresetForm({
                         className="text-destructive focus:text-destructive"
                         onSelect={(e) => {
                           e.preventDefault()
-                          setDeleteDialogOpen(true)
+                          onDeleteDialogChange(true)
                         }}
                       >
                         <Trash2 className="mr-2 size-4" />
@@ -1011,7 +1107,7 @@ function AgentPresetForm({
                     </AlertDialogCancel>
                     <AlertDialogAction
                       variant="destructive"
-                      onClick={handleConfirmDelete}
+                      onClick={onConfirmDelete}
                       disabled={isDeleting}
                     >
                       {isDeleting ? (
@@ -1029,472 +1125,622 @@ function AgentPresetForm({
             ) : null}
           </div>
         </div>
-        <ScrollArea className="flex-1">
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              void handleSubmit()
-            }}
-            className="flex flex-col gap-8 px-6 py-6 pb-20 text-sm"
-          >
-            <section className="space-y-6">
-              <FormField
-                control={form.control}
-                name="actions"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Allowed tools</FormLabel>
-                    <FormControl>
-                      <MultiTagCommandInput
-                        value={field.value}
-                        onChange={field.onChange}
-                        suggestions={actionSuggestions}
-                        placeholder="+ Add tool"
-                        searchKeys={["label", "value", "description", "group"]}
-                        allowCustomTags
-                        disabled={isSaving}
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="mcpIntegrations"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Allowed MCP integrations</FormLabel>
-                    <FormControl>
-                      <MultiTagCommandInput
-                        value={field.value ?? []}
-                        onChange={(next) => field.onChange(next)}
-                        searchKeys={["label", "value"]}
-                        suggestions={(mcpIntegrations ?? []).map(
-                          (integration) => ({
-                            id: integration.id,
-                            label: integration.name,
-                            value: integration.id,
-                            description:
-                              integration.description || "MCP Integration",
-                            icon: (
-                              <ProviderIcon
-                                providerId={integration.providerId || "custom"}
-                                className="size-3 bg-transparent p-0 mx-1"
-                              />
-                            ),
-                          })
-                        )}
-                        placeholder={
-                          mcpIntegrationsIsLoading
-                            ? "Loading integrations..."
-                            : "Select MCP integrations"
-                        }
-                        disabled={isSaving}
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-            </section>
+        <Separator className="my-5" />
+        <section className="space-y-4">
+          <FormField
+            control={form.control}
+            name="instructions"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <SimpleEditor
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    placeholder="You are a helpful analyst..."
+                    editable={!isSaving}
+                    showToolbar={false}
+                    className="[&_.simple-editor-content_.tiptap.ProseMirror.simple-editor]:min-h-[560px] [&_.simple-editor-content_.tiptap.ProseMirror.simple-editor]:text-base [&_.simple-editor-content_.tiptap.ProseMirror.simple-editor]:leading-8"
+                  />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+        </section>
+      </div>
+    </ScrollArea>
+  )
+}
 
-            <Separator />
+function AgentPresetRightPanel({
+  activeTab,
+  onTabChange,
+  preset,
+  workspaceId,
+  form,
+  isSaving,
+  actionSuggestions,
+  namespaceSuggestions,
+  modelProviderOptions,
+  modelOptionsByProvider,
+  mcpIntegrations,
+  mcpIntegrationsIsLoading,
+  toolApprovalFields,
+  onAddToolApproval,
+  onRemoveToolApproval,
+}: {
+  activeTab: AgentPresetSideTab
+  onTabChange: (tab: AgentPresetSideTab) => void
+  preset: AgentPresetRead | null
+  workspaceId: string
+  form: UseFormReturn<AgentPresetFormValues>
+  isSaving: boolean
+  actionSuggestions: Suggestion[]
+  namespaceSuggestions: Suggestion[]
+  modelProviderOptions: string[]
+  modelOptionsByProvider: Record<string, { label: string; value: string }[]>
+  mcpIntegrations: McpIntegrationOption[]
+  mcpIntegrationsIsLoading: boolean
+  toolApprovalFields: Array<{ id: string }>
+  onAddToolApproval: () => void
+  onRemoveToolApproval: (index: number) => void
+}) {
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => onTabChange(value as AgentPresetSideTab)}
+        className="flex h-full w-full flex-col"
+      >
+        <div className="w-full shrink-0">
+          <div className="flex items-center justify-start px-3">
+            <TabsList className="h-9 justify-start rounded-none bg-transparent p-0">
+              <TabsTrigger
+                className="flex h-full min-w-24 items-center justify-center rounded-none px-4 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="live-chat"
+              >
+                <MessageCircle className="mr-2 size-4" />
+                <span>Live chat</span>
+              </TabsTrigger>
+              <TabsTrigger
+                className="flex h-full min-w-24 items-center justify-center rounded-none px-4 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="assistant"
+              >
+                <Sparkles className="mr-2 size-4" />
+                <span>Assistant</span>
+              </TabsTrigger>
+              <TabsTrigger
+                className="flex h-full min-w-24 items-center justify-center rounded-none px-4 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="configuration"
+              >
+                <SlidersHorizontal className="mr-2 size-4" />
+                <span>Tools</span>
+              </TabsTrigger>
+              <TabsTrigger
+                className="flex h-full min-w-24 items-center justify-center rounded-none px-4 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="structured-output"
+              >
+                <Box className="mr-2 size-4" />
+                <span>Output</span>
+              </TabsTrigger>
+            </TabsList>
+          </div>
+          <Separator />
+        </div>
 
-            <section className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="model_provider"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Model provider</FormLabel>
-                      <FormControl>
-                        {modelProviderOptions.length > 0 ? (
-                          <Select
-                            value={field.value}
-                            onValueChange={field.onChange}
-                            disabled={isSaving}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select provider" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {modelProviderOptions.map((provider) => (
-                                <SelectItem key={provider} value={provider}>
-                                  {provider}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Input
-                            placeholder="openai"
-                            {...field}
-                            disabled={isSaving}
-                          />
-                        )}
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="model_name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Model name</FormLabel>
-                      <FormControl>
-                        {modelOptions.length > 0 ? (
-                          <Select
-                            value={field.value}
-                            onValueChange={field.onChange}
-                            disabled={isSaving}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select model" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {modelOptions.map((option) => (
-                                <SelectItem
-                                  key={`${providerValue}-${option.value}`}
-                                  value={option.value}
-                                >
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Input
-                            placeholder="gpt-4o-mini"
-                            {...field}
-                            disabled={isSaving}
-                          />
-                        )}
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="base_url"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Custom model base URL</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="https://api.openai.com/v1"
-                          value={field.value ?? ""}
-                          onChange={field.onChange}
-                          disabled={isSaving}
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="retries"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Retries</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          min={0}
-                          {...field}
-                          disabled={isSaving}
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="enable-internet-access"
-                  checked={form.watch("enableInternetAccess")}
-                  onCheckedChange={(checked) =>
-                    form.setValue("enableInternetAccess", checked, {
-                      shouldDirty: true,
-                    })
-                  }
-                  disabled={isSaving}
-                />
-                <label
-                  htmlFor="enable-internet-access"
-                  className="text-sm font-medium"
-                >
-                  Enable internet access
-                </label>
-              </div>
-              <FormField
-                control={form.control}
-                name="namespaces"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Tool namespaces</FormLabel>
-                    <FormControl>
-                      <MultiTagCommandInput
+        <div className="flex-1 overflow-hidden">
+          <TabsContent value="live-chat" className="mt-0 h-full">
+            <AgentPresetChatPane preset={preset} workspaceId={workspaceId} />
+          </TabsContent>
+
+          <TabsContent value="assistant" className="mt-0 h-full">
+            <AgentPresetBuilderChatPane
+              preset={preset}
+              workspaceId={workspaceId}
+            />
+          </TabsContent>
+
+          <TabsContent value="configuration" className="mt-0 h-full">
+            <AgentPresetConfigurationPanel
+              form={form}
+              isSaving={isSaving}
+              actionSuggestions={actionSuggestions}
+              namespaceSuggestions={namespaceSuggestions}
+              modelProviderOptions={modelProviderOptions}
+              modelOptionsByProvider={modelOptionsByProvider}
+              mcpIntegrations={mcpIntegrations}
+              mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
+              toolApprovalFields={toolApprovalFields}
+              onAddToolApproval={onAddToolApproval}
+              onRemoveToolApproval={onRemoveToolApproval}
+            />
+          </TabsContent>
+
+          <TabsContent value="structured-output" className="mt-0 h-full">
+            <AgentPresetStructuredOutputPanel form={form} isSaving={isSaving} />
+          </TabsContent>
+        </div>
+      </Tabs>
+    </div>
+  )
+}
+
+function AgentPresetConfigurationPanel({
+  form,
+  isSaving,
+  actionSuggestions,
+  namespaceSuggestions,
+  modelProviderOptions,
+  modelOptionsByProvider,
+  mcpIntegrations,
+  mcpIntegrationsIsLoading,
+  toolApprovalFields,
+  onAddToolApproval,
+  onRemoveToolApproval,
+}: {
+  form: UseFormReturn<AgentPresetFormValues>
+  isSaving: boolean
+  actionSuggestions: Suggestion[]
+  namespaceSuggestions: Suggestion[]
+  modelProviderOptions: string[]
+  modelOptionsByProvider: Record<string, { label: string; value: string }[]>
+  mcpIntegrations: McpIntegrationOption[]
+  mcpIntegrationsIsLoading: boolean
+  toolApprovalFields: Array<{ id: string }>
+  onAddToolApproval: () => void
+  onRemoveToolApproval: (index: number) => void
+}) {
+  const providerValue = form.watch("model_provider")
+  const internetAccessEnabled = form.watch("enableInternetAccess")
+  const modelOptions = modelOptionsByProvider[providerValue] ?? []
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-8 px-6 py-6 pb-20 text-sm">
+        <section className="space-y-4">
+          <h3 className="text-sm font-medium">Model</h3>
+          <div className="grid gap-4 md:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="model_provider"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Model provider</FormLabel>
+                  <FormControl>
+                    {modelProviderOptions.length > 0 ? (
+                      <Select
                         value={field.value}
-                        onChange={field.onChange}
-                        suggestions={namespaceSuggestions}
-                        placeholder="Restrict to namespaces (optional)"
-                        searchKeys={["label", "value"]}
-                        allowCustomTags
+                        onValueChange={field.onChange}
+                        disabled={isSaving}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select provider" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {modelProviderOptions.map((provider) => (
+                            <SelectItem key={provider} value={provider}>
+                              {provider}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        placeholder="openai"
+                        {...field}
                         disabled={isSaving}
                       />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium leading-none">
-                    Approval rules
-                  </label>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      appendToolApproval({
-                        tool: "",
-                        allow: true,
-                      })
+                    )}
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="model_name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Model name</FormLabel>
+                  <FormControl>
+                    {modelOptions.length > 0 ? (
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        disabled={isSaving}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select model" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {modelOptions.map((option) => (
+                            <SelectItem
+                              key={`${providerValue}-${option.value}`}
+                              value={option.value}
+                            >
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        placeholder="gpt-4o-mini"
+                        {...field}
+                        disabled={isSaving}
+                      />
+                    )}
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="base_url"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Custom model base URL</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="https://api.openai.com/v1"
+                      value={field.value ?? ""}
+                      onChange={field.onChange}
+                      disabled={isSaving}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="retries"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Retries</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min={0}
+                      {...field}
+                      disabled={isSaving}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch
+              id="enable-internet-access"
+              checked={internetAccessEnabled}
+              onCheckedChange={(checked) =>
+                form.setValue("enableInternetAccess", checked, {
+                  shouldDirty: true,
+                })
+              }
+              disabled={isSaving}
+            />
+            <label
+              htmlFor="enable-internet-access"
+              className="text-sm font-medium"
+            >
+              Enable internet access
+            </label>
+          </div>
+        </section>
+
+        <Separator />
+
+        <section className="space-y-4">
+          <h3 className="text-sm font-medium">Tools and integrations</h3>
+          <FormField
+            control={form.control}
+            name="actions"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Allowed tools</FormLabel>
+                <FormControl>
+                  <MultiTagCommandInput
+                    value={field.value}
+                    onChange={field.onChange}
+                    suggestions={actionSuggestions}
+                    placeholder="+ Add tool"
+                    searchKeys={["label", "value", "description", "group"]}
+                    allowCustomTags
+                    disabled={isSaving}
+                  />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="mcpIntegrations"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Allowed MCP integrations</FormLabel>
+                <FormControl>
+                  <MultiTagCommandInput
+                    value={field.value ?? []}
+                    onChange={(next) => field.onChange(next)}
+                    searchKeys={["label", "value"]}
+                    suggestions={(mcpIntegrations ?? []).map((integration) => ({
+                      id: integration.id,
+                      label: integration.name,
+                      value: integration.id,
+                      description: integration.description || "MCP Integration",
+                      icon: (
+                        <ProviderIcon
+                          providerId={integration.providerId || "custom"}
+                          className="size-3 bg-transparent p-0 mx-1"
+                        />
+                      ),
+                    }))}
+                    placeholder={
+                      mcpIntegrationsIsLoading
+                        ? "Loading integrations..."
+                        : "Select MCP integrations"
                     }
                     disabled={isSaving}
-                  >
-                    <Plus className="mr-2 size-4" />
-                    Add rule
-                  </Button>
+                  />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="namespaces"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Tool namespaces</FormLabel>
+                <FormControl>
+                  <MultiTagCommandInput
+                    value={field.value}
+                    onChange={field.onChange}
+                    suggestions={namespaceSuggestions}
+                    placeholder="Restrict to namespaces (optional)"
+                    searchKeys={["label", "value"]}
+                    allowCustomTags
+                    disabled={isSaving}
+                  />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+        </section>
+
+        <Separator />
+
+        <section className="space-y-4">
+          <h3 className="text-sm font-medium">Approval rules</h3>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              Add tools that require manual review before execution.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onAddToolApproval}
+              disabled={isSaving}
+            >
+              <Plus className="mr-2 size-4" />
+              Add rule
+            </Button>
+          </div>
+          {toolApprovalFields.length === 0 ? (
+            <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
+              No manual approval rules yet. Add a tool to require human review
+              or to force manual overrides.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid gap-3 px-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center">
+                <div className="text-xs font-medium uppercase text-muted-foreground">
+                  Tool
                 </div>
-                {toolApprovalFields.length === 0 ? (
-                  <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
-                    No manual approval rules yet. Add a tool to require human
-                    review or to force manual overrides.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {/* Column headers */}
-                    <div className="grid gap-3 px-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center">
-                      <div className="text-xs font-medium uppercase text-muted-foreground">
-                        Tool
-                      </div>
-                      <div className="text-xs font-medium uppercase text-muted-foreground md:text-center">
-                        Manual approval
-                      </div>
-                      <div className="w-10" aria-hidden="true" />
-                    </div>
-
-                    {/* Content rows */}
-                    <div className="space-y-2">
-                      {toolApprovalFields.map((item, index) => {
-                        const approvalSwitchId = `tool-approval-${item.id}-allow`
-
-                        return (
-                          <div
-                            key={item.id}
-                            className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center"
-                          >
-                            <FormField
-                              control={form.control}
-                              name={`toolApprovals.${index}.tool`}
-                              render={({ field }) => (
-                                <FormItem className="flex-1">
-                                  <FormControl>
-                                    <ActionSelect
-                                      field={field}
-                                      suggestions={[...actionSuggestions]}
-                                      searchKeys={[
-                                        "label",
-                                        "value",
-                                        "description",
-                                        "group",
-                                      ]}
-                                      placeholder="Select an action or MCP tool..."
-                                      disabled={isSaving}
-                                    />
-                                  </FormControl>
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name={`toolApprovals.${index}.allow`}
-                              render={({ field }) => (
-                                <FormItem className="md:justify-self-center">
-                                  <FormControl>
-                                    <div className="flex items-center gap-3 px-3 py-2">
-                                      <Switch
-                                        id={approvalSwitchId}
-                                        checked={Boolean(field.value)}
-                                        onCheckedChange={field.onChange}
-                                        disabled={isSaving}
-                                      />
-                                      <span className="text-sm font-medium min-w-[100px]">
-                                        {field.value
-                                          ? "Required"
-                                          : "Not required"}
-                                      </span>
-                                    </div>
-                                  </FormControl>
-                                </FormItem>
-                              )}
-                            />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="justify-self-start self-start text-muted-foreground md:justify-self-end"
-                              onClick={() => removeToolApproval(index)}
-                              disabled={isSaving}
-                              aria-label="Remove approval rule"
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
+                <div className="text-xs font-medium uppercase text-muted-foreground md:text-center">
+                  Manual approval
+                </div>
+                <div className="w-10" aria-hidden="true" />
               </div>
-            </section>
 
-            <Separator />
+              <div className="space-y-2">
+                {toolApprovalFields.map((item, index) => {
+                  const approvalSwitchId = `tool-approval-${item.id}-allow`
 
-            <section className="space-y-6">
+                  return (
+                    <div
+                      key={item.id}
+                      className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-center"
+                    >
+                      <FormField
+                        control={form.control}
+                        name={`toolApprovals.${index}.tool`}
+                        render={({ field }) => (
+                          <FormItem className="flex-1">
+                            <FormControl>
+                              <ActionSelect
+                                field={field}
+                                suggestions={[...actionSuggestions]}
+                                searchKeys={[
+                                  "label",
+                                  "value",
+                                  "description",
+                                  "group",
+                                ]}
+                                placeholder="Select an action or MCP tool..."
+                                disabled={isSaving}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name={`toolApprovals.${index}.allow`}
+                        render={({ field }) => (
+                          <FormItem className="md:justify-self-center">
+                            <FormControl>
+                              <div className="flex items-center gap-3 px-3 py-2">
+                                <Switch
+                                  id={approvalSwitchId}
+                                  checked={Boolean(field.value)}
+                                  onCheckedChange={field.onChange}
+                                  disabled={isSaving}
+                                />
+                                <span className="text-sm font-medium min-w-[100px]">
+                                  {field.value ? "Required" : "Not required"}
+                                </span>
+                              </div>
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="justify-self-start self-start text-muted-foreground md:justify-self-end"
+                        onClick={() => onRemoveToolApproval(index)}
+                        disabled={isSaving}
+                        aria-label="Remove approval rule"
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+    </ScrollArea>
+  )
+}
+
+function AgentPresetStructuredOutputPanel({
+  form,
+  isSaving,
+}: {
+  form: UseFormReturn<AgentPresetFormValues>
+  isSaving: boolean
+}) {
+  const outputTypeKind = form.watch("outputTypeKind")
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-8 px-6 py-6 pb-20 text-sm">
+        <section className="space-y-4">
+          <h3 className="text-sm font-medium">Structured outputs</h3>
+          <div className="grid gap-4 md:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="outputTypeKind"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Output type</FormLabel>
+                  <FormControl>
+                    <Select
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      disabled={isSaving}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">
+                          <div className="flex items-center gap-2">
+                            <Type className="size-4" />
+                            <span>Text only</span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="data-type">
+                          <div className="flex items-center gap-2">
+                            <Box className="size-4" />
+                            <span>Structured</span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="json">
+                          <div className="flex items-center gap-2">
+                            <Braces className="size-4" />
+                            <span>JSON schema</span>
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+            {outputTypeKind === "data-type" ? (
               <FormField
                 control={form.control}
-                name="instructions"
+                name="outputTypeDataType"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>System prompt</FormLabel>
+                    <FormLabel>Data type</FormLabel>
                     <FormControl>
-                      <div className="min-h-[300px] rounded-md border border-input bg-background [&_.simple-editor-content_.tiptap.ProseMirror.simple-editor]:p-3">
-                        <SimpleEditor
-                          value={field.value ?? ""}
-                          onChange={field.onChange}
-                          onBlur={field.onBlur}
-                          placeholder="You are a helpful analyst..."
-                          editable={!isSaving}
-                          className="min-h-[300px]"
-                        />
-                      </div>
+                      <Select
+                        value={field.value ?? ""}
+                        onValueChange={field.onChange}
+                        disabled={isSaving}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DATA_TYPE_OUTPUT_TYPES.map((option) => {
+                            const Icon = option.icon
+                            return (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <Icon className="size-4" />
+                                  <span>{option.label}</span>
+                                </div>
+                              </SelectItem>
+                            )
+                          })}
+                        </SelectContent>
+                      </Select>
                     </FormControl>
                   </FormItem>
                 )}
               />
-              <div className="grid gap-4 md:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="outputTypeKind"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Output type</FormLabel>
-                      <FormControl>
-                        <Select
-                          value={field.value}
-                          onValueChange={field.onChange}
-                          disabled={isSaving}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">
-                              <div className="flex items-center gap-2">
-                                <Type className="size-4" />
-                                <span>Text only</span>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="data-type">
-                              <div className="flex items-center gap-2">
-                                <Box className="size-4" />
-                                <span>Structured</span>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="json">
-                              <div className="flex items-center gap-2">
-                                <Braces className="size-4" />
-                                <span>JSON schema</span>
-                              </div>
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-                {outputTypeKind === "data-type" ? (
-                  <FormField
-                    control={form.control}
-                    name="outputTypeDataType"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Data type</FormLabel>
-                        <FormControl>
-                          <Select
-                            value={field.value ?? ""}
-                            onValueChange={field.onChange}
-                            disabled={isSaving}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select type" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {DATA_TYPE_OUTPUT_TYPES.map((option) => {
-                                const Icon = option.icon
-                                return (
-                                  <SelectItem
-                                    key={option.value}
-                                    value={option.value}
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      <Icon className="size-4" />
-                                      <span>{option.label}</span>
-                                    </div>
-                                  </SelectItem>
-                                )
-                              })}
-                            </SelectContent>
-                          </Select>
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                ) : null}
-              </div>
-              {outputTypeKind === "json" ? (
-                <FormField
-                  control={form.control}
-                  name="outputTypeJson"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>JSON schema</FormLabel>
-                      <FormDescription>
-                        Define a JSON schema for structured output.
-                      </FormDescription>
-                      <FormControl>
-                        <CodeEditor
-                          value={field.value ?? ""}
-                          onChange={(value) => field.onChange(value)}
-                          language="json"
-                          readOnly={isSaving}
-                          className="min-h-[200px]"
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-              ) : null}
-            </section>
-          </form>
-        </ScrollArea>
+            ) : null}
+          </div>
+          {outputTypeKind === "json" ? (
+            <FormField
+              control={form.control}
+              name="outputTypeJson"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>JSON schema</FormLabel>
+                  <FormDescription>
+                    Define a JSON schema for structured output.
+                  </FormDescription>
+                  <FormControl>
+                    <CodeEditor
+                      value={field.value ?? ""}
+                      onChange={(value) => field.onChange(value)}
+                      language="json"
+                      readOnly={isSaving}
+                      className="min-h-[200px]"
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+          ) : null}
+        </section>
       </div>
-    </Form>
+    </ScrollArea>
   )
 }
 
@@ -1582,6 +1828,24 @@ function AgentPresetBuilderChatPane({
   }
 
   const renderBody = () => {
+    if (!preset || !presetId) {
+      return (
+        <div className="flex h-full items-center justify-center px-4">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Sparkles />
+              </EmptyMedia>
+              <EmptyTitle>Builder assistant</EmptyTitle>
+              <EmptyDescription>
+                Save the agent to start working with the assistant.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        </div>
+      )
+    }
+
     if (chatReadyLoading) {
       return (
         <div className="flex h-full items-center justify-center">
