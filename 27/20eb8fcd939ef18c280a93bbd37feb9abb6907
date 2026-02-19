@@ -1,0 +1,27 @@
+docker-compose.yml
+  d50e6c32063010ba 406
+docker-compose.local.yml
+  d50e6c32063010ba 421,424
+docker-compose.dev.yml
+  d50e6c32063010ba 403
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.4",
+  "base_commit_sha": "2720eb8fcd939ef18c280a93bbd37feb9abb6907",
+  "prompts": {
+    "d50e6c32063010ba": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8da65192-863d-403b-9c0d-55a1d8972842",
+        "model": "<synthetic>"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 4,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  }
+}
