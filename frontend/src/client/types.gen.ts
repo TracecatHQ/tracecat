@@ -9266,6 +9266,10 @@ export type VcsDeleteGithubAppCredentialsResponse = void
 export type VcsGetGithubAppCredentialsStatusResponse =
   GitHubAppCredentialsStatus
 
+export type UsersGetMyScopesData = {
+  workspaceId?: string | null
+}
+
 export type UsersGetMyScopesResponse = UserScopesRead
 
 export type RbacListScopesData = {
@@ -13781,11 +13785,16 @@ export type $OpenApiTs = {
   }
   "/users/me/scopes": {
     get: {
+      req: UsersGetMyScopesData
       res: {
         /**
          * Successful Response
          */
         200: UserScopesRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }

@@ -552,6 +552,7 @@ import type {
   TriggersUpdateCaseTriggerResponse,
   TriggersUpdateWebhookData,
   TriggersUpdateWebhookResponse,
+  UsersGetMyScopesData,
   UsersGetMyScopesResponse,
   UsersSearchUserData,
   UsersSearchUserResponse,
@@ -8680,16 +8681,25 @@ export const vcsGetGithubAppCredentialsStatus =
  *
  * Scopes are computed from DB-driven role assignments during auth
  * (UserRoleAssignment + GroupRoleAssignment → Role → RoleScope → Scope).
+ * @param data The data for the request.
+ * @param data.workspaceId
  * @returns UserScopesRead Successful Response
  * @throws ApiError
  */
-export const usersGetMyScopes =
-  (): CancelablePromise<UsersGetMyScopesResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/users/me/scopes",
-    })
-  }
+export const usersGetMyScopes = (
+  data: UsersGetMyScopesData = {}
+): CancelablePromise<UsersGetMyScopesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/users/me/scopes",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * List Scopes

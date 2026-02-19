@@ -99,7 +99,7 @@ export function OrgRbacGroups() {
     removeGroupMember,
     removeGroupMemberIsPending,
   } = useRbacGroups()
-  const { assignments: allAssignments } = useRbacAssignments()
+  const { assignments: allAssignments = [] } = useRbacAssignments()
   const canCreateGroup = useScopeCheck("org:rbac:create") === true
   const canUpdateGroup = useScopeCheck("org:rbac:update") === true
   const canDeleteGroup = useScopeCheck("org:rbac:delete") === true

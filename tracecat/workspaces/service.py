@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
@@ -249,9 +250,8 @@ class WorkspaceService(BaseOrgService):
             TracecatValidationError: If there is already a pending invitation
                 for this email in this workspace.
         """
-        import uuid as _uuid
 
-        role_id = _uuid.UUID(params.role_id)
+        role_id = uuid.UUID(params.role_id)
 
         # Validate role_id exists and belongs to this organization
         role_result = await self.session.execute(
