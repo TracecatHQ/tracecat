@@ -349,6 +349,8 @@ import {
   type CaseTriggerCreate,
   type CaseTriggerRead,
   type CustomOAuthProviderCreateRequest,
+  type OrganizationMcpConnectResponse,
+  organizationGetMcpConnect,
   providersCreateCustomProvider,
   triggersCreateCaseTrigger,
   triggersGetCaseTrigger,
@@ -2753,6 +2755,25 @@ export function useOrgAgentSettings() {
     updateAgentSettings,
     updateAgentSettingsIsPending,
     updateAgentSettingsError,
+  }
+}
+
+export function useOrgMcpConnect() {
+  const {
+    data: mcpConnect,
+    isLoading: mcpConnectIsLoading,
+    error: mcpConnectError,
+    refetch: refetchMcpConnect,
+  } = useQuery<OrganizationMcpConnectResponse>({
+    queryKey: ["org-mcp-connect"],
+    queryFn: async () => await organizationGetMcpConnect(),
+  })
+
+  return {
+    mcpConnect,
+    mcpConnectIsLoading,
+    mcpConnectError,
+    refetchMcpConnect,
   }
 }
 

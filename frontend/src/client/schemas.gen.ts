@@ -10849,6 +10849,61 @@ Excludes sensitive fields like email, invited_by ID, and timestamps
 to reduce information disclosure when querying by token.`,
 } as const
 
+export const $OrgMCPClientSnippets = {
+  properties: {
+    codex: {
+      type: "string",
+      title: "Codex",
+    },
+    claude_code: {
+      type: "string",
+      title: "Claude Code",
+    },
+    cursor: {
+      type: "string",
+      title: "Cursor",
+    },
+  },
+  type: "object",
+  required: ["codex", "claude_code", "cursor"],
+  title: "OrgMCPClientSnippets",
+} as const
+
+export const $OrgMCPConnectRead = {
+  properties: {
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    server_url: {
+      type: "string",
+      title: "Server Url",
+    },
+    scoped_server_url: {
+      type: "string",
+      title: "Scoped Server Url",
+    },
+    scope_expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Scope Expires At",
+    },
+    snippets: {
+      $ref: "#/components/schemas/OrgMCPClientSnippets",
+    },
+  },
+  type: "object",
+  required: [
+    "organization_id",
+    "server_url",
+    "scoped_server_url",
+    "scope_expires_at",
+    "snippets",
+  ],
+  title: "OrgMCPConnectRead",
+} as const
+
 export const $OrgMemberDetail = {
   properties: {
     user_id: {

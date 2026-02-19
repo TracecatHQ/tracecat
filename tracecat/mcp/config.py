@@ -3,15 +3,49 @@
 from __future__ import annotations
 
 import os
+from enum import StrEnum
 
-TRACECAT_MCP__BASE_URL: str = os.environ.get("TRACECAT_MCP__BASE_URL", "")
-"""Public URL where the MCP server is accessible (e.g. https://mcp.yourcompany.com)."""
+
+class MCPAuthMode(StrEnum):
+    OIDC_INTERACTIVE = "oidc_interactive"
+    OAUTH_CLIENT_CREDENTIALS_JWT = "oauth_client_credentials_jwt"
+    OAUTH_CLIENT_CREDENTIALS_INTROSPECTION = "oauth_client_credentials_introspection"
+
+
+def _env_mcp_auth_mode(name: str, default: MCPAuthMode) -> MCPAuthMode:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    value = raw.strip()
+    try:
+        return MCPAuthMode(value)
+    except ValueError as exc:
+        allowed_values = ", ".join(mode.value for mode in MCPAuthMode)
+        raise ValueError(
+            f"Invalid value for {name}: {value!r}. Expected one of: {allowed_values}"
+        ) from exc
+
+
+TRACECAT_MCP__AUTH_MODE: MCPAuthMode = _env_mcp_auth_mode(
+    "TRACECAT_MCP__AUTH_MODE",
+    MCPAuthMode.OIDC_INTERACTIVE,
+)
+"""Authentication mode for the external MCP server."""
 
 TRACECAT_MCP__HOST: str = os.environ.get("TRACECAT_MCP__HOST", "127.0.0.1")
 """Host to bind the MCP HTTP server to."""
 
 TRACECAT_MCP__PORT: int = int(os.environ.get("TRACECAT_MCP__PORT", "8099"))
 """Port for the MCP HTTP server."""
+
+TRACECAT_MCP__BASE_URL: str = (
+    os.environ.get("TRACECAT_MCP__BASE_URL", "").strip().rstrip("/")
+    or f"http://localhost:{TRACECAT_MCP__PORT}"
+)
+"""Public URL where the MCP server is accessible.
+
+Defaults to http://localhost:<TRACECAT_MCP__PORT> for local development.
+"""
 
 TRACECAT_MCP__RATE_LIMIT_RPS: float = float(
     os.environ.get("TRACECAT_MCP__RATE_LIMIT_RPS", "2.0")

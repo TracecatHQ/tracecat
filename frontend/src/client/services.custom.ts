@@ -175,3 +175,30 @@ export const adminListOrgTiers = (
       422: "Validation Error",
     },
   })
+
+export type MCPConnectSnippets = {
+  codex: string
+  claude_code: string
+  cursor: string
+}
+
+export type OrganizationMcpConnectResponse = {
+  organization_id: string
+  server_url: string
+  scoped_server_url: string
+  scope_expires_at: string
+  snippets: MCPConnectSnippets
+}
+
+export const organizationGetMcpConnect =
+  (): CancelablePromise<OrganizationMcpConnectResponse> =>
+    request(OpenAPI, {
+      method: "GET",
+      url: "/organization/mcp/connect",
+      errors: {
+        401: "Unauthorized",
+        403: "Forbidden",
+        422: "Validation Error",
+        503: "Service Unavailable",
+      },
+    })
