@@ -15,7 +15,6 @@ import {
   MoreVertical,
   Percent,
   Plus,
-  RotateCcw,
   Save,
   SlidersHorizontal,
   Sparkles,
@@ -41,6 +40,7 @@ import type {
   AgentPresetUpdate,
 } from "@/client"
 import { ActionSelect } from "@/components/chat/action-select"
+import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon, ProviderIcon } from "@/components/icons"
@@ -478,8 +478,7 @@ function AgentPresetChatPane({
   preset: AgentPresetRead | null
   workspaceId: string
 }) {
-  const [createdChatId, setCreatedChatId] = useState<string | null>(null)
-  const [resetDialogOpen, setResetDialogOpen] = useState(false)
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
 
   const { providersStatus, isLoading: providersStatusLoading } =
     useWorkspaceModelProvidersStatus(workspaceId)
@@ -489,17 +488,16 @@ function AgentPresetChatPane({
       workspaceId,
       entityType: "agent_preset",
       entityId: preset?.id,
-      limit: 1,
     },
     { enabled: Boolean(preset && workspaceId) }
   )
 
   useEffect(() => {
-    setCreatedChatId(null)
+    setSelectedChatId(null)
   }, [preset?.id])
 
-  const existingChatId = chats?.[0]?.id
-  const activeChatId = createdChatId ?? existingChatId
+  const latestChatId = chats?.[0]?.id
+  const activeChatId = selectedChatId ?? latestChatId
 
   const { createChat, createChatPending } = useCreateChat(workspaceId)
   const { chat, chatLoading, chatError } = useGetChatVercel({
@@ -529,12 +527,8 @@ function AgentPresetChatPane({
   const shouldAutoCreateChat =
     canStartChat && !activeChatId && !chatsLoading && !createChatPending
 
-  const handleStartChat = async (forceNew = false) => {
+  const handleCreateChat = async () => {
     if (!preset || createChatPending || !providerReady) {
-      return
-    }
-
-    if (!forceNew && activeChatId) {
       return
     }
 
@@ -545,7 +539,7 @@ function AgentPresetChatPane({
         entity_id: preset.id,
         tools: preset.actions ?? undefined,
       })
-      setCreatedChatId(newChat.id)
+      setSelectedChatId(newChat.id)
       await refetchChats()
     } catch (error) {
       console.error("Failed to create agent preset chat", error)
@@ -555,15 +549,10 @@ function AgentPresetChatPane({
   // Auto-create chat when preset is ready and no chat exists
   useEffect(() => {
     if (shouldAutoCreateChat) {
-      void handleStartChat()
+      void handleCreateChat()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldAutoCreateChat])
-
-  const handleResetChat = async () => {
-    setResetDialogOpen(false)
-    await handleStartChat(true)
-  }
 
   const renderBody = () => {
     if (!preset) {
@@ -654,11 +643,6 @@ function AgentPresetChatPane({
       )
     }
 
-    const shouldAutoFocusInput =
-      Boolean(createdChatId) &&
-      createdChatId === activeChatId &&
-      (chat.messages?.length ?? 0) === 0
-
     return (
       <ChatSessionPane
         chat={chat}
@@ -669,50 +653,40 @@ function AgentPresetChatPane({
         placeholder={`Talk to ${preset.name}...`}
         modelInfo={modelInfo}
         toolsEnabled={false}
-        autoFocusInput={shouldAutoFocusInput}
       />
     )
   }
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className="flex h-10 items-center justify-between border-b px-3">
-        <p className="text-xs text-muted-foreground">
-          {preset ? `Chat with ${preset.name}` : "Live chat"}
-        </p>
-        <AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
-          <AlertDialogTrigger asChild>
+      {preset ? (
+        <div className="flex h-10 items-center justify-end border-b px-3">
+          <div className="flex items-center gap-1">
+            <ChatHistoryDropdown
+              chats={chats}
+              isLoading={chatsLoading}
+              error={chatsError}
+              selectedChatId={activeChatId ?? undefined}
+              onSelectChat={(chatId) => setSelectedChatId(chatId)}
+              align="end"
+            />
             <Button
               size="sm"
               variant="ghost"
               className="text-xs"
               disabled={createChatPending || !canStartChat}
+              onClick={() => void handleCreateChat()}
             >
               {createChatPending ? (
                 <Loader2 className="mr-2 size-4 animate-spin" />
               ) : (
-                <RotateCcw className="mr-2 size-4" />
+                <Plus className="mr-2 size-4" />
               )}
-              Reset chat
+              New chat
             </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Reset this chat?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This will start a new conversation. Your current chat history
-                will no longer be accessible.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={() => void handleResetChat()}>
-                Reset chat
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
+          </div>
+        </div>
+      ) : null}
       <div className="flex-1 min-h-0">{renderBody()}</div>
     </div>
   )
@@ -1196,28 +1170,28 @@ function AgentPresetRightPanel({
           <div className="flex items-center justify-start px-3">
             <TabsList className="h-9 justify-start rounded-none bg-transparent p-0">
               <TabsTrigger
-                className="flex h-full min-w-24 items-center justify-center rounded-none px-4 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                 value="live-chat"
               >
                 <MessageCircle className="mr-2 size-4" />
-                <span>Live chat</span>
+                <span>Chat</span>
               </TabsTrigger>
               <TabsTrigger
-                className="flex h-full min-w-24 items-center justify-center rounded-none px-4 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                 value="assistant"
               >
                 <Sparkles className="mr-2 size-4" />
-                <span>Assistant</span>
+                <span>Builder</span>
               </TabsTrigger>
               <TabsTrigger
-                className="flex h-full min-w-24 items-center justify-center rounded-none px-4 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                 value="configuration"
               >
                 <SlidersHorizontal className="mr-2 size-4" />
                 <span>Tools</span>
               </TabsTrigger>
               <TabsTrigger
-                className="flex h-full min-w-24 items-center justify-center rounded-none px-4 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                 value="structured-output"
               >
                 <Box className="mr-2 size-4" />
@@ -1752,8 +1726,7 @@ function AgentPresetBuilderChatPane({
   workspaceId: string
 }) {
   const presetId = preset?.id
-  const [createdChatId, setCreatedChatId] = useState<string | null>(null)
-  const [resetDialogOpen, setResetDialogOpen] = useState(false)
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
 
   const {
     ready: chatReady,
@@ -1767,17 +1740,16 @@ function AgentPresetBuilderChatPane({
       workspaceId,
       entityType: "agent_preset_builder",
       entityId: presetId ?? undefined,
-      limit: 1,
     },
     { enabled: Boolean(presetId && workspaceId) }
   )
 
   useEffect(() => {
-    setCreatedChatId(null)
+    setSelectedChatId(null)
   }, [presetId])
 
-  const existingChatId = chats?.[0]?.id
-  const activeChatId = createdChatId ?? existingChatId
+  const latestChatId = chats?.[0]?.id
+  const activeChatId = selectedChatId ?? latestChatId
 
   const { createChat, createChatPending } = useCreateChat(workspaceId)
   const { chat, chatLoading, chatError } = useGetChatVercel({
@@ -1789,12 +1761,8 @@ function AgentPresetBuilderChatPane({
   const shouldAutoCreateChat =
     canStartChat && !activeChatId && !chatsLoading && !createChatPending
 
-  const handleStartChat = async (forceNew = false) => {
+  const handleCreateChat = async () => {
     if (!preset || !presetId || createChatPending || !chatReady || !modelInfo) {
-      return
-    }
-
-    if (!forceNew && activeChatId) {
       return
     }
 
@@ -1804,7 +1772,7 @@ function AgentPresetBuilderChatPane({
         entity_type: "agent_preset_builder",
         entity_id: presetId,
       })
-      setCreatedChatId(newChat.id)
+      setSelectedChatId(newChat.id)
       await refetchChats()
     } catch (error) {
       console.error("Failed to create builder assistant chat", error)
@@ -1814,18 +1782,10 @@ function AgentPresetBuilderChatPane({
   // Auto-create chat when preset is ready and no chat exists
   useEffect(() => {
     if (shouldAutoCreateChat) {
-      void handleStartChat()
+      void handleCreateChat()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldAutoCreateChat])
-
-  const handleResetChat = async () => {
-    if (!canStartChat) {
-      return
-    }
-    setResetDialogOpen(false)
-    await handleStartChat(true)
-  }
 
   const renderBody = () => {
     if (!preset || !presetId) {
@@ -1942,51 +1902,39 @@ function AgentPresetBuilderChatPane({
         placeholder={`Talk to the builder assistant about your agent's prompt, tools, and approval rules...`}
         modelInfo={modelInfo}
         toolsEnabled={false}
-        autoFocusInput={
-          Boolean(createdChatId) &&
-          createdChatId === activeChatId &&
-          (chat.messages?.length ?? 0) === 0
-        }
       />
     )
   }
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className="flex h-10 items-center justify-between border-b px-3">
-        <p className="text-xs text-muted-foreground">Builder assistant</p>
-        <AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
-          <AlertDialogTrigger asChild>
+      <div className="flex h-10 items-center justify-end border-b px-3">
+        {preset ? (
+          <div className="flex items-center gap-1">
+            <ChatHistoryDropdown
+              chats={chats}
+              isLoading={chatsLoading}
+              error={chatsError}
+              selectedChatId={activeChatId ?? undefined}
+              onSelectChat={(chatId) => setSelectedChatId(chatId)}
+              align="end"
+            />
             <Button
               size="sm"
               variant="ghost"
               className="text-xs"
               disabled={createChatPending || !canStartChat}
+              onClick={() => void handleCreateChat()}
             >
               {createChatPending ? (
                 <Loader2 className="mr-2 size-4 animate-spin" />
               ) : (
-                <RotateCcw className="mr-2 size-4" />
+                <Plus className="mr-2 size-4" />
               )}
-              Reset assistant
+              New chat
             </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Reset the builder assistant?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This will start a new conversation. Your current chat history
-                will no longer be accessible.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={() => void handleResetChat()}>
-                Reset assistant
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+          </div>
+        ) : null}
       </div>
       <div className="flex-1 min-h-0">{renderBody()}</div>
     </div>

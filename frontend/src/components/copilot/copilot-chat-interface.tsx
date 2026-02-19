@@ -171,7 +171,7 @@ export function CopilotChatInterface({
       {/* Chat Header */}
       <div className="px-4 py-2">
         <div className="flex items-center justify-between">
-          {/* Conversations dropdown */}
+          {/* Chats dropdown */}
           <div className="flex items-center gap-2">
             <ChatHistoryDropdown
               chats={chats}
