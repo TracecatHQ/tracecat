@@ -131,9 +131,12 @@ async def run_action_test(input: RunActionInput, role) -> Any:
     """Test helper: execute action using production code path."""
     from tracecat.contexts import ctx_role
 
-    ctx_role.set(role)
-    backend = TestBackend()
-    return await dispatch_action(backend, input)
+    token = ctx_role.set(role)
+    try:
+        backend = TestBackend()
+        return await dispatch_action(backend, input)
+    finally:
+        ctx_role.reset(token)
 
 
 @pytest.fixture

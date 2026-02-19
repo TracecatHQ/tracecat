@@ -31,9 +31,9 @@ pytestmark = pytest.mark.usefixtures("db")
 
 
 @pytest.fixture
-async def service(session: AsyncSession, svc_role: Role) -> SecretsService:
+async def service(session: AsyncSession, svc_admin_role: Role) -> SecretsService:
     """Create a secrets service instance for testing."""
-    return SecretsService(session=session, role=svc_role)
+    return SecretsService(session=session, role=svc_admin_role)
 
 
 @pytest.fixture(scope="session")

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
-from tracecat.authz.scopes import EDITOR_SCOPES
+from tracecat.authz.scopes import EDITOR_SCOPES, VIEWER_SCOPES
 from tracecat.db.models import Table
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
@@ -60,7 +60,10 @@ async def tables_service_editor(
 @pytest.fixture(scope="function")
 async def tables_service_basic(session: AsyncSession, svc_role: Role) -> TablesService:
     """TablesService bound to a basic member without workspace role."""
-    return TablesService(session=session, role=svc_role)
+    return TablesService(
+        session=session,
+        role=svc_role.model_copy(update={"scopes": VIEWER_SCOPES}),
+    )
 
 
 # New fixture to create a table with 'name' and 'age' columns for row tests
@@ -151,10 +154,10 @@ class TestTablesService:
         retrieved_by_id = await tables_service.get_table(created_table.id)
         assert retrieved_by_id.id == created_table.id
 
-    async def test_editor_can_create_and_delete_table(
+    async def test_editor_can_create_table(
         self, tables_service_editor: TablesService
     ) -> None:
-        """Workspace editors should be allowed to mutate tables."""
+        """Workspace editors should be allowed to create tables."""
 
         table = await tables_service_editor.create_table(
             TableCreate(name="editor_table")
@@ -162,9 +165,14 @@ class TestTablesService:
         fetched = await tables_service_editor.get_table(table.id)
         assert fetched.name == "editor_table"
 
-        await tables_service_editor.delete_table(table)
-        with pytest.raises(TracecatNotFoundError):
-            await tables_service_editor.get_table(table.id)
+    async def test_editor_cannot_delete_table(
+        self, tables_service_editor: TablesService, tables_service: TablesService
+    ) -> None:
+        """Workspace editors should not be allowed to delete tables (admin only)."""
+
+        table = await tables_service.create_table(TableCreate(name="editor_nodelete"))
+        with pytest.raises(TracecatAuthorizationError):
+            await tables_service_editor.delete_table(table)
 
     async def test_basic_member_cannot_create_table(
         self, tables_service_basic: TablesService

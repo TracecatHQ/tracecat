@@ -215,16 +215,19 @@ async def test_audit_log_inner_function_failure_logs_failure_event(role: Role):
             raise ValueError("Workflow creation failed")
 
     service = MockService()
-    ctx_role.set(role)
+    token = ctx_role.set(role)
 
     create_event_calls = []
 
     async def mock_create_event(*args, **kwargs):
         create_event_calls.append((args, kwargs))
 
-    with patch.object(AuditService, "create_event", side_effect=mock_create_event):
-        with pytest.raises(ValueError, match="Workflow creation failed"):
-            await service.create_workflow(workflow_id=uuid.uuid4())
+    try:
+        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
+            with pytest.raises(ValueError, match="Workflow creation failed"):
+                await service.create_workflow(workflow_id=uuid.uuid4())
+    finally:
+        ctx_role.reset(token)
 
     # Verify attempt was logged
     assert len(create_event_calls) >= 1
@@ -250,7 +253,7 @@ async def test_audit_log_attempt_logging_failure_still_executes_function(role: R
             return {"id": str(workflow_id), "status": "created"}
 
     service = MockService()
-    ctx_role.set(role)
+    token = ctx_role.set(role)
 
     create_event_calls = []
 
@@ -260,8 +263,11 @@ async def test_audit_log_attempt_logging_failure_still_executes_function(role: R
             raise Exception("Attempt logging failed")
         create_event_calls.append((args, kwargs))
 
-    with patch.object(AuditService, "create_event", side_effect=mock_create_event):
-        result = await service.create_workflow(workflow_id=uuid.uuid4())
+    try:
+        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
+            result = await service.create_workflow(workflow_id=uuid.uuid4())
+    finally:
+        ctx_role.reset(token)
 
     # Verify function executed successfully
     assert result["status"] == "created"
@@ -285,7 +291,7 @@ async def test_audit_log_success_logging_failure_still_returns_result(role: Role
             return expected_result
 
     service = MockService()
-    ctx_role.set(role)
+    token = ctx_role.set(role)
 
     create_event_calls = []
 
@@ -295,8 +301,11 @@ async def test_audit_log_success_logging_failure_still_returns_result(role: Role
             raise Exception("Success logging failed")
         create_event_calls.append((args, kwargs))
 
-    with patch.object(AuditService, "create_event", side_effect=mock_create_event):
-        result = await service.create_workflow(workflow_id=uuid.uuid4())
+    try:
+        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
+            result = await service.create_workflow(workflow_id=uuid.uuid4())
+    finally:
+        ctx_role.reset(token)
 
     # Verify function returned result despite success logging failure
     assert result == expected_result
@@ -321,7 +330,7 @@ async def test_audit_log_failure_logging_failure_still_raises_original_exception
             raise ValueError("Original error")
 
     service = MockService()
-    ctx_role.set(role)
+    token = ctx_role.set(role)
 
     create_event_calls = []
 
@@ -331,9 +340,12 @@ async def test_audit_log_failure_logging_failure_still_raises_original_exception
             raise Exception("Failure logging failed")
         create_event_calls.append((args, kwargs))
 
-    with patch.object(AuditService, "create_event", side_effect=mock_create_event):
-        with pytest.raises(ValueError, match="Original error"):
-            await service.create_workflow(workflow_id=uuid.uuid4())
+    try:
+        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
+            with pytest.raises(ValueError, match="Original error"):
+                await service.create_workflow(workflow_id=uuid.uuid4())
+    finally:
+        ctx_role.reset(token)
 
     # Verify attempt was logged
     assert len(create_event_calls) == 1

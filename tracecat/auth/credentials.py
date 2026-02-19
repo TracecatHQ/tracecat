@@ -139,7 +139,7 @@ async def compute_effective_scopes(role: Role) -> frozenset[str]:
     if role.is_platform_superuser:
         return frozenset({"*"})
 
-    if role.type == "service" and role.user_id is None:
+    if role.type == "service":
         service_scopes = SERVICE_PRINCIPAL_SCOPES.get(role.service_id)
         if service_scopes is None:
             logger.warning(

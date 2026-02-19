@@ -147,10 +147,8 @@ async def test_seed_system_roles_for_all_orgs_creates_roles_and_links(session):
     org_result = await session.execute(select(Organization.id))
     org_ids = {org_id for (org_id,) in org_result.tuples().all()}
 
-    created_by_org = await seed_system_roles_for_all_orgs(session)
-
-    for org_id in org_ids:
-        assert created_by_org[org_id] == len(PRESET_ROLE_DEFINITIONS)
+    processed_org_ids = await seed_system_roles_for_all_orgs(session)
+    assert set(processed_org_ids) == org_ids
 
     roles_result = await session.execute(
         select(Role.id, Role.organization_id, Role.slug).where(
@@ -185,9 +183,16 @@ async def test_seed_system_roles_for_all_orgs_idempotent(session):
 
     first = await seed_system_roles_for_all_orgs(session)
     second = await seed_system_roles_for_all_orgs(session)
+    assert first
+    assert set(first) == set(second)
 
-    assert sum(first.values()) > 0
-    assert all(created == 0 for created in second.values())
+    org_count_result = await session.execute(select(func.count(Organization.id)))
+    org_count = org_count_result.scalar_one()
+    role_count_result = await session.execute(
+        select(func.count(Role.id)).where(Role.slug.in_(PRESET_ROLE_DEFINITIONS))
+    )
+    role_count = role_count_result.scalar_one()
+    assert role_count == org_count * len(PRESET_ROLE_DEFINITIONS)
 
 
 @pytest.mark.anyio

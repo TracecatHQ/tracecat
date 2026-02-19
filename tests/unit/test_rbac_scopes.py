@@ -28,6 +28,16 @@ from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
 
 
+@pytest.fixture(autouse=True)
+def _reset_ctx_role():  # pyright: ignore[reportUnusedFunction]
+    """Ensure role context is isolated per test in this module."""
+    token = ctx_role.set(None)
+    try:
+        yield
+    finally:
+        ctx_role.reset(token)
+
+
 def _set_role_with_scopes(scopes: frozenset[str]) -> None:
     """Helper to set ctx_role with the given scopes."""
     role = Role(type="user", service_id="tracecat-api", scopes=scopes)

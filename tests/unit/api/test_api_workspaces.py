@@ -11,7 +11,9 @@ from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
+from tracecat.authz.scopes import ORG_MEMBER_SCOPES, WORKSPACE_OPERATIONAL_SCOPES
 from tracecat.authz.service import MembershipWithOrg
+from tracecat.contexts import ctx_role
 from tracecat.db.models import Workspace
 from tracecat.logger import logger
 from tracecat.workspaces import router as workspaces_router
@@ -60,20 +62,28 @@ async def test_list_workspaces_user_success(
     test_workspace: Workspace,
 ) -> None:
     """Test GET /workspaces returns user's workspaces."""
-    with patch.object(workspaces_router, "WorkspaceService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.list_workspaces.return_value = [test_workspace]
-        MockService.return_value = mock_svc
+    # Give the non-admin role org:read so it can list workspaces
+    user_role = test_role.model_copy(
+        update={"scopes": WORKSPACE_OPERATIONAL_SCOPES | ORG_MEMBER_SCOPES}
+    )
+    token = ctx_role.set(user_role)
+    try:
+        with patch.object(workspaces_router, "WorkspaceService") as MockService:
+            mock_svc = AsyncMock()
+            mock_svc.list_workspaces.return_value = [test_workspace]
+            MockService.return_value = mock_svc
 
-        # Make request - test_role fixture is used for non-admin user
-        response = client.get("/workspaces")
+            # Make request - test_role fixture is used for non-admin user
+            response = client.get("/workspaces")
+    finally:
+        ctx_role.reset(token)
 
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert len(data) == 1
-        assert data[0]["id"] == str(test_workspace.id)
-        assert data[0]["name"] == test_workspace.name
+    # Assertions
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["id"] == str(test_workspace.id)
+    assert data[0]["name"] == test_workspace.name
 
 
 @pytest.mark.anyio

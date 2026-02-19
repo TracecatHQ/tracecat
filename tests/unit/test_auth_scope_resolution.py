@@ -64,6 +64,20 @@ async def test_compute_effective_scopes_uses_service_allowlist_path() -> None:
 
 
 @pytest.mark.anyio
+async def test_compute_effective_scopes_service_with_user_id_uses_allowlist() -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-schedule-runner",
+        user_id=uuid.uuid4(),
+    )
+
+    scopes = await credentials.compute_effective_scopes(role)
+
+    assert "workflow:execute" in scopes
+    assert "action:*:execute" in scopes
+
+
+@pytest.mark.anyio
 async def test_compute_effective_scopes_unknown_service_principal_gets_empty_scopes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

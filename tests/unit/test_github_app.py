@@ -351,7 +351,7 @@ class TestGitHubAppService:
 
         with pytest.raises(
             TracecatAuthorizationError,
-            match="User does not have required org role",
+            match="You don't have permission to perform this action.",
         ):
             await github_service.register_app(
                 app_id=mock_credentials.app_id,
@@ -369,7 +369,7 @@ class TestGitHubAppService:
 
         with pytest.raises(
             TracecatAuthorizationError,
-            match="User does not have required org role",
+            match="You don't have permission to perform this action.",
         ):
             await github_service.update_github_app_credentials(app_id="new-id")
 

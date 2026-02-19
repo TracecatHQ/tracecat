@@ -140,8 +140,11 @@ async def run_template_test(
     """Test helper: execute template action using production code path."""
     if backend is None:
         backend = TestBackend()
-    ctx_role.set(role)
-    return await dispatch_action(backend, input)
+    token = ctx_role.set(role)
+    try:
+        return await dispatch_action(backend, input)
+    finally:
+        ctx_role.reset(token)
 
 
 @pytest.mark.integration

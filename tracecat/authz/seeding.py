@@ -523,7 +523,7 @@ async def _upsert_registry_scope_rows(
 # =============================================================================
 
 
-async def seed_system_roles_for_all_orgs(session: AsyncSession) -> dict[UUID, int]:
+async def seed_system_roles_for_all_orgs(session: AsyncSession) -> list[UUID]:
     """Seed system roles for all existing organizations.
 
     This is called during app startup to ensure existing organizations
@@ -533,7 +533,7 @@ async def seed_system_roles_for_all_orgs(session: AsyncSession) -> dict[UUID, in
         session: Database session
 
     Returns:
-        Dict mapping organization_id to number of roles created
+        List of organization IDs processed.
     """
     logger.info("Seeding system roles for all organizations")
 
@@ -544,7 +544,7 @@ async def seed_system_roles_for_all_orgs(session: AsyncSession) -> dict[UUID, in
 
     if not org_ids:
         logger.info("No organizations found, skipping system role seeding")
-        return {}
+        return []
 
     # 1) Upsert all preset roles for all orgs in one bulk query.
     role_values = []
@@ -568,13 +568,8 @@ async def seed_system_roles_for_all_orgs(session: AsyncSession) -> dict[UUID, in
             "name": role_insert_stmt.excluded.name,
             "description": role_insert_stmt.excluded.description,
         },
-    ).returning(Role.organization_id)
-    role_insert_result = await session.execute(role_insert_stmt)
-
-    # Return shape: {org_id: roles_upserted_for_org} (includes both inserts and updates).
-    results: dict[UUID, int] = dict.fromkeys(org_ids, 0)
-    for (organization_id,) in role_insert_result.tuples().all():
-        results[organization_id] += 1
+    )
+    await session.execute(role_insert_stmt)
 
     # 2) Fetch all relevant global scopes once.
     scope_stmt = select(Scope.id, Scope.name).where(Scope.organization_id.is_(None))
@@ -616,13 +611,11 @@ async def seed_system_roles_for_all_orgs(session: AsyncSession) -> dict[UUID, in
         await session.execute(role_scope_stmt)
     await session.commit()
 
-    total_created = sum(results.values())
     logger.info(
         "System roles seeded for all organizations",
         num_orgs=len(org_ids),
-        total_roles_created=total_created,
     )
-    return results
+    return org_ids
 
 
 async def seed_all_system_data(session: AsyncSession) -> dict[str, int]:
@@ -645,13 +638,11 @@ async def seed_all_system_data(session: AsyncSession) -> dict[str, int]:
     scopes_created = await seed_system_scopes(session)
 
     # Seed system roles for all existing organizations
-    org_role_results = await seed_system_roles_for_all_orgs(session)
-    total_roles_created = sum(org_role_results.values())
+    processed_org_ids = await seed_system_roles_for_all_orgs(session)
 
     result = {
         "scopes_created": scopes_created,
-        "roles_created": total_roles_created,
-        "orgs_processed": len(org_role_results),
+        "orgs_processed": len(processed_org_ids),
     }
 
     logger.info("System RBAC data seeding complete", **result)

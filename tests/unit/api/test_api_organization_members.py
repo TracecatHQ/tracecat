@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from tracecat.api.app import app
 from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole
+from tracecat.authz.scopes import ORG_OWNER_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import TracecatValidationError
 from tracecat.organization import router as organization_router
@@ -116,7 +117,9 @@ async def test_delete_organization_requires_owner_role(
 async def test_delete_organization_owner_success(
     client: TestClient, test_admin_role: Role
 ) -> None:
-    owner_role = test_admin_role.model_copy(update={"org_role": OrgRole.OWNER})
+    owner_role = test_admin_role.model_copy(
+        update={"org_role": OrgRole.OWNER, "scopes": ORG_OWNER_SCOPES}
+    )
     token = ctx_role.set(owner_role)
     try:
         with patch.object(organization_router, "OrgService") as MockService:
@@ -138,7 +141,9 @@ async def test_delete_organization_owner_success(
 async def test_delete_organization_bad_confirmation_returns_400(
     client: TestClient, test_admin_role: Role
 ) -> None:
-    owner_role = test_admin_role.model_copy(update={"org_role": OrgRole.OWNER})
+    owner_role = test_admin_role.model_copy(
+        update={"org_role": OrgRole.OWNER, "scopes": ORG_OWNER_SCOPES}
+    )
     token = ctx_role.set(owner_role)
     try:
         with patch.object(organization_router, "OrgService") as MockService:

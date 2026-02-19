@@ -6,7 +6,6 @@ import httpx
 
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import TracecatCredentialsError
 
@@ -29,7 +28,6 @@ class AuthenticatedServiceClient(httpx.AsyncClient):
             resolved_role = Role(
                 type="service",
                 service_id="tracecat-service",
-                scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
             )
         self.role: Role = resolved_role
         service_key = config.TRACECAT__SERVICE_KEY

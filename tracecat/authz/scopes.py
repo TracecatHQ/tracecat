@@ -339,6 +339,8 @@ WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
         "tag:update",
         "tag:delete",
         "workspace:read",
+        "workspace:create",
+        "workspace:delete",
         "workspace:member:read",
         "action:*:execute",
     }
@@ -347,11 +349,11 @@ WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
 # Grant baseline operational scopes to all known internal service IDs.
 # Fine-grained admission is still enforced by service-role authentication.
 SERVICE_PRINCIPAL_SCOPES: dict[InternalServiceID, frozenset[str]] = {
-    cast(InternalServiceID, service_id): (
-        WORKSPACE_OPERATIONAL_SCOPES
-        | frozenset({"workspace:create", "workspace:delete"})
-        if service_id in {"tracecat-service", "tracecat-runner"}
-        else WORKSPACE_OPERATIONAL_SCOPES
-    )
+    cast(InternalServiceID, service_id): WORKSPACE_OPERATIONAL_SCOPES
     for service_id in get_args(InternalServiceID)
 }
+
+# tracecat-service needs org-scoped secret reads for registry sync SSH key lookup.
+SERVICE_PRINCIPAL_SCOPES["tracecat-service"] = SERVICE_PRINCIPAL_SCOPES[
+    "tracecat-service"
+] | frozenset({"org:secret:read"})

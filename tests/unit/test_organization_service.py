@@ -419,7 +419,7 @@ class TestOrganizationServiceDeleteOrganization:
 
         with pytest.raises(
             TracecatAuthorizationError,
-            match="required org role",
+            match="You don't have permission to perform this action.",
         ):
             await service.delete_organization(confirmation=org1.name)
 

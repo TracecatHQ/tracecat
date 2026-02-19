@@ -104,16 +104,18 @@ async def test_authenticated_service_client_init_role_from_context(mock_user_id)
         user_id=mock_user_id,
         service_id="tracecat-service",
     )
-    ctx_role.set(mock_ctx_role)
-
-    async with AuthenticatedServiceClient() as client:
-        assert client.role == mock_ctx_role
-        assert client.headers["x-tracecat-role-service-id"] == "tracecat-service"
-        assert (
-            client.headers["x-tracecat-service-key"]
-            == os.environ["TRACECAT__SERVICE_KEY"]
-        )
-        assert uuid.UUID(client.headers["x-tracecat-role-user-id"]) == mock_user_id
+    token = ctx_role.set(mock_ctx_role)
+    try:
+        async with AuthenticatedServiceClient() as client:
+            assert client.role == mock_ctx_role
+            assert client.headers["x-tracecat-role-service-id"] == "tracecat-service"
+            assert (
+                client.headers["x-tracecat-service-key"]
+                == os.environ["TRACECAT__SERVICE_KEY"]
+            )
+            assert uuid.UUID(client.headers["x-tracecat-role-user-id"]) == mock_user_id
+    finally:
+        ctx_role.reset(token)
 
 
 @pytest.mark.anyio
@@ -124,17 +126,19 @@ async def test_authenticated_api_client_init_role_from_context(mock_user_id):
         user_id=mock_user_id,
         service_id="tracecat-service",
     )
-    ctx_role.set(mock_ctx_role)
-
-    async with AuthenticatedAPIClient() as client:
-        assert client.role == mock_ctx_role
-        assert client.headers["x-tracecat-role-service-id"] == "tracecat-service"
-        assert (
-            client.headers["x-tracecat-service-key"]
-            == os.environ["TRACECAT__SERVICE_KEY"]
-        )
-        assert uuid.UUID(client.headers["x-tracecat-role-user-id"]) == mock_user_id
-        assert client.base_url == config.TRACECAT__API_URL
+    token = ctx_role.set(mock_ctx_role)
+    try:
+        async with AuthenticatedAPIClient() as client:
+            assert client.role == mock_ctx_role
+            assert client.headers["x-tracecat-role-service-id"] == "tracecat-service"
+            assert (
+                client.headers["x-tracecat-service-key"]
+                == os.environ["TRACECAT__SERVICE_KEY"]
+            )
+            assert uuid.UUID(client.headers["x-tracecat-role-user-id"]) == mock_user_id
+            assert client.base_url == config.TRACECAT__API_URL
+    finally:
+        ctx_role.reset(token)
 
 
 @pytest.mark.anyio
