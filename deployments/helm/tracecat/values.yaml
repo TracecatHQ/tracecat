@@ -101,6 +101,7 @@ ingress:
 urls:
   publicApp: ""
   publicApi: ""
+  publicMcp: ""
   # Only used to rewrite presigned URLs (defaults to /s3 when minio is enabled).
   publicS3: ""
 
@@ -147,6 +148,26 @@ tracecat:
     clientId: ""
     clientSecret: ""
     scopes: ""
+
+  mcp:
+    authMode: oidc_interactive
+    jwt:
+      publicKey: ""
+      jwksUri: ""
+      issuer: ""
+      audience: ""
+      algorithm: ""
+      requiredScopes: ""
+    introspection:
+      url: ""
+      clientId: ""
+      clientSecret: ""
+      timeoutSeconds: 10
+      requiredScopes: ""
+    rateLimitRps: 2.0
+    rateLimitBurst: 10
+    toolTimeoutSeconds: 120
+    maxInputSizeBytes: 524288
 
   temporal:
     # Search attributes to create in Temporal (name: type)
@@ -240,6 +261,18 @@ agentExecutor:
   contextCompression:
     enabled: false
     thresholdKb: 16
+
+mcp:
+  enabled: true
+  replicas: 1
+  port: 8099
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
 
 # CloudNativePG cluster subchart configuration (aliased as postgres)
 postgres:

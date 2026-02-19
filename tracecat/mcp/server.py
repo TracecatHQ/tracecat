@@ -20,6 +20,7 @@ from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
 from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
 from google.protobuf.json_format import MessageToDict
+from mcp.types import Annotations, TextContent
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -50,6 +51,7 @@ from tracecat.logger import logger
 from tracecat.mcp.auth import (
     create_mcp_auth,
     get_email_from_token,
+    get_scoped_organization_id_for_request,
     list_user_organizations,
     list_user_workspaces,
     resolve_role,
@@ -173,8 +175,13 @@ def _validate_and_parse_trigger_inputs(
 async def _resolve_workspace_role(workspace_id: str) -> tuple[uuid.UUID, Any]:
     """Resolve workspace UUID + role from current token."""
     email = get_email_from_token()
+    scoped_org_id = get_scoped_organization_id_for_request(email=email)
     ws_id = uuid.UUID(workspace_id)
     role = await resolve_role(email, ws_id)
+    if scoped_org_id is not None and role.organization_id != scoped_org_id:
+        raise ValueError(
+            "Workspace is outside the organization scope for this MCP connection"
+        )
     return ws_id, role
 
 
@@ -1202,7 +1209,11 @@ async def list_workspaces() -> str:
     """
     try:
         email = get_email_from_token()
-        workspaces = await list_user_workspaces(email)
+        scoped_org_id = get_scoped_organization_id_for_request(email=email)
+        workspaces = await list_user_workspaces(
+            email,
+            organization_id=scoped_org_id,
+        )
         return _json(workspaces)
     except ValueError as e:
         raise ToolError(str(e)) from e
@@ -1219,7 +1230,10 @@ async def list_organizations() -> str:
     """
     try:
         email = get_email_from_token()
+        scoped_org_id = get_scoped_organization_id_for_request(email=email)
         orgs = await list_user_organizations(email)
+        if scoped_org_id is not None:
+            orgs = [org for org in orgs if org["id"] == str(scoped_org_id)]
         return _json(orgs)
     except ValueError as e:
         raise ToolError(str(e)) from e
@@ -1239,7 +1253,7 @@ async def create_workflow(
     title: str,
     description: str = "",
     definition_yaml: str | None = None,
-) -> str:
+) -> str | TextContent:
     """Create a new workflow in a workspace.
 
     If definition_yaml is provided, creates a fully-defined workflow from YAML.
@@ -1261,9 +1275,7 @@ async def create_workflow(
     from tracecat.workflow.management.schemas import WorkflowCreate
 
     try:
-        email = get_email_from_token()
-        ws_id = uuid.UUID(workspace_id)
-        role = await resolve_role(email, ws_id)
+        _, role = await _resolve_workspace_role(workspace_id)
 
         if definition_yaml:
             # Parse YAML and create workflow from external definition
@@ -1293,13 +1305,41 @@ async def create_workflow(
                 workflow = await svc.create_workflow_from_external_definition(
                     external_defn_data
                 )
-                return _json(
-                    {
-                        "id": str(workflow.id),
-                        "title": workflow.title,
-                        "description": workflow.description,
-                        "status": workflow.status,
-                    }
+
+                # Apply layout positioning if present in the YAML
+                layout_data = external_defn_data.get("layout")
+                layout_applied = False
+                if layout_data is not None:
+                    layout = MCPWorkflowLayout.model_validate(layout_data)
+                    wf_id = WorkflowUUID.new(workflow.id)
+                    # Re-fetch to eagerly load actions relationship
+                    wf = await svc.get_workflow(wf_id)
+                    if wf is None:
+                        raise ToolError(f"Workflow {wf_id} not found after creation")
+                    workflow = wf
+                    _apply_layout_to_workflow(workflow=workflow, layout=layout)
+                    svc.session.add(workflow)
+                    await svc.session.commit()
+                    await svc.session.refresh(workflow)
+                    layout_applied = True
+
+                return TextContent(
+                    type="text",
+                    text=_json(
+                        {
+                            "id": str(workflow.id),
+                            "title": workflow.title,
+                            "description": workflow.description,
+                            "status": workflow.status,
+                        }
+                    ),
+                    annotations=Annotations.model_validate(
+                        {
+                            "audience": ["user", "assistant"],
+                            "priority": 0.7,
+                            "layout_applied": layout_applied,
+                        }
+                    ),
                 )
         else:
             async with WorkflowsManagementService.with_session(role=role) as svc:
@@ -1340,9 +1380,7 @@ async def get_workflow(
     modified and used with update_workflow's definition_yaml parameter.
     """
     try:
-        email = get_email_from_token()
-        ws_id = uuid.UUID(workspace_id)
-        role = await resolve_role(email, ws_id)
+        _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
 
         async with WorkflowsManagementService.with_session(role=role) as svc:
@@ -1470,9 +1508,7 @@ async def update_workflow(
     Returns a confirmation message.
     """
     try:
-        email = get_email_from_token()
-        ws_id = uuid.UUID(workspace_id)
-        role = await resolve_role(email, ws_id)
+        _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
 
         update_params = WorkflowUpdate(
@@ -1977,9 +2013,7 @@ async def validate_workflow(
     from tracecat.workflow.management.management import WorkflowsManagementService
 
     try:
-        email = get_email_from_token()
-        ws_id = uuid.UUID(workspace_id)
-        role = await resolve_role(email, ws_id)
+        _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
 
         async with WorkflowsManagementService.with_session(role=role) as svc:
@@ -2055,9 +2089,7 @@ async def publish_workflow(
     from tracecat.workflow.management.management import WorkflowsManagementService
 
     try:
-        email = get_email_from_token()
-        ws_id = uuid.UUID(workspace_id)
-        role = await resolve_role(email, ws_id)
+        _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
 
         async with WorkflowsManagementService.with_session(role=role) as svc:
@@ -2190,9 +2222,7 @@ async def run_draft_workflow(
     from tracecat.workflow.management.schemas import WorkflowUpdate
 
     try:
-        email = get_email_from_token()
-        ws_id = uuid.UUID(workspace_id)
-        role = await resolve_role(email, ws_id)
+        _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
 
         # Optionally update workflow first
@@ -2266,9 +2296,7 @@ async def run_published_workflow(
     from tracecat.workflow.executions.service import WorkflowExecutionsService
 
     try:
-        email = get_email_from_token()
-        ws_id = uuid.UUID(workspace_id)
-        role = await resolve_role(email, ws_id)
+        ws_id, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
 
         # Fetch latest workflow definition scoped to the caller's workspace
@@ -2344,9 +2372,7 @@ async def run_workflow_and_wait(
     Returns JSON with workflow_id, execution_id, status, and result/error details.
     """
     try:
-        email = get_email_from_token()
-        ws_id = uuid.UUID(workspace_id)
-        role = await resolve_role(email, ws_id)
+        ws_id, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
         wait_timeout = max(1, timeout_seconds)
         exec_service = await WorkflowExecutionsService.connect(role=role)
@@ -2635,9 +2661,7 @@ async def list_workflow_schedules(
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
     try:
-        email = get_email_from_token()
-        ws_id = uuid.UUID(workspace_id)
-        role = await resolve_role(email, ws_id)
+        _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
 
         async with WorkflowSchedulesService.with_session(role=role) as svc:
@@ -2687,9 +2711,7 @@ async def create_schedule(
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
     try:
-        email = get_email_from_token()
-        ws_id = uuid.UUID(workspace_id)
-        role = await resolve_role(email, ws_id)
+        _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
 
         # Verify workflow exists and is published

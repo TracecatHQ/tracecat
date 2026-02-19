@@ -324,6 +324,7 @@ import type {
   OrganizationGetInvitationTokenData,
   OrganizationGetInvitationTokenResponse,
   OrganizationGetOrganizationResponse,
+  OrganizationGetOrgMcpConnectResponse,
   OrganizationListMyPendingInvitationsResponse,
   OrganizationListOrganizationDomainsResponse,
   OrganizationListOrgMembersResponse,
@@ -3067,6 +3068,20 @@ export const organizationGetOrganization =
     return __request(OpenAPI, {
       method: "GET",
       url: "/organization",
+    })
+  }
+
+/**
+ * Get Org Mcp Connect
+ * Get organization-scoped MCP connect URLs for IDE clients.
+ * @returns OrgMCPConnectRead Successful Response
+ * @throws ApiError
+ */
+export const organizationGetOrgMcpConnect =
+  (): CancelablePromise<OrganizationGetOrgMcpConnectResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/mcp/connect",
     })
   }
 

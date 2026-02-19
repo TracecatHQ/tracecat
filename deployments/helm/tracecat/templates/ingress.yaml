@@ -78,6 +78,16 @@ spec:
                 port:
                   number: 9000
           {{- end }}
+          {{- if .Values.mcp.enabled }}
+          # MCP service
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          {{- end }}
           # API service
           - path: /api
             pathType: Prefix
@@ -124,6 +134,16 @@ spec:
                 name: {{ .Values.minio.fullnameOverride }}
                 port:
                   number: 9000
+          {{- end }}
+          {{- if .Values.mcp.enabled }}
+          # MCP service
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
           {{- end }}
           # API service
           - path: /api

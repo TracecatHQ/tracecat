@@ -47,15 +47,15 @@ async def test_validate_workflow_definition_yaml_valid(monkeypatch):
     result = await mcp_server.validate_workflow_definition_yaml.fn(
         workspace_id=str(uuid.uuid4()),
         definition_yaml="""
-            definition:
-            title: Test workflow
-            description: Test description
-            entrypoint:
-                expects: {}
-            actions:
-                - ref: do_it
-                action: core.table.list_tables
-                args: {}
+definition:
+  title: Test workflow
+  description: Test description
+  entrypoint:
+    expects: {}
+  actions:
+    - ref: do_it
+      action: core.table.list_tables
+      args: {}
         """,
     )
     payload = json.loads(result)
@@ -72,30 +72,30 @@ async def test_validate_workflow_definition_yaml_extended_payload(monkeypatch):
     result = await mcp_server.validate_workflow_definition_yaml.fn(
         workspace_id=str(uuid.uuid4()),
         definition_yaml="""
-            definition:
-            title: Test workflow
-            description: Test description
-            entrypoint:
-                expects: {}
-            actions:
-                - ref: do_it
-                action: core.table.list_tables
-                args: {}
-            layout:
-            trigger:
-                x: 20
-                y: 30
-            actions:
-                - ref: do_it
-                x: 100
-                y: 200
-            schedules:
-            - cron: "0 * * * *"
-                status: offline
-            case_trigger:
-            status: offline
-            event_types: []
-            tag_filters: []
+definition:
+  title: Test workflow
+  description: Test description
+  entrypoint:
+    expects: {}
+  actions:
+    - ref: do_it
+      action: core.table.list_tables
+      args: {}
+layout:
+  trigger:
+    x: 20
+    y: 30
+  actions:
+    - ref: do_it
+      x: 100
+      y: 200
+schedules:
+  - cron: "0 * * * *"
+    status: offline
+case_trigger:
+  status: offline
+  event_types: []
+  tag_filters: []
         """,
     )
     payload = json.loads(result)
@@ -112,16 +112,16 @@ async def test_validate_workflow_definition_yaml_case_trigger_mode(monkeypatch):
     result_patch = await mcp_server.validate_workflow_definition_yaml.fn(
         workspace_id=str(uuid.uuid4()),
         definition_yaml="""
-            case_trigger:
-            status: online
+case_trigger:
+  status: online
         """,
         update_mode="patch",
     )
     result_replace = await mcp_server.validate_workflow_definition_yaml.fn(
         workspace_id=str(uuid.uuid4()),
         definition_yaml="""
-            case_trigger:
-            status: online
+case_trigger:
+  status: online
         """,
         update_mode="replace",
     )
@@ -1094,3 +1094,56 @@ async def test_list_actions_browse_with_namespace(monkeypatch):
     payload = json.loads(result)
     assert len(payload) == 1
     assert captured_kwargs.get("namespace") == "tools.slack"
+
+
+@pytest.mark.anyio
+async def test_list_workspaces_applies_org_scope(monkeypatch):
+    scoped_org = uuid.uuid4()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(mcp_server, "get_email_from_token", lambda: "alice@example.com")
+    monkeypatch.setattr(
+        mcp_server,
+        "get_scoped_organization_id_for_request",
+        lambda *, email: scoped_org,
+    )
+
+    async def _list_user_workspaces(
+        email: str,
+        organization_id: uuid.UUID | None = None,
+    ) -> list[dict[str, str]]:
+        captured["email"] = email
+        captured["organization_id"] = organization_id
+        return [{"id": str(uuid.uuid4()), "name": "SOC", "role": "member"}]
+
+    monkeypatch.setattr(mcp_server, "list_user_workspaces", _list_user_workspaces)
+    result = await mcp_server.list_workspaces.fn()
+    payload = json.loads(result)
+
+    assert len(payload) == 1
+    assert captured["email"] == "alice@example.com"
+    assert captured["organization_id"] == scoped_org
+
+
+@pytest.mark.anyio
+async def test_resolve_workspace_role_rejects_scope_mismatch(monkeypatch):
+    workspace_org = uuid.uuid4()
+    scoped_org = uuid.uuid4()
+
+    monkeypatch.setattr(mcp_server, "get_email_from_token", lambda: "alice@example.com")
+    monkeypatch.setattr(
+        mcp_server,
+        "get_scoped_organization_id_for_request",
+        lambda *, email: scoped_org,
+    )
+
+    async def _resolve_role(_email: str, _workspace_id: uuid.UUID):
+        return SimpleNamespace(organization_id=workspace_org)
+
+    monkeypatch.setattr(mcp_server, "resolve_role", _resolve_role)
+
+    with pytest.raises(
+        ValueError,
+        match="outside the organization scope",
+    ):
+        await mcp_server._resolve_workspace_role(str(uuid.uuid4()))

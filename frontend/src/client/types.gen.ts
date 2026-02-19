@@ -3258,6 +3258,20 @@ export type OrgInvitationReadMinimal = {
   email_matches?: boolean | null
 }
 
+export type OrgMCPClientSnippets = {
+  codex: string
+  claude_code: string
+  cursor: string
+}
+
+export type OrgMCPConnectRead = {
+  organization_id: string
+  server_url: string
+  scoped_server_url: string
+  scope_expires_at: string
+  snippets: OrgMCPClientSnippets
+}
+
 /**
  * Detailed member info for /me and update endpoints.
  */
@@ -7127,6 +7141,8 @@ export type UsersSearchUserResponse = UserRead
 export type OrganizationGetOrganizationResponse =
   tracecat__organization__schemas__OrgRead
 
+export type OrganizationGetOrgMcpConnectResponse = OrgMCPConnectRead
+
 export type OrganizationListOrganizationDomainsResponse =
   Array<tracecat__organization__schemas__OrgDomainRead>
 
@@ -10066,6 +10082,16 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: tracecat__organization__schemas__OrgRead
+      }
+    }
+  }
+  "/organization/mcp/connect": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrgMCPConnectRead
       }
     }
   }

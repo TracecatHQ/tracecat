@@ -1,0 +1,57 @@
+{{- if .Values.mcp.enabled }}
+{{- include "tracecat.validateRequiredSecrets" . -}}
+{{- include "tracecat.validateInfrastructure" . -}}
+{{- include "tracecat.validateMcpConfig" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tracecat.fullname" . }}-mcp
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: {{ .Values.mcp.replicas }}
+  selector:
+    matchLabels:
+      {{- include "tracecat.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      labels:
+        {{- include "tracecat.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: mcp
+        tracecat.com/access-postgres: "true"
+      {{- if .Values.reloader.enabled }}
+      annotations:
+        reloader.stakater.com/auto: "true"
+      {{- end }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
+      {{- include "tracecat.podScheduling" (dict "root" . "component" "mcp") | nindent 6 }}
+      containers:
+        - name: mcp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "tracecat.mcp"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.mcp.port }}
+              protocol: TCP
+          env:
+            {{- include "tracecat.env.mcp" . | nindent 12 }}
+            {{- include "tracecat.env.secrets" . | nindent 12 }}
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.mcp.resources | nindent 12 }}
+{{- end }}

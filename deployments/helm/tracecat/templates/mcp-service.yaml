@@ -1,0 +1,19 @@
+{{- if .Values.mcp.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tracecat.fullname" . }}-mcp
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.mcp.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "tracecat.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
+{{- end }}

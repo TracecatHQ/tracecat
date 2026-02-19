@@ -94,6 +94,7 @@ def get_mcp_client_id(context: MiddlewareContext) -> str:  # type: ignore[type-a
     Uses the authenticated user's email from the OIDC access token.
     Falls back to 'anonymous' if the token is unavailable.
     """
+    _ = context
     try:
         access_token = get_access_token()
         if access_token is not None:

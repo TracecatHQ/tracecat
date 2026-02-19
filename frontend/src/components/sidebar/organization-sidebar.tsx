@@ -7,6 +7,7 @@ import {
   GitBranchIcon,
   GlobeIcon,
   KeyRoundIcon,
+  LinkIcon,
   LockIcon,
   LogInIcon,
   LogsIcon,
@@ -76,6 +77,12 @@ export function OrganizationSidebar({
       url: "/organization/settings/agent",
       icon: BotIcon,
       isActive: pathname?.includes("/organization/settings/agent"),
+    },
+    {
+      title: "MCP",
+      url: "/organization/settings/mcp",
+      icon: LinkIcon,
+      isActive: pathname?.includes("/organization/settings/mcp"),
     },
     ...(isFeatureEnabled("git-sync")
       ? [
