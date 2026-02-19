@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
 
 from tracecat.agent.common.config import (
@@ -97,7 +97,11 @@ class AgentExecutorResult(BaseModel):
     approval_requested: bool = False
     approval_items: list[ToolCallContent] | None = None
     messages: list[ChatMessage] | None = None
-    output: Any = None
+    output: Any = Field(
+        default=None,
+        validation_alias=AliasChoices("output", "structured_output", "result_output"),
+        serialization_alias="output",
+    )
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
 
