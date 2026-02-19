@@ -25,7 +25,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import (
-    Role as RoleModel,
+    Role as DBRole,
 )
 from tracecat.exceptions import (
     TracecatException,
@@ -255,9 +255,9 @@ class WorkspaceService(BaseOrgService):
 
         # Validate role_id exists and belongs to this organization
         role_result = await self.session.execute(
-            select(RoleModel).where(
-                RoleModel.id == role_id,
-                RoleModel.organization_id == self.organization_id,
+            select(DBRole).where(
+                DBRole.id == role_id,
+                DBRole.organization_id == self.organization_id,
             )
         )
         role_obj = role_result.scalar_one_or_none()
@@ -474,9 +474,9 @@ class WorkspaceService(BaseOrgService):
         # If we auto-created org membership, also assign org-member RBAC role
         if created_org_membership:
             org_member_role_result = await self.session.execute(
-                select(RoleModel).where(
-                    RoleModel.organization_id == organization_id,
-                    RoleModel.slug == "organization-member",
+                select(DBRole).where(
+                    DBRole.organization_id == organization_id,
+                    DBRole.slug == "organization-member",
                 )
             )
             org_member_role = org_member_role_result.scalar_one_or_none()

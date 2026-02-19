@@ -44,8 +44,6 @@ function matchScope(
 
   // Check for pattern matches (e.g., "workflow:*" matches "workflow:read")
   for (const granted of grantedScopes) {
-    const escapedGranted = granted.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-
     if (granted.endsWith(":*")) {
       const prefix = granted.slice(0, -1) // Remove the "*" to get "workflow:"
       if (requiredScope.startsWith(prefix)) {
@@ -54,7 +52,10 @@ function matchScope(
     }
     // Handle more complex wildcards like "action:tools.virustotal.*:execute"
     if (granted.includes("*")) {
-      const pattern = escapedGranted.replace(/\*/g, ".*")
+      // Escape all regex special chars except *, then replace * with .*
+      const pattern = granted
+        .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+        .replace(/\*/g, ".*")
       const regex = new RegExp(`^${pattern}$`)
       if (regex.test(requiredScope)) {
         return true
