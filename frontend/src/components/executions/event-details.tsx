@@ -2,14 +2,12 @@
 
 import { FileInputIcon, ShapesIcon, TriangleAlert } from "lucide-react"
 import React from "react"
-import JsonView from "react18-json-view"
 import { CodeBlock } from "@/components/code-block"
 import { ExternalObjectResult } from "@/components/executions/external-object-result"
+import { JsonViewWithControls } from "@/components/json-viewer"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { WorkflowExecutionEventCompact } from "@/lib/event-history"
 import { isExternalStoredObject } from "@/lib/stored-object"
-
-import "react18-json-view/src/style.css"
 
 export function WorkflowExecutionEventDetailView({
   event,
@@ -132,15 +130,8 @@ export function WorkflowExecutionEventDetailView({
 
 function JsonViewContent({ src }: { src: unknown }): JSX.Element {
   return (
-    <div className="border-b bg-muted-foreground/5 p-3">
-      <JsonView
-        collapsed={false}
-        displaySize
-        enableClipboard
-        src={src}
-        className="break-all text-xs"
-        theme="atom"
-      />
+    <div className="p-3">
+      <JsonViewWithControls src={src} defaultExpanded={false} />
     </div>
   )
 }
