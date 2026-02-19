@@ -1,7 +1,7 @@
 """migrate membership roles to rbac assignments
 
 Revision ID: 97812277aa15
-Revises: 2e1f96db2255
+Revises: 60a5af5effdd
 Create Date: 2026-02-13 12:34:28.832810
 
 """
@@ -12,7 +12,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "97812277aa15"
-down_revision: str | None = "2e1f96db2255"
+down_revision: str | None = "60a5af5effdd"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

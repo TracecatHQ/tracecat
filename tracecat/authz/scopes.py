@@ -14,9 +14,13 @@ Standard actions (ordered by privilege):
 
 from __future__ import annotations
 
-from typing import cast, get_args
+from typing import TYPE_CHECKING, cast, get_args
 
+from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.identifiers import InternalServiceID
+
+if TYPE_CHECKING:
+    from tracecat.auth.types import Role
 
 # =============================================================================
 # Workspace Role Scopes
@@ -357,3 +361,61 @@ SERVICE_PRINCIPAL_SCOPES: dict[InternalServiceID, frozenset[str]] = {
 SERVICE_PRINCIPAL_SCOPES["tracecat-service"] = SERVICE_PRINCIPAL_SCOPES[
     "tracecat-service"
 ] | frozenset({"org:secret:read"})
+
+
+# =============================================================================
+# Legacy Role Scope Backfill
+# =============================================================================
+
+_LEGACY_ORG_ROLE_TO_PRESET_SLUG: dict[OrgRole, str] = {
+    OrgRole.OWNER: "organization-owner",
+    OrgRole.ADMIN: "organization-admin",
+    OrgRole.MEMBER: "organization-member",
+}
+
+_LEGACY_WORKSPACE_ROLE_TO_PRESET_SLUG: dict[WorkspaceRole, str] = {
+    WorkspaceRole.ADMIN: "workspace-admin",
+    WorkspaceRole.EDITOR: "workspace-editor",
+    WorkspaceRole.VIEWER: "workspace-viewer",
+}
+
+
+def backfill_legacy_role_scopes(role: Role) -> Role:
+    """Backfill scopes on a Role that was serialized before RBAC migration.
+
+    During the RBAC migration, Temporal workflow histories may contain Role
+    objects with scopes=None or scopes=frozenset() (the pre-migration defaults).
+    These roles will fail scope checks on the new code paths.
+
+    This function derives scopes from the role's existing fields:
+    - Service roles: use SERVICE_PRINCIPAL_SCOPES
+    - User roles: derive from workspace_role and org_role (same logic as
+      the legacy membership fallback in compute_effective_scopes)
+
+    Returns the role unchanged if it already has scopes populated.
+    """
+    if role.scopes:
+        # Already has scopes — nothing to backfill
+        return role
+
+    scopes: set[str] = set()
+
+    if role.type == "service" and role.service_id:
+        service_scopes = SERVICE_PRINCIPAL_SCOPES.get(role.service_id)
+        if service_scopes:
+            scopes.update(service_scopes)
+    elif role.type == "user":
+        if role.org_role is not None:
+            slug = _LEGACY_ORG_ROLE_TO_PRESET_SLUG.get(role.org_role)
+            if slug is not None:
+                scopes.update(PRESET_ROLE_SCOPES[slug])
+        if role.workspace_role is not None:
+            slug = _LEGACY_WORKSPACE_ROLE_TO_PRESET_SLUG.get(role.workspace_role)
+            if slug is not None:
+                scopes.update(PRESET_ROLE_SCOPES[slug])
+
+    if not scopes:
+        return role
+
+    # Role fields are frozen, so we need model_copy to set scopes
+    return role.model_copy(update={"scopes": frozenset(scopes)})

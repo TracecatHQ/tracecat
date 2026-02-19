@@ -122,7 +122,7 @@ class TestGitHubAppService:
 
     @pytest.mark.anyio
     async def test_get_github_app_credentials_success(
-        self, github_service, mock_credentials, mock_secret
+        self, github_admin_service, mock_credentials, mock_secret
     ):
         """Test retrieving GitHub App credentials."""
         with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
@@ -146,7 +146,7 @@ class TestGitHubAppService:
             )
             mock_secrets_service.return_value = mock_service
 
-            credentials = await github_service.get_github_app_credentials()
+            credentials = await github_admin_service.get_github_app_credentials()
 
             assert credentials.app_id == mock_credentials.app_id
             assert (
@@ -160,7 +160,7 @@ class TestGitHubAppService:
             assert credentials.client_id == mock_credentials.client_id
 
     @pytest.mark.anyio
-    async def test_get_github_app_credentials_not_found(self, github_service):
+    async def test_get_github_app_credentials_not_found(self, github_admin_service):
         """Test retrieving GitHub App credentials when not found."""
         with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
             mock_service = AsyncMock()
@@ -172,7 +172,7 @@ class TestGitHubAppService:
             with pytest.raises(
                 GitHubAppError, match="Failed to retrieve GitHub App credentials"
             ):
-                await github_service.get_github_app_credentials()
+                await github_admin_service.get_github_app_credentials()
 
     @pytest.mark.anyio
     async def test_update_github_app_credentials_success(

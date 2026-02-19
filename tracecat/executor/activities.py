@@ -19,6 +19,7 @@ from tenacity import (
 )
 
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import backfill_legacy_role_scopes
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
 from tracecat.dsl.action import materialize_context
 from tracecat.dsl.schemas import RunActionInput
@@ -69,6 +70,9 @@ class ExecutorActivities:
         Secrets/variables are still handled inside the sandbox (Phase 2 will move them here).
         """
         ctx_run.set(input.run_context)
+        # Backfill scopes for roles serialized before the RBAC migration.
+        # Temporal history may contain Role objects with empty/None scopes.
+        role = backfill_legacy_role_scopes(role)
         ctx_role.set(role)
 
         task = input.task
