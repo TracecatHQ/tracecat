@@ -21,6 +21,8 @@ import {
   PriorityChangedEvent,
   SeverityChangedEvent,
   StatusChangedEvent,
+  TableRowLinkedEvent,
+  TableRowUnlinkedEvent,
   TaskAssigneeChangedEvent,
   TaskCreatedEvent,
   TaskDeletedEvent,
@@ -151,6 +153,15 @@ function CaseFeedEvent({
 
         {event.type === "dropdown_value_changed" && (
           <DropdownValueChangedEvent event={event} actor={actor} />
+        )}
+
+        {/* Table row events */}
+        {event.type === "table_row_linked" && (
+          <TableRowLinkedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "table_row_unlinked" && (
+          <TableRowUnlinkedEvent event={event} actor={actor} />
         )}
         {/* Add a dot separator */}
         <InlineDotSeparator />

@@ -1,7 +1,7 @@
 import uuid  # noqa: I001
 import asyncio
 from typing import Literal
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -668,6 +668,25 @@ class TestCasesService:
         )
         search_response = await cases_service.search_cases(
             params=params,
+            order_by="created_at",
+            sort="asc",
+        )
+
+        assert search_response.model_dump() == list_response.model_dump()
+
+    async def test_search_cases_forwards_include_rows(
+        self, cases_service: CasesService
+    ) -> None:
+        params = CursorPaginationParams(limit=10, cursor=None, reverse=False)
+        list_response = await cases_service.list_cases(
+            limit=10,
+            include_rows=True,
+            order_by="created_at",
+            sort="asc",
+        )
+        search_response = await cases_service.search_cases(
+            params=params,
+            include_rows=True,
             order_by="created_at",
             sort="asc",
         )

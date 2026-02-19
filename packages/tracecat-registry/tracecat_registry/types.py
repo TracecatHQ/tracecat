@@ -69,6 +69,19 @@ class CaseDropdownValueRead(TypedDict):
     option_color: str | None
 
 
+class CaseTableRowRead(TypedDict):
+    """Linked case table row with hydrated row data."""
+
+    id: UUID
+    case_id: UUID
+    table_id: UUID
+    row_id: UUID
+    table_name: str
+    row_data: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
 class Case(TypedDict):
     """Case information returned by create/update/assign operations.
 
@@ -107,6 +120,7 @@ class CaseRead(TypedDict):
     fields: list[CaseFieldRead]
     tags: list[CaseTagRead]
     dropdown_values: NotRequired[list[CaseDropdownValueRead]]
+    rows: NotRequired[list[CaseTableRowRead]]
     assignee: UserRead | None
     created_at: datetime
     updated_at: datetime
@@ -126,6 +140,7 @@ class CaseReadMinimal(TypedDict):
     status: str
     tags: list[CaseTagRead]
     dropdown_values: NotRequired[list[CaseDropdownValueRead]]
+    rows: NotRequired[list[CaseTableRowRead]]
     assignee: UserRead | None
     created_at: datetime
     updated_at: datetime
@@ -383,6 +398,30 @@ class TagRemovedEvent(TypedDict, total=False):
     tag_name: str
 
 
+class TableRowLinkedEvent(TypedDict, total=False):
+    """Event for when a case links a table row."""
+
+    user_id: UUID | None
+    created_at: str
+    wf_exec_id: str | None
+    type: str  # "table_row_linked"
+    table_id: str
+    row_id: str
+    table_name: str
+
+
+class TableRowUnlinkedEvent(TypedDict, total=False):
+    """Event for when a case unlinks a table row."""
+
+    user_id: UUID | None
+    created_at: str
+    wf_exec_id: str | None
+    type: str  # "table_row_unlinked"
+    table_id: str
+    row_id: str
+    table_name: str
+
+
 class TaskCreatedEvent(TypedDict, total=False):
     """Event for when a task is created."""
 
@@ -490,6 +529,8 @@ type CaseEvent = (
     | AttachmentDeletedEvent
     | TagAddedEvent
     | TagRemovedEvent
+    | TableRowLinkedEvent
+    | TableRowUnlinkedEvent
     | TaskCreatedEvent
     | TaskDeletedEvent
     | TaskAssigneeChangedEvent

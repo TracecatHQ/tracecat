@@ -22,11 +22,13 @@ from tracecat_registry.core.cases import (
     get_attachment,
     get_attachment_download_url,
     get_case,
+    link_case_table_row,
     list_attachments,
     list_cases,
     list_comments,
     remove_case_tag,
     search_cases,
+    unlink_case_table_row,
     update_case,
     update_comment,
     upload_attachment,
@@ -409,6 +411,18 @@ class TestCoreGetCase:
         mock_cases_client.get_case.assert_called_once_with(case_id)
         assert result == mock_case_dict
 
+    async def test_get_case_with_include_rows(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ) -> None:
+        """Test case retrieval with include_rows enabled."""
+        mock_cases_client.get_case.return_value = mock_case_dict
+
+        case_id = mock_case_dict["id"]
+        result = await get_case(case_id=case_id, include_rows=True)
+
+        mock_cases_client.get_case.assert_called_once_with(case_id, include_rows=True)
+        assert result == mock_case_dict
+
 
 @pytest.mark.anyio
 class TestCoreListCases:
@@ -498,6 +512,19 @@ class TestCoreListCases:
         assert isinstance(result, dict)
         assert result["items"] == [mock_case_dict]
         assert result["next_cursor"] == "cursor-1"
+
+    async def test_list_cases_with_include_rows(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ) -> None:
+        """Test listing cases with include_rows enabled."""
+        mock_cases_client.list_cases.return_value = {"items": [mock_case_dict]}
+
+        result = await list_cases(include_rows=True)
+
+        mock_cases_client.list_cases.assert_called_once_with(
+            limit=100, include_rows=True
+        )
+        assert result == [mock_case_dict]
 
     async def test_list_cases_empty_result(self, mock_cases_client: AsyncMock):
         """Test listing cases when no cases exist."""
@@ -788,6 +815,136 @@ class TestCoreCaseTags:
 
         mock_cases_client.remove_tag.assert_called_once_with(case_id, tag_id="test-tag")
         assert result is None
+
+
+@pytest.mark.anyio
+class TestCoreCaseTableRows:
+    """Test cases for case table row UDFs."""
+
+    async def test_link_case_table_row_success(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ) -> None:
+        case_id = mock_case_dict["id"]
+        table_id = str(uuid.uuid4())
+        row_id_1 = str(uuid.uuid4())
+        row_id_2 = str(uuid.uuid4())
+        link_1 = {"id": str(uuid.uuid4()), "table_id": table_id, "row_id": row_id_1}
+        link_2 = {"id": str(uuid.uuid4()), "table_id": table_id, "row_id": row_id_2}
+
+        mock_cases_client.get_case.return_value = mock_case_dict
+        mock_cases_client.link_case_row.side_effect = [link_1, link_2]
+
+        result = await link_case_table_row(
+            case_id=case_id,
+            table_id=table_id,
+            row_ids=[row_id_1, row_id_1, row_id_2],
+        )
+
+        mock_cases_client.get_case.assert_called_once_with(case_id)
+        assert mock_cases_client.link_case_row.await_count == 2
+        assert result == [link_1, link_2]
+
+    async def test_link_case_table_row_validates_inputs(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ) -> None:
+        case_id = mock_case_dict["id"]
+        table_id = str(uuid.uuid4())
+
+        with pytest.raises(TracecatValidationError, match="At least one row ID"):
+            await link_case_table_row(case_id=case_id, table_id=table_id, row_ids=[])
+
+        too_many = [str(uuid.uuid4()) for _ in range(cases_core.MAX_CASE_ROW_LINKS + 1)]
+        with pytest.raises(TracecatValidationError, match="maximum of"):
+            await link_case_table_row(
+                case_id=case_id, table_id=table_id, row_ids=too_many
+            )
+
+        mock_cases_client.link_case_row.assert_not_called()
+
+    async def test_unlink_case_table_row_success(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ) -> None:
+        case_id = mock_case_dict["id"]
+        table_id = str(uuid.uuid4())
+        row_id_1 = str(uuid.uuid4())
+        row_id_2 = str(uuid.uuid4())
+        link_id_1 = str(uuid.uuid4())
+        link_id_2 = str(uuid.uuid4())
+
+        mock_cases_client.get_case.return_value = mock_case_dict
+        mock_cases_client.list_case_rows.return_value = {
+            "items": [
+                {"id": link_id_1, "table_id": table_id, "row_id": row_id_1},
+                {"id": link_id_2, "table_id": table_id, "row_id": row_id_2},
+            ],
+            "has_more": False,
+            "next_cursor": None,
+        }
+
+        result = await unlink_case_table_row(
+            case_id=case_id,
+            table_id=table_id,
+            row_ids=[row_id_1, row_id_2],
+        )
+
+        mock_cases_client.get_case.assert_called_once_with(case_id)
+        mock_cases_client.list_case_rows.assert_called_once_with(case_id, limit=200)
+        mock_cases_client.unlink_case_row.assert_any_await(case_id, link_id=link_id_1)
+        mock_cases_client.unlink_case_row.assert_any_await(case_id, link_id=link_id_2)
+        assert sorted(result["deleted"]) == sorted([row_id_1, row_id_2])
+
+    async def test_unlink_case_table_row_pages_until_found(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ) -> None:
+        case_id = mock_case_dict["id"]
+        table_id = str(uuid.uuid4())
+        target_row_id = str(uuid.uuid4())
+        target_link_id = str(uuid.uuid4())
+
+        mock_cases_client.get_case.return_value = mock_case_dict
+        mock_cases_client.list_case_rows.side_effect = [
+            {
+                "items": [
+                    {
+                        "id": str(uuid.uuid4()),
+                        "table_id": table_id,
+                        "row_id": str(uuid.uuid4()),
+                    }
+                ],
+                "has_more": True,
+                "next_cursor": "cursor-1",
+            },
+            {
+                "items": [
+                    {
+                        "id": target_link_id,
+                        "table_id": table_id,
+                        "row_id": target_row_id,
+                    }
+                ],
+                "has_more": False,
+                "next_cursor": None,
+            },
+        ]
+
+        result = await unlink_case_table_row(
+            case_id=case_id,
+            table_id=table_id,
+            row_ids=[target_row_id],
+        )
+
+        assert mock_cases_client.list_case_rows.await_args_list[0].kwargs == {
+            "limit": 200
+        }
+        assert mock_cases_client.list_case_rows.await_args_list[0].args == (case_id,)
+        assert mock_cases_client.list_case_rows.await_args_list[1].kwargs == {
+            "limit": 200,
+            "cursor": "cursor-1",
+        }
+        mock_cases_client.unlink_case_row.assert_awaited_once_with(
+            case_id, link_id=target_link_id
+        )
+        assert result == {"deleted": [target_row_id]}
 
 
 @pytest.mark.anyio
