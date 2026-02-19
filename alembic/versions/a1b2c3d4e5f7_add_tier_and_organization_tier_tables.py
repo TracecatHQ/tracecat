@@ -69,7 +69,7 @@ def upgrade() -> None:
             NULL,
             NULL,
             NULL,
-            '{"custom_registry": true, "sso": true, "git_sync": true}'::jsonb,
+            '{"custom_registry": true, "git_sync": true}'::jsonb,
             true,
             0,
             true

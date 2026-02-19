@@ -7548,12 +7548,6 @@ export const $EffectiveEntitlements = {
       description: "Whether custom registry repositories are enabled",
       default: false,
     },
-    sso: {
-      type: "boolean",
-      title: "Sso",
-      description: "Whether SSO is enabled",
-      default: false,
-    },
     git_sync: {
       type: "boolean",
       title: "Git Sync",
@@ -7588,11 +7582,6 @@ export const $EntitlementsDict = {
       type: "boolean",
       title: "Custom Registry",
       description: "Whether custom registry repositories are enabled",
-    },
-    sso: {
-      type: "boolean",
-      title: "Sso",
-      description: "Whether SSO is enabled",
     },
     git_sync: {
       type: "boolean",

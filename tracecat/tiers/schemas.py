@@ -46,7 +46,6 @@ class EffectiveEntitlements(Schema):
     custom_registry: bool = Field(
         False, description="Whether custom registry repositories are enabled"
     )
-    sso: bool = Field(False, description="Whether SSO is enabled")
     git_sync: bool = Field(False, description="Whether git sync is enabled")
     agent_addons: bool = Field(
         False,

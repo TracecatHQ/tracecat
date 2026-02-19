@@ -2307,10 +2307,6 @@ export type EffectiveEntitlements = {
    */
   custom_registry?: boolean
   /**
-   * Whether SSO is enabled
-   */
-  sso?: boolean
-  /**
    * Whether git sync is enabled
    */
   git_sync?: boolean
@@ -2334,10 +2330,6 @@ export type EntitlementsDict = {
    * Whether custom registry repositories are enabled
    */
   custom_registry?: boolean
-  /**
-   * Whether SSO is enabled
-   */
-  sso?: boolean
   /**
    * Whether git sync is enabled
    */

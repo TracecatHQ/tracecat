@@ -17,7 +17,6 @@ class EntitlementsDict(TypedDict, total=False):
         bool,
         Field(description="Whether custom registry repositories are enabled"),
     ]
-    sso: Annotated[bool, Field(description="Whether SSO is enabled")]
     git_sync: Annotated[bool, Field(description="Whether git sync is enabled")]
     agent_addons: Annotated[
         bool,
