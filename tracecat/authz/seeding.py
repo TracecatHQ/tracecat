@@ -57,6 +57,13 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "org:billing:read", "org:billing", "read", "View billing information"
     ),
     ScopeDefinition("org:billing:update", "org:billing", "update", "Manage billing"),
+    # Owner assignment
+    ScopeDefinition(
+        "org:owner:assign",
+        "org:owner",
+        "assign",
+        "Assign organization-owner role to other users",
+    ),
     # RBAC administration
     ScopeDefinition(
         "org:rbac:read",
@@ -125,6 +132,13 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "org:registry",
         "delete",
         "Delete organization registry repositories and versions",
+    ),
+    # Org-level workspace enumeration
+    ScopeDefinition(
+        "org:workspace:read",
+        "org:workspace",
+        "read",
+        "List all workspaces in the organization",
     ),
     # Workspace-level scopes
     ScopeDefinition("workspace:read", "workspace", "read", "View workspace settings"),

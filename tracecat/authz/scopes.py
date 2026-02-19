@@ -116,6 +116,8 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         # Billing (OWNER-only for updates)
         "org:billing:read",
         "org:billing:update",
+        # Owner assignment (owner-only: delegate owner role)
+        "org:owner:assign",
         # RBAC management
         "org:rbac:read",
         "org:rbac:create",
@@ -130,6 +132,8 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "org:registry:create",
         "org:registry:update",
         "org:registry:delete",
+        # Org-level workspace enumeration (list all workspaces in the org)
+        "org:workspace:read",
         # Full workspace control across the org
         "workspace:read",
         "workspace:create",
@@ -219,6 +223,8 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "org:registry:create",
         "org:registry:update",
         "org:registry:delete",
+        # Org-level workspace enumeration (list all workspaces in the org)
+        "org:workspace:read",
         # Full workspace control across the org
         "workspace:read",
         "workspace:create",
