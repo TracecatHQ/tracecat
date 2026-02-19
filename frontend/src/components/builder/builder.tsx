@@ -8,6 +8,7 @@ import { EventsSidebarToolbar } from "@/components/builder/events/events-sidebar
 import { BuilderPanel } from "@/components/builder/panel/builder-panel"
 import { WorkflowBuilderErrorBoundary } from "@/components/error-boundaries"
 import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
 import {
   CustomResizableHandle,
   ResizablePanel,
@@ -31,45 +32,31 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
   const {
     canvasRef,
     sidebarRef,
-    isSidebarCollapsed,
     toggleSidebar,
     actionPanelRef,
-    isActionPanelCollapsed,
     toggleActionPanel,
   } = useWorkflowBuilder()
 
-  // Add keyboard shortcut for toggling sidebar (Cmd+E)
+  // Toggle builder panels with Cmd/Ctrl+E (left) and Cmd/Ctrl+Shift+E (right)
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Check for Cmd+E (or Ctrl+E for non-Mac)
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "e") {
-        event.preventDefault() // Prevent default browser behavior
+      if (!(event.metaKey || event.ctrlKey) || event.repeat) {
+        return
+      }
+      const key = event.key.toLowerCase()
+      if (key === "e") {
+        event.preventDefault()
+        if (event.shiftKey) {
+          toggleActionPanel()
+          return
+        }
         toggleSidebar()
       }
     }
 
-    // Add event listener
     window.addEventListener("keydown", handleKeyDown)
-
-    // Clean up on component unmount
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [toggleSidebar])
-
-  // Add keyboard shortcut for toggling action panel (Cmd+Shift+E or Ctrl+Shift+E)
-  React.useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "u") {
-        event.preventDefault() // Prevent default browser behavior
-        toggleActionPanel()
-      }
-    }
-
-    // Add event listener
-    window.addEventListener("keydown", handleKeyDown)
-
-    // Clean up on component unmount
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [toggleActionPanel])
+  }, [toggleActionPanel, toggleSidebar])
 
   return (
     <WorkflowBuilderErrorBoundary>
@@ -111,9 +98,15 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
                     </div>
                   </Button>
                 </TooltipTrigger>
-                {isSidebarCollapsed && (
-                  <TooltipContent side="right">View Events</TooltipContent>
-                )}
+                <TooltipContent
+                  side="right"
+                  className="border-0 bg-transparent p-0 shadow-none"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    <Kbd>Cmd/Ctrl</Kbd>
+                    <Kbd>E</Kbd>
+                  </span>
+                </TooltipContent>
               </CustomResizableHandle>
             </Tooltip>
           </TooltipProvider>
@@ -136,9 +129,16 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
                     </div>
                   </Button>
                 </TooltipTrigger>
-                {isActionPanelCollapsed && (
-                  <TooltipContent side="right">View Side Panel</TooltipContent>
-                )}
+                <TooltipContent
+                  side="left"
+                  className="border-0 bg-transparent p-0 shadow-none"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    <Kbd>Cmd/Ctrl</Kbd>
+                    <Kbd>Shift</Kbd>
+                    <Kbd>E</Kbd>
+                  </span>
+                </TooltipContent>
               </CustomResizableHandle>
             </Tooltip>
           </TooltipProvider>
