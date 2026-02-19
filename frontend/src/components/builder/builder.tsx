@@ -20,6 +20,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { parseShortcutKeys } from "@/lib/tiptap-utils"
 import { cn } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 
@@ -36,6 +37,14 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
     actionPanelRef,
     toggleActionPanel,
   } = useWorkflowBuilder()
+  const toggleSidebarShortcut = React.useMemo(
+    () => parseShortcutKeys({ shortcutKeys: "mod+e" }),
+    []
+  )
+  const toggleActionPanelShortcut = React.useMemo(
+    () => parseShortcutKeys({ shortcutKeys: "mod+shift+e" }),
+    []
+  )
 
   // Toggle builder panels with Cmd/Ctrl+E (left) and Cmd/Ctrl+Shift+E (right)
   React.useEffect(() => {
@@ -103,8 +112,9 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
                   className="border-0 bg-transparent p-0 shadow-none"
                 >
                   <span className="inline-flex items-center gap-1">
-                    <Kbd>Cmd/Ctrl</Kbd>
-                    <Kbd>E</Kbd>
+                    {toggleSidebarShortcut.map((key) => (
+                      <Kbd key={key}>{key}</Kbd>
+                    ))}
                   </span>
                 </TooltipContent>
               </CustomResizableHandle>
@@ -134,9 +144,9 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
                   className="border-0 bg-transparent p-0 shadow-none"
                 >
                   <span className="inline-flex items-center gap-1">
-                    <Kbd>Cmd/Ctrl</Kbd>
-                    <Kbd>Shift</Kbd>
-                    <Kbd>E</Kbd>
+                    {toggleActionPanelShortcut.map((key) => (
+                      <Kbd key={key}>{key}</Kbd>
+                    ))}
                   </span>
                 </TooltipContent>
               </CustomResizableHandle>
