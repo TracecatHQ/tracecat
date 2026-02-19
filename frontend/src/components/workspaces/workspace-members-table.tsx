@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
+import { useOrgMembership } from "@/hooks/use-org-membership"
 import {
   useCurrentUserRole,
   useWorkspaceMembers,
@@ -65,6 +66,7 @@ export function WorkspaceMembersTable({
   const [selectedUser, setSelectedUser] = useState<WorkspaceMember | null>(null)
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
   const { role } = useCurrentUserRole(workspace.id)
+  const { canAdministerOrg } = useOrgMembership()
   const { removeMember, updateMember } = useWorkspaceMutations()
   const { members, membersLoading, membersError } = useWorkspaceMembers(
     workspace.id
@@ -208,9 +210,10 @@ export function WorkspaceMembersTable({
                         Copy user ID
                       </DropdownMenuItem>
 
-                      {user?.isPrivileged({
-                        role,
-                      } as WorkspaceMembershipRead) && (
+                      {(canAdministerOrg ||
+                        user?.isPrivileged({
+                          role,
+                        } as WorkspaceMembershipRead)) && (
                         <>
                           <DialogTrigger asChild>
                             <DropdownMenuItem
