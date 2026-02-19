@@ -127,6 +127,6 @@ module "eks" {
   # Enterprise Edition
   ee_multi_tenant = var.ee_multi_tenant
 
-  # Feature Flags
+  # Feature flags (backward-compatible input name; maps to tracecat.featureFlags)
   feature_flags = var.feature_flags
 }

@@ -134,7 +134,7 @@ resource "helm_release" "tracecat" {
       scheduling = local.tracecat_spot_scheduling
     } : {},
     var.feature_flags != "" ? {
-      enterprise = {
+      tracecat = {
         featureFlags = var.feature_flags
       }
     } : {}

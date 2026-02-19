@@ -223,9 +223,6 @@ tracecat:
       scrape: true
 
 enterprise:
-  # Enterprise-only feature flags (comma-separated).
-  # These are appended to tracecat.featureFlags.
-  featureFlags: ""
   # Enable enterprise multi-tenant mode.
   multiTenant: false
 
