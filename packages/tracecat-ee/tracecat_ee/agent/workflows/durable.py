@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from temporalio import workflow
@@ -21,6 +21,7 @@ with workflow.unsafe.imports_passed_through():
         execute_approved_tools_activity,
         run_agent_activity,
     )
+    from tracecat.agent.parsers import try_parse_json
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetConfigActivityInput,
         resolve_agent_preset_config_activity,
@@ -79,6 +80,16 @@ class AgentWorkflowArgs(BaseModel):
 class WorkflowApprovalSubmission(BaseModel):
     approvals: ApprovalMap
     approved_by: uuid.UUID | None = None
+
+
+def _resolve_agent_output(
+    *,
+    output: Any,
+) -> Any:
+    """Resolve final agent output."""
+    if output is not None:
+        return try_parse_json(output) if isinstance(output, str) else output
+    return None
 
 
 @workflow.defn
@@ -431,8 +442,11 @@ class DurableAgentWorkflow:
                 continue
 
             # Agent completed successfully
+            output = _resolve_agent_output(
+                output=result.output,
+            )
             return AgentOutput(
-                output=result.structured_output,
+                output=output,
                 message_history=result.messages,  # Messages fetched from DB by activity
                 duration=(datetime.now(UTC) - info.start_time).total_seconds(),
                 usage=RunUsage(

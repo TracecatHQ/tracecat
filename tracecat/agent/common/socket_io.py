@@ -167,7 +167,7 @@ class SocketStreamWriter:
         usage: dict[str, Any] | None = None,
         num_turns: int | None = None,
         duration_ms: int | None = None,
-        structured_output: Any = None,
+        output: Any = None,
     ) -> None:
         """Send final result with usage data from Claude SDK ResultMessage."""
         await self._send(
@@ -175,7 +175,7 @@ class SocketStreamWriter:
                 usage=usage,
                 num_turns=num_turns,
                 duration_ms=duration_ms,
-                structured_output=structured_output,
+                output=output,
             )
         )
 

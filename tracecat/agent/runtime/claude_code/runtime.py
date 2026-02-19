@@ -654,12 +654,16 @@ class ClaudeAgentRuntime:
                                 duration_ms=message.duration_ms,
                                 usage=message.usage,
                             )
-                            # Send result with usage data and structured output back to orchestrator
+                            result_output = (
+                                message.structured_output
+                                if message.structured_output is not None
+                                else message.result
+                            )
                             await self._socket_writer.send_result(
                                 usage=message.usage,
                                 num_turns=message.num_turns,
                                 duration_ms=message.duration_ms,
-                                structured_output=message.structured_output,
+                                output=result_output,
                             )
                 finally:
                     stderr_task.cancel()
