@@ -29,6 +29,10 @@ export default function OrganizationWorkspaceSettingsPage() {
     enabled: !!workspaceId,
   })
 
+  if (canAdministerOrg === undefined || canUpdateWorkspace === undefined) {
+    return <CenteredSpinner />
+  }
+
   if (!params || !workspaceId) {
     return <AlertNotification level="error" message="Invalid workspace ID." />
   }

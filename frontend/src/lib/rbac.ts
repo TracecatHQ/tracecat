@@ -18,7 +18,16 @@ export const LEVEL_ACTIONS: Record<
   read: ["read"],
   write: ["read", "create", "update"],
   execute: ["read", "execute"],
-  admin: ["read", "create", "update", "delete", "invite", "remove", "manage"],
+  admin: [
+    "read",
+    "create",
+    "update",
+    "delete",
+    "invite",
+    "remove",
+    "manage",
+    "execute",
+  ],
 }
 
 // Resource category definitions with display names

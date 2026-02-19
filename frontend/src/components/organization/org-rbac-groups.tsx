@@ -99,6 +99,7 @@ export function OrgRbacGroups() {
     removeGroupMember,
     removeGroupMemberIsPending,
   } = useRbacGroups()
+  const { assignments: allAssignments } = useRbacAssignments()
   const canCreateGroup = useScopeCheck("org:rbac:create") === true
   const canUpdateGroup = useScopeCheck("org:rbac:update") === true
   const canDeleteGroup = useScopeCheck("org:rbac:delete") === true
@@ -136,29 +137,57 @@ export function OrgRbacGroups() {
   }
 
   const handleOpenManage = async (group: GroupReadWithMembers) => {
-    // Fetch fresh group data with members
-    const freshGroup = await getGroup(group.id)
-    setSelectedGroup(freshGroup)
-    setIsManageOpen(true)
+    try {
+      // Fetch fresh group data with members
+      const freshGroup = await getGroup(group.id)
+      setSelectedGroup(freshGroup)
+      setIsManageOpen(true)
+    } catch (error) {
+      console.error("Failed to load group details", error)
+      setSelectedGroup(null)
+      setIsManageOpen(false)
+    }
   }
 
   const handleAddMember = async (userId: string) => {
     if (selectedGroup) {
-      await addGroupMember({ groupId: selectedGroup.id, userId })
-      // Refresh group data
-      const freshGroup = await getGroup(selectedGroup.id)
-      setSelectedGroup(freshGroup)
+      try {
+        await addGroupMember({ groupId: selectedGroup.id, userId })
+        // Refresh group data
+        const freshGroup = await getGroup(selectedGroup.id)
+        setSelectedGroup(freshGroup)
+      } catch (error) {
+        console.error("Failed to add group member", error)
+        setSelectedGroup(null)
+        setIsManageOpen(false)
+      }
     }
   }
 
   const handleRemoveMember = async (userId: string) => {
     if (selectedGroup) {
-      await removeGroupMember({ groupId: selectedGroup.id, userId })
-      // Refresh group data
-      const freshGroup = await getGroup(selectedGroup.id)
-      setSelectedGroup(freshGroup)
+      try {
+        await removeGroupMember({ groupId: selectedGroup.id, userId })
+        // Refresh group data
+        const freshGroup = await getGroup(selectedGroup.id)
+        setSelectedGroup(freshGroup)
+      } catch (error) {
+        console.error("Failed to remove group member", error)
+        setSelectedGroup(null)
+        setIsManageOpen(false)
+      }
     }
   }
+
+  const assignmentsByGroupId = useMemo(() => {
+    const map = new Map<string, GroupRoleAssignmentReadWithDetails[]>()
+    for (const assignment of allAssignments) {
+      const next = map.get(assignment.group_id) ?? []
+      next.push(assignment)
+      map.set(assignment.group_id, next)
+    }
+    return map
+  }, [allAssignments])
 
   if (error) {
     return (
@@ -243,6 +272,7 @@ export function OrgRbacGroups() {
                 <GroupListItem
                   key={group.id}
                   group={group}
+                  assignments={assignmentsByGroupId.get(group.id) ?? []}
                   isExpanded={expandedGroupId === group.id}
                   onExpandedChange={(expanded) =>
                     setExpandedGroupId(expanded ? group.id : null)
@@ -335,6 +365,7 @@ export function OrgRbacGroups() {
 
 function GroupListItem({
   group,
+  assignments,
   isExpanded,
   onExpandedChange,
   onManage,
@@ -344,6 +375,7 @@ function GroupListItem({
   canDeleteGroups,
 }: {
   group: GroupReadWithMembers
+  assignments: GroupRoleAssignmentReadWithDetails[]
   isExpanded: boolean
   onExpandedChange: (expanded: boolean) => void
   onManage: () => void
@@ -352,8 +384,6 @@ function GroupListItem({
   canManageGroups: boolean
   canDeleteGroups: boolean
 }) {
-  const { assignments } = useRbacAssignments({ groupId: group.id })
-
   return (
     <RbacListItem
       icon={<UsersIcon className="size-4" />}

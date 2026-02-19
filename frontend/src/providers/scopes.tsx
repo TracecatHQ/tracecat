@@ -2,7 +2,6 @@
 
 import { createContext, type ReactNode, useContext, useMemo } from "react"
 import { useUserScopes } from "@/lib/hooks"
-import { useOptionalWorkspaceId } from "@/providers/workspace-id"
 
 interface ScopeContextValue {
   scopes: Set<string>
@@ -45,6 +44,8 @@ function matchScope(
 
   // Check for pattern matches (e.g., "workflow:*" matches "workflow:read")
   for (const granted of grantedScopes) {
+    const escapedGranted = granted.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
     if (granted.endsWith(":*")) {
       const prefix = granted.slice(0, -1) // Remove the "*" to get "workflow:"
       if (requiredScope.startsWith(prefix)) {
@@ -53,7 +54,7 @@ function matchScope(
     }
     // Handle more complex wildcards like "action:tools.virustotal.*:execute"
     if (granted.includes("*")) {
-      const pattern = granted.replace(/\*/g, ".*")
+      const pattern = escapedGranted.replace(/\*/g, ".*")
       const regex = new RegExp(`^${pattern}$`)
       if (regex.test(requiredScope)) {
         return true
@@ -65,8 +66,7 @@ function matchScope(
 }
 
 export function ScopeProvider({ children }: { children: ReactNode }) {
-  const workspaceId = useOptionalWorkspaceId()
-  const { userScopes, isLoading, error } = useUserScopes(workspaceId)
+  const { userScopes, isLoading, error } = useUserScopes()
 
   const value = useMemo<ScopeContextValue>(() => {
     const scopes = new Set(userScopes?.scopes ?? [])

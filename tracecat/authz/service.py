@@ -56,6 +56,8 @@ class MembershipService(BaseService):
         ws_stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
         ws_result = await self.session.execute(ws_stmt)
         org_id = ws_result.scalar_one_or_none()
+        if org_id is None:
+            return []
 
         # Get members
         statement = (

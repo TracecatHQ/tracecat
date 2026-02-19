@@ -30,6 +30,7 @@ from tracecat.auth.users import (
     is_unprivileged,
     optional_current_active_user,
 )
+from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
@@ -498,24 +499,22 @@ async def _resolve_org_for_regular_user(
 
 
 async def _is_org_admin_via_rbac(
-    session: AsyncSession,
     user_id: uuid.UUID,
     organization_id: uuid.UUID,
+    workspace_id: uuid.UUID | None,
 ) -> bool:
-    """Check if the user has an org-level admin/owner RBAC role assignment."""
-    stmt = (
-        select(UserRoleAssignment.id)
-        .join(DBRole, DBRole.id == UserRoleAssignment.role_id)
-        .where(
-            UserRoleAssignment.user_id == user_id,
-            UserRoleAssignment.organization_id == organization_id,
-            UserRoleAssignment.workspace_id.is_(None),
-            DBRole.slug.in_(["organization-owner", "organization-admin"]),
-        )
-        .limit(1)
+    """Check if user has an org-scoped member-management role in this org/workspace."""
+    role = Role(
+        type="user",
+        user_id=user_id,
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+        service_id="tracecat-api",
     )
-    result = await session.execute(stmt)
-    return result.scalar_one_or_none() is not None
+    return has_scope(
+        await compute_effective_scopes(role),
+        "org:member:invite",
+    )
 
 
 async def _authenticate_user(
@@ -544,7 +543,11 @@ async def _authenticate_user(
         organization_id = resolved_org_id
 
         # Check if user is an org owner/admin via RBAC - they can access all workspaces
-        is_org_admin = await _is_org_admin_via_rbac(session, user.id, organization_id)
+        is_org_admin = await _is_org_admin_via_rbac(
+            user.id,
+            organization_id,
+            workspace_id,
+        )
 
         if is_org_admin:
             logger.debug(

@@ -82,7 +82,9 @@ export function WorkspaceMembersTable({
         await updateMember({
           userId: selectedUser.user_id,
           workspaceId: workspace.id,
-          requestBody: {},
+          requestBody: {
+            role_name: roleName,
+          },
         })
       } catch (error) {
         console.log("Failed to change role", error)
