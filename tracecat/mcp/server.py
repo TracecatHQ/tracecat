@@ -10,6 +10,7 @@ import asyncio
 import json
 import re
 import uuid
+from collections import deque
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -50,11 +51,9 @@ from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.logger import logger
 from tracecat.mcp.auth import (
     create_mcp_auth,
-    get_email_from_token,
-    get_scoped_organization_id_for_request,
-    list_user_organizations,
-    list_user_workspaces,
-    resolve_role,
+    list_organizations_for_request,
+    list_workspaces_for_request,
+    resolve_role_for_request,
 )
 from tracecat.mcp.config import (
     TRACECAT_MCP__RATE_LIMIT_BURST,
@@ -174,14 +173,8 @@ def _validate_and_parse_trigger_inputs(
 
 async def _resolve_workspace_role(workspace_id: str) -> tuple[uuid.UUID, Any]:
     """Resolve workspace UUID + role from current token."""
-    email = get_email_from_token()
-    scoped_org_id = get_scoped_organization_id_for_request(email=email)
     ws_id = uuid.UUID(workspace_id)
-    role = await resolve_role(email, ws_id)
-    if scoped_org_id is not None and role.organization_id != scoped_org_id:
-        raise ValueError(
-            "Workspace is outside the organization scope for this MCP connection"
-        )
+    role = await resolve_role_for_request(ws_id)
     return ws_id, role
 
 
@@ -274,9 +267,9 @@ def _evaluate_configuration(
         required_keys = set(req["required_keys"])
         if not required_keys and req.get("optional", False):
             continue
-        available_keys = workspace_inventory.get(secret_name) or org_inventory.get(
-            secret_name
-        )
+        available_keys = workspace_inventory.get(secret_name)
+        if available_keys is None:
+            available_keys = org_inventory.get(secret_name)
         if available_keys is None:
             missing.append(f"missing secret: {secret_name}")
             continue
@@ -400,16 +393,26 @@ def _auto_generate_layout(
         for i, a in enumerate(actions):
             depth[a["ref"]] = i
     else:
-        queue = list(roots)
+        queue = deque(roots)
+        max_depth = max(len(actions) - 1, 0)
         for r in roots:
             depth[r] = 0
         while queue:
-            ref = queue.pop(0)
+            ref = queue.popleft()
             for child in dependents.get(ref, []):
                 new_depth = depth[ref] + 1
+                if new_depth > max_depth:
+                    continue
                 if child not in depth or new_depth > depth[child]:
                     depth[child] = new_depth
                     queue.append(child)
+    if len(depth) < len(actions):
+        next_depth = max(depth.values(), default=-1) + 1
+        for action in actions:
+            ref = action["ref"]
+            if ref not in depth:
+                depth[ref] = next_depth
+                next_depth += 1
 
     # Group actions by depth
     rows: dict[int, list[str]] = {}
@@ -1208,12 +1211,7 @@ async def list_workspaces() -> str:
     Returns a JSON array of workspace objects with id, name, and role.
     """
     try:
-        email = get_email_from_token()
-        scoped_org_id = get_scoped_organization_id_for_request(email=email)
-        workspaces = await list_user_workspaces(
-            email,
-            organization_id=scoped_org_id,
-        )
+        workspaces = await list_workspaces_for_request()
         return _json(workspaces)
     except ValueError as e:
         raise ToolError(str(e)) from e
@@ -1229,11 +1227,7 @@ async def list_organizations() -> str:
     Returns a JSON array of organization objects with id, name, and role.
     """
     try:
-        email = get_email_from_token()
-        scoped_org_id = get_scoped_organization_id_for_request(email=email)
-        orgs = await list_user_organizations(email)
-        if scoped_org_id is not None:
-            orgs = [org for org in orgs if org["id"] == str(scoped_org_id)]
+        orgs = await list_organizations_for_request()
         return _json(orgs)
     except ValueError as e:
         raise ToolError(str(e)) from e

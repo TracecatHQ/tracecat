@@ -35,6 +35,27 @@ def _build_claims(preset_id: uuid.UUID) -> MCPTokenClaims:
     )
 
 
+def test_evaluate_configuration_prefers_workspace_secret_even_when_empty():
+    requirements = [
+        {
+            "name": "slack",
+            "required_keys": ["SLACK_BOT_TOKEN"],
+            "optional": False,
+        }
+    ]
+    workspace_inventory = {"slack": set()}
+    org_inventory = {"slack": {"SLACK_BOT_TOKEN"}}
+
+    configured, missing = internal_tools._evaluate_configuration(
+        requirements,
+        workspace_inventory,
+        org_inventory,
+    )
+
+    assert configured is False
+    assert missing == ["missing key: slack.SLACK_BOT_TOKEN"]
+
+
 @pytest.mark.anyio
 async def test_list_available_tools_includes_configuration_fields(monkeypatch):
     preset_id = uuid.uuid4()

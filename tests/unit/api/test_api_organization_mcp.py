@@ -104,4 +104,5 @@ async def test_get_org_mcp_connect_service_unavailable(
 
     assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
     payload = response.json()
-    assert "TRACECAT_MCP__BASE_URL must be configured" in payload["detail"]
+    assert payload["detail"] == "MCP connect is temporarily unavailable"
+    assert "TRACECAT_MCP__BASE_URL" not in payload["detail"]

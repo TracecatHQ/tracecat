@@ -210,6 +210,41 @@ def test_serialize_workflow_failure_flattens_cause():
     assert cause["stack_trace"] == "Traceback: ... "
 
 
+def test_auto_generate_layout_handles_cycles():
+    actions = [
+        {"ref": "start", "depends_on": []},
+        {"ref": "middle", "depends_on": ["start", "end"]},
+        {"ref": "end", "depends_on": ["middle"]},
+    ]
+
+    layout = mcp_server._auto_generate_layout(actions)
+    refs = {item["ref"] for item in layout["actions"]}
+
+    assert refs == {"start", "middle", "end"}
+    assert len(layout["actions"]) == 3
+
+
+def test_evaluate_configuration_prefers_workspace_secret_even_when_empty():
+    requirements = [
+        {
+            "name": "slack",
+            "required_keys": ["SLACK_BOT_TOKEN"],
+            "optional": False,
+        }
+    ]
+    workspace_inventory = {"slack": set()}
+    org_inventory = {"slack": {"SLACK_BOT_TOKEN"}}
+
+    configured, missing = mcp_server._evaluate_configuration(
+        requirements,
+        workspace_inventory,
+        org_inventory,
+    )
+
+    assert configured is False
+    assert missing == ["missing key: slack.SLACK_BOT_TOKEN"]
+
+
 @pytest.mark.anyio
 async def test_create_table_parses_columns_json(monkeypatch):
     async def _resolve(_workspace_id):
@@ -810,6 +845,24 @@ async def test_input_size_limit_rejects_oversized_input():
 
 
 @pytest.mark.anyio
+async def test_input_size_limit_counts_utf8_bytes():
+    from tracecat.mcp.middleware import MCPInputSizeLimitMiddleware
+
+    mw = MCPInputSizeLimitMiddleware(max_bytes=4)
+    # 3 chars, 6 bytes in UTF-8.
+    big_string = "ééé"
+    ctx = _make_tool_context(arguments={"yaml": big_string})
+
+    async def _call_next(
+        context: MiddlewareContext[CallToolRequestParams],
+    ) -> ToolResult:
+        raise AssertionError("should not be called")
+
+    with pytest.raises(ToolError, match="exceeds maximum size"):
+        await mw.on_call_tool(ctx, _call_next)
+
+
+@pytest.mark.anyio
 async def test_input_size_limit_passes_non_string_args():
     from tracecat.mcp.middleware import MCPInputSizeLimitMiddleware
 
@@ -891,6 +944,22 @@ async def test_get_mcp_client_id_returns_anonymous_without_token():
         method="tools/call",
     )
     assert get_mcp_client_id(ctx) == "anonymous"
+
+
+@pytest.mark.anyio
+async def test_get_mcp_client_id_falls_back_to_client_id_claim():
+    from fastmcp.server.context import Context
+
+    from tracecat.mcp.middleware import get_mcp_client_id
+
+    token = SimpleNamespace(claims={"client_id": "tracecat-client"})
+    fastmcp_ctx = SimpleNamespace(get_access_token=lambda: token)
+    ctx = MiddlewareContext(
+        message=CallToolRequestParams(name="t", arguments=None),
+        fastmcp_context=cast(Context, fastmcp_ctx),
+        method="tools/call",
+    )
+    assert get_mcp_client_id(ctx) == "tracecat-client"
 
 
 @pytest.mark.anyio
@@ -1098,49 +1167,30 @@ async def test_list_actions_browse_with_namespace(monkeypatch):
 
 @pytest.mark.anyio
 async def test_list_workspaces_applies_org_scope(monkeypatch):
-    scoped_org = uuid.uuid4()
-    captured: dict[str, object] = {}
-
-    monkeypatch.setattr(mcp_server, "get_email_from_token", lambda: "alice@example.com")
-    monkeypatch.setattr(
-        mcp_server,
-        "get_scoped_organization_id_for_request",
-        lambda *, email: scoped_org,
-    )
-
-    async def _list_user_workspaces(
-        email: str,
-        organization_id: uuid.UUID | None = None,
-    ) -> list[dict[str, str]]:
-        captured["email"] = email
-        captured["organization_id"] = organization_id
+    async def _list_workspaces_for_request() -> list[dict[str, str]]:
         return [{"id": str(uuid.uuid4()), "name": "SOC", "role": "member"}]
 
-    monkeypatch.setattr(mcp_server, "list_user_workspaces", _list_user_workspaces)
+    monkeypatch.setattr(
+        mcp_server,
+        "list_workspaces_for_request",
+        _list_workspaces_for_request,
+    )
     result = await mcp_server.list_workspaces.fn()
     payload = json.loads(result)
 
     assert len(payload) == 1
-    assert captured["email"] == "alice@example.com"
-    assert captured["organization_id"] == scoped_org
 
 
 @pytest.mark.anyio
 async def test_resolve_workspace_role_rejects_scope_mismatch(monkeypatch):
-    workspace_org = uuid.uuid4()
-    scoped_org = uuid.uuid4()
+    async def _resolve_role_for_request(_workspace_id: uuid.UUID):
+        raise ValueError(
+            "Workspace is outside the organization scope for this MCP connection"
+        )
 
-    monkeypatch.setattr(mcp_server, "get_email_from_token", lambda: "alice@example.com")
     monkeypatch.setattr(
-        mcp_server,
-        "get_scoped_organization_id_for_request",
-        lambda *, email: scoped_org,
+        mcp_server, "resolve_role_for_request", _resolve_role_for_request
     )
-
-    async def _resolve_role(_email: str, _workspace_id: uuid.UUID):
-        return SimpleNamespace(organization_id=workspace_org)
-
-    monkeypatch.setattr(mcp_server, "resolve_role", _resolve_role)
 
     with pytest.raises(
         ValueError,
