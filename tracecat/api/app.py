@@ -342,6 +342,8 @@ def scope_denied_exception_handler(request: Request, exc: Exception) -> Response
             }
         },
     )
+
+
 def feature_flag_dep(flag: FlagLike) -> Callable[..., None]:
     """Check if a feature flag is enabled."""
 
@@ -354,6 +356,7 @@ def feature_flag_dep(flag: FlagLike) -> Callable[..., None]:
         logger.debug("Feature flag is enabled", flag=flag)
 
     return _is_feature_enabled
+
 
 def create_app(**kwargs) -> FastAPI:
     if config.TRACECAT__ALLOW_ORIGINS is not None:
