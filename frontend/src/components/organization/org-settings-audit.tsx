@@ -371,9 +371,9 @@ export function OrgSettingsAuditForm() {
     <>
       {failedKeys.length > 0 && (
         <Alert>
-          <AlertTriangleIcon className="icon-failure size-4" />
+          <AlertTriangleIcon className="size-4 !text-destructive" />
           <AlertTitle className="text-destructive">
-            Failed to decrypt
+            Unable to decrypt organization settings
           </AlertTitle>
           <AlertDescription>
             Failed to decrypt existing values for {failedKeys.join(", ")}.

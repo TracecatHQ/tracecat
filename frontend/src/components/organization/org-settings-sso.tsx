@@ -87,9 +87,9 @@ export function OrgSettingsSsoForm() {
       <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-8">
         {failedKeys.length > 0 && (
           <Alert>
-            <AlertTriangleIcon className="icon-failure size-4" />
+            <AlertTriangleIcon className="size-4 !text-destructive" />
             <AlertTitle className="text-destructive">
-              Encrypted settings need reconfiguration
+              Unable to decrypt organization settings
             </AlertTitle>
             <AlertDescription>
               Some encrypted values could not be decrypted for{" "}
