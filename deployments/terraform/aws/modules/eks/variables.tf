@@ -500,7 +500,7 @@ variable "tags" {
 
 # Feature Flags
 variable "feature_flags" {
-  description = "Comma-separated Tracecat feature flags (maps to tracecat.featureFlags)"
+  description = "Comma-separated enterprise feature flags (maps to enterprise.featureFlags)"
   type        = string
   default     = ""
 }

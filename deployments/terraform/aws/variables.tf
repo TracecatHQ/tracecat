@@ -553,7 +553,7 @@ variable "ee_multi_tenant" {
 
 # Feature Flags
 variable "feature_flags" {
-  description = "Comma-separated Tracecat feature flags (e.g. 'git-sync,case-tasks')"
+  description = "Comma-separated enterprise feature flags (e.g. 'git-sync,case-tasks')"
   type        = string
   default     = ""
 }
