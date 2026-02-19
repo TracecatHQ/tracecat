@@ -21,7 +21,7 @@ from tracecat.db.models import (
     UserRoleAssignment,
 )
 from tracecat.db.models import (
-    Role as RoleModel,
+    Role as DBRole,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -249,8 +249,8 @@ async def get_current_org_member(
 
     # Get role name from RBAC assignment
     rbac_stmt = (
-        select(RoleModel.name)
-        .join(UserRoleAssignment, UserRoleAssignment.role_id == RoleModel.id)
+        select(DBRole.name)
+        .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
         .where(
             UserRoleAssignment.user_id == user.id,
             UserRoleAssignment.organization_id == role.organization_id,
@@ -290,8 +290,8 @@ async def list_org_members(
     # Build a map of user_id -> RBAC role name for org-wide assignments
     user_ids = [user.id for user in members]
     rbac_stmt = (
-        select(UserRoleAssignment.user_id, RoleModel.name, RoleModel.slug)
-        .join(RoleModel, UserRoleAssignment.role_id == RoleModel.id)
+        select(UserRoleAssignment.user_id, DBRole.name, DBRole.slug)
+        .join(DBRole, UserRoleAssignment.role_id == DBRole.id)
         .where(
             UserRoleAssignment.organization_id == role.organization_id,
             UserRoleAssignment.workspace_id.is_(None),
@@ -386,8 +386,8 @@ async def update_org_member(
         user = await service.update_member(user_id, params)
         # Get role name from RBAC assignment
         rbac_stmt = (
-            select(RoleModel.name)
-            .join(UserRoleAssignment, UserRoleAssignment.role_id == RoleModel.id)
+            select(DBRole.name)
+            .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
             .where(
                 UserRoleAssignment.user_id == user.id,
                 UserRoleAssignment.organization_id == role.organization_id,
@@ -617,14 +617,14 @@ async def list_my_pending_invitations(
 
     now = datetime.now(UTC)
     statement = (
-        select(OrganizationInvitation, Organization, User, RoleModel)
+        select(OrganizationInvitation, Organization, User, DBRole)
         .join(
             Organization,
             Organization.id == OrganizationInvitation.organization_id,  # pyright: ignore[reportArgumentType]
         )
         .join(
-            RoleModel,
-            RoleModel.id == OrganizationInvitation.role_id,  # pyright: ignore[reportArgumentType]
+            DBRole,
+            DBRole.id == OrganizationInvitation.role_id,  # pyright: ignore[reportArgumentType]
         )
         .outerjoin(
             User,

@@ -48,7 +48,7 @@ import {
   useWorkspaceMembers,
   useWorkspaceMutations,
 } from "@/hooks/use-workspace"
-import { useRbacRoles } from "@/lib/hooks"
+import { useRbacRoles, useRbacUserAssignments } from "@/lib/hooks"
 
 export function WorkspaceMembersTable({
   workspace,
@@ -58,13 +58,15 @@ export function WorkspaceMembersTable({
   const canManageMembers = useScopeCheck("workspace:member:update")
   const [selectedUser, setSelectedUser] = useState<WorkspaceMember | null>(null)
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
-  const { removeMember, updateMember } = useWorkspaceMutations()
+  const { removeMember } = useWorkspaceMutations()
   const { members, membersLoading, membersError } = useWorkspaceMembers(
     workspace.id
   )
+  const { userAssignments, updateUserAssignment, createUserAssignment } =
+    useRbacUserAssignments({ workspaceId: workspace.id })
 
   const handleChangeRole = useCallback(
-    async (roleName: string) => {
+    async (roleId: string) => {
       try {
         if (!selectedUser) {
           return toast({
@@ -72,20 +74,25 @@ export function WorkspaceMembersTable({
             description: "Please select a user to change role",
           })
         }
-        if (selectedUser.role_name === roleName) {
-          return toast({
-            title: "No changes made",
-            description: `User ${selectedUser.email} is already a ${roleName}`,
+        // Find the existing RBAC assignment for this user in this workspace
+        const existingAssignment = userAssignments?.find(
+          (a) =>
+            a.user_id === selectedUser.user_id &&
+            a.workspace_id === workspace.id
+        )
+        if (existingAssignment) {
+          await updateUserAssignment({
+            assignmentId: existingAssignment.id,
+            role_id: roleId,
+          })
+        } else {
+          // No existing assignment — create one
+          await createUserAssignment({
+            user_id: selectedUser.user_id,
+            role_id: roleId,
+            workspace_id: workspace.id,
           })
         }
-        console.log("Changing role", selectedUser, roleName)
-        await updateMember({
-          userId: selectedUser.user_id,
-          workspaceId: workspace.id,
-          requestBody: {
-            role_name: roleName,
-          },
-        })
       } catch (error) {
         console.log("Failed to change role", error)
       } finally {
@@ -93,7 +100,13 @@ export function WorkspaceMembersTable({
         setSelectedUser(null)
       }
     },
-    [selectedUser, updateMember, workspace.id]
+    [
+      selectedUser,
+      userAssignments,
+      workspace.id,
+      updateUserAssignment,
+      createUserAssignment,
+    ]
   )
   return (
     <Dialog open={isChangeRoleOpen} onOpenChange={setIsChangeRoleOpen}>
@@ -280,14 +293,18 @@ function ChangeUserRoleDialog({
 }: {
   selectedUser: WorkspaceMember | null
   setOpen: (open: boolean) => void
-  onConfirm: (roleName: string) => void
+  onConfirm: (roleId: string) => void
 }) {
-  const [newRoleName, setNewRoleName] = useState<string>(
-    selectedUser?.role_name || "Editor"
-  )
   const { roles } = useRbacRoles()
   const workspaceRoles = roles.filter(
     (r) => !r.slug || r.slug.startsWith("workspace-")
+  )
+  // Find the current role's ID to use as default selection
+  const currentRole = workspaceRoles.find(
+    (r) => r.name === selectedUser?.role_name
+  )
+  const [selectedRoleId, setSelectedRoleId] = useState<string>(
+    currentRole?.id ?? ""
   )
 
   return (
@@ -299,15 +316,15 @@ function ChangeUserRoleDialog({
         </DialogDescription>
       </DialogHeader>
       <Select
-        value={newRoleName}
-        onValueChange={(value) => setNewRoleName(value)}
+        value={selectedRoleId}
+        onValueChange={(value) => setSelectedRoleId(value)}
       >
         <SelectTrigger>
           <SelectValue placeholder="Select a role" />
         </SelectTrigger>
         <SelectContent>
           {workspaceRoles.map((role) => (
-            <SelectItem key={role.id} value={role.name}>
+            <SelectItem key={role.id} value={role.id}>
               {role.name}
             </SelectItem>
           ))}
@@ -317,7 +334,7 @@ function ChangeUserRoleDialog({
         <Button variant="outline" onClick={() => setOpen(false)}>
           Cancel
         </Button>
-        <Button onClick={() => onConfirm(newRoleName)}>Change role</Button>
+        <Button onClick={() => onConfirm(selectedRoleId)}>Change role</Button>
       </DialogFooter>
     </DialogContent>
   )
