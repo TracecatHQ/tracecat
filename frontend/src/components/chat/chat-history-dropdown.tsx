@@ -26,6 +26,7 @@ interface ChatHistoryDropdownProps {
   error: unknown
   selectedChatId: string | undefined
   onSelectChat: (chatId: string) => void
+  align?: "start" | "center" | "end"
 }
 
 export function ChatHistoryDropdown({
@@ -34,6 +35,7 @@ export function ChatHistoryDropdown({
   error,
   selectedChatId,
   onSelectChat,
+  align = "start",
 }: ChatHistoryDropdownProps) {
   const [open, setOpen] = useState(false)
 
@@ -52,11 +54,11 @@ export function ChatHistoryDropdown({
           role="combobox"
           aria-expanded={open}
         >
-          Conversations
+          Chats
           <ChevronDown className="ml-1 size-3" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-64 p-0">
+      <PopoverContent align={align} className="w-64 p-0">
         {isLoading ? (
           <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
