@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import Callable
 from functools import wraps
 from typing import Annotated, Any
@@ -193,51 +192,6 @@ async def delete_org(
 
             await client.delete_organization(org_id, confirmation=typed_confirmation)
             print_success(f"Organization '{org.name}' deleted successfully")
-    except AdminClientError as e:
-        print_error(str(e))
-        raise typer.Exit(1) from None
-
-
-@app.command("reset-encrypted-setting")
-@async_command
-async def reset_encrypted_setting(
-    org_id: Annotated[str, typer.Argument(help="Organization ID (UUID)")],
-    key: Annotated[str, typer.Argument(help="Organization setting key")],
-    json_value: Annotated[
-        str,
-        typer.Option(
-            "--json-value",
-            help="JSON-encoded setting value to encrypt and store",
-        ),
-    ],
-    json_output: Annotated[
-        bool, typer.Option("--json", "-j", help="Output as JSON")
-    ] = False,
-) -> None:
-    """Reset an encrypted organization setting value."""
-    try:
-        value = json.loads(json_value)
-    except json.JSONDecodeError as e:
-        print_error(f"Invalid --json-value: {e.msg}")
-        raise typer.Exit(1) from e
-
-    try:
-        async with AdminClient() as client:
-            result = await client.reset_org_encrypted_setting(
-                org_id=org_id,
-                key=key,
-                value=value,
-            )
-
-        if json_output:
-            typer.echo(json.dumps(result.model_dump(mode="json"), indent=2))
-        else:
-            print_success(f"Encrypted setting '{key}' reset successfully")
-            typer.echo(f"Organization ID: {result.organization_id}")
-            typer.echo(f"Key: {result.key}")
-            typer.echo(f"Value type: {result.value_type}")
-            typer.echo(f"Encrypted: {result.is_encrypted}")
-            typer.echo(f"Updated at: {result.updated_at.isoformat()}")
     except AdminClientError as e:
         print_error(str(e))
         raise typer.Exit(1) from None

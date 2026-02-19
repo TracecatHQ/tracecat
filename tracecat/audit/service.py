@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Self
+from typing import Any, Self
 
 import httpx
 from sqlalchemy import select
@@ -101,15 +101,77 @@ class AuditService(BaseService):
 
         return value
 
+    async def _get_custom_payload(self) -> dict[str, Any] | None:
+        """Fetch the configured custom payload for the audit webhook."""
+        from tracecat.settings.service import get_setting
+
+        value = await get_setting("audit_webhook_custom_payload", session=self.session)
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            self.logger.warning(
+                "audit_webhook_custom_payload must be a dict",
+                value_type=type(value),
+            )
+            return None
+        return value
+
+    async def _get_verify_ssl(self) -> bool:
+        """Fetch SSL verification setting for audit webhook requests."""
+        from tracecat.settings.service import get_setting
+
+        value = await get_setting(
+            "audit_webhook_verify_ssl", session=self.session, default=True
+        )
+        if not isinstance(value, bool):
+            self.logger.warning(
+                "audit_webhook_verify_ssl must be a bool",
+                value=value,
+                value_type=type(value),
+            )
+            return True
+        return value
+
+    async def _get_payload_attribute(self) -> str | None:
+        """Fetch optional wrapper attribute for webhook payloads."""
+        from tracecat.settings.service import get_setting
+
+        value = await get_setting(
+            "audit_webhook_payload_attribute", session=self.session
+        )
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            self.logger.warning(
+                "audit_webhook_payload_attribute must be a string",
+                value=value,
+                value_type=type(value),
+            )
+            return None
+
+        cleaned = value.strip()
+        return cleaned or None
+
     async def _post_event(self, *, webhook_url: str, payload: AuditEvent) -> None:
         response: httpx.Response | None = None
         try:
             custom_headers = await self._get_custom_headers()
+            custom_payload = await self._get_custom_payload()
+            verify_ssl = await self._get_verify_ssl()
+            payload_attribute = await self._get_payload_attribute()
+            event_payload = payload.model_dump(mode="json")
+            if custom_payload:
+                event_payload = {**event_payload, **custom_payload}
+            request_payload: dict[str, Any]
+            if payload_attribute:
+                request_payload = {payload_attribute: event_payload}
+            else:
+                request_payload = event_payload
 
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, verify=verify_ssl) as client:
                 response = await client.post(
                     webhook_url,
-                    json=payload.model_dump(mode="json"),
+                    json=request_payload,
                     headers=custom_headers,
                 )
                 response.raise_for_status()

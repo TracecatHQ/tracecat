@@ -113,6 +113,10 @@
     color: hsl(var(--success));
   }
 
+  .icon-failure {
+    color: hsl(var(--destructive));
+  }
+
   .editor-wrapper .monaco-editor {
     border-radius: 8px;
   }

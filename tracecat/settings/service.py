@@ -4,6 +4,7 @@ from typing import Any
 
 import orjson
 from async_lru import alru_cache
+from cryptography.fernet import InvalidToken
 from pydantic import BaseModel, SecretStr
 from pydantic_core import to_jsonable_python
 from sqlalchemy import select
@@ -92,6 +93,33 @@ class SettingsService(BaseOrgService):
                 value_bytes, key=self._encryption_key.get_secret_value()
             )
         return self._deserialize_value_bytes(value_bytes)
+
+    def get_values_with_decryption_fallback(
+        self,
+        settings: Sequence[OrganizationSetting],
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Deserialize settings while tolerating encrypted decrypt failures.
+
+        If an encrypted setting cannot be decrypted, return `None` for that key
+        and include the key in `decryption_failed_keys` so callers can prompt for
+        reconfiguration instead of failing the entire response.
+        """
+        values: dict[str, Any] = {}
+        decryption_failed_keys: list[str] = []
+        for setting in settings:
+            try:
+                values[setting.key] = self.get_value(setting)
+            except (InvalidToken, ValueError) as e:
+                if not setting.is_encrypted:
+                    raise
+                values[setting.key] = None
+                decryption_failed_keys.append(setting.key)
+                self.logger.warning(
+                    "Failed to decrypt org setting; returning null and marking for reconfiguration",
+                    key=setting.key,
+                    error=str(e),
+                )
+        return values, decryption_failed_keys
 
     async def list_org_settings(
         self,

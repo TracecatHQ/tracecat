@@ -10,7 +10,6 @@ import httpx
 from tracecat_admin.config import Config, get_config, load_cookies
 from tracecat_admin.schemas import (
     OrganizationTierRead,
-    OrgEncryptedSettingResetResponse,
     OrgRead,
     OrgRegistryRepositoryRead,
     OrgRegistrySyncResponse,
@@ -178,21 +177,6 @@ class AdminClient:
             f"/admin/organizations/{org_id}",
             params={"confirm": confirmation},
         )
-
-    async def reset_org_encrypted_setting(
-        self,
-        org_id: str,
-        key: str,
-        *,
-        value: Any,
-    ) -> OrgEncryptedSettingResetResponse:
-        """Reset an existing encrypted organization setting."""
-        response = await self._request(
-            "POST",
-            f"/admin/organizations/{org_id}/settings/{key}/reset-encrypted",
-            json={"value": value},
-        )
-        return OrgEncryptedSettingResetResponse.model_validate(response.json())
 
     # Registry endpoints
     async def sync_registry(

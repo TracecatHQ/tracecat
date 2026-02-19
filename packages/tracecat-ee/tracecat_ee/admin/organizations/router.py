@@ -15,8 +15,6 @@ from tracecat_ee.admin.organizations.schemas import (
     OrgDomainCreate,
     OrgDomainRead,
     OrgDomainUpdate,
-    OrgEncryptedSettingResetRequest,
-    OrgEncryptedSettingResetResponse,
     OrgRead,
     OrgRegistryRepositoryRead,
     OrgRegistrySyncRequest,
@@ -118,38 +116,6 @@ async def delete_organization(
         ) from e
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-
-
-@router.post(
-    "/{org_id}/settings/{key}/reset-encrypted",
-    response_model=OrgEncryptedSettingResetResponse,
-)
-async def reset_encrypted_org_setting(
-    role: SuperuserRole,
-    session: AsyncDBSession,
-    org_id: uuid.UUID,
-    key: str,
-    params: OrgEncryptedSettingResetRequest,
-) -> OrgEncryptedSettingResetResponse:
-    """Reset an existing encrypted organization setting."""
-    service = AdminOrgService(session, role)
-    try:
-        return await service.reset_encrypted_org_setting(
-            org_id,
-            key,
-            value=params.value,
-        )
-    except ValueError as e:
-        detail = str(e)
-        if "not found" in detail.lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=detail,
-            ) from e
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=detail,
-        ) from e
 
 
 # Org Domain Endpoints

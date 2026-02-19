@@ -5,7 +5,6 @@ import Cookies from "js-cookie"
 import { useState } from "react"
 import type { tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead } from "@/client"
 import { AdminOrgDomainsDialog } from "@/components/admin/admin-org-domains-dialog"
-import { AdminOrgEncryptedSettingResetDialog } from "@/components/admin/admin-org-encrypted-setting-reset-dialog"
 import { AdminOrgRegistryDialog } from "@/components/admin/admin-org-registry-dialog"
 import { AdminOrgTierDialog } from "@/components/admin/admin-org-tier-dialog"
 import { AdminOrganizationEditDialog } from "@/components/admin/admin-organization-edit-dialog"
@@ -41,9 +40,6 @@ export function AdminOrganizationsTable() {
   const [tierOrgId, setTierOrgId] = useState<string | null>(null)
   const [domainsOrgId, setDomainsOrgId] = useState<string | null>(null)
   const [registryOrgId, setRegistryOrgId] = useState<string | null>(null)
-  const [settingsResetOrgId, setSettingsResetOrgId] = useState<string | null>(
-    null
-  )
   const [selectedOrg, setSelectedOrg] = useState<OrgRead | null>(null)
   const [deleteConfirmation, setDeleteConfirmation] = useState("")
   const { organizations, deleteOrganization } = useAdminOrganizations()
@@ -245,11 +241,6 @@ export function AdminOrganizationsTable() {
                       >
                         Manage registry
                       </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() => setSettingsResetOrgId(row.original.id)}
-                      >
-                        Manage settings
-                      </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
                         onSelect={() =>
@@ -351,17 +342,6 @@ export function AdminOrganizationsTable() {
           onOpenChange={(isOpen) => {
             if (!isOpen) {
               setRegistryOrgId(null)
-            }
-          }}
-        />
-      )}
-      {settingsResetOrgId && (
-        <AdminOrgEncryptedSettingResetDialog
-          orgId={settingsResetOrgId}
-          open
-          onOpenChange={(isOpen) => {
-            if (!isOpen) {
-              setSettingsResetOrgId(null)
             }
           }}
         />

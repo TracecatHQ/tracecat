@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
 
 from pydantic import Field
 
@@ -71,22 +70,6 @@ class OrgDomainRead(Schema):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
-
-
-class OrgEncryptedSettingResetRequest(Schema):
-    """Reset encrypted organization setting request."""
-
-    value: Any
-
-
-class OrgEncryptedSettingResetResponse(Schema):
-    """Reset encrypted organization setting response."""
-
-    organization_id: uuid.UUID
-    key: str
-    value_type: str
-    is_encrypted: bool
-    updated_at: datetime
 
 
 # Org Registry Schemas
