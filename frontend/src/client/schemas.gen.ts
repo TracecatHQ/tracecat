@@ -2957,6 +2957,43 @@ export const $AuditSettingsRead = {
       ],
       title: "Audit Webhook Custom Headers",
     },
+    audit_webhook_custom_payload: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Custom Payload",
+    },
+    audit_webhook_payload_attribute: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Payload Attribute",
+    },
+    audit_webhook_verify_ssl: {
+      type: "boolean",
+      title: "Audit Webhook Verify Ssl",
+      default: true,
+    },
+    decryption_failed_keys: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Decryption Failed Keys",
+      description:
+        "Encrypted setting keys that could not be decrypted with the current encryption key and must be reconfigured.",
+    },
   },
   type: "object",
   required: ["audit_webhook_url"],
@@ -2994,6 +3031,40 @@ export const $AuditSettingsUpdate = {
       title: "Audit Webhook Custom Headers",
       description:
         "Custom headers to include in audit webhook requests. Header names are case-insensitive.",
+    },
+    audit_webhook_custom_payload: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Custom Payload",
+      description:
+        "Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.",
+    },
+    audit_webhook_payload_attribute: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Audit Webhook Payload Attribute",
+      description:
+        "Optional wrapper key for audit payloads. When set to a value like 'event', payload is sent as {'event': <audit_payload>}.",
+    },
+    audit_webhook_verify_ssl: {
+      type: "boolean",
+      title: "Audit Webhook Verify Ssl",
+      description:
+        "Whether TLS certificates are verified for webhook requests. Disable only for trusted on-prem/self-signed endpoints.",
+      default: true,
     },
   },
   type: "object",
@@ -10538,55 +10609,6 @@ export const $OrgDomainUpdate = {
   description: "Update organization domain request.",
 } as const
 
-export const $OrgEncryptedSettingResetRequest = {
-  properties: {
-    value: {
-      title: "Value",
-    },
-  },
-  type: "object",
-  required: ["value"],
-  title: "OrgEncryptedSettingResetRequest",
-  description: "Reset encrypted organization setting request.",
-} as const
-
-export const $OrgEncryptedSettingResetResponse = {
-  properties: {
-    organization_id: {
-      type: "string",
-      format: "uuid",
-      title: "Organization Id",
-    },
-    key: {
-      type: "string",
-      title: "Key",
-    },
-    value_type: {
-      type: "string",
-      title: "Value Type",
-    },
-    is_encrypted: {
-      type: "boolean",
-      title: "Is Encrypted",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
-  },
-  type: "object",
-  required: [
-    "organization_id",
-    "key",
-    "value_type",
-    "is_encrypted",
-    "updated_at",
-  ],
-  title: "OrgEncryptedSettingResetResponse",
-  description: "Reset encrypted organization setting response.",
-} as const
-
 export const $OrgInvitationAccept = {
   properties: {
     token: {
@@ -14380,6 +14402,15 @@ export const $SAMLSettingsRead = {
     saml_sp_acs_url: {
       type: "string",
       title: "Saml Sp Acs Url",
+    },
+    decryption_failed_keys: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Decryption Failed Keys",
+      description:
+        "Encrypted setting keys that could not be decrypted with the current encryption key and must be reconfigured.",
     },
   },
   type: "object",

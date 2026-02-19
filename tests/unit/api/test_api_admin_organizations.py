@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 from tracecat_ee.admin.organizations import router as organizations_router
 from tracecat_ee.admin.organizations.schemas import (
     OrgDomainRead,
-    OrgEncryptedSettingResetResponse,
     OrgRead,
 )
 
@@ -45,20 +44,6 @@ def _org_domain_read(
         verified_at=None,
         verification_method="platform_admin",
         created_at=now,
-        updated_at=now,
-    )
-
-
-def _org_encrypted_setting_reset_read(
-    org_id: uuid.UUID,
-    key: str,
-) -> OrgEncryptedSettingResetResponse:
-    now = datetime(2024, 1, 1, tzinfo=UTC)
-    return OrgEncryptedSettingResetResponse(
-        organization_id=org_id,
-        key=key,
-        value_type="json",
-        is_encrypted=True,
         updated_at=now,
     )
 
@@ -302,67 +287,3 @@ async def test_delete_org_domain_success(
         response = client.delete(f"/admin/organizations/{org_id}/domains/{domain_id}")
 
     assert response.status_code == status.HTTP_204_NO_CONTENT
-
-
-@pytest.mark.anyio
-async def test_reset_encrypted_org_setting_success(
-    client: TestClient, test_admin_role: Role
-) -> None:
-    org_id = uuid.uuid4()
-    key = "audit_webhook_url"
-    reset = _org_encrypted_setting_reset_read(org_id, key)
-
-    with patch.object(organizations_router, "AdminOrgService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.reset_encrypted_org_setting.return_value = reset
-        MockService.return_value = mock_svc
-
-        response = client.post(
-            f"/admin/organizations/{org_id}/settings/{key}/reset-encrypted",
-            json={"value": "https://example.com/new"},
-        )
-
-    assert response.status_code == status.HTTP_200_OK
-    assert response.json()["key"] == key
-
-
-@pytest.mark.anyio
-async def test_reset_encrypted_org_setting_not_found(
-    client: TestClient, test_admin_role: Role
-) -> None:
-    org_id = uuid.uuid4()
-    key = "audit_webhook_url"
-
-    with patch.object(organizations_router, "AdminOrgService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.reset_encrypted_org_setting.side_effect = ValueError("not found")
-        MockService.return_value = mock_svc
-
-        response = client.post(
-            f"/admin/organizations/{org_id}/settings/{key}/reset-encrypted",
-            json={"value": "https://example.com/new"},
-        )
-
-    assert response.status_code == status.HTTP_404_NOT_FOUND
-
-
-@pytest.mark.anyio
-async def test_reset_encrypted_org_setting_rejects_non_encrypted(
-    client: TestClient, test_admin_role: Role
-) -> None:
-    org_id = uuid.uuid4()
-    key = "saml_enabled"
-
-    with patch.object(organizations_router, "AdminOrgService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.reset_encrypted_org_setting.side_effect = ValueError(
-            "Organization setting is not encrypted"
-        )
-        MockService.return_value = mock_svc
-
-        response = client.post(
-            f"/admin/organizations/{org_id}/settings/{key}/reset-encrypted",
-            json={"value": True},
-        )
-
-    assert response.status_code == status.HTTP_400_BAD_REQUEST

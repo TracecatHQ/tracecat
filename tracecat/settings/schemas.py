@@ -52,6 +52,13 @@ class SAMLSettingsRead(BaseSettingsGroup):
     saml_enforced: bool
     saml_idp_metadata_url: str | None = Field(default=None)
     saml_sp_acs_url: str  # Read only
+    decryption_failed_keys: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Encrypted setting keys that could not be decrypted with the current "
+            "encryption key and must be reconfigured."
+        ),
+    )
 
     @field_validator("saml_enforced", mode="before")
     @classmethod
@@ -121,6 +128,16 @@ class AuditSettingsRead(BaseSettingsGroup):
 
     audit_webhook_url: str | None
     audit_webhook_custom_headers: dict[str, str] | None = None
+    audit_webhook_custom_payload: dict[str, Any] | None = None
+    audit_webhook_payload_attribute: str | None = None
+    audit_webhook_verify_ssl: bool = True
+    decryption_failed_keys: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Encrypted setting keys that could not be decrypted with the current "
+            "encryption key and must be reconfigured."
+        ),
+    )
 
 
 class AuditSettingsUpdate(BaseSettingsGroup):
@@ -133,6 +150,27 @@ class AuditSettingsUpdate(BaseSettingsGroup):
     audit_webhook_custom_headers: dict[str, str] | None = Field(
         default=None,
         description="Custom headers to include in audit webhook requests. Header names are case-insensitive.",
+    )
+    audit_webhook_custom_payload: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Custom JSON payload merged into streamed audit event payloads. "
+            "Custom keys override default audit event keys."
+        ),
+    )
+    audit_webhook_payload_attribute: str | None = Field(
+        default=None,
+        description=(
+            "Optional wrapper key for audit payloads. When set to a value like "
+            "'event', payload is sent as {'event': <audit_payload>}."
+        ),
+    )
+    audit_webhook_verify_ssl: bool = Field(
+        default=True,
+        description=(
+            "Whether TLS certificates are verified for webhook requests. "
+            "Disable only for trusted on-prem/self-signed endpoints."
+        ),
     )
 
 

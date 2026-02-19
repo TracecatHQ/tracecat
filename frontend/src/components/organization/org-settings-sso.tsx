@@ -1,12 +1,14 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import { AlertTriangleIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { SAMLSettingsUpdate } from "@/client"
 import { CopyButton } from "@/components/copy-button"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -78,9 +80,24 @@ export function OrgSettingsSsoForm() {
     )
   }
 
+  const failedKeys = samlSettings.decryption_failed_keys ?? []
+
   return (
     <Form {...methods}>
       <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-8">
+        {failedKeys.length > 0 && (
+          <Alert>
+            <AlertTriangleIcon className="icon-failure size-4" />
+            <AlertTitle className="text-destructive">
+              Encrypted settings need reconfiguration
+            </AlertTitle>
+            <AlertDescription>
+              Some encrypted values could not be decrypted for{" "}
+              {failedKeys.join(", ")}. Please reconfigure and save these
+              settings again.
+            </AlertDescription>
+          </Alert>
+        )}
         <FormField
           control={methods.control}
           name="saml_enabled"

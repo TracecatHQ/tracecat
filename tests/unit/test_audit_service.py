@@ -8,9 +8,10 @@ import orjson
 import pytest
 import respx
 
-from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
+from tracecat.audit.types import AuditEvent
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.contexts import ctx_role
 
@@ -75,6 +76,129 @@ async def test_create_event_streams_to_webhook(
     assert payload["action"] == "create"
     assert payload["status"] == AuditEventStatus.SUCCESS.value
     assert payload["actor_label"] == "user@example.com"
+
+
+@pytest.mark.anyio
+async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
+    monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
+) -> None:
+    webhook_url = "https://example.com/audit"
+    monkeypatch.setattr(
+        audit_service,
+        "_get_custom_headers",
+        AsyncMock(return_value={"X-Custom-Header": "custom-value"}),
+    )
+    monkeypatch.setattr(
+        audit_service,
+        "_get_custom_payload",
+        AsyncMock(return_value={"resource_type": "organization", "custom": "yes"}),
+    )
+    monkeypatch.setattr(
+        audit_service,
+        "_get_verify_ssl",
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        audit_service,
+        "_get_payload_attribute",
+        AsyncMock(return_value=None),
+    )
+
+    response_mock = MagicMock()
+    response_mock.raise_for_status = MagicMock()
+    client_mock = AsyncMock()
+    client_mock.post = AsyncMock(return_value=response_mock)
+    async_client_context_mock = AsyncMock()
+    async_client_context_mock.__aenter__.return_value = client_mock
+    async_client_context_mock.__aexit__.return_value = None
+
+    event = AuditEvent(
+        organization_id=uuid.uuid4(),
+        workspace_id=None,
+        actor_type=AuditEventActor.USER,
+        actor_id=uuid.uuid4(),
+        actor_label="user@example.com",
+        resource_type="workflow",
+        resource_id=uuid.uuid4(),
+        action="create",
+        status=AuditEventStatus.SUCCESS,
+    )
+
+    with patch(
+        "tracecat.audit.service.httpx.AsyncClient",
+        return_value=async_client_context_mock,
+    ) as async_client_ctor:
+        await audit_service._post_event(webhook_url=webhook_url, payload=event)
+
+    async_client_ctor.assert_called_once_with(timeout=10.0, verify=False)
+    assert client_mock.post.await_count == 1
+    args = client_mock.post.await_args.args
+    kwargs = client_mock.post.await_args.kwargs
+    assert args[0] == webhook_url
+    assert kwargs["headers"] == {"X-Custom-Header": "custom-value"}
+    assert kwargs["json"]["custom"] == "yes"
+    assert kwargs["json"]["resource_type"] == "organization"
+    assert kwargs["json"]["actor_label"] == "user@example.com"
+
+
+@pytest.mark.anyio
+async def test_post_event_wraps_payload_when_attribute_configured(
+    monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
+) -> None:
+    webhook_url = "https://example.com/audit"
+    monkeypatch.setattr(
+        audit_service,
+        "_get_custom_headers",
+        AsyncMock(return_value={"X-Custom-Header": "custom-value"}),
+    )
+    monkeypatch.setattr(
+        audit_service,
+        "_get_custom_payload",
+        AsyncMock(return_value={"custom": "yes"}),
+    )
+    monkeypatch.setattr(
+        audit_service,
+        "_get_verify_ssl",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        audit_service,
+        "_get_payload_attribute",
+        AsyncMock(return_value="event"),
+    )
+
+    response_mock = MagicMock()
+    response_mock.raise_for_status = MagicMock()
+    client_mock = AsyncMock()
+    client_mock.post = AsyncMock(return_value=response_mock)
+    async_client_context_mock = AsyncMock()
+    async_client_context_mock.__aenter__.return_value = client_mock
+    async_client_context_mock.__aexit__.return_value = None
+
+    event = AuditEvent(
+        organization_id=uuid.uuid4(),
+        workspace_id=None,
+        actor_type=AuditEventActor.USER,
+        actor_id=uuid.uuid4(),
+        actor_label="user@example.com",
+        resource_type="workflow",
+        resource_id=uuid.uuid4(),
+        action="create",
+        status=AuditEventStatus.SUCCESS,
+    )
+
+    with patch(
+        "tracecat.audit.service.httpx.AsyncClient",
+        return_value=async_client_context_mock,
+    ) as async_client_ctor:
+        await audit_service._post_event(webhook_url=webhook_url, payload=event)
+
+    async_client_ctor.assert_called_once_with(timeout=10.0, verify=True)
+    kwargs = client_mock.post.await_args.kwargs
+    wrapped_payload = kwargs["json"]
+    assert set(wrapped_payload.keys()) == {"event"}
+    assert wrapped_payload["event"]["custom"] == "yes"
+    assert wrapped_payload["event"]["actor_label"] == "user@example.com"
 
 
 @pytest.mark.anyio

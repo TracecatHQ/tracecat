@@ -71,7 +71,7 @@ async def get_git_settings(
     service = SettingsService(session, role)
     keys = GitSettingsRead.keys()
     settings = await service.list_org_settings(keys=keys)
-    settings_dict = {setting.key: service.get_value(setting) for setting in settings}
+    settings_dict, _ = service.get_values_with_decryption_fallback(settings)
     return GitSettingsRead(**settings_dict)
 
 
@@ -95,12 +95,18 @@ async def get_saml_settings(
     service = SettingsService(session, role)
 
     # Exclude read-only keys
-    keys = SAMLSettingsRead.keys(exclude={"saml_sp_acs_url"})
+    keys = SAMLSettingsRead.keys(exclude={"saml_sp_acs_url", "decryption_failed_keys"})
     settings = await service.list_org_settings(keys=keys)
-    settings_dict = {setting.key: service.get_value(setting) for setting in settings}
+    settings_dict, decryption_failed_keys = service.get_values_with_decryption_fallback(
+        settings
+    )
 
     # Public ACS url
-    return SAMLSettingsRead(**settings_dict, saml_sp_acs_url=SAML_PUBLIC_ACS_URL)
+    return SAMLSettingsRead(
+        **settings_dict,
+        saml_sp_acs_url=SAML_PUBLIC_ACS_URL,
+        decryption_failed_keys=decryption_failed_keys,
+    )
 
 
 @router.patch("/saml", status_code=status.HTTP_204_NO_CONTENT)
@@ -125,7 +131,7 @@ async def get_app_settings(
     service = SettingsService(session, role)
     keys = AppSettingsRead.keys()
     settings = await service.list_org_settings(keys=keys)
-    settings_dict = {setting.key: service.get_value(setting) for setting in settings}
+    settings_dict, _ = service.get_values_with_decryption_fallback(settings)
     return AppSettingsRead(**settings_dict)
 
 
@@ -147,10 +153,14 @@ async def get_audit_settings(
     session: AsyncDBSession,
 ) -> AuditSettingsRead:
     service = SettingsService(session, role)
-    keys = AuditSettingsRead.keys()
+    keys = AuditSettingsRead.keys(exclude={"decryption_failed_keys"})
     settings = await service.list_org_settings(keys=keys)
-    settings_dict = {setting.key: service.get_value(setting) for setting in settings}
-    return AuditSettingsRead(**settings_dict)
+    settings_dict, decryption_failed_keys = service.get_values_with_decryption_fallback(
+        settings
+    )
+    return AuditSettingsRead(
+        **settings_dict, decryption_failed_keys=decryption_failed_keys
+    )
 
 
 @router.patch("/audit", status_code=status.HTTP_204_NO_CONTENT)
@@ -173,7 +183,7 @@ async def get_agent_settings(
     service = SettingsService(session, role)
     keys = AgentSettingsRead.keys()
     settings = await service.list_org_settings(keys=keys)
-    settings_dict = {setting.key: service.get_value(setting) for setting in settings}
+    settings_dict, _ = service.get_values_with_decryption_fallback(settings)
     return AgentSettingsRead(**settings_dict)
 
 

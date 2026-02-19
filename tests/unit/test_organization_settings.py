@@ -243,6 +243,78 @@ async def test_update_audit_settings_can_clear(
 
 
 @pytest.mark.anyio
+async def test_update_audit_custom_headers_encrypted_at_rest(
+    settings_service_with_defaults: SettingsService,
+) -> None:
+    """Ensure custom headers are stored encrypted and round-trip correctly."""
+    service = settings_service_with_defaults
+    custom_headers = {
+        "Authorization": "Bearer super-secret-token",
+        "X-Tracecat-Source": "audit",
+    }
+    await service.update_audit_settings(
+        AuditSettingsUpdate(audit_webhook_custom_headers=custom_headers)
+    )
+
+    setting = await service.get_org_setting("audit_webhook_custom_headers")
+    assert setting is not None
+    assert setting.is_encrypted is True
+    assert service.get_value(setting) == custom_headers
+    assert setting.value != orjson.dumps(custom_headers, option=orjson.OPT_SORT_KEYS)
+
+
+@pytest.mark.anyio
+async def test_update_audit_custom_payload_encrypted_at_rest(
+    settings_service_with_defaults: SettingsService,
+) -> None:
+    """Ensure custom payload is stored encrypted and round-trip correctly."""
+    service = settings_service_with_defaults
+    custom_payload = {
+        "event_type": "tracecat.audit",
+        "metadata": {"env": "staging"},
+    }
+    await service.update_audit_settings(
+        AuditSettingsUpdate(audit_webhook_custom_payload=custom_payload)
+    )
+
+    setting = await service.get_org_setting("audit_webhook_custom_payload")
+    assert setting is not None
+    assert setting.is_encrypted is True
+    assert service.get_value(setting) == custom_payload
+    assert setting.value != orjson.dumps(custom_payload, option=orjson.OPT_SORT_KEYS)
+
+
+@pytest.mark.anyio
+async def test_update_audit_verify_ssl_setting(
+    settings_service_with_defaults: SettingsService,
+) -> None:
+    """Ensure SSL verification toggle is persisted for audit webhook delivery."""
+    service = settings_service_with_defaults
+    await service.update_audit_settings(
+        AuditSettingsUpdate(audit_webhook_verify_ssl=False)
+    )
+
+    settings = await service.list_org_settings(keys={"audit_webhook_verify_ssl"})
+    settings_dict = {setting.key: service.get_value(setting) for setting in settings}
+    assert settings_dict["audit_webhook_verify_ssl"] is False
+
+
+@pytest.mark.anyio
+async def test_update_audit_payload_attribute_setting(
+    settings_service_with_defaults: SettingsService,
+) -> None:
+    """Ensure payload wrapper attribute is persisted for audit webhook delivery."""
+    service = settings_service_with_defaults
+    await service.update_audit_settings(
+        AuditSettingsUpdate(audit_webhook_payload_attribute="event")
+    )
+
+    settings = await service.list_org_settings(keys={"audit_webhook_payload_attribute"})
+    settings_dict = {setting.key: service.get_value(setting) for setting in settings}
+    assert settings_dict["audit_webhook_payload_attribute"] == "event"
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "valid_url",
     [
@@ -343,6 +415,39 @@ async def test_update_saml_settings(
     }
     assert settings_dict["saml_enabled"] is True
     assert settings_dict["saml_idp_metadata_url"] == "https://test-idp.com"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "setting_key",
+    [
+        "saml_idp_metadata_url",
+        "audit_webhook_url",
+        "audit_webhook_custom_headers",
+        "audit_webhook_custom_payload",
+    ],
+)
+async def test_get_values_with_decryption_fallback_for_invalid_encrypted_settings(
+    settings_service_with_defaults: SettingsService,
+    setting_key: str,
+) -> None:
+    """Invalid encrypted values should not crash grouped settings reads."""
+    service = settings_service_with_defaults
+
+    setting = await service.get_org_setting(setting_key)
+    assert setting is not None
+    assert setting.is_encrypted is True
+    setting.value = b"invalid-ciphertext"
+    service.session.add(setting)
+    await service.session.commit()
+
+    settings = await service.list_org_settings(keys={setting_key})
+    settings_dict, decryption_failed_keys = service.get_values_with_decryption_fallback(
+        settings
+    )
+
+    assert settings_dict[setting_key] is None
+    assert decryption_failed_keys == [setting_key]
 
 
 @pytest.mark.anyio

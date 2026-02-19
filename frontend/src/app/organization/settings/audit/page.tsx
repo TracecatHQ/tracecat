@@ -11,8 +11,8 @@ export default function AuditSettingsPage() {
             <h2 className="text-2xl font-semibold tracking-tight">
               Audit logging
             </h2>
-            <p className="text-md text-muted-foreground">
-              Configure audit log delivery to your webhook endpoint.
+            <p className="text-base text-muted-foreground">
+              Send audit logs to your logs collector endpoint.
             </p>
           </div>
         </div>

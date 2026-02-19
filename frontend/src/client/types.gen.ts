@@ -779,6 +779,15 @@ export type AuditSettingsRead = {
   audit_webhook_custom_headers?: {
     [key: string]: string
   } | null
+  audit_webhook_custom_payload?: {
+    [key: string]: unknown
+  } | null
+  audit_webhook_payload_attribute?: string | null
+  audit_webhook_verify_ssl?: boolean
+  /**
+   * Encrypted setting keys that could not be decrypted with the current encryption key and must be reconfigured.
+   */
+  decryption_failed_keys?: Array<string>
 }
 
 /**
@@ -795,6 +804,20 @@ export type AuditSettingsUpdate = {
   audit_webhook_custom_headers?: {
     [key: string]: string
   } | null
+  /**
+   * Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.
+   */
+  audit_webhook_custom_payload?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * Optional wrapper key for audit payloads. When set to a value like 'event', payload is sent as {'event': <audit_payload>}.
+   */
+  audit_webhook_payload_attribute?: string | null
+  /**
+   * Whether TLS certificates are verified for webhook requests. Disable only for trusted on-prem/self-signed endpoints.
+   */
+  audit_webhook_verify_ssl?: boolean
 }
 
 /**
@@ -3411,24 +3434,6 @@ export type OrgDomainUpdate = {
 }
 
 /**
- * Reset encrypted organization setting request.
- */
-export type OrgEncryptedSettingResetRequest = {
-  value: unknown
-}
-
-/**
- * Reset encrypted organization setting response.
- */
-export type OrgEncryptedSettingResetResponse = {
-  organization_id: string
-  key: string
-  value_type: string
-  is_encrypted: boolean
-  updated_at: string
-}
-
-/**
  * Request body for accepting an organization invitation via token.
  */
 export type OrgInvitationAccept = {
@@ -4592,6 +4597,10 @@ export type SAMLSettingsRead = {
   saml_enforced: boolean
   saml_idp_metadata_url?: string | null
   saml_sp_acs_url: string
+  /**
+   * Encrypted setting keys that could not be decrypted with the current encryption key and must be reconfigured.
+   */
+  decryption_failed_keys?: Array<string>
 }
 
 export type SAMLSettingsUpdate = {
@@ -7947,15 +7956,6 @@ export type AdminDeleteOrganizationData = {
 }
 
 export type AdminDeleteOrganizationResponse = void
-
-export type AdminResetEncryptedOrgSettingData = {
-  key: string
-  orgId: string
-  requestBody: OrgEncryptedSettingResetRequest
-}
-
-export type AdminResetEncryptedOrgSettingResponse =
-  OrgEncryptedSettingResetResponse
 
 export type AdminListOrganizationDomainsData = {
   orgId: string
@@ -11440,21 +11440,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/admin/organizations/{org_id}/settings/{key}/reset-encrypted": {
-    post: {
-      req: AdminResetEncryptedOrgSettingData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: OrgEncryptedSettingResetResponse
         /**
          * Validation Error
          */
