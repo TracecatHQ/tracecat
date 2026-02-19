@@ -429,6 +429,10 @@ Common environment variables shared across all backend services
 {{- join "," $flags -}}
 {{- end }}
 
+{{- define "tracecat.env.migrations" -}}
+{{- include "tracecat.env.common" . -}}
+{{- end }}
+
 {{- define "tracecat.env.common" -}}
 {{- if .Values.tracecat.logLevel }}
 - name: LOG_LEVEL

@@ -353,6 +353,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI}
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
     command: ["python3", "-m", "alembic", "upgrade", "head"]
     depends_on:
       postgres_db:

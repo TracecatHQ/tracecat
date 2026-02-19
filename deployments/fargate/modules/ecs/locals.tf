@@ -148,9 +148,10 @@ locals {
   migrations_env = [
     for k, v in merge(
       {
-        LOG_LEVEL             = var.log_level
-        TRACECAT__DB_SSLMODE  = "require"
-        TRACECAT__DB_ENDPOINT = local.core_db_hostname
+        LOG_LEVEL                  = var.log_level
+        TRACECAT__DB_SSLMODE       = "require"
+        TRACECAT__DB_ENDPOINT      = local.core_db_hostname
+        TRACECAT__FEATURE_FLAGS    = var.feature_flags
       },
       local.tracecat_db_configs
     ) :

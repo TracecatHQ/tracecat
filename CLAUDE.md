@@ -441,6 +441,9 @@ Available predefined roles:
 - When handling frontend types, don't import variables prefixed with '$' unless you are importing the schema object
 - **NEVER** use `--no-gpg-sign` or `--no-verify` to bypass commit signing. If GPG/SSH signing fails (e.g., 1Password agent not running), stop and ask the user to fix their signing setup rather than creating an unverified commit.
 
+- For infrastructure changes, always verify and update all relevant deployment targets together: `docker-compose*.yml`, Terraform Fargate (`deployments/fargate/`), Terraform EKS (`deployments/aws/` and `deployments/aws/modules/eks/`, or `deployments/terraform/aws/` and `deployments/terraform/aws/modules/eks/` in this repo layout), and Helm (`deployments/helm/`).
+- As part of that infra review, explicitly check `values.yaml`, `variables.tf`, and `main.tf` in the relevant deployment directories before marking the change complete.
+
 ## Pull Request Description Hygiene
 - Never use `gh pr create --body "..."` when the body includes Markdown or backticks.
 - Always write the PR body to a file using a single-quoted heredoc (`<<'EOF'`) and pass it with `gh pr create --body-file <file>`.
