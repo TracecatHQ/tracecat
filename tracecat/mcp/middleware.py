@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import sys
-from typing import TYPE_CHECKING
+from typing import Protocol, TypedDict, cast
 
+import mcp.types as mt
 from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_access_token
-from fastmcp.server.middleware.middleware import Middleware
+from fastmcp.server.middleware.middleware import CallNext, Middleware, MiddlewareContext
+from fastmcp.tools.tool import ToolResult
 
 from tracecat.logger import logger
 from tracecat.mcp.config import (
@@ -16,10 +17,21 @@ from tracecat.mcp.config import (
     TRACECAT_MCP__TOOL_TIMEOUT_SECONDS,
 )
 
-if TYPE_CHECKING:
-    import mcp.types as mt
-    from fastmcp.server.middleware.middleware import CallNext, MiddlewareContext
-    from fastmcp.tools.tool import ToolResult
+
+class AccessTokenClaims(TypedDict, total=False):
+    email: str
+    client_id: str
+    azp: str
+    sub: str
+
+
+class AccessTokenLike(Protocol):
+    claims: AccessTokenClaims
+    client_id: str
+
+
+class FastMCPContextLike(Protocol):
+    def get_access_token(self) -> AccessTokenLike | None: ...
 
 
 class MCPInputSizeLimitMiddleware(Middleware):
@@ -40,7 +52,7 @@ class MCPInputSizeLimitMiddleware(Middleware):
         if arguments:
             for key, value in arguments.items():
                 if isinstance(value, str):
-                    size = sys.getsizeof(value)
+                    size = len(value.encode("utf-8"))
                     if size > self.max_bytes:
                         logger.warning(
                             "Tool call argument exceeds size limit",
@@ -96,11 +108,27 @@ def get_mcp_client_id(context: MiddlewareContext) -> str:  # type: ignore[type-a
     """
     _ = context
     try:
-        access_token = get_access_token()
+        access_token: AccessTokenLike | None = None
+        fastmcp_context = cast(
+            FastMCPContextLike | None,
+            getattr(context, "fastmcp_context", None),
+        )
+        if fastmcp_context is not None:
+            access_token = fastmcp_context.get_access_token()
+        if access_token is None:
+            access_token = cast(AccessTokenLike | None, get_access_token())
         if access_token is not None:
             email = access_token.claims.get("email")
             if email:
                 return str(email)
+            client_id = (
+                access_token.claims.get("client_id")
+                or access_token.claims.get("azp")
+                or access_token.claims.get("sub")
+                or access_token.client_id
+            )
+            if client_id:
+                return str(client_id)
     except Exception:
         logger.debug("Could not extract client ID from MCP context")
     return "anonymous"

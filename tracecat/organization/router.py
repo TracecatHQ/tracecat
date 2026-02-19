@@ -158,7 +158,7 @@ async def get_org_mcp_connect(
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
+            detail="MCP connect is temporarily unavailable",
         ) from exc
 
     return OrgMCPConnectRead(

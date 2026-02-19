@@ -66,3 +66,13 @@ TRACECAT_MCP__MAX_INPUT_SIZE_BYTES: int = int(
     os.environ.get("TRACECAT_MCP__MAX_INPUT_SIZE_BYTES", "524288")
 )
 """Maximum size in bytes for any single string argument to a tool call (default 512KB)."""
+
+TRACECAT_MCP__AUTHORIZATION_SERVER_URL: str | None = os.environ.get(
+    "TRACECAT_MCP__AUTHORIZATION_SERVER_URL"
+)
+"""URL of the external OAuth authorization server.
+
+Required for oauth_client_credentials_jwt and oauth_client_credentials_introspection
+auth modes. Used to advertise the authorization server in RFC 9728 protected resource
+metadata so MCP clients know where to obtain tokens.
+"""

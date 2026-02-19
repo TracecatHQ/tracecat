@@ -117,7 +117,9 @@ def _evaluate_configuration(
         required_keys = set(requirement["required_keys"])
         if not required_keys and requirement.get("optional", False):
             continue
-        keys = workspace_inventory.get(secret_name) or org_inventory.get(secret_name)
+        keys = workspace_inventory.get(secret_name)
+        if keys is None:
+            keys = org_inventory.get(secret_name)
         if keys is None:
             missing.append(f"missing secret: {secret_name}")
             continue
