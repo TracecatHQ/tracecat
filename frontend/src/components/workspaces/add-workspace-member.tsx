@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useAuth } from "@/hooks/use-auth"
+import { useOrgMembership } from "@/hooks/use-org-membership"
 import {
   useCurrentUserRole,
   useWorkspaceMutations,
@@ -54,6 +55,7 @@ export function AddWorkspaceMember({
 }: { workspace: WorkspaceRead } & React.HTMLAttributes<HTMLButtonElement>) {
   const { user } = useAuth()
   const { role } = useCurrentUserRole(workspace.id)
+  const { canAdministerOrg } = useOrgMembership()
   const { addMember: addWorkspaceMember } = useWorkspaceMutations()
   const [showDialog, setShowDialog] = useState(false)
   const form = useForm<AddUser>({
@@ -112,7 +114,10 @@ export function AddWorkspaceMember({
         <Button
           variant="outline"
           size="sm"
-          disabled={!user?.isPrivileged({ role } as WorkspaceMembershipRead)}
+          disabled={
+            !canAdministerOrg &&
+            !user?.isPrivileged({ role } as WorkspaceMembershipRead)
+          }
           className="h-7 bg-white disabled:cursor-not-allowed"
         >
           <Plus className="mr-1 h-3.5 w-3.5" />
