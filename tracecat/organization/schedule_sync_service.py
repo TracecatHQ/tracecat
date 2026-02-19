@@ -81,7 +81,9 @@ class OrganizationScheduleSyncService(BaseOrgService):
             .join(Workspace, Workspace.id == Schedule.workspace_id)
             .outerjoin(Workflow, Workflow.id == Schedule.workflow_id)
             .where(Workspace.organization_id == self.organization_id)
-            .order_by(Workspace.name.asc(), Schedule.workflow_id.asc(), Schedule.id.asc())
+            .order_by(
+                Workspace.name.asc(), Schedule.workflow_id.asc(), Schedule.id.asc()
+            )
         )
 
         if schedule_ids is not None:
@@ -286,7 +288,9 @@ class OrganizationScheduleSyncService(BaseOrgService):
                     )
 
         created_count = sum(
-            1 for result in results if result.action == OrgScheduleRecreateAction.CREATED
+            1
+            for result in results
+            if result.action == OrgScheduleRecreateAction.CREATED
         )
         already_present_count = sum(
             1
