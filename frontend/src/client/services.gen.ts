@@ -862,7 +862,7 @@ export const publicReceiveInteraction = (
  *
  * Access
  * ------
- * - Org owners/admins (have `org:read` scope): See all workspaces in the org.
+ * - Org owners/admins (have `org:member:invite` scope): See all workspaces in the org.
  * - Other users: See only workspaces where they are a member.
  *
  * No scope requirement - membership itself is the authorization.

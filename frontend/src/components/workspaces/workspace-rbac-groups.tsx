@@ -625,6 +625,14 @@ function GroupManageDialog({
     }
     return [{ ...member, user_id: userId }]
   })
+  const assignedRoleIds = useMemo(
+    () => new Set(assignments.map((assignment) => assignment.role_id)),
+    [assignments]
+  )
+  const availableRoles = useMemo(
+    () => roles.filter((role) => !assignedRoleIds.has(role.id)),
+    [roles, assignedRoleIds]
+  )
 
   const handleAddMember = async () => {
     if (!canManageMembers || !selectedUserId) return
@@ -765,7 +773,7 @@ function GroupManageDialog({
                     <SelectValue placeholder="Select a role" />
                   </SelectTrigger>
                   <SelectContent>
-                    {roles.map((role) => (
+                    {availableRoles.map((role) => (
                       <SelectItem key={role.id} value={role.id}>
                         {role.name}
                       </SelectItem>

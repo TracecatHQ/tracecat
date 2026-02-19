@@ -65,6 +65,7 @@ export function OrganizationSidebar({
       url: "/organization/settings/domains",
       icon: GlobeIcon,
       isActive: pathname?.includes("/organization/settings/domains"),
+      visible: canViewSettings !== false,
     },
     {
       title: "Application",

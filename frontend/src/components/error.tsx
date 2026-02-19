@@ -165,7 +165,7 @@ interface ScopeError {
     code: string
     message: string
     required_scopes: string[]
-    missing_scopes: string[]
+    missing_scopes?: string[]
   }
 }
 
@@ -177,13 +177,16 @@ function isScopeError(body: unknown): body is ScopeError {
     typeof (body as ScopeError).error === "object" &&
     (body as ScopeError).error !== null &&
     "code" in (body as ScopeError).error &&
-    (body as ScopeError).error.code === "insufficient_scope"
+    (body as ScopeError).error.code === "insufficient_scope" &&
+    Array.isArray((body as ScopeError).error.missing_scopes)
   )
 }
 
 function PermissionDeniedPage({ body }: { body: unknown }) {
   const router = useRouter()
-  const missingScopes = isScopeError(body) ? body.error.missing_scopes : []
+  const missingScopes = isScopeError(body)
+    ? (body.error.missing_scopes ?? [])
+    : []
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-4">

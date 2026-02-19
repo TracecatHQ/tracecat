@@ -875,7 +875,7 @@ function MembersActions({ view }: { view: MembersViewMode }) {
         membersHref={`/workspaces/${workspaceId}/members`}
         rolesHref={`/workspaces/${workspaceId}/members/roles`}
         groupsHref={`/workspaces/${workspaceId}/members/groups`}
-        rbacScope="org:rbac:read"
+        rbacScope="workspace:rbac:read"
       />
       {actionButton}
     </>

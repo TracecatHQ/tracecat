@@ -2,7 +2,7 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { PlusIcon, SearchIcon, ShieldIcon } from "lucide-react"
-import { useMemo, useState } from "react"
+import { type MouseEvent, useMemo, useState } from "react"
 import type { RoleReadWithScopes } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
@@ -47,6 +47,7 @@ export function OrgRbacRoles() {
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false)
   const {
     roles,
     isLoading,
@@ -103,10 +104,12 @@ export function OrgRbacRoles() {
     setSelectedRole(null)
   }
 
-  const handleDeleteRole = async () => {
+  const handleDeleteRole = async (event?: MouseEvent<HTMLButtonElement>) => {
+    event?.preventDefault()
     if (selectedRole) {
       await deleteRole(selectedRole.id)
       setSelectedRole(null)
+      setIsDeleteOpen(false)
     }
   }
 
@@ -130,9 +133,13 @@ export function OrgRbacRoles() {
       }}
     >
       <AlertDialog
+        open={isDeleteOpen}
         onOpenChange={(isOpen) => {
           if (!isOpen) {
             setSelectedRole(null)
+            setIsDeleteOpen(false)
+          } else {
+            setIsDeleteOpen(true)
           }
         }}
       >
@@ -199,7 +206,10 @@ export function OrgRbacRoles() {
                     setSelectedRole(role)
                     setIsEditOpen(true)
                   }}
-                  onDelete={() => setSelectedRole(role)}
+                  onDelete={() => {
+                    setSelectedRole(role)
+                    setIsDeleteOpen(true)
+                  }}
                   canUpdateRole={canUpdateRole}
                   canDeleteRole={canDeleteRole}
                 />

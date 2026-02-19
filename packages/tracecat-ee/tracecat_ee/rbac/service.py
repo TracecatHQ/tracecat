@@ -834,9 +834,6 @@ class RBACService(BaseOrgService):
                 (GroupRoleAssignment.workspace_id.is_(None))
                 | (GroupRoleAssignment.workspace_id == workspace_id)
             )
-        else:
-            # Only org-wide assignments
-            stmt = stmt.where(GroupRoleAssignment.workspace_id.is_(None))
 
         result = await self.session.execute(stmt)
         scope_names = result.scalars().all()
