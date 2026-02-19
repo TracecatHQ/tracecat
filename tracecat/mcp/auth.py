@@ -9,6 +9,7 @@ from sqlalchemy import select
 from tracecat.auth.oidc import get_platform_oidc_config
 from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole, WorkspaceRole
+from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
     Membership,
@@ -156,7 +157,7 @@ async def resolve_role(email: str, workspace_id: WorkspaceID) -> Role:
     else:
         workspace_role = await resolve_workspace_membership(user.id, workspace_id)
 
-    return Role(
+    role = Role(
         type="user",
         user_id=user.id,
         workspace_id=workspace_id,
@@ -165,6 +166,10 @@ async def resolve_role(email: str, workspace_id: WorkspaceID) -> Role:
         org_role=org_role,
         service_id="tracecat-mcp",
     )
+    # Set context variable so downstream services that rely on ctx_role
+    # (e.g. SecretsService.with_session()) can resolve the role automatically.
+    ctx_role.set(role)
+    return role
 
 
 async def list_user_workspaces(

@@ -176,7 +176,7 @@ async def execute_workflow(
         if params.parent_workflow_execution_id:
             memo = {"parent_workflow_execution_id": params.parent_workflow_execution_id}
 
-        response = exec_service.create_workflow_execution_nowait(
+        response = await exec_service.create_workflow_execution_wait_for_start(
             dsl=dsl,
             wf_id=wf_id,
             payload=params.trigger_inputs,

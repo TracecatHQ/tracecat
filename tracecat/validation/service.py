@@ -297,6 +297,18 @@ async def validate_registry_action_args(
         try:
             if action_name == PlatformAction.CHILD_WORKFLOW_EXECUTE:
                 validated = ExecuteSubflowArgs.model_validate(args)
+            elif PlatformAction.is_interface(action_name):
+                # Other interface/platform actions (ai.action, ai.agent,
+                # scatter, gather, etc.) are handled by the workflow
+                # engine and don't have registry manifests. Skip
+                # deep validation — just pass args through.
+                return ActionValidationResult(
+                    status="success",
+                    msg="Arguments are valid.",
+                    validated_args=dict(args),
+                    ref=action_ref,
+                    action_type=action_name,
+                )
             else:
                 service = RegistryActionsService(session, role=role)
                 action_data = await service.get_action_from_index(action_name)
@@ -497,6 +509,7 @@ async def validate_dsl_actions(
 async def validate_dsl_expressions(
     dsl: DSLInput,
     *,
+    role: Role | None = None,
     exclude: set[ExprType] | None = None,
 ) -> list[ExprValidationResult]:
     """Validate the DSL expressions at commit time."""
@@ -530,6 +543,7 @@ async def validate_dsl_expressions(
         async with ExprValidator(
             validation_context=validation_context,
             environment=env_override,
+            role=role,
         ) as visitor:
             # Validate action args
             for expr in extract_expressions(act_stmt.args):
@@ -696,7 +710,11 @@ async def validate_dsl(
     # 2. For each expression context, cross-reference the expressions API and udf registry
 
     if validate_expressions:
-        expr_errs = await validate_dsl_expressions(dsl, exclude=exclude_exprs)
+        expr_errs = await validate_dsl_expressions(
+            dsl,
+            role=role,
+            exclude=exclude_exprs,
+        )
         logger.debug(
             f"{len(expr_errs)} DSL expression validation errors", errs=expr_errs
         )

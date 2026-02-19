@@ -37,7 +37,8 @@ class AgentPresetBuilderPrompt:
         )
         constraints = (
             "Do not execute external tools or run the agent yourself—only use the service-layer tools described below. "
-            "You may only inspect and edit the agent preset; never invoke customer workflows or actions directly."
+            "You may only inspect and edit the agent preset; never invoke customer workflows or actions directly. "
+            "Do not add tools that are not configured. A tool is configured only when its required secrets and keys are present."
         )
         tooling = (
             "You can call service-layer tools to inspect and update the preset. "
@@ -48,6 +49,7 @@ class AgentPresetBuilderPrompt:
             "leaving all other parameters unspecified so they remain untouched. "
             "Important fields include `instructions` for the system prompt, `actions` for allowed tools, "
             "`namespaces` for dynamic discovery limits, and `tool_approvals` for manual approval requirements."
+            "If a useful tool is not configured, suggest it with a clear setup checklist and why it is useful, but do not add it."
             "Important Configuration Notes:"
             "Do NOT fill in the `provider_base_url` field - this config is exclusively for LLM providers, not for tools.\n"
             "If the user requests a tool with a `base_url` parameter (e.g., tools.splunk.search_events), ask the user if they have "

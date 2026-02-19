@@ -124,18 +124,13 @@ class WorkflowExecutionsService:
         return WorkflowExecutionsService(client=client, role=role)
 
     def _handle_background_task_exception(self, task: asyncio.Task[Any]) -> None:
-        """Handle exceptions from background workflow execution tasks.
-
-        This callback is attached to fire-and-forget tasks to ensure exceptions
-        are logged rather than silently lost.
-        """
+        """Handle exceptions from background workflow execution tasks."""
         if task.cancelled():
             return
         exc = task.exception()
         if exc is not None:
-            # Log the exception - the workflow failure is already logged in _dispatch_workflow
-            self.logger.debug(
-                "Background workflow execution task completed with exception",
+            self.logger.error(
+                "Workflow dispatch task failed",
                 exception=str(exc),
             )
 
@@ -889,15 +884,16 @@ class WorkflowExecutionsService:
                   Useful for correlation (e.g., parent_wf_exec_id).
         """
         wf_exec_id = generate_exec_id(wf_id)
-        coro = self.create_workflow_execution(
+        coro = self._start_workflow(
             dsl=dsl,
             wf_id=wf_id,
-            payload=payload,
             trigger_type=trigger_type,
             wf_exec_id=wf_exec_id,
             time_anchor=time_anchor,
             registry_lock=registry_lock,
             memo=memo,
+            trigger_inputs=payload,
+            execution_type=ExecutionType.PUBLISHED,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
@@ -958,14 +954,15 @@ class WorkflowExecutionsService:
         This method schedules the workflow execution and returns immediately.
         """
         wf_exec_id = generate_exec_id(wf_id)
-        coro = self.create_draft_workflow_execution(
+        coro = self._start_workflow(
             dsl=dsl,
             wf_id=wf_id,
-            payload=payload,
             trigger_type=trigger_type,
             wf_exec_id=wf_exec_id,
             time_anchor=time_anchor,
             registry_lock=registry_lock,
+            trigger_inputs=payload,
+            execution_type=ExecutionType.DRAFT,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
@@ -1247,6 +1244,21 @@ class WorkflowExecutionsService:
                 f"{wf_exec_id}/trigger.json", trigger_inputs
             )
 
+        try:
+            dispatch_timeout_seconds = float(config.TEMPORAL__CLIENT_RPC_TIMEOUT)
+        except (TypeError, ValueError):
+            dispatch_timeout_seconds = 900.0
+            self.logger.warning(
+                "Invalid TEMPORAL__CLIENT_RPC_TIMEOUT value, using default",
+                value=config.TEMPORAL__CLIENT_RPC_TIMEOUT,
+                default=dispatch_timeout_seconds,
+            )
+        if dispatch_timeout_seconds <= 0:
+            dispatch_timeout_seconds = 900.0
+        # Keep start dispatch bounded so callers don't block indefinitely when
+        # Temporal is down or the worker is unreachable.
+        start_timeout = min(dispatch_timeout_seconds, 30.0)
+
         logger.info(
             f"Starting DSL workflow: {dsl.title}",
             role=self.role,
@@ -1257,6 +1269,8 @@ class WorkflowExecutionsService:
             execution_type=execution_type,
             registry_lock=registry_lock,
             stored_type=trigger_inputs_ref.type if trigger_inputs_ref else "<none>",
+            task_queue=config.TEMPORAL__CLUSTER_QUEUE,
+            workflow_id=wf_id,
         )
 
         pairs = [trigger_type.to_temporal_search_attr_pair()]
@@ -1277,23 +1291,38 @@ class WorkflowExecutionsService:
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
 
         try:
-            await self._client.start_workflow(
-                DSLWorkflow.run,
-                DSLRunArgs(
-                    dsl=dsl,
-                    role=self.role,
-                    wf_id=wf_id,
-                    trigger_inputs=trigger_inputs_ref,
-                    execution_type=execution_type,
-                    time_anchor=time_anchor,
-                    registry_lock=registry_lock,
+            await asyncio.wait_for(
+                self._client.start_workflow(
+                    DSLWorkflow.run,
+                    DSLRunArgs(
+                        dsl=dsl,
+                        role=self.role,
+                        wf_id=wf_id,
+                        trigger_inputs=trigger_inputs_ref,
+                        execution_type=execution_type,
+                        time_anchor=time_anchor,
+                        registry_lock=registry_lock,
+                    ),
+                    id=wf_exec_id,
+                    task_queue=config.TEMPORAL__CLUSTER_QUEUE,
+                    retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                    search_attributes=search_attrs,
+                    **kwargs,
                 ),
-                id=wf_exec_id,
-                task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                search_attributes=search_attrs,
-                **kwargs,
+                timeout=start_timeout,
             )
+        except TimeoutError as e:
+            self.logger.error(
+                "Timed out while dispatching workflow start",
+                wf_exec_id=wf_exec_id,
+                task_queue=config.TEMPORAL__CLUSTER_QUEUE,
+                timeout_seconds=start_timeout,
+                error=str(e),
+            )
+            raise TimeoutError(
+                "Timed out while dispatching workflow to Temporal. "
+                "Verify Temporal reachability, namespace, and worker availability."
+            ) from e
         except RPCError as e:
             self.logger.error(
                 f"Temporal service RPC error occurred while starting the workflow: {e}",

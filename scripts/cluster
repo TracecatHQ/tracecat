@@ -256,9 +256,9 @@ build_env() {
     local cluster_num=$1
     calculate_ports "$cluster_num"
 
-    # URLs that depend on ports
-    local PUBLIC_APP_URL="http://localhost:${PUBLIC_APP_PORT}"
-    local PUBLIC_API_URL="${PUBLIC_APP_URL}/api"
+    # URLs that depend on ports (respect .env overrides)
+    local PUBLIC_APP_URL="${PUBLIC_APP_URL:-http://localhost:${PUBLIC_APP_PORT}}"
+    local PUBLIC_API_URL="${PUBLIC_API_URL:-${PUBLIC_APP_URL}/api}"
 
     # Export all variables (include worktree ID for isolation)
     export COMPOSE_PROJECT_NAME="tracecat-${WORKTREE_ID}-${cluster_num}"
@@ -275,11 +275,11 @@ build_env() {
     export MINIO_CONSOLE_PORT
     export MCP_PORT
 
-    # URL variables that reference the public port
-    export TRACECAT__PUBLIC_APP_URL="${PUBLIC_APP_URL}"
-    export TRACECAT__PUBLIC_API_URL="${PUBLIC_API_URL}"
-    export NEXT_PUBLIC_APP_URL="${PUBLIC_APP_URL}"
-    export NEXT_PUBLIC_API_URL="http://localhost:${PUBLIC_APP_PORT}/api"
+    # URL variables that reference the public port (respect .env overrides)
+    export TRACECAT__PUBLIC_APP_URL="${TRACECAT__PUBLIC_APP_URL:-${PUBLIC_APP_URL}}"
+    export TRACECAT__PUBLIC_API_URL="${TRACECAT__PUBLIC_API_URL:-${PUBLIC_API_URL}}"
+    export NEXT_PUBLIC_APP_URL="${NEXT_PUBLIC_APP_URL:-${PUBLIC_APP_URL}}"
+    export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-${PUBLIC_APP_URL}/api}"
 
     # Caddy configuration
     export BASE_DOMAIN=":${PUBLIC_APP_PORT}"

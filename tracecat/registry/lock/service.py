@@ -142,6 +142,17 @@ class RegistryLockService(BaseOrgService):
             if action_name in actions:
                 continue
 
+            # Skip platform/interface actions that are handled entirely by
+            # the workflow engine/scheduler and don't live in any registry.
+            # NOTE: core.script.run_python is excluded from this check because
+            # it has dual identity — it's both an interface action AND a real
+            # registry action resolved by the executor.
+            if (
+                PlatformAction.is_interface(action_name)
+                and action_name != PlatformAction.RUN_PYTHON
+            ):
+                continue
+
             matching_origins: list[str] = []
             for origin_str, manifest in origin_manifests.items():
                 if action_name in manifest.actions:
