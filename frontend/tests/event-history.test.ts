@@ -1,5 +1,6 @@
 import {
   groupEventsByActionRef,
+  WF_COMPLETED_EVENT_REF,
   WF_FAILURE_EVENT_REF,
   type WorkflowExecutionEventCompact,
 } from "@/lib/event-history"
@@ -8,6 +9,12 @@ describe("event-history", () => {
   describe("WF_FAILURE_EVENT_REF", () => {
     it("should export the correct sentinel value", () => {
       expect(WF_FAILURE_EVENT_REF).toBe("__workflow_failure__")
+    })
+  })
+
+  describe("WF_COMPLETED_EVENT_REF", () => {
+    it("should export the correct sentinel value", () => {
+      expect(WF_COMPLETED_EVENT_REF).toBe("__workflow_completed__")
     })
   })
 

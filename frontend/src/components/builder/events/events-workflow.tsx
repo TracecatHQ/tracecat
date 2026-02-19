@@ -1,19 +1,14 @@
 import { DotsHorizontalIcon, QuestionMarkIcon } from "@radix-ui/react-icons"
 import {
   AlarmClockCheckIcon,
-  AlarmClockOffIcon,
   AlarmClockPlusIcon,
   BriefcaseBusinessIcon,
   CalendarIcon,
   CalendarSearchIcon,
-  CircleCheck,
   CircleCheckBigIcon,
   CircleDot,
-  CircleMinusIcon,
   CirclePlayIcon,
-  CircleX,
   EyeOffIcon,
-  GitForkIcon,
   LayoutListIcon,
   LoaderIcon,
   ScanEyeIcon,
@@ -27,11 +22,14 @@ import Link from "next/link"
 import { useCallback, useState } from "react"
 import type { TriggerType, WorkflowExecutionEventStatus } from "@/client"
 import {
+  getAggregateWorkflowEventStatus,
+  getWorkflowEventIcon,
+} from "@/components/events/workflow-event-status"
+import {
   WorkflowEventsList,
   type WorkflowEventsListRow,
 } from "@/components/events/workflow-events-list"
 import { getExecutionStatusIcon } from "@/components/executions/nav"
-import { Spinner } from "@/components/loading/spinner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -50,6 +48,7 @@ import {
   executionId,
   groupEventsByActionRef,
   refToLabel,
+  WF_COMPLETED_EVENT_REF,
   WF_FAILURE_EVENT_REF,
   type WorkflowExecutionEventCompact,
   type WorkflowExecutionReadCompact,
@@ -276,30 +275,6 @@ export function WorkflowEvents({
     [workflow]
   )
 
-  const getAggregateStatus = useCallback(
-    (relatedEvents: WorkflowExecutionEventCompact[]) => {
-      const statuses = relatedEvents.map((event) => event.status)
-
-      // Prioritize showing error states
-      if (statuses.some((status) => status === "FAILED")) return "FAILED"
-      if (statuses.some((status) => status === "TIMED_OUT")) return "TIMED_OUT"
-      if (statuses.some((status) => status === "CANCELED")) return "CANCELED"
-      if (statuses.some((status) => status === "TERMINATED"))
-        return "TERMINATED"
-
-      // Then show active states
-      if (statuses.some((status) => status === "STARTED")) return "STARTED"
-      if (statuses.some((status) => status === "SCHEDULED")) return "SCHEDULED"
-
-      // Finally, completed states
-      if (statuses.every((status) => status === "COMPLETED")) return "COMPLETED"
-      if (statuses.some((status) => status === "DETACHED")) return "DETACHED"
-
-      return "UNKNOWN"
-    },
-    []
-  )
-
   const getLatestStartTime = useCallback(
     (relatedEvents: WorkflowExecutionEventCompact[]) => {
       const times = relatedEvents
@@ -337,7 +312,7 @@ export function WorkflowEvents({
 
   const rows: WorkflowEventsListRow[] = Object.entries(groupedEvents).map(
     ([actionRef, relatedEvents]) => {
-      const aggregateStatus = getAggregateStatus(relatedEvents)
+      const aggregateStatus = getAggregateWorkflowEventStatus(relatedEvents)
       const latestStartTime = getLatestStartTime(relatedEvents)
       const instanceCount = relatedEvents.length
       const childWorkflowRunLink = getChildWorkflowRunLink(relatedEvents)
@@ -379,7 +354,7 @@ export function WorkflowEvents({
                   e.stopPropagation()
                   sidebarRef.current?.setOpen(true)
                   sidebarRef.current?.setActiveTab("action-input")
-                  setSelectedActionEventRef(slugifyActionRef(actionRef))
+                  setSelectedActionEventRef(actionRef)
                 }}
               >
                 <LayoutListIcon className="size-3" />
@@ -388,13 +363,14 @@ export function WorkflowEvents({
               <DropdownMenuItem
                 disabled={
                   !isActionRefValid(actionRef) &&
-                  actionRef !== WF_FAILURE_EVENT_REF
+                  actionRef !== WF_FAILURE_EVENT_REF &&
+                  actionRef !== WF_COMPLETED_EVENT_REF
                 }
                 onClick={(e) => {
                   e.stopPropagation()
                   sidebarRef.current?.setOpen(true)
                   sidebarRef.current?.setActiveTab("action-result")
-                  setSelectedActionEventRef(slugifyActionRef(actionRef))
+                  setSelectedActionEventRef(actionRef)
                 }}
               >
                 <CircleCheckBigIcon className="size-3" />
@@ -472,58 +448,6 @@ export function WorkflowEventStatusIcon({
       </TooltipContent>
     </Tooltip>
   )
-}
-export function getWorkflowEventIcon(
-  status: WorkflowExecutionEventStatus,
-  className?: string
-) {
-  switch (status) {
-    case "SCHEDULED":
-      return <Spinner className={cn("!size-3", className)} />
-    case "STARTED":
-      return <Spinner className={className} />
-    case "COMPLETED":
-      return (
-        <CircleCheck
-          className={cn(
-            "border-none border-emerald-500 fill-emerald-500 stroke-white",
-            className
-          )}
-        />
-      )
-    case "FAILED":
-      return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
-    case "CANCELED":
-      return (
-        <CircleMinusIcon
-          className={cn("fill-orange-500 stroke-white", className)}
-        />
-      )
-    case "TERMINATED":
-      return (
-        <CircleMinusIcon
-          className={cn("fill-rose-500 stroke-white", className)}
-        />
-      )
-    case "TIMED_OUT":
-      return (
-        <AlarmClockOffIcon
-          className={cn("!size-3 stroke-rose-500", className)}
-          strokeWidth={2.5}
-        />
-      )
-    case "DETACHED":
-      return (
-        <GitForkIcon
-          className={cn("!size-3 stroke-emerald-500", className)}
-          strokeWidth={2.5}
-        />
-      )
-    case "UNKNOWN":
-      return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
-    default:
-      throw new Error("Invalid status")
-  }
 }
 
 export function getTriggerTypeIcon(

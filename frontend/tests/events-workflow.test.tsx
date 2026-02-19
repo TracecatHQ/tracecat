@@ -4,7 +4,7 @@
 
 import { render } from "@testing-library/react"
 import type { WorkflowExecutionEventStatus } from "@/client"
-import { getWorkflowEventIcon } from "@/components/builder/events/events-workflow"
+import { getWorkflowEventIcon } from "@/components/events/workflow-event-status"
 
 // Mock the Lucide React icons
 jest.mock("lucide-react", () => ({

@@ -1,13 +1,10 @@
 "use client"
 
-import {
-  AlarmClockOffIcon,
-  CircleCheck,
-  CircleMinusIcon,
-  CircleX,
-  GitForkIcon,
-} from "lucide-react"
 import type { WorkflowExecutionEventStatus } from "@/client"
+import {
+  getAggregateWorkflowEventStatus,
+  getWorkflowEventIcon,
+} from "@/components/events/workflow-event-status"
 import {
   WorkflowEventsList,
   type WorkflowEventsListRow,
@@ -22,7 +19,6 @@ import {
   type WorkflowExecutionEventCompact,
 } from "@/lib/event-history"
 import { useCompactWorkflowExecution } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 import "react18-json-view/src/style.css"
@@ -65,7 +61,7 @@ export function WorkflowExecutionEventHistory({
 
   const eventRows = Object.entries(groupEventsByActionRef(terminalEvents))
     .map(([actionRef, relatedEvents]) => {
-      const aggregateStatus = getAggregateStatus(relatedEvents)
+      const aggregateStatus = getAggregateWorkflowEventStatus(relatedEvents)
       const latestEvent = getLatestEvent(relatedEvents)
       const latestEventTime = latestEvent
         ? new Date(
@@ -122,7 +118,7 @@ export function WorkflowExecutionEventHistory({
       key: actionRef,
       label: refToLabel(actionRef),
       time: latestEventTime,
-      icon: <WorkflowEventStatusIcon status={aggregateStatus} />,
+      icon: getWorkflowEventIcon(aggregateStatus),
       selected: selectedEvent?.action_ref === actionRef,
       count: relatedEvents.length,
       subflowLink: childWorkflowRunLink,
@@ -135,23 +131,6 @@ export function WorkflowExecutionEventHistory({
       <WorkflowEventsList rows={rows} />
     </div>
   )
-}
-
-function getAggregateStatus(
-  relatedEvents: WorkflowExecutionEventCompact[]
-): WorkflowExecutionEventStatus {
-  const statuses = relatedEvents.map((event) => event.status)
-
-  if (statuses.some((status) => status === "FAILED")) return "FAILED"
-  if (statuses.some((status) => status === "TIMED_OUT")) return "TIMED_OUT"
-  if (statuses.some((status) => status === "CANCELED")) return "CANCELED"
-  if (statuses.some((status) => status === "TERMINATED")) return "TERMINATED"
-  if (statuses.some((status) => status === "STARTED")) return "STARTED"
-  if (statuses.some((status) => status === "SCHEDULED")) return "SCHEDULED"
-  if (statuses.every((status) => status === "COMPLETED")) return "COMPLETED"
-  if (statuses.some((status) => status === "DETACHED")) return "DETACHED"
-
-  return "UNKNOWN"
 }
 
 function getEventTimestamp(event: WorkflowExecutionEventCompact): number {
@@ -186,68 +165,5 @@ function getChildWorkflowRunLink(
     return `/workspaces/${workspaceId}/workflows/${childExecution.wf}/executions/${childExecution.exec}`
   } catch {
     return undefined
-  }
-}
-
-function WorkflowEventStatusIcon({
-  status,
-  className = "size-5",
-}: {
-  status: WorkflowExecutionEventStatus
-  className?: string
-}) {
-  return getWorkflowEventIcon(status, className)
-}
-
-function getWorkflowEventIcon(
-  status: WorkflowExecutionEventStatus,
-  className?: string
-) {
-  switch (status) {
-    case "SCHEDULED":
-      return <Spinner className={cn("!size-3", className)} />
-    case "STARTED":
-      return <Spinner className={className} />
-    case "COMPLETED":
-      return (
-        <CircleCheck
-          className={cn(
-            "border-none border-emerald-500 fill-emerald-500 stroke-white",
-            className
-          )}
-        />
-      )
-    case "FAILED":
-      return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
-    case "CANCELED":
-      return (
-        <CircleMinusIcon
-          className={cn("fill-orange-500 stroke-white", className)}
-        />
-      )
-    case "TERMINATED":
-      return (
-        <CircleMinusIcon
-          className={cn("fill-rose-500 stroke-white", className)}
-        />
-      )
-    case "TIMED_OUT":
-      return (
-        <AlarmClockOffIcon
-          className={cn("!size-3 stroke-rose-500", className)}
-          strokeWidth={2.5}
-        />
-      )
-    case "DETACHED":
-      return (
-        <GitForkIcon
-          className={cn("!size-3 stroke-emerald-500", className)}
-          strokeWidth={2.5}
-        />
-      )
-    case "UNKNOWN":
-      return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
-    default:
-      throw new Error("Invalid status")
   }
 }

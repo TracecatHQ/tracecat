@@ -17,9 +17,9 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation"
-import { getWorkflowEventIcon } from "@/components/builder/events/events-workflow"
 import { MessagePart } from "@/components/chat/chat-session-pane"
 import { CodeBlock } from "@/components/code-block"
+import { getWorkflowEventIcon } from "@/components/events/workflow-event-status"
 import { ExternalObjectResult } from "@/components/executions/external-object-result"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Spinner } from "@/components/loading/spinner"

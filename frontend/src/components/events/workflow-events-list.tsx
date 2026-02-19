@@ -65,7 +65,7 @@ export function WorkflowEventsList({
               <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2 text-xs">
                   <div className="truncate text-foreground/70">{row.label}</div>
-                  {row.count && row.count > 1 && (
+                  {(row.count ?? 0) > 1 && (
                     <Badge
                       variant="secondary"
                       className="h-4 px-1.5 text-[10px] font-medium text-foreground/60"
