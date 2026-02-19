@@ -65,15 +65,16 @@ async def list_workspaces(
 
     Access
     ------
-    - Org owners/admins (have `org:member:invite` scope): See all workspaces in the org.
+    - Org owners/admins (have `org:workspace:read` scope): See all workspaces in the org.
     - Other users: See only workspaces where they are a member.
 
     No scope requirement - membership itself is the authorization.
     """
     service = WorkspaceService(session, role=role)
 
-    # Org admins/owners have org:read scope and can see all workspaces
-    if role.scopes and has_scope(role.scopes, "org:read"):
+    # Org admins/owners have org:workspace:read scope and can see all workspaces
+    # NOTE: org:read is too broad — organization-member also has it
+    if role.scopes and has_scope(role.scopes, "org:workspace:read"):
         workspaces = await service.admin_list_workspaces()
     else:
         if role.user_id is None:
