@@ -423,8 +423,8 @@ Common environment variables shared across all backend services
 */}}
 {{- define "tracecat.featureFlags" -}}
 {{- $flags := list -}}
-{{- if .Values.tracecat.featureFlags }}
-{{- $flags = append $flags .Values.tracecat.featureFlags -}}
+{{- if .Values.enterprise.featureFlags }}
+{{- $flags = append $flags .Values.enterprise.featureFlags -}}
 {{- end }}
 {{- join "," $flags -}}
 {{- end }}

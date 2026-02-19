@@ -162,8 +162,6 @@ tracecat:
   logLevel: "INFO"
   allowOrigins: ""
   sentryDsn: ""
-  # Core feature flags (comma-separated).
-  featureFlags: ""
 
   sandbox:
     disableNsjail: false
@@ -223,6 +221,8 @@ tracecat:
       scrape: true
 
 enterprise:
+  # Enterprise-only feature flags (comma-separated).
+  featureFlags: ""
   # Enable enterprise multi-tenant mode.
   multiTenant: false
 
