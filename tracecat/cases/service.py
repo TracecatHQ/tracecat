@@ -515,6 +515,7 @@ class CasesService(BaseWorkspaceService):
 
         # Convert to CaseReadMinimal objects with tags and dropdown values
         case_items = []
+        include_dropdown_values = await self.has_entitlement(Entitlement.CASE_ADDONS)
         for case in cases:
             # Tags are already loaded via selectinload
             tag_reads = [
@@ -522,21 +523,23 @@ class CasesService(BaseWorkspaceService):
                 for tag in case.tags
             ]
 
-            # Dropdown values are already loaded via selectinload
-            dropdown_reads = [
-                CaseDropdownValueRead(
-                    id=dv.id,
-                    definition_id=dv.definition_id,
-                    definition_ref=dv.definition.ref,
-                    definition_name=dv.definition.name,
-                    option_id=dv.option.id if dv.option else None,
-                    option_label=dv.option.label if dv.option else None,
-                    option_ref=dv.option.ref if dv.option else None,
-                    option_icon_name=dv.option.icon_name if dv.option else None,
-                    option_color=dv.option.color if dv.option else None,
-                )
-                for dv in case.dropdown_values
-            ]
+            dropdown_reads = []
+            if include_dropdown_values:
+                # Dropdown values are already loaded via selectinload
+                dropdown_reads = [
+                    CaseDropdownValueRead(
+                        id=dv.id,
+                        definition_id=dv.definition_id,
+                        definition_ref=dv.definition.ref,
+                        definition_name=dv.definition.name,
+                        option_id=dv.option.id if dv.option else None,
+                        option_label=dv.option.label if dv.option else None,
+                        option_ref=dv.option.ref if dv.option else None,
+                        option_icon_name=dv.option.icon_name if dv.option else None,
+                        option_color=dv.option.color if dv.option else None,
+                    )
+                    for dv in case.dropdown_values
+                ]
 
             case_items.append(
                 CaseReadMinimal(

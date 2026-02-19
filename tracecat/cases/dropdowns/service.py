@@ -276,6 +276,7 @@ class CaseDropdownValuesService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Case {case_id} not found")
         return case
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def list_values_for_case(
         self, case_id: uuid.UUID
     ) -> list[CaseDropdownValueRead]:
@@ -309,13 +310,6 @@ class CaseDropdownValuesService(BaseWorkspaceService):
             )
             for row in rows
         ]
-
-    @requires_entitlement(Entitlement.CASE_ADDONS)
-    async def list_values_for_case_entitled(
-        self, case_id: uuid.UUID
-    ) -> list[CaseDropdownValueRead]:
-        """List dropdown values with entitlement enforcement."""
-        return await self.list_values_for_case(case_id)
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def set_value(

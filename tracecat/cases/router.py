@@ -59,6 +59,7 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
+from tracecat.tiers.enums import Entitlement
 
 cases_router = APIRouter(prefix="/cases", tags=["cases"])
 case_fields_router = APIRouter(prefix="/case-fields", tags=["cases"])
@@ -321,7 +322,9 @@ async def get_case(
 
     # Dropdown values
     dropdown_service = CaseDropdownValuesService(session, role)
-    dropdown_reads = await dropdown_service.list_values_for_case(case.id)
+    dropdown_reads = []
+    if await dropdown_service.has_entitlement(Entitlement.CASE_ADDONS):
+        dropdown_reads = await dropdown_service.list_values_for_case(case.id)
 
     # Match up the fields with the case field definitions
     return CaseRead(
