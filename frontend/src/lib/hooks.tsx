@@ -355,7 +355,7 @@ import {
 } from "@/client/services.custom"
 import { toast } from "@/components/ui/use-toast"
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
-import { getBaseUrl } from "@/lib/api"
+import { client as apiClient, getBaseUrl } from "@/lib/api"
 import {
   listCaseDurationDefinitions,
   listCaseDurations,
@@ -5496,15 +5496,27 @@ export function useWorkspaceSettings(
 
 /**
  * Hook to fetch the current user's effective scopes.
+ *
+ * When `workspaceId` is provided, workspace-specific role assignments are
+ * included in effective scope computation.
  */
-export function useUserScopes() {
+export function useUserScopes(workspaceId?: string) {
   const {
     data: userScopes,
     isLoading,
     error,
   } = useQuery<UserScopesRead>({
-    queryKey: ["user-scopes"],
-    queryFn: async () => await usersGetMyScopes(),
+    queryKey: ["user-scopes", workspaceId ?? null],
+    queryFn: async () => {
+      if (!workspaceId) {
+        return await usersGetMyScopes()
+      }
+
+      const response = await apiClient.get<UserScopesRead>("/users/me/scopes", {
+        params: { workspace_id: workspaceId },
+      })
+      return response.data
+    },
   })
 
   return {

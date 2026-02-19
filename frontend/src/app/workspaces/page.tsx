@@ -19,9 +19,7 @@ export default function WorkspacesPage() {
     if (workspaces.length === 0) {
       console.log("Creating a new workspace")
       createWorkspace({ name: "New Workspace" })
-        .then((workspace) =>
-          router.replace(`/workspaces/${workspace.id}/workflows`)
-        )
+        .then((workspace) => router.replace(`/workspaces/${workspace.id}`))
         .catch((error) => {
           console.error("Error creating workspace", error)
         })
@@ -44,7 +42,7 @@ export default function WorkspacesPage() {
     }
 
     if (targetWorkspaceId) {
-      router.replace(`/workspaces/${targetWorkspaceId}/workflows`)
+      router.replace(`/workspaces/${targetWorkspaceId}`)
     }
   }, [createWorkspace, getLastWorkspaceId, router, workspaces])
 

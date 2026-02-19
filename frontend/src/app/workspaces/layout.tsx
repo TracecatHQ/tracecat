@@ -45,6 +45,7 @@ export default function WorkspaceLayout({
 }: {
   children: React.ReactNode
 }) {
+  const router = useRouter()
   const {
     workspaces,
     workspacesLoading,
@@ -55,6 +56,12 @@ export default function WorkspaceLayout({
   const params = useParams<{ workspaceId?: string; workflowId?: string }>()
   const workspaceId = params?.workspaceId
   const workflowId = params?.workflowId
+  const requestedWorkspaceExists = useMemo(() => {
+    if (!workspaceId || !workspaces) {
+      return false
+    }
+    return workspaces.some((workspace) => workspace.id === workspaceId)
+  }, [workspaceId, workspaces])
   const lastViewedWorkspaceId = useMemo(() => {
     if (!workspaces || workspaces.length === 0) {
       return undefined
@@ -71,10 +78,37 @@ export default function WorkspaceLayout({
   }, [getLastWorkspaceId, workspaces])
 
   useEffect(() => {
-    if (workspaceId) {
+    if (workspaceId && requestedWorkspaceExists) {
       setLastWorkspaceId(workspaceId)
     }
-  }, [setLastWorkspaceId, workspaceId])
+  }, [requestedWorkspaceExists, setLastWorkspaceId, workspaceId])
+
+  const fallbackWorkspaceId = useMemo(() => {
+    if (!workspaces || workspaces.length === 0) {
+      return undefined
+    }
+    return lastViewedWorkspaceId ?? workspaces[0]?.id
+  }, [lastViewedWorkspaceId, workspaces])
+
+  useEffect(() => {
+    if (
+      workspacesLoading ||
+      workspacesError ||
+      !workspaceId ||
+      requestedWorkspaceExists ||
+      !fallbackWorkspaceId
+    ) {
+      return
+    }
+    router.replace(`/workspaces/${fallbackWorkspaceId}`)
+  }, [
+    fallbackWorkspaceId,
+    requestedWorkspaceExists,
+    router,
+    workspaceId,
+    workspacesError,
+    workspacesLoading,
+  ])
 
   if (workspacesLoading) {
     return <CenteredSpinner />
@@ -85,6 +119,18 @@ export default function WorkspaceLayout({
   if (workspacesError || !workspaces) {
     throw workspacesError
   }
+
+  if (workspaceId && !requestedWorkspaceExists) {
+    if (workspaces.length === 0) {
+      return (
+        <ScopeProvider>
+          <NoWorkspaces />
+        </ScopeProvider>
+      )
+    }
+    return <CenteredSpinner />
+  }
+
   let selectedWorkspaceId: string
   if (workspaceId) {
     selectedWorkspaceId = workspaceId
@@ -123,6 +169,7 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     workflowId?: string
     caseId?: string
   }>()
+  const canReadWorkspace = useScopeCheck("workspace:read")
   const pathname = usePathname()
   const isWorkflowBuilder = !!params?.workflowId
   const isCaseDetail = !!params?.caseId
@@ -131,6 +178,14 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
   const isRegistryPage = pathname?.includes("/registry")
+
+  if (canReadWorkspace === undefined) {
+    return <CenteredSpinner />
+  }
+
+  if (canReadWorkspace === false) {
+    return <WorkspaceAccessDenied />
+  }
 
   // Use old navbar for workflow builder
   if (isWorkflowBuilder) {
@@ -175,6 +230,23 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
         </CaseSelectionProvider>
       </SidebarInset>
     </SidebarProvider>
+  )
+}
+
+function WorkspaceAccessDenied() {
+  const router = useRouter()
+
+  return (
+    <main className="container flex size-full max-w-[400px] flex-col items-center justify-center space-y-4">
+      <Image src={TracecatIcon} alt="Tracecat" className="mb-4 size-16" />
+      <h1 className="text-2xl font-semibold tracking-tight">Access denied</h1>
+      <span className="text-center text-muted-foreground">
+        You don&apos;t have permission to access this workspace.
+      </span>
+      <Button variant="outline" onClick={() => router.replace("/workspaces")}>
+        Back to workspaces
+      </Button>
+    </main>
   )
 }
 

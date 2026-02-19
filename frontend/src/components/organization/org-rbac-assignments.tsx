@@ -87,9 +87,9 @@ export function OrgRbacAssignments() {
   const { roles } = useRbacRoles()
 
   const filteredAssignments = useMemo(() => {
-    if (!searchQuery.trim()) return assignments
+    if (!searchQuery.trim()) return assignments ?? []
     const query = searchQuery.toLowerCase()
-    return assignments.filter(
+    return (assignments ?? []).filter(
       (a) =>
         a.group_name.toLowerCase().includes(query) ||
         a.role_name.toLowerCase().includes(query) ||

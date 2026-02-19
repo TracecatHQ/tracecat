@@ -51,42 +51,42 @@ export function OrganizationSidebar({
       url: "/organization/settings/git",
       icon: GitBranchIcon,
       isActive: pathname?.includes("/organization/settings/git"),
-      visible: canViewSettings !== false,
+      visible: canViewSettings === true,
     },
     {
       title: "Single sign-on",
       url: "/organization/settings/sso",
       icon: LockIcon,
       isActive: pathname?.includes("/organization/settings/sso"),
-      visible: canViewSettings !== false,
+      visible: canViewSettings === true,
     },
     {
       title: "Domains",
       url: "/organization/settings/domains",
       icon: GlobeIcon,
       isActive: pathname?.includes("/organization/settings/domains"),
-      visible: canViewSettings !== false,
+      visible: canViewSettings === true,
     },
     {
       title: "Application",
       url: "/organization/settings/app",
       icon: Settings2,
       isActive: pathname?.includes("/organization/settings/app"),
-      visible: canViewSettings !== false,
+      visible: canViewSettings === true,
     },
     {
       title: "Audit Logs",
       url: "/organization/settings/audit",
       icon: LogsIcon,
       isActive: pathname?.includes("/organization/settings/audit"),
-      visible: canViewSettings !== false,
+      visible: canViewSettings === true,
     },
     {
       title: "Agent",
       url: "/organization/settings/agent",
       icon: BotIcon,
       isActive: pathname?.includes("/organization/settings/agent"),
-      visible: canViewSettings !== false,
+      visible: canViewSettings === true,
     },
     {
       title: "Access control",
@@ -102,7 +102,7 @@ export function OrganizationSidebar({
             url: "/organization/vcs",
             icon: GitBranchIcon,
             isActive: pathname?.includes("/organization/vcs"),
-            visible: canViewSettings !== false,
+            visible: canViewSettings === true,
           },
         ]
       : []),
@@ -114,7 +114,7 @@ export function OrganizationSidebar({
       url: "/organization/ssh-keys",
       icon: KeyRoundIcon,
       isActive: pathname?.includes("/organization/ssh-keys"),
-      visible: canViewSettings !== false,
+      visible: canViewSettings === true,
     },
   ]
 
@@ -124,14 +124,14 @@ export function OrganizationSidebar({
       url: "/organization/members",
       icon: UsersIcon,
       isActive: pathname?.includes("/organization/members"),
-      visible: canViewMembers !== false,
+      visible: canViewMembers === true,
     },
     {
       title: "Sessions",
       url: "/organization/sessions",
       icon: LogInIcon,
       isActive: pathname?.includes("/organization/sessions"),
-      visible: canViewMembers !== false,
+      visible: canViewMembers === true,
     },
   ]
 
@@ -163,13 +163,13 @@ export function OrganizationSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        {navSettings.some((item) => item.visible !== false) && (
+        {navSettings.some((item) => item.visible === true) && (
           <SidebarGroup>
             <SidebarGroupLabel>Settings</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {navSettings
-                  .filter((item) => item.visible !== false)
+                  .filter((item) => item.visible === true)
                   .map((item) => (
                     <SidebarMenuItem key={item.title}>
                       <SidebarMenuButton asChild isActive={item.isActive}>
@@ -185,13 +185,13 @@ export function OrganizationSidebar({
           </SidebarGroup>
         )}
 
-        {navSecrets.some((item) => item.visible !== false) && (
+        {navSecrets.some((item) => item.visible === true) && (
           <SidebarGroup>
             <SidebarGroupLabel>Secrets</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {navSecrets
-                  .filter((item) => item.visible !== false)
+                  .filter((item) => item.visible === true)
                   .map((item) => (
                     <SidebarMenuItem key={item.title}>
                       <SidebarMenuButton asChild isActive={item.isActive}>
@@ -207,13 +207,13 @@ export function OrganizationSidebar({
           </SidebarGroup>
         )}
 
-        {navUsers.some((item) => item.visible !== false) && (
+        {navUsers.some((item) => item.visible === true) && (
           <SidebarGroup>
             <SidebarGroupLabel>Users</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {navUsers
-                  .filter((item) => item.visible !== false)
+                  .filter((item) => item.visible === true)
                   .map((item) => (
                     <SidebarMenuItem key={item.title}>
                       <SidebarMenuButton asChild isActive={item.isActive}>
@@ -229,7 +229,7 @@ export function OrganizationSidebar({
           </SidebarGroup>
         )}
 
-        {workspaces && workspaces.length > 0 && (
+        {canViewSettings === true && workspaces && workspaces.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel>Your workspaces</SidebarGroupLabel>
             <SidebarGroupContent>

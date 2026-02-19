@@ -14,6 +14,7 @@ import { useForm } from "react-hook-form"
 import YAML from "yaml"
 import { z } from "zod"
 import { ApiError } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -295,9 +296,14 @@ export function CreateWorkflowButton({
 }) {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
+  const canCreateWorkflow = useScopeCheck("workflow:create")
   const { createWorkflow, moveWorkflow } = useWorkflowManager()
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
+
+  if (canCreateWorkflow !== true) {
+    return null
+  }
 
   const handleCreateWorkflow = async () => {
     try {
