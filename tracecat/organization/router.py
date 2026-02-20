@@ -262,7 +262,7 @@ async def get_current_org_member(
 
     # Superusers always show as Owner
     if role_name is None and role.is_platform_superuser:
-        role_name = "Owner"
+        role_name = "Organization Owner"
 
     return OrgMemberDetail(
         user_id=user.id,

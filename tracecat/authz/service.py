@@ -54,7 +54,9 @@ class MembershipService(BaseService):
         statement = (
             select(
                 User,
-                func.coalesce(DBRole.name, literal("Editor")).label("role_name"),
+                func.coalesce(DBRole.name, literal("Workspace Editor")).label(
+                    "role_name"
+                ),
             )
             .select_from(Membership)
             .join(User, Membership.user_id == User.id)  # pyright: ignore[reportArgumentType]
