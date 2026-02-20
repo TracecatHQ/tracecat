@@ -48,7 +48,7 @@ export default function WorkflowExecutionsLayout({
 const REFETCH_INTERVAL = 2000
 function WorkflowExecutionsPanelGroup({
   workflowId,
-  defaultLayout = [15, 15, 70],
+  defaultLayout = [22, 15, 63],
   defaultCollapsed = false,
   navCollapsedSize,
   children,
@@ -105,19 +105,17 @@ function WorkflowExecutionsPanelGroup({
           defaultSize={defaultLayout[0]}
           collapsedSize={navCollapsedSize}
           collapsible={true}
-          minSize={15}
-          maxSize={20}
+          minSize={18}
+          maxSize={30}
           onCollapse={handleCollapse}
           onExpand={handleExpand}
           className={cn(isCollapsed && "min-w-14")}
         >
-          <div className="flex h-full flex-col overflow-hidden p-2">
-            <div className="flex-none">
-              <SectionHead
-                text="Workflow Runs"
-                icon={<ListVideoIcon className="mr-2 size-4" strokeWidth={2} />}
-              />
-            </div>
+          <div className="flex h-full flex-col overflow-hidden">
+            <SectionHead
+              text="Workflow runs"
+              icon={<ListVideoIcon className="size-4" strokeWidth={2} />}
+            />
             <div className="flex-1 overflow-auto">
               <WorkflowExecutionNav executions={workflowExecutions} />
             </div>

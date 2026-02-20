@@ -63,12 +63,18 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Kbd } from "@/components/ui/kbd"
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
@@ -179,13 +185,89 @@ export function BuilderNav() {
 
 function TabSwitcher({ workflowId }: { workflowId: string }) {
   const pathname = usePathname()
+  const router = useRouter()
   const workspaceId = useWorkspaceId()
+  const pendingNavKeyRef = React.useRef<"w" | "r" | null>(null)
+  const pendingNavAtRef = React.useRef<number | null>(null)
   let leafRoute: string = "workflow"
   if (pathname && pathname.includes("executions")) {
     leafRoute = "executions"
   }
 
   const builderPath = `/workspaces/${workspaceId}/workflows/${workflowId}`
+  const executionsPath = `${builderPath}/executions`
+  const keyOnlyTooltipClassName = "border-0 bg-transparent p-0 shadow-none"
+
+  React.useEffect(() => {
+    const DOUBLE_TAP_WINDOW_MS = 1200
+    const isEditableTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) {
+        return false
+      }
+      const tagName = target.tagName
+      return (
+        target.isContentEditable ||
+        tagName === "INPUT" ||
+        tagName === "TEXTAREA" ||
+        tagName === "SELECT" ||
+        target.getAttribute("role") === "textbox"
+      )
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.repeat ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        isEditableTarget(event.target)
+      ) {
+        return
+      }
+
+      const key = event.key.toLowerCase()
+      const now = Date.now()
+      const pendingKey = pendingNavKeyRef.current
+      const pendingAt = pendingNavAtRef.current
+      const isWithinWindow =
+        pendingKey !== null &&
+        pendingAt !== null &&
+        now - pendingAt <= DOUBLE_TAP_WINDOW_MS
+
+      if (key !== "w" && key !== "r") {
+        pendingNavKeyRef.current = null
+        pendingNavAtRef.current = null
+        return
+      }
+
+      if (!isWithinWindow || pendingKey !== key) {
+        pendingNavKeyRef.current = key
+        pendingNavAtRef.current = now
+        return
+      }
+
+      pendingNavKeyRef.current = null
+      pendingNavAtRef.current = null
+
+      if (key === "w") {
+        event.preventDefault()
+        if (leafRoute !== "workflow") {
+          router.push(builderPath)
+        }
+        return
+      }
+
+      if (key === "r") {
+        event.preventDefault()
+        if (leafRoute !== "executions") {
+          router.push(executionsPath)
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [builderPath, executionsPath, leafRoute, router])
 
   return (
     <Tabs value={leafRoute}>
@@ -196,8 +278,27 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
           asChild
         >
           <Link href={builderPath} className="size-full text-xs" passHref>
-            <WorkflowIcon className="mr-2 size-4" />
-            <span>Workflow</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="flex size-full items-center justify-center">
+                  <WorkflowIcon className="mr-2 size-4" />
+                  <span>Workflow</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                className={keyOnlyTooltipClassName}
+                sideOffset={8}
+              >
+                <span className="inline-flex items-center gap-1">
+                  <Kbd>W</Kbd>
+                  <span className="inline-flex h-5 items-center rounded border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
+                    then
+                  </span>
+                  <Kbd>W</Kbd>
+                </span>
+              </TooltipContent>
+            </Tooltip>
           </Link>
         </TabsTrigger>
         <TabsTrigger
@@ -205,13 +306,28 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
           value="executions"
           asChild
         >
-          <Link
-            href={`${builderPath}/executions`}
-            className="size-full text-xs"
-            passHref
-          >
-            <SquarePlay className="mr-2 size-4" />
-            <span>Runs</span>
+          <Link href={executionsPath} className="size-full text-xs" passHref>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="flex size-full items-center justify-center">
+                  <SquarePlay className="mr-2 size-4" />
+                  <span>Runs</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                className={keyOnlyTooltipClassName}
+                sideOffset={8}
+              >
+                <span className="inline-flex items-center gap-1">
+                  <Kbd>R</Kbd>
+                  <span className="inline-flex h-5 items-center rounded border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
+                    then
+                  </span>
+                  <Kbd>R</Kbd>
+                </span>
+              </TooltipContent>
+            </Tooltip>
           </Link>
         </TabsTrigger>
       </TabsList>

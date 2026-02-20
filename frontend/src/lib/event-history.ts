@@ -18,6 +18,8 @@ export type WorkflowExecutionReadCompact =
 // Safe because refs are slugified. Use `workflow` to namespace from regular action refs.
 export const WF_FAILURE_EVENT_REF = "__workflow_failure__"
 export const WF_FAILURE_EVENT_LABEL = "Workflow Failure"
+export const WF_COMPLETED_EVENT_REF = "__workflow_completed__"
+export const WF_COMPLETED_EVENT_LABEL = "Workflow result"
 
 export const ERROR_EVENT_TYPES: WorkflowEventType[] = [
   "WORKFLOW_EXECUTION_FAILED",
@@ -217,6 +219,9 @@ export function isAgentOutput(
 export function refToLabel(actionRef: string) {
   if (actionRef === WF_FAILURE_EVENT_REF) {
     return WF_FAILURE_EVENT_LABEL
+  }
+  if (actionRef === WF_COMPLETED_EVENT_REF) {
+    return WF_COMPLETED_EVENT_LABEL
   }
   return undoSlugify(actionRef, ACTION_REF_DELIMITER)
 }

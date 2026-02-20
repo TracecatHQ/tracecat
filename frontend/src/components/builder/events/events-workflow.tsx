@@ -1,19 +1,14 @@
 import { DotsHorizontalIcon, QuestionMarkIcon } from "@radix-ui/react-icons"
 import {
   AlarmClockCheckIcon,
-  AlarmClockOffIcon,
   AlarmClockPlusIcon,
   BriefcaseBusinessIcon,
   CalendarIcon,
   CalendarSearchIcon,
-  CircleCheck,
   CircleCheckBigIcon,
   CircleDot,
-  CircleMinusIcon,
   CirclePlayIcon,
-  CircleX,
   EyeOffIcon,
-  GitForkIcon,
   LayoutListIcon,
   LoaderIcon,
   ScanEyeIcon,
@@ -26,8 +21,15 @@ import {
 import Link from "next/link"
 import { useCallback, useState } from "react"
 import type { TriggerType, WorkflowExecutionEventStatus } from "@/client"
+import {
+  getAggregateWorkflowEventStatus,
+  getWorkflowEventIcon,
+} from "@/components/events/workflow-event-status"
+import {
+  WorkflowEventsList,
+  type WorkflowEventsListRow,
+} from "@/components/events/workflow-events-list"
 import { getExecutionStatusIcon } from "@/components/executions/nav"
-import { Spinner } from "@/components/loading/spinner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -46,6 +48,7 @@ import {
   executionId,
   groupEventsByActionRef,
   refToLabel,
+  WF_COMPLETED_EVENT_REF,
   WF_FAILURE_EVENT_REF,
   type WorkflowExecutionEventCompact,
   type WorkflowExecutionReadCompact,
@@ -226,6 +229,7 @@ export function WorkflowEvents({
     sidebarRef,
   } = useWorkflowBuilder()
   const { workflow } = useWorkflow()
+  const workspaceId = useWorkspaceId()
   const [isOpen, _setIsOpen] = useState(true)
 
   // Group events by action_ref
@@ -271,30 +275,6 @@ export function WorkflowEvents({
     [workflow]
   )
 
-  const getAggregateStatus = useCallback(
-    (relatedEvents: WorkflowExecutionEventCompact[]) => {
-      const statuses = relatedEvents.map((event) => event.status)
-
-      // Prioritize showing error states
-      if (statuses.some((status) => status === "FAILED")) return "FAILED"
-      if (statuses.some((status) => status === "TIMED_OUT")) return "TIMED_OUT"
-      if (statuses.some((status) => status === "CANCELED")) return "CANCELED"
-      if (statuses.some((status) => status === "TERMINATED"))
-        return "TERMINATED"
-
-      // Then show active states
-      if (statuses.some((status) => status === "STARTED")) return "STARTED"
-      if (statuses.some((status) => status === "SCHEDULED")) return "SCHEDULED"
-
-      // Finally, completed states
-      if (statuses.every((status) => status === "COMPLETED")) return "COMPLETED"
-      if (statuses.some((status) => status === "DETACHED")) return "DETACHED"
-
-      return "UNKNOWN"
-    },
-    []
-  )
-
   const getLatestStartTime = useCallback(
     (relatedEvents: WorkflowExecutionEventCompact[]) => {
       const times = relatedEvents
@@ -304,6 +284,117 @@ export function WorkflowEvents({
       return times.length > 0 ? times[times.length - 1] : null
     },
     []
+  )
+
+  const getChildWorkflowRunLink = useCallback(
+    (relatedEvents: WorkflowExecutionEventCompact[]) => {
+      const eventWithChildRun = [...relatedEvents]
+        .filter((event) => Boolean(event.child_wf_exec_id))
+        .sort((a, b) => {
+          const dateA = new Date(a.start_time || a.schedule_time).getTime()
+          const dateB = new Date(b.start_time || b.schedule_time).getTime()
+          return dateB - dateA
+        })[0]
+
+      if (!eventWithChildRun?.child_wf_exec_id) {
+        return undefined
+      }
+
+      try {
+        const childExecution = executionId(eventWithChildRun.child_wf_exec_id)
+        return `/workspaces/${workspaceId}/workflows/${childExecution.wf}/executions/${childExecution.exec}`
+      } catch {
+        return undefined
+      }
+    },
+    [workspaceId]
+  )
+
+  const rows: WorkflowEventsListRow[] = Object.entries(groupedEvents).map(
+    ([actionRef, relatedEvents]) => {
+      const aggregateStatus = getAggregateWorkflowEventStatus(relatedEvents)
+      const latestStartTime = getLatestStartTime(relatedEvents)
+      const instanceCount = relatedEvents.length
+      const childWorkflowRunLink = getChildWorkflowRunLink(relatedEvents)
+
+      return {
+        key: actionRef,
+        label: refToLabel(actionRef),
+        time: latestStartTime
+          ? new Date(latestStartTime).toLocaleTimeString()
+          : "-",
+        icon: <WorkflowEventStatusIcon status={aggregateStatus} />,
+        selected: selectedActionEventRef === actionRef,
+        count: instanceCount,
+        subflowLink: childWorkflowRunLink,
+        onSelect: () => handleRowClick(actionRef),
+        trailing: (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                className="size-4 p-0 focus-visible:ring-0"
+                variant="ghost"
+              >
+                <DotsHorizontalIcon className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              className={cn(
+                "flex flex-col",
+                "[&_[data-radix-collection-item]]:flex",
+                "[&_[data-radix-collection-item]]:items-center",
+                "[&_[data-radix-collection-item]]:gap-2",
+                "[&_[data-radix-collection-item]]:text-xs",
+                "[&_[data-radix-collection-item]]:text-foreground/80"
+              )}
+            >
+              <DropdownMenuItem
+                disabled={!isActionRefValid(actionRef)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  sidebarRef.current?.setOpen(true)
+                  sidebarRef.current?.setActiveTab("action-input")
+                  setSelectedActionEventRef(actionRef)
+                }}
+              >
+                <LayoutListIcon className="size-3" />
+                <span>View last input</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={
+                  !isActionRefValid(actionRef) &&
+                  actionRef !== WF_FAILURE_EVENT_REF &&
+                  actionRef !== WF_COMPLETED_EVENT_REF
+                }
+                onClick={(e) => {
+                  e.stopPropagation()
+                  sidebarRef.current?.setOpen(true)
+                  sidebarRef.current?.setActiveTab("action-result")
+                  setSelectedActionEventRef(actionRef)
+                }}
+              >
+                <CircleCheckBigIcon className="size-3" />
+                <span>View last result</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!isActionRefValid(actionRef)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  centerNode(actionRef)
+                }}
+              >
+                {!isActionRefValid(actionRef) ? (
+                  <EyeOffIcon className="size-3" />
+                ) : (
+                  <ScanEyeIcon className="size-3" />
+                )}
+                <span>Focus action</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ),
+      }
+    }
   )
 
   return (
@@ -316,148 +407,26 @@ export function WorkflowEvents({
       </div>
 
       {isOpen && (
-        <div className="overflow-hidden rounded-md border">
-          <div className="relative">
-            {Object.keys(groupedEvents).length > 0 ? (
-              Object.entries(groupedEvents).map(
-                ([actionRef, relatedEvents]) => {
-                  const aggregateStatus = getAggregateStatus(relatedEvents)
-                  const latestStartTime = getLatestStartTime(relatedEvents)
-                  const instanceCount = relatedEvents.length
-
-                  return (
-                    <div key={actionRef}>
-                      {/* Vertical timeline line */}
-                      <div className="absolute inset-y-5 left-[20px] w-px bg-gray-300" />
-                      <div
-                        className={cn(
-                          "group flex h-9 cursor-pointer items-center border-b border-muted/30 p-3 text-xs transition-all last:border-b-0 hover:bg-muted/50",
-                          selectedActionEventRef === actionRef &&
-                            "bg-muted-foreground/10"
-                        )}
-                        onClick={() => handleRowClick(actionRef)}
-                      >
-                        <div className="relative z-10 mr-3 rounded-full bg-background transition-all group-hover:bg-muted/50">
-                          <WorkflowEventStatusIcon status={aggregateStatus} />
-                        </div>
-
-                        <div className="flex flex-1 items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <div className="truncate text-foreground/70">
-                              {refToLabel(actionRef)}
-                            </div>
-                            {instanceCount > 1 && (
-                              <Badge
-                                variant="secondary"
-                                className="h-4 px-1.5 text-[10px] font-medium text-foreground/60"
-                              >
-                                {instanceCount}x
-                              </Badge>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <div className="whitespace-nowrap text-foreground/70">
-                              {latestStartTime
-                                ? new Date(latestStartTime).toLocaleTimeString()
-                                : "-"}
-                            </div>
-
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  className="size-4 p-0 focus-visible:ring-0"
-                                  variant="ghost"
-                                >
-                                  <DotsHorizontalIcon className="size-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent
-                                className={cn(
-                                  "flex flex-col",
-                                  "[&_[data-radix-collection-item]]:flex",
-                                  "[&_[data-radix-collection-item]]:items-center",
-                                  "[&_[data-radix-collection-item]]:gap-2",
-                                  "[&_[data-radix-collection-item]]:text-xs",
-                                  "[&_[data-radix-collection-item]]:text-foreground/80"
-                                )}
-                              >
-                                <DropdownMenuItem
-                                  disabled={!isActionRefValid(actionRef)}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    sidebarRef.current?.setOpen(true)
-                                    sidebarRef.current?.setActiveTab(
-                                      "action-input"
-                                    )
-                                    setSelectedActionEventRef(
-                                      slugifyActionRef(actionRef)
-                                    )
-                                  }}
-                                >
-                                  <LayoutListIcon className="size-3" />
-                                  <span>View last input</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  disabled={
-                                    !isActionRefValid(actionRef) &&
-                                    actionRef !== WF_FAILURE_EVENT_REF
-                                  }
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    sidebarRef.current?.setOpen(true)
-                                    sidebarRef.current?.setActiveTab(
-                                      "action-result"
-                                    )
-                                    setSelectedActionEventRef(
-                                      slugifyActionRef(actionRef)
-                                    )
-                                  }}
-                                >
-                                  <CircleCheckBigIcon className="size-3" />
-                                  <span>View last result</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  disabled={!isActionRefValid(actionRef)}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    centerNode(actionRef)
-                                  }}
-                                >
-                                  {!isActionRefValid(actionRef) ? (
-                                    <EyeOffIcon className="size-3" />
-                                  ) : (
-                                    <ScanEyeIcon className="size-3" />
-                                  )}
-                                  <span>Focus action</span>
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                }
-              )
-            ) : (
-              <div className="flex h-16 items-center justify-center bg-muted-foreground/5 p-3 text-center text-xs text-muted-foreground">
-                <div className="flex items-center justify-center gap-2">
-                  {status === "RUNNING" ? (
-                    <>
-                      <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
-                      <span>Waiting for events...</span>
-                    </>
-                  ) : (
-                    <>
-                      <CircleDot className="size-3 text-muted-foreground" />
-                      <span>No events</span>
-                    </>
-                  )}
-                </div>
+        <div className="overflow-hidden border">
+          {Object.keys(groupedEvents).length > 0 ? (
+            <WorkflowEventsList rows={rows} />
+          ) : (
+            <div className="flex h-16 items-center justify-center bg-muted-foreground/5 p-3 text-center text-xs text-muted-foreground">
+              <div className="flex items-center justify-center gap-2">
+                {status === "RUNNING" ? (
+                  <>
+                    <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
+                    <span>Waiting for events...</span>
+                  </>
+                ) : (
+                  <>
+                    <CircleDot className="size-3 text-muted-foreground" />
+                    <span>No events</span>
+                  </>
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
     </ScrollArea>
@@ -465,7 +434,7 @@ export function WorkflowEvents({
 }
 export function WorkflowEventStatusIcon({
   status,
-  className = "size-4",
+  className = "size-5",
 }: {
   status: WorkflowExecutionEventStatus
 } & React.HTMLAttributes<HTMLDivElement>) {
@@ -479,58 +448,6 @@ export function WorkflowEventStatusIcon({
       </TooltipContent>
     </Tooltip>
   )
-}
-export function getWorkflowEventIcon(
-  status: WorkflowExecutionEventStatus,
-  className?: string
-) {
-  switch (status) {
-    case "SCHEDULED":
-      return <Spinner className={cn("!size-3", className)} />
-    case "STARTED":
-      return <Spinner className={className} />
-    case "COMPLETED":
-      return (
-        <CircleCheck
-          className={cn(
-            "border-none border-emerald-500 fill-emerald-500 stroke-white",
-            className
-          )}
-        />
-      )
-    case "FAILED":
-      return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
-    case "CANCELED":
-      return (
-        <CircleMinusIcon
-          className={cn("fill-orange-500 stroke-white", className)}
-        />
-      )
-    case "TERMINATED":
-      return (
-        <CircleMinusIcon
-          className={cn("fill-rose-500 stroke-white", className)}
-        />
-      )
-    case "TIMED_OUT":
-      return (
-        <AlarmClockOffIcon
-          className={cn("!size-3 stroke-rose-500", className)}
-          strokeWidth={2.5}
-        />
-      )
-    case "DETACHED":
-      return (
-        <GitForkIcon
-          className={cn("!size-3 stroke-emerald-500", className)}
-          strokeWidth={2.5}
-        />
-      )
-    case "UNKNOWN":
-      return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
-    default:
-      throw new Error("Invalid status")
-  }
 }
 
 export function getTriggerTypeIcon(

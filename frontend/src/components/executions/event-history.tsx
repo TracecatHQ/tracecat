@@ -1,42 +1,35 @@
 "use client"
 
+import type { WorkflowExecutionEventStatus } from "@/client"
 import {
-  AlarmClockOffIcon,
-  BookCheckIcon,
-  CalendarCheckIcon,
-  CircleArrowRightIcon,
-  CircleCheck,
-  CircleDotIcon,
-  CircleMinusIcon,
-  CircleXIcon,
-  PlayIcon,
-  WorkflowIcon,
-} from "lucide-react"
-import type React from "react"
-import type { WorkflowEventType, WorkflowExecutionEvent } from "@/client"
-import { CenteredSpinner } from "@/components/loading/spinner"
+  getAggregateWorkflowEventStatus,
+  getWorkflowEventIcon,
+} from "@/components/events/workflow-event-status"
+import {
+  WorkflowEventsList,
+  type WorkflowEventsListRow,
+} from "@/components/events/workflow-events-list"
+import { CenteredSpinner, Spinner } from "@/components/loading/spinner"
 import NoContent from "@/components/no-content"
 import { AlertNotification } from "@/components/notifications"
-import { Badge } from "@/components/ui/badge"
-import { Button, buttonVariants } from "@/components/ui/button"
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import { useWorkflowExecution } from "@/lib/hooks"
-import { cn, undoSlugify } from "@/lib/utils"
+  groupEventsByActionRef,
+  executionId as parseWorkflowExecutionId,
+  refToLabel,
+  type WorkflowExecutionEventCompact,
+} from "@/lib/event-history"
+import { useCompactWorkflowExecution } from "@/lib/hooks"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 import "react18-json-view/src/style.css"
 
-import { ERROR_EVENT_TYPES, parseEventType } from "@/lib/event-history"
-
-const REFETCH_INTERVAL = 2000 // 2 seconds
+const INTERMEDIATE_EVENT_STATUSES = new Set<WorkflowExecutionEventStatus>([
+  "SCHEDULED",
+  "STARTED",
+])
 
 /**
- * Event history for a specific workflow execution
- * @param param0
- * @returns
+ * Events for a specific workflow execution
  */
 export function WorkflowExecutionEventHistory({
   executionId,
@@ -44,13 +37,13 @@ export function WorkflowExecutionEventHistory({
   setSelectedEvent,
 }: {
   executionId: string
-  selectedEvent?: WorkflowExecutionEvent
-  setSelectedEvent: (event: WorkflowExecutionEvent) => void
+  selectedEvent?: WorkflowExecutionEventCompact
+  setSelectedEvent: (event: WorkflowExecutionEventCompact) => void
 }) {
+  const workspaceId = useWorkspaceId()
+  const decodedExecutionId = decodeURIComponent(executionId)
   const { execution, executionIsLoading, executionError } =
-    useWorkflowExecution(executionId, {
-      refetchInterval: REFETCH_INTERVAL,
-    })
+    useCompactWorkflowExecution(decodedExecutionId)
 
   if (executionIsLoading) {
     return <CenteredSpinner />
@@ -59,208 +52,118 @@ export function WorkflowExecutionEventHistory({
     return <AlertNotification message={executionError.message} />
   }
   if (!execution) {
-    return <NoContent message="No event history found." />
+    return <NoContent message="No events found." />
   }
-  return (
-    <div className="group flex flex-col gap-4 py-2">
-      <nav className="grid gap-1 px-2">
-        {execution.events.map((event, index) => (
-          <Button
-            key={index}
-            className={cn(
-              buttonVariants({ variant: "default", size: "sm" }),
-              "justify-start space-x-1 bg-background text-muted-foreground shadow-none hover:cursor-default hover:bg-gray-100",
-              event.event_id === selectedEvent?.event_id && "bg-gray-200",
-              ERROR_EVENT_TYPES.includes(event.event_type) &&
-                "bg-red-100 hover:bg-red-200"
-            )}
-            onClick={() => {
-              setSelectedEvent(event)
-            }}
-          >
-            <div className="flex items-center justify-items-start">
-              <div className="flex w-10">
-                <Badge
-                  variant="secondary"
-                  className="max-w-10 flex-none rounded-md bg-indigo-50 p-1 text-xs font-light text-muted-foreground"
-                >
-                  {event.event_id}
-                </Badge>
-              </div>
-              <EventHistoryItemIcon
-                eventType={event.event_type}
-                className="size-4 w-8 flex-none"
-              />
 
-              <span className="text-xs text-muted-foreground">
-                <EventDescriptor event={event} />
-              </span>
-            </div>
-          </Button>
-        ))}
-      </nav>
+  const terminalEvents = execution.events.filter(
+    (event) => !INTERMEDIATE_EVENT_STATUSES.has(event.status)
+  )
+
+  const eventRows = Object.entries(groupEventsByActionRef(terminalEvents))
+    .map(([actionRef, relatedEvents]) => {
+      const aggregateStatus = getAggregateWorkflowEventStatus(relatedEvents)
+      const latestEvent = getLatestEvent(relatedEvents)
+      const latestEventTime = latestEvent
+        ? new Date(
+            latestEvent.close_time ||
+              latestEvent.start_time ||
+              latestEvent.schedule_time
+          ).toLocaleTimeString()
+        : "-"
+      const childWorkflowRunLink = getChildWorkflowRunLink(
+        relatedEvents,
+        workspaceId
+      )
+
+      return {
+        actionRef,
+        relatedEvents,
+        aggregateStatus,
+        latestEvent,
+        latestEventTime,
+        childWorkflowRunLink,
+      }
+    })
+    .sort((a, b) => {
+      if (!a.latestEvent || !b.latestEvent) {
+        return 0
+      }
+      return getEventTimestamp(a.latestEvent) - getEventTimestamp(b.latestEvent)
+    })
+
+  if (eventRows.length === 0) {
+    return (
+      <div className="flex h-16 items-center justify-center text-center text-xs text-muted-foreground">
+        {execution.status === "RUNNING" ? (
+          <div className="flex items-center justify-center gap-2">
+            <Spinner className="size-3" />
+            <span>Waiting for events...</span>
+          </div>
+        ) : (
+          <span>No events</span>
+        )}
+      </div>
+    )
+  }
+
+  const rows: WorkflowEventsListRow[] = eventRows.map(
+    ({
+      actionRef,
+      relatedEvents,
+      aggregateStatus,
+      latestEvent,
+      latestEventTime,
+      childWorkflowRunLink,
+    }) => ({
+      key: actionRef,
+      label: refToLabel(actionRef),
+      time: latestEventTime,
+      icon: getWorkflowEventIcon(aggregateStatus),
+      selected: selectedEvent?.action_ref === actionRef,
+      count: relatedEvents.length,
+      subflowLink: childWorkflowRunLink,
+      onSelect: latestEvent ? () => setSelectedEvent(latestEvent) : undefined,
+    })
+  )
+
+  return (
+    <div className="group h-full">
+      <WorkflowEventsList rows={rows} />
     </div>
   )
 }
 
-export function EventDescriptor({
-  event,
-}: {
-  event: WorkflowExecutionEvent
-}): React.ReactNode {
-  if (event.event_type.startsWith("ACTIVITY_TASK")) {
-    return (
-      <span className="flex items-center space-x-2 text-xs">
-        <span>{event.event_group?.action_title ?? "Unnamed action"}</span>
-      </span>
-    )
-  }
-  if (event.event_type.includes("CHILD_WORKFLOW_EXECUTION")) {
-    return (
-      <span className="flex items-center space-x-2 text-xs">
-        <span>{event.event_group?.action_title ?? "Unnamed action"}</span>
-      </span>
-    )
-  }
-  return <span className="capitalize">{parseEventType(event.event_type)}</span>
-}
-export function EventHistoryItemIcon({
-  eventType,
-  className,
-}: {
-  eventType: WorkflowEventType
-} & React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        {getEventHistoryIcon(eventType, className)}
-      </TooltipTrigger>
-      <TooltipContent side="top" className="flex items-center gap-4  shadow-lg">
-        <span>{undoSlugify(eventType.toLowerCase())}</span>
-      </TooltipContent>
-    </Tooltip>
-  )
+function getEventTimestamp(event: WorkflowExecutionEventCompact): number {
+  const eventTime = event.close_time || event.start_time || event.schedule_time
+  return new Date(eventTime).getTime()
 }
 
-function getEventHistoryIcon(eventType: WorkflowEventType, className?: string) {
-  switch (eventType) {
-    /* === Workflow Execution Events === */
-    case "WORKFLOW_EXECUTION_STARTED":
-      return (
-        <WorkflowIcon
-          className={cn("fill-white stroke-sky-500/80", className)}
-        />
-      )
-    case "WORKFLOW_EXECUTION_COMPLETED":
-      return (
-        <WorkflowIcon
-          className={cn("fill-white stroke-emerald-500", className)}
-        />
-      )
-    case "WORKFLOW_EXECUTION_FAILED":
-      return (
-        <CircleXIcon className={cn("fill-rose-500 stroke-white", className)} />
-      )
-    case "WORKFLOW_EXECUTION_CANCELED":
-      return (
-        <CircleMinusIcon
-          className={cn("fill-orange-500 stroke-white", className)}
-        />
-      )
-    case "WORKFLOW_EXECUTION_TERMINATED":
-      return (
-        <CircleMinusIcon
-          className={cn("fill-rose-500 stroke-white", className)}
-        />
-      )
-    case "WORKFLOW_EXECUTION_CONTINUED_AS_NEW":
-      return (
-        <CircleArrowRightIcon
-          className={cn("fill-sky-500/80 stroke-white", className)}
-        />
-      )
-    case "WORKFLOW_EXECUTION_TIMED_OUT":
-      return (
-        <AlarmClockOffIcon
-          className={cn("stroke-rose-500", className)}
-          strokeWidth={2.5}
-        />
-      )
-    /* === Child Workflow Execution Events === */
-    case "START_CHILD_WORKFLOW_EXECUTION_INITIATED":
-      return (
-        <WorkflowIcon
-          className={cn("fill-orange-200/50 stroke-orange-500/70", className)}
-        />
-      )
-    case "CHILD_WORKFLOW_EXECUTION_STARTED":
-      return (
-        <WorkflowIcon
-          className={cn("fill-orange-200/50 stroke-orange-500/70", className)}
-        />
-      )
-    case "CHILD_WORKFLOW_EXECUTION_COMPLETED":
-      return (
-        <CircleCheck
-          className={cn("fill-emerald-500 stroke-white", className)}
-        />
-      )
-    case "CHILD_WORKFLOW_EXECUTION_FAILED":
-      return (
-        <CircleXIcon className={cn("fill-rose-500 stroke-white", className)} />
-      )
-    /* === Activity Task Events === */
-    case "ACTIVITY_TASK_SCHEDULED":
-      return (
-        <CalendarCheckIcon
-          className={cn("fill-orange-200/50 stroke-orange-500/70", className)}
-        />
-      )
-    case "ACTIVITY_TASK_STARTED":
-      return (
-        <PlayIcon className={cn("fill-white stroke-sky-500/80", className)} />
-      )
-    case "ACTIVITY_TASK_COMPLETED":
-      return (
-        <CircleCheck
-          className={cn("fill-emerald-500 stroke-white", className)}
-        />
-      )
-    case "ACTIVITY_TASK_FAILED":
-      return (
-        <CircleXIcon className={cn("fill-rose-500 stroke-white", className)} />
-      )
-    case "ACTIVITY_TASK_TIMED_OUT":
-      return (
-        <AlarmClockOffIcon
-          className={cn("stroke-orange-500", className)}
-          strokeWidth={2.5}
-        />
-      )
-    case "WORKFLOW_EXECUTION_UPDATE_ACCEPTED":
-      return (
-        <BookCheckIcon
-          className={cn("fill-indigo-500/20 stroke-indigo-500/50", className)}
-        />
-      )
-    case "WORKFLOW_EXECUTION_UPDATE_REJECTED":
-      return (
-        <CircleXIcon
-          className={cn("fill-indigo-500/50 stroke-white", className)}
-        />
-      )
-    case "WORKFLOW_EXECUTION_UPDATE_COMPLETED":
-      return (
-        <CircleCheck
-          className={cn("fill-emerald-500/50 stroke-white", className)}
-        />
-      )
+function getLatestEvent(
+  relatedEvents: WorkflowExecutionEventCompact[]
+): WorkflowExecutionEventCompact | undefined {
+  return [...relatedEvents].sort(
+    (a, b) => getEventTimestamp(b) - getEventTimestamp(a)
+  )[0]
+}
 
-    default:
-      return (
-        <CircleDotIcon
-          className={cn("fill-indigo-500/50 stroke-white", className)}
-        />
-      )
+function getChildWorkflowRunLink(
+  relatedEvents: WorkflowExecutionEventCompact[],
+  workspaceId: string
+): string | undefined {
+  const eventWithChildRun = [...relatedEvents]
+    .filter((event) => Boolean(event.child_wf_exec_id))
+    .sort((a, b) => getEventTimestamp(b) - getEventTimestamp(a))[0]
+
+  if (!eventWithChildRun?.child_wf_exec_id) {
+    return undefined
+  }
+
+  try {
+    const childExecution = parseWorkflowExecutionId(
+      eventWithChildRun.child_wf_exec_id
+    )
+    return `/workspaces/${workspaceId}/workflows/${childExecution.wf}/executions/${childExecution.exec}`
+  } catch {
+    return undefined
   }
 }

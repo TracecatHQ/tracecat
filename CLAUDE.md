@@ -365,6 +365,7 @@ Available predefined roles:
 - Always use proper TypeScript type hints and avoid using `any` - use `unknown` if necessary
 - Avoid nested ternary statements - use `if/else` or `switch/case` instead
 - Place React hooks in `frontend/src/hooks/` directory (e.g., `use-inbox.ts`, `use-auth.ts`)
+- For keyboard shortcut UI, render each key with the `Kbd` component and prefer `parseShortcutKeys` from `frontend/src/lib/tiptap-utils.ts` to ensure consistent macOS symbols (`⌘`, `⇧`) and non-mac labels (`Ctrl`, `Shift`).
 
 ### UI Component Best Practices
 - **Flat, Linear-inspired design**: Follow a minimal, flat design aesthetic inspired by Linear. Key principles:

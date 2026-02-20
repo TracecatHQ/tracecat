@@ -3,10 +3,11 @@
 Objectives
 ----------
 1. Test synthetic workflow failure event generation
-2. Test that workflow executions without failures don't create synthetic events
-3. Test that workflows with both action and workflow failures show both event types
-4. Test edge cases and error conditions in event processing
-5. Test workspace timeout resolution logic
+2. Test synthetic workflow completion event generation
+3. Test that workflow executions without failures don't create synthetic events
+4. Test that workflows with both action and workflow failures show both event types
+5. Test edge cases and error conditions in event processing
+6. Test workspace timeout resolution logic
 
 """
 
@@ -32,6 +33,7 @@ from tracecat.workflow.executions.schemas import (
     WorkflowExecutionEventCompact,
 )
 from tracecat.workflow.executions.service import (
+    WF_COMPLETED_REF,
     WF_FAILURE_REF,
     WorkflowExecutionsService,
 )
@@ -221,6 +223,55 @@ class TestWorkflowExecutionEvents:
 
             # Verify EventFailure.from_history_event was called
             mock_event_failure.assert_called_once_with(failure_event)
+
+    async def test_workflow_completed_synthetic_event_creation(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Test that workflow completion creates a synthetic event with result."""
+        completed_event = create_mock_history_event(
+            event_id=101,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            """Mock async generator for history events."""
+            yield completed_event
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        expected_result = {"status": "ok", "items_processed": 3}
+        with patch("tracecat.workflow.executions.service.get_result") as mock_get_result:
+            mock_get_result.return_value = expected_result
+
+            events = await workflow_executions_service.list_workflow_execution_events_compact(
+                workflow_exec_id
+            )
+
+            assert len(events) == 1
+            event = events[0]
+
+            assert event.action_ref == WF_COMPLETED_REF
+            assert event.action_name == WF_COMPLETED_REF
+            assert event.status == WorkflowExecutionEventStatus.COMPLETED
+            assert event.source_event_id == 101
+            assert event.action_result == expected_result
+
+            expected_time = datetime.datetime.fromtimestamp(1640995200, tz=datetime.UTC)
+            assert event.schedule_time == expected_time
+            assert event.start_time == expected_time
+            assert event.close_time == expected_time
+
+            mock_get_result.assert_awaited_once_with(completed_event)
 
     async def test_workflow_execution_without_failures_no_synthetic_events(
         self,

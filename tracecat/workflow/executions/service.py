@@ -54,7 +54,7 @@ from tracecat.workflow.executions.common import (
     is_scheduled_event,
     is_start_event,
 )
-from tracecat.workflow.executions.constants import WF_FAILURE_REF
+from tracecat.workflow.executions.constants import WF_COMPLETED_REF, WF_FAILURE_REF
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -272,6 +272,20 @@ class WorkflowExecutionsService:
                     action_name=WF_FAILURE_REF,
                     action_ref=WF_FAILURE_REF,
                     action_error=failure,
+                )
+                continue
+            # ── synthetic compact event for top-level workflow completion ──
+            elif event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
+                id2event[event.event_id] = WorkflowExecutionEventCompact(
+                    source_event_id=event.event_id,
+                    schedule_time=event.event_time.ToDatetime(datetime.UTC),
+                    start_time=event.event_time.ToDatetime(datetime.UTC),
+                    close_time=event.event_time.ToDatetime(datetime.UTC),
+                    curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
+                    status=WorkflowExecutionEventStatus.COMPLETED,
+                    action_name=WF_COMPLETED_REF,
+                    action_ref=WF_COMPLETED_REF,
+                    action_result=await get_result(event),
                 )
                 continue
             else:

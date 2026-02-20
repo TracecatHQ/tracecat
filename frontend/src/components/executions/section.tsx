@@ -8,7 +8,7 @@ export function SectionHead({
   text: string
 }) {
   return (
-    <div className="flex w-full justify-start p-2 text-center text-xs font-semibold">
+    <div className="flex h-[33px] w-full items-center justify-start gap-2 border-b px-3 text-left text-xs font-semibold">
       {icon}
       <span>{text}</span>
     </div>
