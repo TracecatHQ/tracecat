@@ -49,7 +49,9 @@ ansible-core==2.20.2
 ansible-runner==2.4.0
     # via tracecat-registry
 anthropic==0.83.0
-    # via pydantic-ai-slim
+    # via
+    #   pydantic-ai-slim
+    #   tracecat
 anyio==4.12.1
     # via
     #   anthropic
@@ -291,9 +293,9 @@ greenlet==3.0.3
     #   sqlalchemy
     #   tracecat
 griffe==1.14.0
-    # via
-    #   pydantic-ai-slim
-    #   tracecat
+    # via tracecat
+griffelib==2.0.0
+    # via pydantic-ai-slim
 grpcio==1.75.1
     # via
     #   grpcio-tools
@@ -396,7 +398,7 @@ jsonschema==4.26.0
     # via
     #   litellm
     #   mcp
-jsonschema-path==0.3.4
+jsonschema-path==0.4.1
     # via fastmcp
 jsonschema-specifications==2025.9.1
     # via jsonschema
@@ -505,7 +507,7 @@ paramiko==3.5.0
     #   tracecat-registry
 parse==1.21.1
     # via alembic-utils
-pathable==0.4.4
+pathable==0.5.0
     # via jsonschema-path
 pathspec==1.0.4
     # via hatchling
@@ -590,13 +592,13 @@ pydantic==2.12.5
     #   pydantic-settings
     #   tracecat
     #   tracecat-registry
-pydantic-ai-slim==1.58.0
+pydantic-ai-slim==1.62.0
     # via tracecat
 pydantic-core==2.41.5
     # via pydantic
 pydantic-extra-types==2.11.0
     # via tracecat
-pydantic-graph==1.58.0
+pydantic-graph==1.62.0
     # via pydantic-ai-slim
 pydantic-settings==2.13.1
     # via mcp
@@ -688,7 +690,7 @@ redis==7.1.0
     #   rq
     #   tracecat
     #   tracecat-registry
-referencing==0.36.2
+referencing==0.37.0
     # via
     #   jsonschema
     #   jsonschema-path
@@ -704,7 +706,6 @@ requests==2.32.5
     #   docker
     #   google-auth
     #   google-genai
-    #   jsonschema-path
     #   msal
     #   pygithub
     #   pysaml2
