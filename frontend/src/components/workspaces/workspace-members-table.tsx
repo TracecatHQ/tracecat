@@ -1,7 +1,8 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { useCallback, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type { WorkspaceMember, WorkspaceRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
@@ -55,6 +56,7 @@ export function WorkspaceMembersTable({
 }: {
   workspace: WorkspaceRead
 }) {
+  const queryClient = useQueryClient()
   const canManageMembers = useScopeCheck("workspace:member:update")
   const [selectedUser, setSelectedUser] = useState<WorkspaceMember | null>(null)
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
@@ -93,6 +95,9 @@ export function WorkspaceMembersTable({
             workspace_id: workspace.id,
           })
         }
+        await queryClient.invalidateQueries({
+          queryKey: ["workspace", workspace.id, "members"],
+        })
       } catch (error) {
         console.log("Failed to change role", error)
       } finally {
@@ -106,6 +111,7 @@ export function WorkspaceMembersTable({
       workspace.id,
       updateUserAssignment,
       createUserAssignment,
+      queryClient,
     ]
   )
   return (
@@ -296,16 +302,16 @@ function ChangeUserRoleDialog({
   onConfirm: (roleId: string) => void
 }) {
   const { roles } = useRbacRoles()
-  const workspaceRoles = roles.filter(
-    (r) => !r.slug || r.slug.startsWith("workspace-")
+  const workspaceRoles = useMemo(
+    () => roles.filter((r) => !r.slug || r.slug.startsWith("workspace-")),
+    [roles]
   )
-  // Find the current role's ID to use as default selection
-  const currentRole = workspaceRoles.find(
-    (r) => r.name === selectedUser?.role_name
-  )
-  const [selectedRoleId, setSelectedRoleId] = useState<string>(
-    currentRole?.id ?? ""
-  )
+  const [selectedRoleId, setSelectedRoleId] = useState<string>("")
+
+  useEffect(() => {
+    const match = workspaceRoles.find((r) => r.name === selectedUser?.role_name)
+    setSelectedRoleId(match?.id ?? "")
+  }, [selectedUser, workspaceRoles])
 
   return (
     <DialogContent>
