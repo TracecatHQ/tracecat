@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.credentials import RoleACL, _role_dependency
 from tracecat.auth.schemas import UserRole
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.service import MembershipWithOrg
 from tracecat.db.models import (
@@ -68,7 +68,6 @@ async def test_role_dependency_rebinds_rls_context_on_session():
         organization_id=org_id,
         user_id=user_id,
         service_id="tracecat-api",
-        access_level=AccessLevel.BASIC,
     )
     validated_role = role.model_copy(update={"scopes": frozenset({"tests:read"})})
 
@@ -96,8 +95,6 @@ async def test_role_dependency_rebinds_rls_context_on_session():
             allow_service=False,
             allow_executor=False,
             require_workspace="yes",
-            min_access_level=None,
-            require_workspace_roles=None,
         )
 
     assert result == validated_role
@@ -590,11 +587,6 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
     # Mock is_unprivileged to return False for admin users
     mocker.patch("tracecat.auth.credentials.is_unprivileged", return_value=False)
 
-    # Mock the access level lookup
-    mocker.patch.dict(
-        "tracecat.auth.credentials.USER_ROLE_TO_ACCESS_LEVEL",
-        {UserRole.ADMIN: AccessLevel.ADMIN},
-    )
     mocker.patch(
         "tracecat.auth.credentials.set_rls_context_from_role",
         new=AsyncMock(),

@@ -20,7 +20,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine
 from tracecat.db.rls import (
@@ -85,7 +85,6 @@ def role_workspace_a(org_id_a: uuid.UUID, workspace_id_a: uuid.UUID) -> Role:
         organization_id=org_id_a,
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
-        access_level=AccessLevel.BASIC,
         workspace_role=None,
     )
 
@@ -99,7 +98,6 @@ def role_workspace_b(org_id_b: uuid.UUID, workspace_id_b: uuid.UUID) -> Role:
         organization_id=org_id_b,
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
-        access_level=AccessLevel.BASIC,
         workspace_role=None,
     )
 
