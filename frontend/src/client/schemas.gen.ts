@@ -21718,12 +21718,6 @@ export const $WorkspaceMembershipRead = {
   title: "WorkspaceMembershipRead",
 } as const
 
-export const $WorkspaceMembershipUpdate = {
-  properties: {},
-  type: "object",
-  title: "WorkspaceMembershipUpdate",
-} as const
-
 export const $WorkspaceRead = {
   properties: {
     id: {

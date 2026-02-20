@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import and_, cast, func, select, update
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import contains_eager
+from sqlalchemy.orm import contains_eager, selectinload
 
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
@@ -492,8 +492,12 @@ class OrgService(BaseOrgService):
         )
         self.session.add(invitation)
         await self.session.commit()
-        await self.session.refresh(invitation)
-        return invitation
+        result = await self.session.execute(
+            select(OrganizationInvitation)
+            .where(OrganizationInvitation.id == invitation.id)
+            .options(selectinload(OrganizationInvitation.role_obj))
+        )
+        return result.scalar_one()
 
     async def list_invitations(
         self,
@@ -513,6 +517,7 @@ class OrgService(BaseOrgService):
         )
         if status is not None:
             statement = statement.where(OrganizationInvitation.status == status)
+        statement = statement.options(selectinload(OrganizationInvitation.role_obj))
         result = await self.session.execute(statement)
         return result.scalars().all()
 

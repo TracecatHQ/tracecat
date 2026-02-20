@@ -300,7 +300,7 @@ async def list_org_members(
     )
     rbac_result = await session.execute(rbac_stmt)
     rbac_map: dict[str, tuple[str, str | None]] = {
-        str(row[0]): (row[1], row[2]) for row in rbac_result.all()
+        str(user_id): (name, slug) for user_id, name, slug in rbac_result.tuples().all()
     }
 
     result: list[OrgMemberRead] = []
@@ -330,7 +330,6 @@ async def list_org_members(
     invitations = await service.list_invitations(status=InvitationStatus.PENDING)
     for inv in invitations:
         if inv.expires_at > now:
-            await session.refresh(inv, ["role_obj"])
             result.append(
                 OrgMemberRead(
                     invitation_id=inv.id,
@@ -479,8 +478,6 @@ async def create_invitation(
             detail="An invitation already exists for this email",
         ) from e
 
-    # Eagerly load role_obj for response
-    await session.refresh(invitation, ["role_obj"])
     return OrgInvitationRead(
         id=invitation.id,
         organization_id=invitation.organization_id,
@@ -507,9 +504,6 @@ async def list_invitations(
     """List invitations for the organization."""
     service = OrgService(session, role=role)
     invitations = await service.list_invitations(status=invitation_status)
-    # Eagerly load role_obj for each invitation
-    for inv in invitations:
-        await session.refresh(inv, ["role_obj"])
     return [
         OrgInvitationRead(
             id=inv.id,
@@ -674,20 +668,23 @@ async def get_invitation_by_token(
     # Query invitation directly without OrgService since we don't have org context yet
     try:
         result = await session.execute(
-            select(OrganizationInvitation).where(OrganizationInvitation.token == token)
+            select(OrganizationInvitation, DBRole)
+            .join(
+                DBRole,
+                DBRole.id == OrganizationInvitation.role_id,  # pyright: ignore[reportArgumentType]
+            )
+            .where(OrganizationInvitation.token == token)
         )
-        invitation = result.scalar_one_or_none()
-        if invitation is None:
+        row = result.first()
+        if row is None:
             raise TracecatNotFoundError("Invitation not found")
+        invitation, role_obj = row
 
         # Fetch organization name
         org_result = await session.execute(
             select(Organization).where(Organization.id == invitation.organization_id)
         )
         org = org_result.scalar_one()
-
-        # Fetch role name
-        await session.refresh(invitation, ["role_obj"])
 
         # Fetch inviter info if available
         inviter_name: str | None = None
@@ -709,8 +706,8 @@ async def get_invitation_by_token(
             organization_name=org.name,
             inviter_name=inviter_name,
             inviter_email=inviter_email,
-            role_name=invitation.role_obj.name,
-            role_slug=invitation.role_obj.slug,
+            role_name=role_obj.name,
+            role_slug=role_obj.slug,
             status=invitation.status,
             expires_at=invitation.expires_at,
             email_matches=email_matches,

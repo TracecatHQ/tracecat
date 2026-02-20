@@ -1077,7 +1077,6 @@ export const workspacesCreateWorkspaceMembership = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.userId
- * @param data.requestBody
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -1091,8 +1090,6 @@ export const workspacesUpdateWorkspaceMembership = (
       workspace_id: data.workspaceId,
       user_id: data.userId,
     },
-    body: data.requestBody,
-    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
