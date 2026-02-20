@@ -297,7 +297,7 @@ function ChangeUserRoleDialog({
 }) {
   const { roles } = useRbacRoles()
   const workspaceRoles = roles.filter(
-    (r) => typeof r.slug === "string" && r.slug.startsWith("workspace-")
+    (r) => !r.slug || r.slug.startsWith("workspace-")
   )
   // Find the current role's ID to use as default selection
   const currentRole = workspaceRoles.find(

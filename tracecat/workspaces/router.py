@@ -267,29 +267,6 @@ async def create_workspace_membership(
         ) from e
 
 
-@router.patch(
-    "/{workspace_id}/memberships/{user_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-@require_scope("workspace:member:update")
-async def update_workspace_membership(
-    *,
-    role: WorkspaceUserInPath,
-    workspace_id: WorkspaceID,
-    user_id: UserID,
-    session: AsyncDBSession,
-) -> None:
-    """Update a workspace membership for a user."""
-    service = MembershipService(session, role=role)
-    membership_with_org = await service.get_membership(workspace_id, user_id=user_id)
-    if not membership_with_org:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Membership not found",
-        )
-    return None
-
-
 @router.get("/{workspace_id}/memberships/{user_id}")
 @require_scope("workspace:member:read")
 async def get_workspace_membership(

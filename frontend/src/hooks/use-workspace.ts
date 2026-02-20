@@ -6,13 +6,10 @@ import {
   type WorkspaceRead,
   type WorkspacesCreateWorkspaceMembershipData,
   type WorkspacesCreateWorkspaceMembershipResponse,
-  type WorkspacesUpdateWorkspaceMembershipData,
-  type WorkspacesUpdateWorkspaceMembershipResponse,
   workspacesCreateWorkspaceMembership,
   workspacesDeleteWorkspaceMembership,
   workspacesGetWorkspace,
   workspacesListWorkspaceMembers,
-  workspacesUpdateWorkspaceMembership,
 } from "@/client"
 import { retryHandler } from "@/lib/errors"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -52,18 +49,6 @@ export function useWorkspaceMutations() {
       qc.invalidateQueries({ queryKey: ["workspace", workspaceId] }),
   })
 
-  const { mutateAsync: updateMember, isPending: updatePending } = useMutation<
-    WorkspacesUpdateWorkspaceMembershipResponse,
-    Error,
-    WorkspacesUpdateWorkspaceMembershipData
-  >({
-    mutationFn: workspacesUpdateWorkspaceMembership,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["workspace", workspaceId] })
-      qc.invalidateQueries({ queryKey: ["membership", workspaceId] })
-    },
-  })
-
   const { mutateAsync: removeMember, isPending: removePending } = useMutation<
     unknown,
     Error,
@@ -81,8 +66,6 @@ export function useWorkspaceMutations() {
   return {
     addMember,
     addPending,
-    updateMember,
-    updatePending,
     removeMember,
     removePending,
   }
