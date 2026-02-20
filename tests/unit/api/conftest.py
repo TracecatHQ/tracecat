@@ -57,7 +57,6 @@ def client() -> Generator[TestClient, None, None]:
         WorkspaceUserRole,
         ExecutorWorkspaceRole,
         WorkspaceUser,
-        WorkspaceUserInPath,
         SuperuserRole,
         AuthenticatedUserOnly,
         OrganizationUserRole,
@@ -66,6 +65,7 @@ def client() -> Generator[TestClient, None, None]:
         OrgUserRole,
         TablesWorkspaceUser,
         TablesWorkspaceEditorUser,
+        WorkspaceUserInPath,
     ]
 
     for annotated_type in role_dependencies:

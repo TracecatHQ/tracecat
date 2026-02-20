@@ -6,8 +6,8 @@ import { useParams } from "next/navigation"
 import type React from "react"
 import { useCallback, useState } from "react"
 import type { TableColumnRead, TableRowRead } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { TableInsertRowDialog } from "@/components/tables/table-insert-row-dialog"
-
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,7 +25,6 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
-import { useAuth } from "@/hooks/use-auth"
 import { useDeleteRow } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -40,7 +39,7 @@ export function AgGridContextMenu({
   gridApi,
   columns,
 }: AgGridContextMenuProps) {
-  const { user } = useAuth()
+  const canModifyTable = useScopeCheck("table:delete")
   const routeParams = useParams<{ tableId?: string }>()
   const tableId = routeParams?.tableId
   const workspaceId = useWorkspaceId()
@@ -125,7 +124,7 @@ export function AgGridContextMenu({
             <CopyIcon className="mr-2 size-3" />
             Copy row ID
           </ContextMenuItem>
-          {user?.isPrivileged() && (
+          {canModifyTable && (
             <>
               <ContextMenuSeparator />
               <ContextMenuItem

@@ -12,6 +12,7 @@ import type {
   RegistryRepositoryErrorDetail,
   RegistryRepositoryReadMinimal,
 } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -35,12 +36,12 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useOrgMembership } from "@/hooks/use-org-membership"
 import { getRelativeTime } from "@/lib/event-history"
 import { useRegistryRepositories } from "@/lib/hooks"
 
 export function RegistryRepositoriesTable() {
-  const { canAdministerOrg } = useOrgMembership()
+  const canUpdateRegistry = useScopeCheck("org:registry:update") === true
+  const canDeleteRegistry = useScopeCheck("org:registry:delete") === true
   const {
     repos: registryRepos,
     reposIsLoading: registryReposIsLoading,
@@ -172,35 +173,33 @@ export function RegistryRepositoriesTable() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
-              {canAdministerOrg && (
-                <RepositoryActions
-                  repository={row.original}
-                  onSync={() => {
-                    setSelectedRepo(row.original)
-                    setActiveDialog(RegistryTableActiveDialog.RepositorySync)
-                  }}
-                  onDelete={() => {
-                    setSelectedRepo(row.original)
-                    setActiveDialog(RegistryTableActiveDialog.RepositoryDelete)
-                  }}
-                  onChangeCommit={() => {
-                    setSelectedRepo(row.original)
-                    setActiveDialog(RegistryTableActiveDialog.RepositoryCommit)
-                  }}
-                  onVersions={() => {
-                    setSelectedRepo(row.original)
-                    setActiveDialog(
-                      RegistryTableActiveDialog.RepositoryVersions
-                    )
-                  }}
-                />
-              )}
+              <RepositoryActions
+                repository={row.original}
+                canUpdate={canUpdateRegistry}
+                canDelete={canDeleteRegistry}
+                onSync={() => {
+                  setSelectedRepo(row.original)
+                  setActiveDialog(RegistryTableActiveDialog.RepositorySync)
+                }}
+                onDelete={() => {
+                  setSelectedRepo(row.original)
+                  setActiveDialog(RegistryTableActiveDialog.RepositoryDelete)
+                }}
+                onChangeCommit={() => {
+                  setSelectedRepo(row.original)
+                  setActiveDialog(RegistryTableActiveDialog.RepositoryCommit)
+                }}
+                onVersions={() => {
+                  setSelectedRepo(row.original)
+                  setActiveDialog(RegistryTableActiveDialog.RepositoryVersions)
+                }}
+              />
             </DropdownMenuContent>
           </DropdownMenu>
         ),
       },
     ],
-    [canAdministerOrg]
+    [canDeleteRegistry, canUpdateRegistry]
   )
 
   return (

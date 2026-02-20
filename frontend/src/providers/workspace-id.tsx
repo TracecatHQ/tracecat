@@ -24,3 +24,11 @@ export function useWorkspaceId() {
   }
   return id
 }
+
+/**
+ * Safe version of useWorkspaceId that returns undefined instead of throwing
+ * when used outside of a WorkspaceIdProvider.
+ */
+export function useOptionalWorkspaceId(): string | undefined {
+  return useContext(WorkspaceIdContext)
+}

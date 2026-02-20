@@ -5,6 +5,7 @@ import type { Row } from "@tanstack/react-table"
 import { CopyIcon, TrashIcon } from "lucide-react"
 import { useMemo, useState } from "react"
 import type { RegistryActionReadMinimal } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -24,11 +25,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
-import { useOrgMembership } from "@/hooks/use-org-membership"
 import { useRegistryActions } from "@/lib/hooks"
 
 export function RegistryActionsTable() {
-  const { canAdministerOrg } = useOrgMembership()
+  const canDeleteAction = useScopeCheck("org:registry:delete") === true
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useRegistryActions()
   const [selectedAction, setSelectedAction] =
@@ -251,7 +251,7 @@ export function RegistryActionsTable() {
                       <CopyIcon className="mr-2 size-4" />
                       <span>Copy action name</span>
                     </DropdownMenuItem>
-                    {canAdministerOrg && (
+                    {canDeleteAction && (
                       <>
                         <DeleteRegistryActionAlertDialogTrigger asChild>
                           <DropdownMenuItem

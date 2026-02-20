@@ -10,6 +10,7 @@ import type React from "react"
 import { useEffect, useMemo, useState } from "react"
 import { ApiError } from "@/client"
 import { NoOrganizationAccess } from "@/components/auth/no-organization-access"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CaseSelectionProvider } from "@/components/cases/case-selection-context"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ControlsHeader } from "@/components/nav/controls-header"
@@ -18,9 +19,9 @@ import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
-import { useOrgMembership } from "@/hooks/use-org-membership"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { WorkflowBuilderProvider } from "@/providers/builder"
+import { ScopeProvider } from "@/providers/scopes"
 import { WorkflowProvider } from "@/providers/workflow"
 import { WorkspaceIdProvider } from "@/providers/workspace-id"
 
@@ -44,6 +45,7 @@ export default function WorkspaceLayout({
 }: {
   children: React.ReactNode
 }) {
+  const router = useRouter()
   const {
     workspaces,
     workspacesLoading,
@@ -54,6 +56,12 @@ export default function WorkspaceLayout({
   const params = useParams<{ workspaceId?: string; workflowId?: string }>()
   const workspaceId = params?.workspaceId
   const workflowId = params?.workflowId
+  const requestedWorkspaceExists = useMemo(() => {
+    if (!workspaceId || !workspaces) {
+      return false
+    }
+    return workspaces.some((workspace) => workspace.id === workspaceId)
+  }, [workspaceId, workspaces])
   const lastViewedWorkspaceId = useMemo(() => {
     if (!workspaces || workspaces.length === 0) {
       return undefined
@@ -70,10 +78,37 @@ export default function WorkspaceLayout({
   }, [getLastWorkspaceId, workspaces])
 
   useEffect(() => {
-    if (workspaceId) {
+    if (workspaceId && requestedWorkspaceExists) {
       setLastWorkspaceId(workspaceId)
     }
-  }, [setLastWorkspaceId, workspaceId])
+  }, [requestedWorkspaceExists, setLastWorkspaceId, workspaceId])
+
+  const fallbackWorkspaceId = useMemo(() => {
+    if (!workspaces || workspaces.length === 0) {
+      return undefined
+    }
+    return lastViewedWorkspaceId ?? workspaces[0]?.id
+  }, [lastViewedWorkspaceId, workspaces])
+
+  useEffect(() => {
+    if (
+      workspacesLoading ||
+      workspacesError ||
+      !workspaceId ||
+      requestedWorkspaceExists ||
+      !fallbackWorkspaceId
+    ) {
+      return
+    }
+    router.replace(`/workspaces/${fallbackWorkspaceId}`)
+  }, [
+    fallbackWorkspaceId,
+    requestedWorkspaceExists,
+    router,
+    workspaceId,
+    workspacesError,
+    workspacesLoading,
+  ])
 
   if (workspacesLoading) {
     return <CenteredSpinner />
@@ -84,6 +119,18 @@ export default function WorkspaceLayout({
   if (workspacesError || !workspaces) {
     throw workspacesError
   }
+
+  if (workspaceId && !requestedWorkspaceExists) {
+    if (workspaces.length === 0) {
+      return (
+        <ScopeProvider>
+          <NoWorkspaces />
+        </ScopeProvider>
+      )
+    }
+    return <CenteredSpinner />
+  }
+
   let selectedWorkspaceId: string
   if (workspaceId) {
     selectedWorkspaceId = workspaceId
@@ -92,18 +139,27 @@ export default function WorkspaceLayout({
   } else if (workspaces.length > 0) {
     selectedWorkspaceId = workspaces[0].id
   } else {
-    return <NoWorkspaces />
+    return (
+      <ScopeProvider>
+        <NoWorkspaces />
+      </ScopeProvider>
+    )
   }
 
   return (
     <WorkspaceIdProvider workspaceId={selectedWorkspaceId}>
-      {workflowId ? (
-        <WorkflowView workspaceId={selectedWorkspaceId} workflowId={workflowId}>
+      <ScopeProvider>
+        {workflowId ? (
+          <WorkflowView
+            workspaceId={selectedWorkspaceId}
+            workflowId={workflowId}
+          >
+            <WorkspaceChildren>{children}</WorkspaceChildren>
+          </WorkflowView>
+        ) : (
           <WorkspaceChildren>{children}</WorkspaceChildren>
-        </WorkflowView>
-      ) : (
-        <WorkspaceChildren>{children}</WorkspaceChildren>
-      )}
+        )}
+      </ScopeProvider>
     </WorkspaceIdProvider>
   )
 }
@@ -113,6 +169,7 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     workflowId?: string
     caseId?: string
   }>()
+  const canReadWorkspace = useScopeCheck("workspace:read")
   const pathname = usePathname()
   const isWorkflowBuilder = !!params?.workflowId
   const isCaseDetail = !!params?.caseId
@@ -121,6 +178,14 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
   const isRegistryPage = pathname?.includes("/registry")
+
+  if (canReadWorkspace === undefined) {
+    return <CenteredSpinner />
+  }
+
+  if (canReadWorkspace === false) {
+    return <WorkspaceAccessDenied />
+  }
 
   // Use old navbar for workflow builder
   if (isWorkflowBuilder) {
@@ -168,6 +233,23 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   )
 }
 
+function WorkspaceAccessDenied() {
+  const router = useRouter()
+
+  return (
+    <main className="container flex size-full max-w-[400px] flex-col items-center justify-center space-y-4">
+      <Image src={TracecatIcon} alt="Tracecat" className="mb-4 size-16" />
+      <h1 className="text-2xl font-semibold tracking-tight">Access denied</h1>
+      <span className="text-center text-muted-foreground">
+        You don&apos;t have permission to access this workspace.
+      </span>
+      <Button variant="outline" onClick={() => router.replace("/workspaces")}>
+        Back to workspaces
+      </Button>
+    </main>
+  )
+}
+
 function WorkflowView({
   children,
   workspaceId,
@@ -189,7 +271,7 @@ function WorkflowView({
 function NoWorkspaces() {
   const { user } = useAuth()
   const { logout } = useAuthActions()
-  const { canAdministerOrg } = useOrgMembership()
+  const canCreateWorkspace = useScopeCheck("workspace:create")
   const { createWorkspace } = useWorkspaceManager()
   const router = useRouter()
   const [isCreating, setIsCreating] = useState(false)
@@ -214,12 +296,12 @@ function NoWorkspaces() {
       <Image src={TracecatIcon} alt="Tracecat" className="mb-4 size-16" />
       <h1 className="text-2xl font-semibold tracking-tight">No workspaces</h1>
       <span className="text-center text-muted-foreground">
-        {canAdministerOrg
+        {canCreateWorkspace
           ? "There are no workspaces yet. Create one to get started."
           : "You are not a member of any workspace. Please contact your administrator."}
       </span>
       <div className="flex gap-2">
-        {canAdministerOrg && (
+        {canCreateWorkspace && (
           <Button
             variant="default"
             onClick={handleCreateWorkspace}

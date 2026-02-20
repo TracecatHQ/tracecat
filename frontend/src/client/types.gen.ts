@@ -2507,8 +2507,6 @@ export type ExternalObject = {
 
 /**
  * Feature flag enum reserved for engineering rollouts.
- *
- * NOTE: At least one member is required for valid OpenAPI schema generation.
  */
 export type FeatureFlag = "ai-ranking" | "rbac"
 
@@ -3458,7 +3456,7 @@ export type OrgInvitationAccept = {
  */
 export type OrgInvitationCreate = {
   email: string
-  role?: OrgRole
+  role_id: string
 }
 
 /**
@@ -3468,7 +3466,9 @@ export type OrgInvitationRead = {
   id: string
   organization_id: string
   email: string
-  role: OrgRole
+  role_id: string
+  role_name: string
+  role_slug?: string | null
   status: InvitationStatus
   invited_by: string | null
   expires_at: string
@@ -3487,7 +3487,8 @@ export type OrgInvitationReadMinimal = {
   organization_name: string
   inviter_name: string | null
   inviter_email: string | null
-  role: OrgRole
+  role_name: string
+  role_slug?: string | null
   status: InvitationStatus
   expires_at: string
   email_matches?: boolean | null
@@ -3514,7 +3515,8 @@ export type OrgMemberRead = {
   user_id?: string | null
   invitation_id?: string | null
   email: string
-  role: OrgRole
+  role_name: string
+  role_slug?: string | null
   status: OrgMemberStatus
   first_name?: string | null
   last_name?: string | null
@@ -3534,7 +3536,8 @@ export type OrgPendingInvitationRead = {
   organization_name: string
   inviter_name: string | null
   inviter_email: string | null
-  role: OrgRole
+  role_name: string
+  role_slug?: string | null
   expires_at: string
 }
 
@@ -3597,11 +3600,6 @@ export type OrgRegistryVersionRead = {
   tarball_uri?: string | null
   created_at: string
 }
-
-/**
- * Organization-level roles.
- */
-export type OrgRole = "member" | "admin" | "owner"
 
 /**
  * Update organization request.
@@ -4468,8 +4466,6 @@ export type Role = {
   type: "user" | "service"
   workspace_id?: string | null
   organization_id?: string | null
-  workspace_role?: WorkspaceRole | null
-  org_role?: OrgRole | null
   user_id?: string | null
   service_id:
     | "tracecat-api"
@@ -6695,7 +6691,7 @@ export type WorkspaceCreate = {
  */
 export type WorkspaceInvitationCreate = {
   email: string
-  role?: WorkspaceRole
+  role_id: string
 }
 
 /**
@@ -6705,7 +6701,9 @@ export type WorkspaceInvitationRead = {
   id: string
   workspace_id: string
   email: string
-  role: WorkspaceRole
+  role_id: string
+  role_name: string
+  role_slug?: string | null
   status: InvitationStatus
   invited_by: string | null
   expires_at: string
@@ -6718,22 +6716,16 @@ export type WorkspaceMember = {
   first_name: string | null
   last_name: string | null
   email: string
-  workspace_role: WorkspaceRole
+  role_name: string
 }
 
 export type WorkspaceMembershipCreate = {
   user_id: string
-  role?: WorkspaceRole
 }
 
 export type WorkspaceMembershipRead = {
   user_id: string
   workspace_id: string
-  role: WorkspaceRole
-}
-
-export type WorkspaceMembershipUpdate = {
-  role?: WorkspaceRole | null
 }
 
 export type WorkspaceRead = {
@@ -6747,8 +6739,6 @@ export type WorkspaceReadMinimal = {
   id: string
   name: string
 }
-
-export type WorkspaceRole = "viewer" | "editor" | "admin"
 
 export type WorkspaceSettingsRead = {
   git_repo_url?: string | null
@@ -7033,14 +7023,6 @@ export type WorkspacesCreateWorkspaceMembershipData = {
 }
 
 export type WorkspacesCreateWorkspaceMembershipResponse = unknown
-
-export type WorkspacesUpdateWorkspaceMembershipData = {
-  requestBody: WorkspaceMembershipUpdate
-  userId: string
-  workspaceId: string
-}
-
-export type WorkspacesUpdateWorkspaceMembershipResponse = void
 
 export type WorkspacesGetWorkspaceMembershipData = {
   userId: string
@@ -9272,6 +9254,10 @@ export type VcsDeleteGithubAppCredentialsResponse = void
 export type VcsGetGithubAppCredentialsStatusResponse =
   GitHubAppCredentialsStatus
 
+export type UsersGetMyScopesData = {
+  workspaceId?: string | null
+}
+
 export type UsersGetMyScopesResponse = UserScopesRead
 
 export type RbacListScopesData = {
@@ -9746,19 +9732,6 @@ export type $OpenApiTs = {
     }
   }
   "/workspaces/{workspace_id}/memberships/{user_id}": {
-    patch: {
-      req: WorkspacesUpdateWorkspaceMembershipData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
     get: {
       req: WorkspacesGetWorkspaceMembershipData
       res: {
@@ -13787,11 +13760,16 @@ export type $OpenApiTs = {
   }
   "/users/me/scopes": {
     get: {
+      req: UsersGetMyScopesData
       res: {
         /**
          * Successful Response
          */
         200: UserScopesRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }

@@ -16,6 +16,7 @@ import {
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type * as React from "react"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   Sidebar,
   SidebarContent,
@@ -40,42 +41,52 @@ export function OrganizationSidebar({
   // Fetch workspaces for the sidebar
   const { workspaces } = useWorkspaceManager()
 
+  // Scope checks for org sidebar items
+  const canViewSettings = useScopeCheck("org:settings:read")
+  const canViewMembers = useScopeCheck("org:member:read")
+
   const navSettings = [
     {
       title: "Git repository",
       url: "/organization/settings/git",
       icon: GitBranchIcon,
       isActive: pathname?.includes("/organization/settings/git"),
+      visible: canViewSettings === true,
     },
     {
       title: "Single sign-on",
       url: "/organization/settings/sso",
       icon: LockIcon,
       isActive: pathname?.includes("/organization/settings/sso"),
+      visible: canViewSettings === true,
     },
     {
       title: "Domains",
       url: "/organization/settings/domains",
       icon: GlobeIcon,
       isActive: pathname?.includes("/organization/settings/domains"),
+      visible: canViewSettings === true,
     },
     {
       title: "Application",
       url: "/organization/settings/app",
       icon: Settings2,
       isActive: pathname?.includes("/organization/settings/app"),
+      visible: canViewSettings === true,
     },
     {
       title: "Audit Logs",
       url: "/organization/settings/audit",
       icon: LogsIcon,
       isActive: pathname?.includes("/organization/settings/audit"),
+      visible: canViewSettings === true,
     },
     {
       title: "Agent",
       url: "/organization/settings/agent",
       icon: BotIcon,
       isActive: pathname?.includes("/organization/settings/agent"),
+      visible: canViewSettings === true,
     },
     ...(hasEntitlement("git_sync")
       ? [
@@ -84,6 +95,7 @@ export function OrganizationSidebar({
             url: "/organization/vcs",
             icon: GitBranchIcon,
             isActive: pathname?.includes("/organization/vcs"),
+            visible: canViewSettings === true,
           },
         ]
       : []),
@@ -95,6 +107,7 @@ export function OrganizationSidebar({
       url: "/organization/ssh-keys",
       icon: KeyRoundIcon,
       isActive: pathname?.includes("/organization/ssh-keys"),
+      visible: canViewSettings === true,
     },
   ]
 
@@ -104,12 +117,14 @@ export function OrganizationSidebar({
       url: "/organization/members",
       icon: UsersIcon,
       isActive: pathname?.includes("/organization/members"),
+      visible: canViewMembers === true,
     },
     {
       title: "Sessions",
       url: "/organization/sessions",
       icon: LogInIcon,
       isActive: pathname?.includes("/organization/sessions"),
+      visible: canViewMembers === true,
     },
   ]
 
@@ -141,61 +156,73 @@ export function OrganizationSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Settings</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navSettings.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={item.isActive}>
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {navSettings.some((item) => item.visible === true) && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Settings</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {navSettings
+                  .filter((item) => item.visible === true)
+                  .map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild isActive={item.isActive}>
+                        <Link href={item.url}>
+                          <item.icon />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Secrets</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navSecrets.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={item.isActive}>
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {navSecrets.some((item) => item.visible === true) && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Secrets</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {navSecrets
+                  .filter((item) => item.visible === true)
+                  .map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild isActive={item.isActive}>
+                        <Link href={item.url}>
+                          <item.icon />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Users</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navUsers.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={item.isActive}>
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {navUsers.some((item) => item.visible === true) && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Users</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {navUsers
+                  .filter((item) => item.visible === true)
+                  .map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild isActive={item.isActive}>
+                        <Link href={item.url}>
+                          <item.icon />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
-        {workspaces && workspaces.length > 0 && (
+        {canViewSettings === true && workspaces && workspaces.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel>Your workspaces</SidebarGroupLabel>
             <SidebarGroupContent>

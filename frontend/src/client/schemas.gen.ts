@@ -8194,9 +8194,7 @@ export const $FeatureFlag = {
   type: "string",
   enum: ["ai-ranking", "rbac"],
   title: "FeatureFlag",
-  description: `Feature flag enum reserved for engineering rollouts.
-
-NOTE: At least one member is required for valid OpenAPI schema generation.`,
+  description: "Feature flag enum reserved for engineering rollouts.",
 } as const
 
 export const $FeatureFlagsRead = {
@@ -10655,13 +10653,14 @@ export const $OrgInvitationCreate = {
       format: "email",
       title: "Email",
     },
-    role: {
-      $ref: "#/components/schemas/OrgRole",
-      default: "member",
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
     },
   },
   type: "object",
-  required: ["email"],
+  required: ["email", "role_id"],
   title: "OrgInvitationCreate",
   description: "Request body for creating an organization invitation.",
 } as const
@@ -10683,8 +10682,25 @@ export const $OrgInvitationRead = {
       format: "email",
       title: "Email",
     },
-    role: {
-      $ref: "#/components/schemas/OrgRole",
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    role_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Slug",
     },
     status: {
       $ref: "#/components/schemas/InvitationStatus",
@@ -10729,7 +10745,8 @@ export const $OrgInvitationRead = {
     "id",
     "organization_id",
     "email",
-    "role",
+    "role_id",
+    "role_name",
     "status",
     "invited_by",
     "expires_at",
@@ -10773,8 +10790,20 @@ export const $OrgInvitationReadMinimal = {
       ],
       title: "Inviter Email",
     },
-    role: {
-      $ref: "#/components/schemas/OrgRole",
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    role_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Slug",
     },
     status: {
       $ref: "#/components/schemas/InvitationStatus",
@@ -10802,7 +10831,7 @@ export const $OrgInvitationReadMinimal = {
     "organization_name",
     "inviter_name",
     "inviter_email",
-    "role",
+    "role_name",
     "status",
     "expires_at",
   ],
@@ -10918,8 +10947,20 @@ export const $OrgMemberRead = {
       format: "email",
       title: "Email",
     },
-    role: {
-      $ref: "#/components/schemas/OrgRole",
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    role_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Slug",
     },
     status: {
       $ref: "#/components/schemas/OrgMemberStatus",
@@ -10984,7 +11025,7 @@ export const $OrgMemberRead = {
     },
   },
   type: "object",
-  required: ["email", "role", "status"],
+  required: ["email", "role_name", "status"],
   title: "OrgMemberRead",
   description:
     "Unified member representation — covers active, inactive, and pending (invited) members.",
@@ -11033,8 +11074,20 @@ export const $OrgPendingInvitationRead = {
       ],
       title: "Inviter Email",
     },
-    role: {
-      $ref: "#/components/schemas/OrgRole",
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    role_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Slug",
     },
     expires_at: {
       type: "string",
@@ -11049,7 +11102,7 @@ export const $OrgPendingInvitationRead = {
     "organization_name",
     "inviter_name",
     "inviter_email",
-    "role",
+    "role_name",
     "expires_at",
   ],
   title: "OrgPendingInvitationRead",
@@ -11304,13 +11357,6 @@ export const $OrgRegistryVersionRead = {
   required: ["id", "repository_id", "version", "created_at"],
   title: "OrgRegistryVersionRead",
   description: "Organization registry version response.",
-} as const
-
-export const $OrgRole = {
-  type: "string",
-  enum: ["member", "admin", "owner"],
-  title: "OrgRole",
-  description: "Organization-level roles.",
 } as const
 
 export const $OrgUpdate = {
@@ -13998,26 +14044,6 @@ export const $Role = {
         },
       ],
       title: "Organization Id",
-    },
-    workspace_role: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/WorkspaceRole",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-    org_role: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/OrgRole",
-        },
-        {
-          type: "null",
-        },
-      ],
     },
     user_id: {
       anyOf: [
@@ -21513,13 +21539,13 @@ export const $WorkspaceInvitationCreate = {
       format: "email",
       title: "Email",
     },
-    role: {
-      $ref: "#/components/schemas/WorkspaceRole",
-      default: "editor",
+    role_id: {
+      type: "string",
+      title: "Role Id",
     },
   },
   type: "object",
-  required: ["email"],
+  required: ["email", "role_id"],
   title: "WorkspaceInvitationCreate",
   description: "Request schema for creating a workspace invitation.",
 } as const
@@ -21541,8 +21567,24 @@ export const $WorkspaceInvitationRead = {
       format: "email",
       title: "Email",
     },
-    role: {
-      $ref: "#/components/schemas/WorkspaceRole",
+    role_id: {
+      type: "string",
+      title: "Role Id",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    role_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Slug",
     },
     status: {
       $ref: "#/components/schemas/InvitationStatus",
@@ -21587,7 +21629,8 @@ export const $WorkspaceInvitationRead = {
     "id",
     "workspace_id",
     "email",
-    "role",
+    "role_id",
+    "role_name",
     "status",
     "invited_by",
     "expires_at",
@@ -21632,12 +21675,13 @@ export const $WorkspaceMember = {
       format: "email",
       title: "Email",
     },
-    workspace_role: {
-      $ref: "#/components/schemas/WorkspaceRole",
+    role_name: {
+      type: "string",
+      title: "Role Name",
     },
   },
   type: "object",
-  required: ["user_id", "first_name", "last_name", "email", "workspace_role"],
+  required: ["user_id", "first_name", "last_name", "email", "role_name"],
   title: "WorkspaceMember",
 } as const
 
@@ -21647,10 +21691,6 @@ export const $WorkspaceMembershipCreate = {
       type: "string",
       format: "uuid",
       title: "User Id",
-    },
-    role: {
-      $ref: "#/components/schemas/WorkspaceRole",
-      default: "editor",
     },
   },
   type: "object",
@@ -21670,30 +21710,10 @@ export const $WorkspaceMembershipRead = {
       format: "uuid",
       title: "Workspace Id",
     },
-    role: {
-      $ref: "#/components/schemas/WorkspaceRole",
-    },
   },
   type: "object",
-  required: ["user_id", "workspace_id", "role"],
+  required: ["user_id", "workspace_id"],
   title: "WorkspaceMembershipRead",
-} as const
-
-export const $WorkspaceMembershipUpdate = {
-  properties: {
-    role: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/WorkspaceRole",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-  },
-  type: "object",
-  title: "WorkspaceMembershipUpdate",
 } as const
 
 export const $WorkspaceRead = {
@@ -21743,12 +21763,6 @@ export const $WorkspaceReadMinimal = {
   type: "object",
   required: ["id", "name"],
   title: "WorkspaceReadMinimal",
-} as const
-
-export const $WorkspaceRole = {
-  type: "string",
-  enum: ["viewer", "editor", "admin"],
-  title: "WorkspaceRole",
 } as const
 
 export const $WorkspaceSettingsRead = {

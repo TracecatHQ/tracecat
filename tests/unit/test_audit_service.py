@@ -25,7 +25,6 @@ def role() -> Role:
         organization_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
-        workspace_role=None,
         scopes=ADMIN_SCOPES,
     )
 

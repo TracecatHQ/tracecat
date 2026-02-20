@@ -552,6 +552,7 @@ import type {
   TriggersUpdateCaseTriggerResponse,
   TriggersUpdateWebhookData,
   TriggersUpdateWebhookResponse,
+  UsersGetMyScopesData,
   UsersGetMyScopesResponse,
   UsersSearchUserData,
   UsersSearchUserResponse,
@@ -665,8 +666,6 @@ import type {
   WorkspacesSearchWorkspacesData,
   WorkspacesSearchWorkspacesResponse,
   WorkspacesUpdateWorkspaceData,
-  WorkspacesUpdateWorkspaceMembershipData,
-  WorkspacesUpdateWorkspaceMembershipResponse,
   WorkspacesUpdateWorkspaceResponse,
 } from "./types.gen"
 
@@ -858,13 +857,14 @@ export const publicReceiveInteraction = (
 
 /**
  * List Workspaces
- * List workspaces.
+ * List workspaces the user has access to.
  *
- * Authorization
- * -------------
- * - Basic: Can list workspaces where they are a member.
- * - Admin: Can list all workspaces regardless of membership.
- * - Org Owner/Admin: Can list all workspaces in the organization.
+ * Access
+ * ------
+ * - Org owners/admins (have `org:workspace:read` scope): See all workspaces in the org.
+ * - Other users: See only workspaces where they are a member.
+ *
+ * No scope requirement - membership itself is the authorization.
  * @returns WorkspaceReadMinimal Successful Response
  * @throws ApiError
  */
@@ -1060,34 +1060,6 @@ export const workspacesCreateWorkspaceMembership = (
     url: "/workspaces/{workspace_id}/memberships",
     path: {
       workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Update Workspace Membership
- * Update a workspace membership for a user.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.userId
- * @param data.requestBody
- * @returns void Successful Response
- * @throws ApiError
- */
-export const workspacesUpdateWorkspaceMembership = (
-  data: WorkspacesUpdateWorkspaceMembershipData
-): CancelablePromise<WorkspacesUpdateWorkspaceMembershipResponse> => {
-  return __request(OpenAPI, {
-    method: "PATCH",
-    url: "/workspaces/{workspace_id}/memberships/{user_id}",
-    path: {
-      workspace_id: data.workspaceId,
-      user_id: data.userId,
     },
     body: data.requestBody,
     mediaType: "application/json",
@@ -8679,16 +8651,25 @@ export const vcsGetGithubAppCredentialsStatus =
  *
  * Scopes are computed from DB-driven role assignments during auth
  * (UserRoleAssignment + GroupRoleAssignment → Role → RoleScope → Scope).
+ * @param data The data for the request.
+ * @param data.workspaceId
  * @returns UserScopesRead Successful Response
  * @throws ApiError
  */
-export const usersGetMyScopes =
-  (): CancelablePromise<UsersGetMyScopesResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/users/me/scopes",
-    })
-  }
+export const usersGetMyScopes = (
+  data: UsersGetMyScopesData = {}
+): CancelablePromise<UsersGetMyScopesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/users/me/scopes",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * List Scopes

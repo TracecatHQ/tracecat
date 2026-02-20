@@ -10,6 +10,7 @@ import {
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useState } from "react"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -36,7 +37,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { useOrgMembership } from "@/hooks/use-org-membership"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
@@ -45,7 +45,8 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { workspaces, createWorkspace } = useWorkspaceManager()
-  const { canAdministerOrg } = useOrgMembership()
+  const canAdministerOrg = useScopeCheck("org:update")
+  const canCreateWorkspace = useScopeCheck("workspace:create")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [workspaceName, setWorkspaceName] = useState("")
   const [isCreating, setIsCreating] = useState(false)
@@ -149,64 +150,66 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
                 </Link>
               </DropdownMenuItem>
             ))}
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <DropdownMenuItem
-                  className="gap-2 py-1 px-2"
-                  onSelect={(e) => {
-                    e.preventDefault()
-                    setDialogOpen(true)
-                  }}
-                >
-                  <div className="flex size-6 items-center justify-center rounded-md border bg-background">
-                    <Plus className="size-4" />
-                  </div>
-                  <div className="font-medium text-muted-foreground">
-                    Add workspace
-                  </div>
-                </DropdownMenuItem>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[425px]">
-                <form onSubmit={handleCreateWorkspace}>
-                  <DialogHeader>
-                    <DialogTitle>Create a new workspace</DialogTitle>
-                    <DialogDescription>
-                      Workspaces are isolated environments where a team can work
-                      on cases, automations, and credentials.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="workspace-name">Workspace name</Label>
-                      <Input
-                        id="workspace-name"
-                        value={workspaceName}
-                        onChange={(e) => setWorkspaceName(e.target.value)}
-                        placeholder="My workspace"
-                        disabled={isCreating}
-                      />
+            {canCreateWorkspace === true && (
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogTrigger asChild>
+                  <DropdownMenuItem
+                    className="gap-2 py-1 px-2"
+                    onSelect={(e) => {
+                      e.preventDefault()
+                      setDialogOpen(true)
+                    }}
+                  >
+                    <div className="flex size-6 items-center justify-center rounded-md border bg-background">
+                      <Plus className="size-4" />
                     </div>
-                  </div>
-                  <DialogFooter>
-                    <DialogClose asChild>
+                    <div className="font-medium text-muted-foreground">
+                      Add workspace
+                    </div>
+                  </DropdownMenuItem>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[425px]">
+                  <form onSubmit={handleCreateWorkspace}>
+                    <DialogHeader>
+                      <DialogTitle>Create a new workspace</DialogTitle>
+                      <DialogDescription>
+                        Workspaces are isolated environments where a team can
+                        work on cases, automations, and credentials.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                      <div className="grid gap-2">
+                        <Label htmlFor="workspace-name">Workspace name</Label>
+                        <Input
+                          id="workspace-name"
+                          value={workspaceName}
+                          onChange={(e) => setWorkspaceName(e.target.value)}
+                          placeholder="My workspace"
+                          disabled={isCreating}
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <DialogClose asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={isCreating}
+                        >
+                          Cancel
+                        </Button>
+                      </DialogClose>
                       <Button
-                        type="button"
-                        variant="outline"
-                        disabled={isCreating}
+                        type="submit"
+                        disabled={isCreating || !workspaceName.trim()}
                       >
-                        Cancel
+                        {isCreating ? "Creating..." : "Create workspace"}
                       </Button>
-                    </DialogClose>
-                    <Button
-                      type="submit"
-                      disabled={isCreating || !workspaceName.trim()}
-                    >
-                      {isCreating ? "Creating..." : "Create workspace"}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </DialogContent>
-            </Dialog>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            )}
 
             <DropdownMenuSeparator />
             {canAdministerOrg && (

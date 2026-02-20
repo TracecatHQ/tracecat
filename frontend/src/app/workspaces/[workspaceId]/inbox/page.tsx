@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
 import { ActivityLayout } from "@/components/inbox"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -10,6 +11,7 @@ import { useInbox } from "@/hooks/use-inbox"
 export default function InboxPage() {
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const canReadInbox = useScopeCheck("inbox:read")
 
   const {
     sessions,
@@ -23,7 +25,7 @@ export default function InboxPage() {
     setLimit,
     setUpdatedAfter,
     setCreatedAfter,
-  } = useInbox({ enabled: agentAddonsEnabled })
+  } = useInbox({ enabled: agentAddonsEnabled && canReadInbox })
 
   useEffect(() => {
     document.title = "Inbox"
@@ -31,6 +33,10 @@ export default function InboxPage() {
 
   if (entitlementsLoading) {
     return <CenteredSpinner />
+  }
+
+  if (!canReadInbox) {
+    return null
   }
 
   if (!agentAddonsEnabled) {

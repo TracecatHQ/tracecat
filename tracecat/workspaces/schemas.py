@@ -6,7 +6,6 @@ from typing import NotRequired, TypedDict
 from pydantic import EmailStr, Field, computed_field, field_validator
 
 from tracecat import config
-from tracecat.authz.enums import WorkspaceRole
 from tracecat.core.schemas import Schema
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.identifiers import InvitationID, OrganizationID, UserID, WorkspaceID
@@ -117,7 +116,7 @@ class WorkspaceMember(Schema):
     first_name: str | None
     last_name: str | None
     email: EmailStr
-    workspace_role: WorkspaceRole
+    role_name: str
 
 
 class WorkspaceRead(Schema):
@@ -134,17 +133,11 @@ WorkspaceSettingsUpdate.model_rebuild()
 # === Membership === #
 class WorkspaceMembershipCreate(Schema):
     user_id: UserID
-    role: WorkspaceRole = WorkspaceRole.EDITOR
-
-
-class WorkspaceMembershipUpdate(Schema):
-    role: WorkspaceRole | None = None
 
 
 class WorkspaceMembershipRead(Schema):
     user_id: UserID
     workspace_id: WorkspaceID
-    role: WorkspaceRole
 
 
 # === Invitation === #
@@ -152,7 +145,7 @@ class WorkspaceInvitationCreate(Schema):
     """Request schema for creating a workspace invitation."""
 
     email: EmailStr
-    role: WorkspaceRole = WorkspaceRole.EDITOR
+    role_id: str  # UUID as string for API compatibility
 
 
 class WorkspaceInvitationRead(Schema):
@@ -161,7 +154,9 @@ class WorkspaceInvitationRead(Schema):
     id: InvitationID
     workspace_id: WorkspaceID
     email: EmailStr
-    role: WorkspaceRole
+    role_id: str
+    role_name: str
+    role_slug: str | None = None
     status: InvitationStatus
     invited_by: UserID | None
     expires_at: datetime

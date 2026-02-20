@@ -23,6 +23,7 @@ import {
   integrationsDisconnectIntegration,
   integrationsTestConnection,
 } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ProviderIcon, SecretIcon } from "@/components/icons"
 import {
   type ConnectionFilter,
@@ -130,6 +131,9 @@ const integrationTypeLabels = {
 
 export default function IntegrationsPage() {
   const workspaceId = useWorkspaceId()
+  const canReadIntegrations = useScopeCheck("integration:read")
+  const canUpdateIntegrations = useScopeCheck("integration:update")
+  const canMutateIntegrations = canUpdateIntegrations === true
   const router = useRouter()
   const searchParams = useSearchParams()
   const [searchQuery, setSearchQuery] = useState("")
@@ -515,6 +519,9 @@ export default function IntegrationsPage() {
   )
 
   useEffect(() => {
+    if (!canMutateIntegrations) {
+      return
+    }
     if (!connectParam || !providers) {
       return
     }
@@ -544,6 +551,7 @@ export default function IntegrationsPage() {
     handleDirectConnect(provider.id, provider.grant_type)
     clearConnectParams()
   }, [
+    canMutateIntegrations,
     clearConnectParams,
     connectGrantType,
     connectParam,
@@ -600,12 +608,18 @@ export default function IntegrationsPage() {
   }, [])
 
   if (
+    canReadIntegrations === undefined ||
+    canUpdateIntegrations === undefined ||
     providersIsLoading ||
     mcpIntegrationsIsLoading ||
     secretDefinitionsIsLoading ||
     secretsIsLoading
   ) {
     return <CenteredSpinner />
+  }
+
+  if (!canReadIntegrations) {
+    return null
   }
   if (
     providersError ||
@@ -655,13 +669,15 @@ export default function IntegrationsPage() {
                 ? false
                 : item.integration_status === "connected"
             const isClickable =
-              isCredential ||
               (isOAuth && isConnected) ||
-              (isOAuth && item.requires_config && item.enabled) ||
-              isMcp
+              (canMutateIntegrations &&
+                (isCredential ||
+                  (isOAuth && item.requires_config && item.enabled) ||
+                  isMcp))
             const isDisabled = isOAuth ? !item.enabled : false
-            const showConnect = !isConnected
-            const showDisconnect = isConnected && !isCredential
+            const showConnect = canMutateIntegrations && !isConnected
+            const showDisconnect =
+              canMutateIntegrations && isConnected && !isCredential
             const isConnecting =
               isOAuth &&
               ((connectProviderMutation.isPending &&
@@ -712,6 +728,9 @@ export default function IntegrationsPage() {
                 )}
                 onClick={() => {
                   if (isCredential) {
+                    if (!canMutateIntegrations) {
+                      return
+                    }
                     setActiveCredentialTemplate(item.definition)
                     return
                   }
@@ -724,11 +743,17 @@ export default function IntegrationsPage() {
                       return
                     }
                     if (item.requires_config && item.enabled) {
+                      if (!canMutateIntegrations) {
+                        return
+                      }
                       handleOpenOAuthModal(item.id, item.grant_type)
                     }
                     return
                   }
                   if (isMcp) {
+                    if (!canMutateIntegrations) {
+                      return
+                    }
                     setActiveMcpIntegrationId(item.id)
                   }
                 }}
@@ -786,7 +811,7 @@ export default function IntegrationsPage() {
                   </ItemTitle>
                 </ItemContent>
                 <ItemActions className="ml-auto flex shrink-0 items-center gap-1.5 pl-3">
-                  {isOAuth && isConnected && (
+                  {isOAuth && isConnected && canMutateIntegrations && (
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>

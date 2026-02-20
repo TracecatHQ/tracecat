@@ -3,20 +3,20 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.authz.enums import WorkspaceRole
 from tracecat.contexts import ctx_role
-from tracecat.db.models import Membership, User, Workspace
+from tracecat.db.models import Membership, User, UserRoleAssignment, Workspace
+from tracecat.db.models import Role as DBRole
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.service import BaseService
 from tracecat.workspaces.schemas import (
     WorkspaceMember,
     WorkspaceMembershipCreate,
-    WorkspaceMembershipUpdate,
 )
 
 
@@ -51,22 +51,38 @@ class MembershipService(BaseService):
     async def list_workspace_members(
         self, workspace_id: WorkspaceID
     ) -> list[WorkspaceMember]:
-        """List all workspace members with their workspace roles."""
+        """List all workspace members with their workspace roles from RBAC."""
         statement = (
-            select(User, Membership.role)
-            .join(Membership, Membership.user_id == User.id)
+            select(
+                User,
+                func.coalesce(DBRole.name, literal("Workspace Editor")).label(
+                    "role_name"
+                ),
+            )
+            .select_from(Membership)
+            .join(User, Membership.user_id == User.id)  # pyright: ignore[reportArgumentType]
+            .join(Workspace, Workspace.id == Membership.workspace_id)
+            .outerjoin(
+                UserRoleAssignment,
+                and_(
+                    UserRoleAssignment.user_id == User.id,  # pyright: ignore[reportArgumentType]
+                    UserRoleAssignment.workspace_id == Membership.workspace_id,
+                    UserRoleAssignment.organization_id == Workspace.organization_id,
+                ),
+            )
+            .outerjoin(DBRole, DBRole.id == UserRoleAssignment.role_id)
             .where(Membership.workspace_id == workspace_id)
         )
-        result = await self.session.execute(statement)
+        rows = (await self.session.execute(statement)).all()
         return [
             WorkspaceMember(
                 user_id=user.id,
                 first_name=user.first_name,
                 last_name=user.last_name,
                 email=user.email,
-                workspace_role=WorkspaceRole(ws_role),
+                role_name=role_name,
             )
-            for user, ws_role in result.tuples().all()
+            for user, role_name in rows
         ]
 
     async def get_membership(
@@ -123,26 +139,37 @@ class MembershipService(BaseService):
         Note: The authorization cache is request-scoped, so changes will be
         reflected in subsequent requests automatically.
         """
+        # Resolve workspace org + default role in one DB read.
+        org_role_stmt = (
+            select(Workspace.organization_id, DBRole.id)
+            .join(
+                DBRole,
+                and_(
+                    DBRole.organization_id == Workspace.organization_id,
+                    DBRole.slug == "workspace-editor",
+                ),
+            )
+            .where(Workspace.id == workspace_id)
+        )
+        org_role_row = (await self.session.execute(org_role_stmt)).first()
+        if org_role_row is None:
+            raise TracecatValidationError("Workspace or default role not found")
+        organization_id, role_id = org_role_row
+
         membership = Membership(
             user_id=params.user_id,
             workspace_id=workspace_id,
-            role=params.role,
         )
         self.session.add(membership)
-        await self.session.commit()
-
-    @require_scope("workspace:member:update")
-    async def update_membership(
-        self, membership: Membership, params: WorkspaceMembershipUpdate
-    ) -> None:
-        """Update a workspace membership.
-
-        Note: The authorization cache is request-scoped, so changes will be
-        reflected in subsequent requests automatically.
-        """
-        for key, value in params.model_dump(exclude_unset=True).items():
-            setattr(membership, key, value)
-        self.session.add(membership)
+        self.session.add(
+            UserRoleAssignment(
+                organization_id=organization_id,
+                user_id=params.user_id,
+                workspace_id=workspace_id,
+                role_id=role_id,
+                assigned_by=self.role.user_id if self.role else None,
+            )
+        )
         await self.session.commit()
 
     @require_scope("workspace:member:remove")

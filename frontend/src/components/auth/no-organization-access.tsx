@@ -40,7 +40,7 @@ export function NoOrganizationAccess() {
             organization.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 text-center">
           {pendingInvitationsError ? (
             <p className="text-sm text-muted-foreground">
               Could not load pending invitations. If you have an invitation
@@ -62,7 +62,7 @@ export function NoOrganizationAccess() {
                         {invitation.organization_name}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Role: {invitation.role}
+                        Role: {invitation.role_name}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Expires:{" "}

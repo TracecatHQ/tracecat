@@ -7,9 +7,9 @@ import {
   ApiError,
   type UserRead,
   usersSearchUser,
-  type WorkspaceMembershipRead,
   type WorkspaceRead,
 } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -35,17 +35,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useAuth } from "@/hooks/use-auth"
-import { useOrgMembership } from "@/hooks/use-org-membership"
-import {
-  useCurrentUserRole,
-  useWorkspaceMutations,
-} from "@/hooks/use-workspace"
-import { WorkspaceRoleEnum } from "@/lib/workspace"
+import { useWorkspaceMutations } from "@/hooks/use-workspace"
+import { useRbacRoles } from "@/lib/hooks"
 
 const addUserSchema = z.object({
   email: z.string().email(),
-  role: z.enum(WorkspaceRoleEnum).default("editor"),
+  role: z.string(), // legacy role for membership creation
 })
 type AddUser = z.infer<typeof addUserSchema>
 
@@ -53,11 +48,16 @@ export function AddWorkspaceMember({
   workspace,
   className,
 }: { workspace: WorkspaceRead } & React.HTMLAttributes<HTMLButtonElement>) {
-  const { user } = useAuth()
-  const { role } = useCurrentUserRole(workspace.id)
-  const { canAdministerOrg } = useOrgMembership()
+  const canInviteMembers = useScopeCheck("workspace:member:invite")
   const { addMember: addWorkspaceMember } = useWorkspaceMutations()
   const [showDialog, setShowDialog] = useState(false)
+  const { roles } = useRbacRoles()
+
+  // Include workspace preset roles and custom roles (custom roles have no slug prefix)
+  const workspaceRoles = roles.filter(
+    (r) => !r.slug || r.slug.startsWith("workspace-")
+  )
+
   const form = useForm<AddUser>({
     resolver: zodResolver(addUserSchema),
     defaultValues: {
@@ -67,7 +67,6 @@ export function AddWorkspaceMember({
   })
 
   const onSubmit = async (values: AddUser) => {
-    console.log("SUBMITTING", values)
     let userToAdd: UserRead
     try {
       // Check if the user exists
@@ -96,7 +95,6 @@ export function AddWorkspaceMember({
         workspaceId: workspace.id,
         requestBody: {
           user_id: userToAdd.id,
-          role: values.role,
         },
       })
       setShowDialog(false)
@@ -114,10 +112,7 @@ export function AddWorkspaceMember({
         <Button
           variant="outline"
           size="sm"
-          disabled={
-            !canAdministerOrg &&
-            !user?.isPrivileged({ role } as WorkspaceMembershipRead)
-          }
+          disabled={!canInviteMembers}
           className="h-7 bg-white disabled:cursor-not-allowed"
         >
           <Plus className="mr-1 h-3.5 w-3.5" />
@@ -171,9 +166,9 @@ export function AddWorkspaceMember({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {WorkspaceRoleEnum.map((role) => (
-                        <SelectItem key={role} value={role}>
-                          {role}
+                      {workspaceRoles.map((role) => (
+                        <SelectItem key={role.id} value={role.slug ?? role.id}>
+                          {role.name}
                         </SelectItem>
                       ))}
                     </SelectContent>

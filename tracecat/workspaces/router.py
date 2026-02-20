@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.types import Role
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.service import MembershipService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
@@ -30,7 +30,6 @@ from tracecat.workspaces.schemas import (
     WorkspaceMember,
     WorkspaceMembershipCreate,
     WorkspaceMembershipRead,
-    WorkspaceMembershipUpdate,
     WorkspaceRead,
     WorkspaceReadMinimal,
     WorkspaceSearch,
@@ -61,17 +60,20 @@ async def list_workspaces(
     role: OrgUserRole,
     session: AsyncDBSession,
 ) -> list[WorkspaceReadMinimal]:
-    """List workspaces.
+    """List workspaces the user has access to.
 
-    Authorization
-    -------------
-    - Basic: Can list workspaces where they are a member.
-    - Admin: Can list all workspaces regardless of membership.
-    - Org Owner/Admin: Can list all workspaces in the organization.
+    Access
+    ------
+    - Org owners/admins (have `org:workspace:read` scope): See all workspaces in the org.
+    - Other users: See only workspaces where they are a member.
+
+    No scope requirement - membership itself is the authorization.
     """
     service = WorkspaceService(session, role=role)
-    # Platform admins and org owners/admins can see all workspaces
-    if role.is_privileged:
+
+    # Org admins/owners have org:workspace:read scope and can see all workspaces
+    # NOTE: org:read is too broad — organization-member also has it
+    if role.scopes and has_scope(role.scopes, "org:workspace:read"):
         workspaces = await service.admin_list_workspaces()
     else:
         if role.user_id is None:
@@ -231,7 +233,6 @@ async def list_workspace_memberships(
         WorkspaceMembershipRead(
             user_id=membership.user_id,
             workspace_id=membership.workspace_id,
-            role=membership.role,
         )
         for membership in memberships
     ]
@@ -264,41 +265,9 @@ async def create_workspace_membership(
             status_code=status.HTTP_409_CONFLICT,
             detail="User is already a member of workspace.",
         ) from e
-
-
-@router.patch(
-    "/{workspace_id}/memberships/{user_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-@require_scope("workspace:member:update")
-async def update_workspace_membership(
-    *,
-    role: WorkspaceUserInPath,
-    workspace_id: WorkspaceID,
-    user_id: UserID,
-    params: WorkspaceMembershipUpdate,
-    session: AsyncDBSession,
-) -> None:
-    """Update a workspace membership for a user."""
-    service = MembershipService(session, role=role)
-    membership_with_org = await service.get_membership(workspace_id, user_id=user_id)
-    if not membership_with_org:
+    except TracecatValidationError as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Membership not found",
-        )
-    try:
-        await service.update_membership(membership_with_org.membership, params=params)
-    except TracecatAuthorizationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User does not have the required scope",
-        ) from e
-    except IntegrityError as e:
-        logger.error("INTEGRITY ERROR")
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="User is already a member of workspace.",
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
 
 
@@ -323,7 +292,6 @@ async def get_workspace_membership(
     return WorkspaceMembershipRead(
         user_id=membership.user_id,
         workspace_id=membership.workspace_id,
-        role=membership.role,
     )
 
 
@@ -379,7 +347,9 @@ async def create_workspace_invitation(
         id=invitation.id,
         workspace_id=invitation.workspace_id,
         email=invitation.email,
-        role=invitation.role,
+        role_id=str(invitation.role_id),
+        role_name=invitation.role_obj.name,
+        role_slug=invitation.role_obj.slug,
         status=invitation.status,
         invited_by=invitation.invited_by,
         expires_at=invitation.expires_at,
@@ -416,7 +386,9 @@ async def list_workspace_invitations(
             id=inv.id,
             workspace_id=inv.workspace_id,
             email=inv.email,
-            role=inv.role,
+            role_id=str(inv.role_id),
+            role_name=inv.role_obj.name,
+            role_slug=inv.role_obj.slug,
             status=inv.status,
             invited_by=inv.invited_by,
             expires_at=inv.expires_at,

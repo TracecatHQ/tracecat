@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
-from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.db.models import (
     Membership,
@@ -18,6 +17,9 @@ from tracecat.db.models import (
     OrganizationMembership,
     User,
     Workspace,
+)
+from tracecat.db.models import (
+    Role as DBRole,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
@@ -148,6 +150,31 @@ async def inv_org(session: AsyncSession) -> Organization:
 
 
 @pytest.fixture
+async def rbac_roles(session: AsyncSession, inv_org: Organization) -> dict[str, str]:
+    """Create RBAC Role records for the test organization.
+
+    Returns a dict mapping role slug to role id (as string).
+    """
+    roles: dict[str, str] = {}
+    for slug, name in [
+        ("workspace-editor", "Workspace Editor"),
+        ("workspace-admin", "Workspace Admin"),
+        ("workspace-viewer", "Workspace Viewer"),
+    ]:
+        role = DBRole(
+            id=uuid.uuid4(),
+            name=name,
+            slug=slug,
+            description=f"Test {name} role",
+            organization_id=inv_org.id,
+        )
+        session.add(role)
+        roles[slug] = str(role.id)
+    await session.commit()
+    return roles
+
+
+@pytest.fixture
 async def inv_workspace(session: AsyncSession, inv_org: Organization) -> Workspace:
     """Create a test workspace for invitation tests."""
     workspace = Workspace(
@@ -178,7 +205,6 @@ async def admin_user(session: AsyncSession, inv_org: Organization) -> User:
     membership = OrganizationMembership(
         user_id=user.id,
         organization_id=inv_org.id,
-        role=OrgRole.ADMIN,
     )
     session.add(membership)
     await session.commit()
@@ -203,7 +229,6 @@ async def basic_user(session: AsyncSession, inv_org: Organization) -> User:
     membership = OrganizationMembership(
         user_id=user.id,
         organization_id=inv_org.id,
-        role=OrgRole.MEMBER,
     )
     session.add(membership)
     await session.commit()
@@ -238,7 +263,6 @@ def create_workspace_admin_role(
         user_id=user_id,
         organization_id=organization_id,
         workspace_id=workspace_id,
-        workspace_role=WorkspaceRole.ADMIN,
         service_id="tracecat-api",
         scopes=ADMIN_SCOPES,
     )
@@ -254,6 +278,7 @@ class TestCreateInvitation:
         inv_org: Organization,
         inv_workspace: Workspace,
         admin_user: User,
+        rbac_roles: dict[str, str],
     ):
         """Test creating a workspace invitation successfully."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
@@ -261,14 +286,14 @@ class TestCreateInvitation:
 
         params = WorkspaceInvitationCreate(
             email="invitee@example.com",
-            role=WorkspaceRole.EDITOR,
+            role_id=rbac_roles["workspace-editor"],
         )
         invitation = await service.create_invitation(inv_workspace.id, params)
 
         assert invitation.id is not None
         assert invitation.workspace_id == inv_workspace.id
         assert invitation.email == "invitee@example.com"
-        assert invitation.role == WorkspaceRole.EDITOR
+        assert str(invitation.role_id) == rbac_roles["workspace-editor"]
         assert invitation.status == InvitationStatus.PENDING
         assert invitation.invited_by == admin_user.id
         assert len(invitation.token) == 64
@@ -281,6 +306,7 @@ class TestCreateInvitation:
         inv_org: Organization,
         inv_workspace: Workspace,
         admin_user: User,
+        rbac_roles: dict[str, str],
     ):
         """Test creating duplicate pending invitation fails."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
@@ -288,7 +314,7 @@ class TestCreateInvitation:
 
         params = WorkspaceInvitationCreate(
             email="duplicate@example.com",
-            role=WorkspaceRole.EDITOR,
+            role_id=rbac_roles["workspace-editor"],
         )
 
         # Create first invitation
@@ -306,6 +332,7 @@ class TestCreateInvitation:
         inv_org: Organization,
         inv_workspace: Workspace,
         admin_user: User,
+        rbac_roles: dict[str, str],
     ):
         """Test that unique constraint catches duplicate email in same workspace.
 
@@ -318,7 +345,7 @@ class TestCreateInvitation:
         email = "constraint-test@example.com"
         params = WorkspaceInvitationCreate(
             email=email,
-            role=WorkspaceRole.EDITOR,
+            role_id=rbac_roles["workspace-editor"],
         )
 
         # Create first invitation
@@ -338,6 +365,7 @@ class TestCreateInvitation:
         inv_org: Organization,
         inv_workspace: Workspace,
         admin_user: User,
+        rbac_roles: dict[str, str],
     ):
         """Test that expired invitation is deleted and new one created."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
@@ -346,7 +374,7 @@ class TestCreateInvitation:
         email = "expired-test@example.com"
         params = WorkspaceInvitationCreate(
             email=email,
-            role=WorkspaceRole.EDITOR,
+            role_id=rbac_roles["workspace-editor"],
         )
 
         # Create first invitation
@@ -376,6 +404,7 @@ class TestListInvitations:
         inv_org: Organization,
         inv_workspace: Workspace,
         admin_user: User,
+        rbac_roles: dict[str, str],
     ):
         """Test listing invitations returns only workspace invitations."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
@@ -385,7 +414,7 @@ class TestListInvitations:
         for i in range(3):
             params = WorkspaceInvitationCreate(
                 email=f"invitee{i}@example.com",
-                role=WorkspaceRole.EDITOR,
+                role_id=rbac_roles["workspace-editor"],
             )
             await service.create_invitation(inv_workspace.id, params)
 
@@ -399,6 +428,7 @@ class TestListInvitations:
         inv_org: Organization,
         inv_workspace: Workspace,
         admin_user: User,
+        rbac_roles: dict[str, str],
     ):
         """Test filtering invitations by status."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
@@ -407,7 +437,7 @@ class TestListInvitations:
         # Create a pending invitation
         params = WorkspaceInvitationCreate(
             email="pending@example.com",
-            role=WorkspaceRole.EDITOR,
+            role_id=rbac_roles["workspace-editor"],
         )
         invitation = await service.create_invitation(inv_workspace.id, params)
 
@@ -418,7 +448,7 @@ class TestListInvitations:
         # Create another pending invitation
         params2 = WorkspaceInvitationCreate(
             email="pending2@example.com",
-            role=WorkspaceRole.EDITOR,
+            role_id=rbac_roles["workspace-editor"],
         )
         await service.create_invitation(inv_workspace.id, params2)
 
@@ -447,6 +477,7 @@ class TestGetInvitationByToken:
         inv_org: Organization,
         inv_workspace: Workspace,
         admin_user: User,
+        rbac_roles: dict[str, str],
     ):
         """Test retrieving an invitation by token."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
@@ -454,7 +485,7 @@ class TestGetInvitationByToken:
 
         params = WorkspaceInvitationCreate(
             email="token-test@example.com",
-            role=WorkspaceRole.EDITOR,
+            role_id=rbac_roles["workspace-editor"],
         )
         created = await service.create_invitation(inv_workspace.id, params)
 
@@ -491,6 +522,7 @@ class TestAcceptInvitation:
         inv_workspace: Workspace,
         admin_user: User,
         basic_user: User,
+        rbac_roles: dict[str, str],
     ):
         """Test accepting invitation as existing org member."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
@@ -499,7 +531,7 @@ class TestAcceptInvitation:
         # Create invitation for basic_user's email
         params = WorkspaceInvitationCreate(
             email=basic_user.email,
-            role=WorkspaceRole.EDITOR,
+            role_id=rbac_roles["workspace-editor"],
         )
         invitation = await service.create_invitation(inv_workspace.id, params)
 
@@ -508,7 +540,6 @@ class TestAcceptInvitation:
 
         assert membership.user_id == basic_user.id
         assert membership.workspace_id == inv_workspace.id
-        assert membership.role == WorkspaceRole.EDITOR
 
         # Verify invitation was updated
         await session.refresh(invitation)
@@ -522,6 +553,7 @@ class TestAcceptInvitation:
         inv_workspace: Workspace,
         admin_user: User,
         external_user: User,
+        rbac_roles: dict[str, str],
     ):
         """Test accepting invitation auto-creates org membership for external user."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
@@ -530,7 +562,7 @@ class TestAcceptInvitation:
         # Create invitation for external user
         params = WorkspaceInvitationCreate(
             email=external_user.email,
-            role=WorkspaceRole.EDITOR,
+            role_id=rbac_roles["workspace-editor"],
         )
         invitation = await service.create_invitation(inv_workspace.id, params)
 
@@ -547,7 +579,8 @@ class TestAcceptInvitation:
             )
         )
         org_membership = result.scalar_one()
-        assert org_membership.role == OrgRole.MEMBER
+        assert org_membership.user_id == external_user.id
+        assert org_membership.organization_id == inv_org.id
 
     async def test_accept_invitation_not_found(
         self,
@@ -570,6 +603,7 @@ class TestAcceptInvitation:
         inv_workspace: Workspace,
         admin_user: User,
         basic_user: User,
+        rbac_roles: dict[str, str],
     ):
         """Test accepting already-accepted invitation fails."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
@@ -577,7 +611,7 @@ class TestAcceptInvitation:
 
         params = WorkspaceInvitationCreate(
             email=basic_user.email,
-            role=WorkspaceRole.EDITOR,
+            role_id=rbac_roles["workspace-editor"],
         )
         invitation = await service.create_invitation(inv_workspace.id, params)
 
@@ -607,6 +641,7 @@ class TestAcceptInvitation:
         inv_workspace: Workspace,
         admin_user: User,
         basic_user: User,
+        rbac_roles: dict[str, str],
     ):
         """Test accepting revoked invitation fails."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
@@ -614,7 +649,7 @@ class TestAcceptInvitation:
 
         params = WorkspaceInvitationCreate(
             email=basic_user.email,
-            role=WorkspaceRole.EDITOR,
+            role_id=rbac_roles["workspace-editor"],
         )
         invitation = await service.create_invitation(inv_workspace.id, params)
 
@@ -631,13 +666,13 @@ class TestAcceptInvitation:
         inv_workspace: Workspace,
         admin_user: User,
         basic_user: User,
+        rbac_roles: dict[str, str],
     ):
         """Test accepting invitation when user is already a workspace member fails."""
         # Add basic_user to workspace
         ws_membership = Membership(
             user_id=basic_user.id,
             workspace_id=inv_workspace.id,
-            role=WorkspaceRole.EDITOR,
         )
         session.add(ws_membership)
         await session.commit()
@@ -647,7 +682,7 @@ class TestAcceptInvitation:
 
         params = WorkspaceInvitationCreate(
             email=basic_user.email,
-            role=WorkspaceRole.ADMIN,
+            role_id=rbac_roles["workspace-admin"],
         )
         invitation = await service.create_invitation(inv_workspace.id, params)
 
@@ -667,6 +702,7 @@ class TestRevokeInvitation:
         inv_org: Organization,
         inv_workspace: Workspace,
         admin_user: User,
+        rbac_roles: dict[str, str],
     ):
         """Test revoking a pending invitation."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
@@ -674,7 +710,7 @@ class TestRevokeInvitation:
 
         params = WorkspaceInvitationCreate(
             email="to-revoke@example.com",
-            role=WorkspaceRole.EDITOR,
+            role_id=rbac_roles["workspace-editor"],
         )
         invitation = await service.create_invitation(inv_workspace.id, params)
 
@@ -704,6 +740,7 @@ class TestRevokeInvitation:
         inv_workspace: Workspace,
         admin_user: User,
         basic_user: User,
+        rbac_roles: dict[str, str],
     ):
         """Test revoking already-accepted invitation fails."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
@@ -711,7 +748,7 @@ class TestRevokeInvitation:
 
         params = WorkspaceInvitationCreate(
             email=basic_user.email,
-            role=WorkspaceRole.EDITOR,
+            role_id=rbac_roles["workspace-editor"],
         )
         invitation = await service.create_invitation(inv_workspace.id, params)
 
@@ -730,6 +767,7 @@ class TestRevokeInvitation:
         inv_org: Organization,
         inv_workspace: Workspace,
         admin_user: User,
+        rbac_roles: dict[str, str],
     ):
         """Test revoking already-revoked invitation fails."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
@@ -737,7 +775,7 @@ class TestRevokeInvitation:
 
         params = WorkspaceInvitationCreate(
             email="revoke-twice@example.com",
-            role=WorkspaceRole.EDITOR,
+            role_id=rbac_roles["workspace-editor"],
         )
         invitation = await service.create_invitation(inv_workspace.id, params)
 

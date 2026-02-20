@@ -1,9 +1,4 @@
-import {
-  ApiError,
-  type UserRead,
-  usersUsersCurrentUser,
-  type WorkspaceMembershipRead,
-} from "@/client"
+import { ApiError, type UserRead, usersUsersCurrentUser } from "@/client"
 
 export const SYSTEM_USER_READ: UserRead = {
   id: "system",
@@ -29,22 +24,12 @@ export async function getCurrentUser(): Promise<UserRead | null> {
   }
 }
 
-export function userIsPrivileged(
-  user: UserRead | null,
-  membership?: WorkspaceMembershipRead
-): boolean {
-  if (!user) {
-    return false
-  }
-  return userIsPlatformAdmin(user) || membership?.role === "admin"
-}
-
 /**
  * Check if user has platform-level admin privileges.
  *
  * This checks the platform role (superuser or role=admin), NOT the
  * organization membership role. For org-level admin checks, use
- * the useOrgMembership hook's canAdministerOrg.
+ * useScopeCheck("org:update") from the scope-guard module.
  */
 export function userIsPlatformAdmin(user?: UserRead | null): boolean {
   return user?.is_superuser || user?.role === "admin"
@@ -105,28 +90,14 @@ export class User {
   }
 
   /**
-   * Returns true if the user is privileged in the context of this workspace.
-   */
-  isPrivileged(membership?: WorkspaceMembershipRead): boolean {
-    return userIsPrivileged(this.user, membership)
-  }
-
-  /**
    * Returns true if the user has platform-level admin privileges.
    *
    * This checks the platform role (superuser or role=admin), NOT the
    * organization membership role. For org-level admin checks, use
-   * the useOrgMembership hook's canAdministerOrg.
+   * useScopeCheck("org:update") from the scope-guard module.
    */
   isPlatformAdmin(): boolean {
     return userIsPlatformAdmin(this.user)
-  }
-
-  /**
-   * Returns true if the user is a workspace admin.
-   */
-  isWorkspaceAdmin(membership?: WorkspaceMembershipRead): boolean {
-    return membership?.role === "admin"
   }
 
   /**

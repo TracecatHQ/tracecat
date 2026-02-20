@@ -766,17 +766,14 @@ class RBACService(BaseOrgService):
             )
         )
 
-        # Filter assignments by scope:
-        # - Org-wide assignments (workspace_id IS NULL) always apply
-        # - Workspace-specific assignments only apply if requesting that workspace
-        if workspace_id is not None:
-            stmt = stmt.where(
-                (UserRoleAssignment.workspace_id.is_(None))
-                | (UserRoleAssignment.workspace_id == workspace_id)
-            )
-        else:
-            # Only org-wide assignments
-            stmt = stmt.where(UserRoleAssignment.workspace_id.is_(None))
+        # Filter by workspace scope:
+        # - Org-wide assignments (workspace_id IS NULL) always included
+        # - Workspace-specific assignments included only when that workspace is requested
+        # - When workspace_id is None, the second condition is never true, so only org-wide apply
+        stmt = stmt.where(
+            (UserRoleAssignment.workspace_id.is_(None))
+            | (UserRoleAssignment.workspace_id == workspace_id)
+        )
 
         result = await self.session.execute(stmt)
         scope_names = result.scalars().all()
@@ -823,17 +820,14 @@ class RBACService(BaseOrgService):
             )
         )
 
-        # Filter assignments by scope:
-        # - Org-wide assignments (workspace_id IS NULL) always apply
-        # - Workspace-specific assignments only apply if requesting that workspace
-        if workspace_id is not None:
-            stmt = stmt.where(
-                (GroupRoleAssignment.workspace_id.is_(None))
-                | (GroupRoleAssignment.workspace_id == workspace_id)
-            )
-        else:
-            # Only org-wide assignments
-            stmt = stmt.where(GroupRoleAssignment.workspace_id.is_(None))
+        # Filter by workspace scope:
+        # - Org-wide assignments (workspace_id IS NULL) always included
+        # - Workspace-specific assignments included only when that workspace is requested
+        # - When workspace_id is None, the second condition is never true, so only org-wide apply
+        stmt = stmt.where(
+            (GroupRoleAssignment.workspace_id.is_(None))
+            | (GroupRoleAssignment.workspace_id == workspace_id)
+        )
 
         result = await self.session.execute(stmt)
         scope_names = result.scalars().all()

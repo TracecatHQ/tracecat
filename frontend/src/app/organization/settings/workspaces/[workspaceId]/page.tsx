@@ -3,19 +3,18 @@
 import { useQuery } from "@tanstack/react-query"
 import { useParams, useRouter } from "next/navigation"
 import { workspacesGetWorkspace } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { OrgWorkspaceSettings } from "@/components/organization/org-workspace-settings"
-import { useOrgMembership } from "@/hooks/use-org-membership"
-import { useCurrentUserRole } from "@/hooks/use-workspace"
 
 export default function OrganizationWorkspaceSettingsPage() {
   const params = useParams<{ workspaceId: string }>()
   const router = useRouter()
-  const { canAdministerOrg } = useOrgMembership()
+  const canAdministerOrg = useScopeCheck("org:update")
+  const canUpdateWorkspace = useScopeCheck("workspace:update")
 
   const workspaceId = params?.workspaceId
-  const { role } = useCurrentUserRole(workspaceId ?? "")
 
   const {
     data: workspace,
@@ -29,6 +28,10 @@ export default function OrganizationWorkspaceSettingsPage() {
     },
     enabled: !!workspaceId,
   })
+
+  if (canAdministerOrg === undefined || canUpdateWorkspace === undefined) {
+    return <CenteredSpinner />
+  }
 
   if (!params || !workspaceId) {
     return <AlertNotification level="error" message="Invalid workspace ID." />
@@ -44,11 +47,7 @@ export default function OrganizationWorkspaceSettingsPage() {
     )
   }
 
-  // Check if user is org admin or workspace admin
-  const isOrgAdmin = Boolean(canAdministerOrg)
-  const isWorkspaceAdmin = role === "admin"
-
-  if (!isOrgAdmin && !isWorkspaceAdmin) {
+  if (!canAdministerOrg && !canUpdateWorkspace) {
     return (
       <AlertNotification
         level="error"

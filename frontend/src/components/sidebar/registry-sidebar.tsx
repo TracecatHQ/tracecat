@@ -4,6 +4,7 @@ import { BookOpenIcon, ChevronLeftIcon, GitBranchIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type * as React from "react"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import {
   Sidebar,
@@ -17,24 +18,22 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { useOrgMembership } from "@/hooks/use-org-membership"
 
 export function RegistrySidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
-  const { canAdministerOrg } = useOrgMembership()
+  const canReadRegistry = useScopeCheck("org:registry:read")
   const pathname = usePathname()
 
   const navMain = [
-    {
-      title: "Actions",
-      url: "/registry/actions",
-      icon: BookOpenIcon,
-      isActive: pathname?.includes("/registry/actions"),
-    },
-    ...(canAdministerOrg
-      ? // Only show repositories if the user can administer the org
-        [
+    ...(canReadRegistry
+      ? [
+          {
+            title: "Actions",
+            url: "/registry/actions",
+            icon: BookOpenIcon,
+            isActive: pathname?.includes("/registry/actions"),
+          },
           {
             title: "Repositories",
             url: "/registry/repositories",
