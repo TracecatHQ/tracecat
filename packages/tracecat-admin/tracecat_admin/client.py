@@ -63,7 +63,6 @@ class AdminClient:
                 headers={
                     "x-tracecat-service-key": self._config.service_key,
                     "x-tracecat-role-service-id": "tracecat-admin-cli",
-                    "x-tracecat-role-access-level": "ADMIN",
                     "Content-Type": "application/json",
                 },
                 timeout=30.0,

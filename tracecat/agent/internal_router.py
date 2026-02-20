@@ -23,6 +23,7 @@ from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.ai.ranker import rank_items as ranker_rank_items
 from tracecat.ai.ranker import rank_items_pairwise as ranker_rank_items_pairwise
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
+from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
@@ -104,6 +105,7 @@ def _normalize_output_type(
 
 
 @router.post("/run", status_code=status.HTTP_200_OK)
+@require_scope("agent:execute")
 async def run_agent_endpoint(
     *,
     role: ExecutorWorkspaceRole,
@@ -157,6 +159,7 @@ async def run_agent_endpoint(
 
 
 @router.post("/rank", status_code=status.HTTP_200_OK)
+@require_scope("agent:execute")
 async def rank_items_endpoint(
     *,
     role: ExecutorWorkspaceRole,
@@ -189,6 +192,7 @@ async def rank_items_endpoint(
 
 
 @router.post("/rank-pairwise", status_code=status.HTTP_200_OK)
+@require_scope("agent:execute")
 async def rank_items_pairwise_endpoint(
     *,
     role: ExecutorWorkspaceRole,

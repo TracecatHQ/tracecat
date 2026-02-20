@@ -1,13 +1,9 @@
-from typing import Annotated
-
 from fastapi import APIRouter, HTTPException, status
 
 from tracecat import config
-from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.enums import AuthType
-from tracecat.auth.types import Role
-from tracecat.authz.enums import OrgRole
+from tracecat.authz.controls import require_scope
 from tracecat.config import SAML_PUBLIC_ACS_URL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.settings.schemas import (
@@ -25,16 +21,6 @@ from tracecat.settings.schemas import (
 from tracecat.settings.service import SettingsService
 
 router = APIRouter(prefix="/settings", tags=["settings"])
-
-OrgAdminUserRole = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
-    ),
-]
 
 # NOTE: We expose settings groups
 # We don't need create or delete endpoints as we only need to read/update settings.
@@ -63,9 +49,10 @@ async def check_other_auth_enabled(
 
 
 @router.get("/git", response_model=GitSettingsRead)
+@require_scope("org:settings:read")
 async def get_git_settings(
     *,
-    role: OrgAdminUserRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
 ) -> GitSettingsRead:
     service = SettingsService(session, role)
@@ -76,9 +63,10 @@ async def get_git_settings(
 
 
 @router.patch("/git", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:update")
 async def update_git_settings(
     *,
-    role: OrgAdminUserRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
     params: GitSettingsUpdate,
 ) -> None:
@@ -87,9 +75,10 @@ async def update_git_settings(
 
 
 @router.get("/saml", response_model=SAMLSettingsRead)
+@require_scope("org:settings:read")
 async def get_saml_settings(
     *,
-    role: OrgAdminUserRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
 ) -> SAMLSettingsRead:
     service = SettingsService(session, role)
@@ -110,9 +99,10 @@ async def get_saml_settings(
 
 
 @router.patch("/saml", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:update")
 async def update_saml_settings(
     *,
-    role: OrgAdminUserRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
     params: SAMLSettingsUpdate,
 ) -> None:
@@ -123,6 +113,7 @@ async def update_saml_settings(
 
 
 @router.get("/app", response_model=AppSettingsRead)
+@require_scope("org:settings:read")
 async def get_app_settings(
     *,
     role: OrgUserRole,
@@ -136,9 +127,10 @@ async def get_app_settings(
 
 
 @router.patch("/app", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:update")
 async def update_app_settings(
     *,
-    role: OrgAdminUserRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
     params: AppSettingsUpdate,
 ) -> None:
@@ -147,9 +139,10 @@ async def update_app_settings(
 
 
 @router.get("/audit", response_model=AuditSettingsRead)
+@require_scope("org:settings:read")
 async def get_audit_settings(
     *,
-    role: OrgAdminUserRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
 ) -> AuditSettingsRead:
     service = SettingsService(session, role)
@@ -164,9 +157,10 @@ async def get_audit_settings(
 
 
 @router.patch("/audit", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:update")
 async def update_audit_settings(
     *,
-    role: OrgAdminUserRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
     params: AuditSettingsUpdate,
 ) -> None:
@@ -175,9 +169,10 @@ async def update_audit_settings(
 
 
 @router.get("/agent", response_model=AgentSettingsRead)
+@require_scope("org:settings:read")
 async def get_agent_settings(
     *,
-    role: OrgAdminUserRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
 ) -> AgentSettingsRead:
     service = SettingsService(session, role)
@@ -188,9 +183,10 @@ async def get_agent_settings(
 
 
 @router.patch("/agent", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:update")
 async def update_agent_settings(
     *,
-    role: OrgAdminUserRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
     params: AgentSettingsUpdate,
 ) -> None:

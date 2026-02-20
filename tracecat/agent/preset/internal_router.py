@@ -16,6 +16,7 @@ from tracecat.agent.preset.schemas import (
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.types import OutputType
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatValidationError
 
@@ -55,6 +56,7 @@ class PresetUpdateRequest(BaseModel):
 
 
 @router.get("", response_model=list[AgentPresetReadMinimal])
+@require_scope("agent:read")
 async def list_presets(
     *,
     role: ExecutorWorkspaceRole,
@@ -67,6 +69,7 @@ async def list_presets(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
+@require_scope("agent:create")
 async def create_preset(
     *,
     role: ExecutorWorkspaceRole,
@@ -88,6 +91,7 @@ async def create_preset(
 
 
 @router.get("/by-slug/{slug}")
+@require_scope("agent:read")
 async def get_preset_by_slug(
     *,
     role: ExecutorWorkspaceRole,
@@ -106,6 +110,7 @@ async def get_preset_by_slug(
 
 
 @router.patch("/by-slug/{slug}")
+@require_scope("agent:update")
 async def update_preset_by_slug(
     *,
     role: ExecutorWorkspaceRole,
@@ -134,6 +139,7 @@ async def update_preset_by_slug(
 
 
 @router.delete("/by-slug/{slug}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("agent:delete")
 async def delete_preset_by_slug(
     *,
     role: ExecutorWorkspaceRole,

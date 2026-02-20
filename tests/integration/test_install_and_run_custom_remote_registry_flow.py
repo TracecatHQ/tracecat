@@ -24,6 +24,7 @@ from temporalio.common import RetryPolicy
 
 from tests.shared import generate_test_exec_id, to_data
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
@@ -262,8 +263,9 @@ async def test_remote_custom_registry_repo() -> None:
         workspace_id=workspace_id,
         organization_id=organization_id,
         user_id=uuid.UUID(int=0),
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-runner"],
     )
-    ctx_role.set(role)
+    token = ctx_role.set(role)
 
     # Create a simple DSL workflow that calls the action
     test_name = "test_remote_custom_registry_repo"
@@ -308,3 +310,5 @@ async def test_remote_custom_registry_repo() -> None:
         logger.info("Action execution successful", result=actual_result)
     except WorkflowFailureError as e:
         pytest.fail(f"Workflow execution failed: {e}")
+    finally:
+        ctx_role.reset(token)

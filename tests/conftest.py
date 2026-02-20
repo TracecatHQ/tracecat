@@ -29,8 +29,13 @@ from temporalio.worker import Worker
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole
+from tracecat.authz.scopes import (
+    ADMIN_SCOPES,
+    ORG_ADMIN_SCOPES,
+    SERVICE_PRINCIPAL_SCOPES,
+)
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
     get_async_engine,
@@ -175,6 +180,14 @@ def clean_redis_db(redis_server):
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+
+@pytest.fixture(autouse=True, scope="function")
+def clear_ctx_role_context() -> Iterator[None]:
+    """Ensure ctx_role does not leak across tests."""
+    ctx_role.set(None)
+    yield
+    ctx_role.set(None)
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -966,6 +979,7 @@ async def test_role(test_workspace, mock_org_id):
         organization_id=mock_org_id,
         workspace_id=test_workspace.id,
         service_id="tracecat-runner",
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-runner"],
     )
     token = ctx_role.set(service_role)
     try:
@@ -982,9 +996,9 @@ async def test_admin_role(test_workspace, mock_org_id):
         user_id=mock_org_id,
         organization_id=mock_org_id,
         workspace_id=test_workspace.id,
-        access_level=AccessLevel.ADMIN,
         org_role=OrgRole.ADMIN,
         service_id="tracecat-runner",
+        scopes=ADMIN_SCOPES | ORG_ADMIN_SCOPES,
     )
     token = ctx_role.set(admin_role)
     try:
@@ -1069,8 +1083,8 @@ async def test_workspace(test_organization, mock_org_id):
         type="service",
         service_id="tracecat-service",
         organization_id=mock_org_id,
-        access_level=AccessLevel.ADMIN,
         org_role=OrgRole.OWNER,
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
     )
 
     async with WorkspaceService.with_session(role=org_role) as svc:
@@ -1261,11 +1275,11 @@ async def svc_role(svc_workspace: Workspace) -> Role:
     """Service test fixture. Create a function scoped test role."""
     return Role(
         type="user",
-        access_level=AccessLevel.BASIC,
         workspace_id=svc_workspace.id,
         organization_id=svc_workspace.organization_id,
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
+        scopes=ADMIN_SCOPES,
     )
 
 
@@ -1274,12 +1288,12 @@ async def svc_admin_role(svc_workspace: Workspace) -> Role:
     """Service test fixture. Create a function scoped test role."""
     return Role(
         type="user",
-        access_level=AccessLevel.ADMIN,
         org_role=OrgRole.ADMIN,
         workspace_id=svc_workspace.id,
         organization_id=svc_workspace.organization_id,
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
+        scopes=ORG_ADMIN_SCOPES,
     )
 
 

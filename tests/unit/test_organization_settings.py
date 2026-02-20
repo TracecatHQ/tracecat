@@ -492,7 +492,7 @@ async def test_get_setting_shorthand(
         )
         assert nonexistent_no_default is None
     finally:
-        ctx_role.set(token)  # type: ignore
+        ctx_role.reset(token)  # type: ignore
 
 
 @pytest.mark.anyio

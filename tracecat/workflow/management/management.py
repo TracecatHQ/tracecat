@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from temporalio import activity
 
 from tracecat.audit.logger import audit_log
+from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_logical_time
 from tracecat.db.models import (
     Action,
@@ -435,6 +436,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         res = result.scalar_one_or_none()
         return WorkflowUUID.new(res) if res else None
 
+    @require_scope("workflow:update")
     async def update_workflow(
         self, workflow_id: WorkflowID, params: WorkflowUpdate
     ) -> Workflow:
@@ -460,6 +462,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         await self.session.refresh(workflow)
         return workflow
 
+    @require_scope("workflow:delete")
     @audit_log(resource_type="workflow", action="delete")
     async def delete_workflow(self, workflow_id: WorkflowID) -> None:
         """Delete a workflow and clean up associated resources.
@@ -500,6 +503,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         await self.session.delete(workflow)
         await self.session.commit()
 
+    @require_scope("workflow:create")
     @audit_log(resource_type="workflow", action="create")
     async def create_workflow(self, params: WorkflowCreate) -> Workflow:
         """Create a new workflow."""
@@ -543,6 +547,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         await self.session.refresh(workflow)
         return workflow
 
+    @require_scope("workflow:create")
     async def create_workflow_from_dsl(
         self, dsl_data: dict[str, Any], *, skip_secret_validation: bool = False
     ) -> WorkflowDSLCreateResponse:
@@ -614,6 +619,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
             error_handler=workflow.error_handler,
         )
 
+    @require_scope("workflow:create")
     async def create_workflow_from_external_definition(
         self, import_data: dict[str, Any], *, use_workflow_id: bool = False
     ) -> Workflow:
@@ -651,6 +657,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
             await self.session.commit()
         return workflow
 
+    @require_scope("workflow:create")
     async def create_db_workflow_from_dsl(
         self,
         dsl: DSLInput,

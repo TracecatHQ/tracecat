@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 
 from tracecat.auth.credentials import _authenticate_service
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
 
 
@@ -31,7 +31,6 @@ class TestRoleToHeaders:
             service_id="tracecat-runner",
             workspace_id=uuid4(),
             workspace_role=WorkspaceRole.EDITOR,
-            access_level=AccessLevel.BASIC,
         )
         headers = role.to_headers()
         assert "x-tracecat-role-workspace-role" in headers
@@ -44,7 +43,6 @@ class TestRoleToHeaders:
             service_id="tracecat-runner",
             workspace_id=uuid4(),
             workspace_role=WorkspaceRole.ADMIN,
-            access_level=AccessLevel.BASIC,
         )
         headers = role.to_headers()
         assert "x-tracecat-role-workspace-role" in headers
@@ -55,7 +53,6 @@ class TestRoleToHeaders:
         role = Role(
             type="service",
             service_id="tracecat-runner",
-            access_level=AccessLevel.BASIC,
         )
         headers = role.to_headers()
         assert "x-tracecat-role-workspace-role" not in headers
@@ -72,14 +69,13 @@ class TestRoleToHeaders:
             organization_id=organization_id,
             workspace_role=WorkspaceRole.EDITOR,
             user_id=user_id,
-            access_level=AccessLevel.BASIC,
         )
         headers = original_role.to_headers()
 
         # Verify all expected headers are present
         assert headers["x-tracecat-role-type"] == "service"
         assert headers["x-tracecat-role-service-id"] == "tracecat-runner"
-        assert headers["x-tracecat-role-access-level"] == "BASIC"
+        assert "x-tracecat-role-scopes" not in headers
         assert headers["x-tracecat-role-user-id"] == str(user_id)
         assert headers["x-tracecat-role-workspace-id"] == str(workspace_id)
         assert headers["x-tracecat-role-organization-id"] == str(organization_id)
@@ -108,7 +104,7 @@ class TestAuthenticateServiceWorkspaceRole:
         request.headers = MockHeaders(
             {
                 "x-tracecat-role-service-id": "tracecat-runner",
-                "x-tracecat-role-access-level": "BASIC",
+                "x-tracecat-role-scopes": "workflow:read",
                 "x-tracecat-role-workspace-id": workspace_id,
                 "x-tracecat-role-workspace-role": "editor",
             }
@@ -136,7 +132,7 @@ class TestAuthenticateServiceWorkspaceRole:
         request.headers = MockHeaders(
             {
                 "x-tracecat-role-service-id": "tracecat-runner",
-                "x-tracecat-role-access-level": "BASIC",
+                "x-tracecat-role-scopes": "workflow:read",
                 "x-tracecat-role-workspace-id": workspace_id,
                 "x-tracecat-role-workspace-role": "admin",
             }
@@ -163,7 +159,7 @@ class TestAuthenticateServiceWorkspaceRole:
         request.headers = MockHeaders(
             {
                 "x-tracecat-role-service-id": "tracecat-runner",
-                "x-tracecat-role-access-level": "BASIC",
+                "x-tracecat-role-scopes": "workflow:read",
             }
         )
 
@@ -193,7 +189,6 @@ class TestAuthenticateServiceWorkspaceRole:
             workspace_id=workspace_id,
             organization_id=organization_id,
             workspace_role=WorkspaceRole.EDITOR,
-            access_level=AccessLevel.BASIC,
         )
 
         # Convert to headers
@@ -236,7 +231,7 @@ class TestAuthenticateServiceWorkspaceRole:
         request.headers = MockHeaders(
             {
                 "x-tracecat-role-service-id": "tracecat-runner",
-                "x-tracecat-role-access-level": "BASIC",
+                "x-tracecat-role-scopes": "workflow:read",
                 "x-tracecat-role-workspace-id": str(uuid4()),
             }
         )

@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel
 
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
+from tracecat.authz.controls import require_scope
 from tracecat.cases.attachments.schemas import (
     CaseAttachmentCreate,
     CaseAttachmentRead,
@@ -33,6 +34,7 @@ class ExecutorAttachmentCreateRequest(BaseModel):
 
 
 @router.get("")
+@require_scope("case:read")
 async def list_attachments(
     *,
     role: ExecutorWorkspaceRole,
@@ -68,6 +70,7 @@ async def list_attachments(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
+@require_scope("case:update")
 async def create_attachment(
     *,
     role: ExecutorWorkspaceRole,
@@ -116,6 +119,7 @@ async def create_attachment(
 
 
 @router.get("/{attachment_id}")
+@require_scope("case:read")
 async def get_attachment_download_info(
     *,
     role: ExecutorWorkspaceRole,
@@ -184,6 +188,7 @@ async def get_attachment_download_info(
 
 
 @router.get("/{attachment_id}/download")
+@require_scope("case:read")
 async def download_attachment_content(
     *,
     role: ExecutorWorkspaceRole,
@@ -217,6 +222,7 @@ async def download_attachment_content(
 
 
 @router.delete("/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("case:update")
 async def delete_attachment(
     *,
     role: ExecutorWorkspaceRole,
@@ -278,6 +284,7 @@ async def delete_attachment(
 
 
 @router.get("/{attachment_id}/metadata")
+@require_scope("case:read")
 async def get_attachment_metadata(
     *,
     role: ExecutorWorkspaceRole,
@@ -318,6 +325,7 @@ async def get_attachment_metadata(
 
 
 @router.get("/{attachment_id}/url")
+@require_scope("case:read")
 async def get_attachment_url(
     *,
     role: ExecutorWorkspaceRole,

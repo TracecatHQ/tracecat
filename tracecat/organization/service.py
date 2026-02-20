@@ -15,13 +15,13 @@ from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import SessionRead, UserUpdate
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.auth.users import (
     UserManager,
     get_user_db_context,
     get_user_manager_context,
 )
-from tracecat.authz.controls import require_org_role
+from tracecat.authz.controls import require_scope
 from tracecat.authz.enums import OrgRole
 from tracecat.db.models import (
     AccessToken,
@@ -105,7 +105,6 @@ async def accept_invitation_for_user(
         type="user",
         user_id=user_id,
         organization_id=invitation.organization_id,
-        access_level=AccessLevel.BASIC,
         service_id="tracecat-api",
     )
 
@@ -190,8 +189,7 @@ class OrgService(BaseOrgService):
                 yield user_manager
 
     # === Manage members ===
-
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
+    @require_scope("org:member:read")
     async def list_members(self) -> Sequence[tuple[User, OrgRole]]:
         """
         Retrieve a list of all members in the organization with their roles.
@@ -214,7 +212,6 @@ class OrgService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.tuples().all()
 
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def get_member(self, user_id: UserID) -> tuple[User, OrgRole]:
         """Retrieve a member of the organization by their user ID.
 
@@ -241,8 +238,8 @@ class OrgService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.tuples().one()
 
+    @require_scope("org:member:remove")
     @audit_log(resource_type="organization_member", action="delete")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def delete_member(self, user_id: UserID) -> None:
         """
         Remove a member of the organization.
@@ -263,8 +260,8 @@ class OrgService(BaseOrgService):
         async with self._manager() as user_manager:
             await user_manager.delete(user)
 
+    @require_scope("org:member:update")
     @audit_log(resource_type="organization_member", action="update")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_member(
         self, user_id: UserID, params: UserUpdate
     ) -> tuple[User, OrgRole]:
@@ -307,7 +304,7 @@ class OrgService(BaseOrgService):
         to an organization. It is typically called from the invitation flow
         when a user accepts an invitation.
 
-        Note: This method does not require access level checks as it is
+        Note: This method does not require scope checks as it is
         intended to be called by internal services (e.g., invitation service).
 
         Args:
@@ -330,7 +327,7 @@ class OrgService(BaseOrgService):
         return membership
 
     @audit_log(resource_type="organization", action="delete")
-    @require_org_role(OrgRole.OWNER)
+    @require_scope("org:delete")
     async def delete_organization(self, *, confirmation: str | None) -> None:
         """Delete the current organization and all associated resources."""
         statement = select(Organization).where(Organization.id == self.organization_id)
@@ -350,15 +347,11 @@ class OrgService(BaseOrgService):
         await self.session.commit()
 
     # === Manage settings ===
-
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def get_settings(self) -> dict[str, str]:
         """Get the organization settings."""
         raise NotImplementedError
 
     # === Manage sessions ===
-
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def list_sessions(self) -> list[SessionRead]:
         """List all sessions for users in this organization."""
         statement = (
@@ -384,8 +377,8 @@ class OrgService(BaseOrgService):
             for s in result.scalars().all()
         ]
 
+    @require_scope("org:member:remove")
     @audit_log(resource_type="organization_session", action="delete")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def delete_session(self, session_id: SessionID) -> None:
         """Delete a session by its ID (must belong to a user in this organization)."""
         statement = (
@@ -407,8 +400,8 @@ class OrgService(BaseOrgService):
 
     # === Manage invitations ===
 
+    @require_scope("org:member:invite")
     @audit_log(resource_type="organization_invitation", action="create")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def create_invitation(
         self,
         *,
@@ -487,7 +480,6 @@ class OrgService(BaseOrgService):
         await self.session.refresh(invitation)
         return invitation
 
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def list_invitations(
         self,
         *,
@@ -509,7 +501,6 @@ class OrgService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def get_invitation(self, invitation_id: uuid.UUID) -> OrganizationInvitation:
         """Get an invitation by ID (must belong to this organization).
 
@@ -534,7 +525,7 @@ class OrgService(BaseOrgService):
     async def get_invitation_by_token(self, token: str) -> OrganizationInvitation:
         """Get an invitation by its unique token.
 
-        This method does not require access level checks as it is used
+        This method does not require scope checks as it is used
         during the public invitation acceptance flow.
 
         Args:
@@ -680,8 +671,8 @@ class OrgService(BaseOrgService):
 
         return membership
 
+    @require_scope("org:member:invite")
     @audit_log(resource_type="organization_invitation", action="revoke")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def revoke_invitation(
         self, invitation_id: uuid.UUID
     ) -> OrganizationInvitation:

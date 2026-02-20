@@ -56,7 +56,7 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
     ScopeDefinition(
         "org:billing:read", "org:billing", "read", "View billing information"
     ),
-    ScopeDefinition("org:billing:manage", "org:billing", "manage", "Manage billing"),
+    ScopeDefinition("org:billing:update", "org:billing", "update", "Manage billing"),
     # RBAC administration
     ScopeDefinition(
         "org:rbac:read",
@@ -65,10 +65,66 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "View roles, scopes, groups, and assignments",
     ),
     ScopeDefinition(
-        "org:rbac:manage",
+        "org:rbac:create",
         "org:rbac",
-        "manage",
-        "Create/update/delete roles, scopes, groups, and manage assignments",
+        "create",
+        "Create roles, scopes, groups, and assignments",
+    ),
+    ScopeDefinition(
+        "org:rbac:update",
+        "org:rbac",
+        "update",
+        "Update roles, groups, and assignments",
+    ),
+    ScopeDefinition(
+        "org:rbac:delete",
+        "org:rbac",
+        "delete",
+        "Delete roles, scopes, groups, and assignments",
+    ),
+    # Org settings management
+    ScopeDefinition(
+        "org:settings:read",
+        "org:settings",
+        "read",
+        "View organization settings and configuration",
+    ),
+    ScopeDefinition(
+        "org:settings:update",
+        "org:settings",
+        "update",
+        "Manage organization settings and configuration",
+    ),
+    ScopeDefinition(
+        "org:settings:delete",
+        "org:settings",
+        "delete",
+        "Delete organization settings and configuration",
+    ),
+    # Registry administration
+    ScopeDefinition(
+        "org:registry:read",
+        "org:registry",
+        "read",
+        "View organization registry repositories and versions",
+    ),
+    ScopeDefinition(
+        "org:registry:create",
+        "org:registry",
+        "create",
+        "Create organization registry repositories and versions",
+    ),
+    ScopeDefinition(
+        "org:registry:update",
+        "org:registry",
+        "update",
+        "Update organization registry repositories and versions",
+    ),
+    ScopeDefinition(
+        "org:registry:delete",
+        "org:registry",
+        "delete",
+        "Delete organization registry repositories and versions",
     ),
     # Workspace-level scopes
     ScopeDefinition("workspace:read", "workspace", "read", "View workspace settings"),
@@ -109,16 +165,56 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
     ),
     ScopeDefinition("workflow:delete", "workflow", "delete", "Delete workflows"),
     ScopeDefinition("workflow:execute", "workflow", "execute", "Run/trigger workflows"),
+    ScopeDefinition(
+        "workflow:terminate", "workflow", "terminate", "Stop running workflows"
+    ),
+    # Integration scopes
+    ScopeDefinition(
+        "integration:read",
+        "integration",
+        "read",
+        "View integrations and provider metadata",
+    ),
+    ScopeDefinition(
+        "integration:create",
+        "integration",
+        "create",
+        "Create integrations and provider configurations",
+    ),
+    ScopeDefinition(
+        "integration:update",
+        "integration",
+        "update",
+        "Manage integration configuration and connections",
+    ),
+    ScopeDefinition(
+        "integration:delete",
+        "integration",
+        "delete",
+        "Delete integrations and provider configurations",
+    ),
     # Case scopes
     ScopeDefinition("case:read", "case", "read", "View cases"),
     ScopeDefinition("case:create", "case", "create", "Create new cases"),
     ScopeDefinition("case:update", "case", "update", "Modify existing cases"),
     ScopeDefinition("case:delete", "case", "delete", "Delete cases"),
+    # Inbox scopes
+    ScopeDefinition("inbox:read", "inbox", "read", "View inbox items"),
     # Table scopes
     ScopeDefinition("table:read", "table", "read", "View tables"),
     ScopeDefinition("table:create", "table", "create", "Create new tables"),
     ScopeDefinition("table:update", "table", "update", "Modify existing tables"),
     ScopeDefinition("table:delete", "table", "delete", "Delete tables"),
+    # Tag scopes
+    ScopeDefinition("tag:read", "tag", "read", "View tags"),
+    ScopeDefinition("tag:create", "tag", "create", "Create new tags"),
+    ScopeDefinition("tag:update", "tag", "update", "Modify existing tags"),
+    ScopeDefinition("tag:delete", "tag", "delete", "Delete tags"),
+    # Variable scopes
+    ScopeDefinition("variable:read", "variable", "read", "View variables"),
+    ScopeDefinition("variable:create", "variable", "create", "Create new variables"),
+    ScopeDefinition("variable:update", "variable", "update", "Modify variables"),
+    ScopeDefinition("variable:delete", "variable", "delete", "Delete variables"),
     # Schedule scopes
     ScopeDefinition("schedule:read", "schedule", "read", "View schedules"),
     ScopeDefinition("schedule:create", "schedule", "create", "Create new schedules"),
@@ -137,6 +233,17 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
     ScopeDefinition("secret:create", "secret", "create", "Create new secrets"),
     ScopeDefinition("secret:update", "secret", "update", "Modify existing secrets"),
     ScopeDefinition("secret:delete", "secret", "delete", "Delete secrets"),
+    # Organization secret scopes
+    ScopeDefinition("org:secret:read", "org:secret", "read", "View org-level secrets"),
+    ScopeDefinition(
+        "org:secret:create", "org:secret", "create", "Create org-level secrets"
+    ),
+    ScopeDefinition(
+        "org:secret:update", "org:secret", "update", "Modify org-level secrets"
+    ),
+    ScopeDefinition(
+        "org:secret:delete", "org:secret", "delete", "Delete org-level secrets"
+    ),
     # Wildcard action scopes (for role assignments)
     ScopeDefinition(
         "action:*:execute", "action", "execute", "Execute any registry action"
@@ -166,32 +273,32 @@ class RoleDefinition(NamedTuple):
 PRESET_ROLE_DEFINITIONS: dict[str, RoleDefinition] = {
     # slug → RoleDefinition(name, description, scopes)
     "workspace-viewer": RoleDefinition(
-        "Viewer",
+        "Workspace Viewer",
         "Read-only access to workspace resources",
         PRESET_ROLE_SCOPES["workspace-viewer"],
     ),
     "workspace-editor": RoleDefinition(
-        "Editor",
+        "Workspace Editor",
         "Create and edit resources, no delete or admin access",
         PRESET_ROLE_SCOPES["workspace-editor"],
     ),
     "workspace-admin": RoleDefinition(
-        "Admin",
+        "Workspace Admin",
         "Full workspace capabilities",
         PRESET_ROLE_SCOPES["workspace-admin"],
     ),
     "organization-owner": RoleDefinition(
-        "Owner",
+        "Organization Owner",
         "Full organization control",
         PRESET_ROLE_SCOPES["organization-owner"],
     ),
     "organization-admin": RoleDefinition(
-        "Admin",
-        "Organization admin without delete or billing manage",
+        "Organization Admin",
+        "Organization admin without delete or billing update",
         PRESET_ROLE_SCOPES["organization-admin"],
     ),
     "organization-member": RoleDefinition(
-        "Member",
+        "Organization Member",
         "Basic organization membership",
         PRESET_ROLE_SCOPES["organization-member"],
     ),
@@ -416,7 +523,7 @@ async def _upsert_registry_scope_rows(
 # =============================================================================
 
 
-async def seed_system_roles_for_all_orgs(session: AsyncSession) -> dict[UUID, int]:
+async def seed_system_roles_for_all_orgs(session: AsyncSession) -> list[UUID]:
     """Seed system roles for all existing organizations.
 
     This is called during app startup to ensure existing organizations
@@ -426,7 +533,7 @@ async def seed_system_roles_for_all_orgs(session: AsyncSession) -> dict[UUID, in
         session: Database session
 
     Returns:
-        Dict mapping organization_id to number of roles created
+        List of organization IDs processed.
     """
     logger.info("Seeding system roles for all organizations")
 
@@ -437,7 +544,7 @@ async def seed_system_roles_for_all_orgs(session: AsyncSession) -> dict[UUID, in
 
     if not org_ids:
         logger.info("No organizations found, skipping system role seeding")
-        return {}
+        return []
 
     # 1) Upsert all preset roles for all orgs in one bulk query.
     role_values = []
@@ -455,15 +562,14 @@ async def seed_system_roles_for_all_orgs(session: AsyncSession) -> dict[UUID, in
             )
 
     role_insert_stmt = pg_insert(Role).values(role_values)
-    role_insert_stmt = role_insert_stmt.on_conflict_do_nothing(
-        index_elements=["organization_id", "slug"]
-    ).returning(Role.organization_id)
-    role_insert_result = await session.execute(role_insert_stmt)
-
-    # Return shape remains {org_id: roles_created_for_org}.
-    results: dict[UUID, int] = dict.fromkeys(org_ids, 0)
-    for (organization_id,) in role_insert_result.tuples().all():
-        results[organization_id] += 1
+    role_insert_stmt = role_insert_stmt.on_conflict_do_update(
+        index_elements=["organization_id", "slug"],
+        set_={
+            "name": role_insert_stmt.excluded.name,
+            "description": role_insert_stmt.excluded.description,
+        },
+    )
+    await session.execute(role_insert_stmt)
 
     # 2) Fetch all relevant global scopes once.
     scope_stmt = select(Scope.id, Scope.name).where(Scope.organization_id.is_(None))
@@ -505,13 +611,11 @@ async def seed_system_roles_for_all_orgs(session: AsyncSession) -> dict[UUID, in
         await session.execute(role_scope_stmt)
     await session.commit()
 
-    total_created = sum(results.values())
     logger.info(
         "System roles seeded for all organizations",
         num_orgs=len(org_ids),
-        total_roles_created=total_created,
     )
-    return results
+    return org_ids
 
 
 async def seed_all_system_data(session: AsyncSession) -> dict[str, int]:
@@ -534,13 +638,11 @@ async def seed_all_system_data(session: AsyncSession) -> dict[str, int]:
     scopes_created = await seed_system_scopes(session)
 
     # Seed system roles for all existing organizations
-    org_role_results = await seed_system_roles_for_all_orgs(session)
-    total_roles_created = sum(org_role_results.values())
+    processed_org_ids = await seed_system_roles_for_all_orgs(session)
 
     result = {
         "scopes_created": scopes_created,
-        "roles_created": total_roles_created,
-        "orgs_processed": len(org_role_results),
+        "orgs_processed": len(processed_org_ids),
     }
 
     logger.info("System RBAC data seeding complete", **result)

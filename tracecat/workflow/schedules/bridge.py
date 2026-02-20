@@ -8,6 +8,7 @@ from temporalio.exceptions import TemporalError
 
 from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.identifiers import ScheduleUUID, WorkflowID
@@ -144,7 +145,11 @@ async def update_schedule(schedule_id: AnyScheduleID, params: ScheduleUpdate) ->
                     "Error extracting role from schedule action",
                     error=e,
                 )
-                role = Role(type="service", service_id="tracecat-schedule-runner")
+                role = Role(
+                    type="service",
+                    service_id="tracecat-schedule-runner",
+                    scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-schedule-runner"],
+                )
             action.typed_search_attributes = build_schedule_search_attributes(role)
             if "inputs" in set_fields:
                 action.args[0].dsl.trigger_inputs = set_fields["inputs"]  # type: ignore

@@ -3,7 +3,8 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
+from tracecat.authz.scopes import ADMIN_SCOPES, SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.schemas import CaseCommentCreate, CaseCommentUpdate
 from tracecat.cases.service import CaseCommentsService, CasesService
 from tracecat.db.models import Case
@@ -22,7 +23,7 @@ async def test_service_initialization_requires_workspace(session: AsyncSession) 
         workspace_id=None,
         organization_id=uuid.uuid4(),
         service_id="tracecat-service",
-        access_level=AccessLevel.BASIC,
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
     )
 
     # Attempt to create service without workspace should raise error
@@ -201,7 +202,7 @@ class TestCaseCommentsService:
             workspace_id=svc_role.workspace_id,
             organization_id=svc_role.organization_id,
             service_id=svc_role.service_id,
-            access_level=svc_role.access_level,
+            scopes=ADMIN_SCOPES,
         )
 
         # Create service with different user
@@ -262,7 +263,7 @@ class TestCaseCommentsService:
             workspace_id=svc_role.workspace_id,
             organization_id=svc_role.organization_id,
             service_id=svc_role.service_id,
-            access_level=svc_role.access_level,
+            scopes=ADMIN_SCOPES,
         )
 
         # Create service with different user

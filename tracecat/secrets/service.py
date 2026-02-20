@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
+from tracecat.authz.controls import require_scope
 from tracecat.db.models import BaseSecret, OrganizationSecret, Secret
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -154,6 +155,7 @@ class SecretsService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    @require_scope("secret:read")
     async def get_secret(self, secret_id: SecretID) -> Secret:
         """Get a workspace secret by ID."""
         workspace_id = self._require_workspace_id()
@@ -183,6 +185,7 @@ class SecretsService(BaseOrgService):
                 "Secret not found when searching by ID. Please check that the ID was correctly input."
             ) from e
 
+    @require_scope("secret:read")
     async def get_secret_by_name(
         self,
         secret_name: str,
@@ -221,6 +224,7 @@ class SecretsService(BaseOrgService):
                 " Please double check that the name was correctly input."
             ) from e
 
+    @require_scope("secret:update")
     @audit_log(resource_type="secret", action="create")
     async def create_secret(self, params: SecretCreate) -> None:
         """Create a workspace secret."""
@@ -243,12 +247,14 @@ class SecretsService(BaseOrgService):
         self.session.add(secret)
         await self.session.commit()
 
+    @require_scope("secret:create")
     @audit_log(resource_type="secret", action="update")
     async def update_secret(self, secret: Secret, params: SecretUpdate) -> None:
         """Update a workspace secret."""
 
         await self._update_secret(secret=secret, params=params)
 
+    @require_scope("secret:delete")
     @audit_log(resource_type="secret", action="delete")
     async def delete_secret(self, secret: Secret) -> None:
         """Delete a workspace secret."""
@@ -290,6 +296,7 @@ class SecretsService(BaseOrgService):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
+    @require_scope("org:secret:read")
     async def get_org_secret(self, secret_id: SecretID) -> OrganizationSecret:
         """Get an organization secret by ID."""
 
@@ -300,6 +307,7 @@ class SecretsService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalar_one()
 
+    @require_scope("org:secret:read")
     async def get_org_secret_by_name(
         self,
         secret_name: str,
@@ -326,6 +334,7 @@ class SecretsService(BaseOrgService):
                 " Please double check that the name was correctly input."
             ) from e
 
+    @require_scope("org:secret:create")
     @audit_log(resource_type="organization_secret", action="create")
     async def create_org_secret(self, params: SecretCreate) -> None:
         """Create a new organization secret."""
@@ -347,12 +356,14 @@ class SecretsService(BaseOrgService):
         self.session.add(secret)
         await self.session.commit()
 
+    @require_scope("org:secret:update")
     @audit_log(resource_type="organization_secret", action="update")
     async def update_org_secret(
         self, secret: OrganizationSecret, params: SecretUpdate
     ) -> None:
         await self._update_secret(secret=secret, params=params)
 
+    @require_scope("org:secret:delete")
     @audit_log(
         resource_type="organization_secret",
         action="delete",
@@ -360,6 +371,7 @@ class SecretsService(BaseOrgService):
     async def delete_org_secret(self, org_secret: OrganizationSecret) -> None:
         await self._delete_secret(org_secret)
 
+    @require_scope("org:secret:read")
     async def get_ssh_key(
         self,
         key_name: str | None = None,
@@ -372,6 +384,7 @@ class SecretsService(BaseOrgService):
             case _:
                 raise ValueError(f"Invalid target: {target}")
 
+    @require_scope("org:secret:read")
     async def get_registry_ssh_key(
         self, key_name: str | None = None, environment: str | None = None
     ) -> SecretStr:

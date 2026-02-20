@@ -11,7 +11,8 @@ from pydantic import BaseModel, SecretStr
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
+from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.db.models import OAuthStateDB, User, Workspace
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.providers.base import AuthorizationCodeOAuthProvider
@@ -84,11 +85,11 @@ async def integration_service(
     """Create an integration service instance for testing."""
     role = Role(
         type="user",
-        access_level=AccessLevel.BASIC,
         workspace_id=svc_workspace.id,
         organization_id=svc_workspace.organization_id,
         user_id=test_user.id,
         service_id="tracecat-api",
+        scopes=ADMIN_SCOPES,
     )
     return IntegrationService(session=session, role=role)
 
@@ -102,6 +103,7 @@ async def test_role_with_user(svc_workspace, test_user: User) -> Role:
         organization_id=svc_workspace.organization_id,
         user_id=test_user.id,
         service_id="tracecat-api",
+        scopes=ADMIN_SCOPES,
     )
 
 

@@ -10,6 +10,7 @@ from tracecat.authz.controls import (
     has_all_scopes,
     has_any_scope,
     has_scope,
+    require_action_scope,
     require_scope,
     scope_matches,
     validate_scope_string,
@@ -25,6 +26,16 @@ from tracecat.authz.scopes import (
 )
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
+
+
+@pytest.fixture(autouse=True)
+def _reset_ctx_role():  # pyright: ignore[reportUnusedFunction]
+    """Ensure role context is isolated per test in this module."""
+    token = ctx_role.set(None)
+    try:
+        yield
+    finally:
+        ctx_role.reset(token)
 
 
 def _set_role_with_scopes(scopes: frozenset[str]) -> None:
@@ -102,6 +113,53 @@ class TestScopeMatches:
         # Multiple wildcards in a scope
         assert scope_matches("action:*.*:execute", "action:core.http:execute") is True
         assert scope_matches("*:*", "workflow:read") is True
+
+
+class TestScopeImplication:
+    """Tests for scope implication (update implies read)."""
+
+    def test_update_implies_read(self):
+        assert scope_matches("workflow:update", "workflow:read") is True
+        assert scope_matches("integration:update", "integration:read") is True
+        assert scope_matches("case:update", "case:read") is True
+
+    def test_update_implies_read_nested_resource(self):
+        assert scope_matches("org:settings:update", "org:settings:read") is True
+        assert scope_matches("org:member:update", "org:member:read") is True
+
+    def test_create_does_not_imply_read(self):
+        assert scope_matches("workflow:create", "workflow:read") is False
+
+    def test_delete_does_not_imply_read(self):
+        assert scope_matches("workflow:delete", "workflow:read") is False
+
+    def test_execute_does_not_imply_read(self):
+        assert scope_matches("workflow:execute", "workflow:read") is False
+
+    def test_update_does_not_imply_other_actions(self):
+        assert scope_matches("workflow:update", "workflow:create") is False
+        assert scope_matches("workflow:update", "workflow:delete") is False
+        assert scope_matches("workflow:update", "workflow:execute") is False
+
+    def test_update_does_not_cross_resources(self):
+        assert scope_matches("workflow:update", "case:read") is False
+        assert scope_matches("integration:update", "workflow:read") is False
+
+    def test_has_scope_via_implication(self):
+        scopes = frozenset({"workflow:update"})
+        assert has_scope(scopes, "workflow:read") is True
+        assert has_scope(scopes, "workflow:update") is True
+        assert has_scope(scopes, "workflow:delete") is False
+
+    def test_get_missing_scopes_with_implication(self):
+        scopes = frozenset({"workflow:update"})
+        missing = get_missing_scopes(scopes, {"workflow:read", "workflow:update"})
+        assert missing == set()
+
+    def test_wildcard_not_affected_by_implication(self):
+        # Wildcards already cover everything, implication shouldn't interfere
+        assert scope_matches("workflow:*", "workflow:read") is True
+        assert scope_matches("workflow:*", "workflow:update") is True
 
 
 class TestHasScope:
@@ -187,6 +245,9 @@ class TestGetMissingScopes:
 class TestSystemRoleScopes:
     """Tests for system role scope definitions."""
 
+    def test_viewer_includes_inbox_read(self):
+        assert "inbox:read" in VIEWER_SCOPES
+
     def test_viewer_scopes_are_read_only(self):
         for scope in VIEWER_SCOPES:
             # Viewer should only have read scopes (no create, update, delete, execute)
@@ -216,9 +277,9 @@ class TestOrgRoleScopes:
         assert "org:delete" not in ORG_ADMIN_SCOPES
         assert "org:delete" not in ORG_MEMBER_SCOPES
 
-    def test_owner_has_billing_manage(self):
-        assert "org:billing:manage" in ORG_OWNER_SCOPES
-        assert "org:billing:manage" not in ORG_ADMIN_SCOPES
+    def test_owner_has_billing_update(self):
+        assert "org:billing:update" in ORG_OWNER_SCOPES
+        assert "org:billing:update" not in ORG_ADMIN_SCOPES
 
     def test_admin_has_billing_read(self):
         assert "org:billing:read" in ORG_ADMIN_SCOPES
@@ -344,3 +405,81 @@ class TestRequireScopeDecorator:
 
         with pytest.raises(ScopeDeniedError):
             await async_protected_func()
+
+
+class TestRequireActionScope:
+    """Tests for the require_action_scope function."""
+
+    def test_require_action_scope_with_exact_scope(self):
+        """User with exact action scope can execute."""
+        _set_role_with_scopes(frozenset({"action:core.http_request:execute"}))
+        # Should not raise
+        require_action_scope("core.http_request")
+
+    def test_require_action_scope_with_global_wildcard(self):
+        """Superuser with * scope can execute any action."""
+        _set_role_with_scopes(frozenset({"*"}))
+        require_action_scope("core.http_request")
+        require_action_scope("tools.okta.list_users")
+
+    def test_require_action_scope_with_action_wildcard(self):
+        """User with action:*:execute can execute any action."""
+        _set_role_with_scopes(frozenset({"action:*:execute"}))
+        require_action_scope("core.http_request")
+        require_action_scope("tools.okta.list_users")
+
+    def test_require_action_scope_with_prefix_wildcard(self):
+        """User with action:core.*:execute can execute core actions."""
+        _set_role_with_scopes(frozenset({"action:core.*:execute"}))
+        require_action_scope("core.http_request")
+        require_action_scope("core.transform.forward")
+
+        # Should fail for non-core actions
+        with pytest.raises(ScopeDeniedError) as exc_info:
+            require_action_scope("tools.okta.list_users")
+        assert "action:tools.okta.list_users:execute" in exc_info.value.missing_scopes
+
+    def test_require_action_scope_with_integration_wildcard(self):
+        """User with action:tools.okta.*:execute can execute okta actions."""
+        _set_role_with_scopes(frozenset({"action:tools.okta.*:execute"}))
+        require_action_scope("tools.okta.list_users")
+        require_action_scope("tools.okta.suspend_user")
+
+        # Should fail for other integrations
+        with pytest.raises(ScopeDeniedError):
+            require_action_scope("tools.slack.send_message")
+
+    def test_require_action_scope_denied(self):
+        """User without action scope gets denied."""
+        _set_role_with_scopes(frozenset({"workflow:execute"}))
+
+        with pytest.raises(ScopeDeniedError) as exc_info:
+            require_action_scope("core.http_request")
+
+        assert exc_info.value.required_scopes == ["action:core.http_request:execute"]
+        assert exc_info.value.missing_scopes == ["action:core.http_request:execute"]
+
+    def test_require_action_scope_empty_scopes(self):
+        """User with no scopes gets denied."""
+        _set_role_with_scopes(frozenset())
+
+        with pytest.raises(ScopeDeniedError):
+            require_action_scope("core.http_request")
+
+    def test_require_action_scope_multiple_scopes(self):
+        """User with multiple action scopes can execute matching actions."""
+        _set_role_with_scopes(
+            frozenset(
+                {
+                    "action:core.*:execute",
+                    "action:tools.okta.*:execute",
+                    "workflow:execute",
+                }
+            )
+        )
+        require_action_scope("core.http_request")
+        require_action_scope("tools.okta.list_users")
+
+        # Should fail for non-matching actions
+        with pytest.raises(ScopeDeniedError):
+            require_action_scope("tools.slack.send_message")

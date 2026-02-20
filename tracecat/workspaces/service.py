@@ -10,9 +10,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only, noload, selectinload
 
 from tracecat.audit.logger import audit_log
-from tracecat.auth.types import AccessLevel, Role
-from tracecat.authz.controls import require_org_role, require_workspace_role
+from tracecat.auth.types import Role
+from tracecat.authz.controls import require_scope
 from tracecat.authz.enums import OrgRole, OwnerType, WorkspaceRole
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
     Invitation,
@@ -45,7 +46,6 @@ class WorkspaceService(BaseOrgService):
     service_name = "workspace"
     _load_only = ["id", "name"]
 
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def admin_list_workspaces(
         self, limit: int | None = None
     ) -> Sequence[Workspace]:
@@ -88,8 +88,8 @@ class WorkspaceService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    @require_scope("workspace:create")
     @audit_log(resource_type="workspace", action="create")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def create_workspace(
         self,
         name: str,
@@ -126,7 +126,7 @@ class WorkspaceService(BaseOrgService):
             organization_id=self.organization_id,
             workspace_id=workspace.id,
             workspace_role=WorkspaceRole.ADMIN,
-            access_level=AccessLevel.ADMIN,
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
         )
         case_fields_service = CaseFieldsService(
             session=self.session, role=bootstrap_role
@@ -147,8 +147,8 @@ class WorkspaceService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    @require_scope("workspace:update")
     @audit_log(resource_type="workspace", action="update")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_workspace(
         self, workspace: Workspace, params: WorkspaceUpdate
     ) -> Workspace:
@@ -162,8 +162,8 @@ class WorkspaceService(BaseOrgService):
         await self.session.refresh(workspace)
         return workspace
 
+    @require_scope("workspace:delete")
     @audit_log(resource_type="workspace", action="delete")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def delete_workspace(self, workspace_id: WorkspaceID) -> None:
         """Delete a workspace."""
         all_workspaces = await self.admin_list_workspaces()
@@ -183,7 +183,7 @@ class WorkspaceService(BaseOrgService):
             organization_id=self.organization_id,
             workspace_id=workspace.id,
             workspace_role=WorkspaceRole.ADMIN,
-            access_level=AccessLevel.ADMIN,
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
         )
 
         # Delete Temporal schedules before workspace deletion
@@ -224,8 +224,8 @@ class WorkspaceService(BaseOrgService):
         """Generate a unique 64-character token for invitation magic links."""
         return secrets.token_urlsafe(48)[:64]
 
+    @require_scope("workspace:member:invite")
     @audit_log(resource_type="workspace_invitation", action="create")
-    @require_workspace_role(WorkspaceRole.ADMIN)
     async def create_invitation(
         self,
         workspace_id: WorkspaceID,
@@ -301,7 +301,6 @@ class WorkspaceService(BaseOrgService):
         await self.session.refresh(invitation)
         return invitation
 
-    @require_workspace_role(WorkspaceRole.ADMIN)
     async def list_invitations(
         self,
         workspace_id: WorkspaceID,
@@ -447,8 +446,8 @@ class WorkspaceService(BaseOrgService):
         await self.session.refresh(membership)
         return membership
 
+    @require_scope("workspace:member:remove")
     @audit_log(resource_type="workspace_invitation", action="revoke")
-    @require_workspace_role(WorkspaceRole.ADMIN)
     async def revoke_invitation(
         self,
         workspace_id: WorkspaceID,

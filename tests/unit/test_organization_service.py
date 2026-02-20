@@ -10,8 +10,9 @@ from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.schemas import UserRole
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole
+from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_MEMBER_SCOPES, ORG_OWNER_SCOPES
 from tracecat.db.models import (
     AccessToken,
     Organization,
@@ -137,10 +138,10 @@ def create_admin_role(organization_id: uuid.UUID, user_id: uuid.UUID) -> Role:
         type="user",
         user_id=user_id,
         organization_id=organization_id,
-        access_level=AccessLevel.ADMIN,
         org_role=OrgRole.ADMIN,
         service_id="tracecat-api",
         is_platform_superuser=False,
+        scopes=ORG_ADMIN_SCOPES,
     )
 
 
@@ -150,10 +151,10 @@ def create_superuser_role(organization_id: uuid.UUID, user_id: uuid.UUID) -> Rol
         type="user",
         user_id=user_id,
         organization_id=organization_id,
-        access_level=AccessLevel.ADMIN,
         org_role=OrgRole.OWNER,
         service_id="tracecat-api",
         is_platform_superuser=True,
+        scopes=ORG_ADMIN_SCOPES,
     )
 
 
@@ -357,7 +358,7 @@ class TestOrganizationServiceDeleteOrganization:
             type="user",
             user_id=admin_in_org1.id,
             organization_id=org1.id,
-            access_level=AccessLevel.ADMIN,
+            scopes=ORG_OWNER_SCOPES,
             org_role=OrgRole.OWNER,
             service_id="tracecat-api",
             is_platform_superuser=False,
@@ -388,8 +389,8 @@ class TestOrganizationServiceDeleteOrganization:
             type="user",
             user_id=admin_in_org1.id,
             organization_id=org1.id,
-            access_level=AccessLevel.ADMIN,
             org_role=OrgRole.OWNER,
+            scopes=ORG_OWNER_SCOPES,
             service_id="tracecat-api",
             is_platform_superuser=False,
         )
@@ -418,7 +419,7 @@ class TestOrganizationServiceDeleteOrganization:
 
         with pytest.raises(
             TracecatAuthorizationError,
-            match="required org role",
+            match="You don't have permission to perform this action.",
         ):
             await service.delete_organization(confirmation=org1.name)
 
@@ -1054,8 +1055,8 @@ class TestOrganizationServiceInvitations:
             type="user",
             user_id=user_in_org2.id,
             organization_id=org2.id,
-            access_level=AccessLevel.BASIC,
             service_id="tracecat-api",
+            scopes=ORG_MEMBER_SCOPES,
         )
         user_service = OrgService(session, role=user_role)
         membership = await user_service.accept_invitation(invitation.token)
@@ -1091,8 +1092,8 @@ class TestOrganizationServiceInvitations:
             type="user",
             user_id=user_in_org2.id,
             organization_id=org2.id,
-            access_level=AccessLevel.BASIC,
             service_id="tracecat-api",
+            scopes=ORG_MEMBER_SCOPES,
         )
         user_service = OrgService(session, role=user_role)
         await user_service.accept_invitation(invitation.token)
@@ -1137,8 +1138,8 @@ class TestOrganizationServiceInvitations:
             type="user",
             user_id=different_user.id,
             organization_id=org2.id,
-            access_level=AccessLevel.BASIC,
             service_id="tracecat-api",
+            scopes=ORG_MEMBER_SCOPES,
         )
         different_service = OrgService(session, role=different_role)
 
@@ -1172,8 +1173,8 @@ class TestOrganizationServiceInvitations:
             type="user",
             user_id=user_in_org2.id,
             organization_id=org2.id,
-            access_level=AccessLevel.BASIC,
             service_id="tracecat-api",
+            scopes=ORG_MEMBER_SCOPES,
         )
         user_service = OrgService(session, role=user_role)
 

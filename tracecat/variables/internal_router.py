@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.variables.schemas import VariableReadMinimal
@@ -18,6 +19,7 @@ router = APIRouter(
 
 
 @router.get("/{variable_name}", response_model=VariableReadMinimal)
+@require_scope("variable:read")
 async def get_variable_by_name(
     *,
     role: ExecutorWorkspaceRole,
@@ -54,6 +56,7 @@ async def get_variable_by_name(
 
 
 @router.get("/{variable_name}/value")
+@require_scope("variable:read")
 async def get_variable_value(
     *,
     role: ExecutorWorkspaceRole,

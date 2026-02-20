@@ -15,7 +15,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.config import TEMPORAL__CLUSTER_NAMESPACE
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
@@ -51,10 +51,10 @@ def bootstrap_role(organization_id: OrganizationID | None = None) -> Role:
     """
     return Role(
         type="service",
-        access_level=AccessLevel.ADMIN,
         service_id="tracecat-bootstrap",
         organization_id=organization_id,
         is_platform_superuser=True,
+        scopes=frozenset({"*"}),
     )
 
 

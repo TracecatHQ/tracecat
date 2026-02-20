@@ -15,7 +15,8 @@ from tracecat.cases.schemas import (
 )
 from tracecat.cases.service import CaseFieldsService, CasesService
 from tracecat.tables.enums import SqlType
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.pagination import CursorPaginationParams
 
@@ -31,7 +32,7 @@ async def test_service_initialization_requires_workspace(session: AsyncSession) 
         user_id=uuid.uuid4(),
         workspace_id=None,
         service_id="tracecat-service",
-        access_level=AccessLevel.BASIC,
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
     )
 
     # Attempt to create service without workspace should raise error

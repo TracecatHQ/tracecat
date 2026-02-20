@@ -2,6 +2,7 @@ from collections.abc import Sequence
 
 from sqlalchemy import select
 
+from tracecat.authz.controls import require_scope
 from tracecat.db.models import Tag, WorkflowTag
 from tracecat.identifiers import TagID
 from tracecat.identifiers.workflow import WorkflowID
@@ -26,6 +27,7 @@ class WorkflowTagsService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one()
 
+    @require_scope("workflow:update")
     async def add_workflow_tag(self, wf_id: WorkflowID, tag_id: TagID) -> WorkflowTag:
         """Add a tag association to a workflow."""
         wf_tag = WorkflowTag(workflow_id=wf_id, tag_id=tag_id)
@@ -33,6 +35,7 @@ class WorkflowTagsService(BaseWorkspaceService):
         await self.session.commit()
         return wf_tag
 
+    @require_scope("workflow:update")
     async def remove_workflow_tag(self, wf_tag: WorkflowTag) -> None:
         """Delete a workflow tag association."""
         await self.session.delete(wf_tag)

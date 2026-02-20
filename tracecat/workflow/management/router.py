@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from tracecat import config
 from tracecat.auth.api_keys import generate_api_key
 from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.common import DBConstraints
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Webhook, WebhookApiKey, Workflow
@@ -80,6 +81,7 @@ router = APIRouter(prefix="/workflows")
 
 
 @router.get("", tags=["workflows"])
+@require_scope("workflow:read")
 async def list_workflows(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -133,6 +135,7 @@ async def list_workflows(
 
 
 @router.post("/validate-entrypoint", tags=["workflows"])
+@require_scope("workflow:read")
 async def validate_workflow_entrypoint(
     _role: WorkspaceUserRole,
     payload: WorkflowEntrypointValidationRequest,
@@ -181,6 +184,7 @@ def wfs_and_defns_to_response(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["workflows"])
+@require_scope("workflow:create")
 async def create_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -275,6 +279,7 @@ async def create_workflow(
 
 
 @router.get("/{workflow_id}", tags=["workflows"])
+@require_scope("workflow:read")
 async def get_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -330,6 +335,7 @@ async def get_workflow(
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["workflows"],
 )
+@require_scope("workflow:update")
 async def update_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -366,6 +372,7 @@ async def update_workflow(
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["workflows"],
 )
+@require_scope("workflow:delete")
 async def delete_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -383,6 +390,7 @@ async def delete_workflow(
 
 
 @router.post("/{workflow_id}/commit", tags=["workflows"])
+@require_scope("workflow:update")
 async def commit_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -499,6 +507,7 @@ async def commit_workflow(
 
 
 @router.get("/{workflow_id}/export", tags=["workflows"])
+@require_scope("workflow:read")
 async def export_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -612,6 +621,7 @@ async def export_workflow(
 
 
 @router.get("/{workflow_id}/definitions", tags=["workflows"])
+@require_scope("workflow:read")
 async def list_workflow_definitions(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -624,6 +634,7 @@ async def list_workflow_definitions(
 
 
 @router.get("/{workflow_id}/definition", tags=["workflows"])
+@require_scope("workflow:read")
 async def get_workflow_definition(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -643,6 +654,7 @@ async def get_workflow_definition(
 
 
 @router.post("/{workflow_id}/definition", tags=["workflows"])
+@require_scope("workflow:create")
 async def create_workflow_definition(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -660,6 +672,7 @@ async def create_workflow_definition(
     status_code=status.HTTP_201_CREATED,
     tags=["triggers"],
 )
+@require_scope("workflow:update")
 async def create_webhook(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -688,6 +701,7 @@ async def create_webhook(
     "/{workflow_id}/webhook",
     tags=["triggers"],
 )
+@require_scope("workflow:read")
 async def get_webhook(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -715,6 +729,7 @@ async def get_webhook(
     tags=["triggers"],
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("workflow:update")
 async def update_webhook(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -755,6 +770,7 @@ async def update_webhook(
     tags=["triggers"],
     response_model=CaseTriggerRead,
 )
+@require_scope("workflow:create")
 async def create_case_trigger(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -779,6 +795,7 @@ async def create_case_trigger(
     tags=["triggers"],
     response_model=CaseTriggerRead,
 )
+@require_scope("workflow:read")
 async def get_case_trigger(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -798,6 +815,7 @@ async def get_case_trigger(
     tags=["triggers"],
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("workflow:update")
 async def update_case_trigger(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -821,6 +839,7 @@ async def update_case_trigger(
     tags=["triggers"],
     status_code=status.HTTP_201_CREATED,
 )
+@require_scope("workflow:update")
 async def generate_webhook_api_key(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -874,6 +893,7 @@ async def generate_webhook_api_key(
     tags=["triggers"],
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("workflow:update")
 async def revoke_webhook_api_key(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -909,6 +929,7 @@ async def revoke_webhook_api_key(
     tags=["triggers"],
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("workflow:delete")
 async def delete_webhook_api_key(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -937,6 +958,7 @@ async def delete_webhook_api_key(
 @router.post(
     "/{workflow_id}/move", tags=["workflows"], status_code=status.HTTP_204_NO_CONTENT
 )
+@require_scope("workflow:update")
 async def move_workflow_to_folder(
     role: WorkspaceUserRole,
     session: AsyncDBSession,

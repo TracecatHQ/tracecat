@@ -13,6 +13,7 @@ from sqlalchemy import and_, or_, select, union_all
 from tracecat import config
 from tracecat.auth.executor_tokens import mint_executor_token
 from tracecat.auth.types import Role
+from tracecat.authz.controls import require_action_scope
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import (
     ctx_interaction,
@@ -402,6 +403,7 @@ async def _prepare_step_context(
     executor_token = mint_executor_token(
         workspace_id=role.workspace_id,
         user_id=role.user_id,
+        service_id=role.service_id,
         wf_id=str(input.run_context.wf_id),
         wf_exec_id=str(input.run_context.wf_run_id),
     )
@@ -710,6 +712,7 @@ async def prepare_resolved_context(
     executor_token = mint_executor_token(
         workspace_id=role.workspace_id,
         user_id=role.user_id,
+        service_id=role.service_id,
         wf_id=str(input.run_context.wf_id),
         wf_exec_id=str(input.run_context.wf_run_id),
     )
@@ -831,6 +834,12 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
         raise ValueError("Role is required to dispatch actions")
     ctx = DispatchActionContext(role=role)
     task = input.task
+
+    # Enforce action execution scope
+    # This check ensures the user has permission to execute this specific action
+    # Scope matching supports wildcards (e.g., action:core.*:execute, action:*:execute)
+    require_action_scope(task.action)
+
     logger.info("Preparing runtime environment", ctx=ctx)
     # If there's no for_each, execute normally
     if not task.for_each:

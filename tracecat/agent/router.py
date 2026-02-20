@@ -11,7 +11,7 @@ from tracecat.agent.schemas import (
 from tracecat.agent.service import AgentManagementService
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
-from tracecat.authz.enums import OrgRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 
@@ -23,7 +23,6 @@ OrganizationAdminUserRole = Annotated[
         allow_user=True,
         allow_service=False,
         require_workspace="no",
-        require_org_roles=[OrgRole.OWNER, OrgRole.ADMIN],
     ),
 ]
 
@@ -47,6 +46,7 @@ WorkspaceUserRole = Annotated[
 
 
 @router.get("/models")
+@require_scope("agent:read")
 async def list_models(
     *,
     role: OrganizationUserRole,
@@ -58,6 +58,7 @@ async def list_models(
 
 
 @router.get("/providers")
+@require_scope("agent:read")
 async def list_providers(
     *,
     role: OrganizationUserRole,
@@ -69,6 +70,7 @@ async def list_providers(
 
 
 @router.get("/providers/status")
+@require_scope("agent:read")
 async def get_providers_status(
     *,
     role: OrganizationUserRole,
@@ -80,6 +82,7 @@ async def get_providers_status(
 
 
 @router.get("/providers/configs")
+@require_scope("agent:read")
 async def list_provider_credential_configs(
     *,
     role: OrganizationAdminUserRole,
@@ -91,6 +94,7 @@ async def list_provider_credential_configs(
 
 
 @router.get("/providers/{provider}/config")
+@require_scope("agent:read")
 async def get_provider_credential_config(
     *,
     provider: str,
@@ -109,6 +113,7 @@ async def get_provider_credential_config(
 
 
 @router.post("/credentials", status_code=status.HTTP_201_CREATED)
+@require_scope("agent:update")
 async def create_provider_credentials(
     *,
     params: ModelCredentialCreate,
@@ -128,6 +133,7 @@ async def create_provider_credentials(
 
 
 @router.put("/credentials/{provider}")
+@require_scope("agent:update")
 async def update_provider_credentials(
     *,
     provider: str,
@@ -153,6 +159,7 @@ async def update_provider_credentials(
 
 
 @router.delete("/credentials/{provider}")
+@require_scope("agent:update")
 async def delete_provider_credentials(
     *,
     provider: str,
@@ -166,6 +173,7 @@ async def delete_provider_credentials(
 
 
 @router.get("/default-model")
+@require_scope("agent:read")
 async def get_default_model(
     *,
     role: OrganizationUserRole,
@@ -177,6 +185,7 @@ async def get_default_model(
 
 
 @router.put("/default-model")
+@require_scope("agent:update")
 async def set_default_model(
     *,
     model_name: str,
@@ -201,6 +210,7 @@ async def set_default_model(
 
 
 @router.get("/workspace/providers/status")
+@require_scope("agent:read")
 async def get_workspace_providers_status(
     *,
     role: WorkspaceUserRole,

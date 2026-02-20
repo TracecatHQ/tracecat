@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
-from tracecat.authz.controls import require_workspace_role
+from tracecat.authz.controls import require_scope
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Membership, User, Workspace
@@ -112,7 +112,7 @@ class MembershipService(BaseService):
             for membership, org_id in result.all()
         ]
 
-    @require_workspace_role(WorkspaceRole.ADMIN)
+    @require_scope("workspace:member:invite")
     async def create_membership(
         self,
         workspace_id: WorkspaceID,
@@ -131,7 +131,7 @@ class MembershipService(BaseService):
         self.session.add(membership)
         await self.session.commit()
 
-    @require_workspace_role(WorkspaceRole.ADMIN)
+    @require_scope("workspace:member:update")
     async def update_membership(
         self, membership: Membership, params: WorkspaceMembershipUpdate
     ) -> None:
@@ -145,7 +145,7 @@ class MembershipService(BaseService):
         self.session.add(membership)
         await self.session.commit()
 
-    @require_workspace_role(WorkspaceRole.ADMIN)
+    @require_scope("workspace:member:remove")
     async def delete_membership(
         self, workspace_id: WorkspaceID, user_id: UserID
     ) -> None:

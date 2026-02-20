@@ -19,6 +19,7 @@ from tenacity import (
 )
 
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import backfill_legacy_role_scopes
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
 from tracecat.dsl.action import materialize_context
 from tracecat.dsl.schemas import RunActionInput
@@ -27,6 +28,7 @@ from tracecat.exceptions import (
     ExecutionError,
     LoopExecutionError,
     RateLimitExceeded,
+    ScopeDeniedError,
 )
 from tracecat.executor.backends import get_executor_backend
 from tracecat.executor.service import dispatch_action
@@ -68,6 +70,9 @@ class ExecutorActivities:
         Secrets/variables are still handled inside the sandbox (Phase 2 will move them here).
         """
         ctx_run.set(input.run_context)
+        # Backfill scopes for roles serialized before the RBAC migration.
+        # Temporal history may contain Role objects with empty/None scopes.
+        role = backfill_legacy_role_scopes(role)
         ctx_role.set(role)
 
         task = input.task
@@ -123,6 +128,28 @@ class ExecutorActivities:
                     )
                     stored = await get_object_storage().store(key, result)
                     return stored
+        except ScopeDeniedError as e:
+            # ScopeDeniedError from dispatch_action (user lacks action permission)
+            kind = e.__class__.__name__
+            msg = f"Permission denied: missing scope(s) {e.missing_scopes} to execute action '{action_name}'"
+            log.warning(
+                "Action scope denied",
+                action=action_name,
+                required_scopes=e.required_scopes,
+                missing_scopes=e.missing_scopes,
+            )
+            err_info = ActionErrorInfo(
+                ref=task.ref,
+                message=msg,
+                type=kind,
+                attempt=act_attempt,
+                stream_id=input.stream_id,
+            )
+            err_msg = err_info.format("execute_action")
+            # Non-retryable: retrying won't help if user lacks permission
+            raise ApplicationError(
+                err_msg, err_info, type=kind, non_retryable=True
+            ) from e
         except ExecutionError as e:
             # ExecutionError from dispatch_action (single action failure)
             kind = e.__class__.__name__

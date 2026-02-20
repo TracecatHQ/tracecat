@@ -17,6 +17,7 @@ from temporalio.client import Client
 from temporalio.common import TypedSearchAttributes
 
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import Workspace
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
@@ -44,6 +45,7 @@ def mock_role_with_workspace(svc_workspace: Workspace, mock_user_id: UserID) -> 
         organization_id=svc_workspace.organization_id,
         user_id=mock_user_id,
         service_id="tracecat-service",
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
     )
 
 
@@ -55,6 +57,7 @@ def mock_role_without_workspace() -> Role:
         workspace_id=None,
         user_id=None,
         service_id="tracecat-service",
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
     )
 
 

@@ -8,7 +8,8 @@ from redis.exceptions import ResponseError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import Future, RetryError
 
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.triggers.consumer import CaseTriggerConsumer
 from tracecat.db.models import CaseTrigger, Workflow
 
@@ -53,11 +54,11 @@ async def test_case_trigger_consumer_matches_event_type(
 def _build_role(workspace_id: uuid.UUID) -> Role:
     return Role(
         type="service",
-        access_level=AccessLevel.ADMIN,
         workspace_id=workspace_id,
         organization_id=uuid.uuid4(),
         user_id=None,
         service_id="tracecat-case-triggers",
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-case-triggers"],
     )
 
 

@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import cast
 
+from tracecat.authz.controls import require_scope
 from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import Workflow
 from tracecat.dsl.common import DSLInput
@@ -26,6 +27,7 @@ from tracecat.workspaces.service import WorkspaceService
 class WorkflowStoreService(BaseWorkspaceService):
     service_name = "workflow_store"
 
+    @require_scope("workflow:update")
     async def publish_workflow_dsl(
         self,
         *,

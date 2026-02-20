@@ -14,6 +14,7 @@ from temporalio.exceptions import ApplicationError
 
 from tests.shared import to_data
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.dsl.types import ActionErrorInfo
@@ -33,6 +34,7 @@ def mock_role() -> Role:
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-executor"],
     )
 
 

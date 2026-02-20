@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.schemas import ExecutionContext
 from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 
@@ -158,6 +159,7 @@ def role_workspace_a() -> Role:
         service_id="tracecat-executor",
         workspace_id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
         user_id=uuid.uuid4(),
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-executor"],
     )
 
 
@@ -169,6 +171,7 @@ def role_workspace_b() -> Role:
         service_id="tracecat-executor",
         workspace_id=uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"),
         user_id=uuid.uuid4(),
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-executor"],
     )
 
 
@@ -181,6 +184,7 @@ def role_workspace_agent_a() -> Role:
         workspace_id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
         organization_id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
         user_id=uuid.uuid4(),
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-agent-executor"],
     )
 
 
@@ -193,6 +197,7 @@ def role_workspace_agent_b() -> Role:
         workspace_id=uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"),
         organization_id=uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"),
         user_id=uuid.uuid4(),
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-agent-executor"],
     )
 
 

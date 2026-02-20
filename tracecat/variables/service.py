@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 
 from tracecat.audit.logger import audit_log
+from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role, ctx_run
 from tracecat.db.models import WorkspaceVariable
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
@@ -54,6 +55,7 @@ class VariablesService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    @require_scope("variable:read")
     async def get_variable_value(
         self,
         name: str,
@@ -146,6 +148,7 @@ class VariablesService(BaseWorkspaceService):
                 " Please double check that the name was correctly input."
             ) from exc
 
+    @require_scope("variable:create")
     @audit_log(resource_type="workspace_variable", action="create")
     async def create_variable(self, params: VariableCreate) -> WorkspaceVariable:
         variable = WorkspaceVariable(
@@ -161,6 +164,7 @@ class VariablesService(BaseWorkspaceService):
         await self.session.refresh(variable)
         return variable
 
+    @require_scope("variable:update")
     @audit_log(resource_type="workspace_variable", action="update")
     async def update_variable(
         self, variable: WorkspaceVariable, params: VariableUpdate
@@ -175,6 +179,7 @@ class VariablesService(BaseWorkspaceService):
         await self.session.refresh(variable)
         return variable
 
+    @require_scope("variable:delete")
     @audit_log(resource_type="workspace_variable", action="delete")
     async def delete_variable(self, variable: WorkspaceVariable) -> None:
         await self.session.delete(variable)

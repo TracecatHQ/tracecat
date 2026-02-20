@@ -32,6 +32,7 @@ from tracecat.agent.mcp.user_client import UserMCPClient
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.tokens import MCPTokenClaims, verify_mcp_token
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ExecutionError
 from tracecat.logger import logger
@@ -51,6 +52,7 @@ def _set_role_context(claims: MCPTokenClaims) -> Role:
         workspace_id=claims.workspace_id,
         organization_id=claims.organization_id,
         user_id=claims.user_id,
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"],
     )
     ctx_role.set(role)
     return role

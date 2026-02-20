@@ -4,7 +4,7 @@ import pytest
 from fastapi import HTTPException, status
 
 from tracecat.auth.credentials import _require_superuser
-from tracecat.auth.types import AccessLevel, PlatformRole
+from tracecat.auth.types import PlatformRole
 from tracecat.db.models import User
 
 
@@ -17,7 +17,6 @@ async def test_require_superuser_allows_superuser() -> None:
     assert isinstance(role, PlatformRole)
     assert role.type == "user"
     assert role.user_id == user.id
-    assert role.access_level == AccessLevel.ADMIN
     assert role.service_id == "tracecat-api"
     # PlatformRole is always a platform superuser
     assert role.is_platform_superuser is True

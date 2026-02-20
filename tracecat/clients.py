@@ -25,7 +25,10 @@ class AuthenticatedServiceClient(httpx.AsyncClient):
         # Precedence: role > ctx_role > default role. Role is always set.
         resolved_role = role or ctx_role.get()
         if resolved_role is None:
-            resolved_role = Role(type="service", service_id="tracecat-service")
+            resolved_role = Role(
+                type="service",
+                service_id="tracecat-service",
+            )
         self.role: Role = resolved_role
         service_key = config.TRACECAT__SERVICE_KEY
         if not service_key:

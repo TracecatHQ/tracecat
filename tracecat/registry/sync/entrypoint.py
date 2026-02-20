@@ -28,6 +28,7 @@ from uuid import UUID
 from pydantic import UUID4
 
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
@@ -70,7 +71,10 @@ async def load_and_serialize_actions(
     # Use "tracecat-service" as the service ID (valid InternalServiceID)
     # Include organization_id if provided so we can access org-scoped secrets (e.g., SSH keys)
     role = Role(
-        type="service", service_id="tracecat-service", organization_id=organization_id
+        type="service",
+        service_id="tracecat-service",
+        organization_id=organization_id,
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
     )
     ctx_role.set(role)
 

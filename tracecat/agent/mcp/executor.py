@@ -13,6 +13,7 @@ from uuid import uuid4
 from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
 from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
 from tracecat.dsl.schemas import (
     ActionStatement,
@@ -80,6 +81,7 @@ async def execute_action(
         workspace_id=claims.workspace_id,
         organization_id=claims.organization_id,
         user_id=claims.user_id,
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"],
     )
     ctx_role.set(role)
 

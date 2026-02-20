@@ -19,6 +19,7 @@ from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.users import search_users
+from tracecat.authz.controls import require_scope
 from tracecat.cases.durations.schemas import CaseDurationMetric
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
@@ -66,6 +67,7 @@ duration_router = APIRouter()
 
 
 @router.get("")
+@require_scope("case:read")
 async def list_cases(
     *,
     role: ExecutorWorkspaceRole,
@@ -253,6 +255,7 @@ async def search_cases(
 
 
 @router.get("/{case_id}")
+@require_scope("case:read")
 async def get_case(
     *,
     role: ExecutorWorkspaceRole,
@@ -309,6 +312,7 @@ async def get_case(
 
 
 @router.post("", status_code=HTTP_201_CREATED)
+@require_scope("case:create")
 async def create_case(
     *,
     role: ExecutorWorkspaceRole,
@@ -367,6 +371,7 @@ async def create_case(
 
 
 @router.patch("/{case_id}", status_code=HTTP_200_OK)
+@require_scope("case:update")
 async def update_case(
     *,
     role: ExecutorWorkspaceRole,
@@ -439,6 +444,7 @@ async def update_case(
 
 
 @router.delete("/{case_id}", status_code=HTTP_200_OK)
+@require_scope("case:delete")
 async def delete_case(
     *,
     role: ExecutorWorkspaceRole,
@@ -456,6 +462,7 @@ async def delete_case(
 
 
 @router.get("/{case_id}/comments", status_code=HTTP_200_OK)
+@require_scope("case:read")
 async def list_comments(
     *,
     role: ExecutorWorkspaceRole,
@@ -480,6 +487,7 @@ async def list_comments(
 
 
 @router.post("/{case_id}/comments", status_code=HTTP_201_CREATED)
+@require_scope("case:update")
 async def create_comment(
     *,
     role: ExecutorWorkspaceRole,
@@ -503,6 +511,7 @@ async def create_comment(
     "/{case_id}/comments/{comment_id}",
     status_code=HTTP_200_OK,
 )
+@require_scope("case:update")
 async def update_comment(
     *,
     role: ExecutorWorkspaceRole,
@@ -539,6 +548,7 @@ comments_router = APIRouter(
     "/{comment_id}",
     status_code=HTTP_200_OK,
 )
+@require_scope("case:update")
 async def update_comment_by_id(
     *,
     role: ExecutorWorkspaceRole,
@@ -559,6 +569,7 @@ async def update_comment_by_id(
 
 
 @router.delete("/{case_id}/comments/{comment_id}", status_code=HTTP_204_NO_CONTENT)
+@require_scope("case:delete")
 async def delete_comment(
     *,
     role: ExecutorWorkspaceRole,
@@ -588,6 +599,7 @@ async def delete_comment(
     status_code=HTTP_200_OK,
     response_model_exclude_none=True,
 )
+@require_scope("case:read")
 async def list_events_with_users(
     *,
     role: ExecutorWorkspaceRole,
@@ -648,6 +660,7 @@ class CaseMetricsRequest(Schema):
 
 
 @duration_router.post("/metrics", status_code=HTTP_200_OK)
+@require_scope("case:read")
 async def get_case_metrics(
     *,
     role: ExecutorWorkspaceRole,
@@ -675,6 +688,7 @@ async def get_case_metrics(
 
 
 @task_router.get("/{case_id}/tasks", status_code=HTTP_200_OK)
+@require_scope("case:read")
 async def list_tasks(
     *,
     role: ExecutorWorkspaceRole,
@@ -706,6 +720,7 @@ async def list_tasks(
 
 
 @task_router.post("/{case_id}/tasks", status_code=HTTP_201_CREATED)
+@require_scope("case:create")
 async def create_task(
     *,
     role: ExecutorWorkspaceRole,
@@ -747,6 +762,7 @@ async def create_task(
 
 
 @task_router.patch("/{case_id}/tasks/{task_id}", status_code=HTTP_200_OK)
+@require_scope("case:update")
 async def update_task(
     *,
     role: ExecutorWorkspaceRole,
@@ -792,6 +808,7 @@ async def update_task(
 
 
 @task_router.delete("/{case_id}/tasks/{task_id}", status_code=HTTP_204_NO_CONTENT)
+@require_scope("case:delete")
 async def delete_task(
     *,
     role: ExecutorWorkspaceRole,
@@ -819,6 +836,7 @@ async def delete_task(
 
 
 @task_router.get("/tasks/{task_id}", status_code=HTTP_200_OK)
+@require_scope("case:read")
 async def get_task_by_id(
     *,
     role: ExecutorWorkspaceRole,
@@ -854,6 +872,7 @@ async def get_task_by_id(
 
 
 @task_router.patch("/tasks/{task_id}", status_code=HTTP_200_OK)
+@require_scope("case:update")
 async def update_task_by_id(
     *,
     role: ExecutorWorkspaceRole,
@@ -896,6 +915,7 @@ async def update_task_by_id(
 
 
 @task_router.delete("/tasks/{task_id}", status_code=HTTP_204_NO_CONTENT)
+@require_scope("case:delete")
 async def delete_task_by_id(
     *,
     role: ExecutorWorkspaceRole,
@@ -950,6 +970,7 @@ class AssignUserByEmailRequest(Schema):
 
 
 @router.post("/simple", status_code=HTTP_201_CREATED)
+@require_scope("case:create")
 async def create_case_simple(
     *,
     role: ExecutorWorkspaceRole,
@@ -997,6 +1018,7 @@ async def create_case_simple(
 
 
 @router.patch("/{case_id}/simple", status_code=HTTP_200_OK)
+@require_scope("case:update")
 async def update_case_simple(
     *,
     role: ExecutorWorkspaceRole,
@@ -1072,6 +1094,7 @@ async def update_case_simple(
 
 
 @router.post("/{case_id}/comments/simple", status_code=HTTP_201_CREATED)
+@require_scope("case:update")
 async def create_comment_simple(
     *,
     role: ExecutorWorkspaceRole,
@@ -1093,6 +1116,7 @@ async def create_comment_simple(
 
 
 @comments_router.patch("/{comment_id}/simple", status_code=HTTP_200_OK)
+@require_scope("case:update")
 async def update_comment_simple(
     *,
     role: ExecutorWorkspaceRole,
@@ -1113,6 +1137,7 @@ async def update_comment_simple(
 
 
 @router.post("/{case_id}/assign", status_code=HTTP_200_OK)
+@require_scope("case:update")
 async def assign_user_to_case(
     *,
     role: ExecutorWorkspaceRole,
@@ -1146,6 +1171,7 @@ async def assign_user_to_case(
 
 
 @router.post("/{case_id}/assign-by-email", status_code=HTTP_200_OK)
+@require_scope("case:update")
 async def assign_user_by_email_to_case(
     *,
     role: ExecutorWorkspaceRole,

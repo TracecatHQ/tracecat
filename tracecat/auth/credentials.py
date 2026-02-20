@@ -24,14 +24,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.executor_tokens import verify_executor_token
-from tracecat.auth.schemas import UserRole
-from tracecat.auth.types import AccessLevel, PlatformRole, Role
+from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import (
     current_active_user,
     is_unprivileged,
     optional_current_active_user,
 )
 from tracecat.authz.enums import OrgRole, WorkspaceRole
+from tracecat.authz.scopes import PRESET_ROLE_SCOPES, SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
@@ -59,6 +59,34 @@ api_key_header_scheme = APIKeyHeader(name="x-tracecat-service-key", auto_error=F
 
 # Maximum number of memberships to cache per user to prevent memory exhaustion
 MAX_CACHED_MEMBERSHIPS = 1000
+
+_LEGACY_ORG_ROLE_TO_PRESET_SLUG: dict[OrgRole, str] = {
+    OrgRole.OWNER: "organization-owner",
+    OrgRole.ADMIN: "organization-admin",
+    OrgRole.MEMBER: "organization-member",
+}
+
+_LEGACY_WORKSPACE_ROLE_TO_PRESET_SLUG: dict[WorkspaceRole, str] = {
+    WorkspaceRole.ADMIN: "workspace-admin",
+    WorkspaceRole.EDITOR: "workspace-editor",
+    WorkspaceRole.VIEWER: "workspace-viewer",
+}
+
+
+def _legacy_membership_scopes(role: Role) -> frozenset[str]:
+    scopes: set[str] = set()
+
+    if role.org_role is not None:
+        org_slug = _LEGACY_ORG_ROLE_TO_PRESET_SLUG.get(role.org_role)
+        if org_slug is not None:
+            scopes.update(PRESET_ROLE_SCOPES[org_slug])
+
+    if role.workspace_role is not None:
+        workspace_slug = _LEGACY_WORKSPACE_ROLE_TO_PRESET_SLUG.get(role.workspace_role)
+        if workspace_slug is not None:
+            scopes.update(PRESET_ROLE_SCOPES[workspace_slug])
+
+    return frozenset(scopes)
 
 
 @alru_cache(maxsize=10000)
@@ -89,11 +117,6 @@ HTTP_EXC = partial(
 )
 
 
-USER_ROLE_TO_ACCESS_LEVEL = {
-    UserRole.ADMIN: AccessLevel.ADMIN,
-    UserRole.BASIC: AccessLevel.BASIC,
-}
-
 ORG_OVERRIDE_COOKIE = "tracecat-org-id"
 
 
@@ -109,18 +132,72 @@ async def compute_effective_scopes(role: Role) -> frozenset[str]:
 
     Scope computation follows this hierarchy:
     1. Platform superusers get "*" (all scopes)
-    2. Direct user role assignments (org-wide and workspace-specific)
-    3. Group role assignments (org-wide and workspace-specific)
+    2. Service principals (non-user flows) use static allowlist scopes
+    3. Direct user role assignments (org-wide and workspace-specific)
+    4. Group role assignments (org-wide and workspace-specific)
     """
     if role.is_platform_superuser:
         return frozenset({"*"})
 
+    if role.type == "service":
+        service_scopes = SERVICE_PRINCIPAL_SCOPES.get(role.service_id)
+        if service_scopes is None:
+            logger.warning(
+                "Unknown service principal for scope derivation",
+                service_id=role.service_id,
+                source="service_allowlist",
+            )
+            return frozenset()
+        logger.debug(
+            "Resolved effective scopes from service allowlist",
+            service_id=role.service_id,
+            scope_count=len(service_scopes),
+            source="service_allowlist",
+        )
+        return service_scopes
+
     if role.user_id is None or role.organization_id is None:
         return frozenset()
 
-    return await _compute_effective_scopes_cached(
+    scopes = await _compute_effective_scopes_cached(
         role.user_id, role.organization_id, role.workspace_id
     )
+    if scopes:
+        logger.debug(
+            "Resolved effective scopes from user RBAC",
+            user_id=role.user_id,
+            organization_id=role.organization_id,
+            workspace_id=role.workspace_id,
+            scope_count=len(scopes),
+            source="user_rbac",
+        )
+        return scopes
+
+    has_assignments = await _has_any_rbac_assignments_cached(
+        role.user_id, role.organization_id, role.workspace_id
+    )
+    if not has_assignments:
+        fallback_scopes = _legacy_membership_scopes(role)
+        if fallback_scopes:
+            logger.info(
+                "Resolved effective scopes from legacy membership roles",
+                user_id=role.user_id,
+                organization_id=role.organization_id,
+                workspace_id=role.workspace_id,
+                scope_count=len(fallback_scopes),
+                source="legacy_membership",
+            )
+            return fallback_scopes
+
+    logger.debug(
+        "Resolved effective scopes from user RBAC",
+        user_id=role.user_id,
+        organization_id=role.organization_id,
+        workspace_id=role.workspace_id,
+        scope_count=len(scopes),
+        source="user_rbac_empty",
+    )
+    return scopes
 
 
 @alru_cache(maxsize=10000, ttl=30)
@@ -130,6 +207,24 @@ async def _compute_effective_scopes_cached(
     workspace_id: uuid.UUID | None,
 ) -> frozenset[str]:
     async with get_async_session_context_manager() as session:
+        user_workspace_condition = (
+            or_(
+                UserRoleAssignment.workspace_id.is_(None),
+                UserRoleAssignment.workspace_id == workspace_id,
+            )
+            if workspace_id is not None
+            else UserRoleAssignment.workspace_id.is_(None)
+        )
+
+        group_workspace_condition = (
+            or_(
+                GroupRoleAssignment.workspace_id.is_(None),
+                GroupRoleAssignment.workspace_id == workspace_id,
+            )
+            if workspace_id is not None
+            else GroupRoleAssignment.workspace_id.is_(None)
+        )
+
         # Direct user role assignments → Role → RoleScope → Scope
         user_scopes = (
             select(Scope.name)
@@ -139,12 +234,7 @@ async def _compute_effective_scopes_cached(
             .where(
                 UserRoleAssignment.user_id == user_id,
                 UserRoleAssignment.organization_id == organization_id,
-                or_(
-                    UserRoleAssignment.workspace_id.is_(None),
-                    UserRoleAssignment.workspace_id == workspace_id,
-                )
-                if workspace_id
-                else UserRoleAssignment.workspace_id.is_(None),
+                user_workspace_condition,
             )
         )
 
@@ -158,12 +248,7 @@ async def _compute_effective_scopes_cached(
             .where(
                 GroupMember.user_id == user_id,
                 GroupRoleAssignment.organization_id == organization_id,
-                or_(
-                    GroupRoleAssignment.workspace_id.is_(None),
-                    GroupRoleAssignment.workspace_id == workspace_id,
-                )
-                if workspace_id
-                else GroupRoleAssignment.workspace_id.is_(None),
+                group_workspace_condition,
             )
         )
 
@@ -171,6 +256,57 @@ async def _compute_effective_scopes_cached(
         combined = user_scopes.union(group_scopes)
         result = await session.execute(combined)
         return frozenset(result.scalars().all())
+
+
+@alru_cache(maxsize=10000, ttl=30)
+async def _has_any_rbac_assignments_cached(
+    user_id: uuid.UUID,
+    organization_id: uuid.UUID,
+    workspace_id: uuid.UUID | None,
+) -> bool:
+    async with get_async_session_context_manager() as session:
+        user_workspace_condition = (
+            or_(
+                UserRoleAssignment.workspace_id.is_(None),
+                UserRoleAssignment.workspace_id == workspace_id,
+            )
+            if workspace_id is not None
+            else UserRoleAssignment.workspace_id.is_(None)
+        )
+
+        user_assignment_stmt = (
+            select(UserRoleAssignment.id)
+            .where(
+                UserRoleAssignment.user_id == user_id,
+                UserRoleAssignment.organization_id == organization_id,
+                user_workspace_condition,
+            )
+            .limit(1)
+        )
+        user_assignment_result = await session.execute(user_assignment_stmt)
+        if user_assignment_result.scalar_one_or_none() is not None:
+            return True
+
+        group_workspace_condition = (
+            or_(
+                GroupRoleAssignment.workspace_id.is_(None),
+                GroupRoleAssignment.workspace_id == workspace_id,
+            )
+            if workspace_id is not None
+            else GroupRoleAssignment.workspace_id.is_(None)
+        )
+        group_assignment_stmt = (
+            select(GroupRoleAssignment.id)
+            .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
+            .where(
+                GroupMember.user_id == user_id,
+                GroupRoleAssignment.organization_id == organization_id,
+                group_workspace_condition,
+            )
+            .limit(1)
+        )
+        group_assignment_result = await session.execute(group_assignment_stmt)
+        return group_assignment_result.scalar_one_or_none() is not None
 
 
 def get_role_from_user(
@@ -181,10 +317,6 @@ def get_role_from_user(
     org_role: OrgRole | None = None,
     service_id: InternalServiceID = "tracecat-api",
 ) -> Role:
-    # Superusers always get ADMIN access level
-    access_level = (
-        AccessLevel.ADMIN if user.is_superuser else USER_ROLE_TO_ACCESS_LEVEL[user.role]
-    )
     if user.is_superuser:
         org_role = OrgRole.OWNER
     return Role(
@@ -193,7 +325,6 @@ def get_role_from_user(
         organization_id=organization_id,
         user_id=user.id,
         service_id=service_id,
-        access_level=access_level,
         workspace_role=workspace_role,
         org_role=org_role,
         is_platform_superuser=user.is_superuser,
@@ -272,7 +403,6 @@ async def _authenticate_service(
     return Role(
         type="service",
         service_id=service_id,
-        access_level=AccessLevel[request.headers["x-tracecat-role-access-level"]],
         user_id=user_id,
         workspace_id=workspace_id,
         organization_id=organization_id,
@@ -290,7 +420,16 @@ def TemporaryRole(
 ):
     """An async context manager to authenticate a user or service."""
     prev_role = ctx_role.get()
-    temp_role = Role(type=type, user_id=user_id, service_id=service_id)
+    temp_role = Role(
+        type=type,
+        user_id=user_id,
+        service_id=service_id,
+        scopes=(
+            SERVICE_PRINCIPAL_SCOPES.get(service_id, frozenset())
+            if type == "service"
+            else frozenset()
+        ),
+    )
     ctx_role.set(temp_role)
     try:
         yield temp_role
@@ -571,14 +710,10 @@ async def _authenticate_user(
 async def _authenticate_executor(
     *,
     request: Request,
-    session: AsyncSession,
     workspace_id: uuid.UUID | None,
     require_workspace: Literal["yes", "no", "optional"],
 ) -> Role:
-    """Authenticate executor via JWT bearer token and return Role.
-
-    Derives access_level from DB lookup on user_id to prevent privilege escalation.
-    """
+    """Authenticate executor via JWT bearer token and return Role."""
     token = _get_bearer_token(request)
     if not token:
         logger.info("Missing executor bearer token")
@@ -594,28 +729,22 @@ async def _authenticate_executor(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
         ) from exc
 
-    # Derive access_level from DB lookup on user_id (prevents privilege escalation)
-    access_level = AccessLevel.BASIC  # Default for system/anonymous executions
-    if token_payload.user_id is not None:
-        stmt = select(User.role).where(User.id == token_payload.user_id)  # pyright: ignore[reportArgumentType]
-        result = await session.execute(stmt)
-        user_role = result.scalar_one_or_none()
-        if user_role is not None:
-            access_level = USER_ROLE_TO_ACCESS_LEVEL.get(user_role, AccessLevel.BASIC)
-
     # Look up organization_id from workspace (cached, immutable relationship)
     organization_id = None
     if token_payload.workspace_id is not None:
         organization_id = await _get_workspace_org_id(token_payload.workspace_id)
 
-    # Construct Role from token payload + derived access_level + organization_id
+    executor_service_id: InternalServiceID = (
+        token_payload.service_id or "tracecat-executor"
+    )
+
+    # Construct Role from token payload and organization_id.
     role = Role(
         type="service",
-        service_id="tracecat-executor",
+        service_id=executor_service_id,
         workspace_id=token_payload.workspace_id,
         organization_id=organization_id,
         user_id=token_payload.user_id,
-        access_level=access_level,
     )
 
     # Validate workspace requirements for executor
@@ -642,7 +771,6 @@ async def _validate_role(
     role: Role,
     *,
     require_workspace: Literal["yes", "no", "optional"],
-    min_access_level: AccessLevel | None,
 ) -> Role:
     """Validate structural requirements and compute scopes for the authenticated role.
 
@@ -678,9 +806,6 @@ async def _role_dependency(
     allow_service: bool,
     allow_executor: bool = False,
     require_workspace: Literal["yes", "no", "optional"],
-    min_access_level: AccessLevel | None = None,
-    require_org_roles: list[OrgRole] | None = None,
-    require_workspace_roles: WorkspaceRole | list[WorkspaceRole] | None = None,
 ) -> Role:
     """Main dependency that orchestrates authentication and authorization.
 
@@ -702,7 +827,6 @@ async def _role_dependency(
     elif allow_executor:
         role = await _authenticate_executor(
             request=request,
-            session=session,
             workspace_id=workspace_id,
             require_workspace=require_workspace,
         )
@@ -720,7 +844,6 @@ async def _role_dependency(
     role = await _validate_role(
         role,
         require_workspace=require_workspace,
-        min_access_level=min_access_level,
     )
 
     ctx_role.set(role)
@@ -733,16 +856,13 @@ def RoleACL(
     allow_service: bool = False,
     allow_executor: bool = False,
     require_workspace: Literal["yes", "no", "optional"] = "yes",
-    min_access_level: AccessLevel | None = None,
-    require_org_roles: list[OrgRole] | None = None,
     workspace_id_in_path: bool = False,
-    require_workspace_roles: WorkspaceRole | list[WorkspaceRole] | None = None,
 ) -> Any:
     """
     Factory for FastAPI dependency that enforces role-based access control.
 
     This function creates a dependency for authenticating and authorizing requests
-    based on user/service role, workspace membership, and required access level.
+    based on user/service role and workspace membership.
     It ensures that the caller meets specified requirements and, if successful,
     returns a validated `Role` object describing their permissions.
 
@@ -754,12 +874,8 @@ def RoleACL(
             - "no": Workspace ID is not required.
             - "optional": Workspace ID may be omitted.
             Defaults to "yes".
-        min_access_level (AccessLevel | None, optional): Minimum organization access level required for the request. Defaults to None.
         workspace_id_in_path (bool, optional): Whether to extract `workspace_id` from the path rather than the query string.
             Defaults to False.
-        require_workspace_roles (WorkspaceRole | list[WorkspaceRole] | None, optional): Required workspace role(s)
-            for user requests. Ignored for service API keys. Defaults to None.
-
     Returns:
         Any: A FastAPI dependency that yields a `Role` instance upon successful authentication and authorization.
         If validation fails, raises an HTTPException (401 or 403).
@@ -792,10 +908,7 @@ def RoleACL(
                 allow_user=False,
                 allow_service=False,
                 allow_executor=True,
-                min_access_level=min_access_level,
-                require_org_roles=require_org_roles,
                 require_workspace=require_workspace,
-                require_workspace_roles=require_workspace_roles,
             )
 
         return Depends(role_dependency_executor_only)
@@ -820,10 +933,7 @@ def RoleACL(
                 allow_user=allow_user,
                 allow_service=allow_service,
                 allow_executor=allow_executor,
-                min_access_level=min_access_level,
-                require_org_roles=require_org_roles,
                 require_workspace=require_workspace,
-                require_workspace_roles=require_workspace_roles,
             )
 
         return Depends(role_dependency_req_ws)
@@ -850,10 +960,7 @@ def RoleACL(
                 allow_user=allow_user,
                 allow_service=allow_service,
                 allow_executor=allow_executor,
-                min_access_level=min_access_level,
-                require_org_roles=require_org_roles,
                 require_workspace=require_workspace,
-                require_workspace_roles=require_workspace_roles,
             )
 
         return Depends(role_dependency_opt_ws)
@@ -875,10 +982,7 @@ def RoleACL(
                 allow_user=allow_user,
                 allow_service=allow_service,
                 allow_executor=allow_executor,
-                min_access_level=min_access_level,
-                require_org_roles=require_org_roles,
                 require_workspace=require_workspace,
-                require_workspace_roles=require_workspace_roles,
             )
 
         return Depends(role_dependency_not_req_ws)
@@ -909,7 +1013,6 @@ async def _require_superuser(
     return PlatformRole(
         type="user",
         user_id=user.id,
-        access_level=AccessLevel.ADMIN,
         service_id="tracecat-api",
     )
 
@@ -936,13 +1039,9 @@ async def authenticated_user_only(
 
     Sets ctx_role for consistency but organization_id will be None.
     """
-    access_level = (
-        AccessLevel.ADMIN if user.is_superuser else USER_ROLE_TO_ACCESS_LEVEL[user.role]
-    )
     role = Role(
         type="user",
         user_id=user.id,
-        access_level=access_level,
         service_id="tracecat-api",
         is_platform_superuser=user.is_superuser,
         # organization_id intentionally None - user may not belong to any org

@@ -13,7 +13,8 @@ from sqlalchemy.orm import selectinload
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditAction
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
     Organization,
     OrganizationDomain,
@@ -449,9 +450,9 @@ class AdminOrgService(BasePlatformService):
         # Create a role for the org
         org_role = Role(
             type="service",
-            access_level=AccessLevel.ADMIN,
             service_id="tracecat-service",
             organization_id=org_id,
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
         )
 
         # Get repository

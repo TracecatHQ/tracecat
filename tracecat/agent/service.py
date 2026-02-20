@@ -17,6 +17,7 @@ from tracecat.agent.schemas import (
 )
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
+from tracecat.authz.controls import require_scope
 from tracecat.db.models import OrganizationSecret
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
@@ -89,6 +90,7 @@ class AgentManagementService(BaseOrgService):
             raise TracecatNotFoundError(f"Provider {provider} not found")
         return PROVIDER_CREDENTIAL_CONFIGS[provider]
 
+    @require_scope("agent:update")
     async def create_provider_credentials(
         self, params: ModelCredentialCreate
     ) -> OrganizationSecret:
@@ -122,6 +124,7 @@ class AgentManagementService(BaseOrgService):
             await self.secrets_service.create_org_secret(create_params)
             return await self.secrets_service.get_org_secret_by_name(secret_name)
 
+    @require_scope("agent:update")
     async def update_provider_credentials(
         self, provider: str, params: ModelCredentialUpdate
     ) -> OrganizationSecret:
@@ -137,6 +140,7 @@ class AgentManagementService(BaseOrgService):
         await self.secrets_service.update_org_secret(secret, update_params)
         return secret
 
+    @require_scope("agent:read")
     async def get_provider_credentials(self, provider: str) -> dict[str, str] | None:
         """Get decrypted credentials for an AI provider at organization level."""
         secret_name = self._get_credential_secret_name(provider)
@@ -147,6 +151,7 @@ class AgentManagementService(BaseOrgService):
         except TracecatNotFoundError:
             return None
 
+    @require_scope("agent:read")
     async def get_workspace_provider_credentials(
         self, provider: str
     ) -> dict[str, str] | None:
@@ -159,6 +164,7 @@ class AgentManagementService(BaseOrgService):
         except TracecatNotFoundError:
             return None
 
+    @require_scope("agent:update")
     async def delete_provider_credentials(self, provider: str) -> None:
         """Delete credentials for an AI provider."""
         secret_name = self._get_credential_secret_name(provider)
@@ -206,6 +212,7 @@ class AgentManagementService(BaseOrgService):
             status[provider] = await self.check_workspace_provider_credentials(provider)
         return status
 
+    @require_scope("agent:update")
     async def set_default_model(self, model_name: str) -> None:
         """Set the organization's default AI model."""
         # Validate model exists

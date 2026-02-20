@@ -20,6 +20,7 @@ from temporalio.api.enums.v1 import EventType, PendingActivityState
 from temporalio.client import Client, WorkflowHandle
 
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import Workspace
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowUUID
@@ -56,6 +57,7 @@ def mock_role(svc_workspace) -> Role:
         workspace_id=svc_workspace.id,
         user_id=None,
         service_id="tracecat-service",
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
     )
 
 
@@ -799,6 +801,7 @@ class TestTimeoutResolution:
             workspace_id=workspace_with_unlimited_timeout.id,
             user_id=None,
             service_id="tracecat-service",
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
         )
         service = WorkflowExecutionsService(client=mock_client, role=role)
 
@@ -825,6 +828,7 @@ class TestTimeoutResolution:
             workspace_id=workspace_with_default_timeout.id,
             user_id=None,
             service_id="tracecat-service",
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
         )
         service = WorkflowExecutionsService(client=mock_client, role=role)
 
@@ -854,6 +858,7 @@ class TestTimeoutResolution:
             workspace_id=svc_workspace.id,
             user_id=None,
             service_id="tracecat-service",
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
         )
         service = WorkflowExecutionsService(client=mock_client, role=role)
 
@@ -883,6 +888,7 @@ class TestTimeoutResolution:
             workspace_id=svc_workspace.id,
             user_id=None,
             service_id="tracecat-service",
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
         )
         service = WorkflowExecutionsService(client=mock_client, role=role)
 
@@ -907,6 +913,7 @@ class TestTimeoutResolution:
             workspace_id=None,
             user_id=None,
             service_id="tracecat-service",
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
         )
         service = WorkflowExecutionsService(client=mock_client, role=role)
 
@@ -929,6 +936,7 @@ class TestTimeoutResolution:
             workspace_id=svc_workspace.id,
             user_id=None,
             service_id="tracecat-service",
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
         )
         service = WorkflowExecutionsService(client=mock_client, role=role)
 

@@ -13,8 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
-from tracecat.authz.controls import require_org_role
-from tracecat.authz.enums import OrgRole
+from tracecat.authz.controls import require_scope
 from tracecat.common import UNSET
 from tracecat.contexts import ctx_role, ctx_session
 from tracecat.db.models import OrganizationSetting
@@ -194,8 +193,8 @@ class SettingsService(BaseOrgService):
         self.session.add(setting)
         return setting
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="create")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def create_org_setting(self, params: SettingCreate) -> OrganizationSetting:
         """Create a new organization setting."""
         setting = await self._create_org_setting(params)
@@ -227,8 +226,8 @@ class SettingsService(BaseOrgService):
             setattr(setting, field, value)
         return setting
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_org_setting(
         self, setting: OrganizationSetting, params: SettingUpdate
     ) -> OrganizationSetting:
@@ -247,8 +246,8 @@ class SettingsService(BaseOrgService):
         await self.session.refresh(updated_setting)
         return updated_setting
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="delete")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def delete_org_setting(self, setting: OrganizationSetting) -> None:
         """Delete an organization setting."""
         if setting.key in self._system_keys():
@@ -282,34 +281,34 @@ class SettingsService(BaseOrgService):
                 await self._update_setting(setting, params)
         await self.session.commit()
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_git_settings(self, params: GitSettingsUpdate) -> None:
         self.logger.info(f"Updating Git settings: {params}")
         # Ignore read-only fields
         git_settings = await self.list_org_settings(keys=GitSettingsUpdate.keys())
         await self._update_grouped_settings(git_settings, params)
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_saml_settings(self, params: SAMLSettingsUpdate) -> None:
         saml_settings = await self.list_org_settings(keys=SAMLSettingsUpdate.keys())
         await self._update_grouped_settings(saml_settings, params)
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_audit_settings(self, params: AuditSettingsUpdate) -> None:
         audit_settings = await self.list_org_settings(keys=AuditSettingsUpdate.keys())
         await self._update_grouped_settings(audit_settings, params)
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_app_settings(self, params: AppSettingsUpdate) -> None:
         app_settings = await self.list_org_settings(keys=AppSettingsUpdate.keys())
         await self._update_grouped_settings(app_settings, params)
 
+    @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
-    @require_org_role(OrgRole.OWNER, OrgRole.ADMIN)
     async def update_agent_settings(self, params: AgentSettingsUpdate) -> None:
         agent_settings = await self.list_org_settings(keys=AgentSettingsUpdate.keys())
         await self._update_grouped_settings(agent_settings, params)
@@ -369,7 +368,6 @@ async def get_setting(
         # Create a new role with the default org_id
         role = RoleClass(
             type=role.type,
-            access_level=role.access_level,
             service_id=role.service_id,
             user_id=role.user_id,
             workspace_id=role.workspace_id,

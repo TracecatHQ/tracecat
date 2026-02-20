@@ -59,20 +59,21 @@ from tracecat import config
 from tracecat.api.app import app
 from tracecat.auth.dependencies import (
     ExecutorWorkspaceRole,
-    OrgAdminUser,
+    OrgUserRole,
     ServiceRole,
     WorkspaceUserRole,
 )
 from tracecat.auth.executor_tokens import mint_executor_token
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.durations.schemas import (
     CaseDurationDefinitionCreate,
     CaseDurationEventAnchor,
 )
 from tracecat.cases.durations.service import CaseDurationDefinitionService
 from tracecat.cases.enums import CaseEventType
-from tracecat.cases.router import WorkspaceAdminUser, WorkspaceUser
+from tracecat.cases.router import WorkspaceUser
 from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import get_async_session
@@ -98,12 +99,12 @@ async def cases_test_role(svc_workspace: Workspace) -> Role:
     """Create a service role for case UDF tests."""
     return Role(
         type="service",
-        access_level=AccessLevel.ADMIN,
         org_role=OrgRole.ADMIN,
         workspace_id=svc_workspace.id,
         organization_id=svc_workspace.organization_id,
         user_id=uuid.uuid4(),
         service_id="tracecat-runner",
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-runner"],
     )
 
 
@@ -167,9 +168,8 @@ async def cases_ctx(
         ExecutorWorkspaceRole,
         WorkspaceUserRole,
         WorkspaceUser,
-        WorkspaceAdminUser,
         ServiceRole,
-        OrgAdminUser,
+        OrgUserRole,
     ]
     for annotated_type in role_dependencies:
         metadata = get_args(annotated_type)

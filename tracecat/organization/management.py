@@ -9,8 +9,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.auth.types import AccessLevel, Role
-from tracecat.authz.enums import WorkspaceRole
+from tracecat.auth.types import Role
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
@@ -48,10 +47,10 @@ async def ensure_organization_defaults(
     """
     org_role = Role(
         type="service",
-        access_level=AccessLevel.ADMIN,
         service_id="tracecat-service",
         organization_id=org_id,
         is_platform_superuser=True,
+        scopes=frozenset({"*"}),
     )
 
     # Ensure settings exist (idempotent)
@@ -184,8 +183,6 @@ async def delete_organization_with_cleanup(
             service_id="tracecat-service",
             organization_id=organization.id,
             workspace_id=workspace.id,
-            workspace_role=WorkspaceRole.ADMIN,
-            access_level=AccessLevel.ADMIN,
         )
         schedule_service = WorkflowSchedulesService(
             session=session, role=bootstrap_role

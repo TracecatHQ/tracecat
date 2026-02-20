@@ -26,6 +26,7 @@ from tracecat.agent.stream.events import StreamFormat
 from tracecat.agent.types import StreamKey
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
+from tracecat.authz.controls import require_scope
 from tracecat.chat.schemas import (
     ChatRead,
     ChatReadMinimal,
@@ -49,6 +50,7 @@ WorkspaceUser = Annotated[
 
 
 @router.post("")
+@require_scope("agent:execute")
 async def create_session(
     request: AgentSessionCreate,
     role: WorkspaceUser,
@@ -61,6 +63,7 @@ async def create_session(
 
 
 @router.get("")
+@require_scope("agent:read")
 async def list_sessions(
     role: WorkspaceUser,
     session: AsyncDBSession,
@@ -104,6 +107,7 @@ async def list_sessions(
 
 
 @router.get("/{session_id}")
+@require_scope("agent:read")
 async def get_session(
     session_id: uuid.UUID,
     role: WorkspaceUser,
@@ -164,6 +168,7 @@ async def get_session(
 
 
 @router.get("/{session_id}/vercel")
+@require_scope("agent:read")
 async def get_session_vercel(
     session_id: uuid.UUID,
     role: WorkspaceUser,
@@ -222,6 +227,7 @@ async def get_session_vercel(
 
 
 @router.patch("/{session_id}")
+@require_scope("agent:execute")
 async def update_session(
     session_id: uuid.UUID,
     params: AgentSessionUpdate,
@@ -250,6 +256,7 @@ async def update_session(
 
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("agent:execute")
 async def delete_session(
     session_id: uuid.UUID,
     role: WorkspaceUser,
@@ -276,6 +283,7 @@ async def delete_session(
 
 
 @router.post("/{session_id}/messages")
+@require_scope("agent:execute")
 async def send_message(
     session_id: uuid.UUID,
     request: ChatRequest,
@@ -370,6 +378,7 @@ async def send_message(
 
 
 @router.get("/{session_id}/stream")
+@require_scope("agent:read")
 async def stream_session_events(
     role: WorkspaceUser,
     request: Request,
@@ -426,6 +435,7 @@ async def stream_session_events(
 
 
 @router.post("/{session_id}/fork")
+@require_scope("agent:execute")
 async def fork_session(
     session_id: uuid.UUID,
     role: WorkspaceUser,

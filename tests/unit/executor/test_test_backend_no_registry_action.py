@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 import pytest
 
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.schemas import (
     ActionStatement,
     ExecutionContext,
@@ -35,6 +36,7 @@ def test_role() -> Role:
         workspace_id=uuid.UUID("38be3315-c172-4332-aea6-53fc4b93f053"),
         organization_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-executor"],
     )
 
 
