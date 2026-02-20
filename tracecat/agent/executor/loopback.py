@@ -78,7 +78,7 @@ class LoopbackResult:
     error: str | None = None
     approval_requested: bool = False
     approval_items: list[ToolCallContent] = field(default_factory=list)
-    structured_output: Any = None
+    output: Any = None
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
 
@@ -294,7 +294,7 @@ class LoopbackHandler:
 
                 case "result":
                     # Final result with usage data and structured output
-                    self._result.structured_output = envelope.result_structured_output
+                    self._result.output = envelope.result_output
                     self._result.result_usage = envelope.result_usage
                     self._result.result_num_turns = envelope.result_num_turns
 
