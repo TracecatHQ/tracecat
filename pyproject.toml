@@ -40,7 +40,7 @@ dependencies = [
     "email-validator==2.2.0",
     "fastapi-users[sqlalchemy,oauth]==15.0.2",
     "fastapi[standard]==0.120.3",
-    "fastmcp==2.14.1",
+    "fastmcp==3.0.0",
     "fickling==0.1.7",
     "filelock==3.20.3",
     "fastapi-sso==0.16.0",
