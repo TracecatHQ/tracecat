@@ -12,7 +12,6 @@ import {
 import React, { useCallback, useLayoutEffect, useMemo, useRef } from "react"
 import { TriggerSourceHandle } from "@/components/builder/canvas/custom-handle"
 import { nodeStyles } from "@/components/builder/canvas/node-styles"
-import { getCaseEventLabel } from "@/components/builder/panel/case-event-suggestions"
 import {
   DEFAULT_TRIGGER_PANEL_TAB,
   type TriggerPanelTab,
@@ -72,24 +71,11 @@ export default React.memo(function TriggerNode({
   const { breakpoint, style } = useTriggerNodeZoomBreakpoint()
   const { hasEntitlement } = useEntitlements()
   const caseAddonsEnabled = hasEntitlement("case_addons")
-  const {
-    data: caseTrigger,
-    isLoading: caseTriggerIsLoading,
-    error: caseTriggerError,
-  } = useCaseTrigger(workspaceId, workflowId)
-  const caseEventTypes = caseTrigger?.event_types ?? []
-  const tagFilters = caseTrigger?.tag_filters ?? []
+  const { data: caseTrigger } = useCaseTrigger(workspaceId, workflowId)
   const isCaseTriggerEnabled = caseTrigger?.status === "online"
-  const eventKey = useMemo(() => caseEventTypes.join("|"), [caseEventTypes])
-  const hasCaseTriggerConfig =
-    caseEventTypes.length > 0 || tagFilters.length > 0
-  const caseEvents = useMemo(
-    () =>
-      caseEventTypes.map((eventType) => ({
-        eventType,
-        label: getCaseEventLabel(eventType),
-      })),
-    [caseEventTypes]
+  const eventKey = useMemo(
+    () => String(isCaseTriggerEnabled),
+    [isCaseTriggerEnabled]
   )
   const cardRef = useRef<HTMLDivElement>(null)
   const previousHeightRef = useRef<number | null>(null)
@@ -247,61 +233,6 @@ export default React.memo(function TriggerNode({
                         : "Webhook is unprotected"}
                   </TooltipContent>
                 </Tooltip>
-                {caseAddonsEnabled && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label="Open case trigger settings"
-                        className="rounded-sm"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          openTriggerPanel(TriggerPanelTabs.caseTriggers)
-                        }}
-                      >
-                        <SquarePlay
-                          className={cn(
-                            "size-4",
-                            caseTriggerError
-                              ? "text-destructive/70"
-                              : caseTriggerIsLoading
-                                ? "text-muted-foreground/70"
-                                : isCaseTriggerEnabled
-                                  ? "text-emerald-400"
-                                  : hasCaseTriggerConfig
-                                    ? "text-amber-400"
-                                    : "text-muted-foreground/70"
-                          )}
-                        />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent
-                      side="top"
-                      align="end"
-                      sideOffset={4}
-                      className="max-w-56"
-                    >
-                      {caseTriggerIsLoading ? (
-                        <span>Loading case triggers...</span>
-                      ) : caseTriggerError ? (
-                        <span>Failed to load case triggers</span>
-                      ) : caseEvents.length > 0 ? (
-                        <div className="space-y-1">
-                          <p className="font-medium text-xs">Case events</p>
-                          <ul className="space-y-0.5 text-xs">
-                            {caseEvents.map((caseEvent) => (
-                              <li key={caseEvent.eventType}>
-                                {caseEvent.label}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : (
-                        <span>No case events configured</span>
-                      )}
-                    </TooltipContent>
-                  </Tooltip>
-                )}
               </TooltipProvider>
             </div>
           </div>
@@ -333,6 +264,28 @@ export default React.memo(function TriggerNode({
                   )}
                 />
               </div>
+              {caseAddonsEnabled && (
+                <div
+                  className={cn(
+                    "flex h-8 cursor-pointer items-center justify-center gap-1 rounded-lg border text-xs text-muted-foreground",
+                    isCaseTriggerEnabled
+                      ? "bg-background text-emerald-500"
+                      : "bg-muted-foreground/5 text-muted-foreground/50"
+                  )}
+                  onClick={() =>
+                    openTriggerPanel(TriggerPanelTabs.caseTriggers)
+                  }
+                >
+                  <SquarePlay className="size-3" />
+                  <span>Case triggers</span>
+                  <span
+                    className={cn(
+                      "ml-2 inline-block size-2 rounded-full",
+                      isCaseTriggerEnabled ? "bg-emerald-500" : "bg-gray-300"
+                    )}
+                  />
+                </div>
+              )}
               {/* Schedule table */}
               <div
                 className="rounded-lg border cursor-pointer"
