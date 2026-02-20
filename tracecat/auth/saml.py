@@ -238,7 +238,14 @@ def parse_relay_state_org_id(relay_state: str) -> OrganizationID | None:
 async def get_org_saml_metadata_url(
     session: AsyncSession, organization_id: OrganizationID
 ) -> str:
-    """Load per-org SAML metadata URL with backward-compatible default."""
+    """Load per-org SAML metadata URL with backward-compatible default.
+
+    In single-tenant mode, prefer explicit environment configuration over
+    encrypted DB settings to support self-hosted deployments and safe fallback.
+    """
+    if not TRACECAT__EE_MULTI_TENANT and SAML_IDP_METADATA_URL:
+        return SAML_IDP_METADATA_URL
+
     value = await get_setting(
         "saml_idp_metadata_url",
         role=bootstrap_role(organization_id),
