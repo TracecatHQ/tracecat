@@ -9,7 +9,7 @@ change-template: "- $TITLE (#$NUMBER)"
 change-title-escapes: '\<*_&'
 replacers:
   # Remove conventional commits from titles
-  - search: '/- (build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)(\(.*\))?(\!)?\: /g'
+  - search: '/- (build|chore|ci|depr|deps|docs|feat|fix|helm|infra|perf|refactor|release|revert|security|style|test)(\(.*\))?(\!)?\: /g'
     replace: "- "
 
 autolabeler:
@@ -20,46 +20,53 @@ autolabeler:
   - label: integrations
     title:
       - "/^integrations/"
+      # Example: feat(registry): ...
+      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*registry.*\)\!?\: /'
+
+  - label: agents
+    title:
+      # Example: feat(agent): ... or feat(agents): ...
+      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*agents?.*\)\!?\: /'
 
   - label: frontend
     title:
       # Example: feat(ui): ...
-      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)(\(.*ui.*\))?\!?\: /'
+      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*ui.*\)\!?\: /'
 
   - label: engine
     title:
       # Example: feat(engine): ...
-      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)(\(.*engine.*\))?\!?\: /'
+      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*engine.*\)\!?\: /'
 
   - label: app
     title:
       # Example: feat(app): ...
-      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)(\(.*app.*\))?\!?\: /'
+      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*app.*\)\!?\: /'
 
   - label: breaking
     title:
       # Example: feat!: ...
-      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)(\(.*\))?\!\: /'
+      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)(\(.*\))?\!\: /'
 
   - label: breaking frontend
     title:
-      # Example: feat(ui!, engine): ...
-      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)\(.*ui\!.*\)\: /'
+      # Example: feat(ui!): ...
+      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*ui\!.*\)\: /'
 
   - label: breaking engine
     title:
       # Example: feat(engine!): ...
-      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)\(.*engine\!.*\)\: /'
+      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*engine\!.*\)\: /'
 
   - label: breaking app
     title:
       # Example: feat(app!): ...
-      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)\(.*app\!.*\)\: /'
+      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*app\!.*\)\: /'
 
   - label: breaking infra
     title:
       # Example: feat(infra!): ...
-      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)\(.*infra\!.*\)\: /'
+      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*infra\!.*\)\: /'
 
   - label: build
     title:
@@ -67,7 +74,7 @@ autolabeler:
 
   - label: internal
     title:
-      - "/^(chore|ci|refactor|test)/"
+      - "/^(chore|ci|refactor|test|style|revert)/"
 
   - label: deprecation
     title:
@@ -93,16 +100,25 @@ autolabeler:
     title:
       - "/^release/"
 
+  - label: security
+    title:
+      - "/^security/"
+
+  - label: dependencies
+    title:
+      - "/^deps/"
+      # Example: chore(deps): ... or fix(deps): ...
+      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*deps.*\)\!?\: /'
+
   - label: infra
     title:
+      - "/^infra/"
+      - "/^helm/"
       # Example: feat(infra): ...
-      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)(\(.*infra.*\))?\!?\: /'
+      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*infra.*\)\!?\: /'
 
 categories:
-  - title: 🏆 Highlights
-    labels: highlight
-
-  - title: 💥 Breaking changes
+  - title: Breaking changes
     labels:
       - breaking
       - breaking ui
@@ -111,31 +127,43 @@ categories:
       - breaking app
       - breaking infra
 
-  - title: ⚠️ Deprecations
+  - title: Deprecations
     labels: deprecation
 
-  - title: 📘 Playbooks
+  - title: Security
+    labels: security
+
+  - title: Playbooks
     labels: playbook
 
-  - title: 🧩 Integrations
+  - title: Integrations
     labels: integrations
 
-  - title: 🚀 Performance improvements
+  - title: Agents
+    labels: agents
+
+  - title: Performance improvements
     labels: performance
 
-  - title: ✨ Enhancements
+  - title: Enhancements
     labels: enhancement
 
-  - title: 🐞 Bug fixes
+  - title: Bug fixes
     labels: fix
 
-  - title: 📖 Documentation
+  - title: Infrastructure
+    labels: infra
+
+  - title: Documentation
     labels: documentation
 
-  - title: 📦 Build system
+  - title: Dependencies
+    labels: dependencies
+
+  - title: Build system
     labels: build
 
-  - title: 🛠️ Other improvements
+  - title: Other improvements
     labels: internal
 
 template: |
