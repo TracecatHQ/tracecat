@@ -44,16 +44,16 @@ class EffectiveEntitlements(Schema):
     """
 
     custom_registry: bool = Field(
-        False, description="Whether custom registry repositories are enabled"
+        default=False, description="Whether custom registry repositories are enabled"
     )
-    git_sync: bool = Field(False, description="Whether git sync is enabled")
+    git_sync: bool = Field(default=False, description="Whether git sync is enabled")
     agent_addons: bool = Field(
-        False,
+        default=False,
         description="Whether add-on agent capabilities are enabled"
         " (approvals, presets)",
     )
     case_addons: bool = Field(
-        False,
+        default=False,
         description="Whether add-on case capabilities are enabled"
         " (dropdowns, durations, tasks, triggers)",
     )
