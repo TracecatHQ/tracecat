@@ -59,7 +59,6 @@ def test_role() -> Role:
         organization_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
-        workspace_role=None,
     )
 
 
@@ -72,7 +71,6 @@ def system_role() -> Role:
         organization_id=uuid.uuid4(),
         user_id=None,
         service_id="tracecat-api",
-        workspace_role=None,
     )
 
 
