@@ -85,7 +85,6 @@ def role_workspace_a(org_id_a: uuid.UUID, workspace_id_a: uuid.UUID) -> Role:
         organization_id=org_id_a,
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
-        workspace_role=None,
     )
 
 
@@ -98,7 +97,6 @@ def role_workspace_b(org_id_b: uuid.UUID, workspace_id_b: uuid.UUID) -> Role:
         organization_id=org_id_b,
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
-        workspace_role=None,
     )
 
 
