@@ -1,4 +1,4 @@
-import type { Node } from "@xyflow/react"
+import { type Node, useNodes } from "@xyflow/react"
 import { Search } from "lucide-react"
 import React, { useEffect } from "react"
 import type { WorkflowRead } from "@/client"
@@ -14,9 +14,10 @@ import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 
 export const BuilderPanel = React.forwardRef<ActionPanelRef, object>(() => {
-  const { selectedNodeId, getNode } = useWorkflowBuilder()
+  const { selectedNodeId } = useWorkflowBuilder()
   const { workflow, isLoading, error } = useWorkflow()
-  const selectedNode = getNode(selectedNodeId ?? "")
+  const nodes = useNodes()
+  const selectedNode = nodes.find((node) => node.id === selectedNodeId)
 
   useEffect(() => {
     if (workflow) {
@@ -34,7 +35,7 @@ export const BuilderPanel = React.forwardRef<ActionPanelRef, object>(() => {
       </div>
     )
   }
-  if (selectedNodeId && !selectedNode) {
+  if (selectedNodeId && nodes.length > 0 && !selectedNode) {
     return (
       <div className="flex size-full flex-col items-center justify-center">
         <div className="flex max-w-[50%] flex-col items-center gap-6 p-8 text-center">
