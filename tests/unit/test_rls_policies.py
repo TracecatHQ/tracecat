@@ -269,9 +269,7 @@ class TestRlsIsolation:
     async def test_bypass_context_returns_all_rows(self, rls_session: AsyncSession):
         """Test that bypass context allows access to all rows."""
         # Set explicit bypass context
-        await set_rls_context(
-            rls_session, org_id=None, workspace_id=None, bypass=True
-        )
+        await set_rls_context(rls_session, org_id=None, workspace_id=None, bypass=True)
 
         result = await rls_session.execute(
             text(f"SELECT current_setting('{RLS_VAR_BYPASS}', true)")

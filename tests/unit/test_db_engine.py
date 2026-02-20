@@ -66,7 +66,9 @@ async def test_get_async_session_applies_role_context(
     session_cm.__aexit__.return_value = None
     set_from_role = AsyncMock()
 
-    monkeypatch.setattr("tracecat.db.engine.AsyncSession", lambda *args, **kwargs: session_cm)
+    monkeypatch.setattr(
+        "tracecat.db.engine.AsyncSession", lambda *args, **kwargs: session_cm
+    )
     monkeypatch.setattr("tracecat.db.engine.set_rls_context_from_role", set_from_role)
     monkeypatch.setattr("tracecat.db.engine.get_async_engine", lambda: object())
 
@@ -88,7 +90,9 @@ async def test_get_async_session_bypass_sets_explicit_bypass(
     session_cm.__aexit__.return_value = None
     set_context = AsyncMock()
 
-    monkeypatch.setattr("tracecat.db.engine.AsyncSession", lambda *args, **kwargs: session_cm)
+    monkeypatch.setattr(
+        "tracecat.db.engine.AsyncSession", lambda *args, **kwargs: session_cm
+    )
     monkeypatch.setattr("tracecat.db.engine.set_rls_context", set_context)
     monkeypatch.setattr("tracecat.db.engine.get_async_engine", lambda: object())
 

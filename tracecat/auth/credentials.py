@@ -202,6 +202,7 @@ async def _compute_effective_scopes_cached(
         result = await session.execute(combined)
         return frozenset(result.scalars().all())
 
+
 def get_role_from_user(
     user: User,
     organization_id: uuid.UUID,
