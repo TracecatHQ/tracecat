@@ -243,30 +243,41 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 return True
         return False
 
-    async def _is_saml_enforced_for_email(self, email: str) -> bool:
-        """Check if SAML is enforced for the org that owns this email domain."""
+    async def _is_saml_enforced_for_oauth(self, email: str) -> bool:
+        """Check if SAML enforcement blocks OAuth for this email.
+
+        Checks both the email-domain-mapped org *and* all orgs the user is a
+        member of, matching the policy applied to local password logins.
+        """
         if AuthType.SAML not in config.TRACECAT__AUTH_TYPES:
             return False
 
+        # 1. Domain-based check: the org owning this email domain enforces SAML
         _, _, email_domain = email.rpartition("@")
-        if not email_domain:
-            return False
+        if email_domain:
+            try:
+                normalized = normalize_domain(email_domain).normalized_domain
+            except ValueError:
+                pass
+            else:
+                statement = select(OrganizationDomain.organization_id).where(
+                    OrganizationDomain.normalized_domain == normalized,
+                    OrganizationDomain.is_active.is_(True),
+                )
+                result = await self._user_db.session.execute(statement)
+                org_id = result.scalar_one_or_none()
+                if org_id is not None and await self._is_org_saml_enforced(org_id):
+                    return True
 
+        # 2. Membership-based check: the user belongs to any enforced org
         try:
-            normalized = normalize_domain(email_domain).normalized_domain
-        except ValueError:
+            user = await self.get_by_email(email)
+        except UserNotExists:
             return False
-
-        statement = select(OrganizationDomain.organization_id).where(
-            OrganizationDomain.normalized_domain == normalized,
-            OrganizationDomain.is_active.is_(True),
-        )
-        result = await self._user_db.session.execute(statement)
-        org_id = result.scalar_one_or_none()
-        if org_id is None:
+        org_ids = await self._list_user_org_ids(user.id)
+        if not org_ids:
             return False
-
-        return await self._is_org_saml_enforced(org_id)
+        return await self._any_org_saml_enforced(org_ids)
 
     async def oauth_callback(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
@@ -282,7 +293,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         is_verified_by_default: bool = False,
     ) -> User:
         await self.validate_email(account_email)
-        if await self._is_saml_enforced_for_email(account_email):
+        if await self._is_saml_enforced_for_oauth(account_email):
             self.logger.info(
                 "Blocked OAuth login by SAML enforcement policy",
                 email=account_email,
