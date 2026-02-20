@@ -32,7 +32,9 @@ async def ensure_org_repositories(session: AsyncSession, role: Role) -> None:
             role=role,
         ),
     )
-    needs_custom_registry = config.TRACECAT__LOCAL_REPOSITORY_ENABLED or bool(remote_url)
+    needs_custom_registry = config.TRACECAT__LOCAL_REPOSITORY_ENABLED or bool(
+        remote_url
+    )
     if needs_custom_registry:
         if role.organization_id is None:
             logger.warning(
