@@ -107,7 +107,7 @@ import {
   useUpdateAgentPreset,
 } from "@/hooks"
 import { useCreateChat, useGetChatVercel, useListChats } from "@/hooks/use-chat"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import type { ModelInfo } from "@/lib/chat"
 import {
   useAgentModels,
@@ -248,13 +248,13 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
 export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
-  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
-  const agentPresetsEnabled = isFeatureEnabled("agent-presets")
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
   const activePresetId = presetId ?? NEW_PRESET_ID
 
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
-    { enabled: agentPresetsEnabled && !featureFlagsLoading }
+    { enabled: agentAddonsEnabled && !entitlementsLoading }
   )
   const { registryActions } = useRegistryActions()
   const { providers } = useModelProviders()
@@ -307,7 +307,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
     workspaceId,
     selectedPresetId,
     {
-      enabled: agentPresetsEnabled && !featureFlagsLoading,
+      enabled: agentAddonsEnabled && !entitlementsLoading,
     }
   )
 

@@ -325,6 +325,7 @@ import type {
   OrganizationGetInvitationByTokenResponse,
   OrganizationGetInvitationTokenData,
   OrganizationGetInvitationTokenResponse,
+  OrganizationGetOrganizationEntitlementsResponse,
   OrganizationGetOrganizationResponse,
   OrganizationListInvitationsData,
   OrganizationListInvitationsResponse,
@@ -3229,6 +3230,20 @@ export const organizationListOrganizationDomains =
     return __request(OpenAPI, {
       method: "GET",
       url: "/organization/domains",
+    })
+  }
+
+/**
+ * Get Organization Entitlements
+ * Get the effective entitlements for the current organization.
+ * @returns EffectiveEntitlements Successful Response
+ * @throws ApiError
+ */
+export const organizationGetOrganizationEntitlements =
+  (): CancelablePromise<OrganizationGetOrganizationEntitlementsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/entitlements",
     })
   }
 

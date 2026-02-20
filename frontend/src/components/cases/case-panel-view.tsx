@@ -55,11 +55,13 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/components/ui/use-toast"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
   useAddCaseTag,
   useCaseDropdownDefinitions,
+  useCaseDurationDefinitions,
+  useCaseDurations,
   useCaseTagCatalog,
   useGetCase,
   useRemoveCaseTag,
@@ -91,14 +93,19 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const { members } = useWorkspaceMembers(workspaceId)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { isFeatureEnabled } = useFeatureFlag()
-  const caseTasksEnabled = isFeatureEnabled("case-tasks")
-  const caseDropdownsEnabled = isFeatureEnabled("case-dropdowns")
+  const { hasEntitlement } = useEntitlements()
+  const caseAddonsEnabled = hasEntitlement("case_addons")
 
   const { caseData, caseDataIsLoading, caseDataError } = useGetCase({
     caseId,
     workspaceId,
   })
+  useCaseDurations({
+    caseId,
+    workspaceId,
+    enabled: caseAddonsEnabled,
+  })
+  useCaseDurationDefinitions(workspaceId, caseAddonsEnabled)
   const { updateCase } = useUpdateCase({
     workspaceId,
     caseId,
@@ -106,7 +113,10 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const { addCaseTag } = useAddCaseTag({ caseId, workspaceId })
   const { removeCaseTag } = useRemoveCaseTag({ caseId, workspaceId })
   const { caseTags } = useCaseTagCatalog(workspaceId)
-  const { dropdownDefinitions } = useCaseDropdownDefinitions(workspaceId)
+  const { dropdownDefinitions } = useCaseDropdownDefinitions(
+    workspaceId,
+    caseAddonsEnabled
+  )
   const setDropdownValue = useSetCaseDropdownValue(workspaceId)
   const { toast } = useToast()
   const customFields = useMemo(
@@ -307,7 +317,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                 />
               </div>
 
-              {caseTasksEnabled && (
+              {caseAddonsEnabled && (
                 <div className="mb-6">
                   <CaseTasksSection
                     caseId={caseId}
@@ -443,7 +453,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                       />
                     </div>
                   </div>
-                  {caseDropdownsEnabled &&
+                  {caseAddonsEnabled &&
                     dropdownDefinitions?.map(
                       (def: CaseDropdownDefinitionRead) => {
                         const currentValue = caseData.dropdown_values?.find(

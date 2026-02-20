@@ -5449,7 +5449,10 @@ export function useWorkspaceSettings(
   }
 }
 
-export function useCaseDropdownDefinitions(workspaceId: string) {
+export function useCaseDropdownDefinitions(
+  workspaceId: string,
+  enabled = true
+) {
   const queryClient = useQueryClient()
 
   const {
@@ -5460,7 +5463,7 @@ export function useCaseDropdownDefinitions(workspaceId: string) {
     queryKey: ["case-dropdown-definitions", workspaceId],
     queryFn: async () =>
       await caseDropdownsListDropdownDefinitions({ workspaceId }),
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && enabled,
   })
 
   const invalidate = () =>

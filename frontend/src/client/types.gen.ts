@@ -2320,6 +2320,30 @@ export type EditorParamRead = {
 }
 
 /**
+ * Effective feature entitlements for an organization.
+ *
+ * Values are resolved from org overrides falling back to tier defaults.
+ */
+export type EffectiveEntitlements = {
+  /**
+   * Whether custom registry repositories are enabled
+   */
+  custom_registry?: boolean
+  /**
+   * Whether git sync is enabled
+   */
+  git_sync?: boolean
+  /**
+   * Whether add-on agent capabilities are enabled (approvals, presets)
+   */
+  agent_addons?: boolean
+  /**
+   * Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)
+   */
+  case_addons?: boolean
+}
+
+/**
  * TypedDict for tier entitlements stored in JSONB.
  *
  * All keys are optional (total=False) to support partial overrides.
@@ -2330,13 +2354,17 @@ export type EntitlementsDict = {
    */
   custom_registry?: boolean
   /**
-   * Whether SSO is enabled
-   */
-  sso?: boolean
-  /**
    * Whether git sync is enabled
    */
   git_sync?: boolean
+  /**
+   * Whether add-on agent capabilities are enabled (approvals, presets)
+   */
+  agent_addons?: boolean
+  /**
+   * Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)
+   */
+  case_addons?: boolean
 }
 
 export type ErrorDetails = {
@@ -2487,17 +2515,11 @@ export type ExternalObject = {
 }
 
 /**
- * Feature flag enum.
+ * Feature flag enum reserved for engineering rollouts.
+ *
+ * NOTE: At least one member is required for valid OpenAPI schema generation.
  */
-export type FeatureFlag =
-  | "git-sync"
-  | "agent-approvals"
-  | "agent-presets"
-  | "case-dropdowns"
-  | "case-durations"
-  | "case-tasks"
-  | "case-triggers"
-  | "rbac"
+export type FeatureFlag = "ai-ranking" | "rbac"
 
 /**
  * Response model for feature flags.
@@ -4002,6 +4024,7 @@ export type RegistryActionInterface = {
 export type RegistryActionOptions = {
   include_in_schema?: boolean
   requires_approval?: boolean
+  required_entitlements?: Array<string> | null
 }
 
 /**
@@ -7647,6 +7670,9 @@ export type OrganizationDeleteOrganizationResponse = void
 export type OrganizationListOrganizationDomainsResponse =
   Array<tracecat__organization__schemas__OrgDomainRead>
 
+export type OrganizationGetOrganizationEntitlementsResponse =
+  EffectiveEntitlements
+
 export type OrganizationGetCurrentOrgMemberResponse = OrgMemberDetail
 
 export type OrganizationListOrgMembersResponse = Array<OrgMemberRead>
@@ -10827,6 +10853,16 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<tracecat__organization__schemas__OrgDomainRead>
+      }
+    }
+  }
+  "/organization/entitlements": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EffectiveEntitlements
       }
     }
   }

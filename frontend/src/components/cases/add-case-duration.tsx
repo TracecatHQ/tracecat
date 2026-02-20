@@ -5,17 +5,17 @@ import { useState } from "react"
 
 import { AddCaseDurationDialog } from "@/components/cases/add-case-duration-dialog"
 import { Button } from "@/components/ui/button"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 
 export function AddCaseDuration() {
   const [dialogOpen, setDialogOpen] = useState(false)
-  const { isFeatureEnabled, isLoading } = useFeatureFlag()
+  const { hasEntitlement, isLoading } = useEntitlements()
 
   if (isLoading) {
     return null
   }
 
-  if (!isFeatureEnabled("case-durations")) {
+  if (!hasEntitlement("case_addons")) {
     return null
   }
 

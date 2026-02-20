@@ -52,8 +52,6 @@ from tracecat.cases.tags.service import CaseTagsService
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
-from tracecat.feature_flags import is_feature_enabled
-from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
@@ -62,7 +60,7 @@ router = APIRouter(
     prefix="/internal/cases", tags=["internal-cases"], include_in_schema=False
 )
 
-# Sub-routers for feature-gated routes (conditionally included at end of file)
+# Sub-routers for feature-gated routes (service-layer entitlement checks)
 task_router = APIRouter()
 duration_router = APIRouter()
 
@@ -1189,11 +1187,8 @@ async def assign_user_by_email_to_case(
 
 
 # =============================================================================
-# Conditionally include feature-gated sub-routers
+# Include entitlement-gated sub-routers
 # =============================================================================
 
-if is_feature_enabled(FeatureFlag.CASE_TASKS):
-    router.include_router(task_router)
-
-if is_feature_enabled(FeatureFlag.CASE_DURATIONS):
-    router.include_router(duration_router)
+router.include_router(task_router)
+router.include_router(duration_router)

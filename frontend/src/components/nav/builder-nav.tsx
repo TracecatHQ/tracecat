@@ -76,7 +76,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import type { TracecatApiError } from "@/lib/errors"
 import {
@@ -579,7 +579,7 @@ function WorkflowSaveActions({
   onSave: () => Promise<void>
   onPublish: (params: { message?: string }) => Promise<void>
 }) {
-  const { isFeatureEnabled } = useFeatureFlag()
+  const { hasEntitlement } = useEntitlements()
   const [publishOpen, setPublishOpen] = React.useState(false)
   const [isPublishing, setIsPublishing] = React.useState(false)
 
@@ -601,7 +601,7 @@ function WorkflowSaveActions({
     }
   }
 
-  const isGitSyncEnabled = isFeatureEnabled("git-sync")
+  const isGitSyncEnabled = hasEntitlement("git_sync")
 
   return (
     <div className="flex items-center space-x-2">

@@ -91,10 +91,11 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.service import BaseWorkspaceService
+from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.common import normalize_column_options
 from tracecat.tables.enums import SqlType
 from tracecat.tables.service import TablesService
+from tracecat.tiers.enums import Entitlement
 
 
 def _normalize_filter_values(values: Any) -> list[Any]:
@@ -514,6 +515,7 @@ class CasesService(BaseWorkspaceService):
 
         # Convert to CaseReadMinimal objects with tags and dropdown values
         case_items = []
+        include_dropdown_values = await self.has_entitlement(Entitlement.CASE_ADDONS)
         for case in cases:
             # Tags are already loaded via selectinload
             tag_reads = [
@@ -521,21 +523,23 @@ class CasesService(BaseWorkspaceService):
                 for tag in case.tags
             ]
 
-            # Dropdown values are already loaded via selectinload
-            dropdown_reads = [
-                CaseDropdownValueRead(
-                    id=dv.id,
-                    definition_id=dv.definition_id,
-                    definition_ref=dv.definition.ref,
-                    definition_name=dv.definition.name,
-                    option_id=dv.option.id if dv.option else None,
-                    option_label=dv.option.label if dv.option else None,
-                    option_ref=dv.option.ref if dv.option else None,
-                    option_icon_name=dv.option.icon_name if dv.option else None,
-                    option_color=dv.option.color if dv.option else None,
-                )
-                for dv in case.dropdown_values
-            ]
+            dropdown_reads = []
+            if include_dropdown_values:
+                # Dropdown values are already loaded via selectinload
+                dropdown_reads = [
+                    CaseDropdownValueRead(
+                        id=dv.id,
+                        definition_id=dv.definition_id,
+                        definition_ref=dv.definition.ref,
+                        definition_name=dv.definition.name,
+                        option_id=dv.option.id if dv.option else None,
+                        option_label=dv.option.label if dv.option else None,
+                        option_ref=dv.option.ref if dv.option else None,
+                        option_icon_name=dv.option.icon_name if dv.option else None,
+                        option_color=dv.option.color if dv.option else None,
+                    )
+                    for dv in case.dropdown_values
+                ]
 
             case_items.append(
                 CaseReadMinimal(
@@ -1313,6 +1317,7 @@ class CaseTasksService(BaseWorkspaceService):
 
     service_name = "case_tasks"
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def list_tasks(self, case_id: uuid.UUID) -> Sequence[CaseTask]:
         """List all tasks for a case.
 
@@ -1336,6 +1341,7 @@ class CaseTasksService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_task(self, task_id: uuid.UUID) -> CaseTask:
         """Get a task by ID.
 
@@ -1409,6 +1415,7 @@ class CaseTasksService(BaseWorkspaceService):
                 f"Invalid default_trigger_values for workflow '{workflow.title}': {e}"
             ) from e
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def create_task(self, case_id: uuid.UUID, params: CaseTaskCreate) -> CaseTask:
         """Create a new task for a case.
 
@@ -1475,6 +1482,7 @@ class CaseTasksService(BaseWorkspaceService):
         await self.session.refresh(task)
         return task
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def update_task(self, task_id: uuid.UUID, params: CaseTaskUpdate) -> CaseTask:
         """Update a task.
 
@@ -1612,6 +1620,7 @@ class CaseTasksService(BaseWorkspaceService):
         await self.session.refresh(task)
         return task
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def delete_task(self, task_id: uuid.UUID) -> None:
         """Delete a task.
 

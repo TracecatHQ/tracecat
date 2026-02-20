@@ -22,6 +22,8 @@ from tracecat.contexts import ctx_role
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.tiers.entitlements import Entitlement, EntitlementService
+from tracecat.tiers.service import TierService
 
 
 class BuildToolDefsArgs(BaseModel):
@@ -82,6 +84,17 @@ class AgentActivities:
     ) -> BuildToolDefsResult:
         # Set role context for services that require organization context
         ctx_role.set(args.role)
+
+        # Runtime guard for approval-gated agent flows. This ensures direct
+        # workflow execution paths still enforce entitlements.
+        if args.tool_approvals:
+            if args.role.organization_id is None:
+                raise ValueError("Role must have organization_id to validate entitlements")
+            async with TierService.with_session() as tier_service:
+                entitlement_service = EntitlementService(tier_service)
+                await entitlement_service.check_entitlement(
+                    args.role.organization_id, Entitlement.AGENT_ADDONS
+                )
 
         # Check if this is a builder assistant session
         is_builder = (

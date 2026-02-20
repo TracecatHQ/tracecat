@@ -54,6 +54,7 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
+from tracecat.tiers.entitlements import Entitlement, check_entitlement
 from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 
 if TYPE_CHECKING:
@@ -527,6 +528,10 @@ class AgentSessionService(BaseWorkspaceService):
 
         # Build agent config and spawn workflow for new turn
         async with self._build_agent_config(agent_session) as agent_config:
+            if agent_config.tool_approvals:
+                await check_entitlement(
+                    self.session, self.role, Entitlement.AGENT_ADDONS
+                )
             run_id = uuid.uuid4()
 
             # Copilot uses org-level credentials; other entities use workspace credentials

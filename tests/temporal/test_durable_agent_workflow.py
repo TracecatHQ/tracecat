@@ -34,7 +34,6 @@ from tracecat_ee.agent.workflows.durable import (
     WorkflowApprovalSubmission,
 )
 
-from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition
@@ -57,17 +56,17 @@ from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import User
 from tracecat.dsl.common import RETRY_POLICIES
-from tracecat.feature_flags import FeatureFlag
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.tiers import defaults as tier_defaults
 
 
 @pytest.fixture(autouse=True)
-def enable_agent_approvals_flag(monkeypatch):
-    """Enable agent approvals feature flag for all tests in this module."""
+def enable_agent_approvals_entitlement(monkeypatch):
+    """Enable agent approvals entitlement for all tests in this module."""
     monkeypatch.setattr(
-        config,
-        "TRACECAT__FEATURE_FLAGS",
-        {FeatureFlag.AGENT_APPROVALS},
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"agent_addons": True}),
     )
 
 

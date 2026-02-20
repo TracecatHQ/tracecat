@@ -7611,6 +7611,42 @@ export const $EditorParamRead = {
   title: "EditorParamRead",
 } as const
 
+export const $EffectiveEntitlements = {
+  properties: {
+    custom_registry: {
+      type: "boolean",
+      title: "Custom Registry",
+      description: "Whether custom registry repositories are enabled",
+      default: false,
+    },
+    git_sync: {
+      type: "boolean",
+      title: "Git Sync",
+      description: "Whether git sync is enabled",
+      default: false,
+    },
+    agent_addons: {
+      type: "boolean",
+      title: "Agent Addons",
+      description:
+        "Whether add-on agent capabilities are enabled (approvals, presets)",
+      default: false,
+    },
+    case_addons: {
+      type: "boolean",
+      title: "Case Addons",
+      description:
+        "Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "EffectiveEntitlements",
+  description: `Effective feature entitlements for an organization.
+
+Values are resolved from org overrides falling back to tier defaults.`,
+} as const
+
 export const $EntitlementsDict = {
   properties: {
     custom_registry: {
@@ -7618,15 +7654,22 @@ export const $EntitlementsDict = {
       title: "Custom Registry",
       description: "Whether custom registry repositories are enabled",
     },
-    sso: {
-      type: "boolean",
-      title: "Sso",
-      description: "Whether SSO is enabled",
-    },
     git_sync: {
       type: "boolean",
       title: "Git Sync",
       description: "Whether git sync is enabled",
+    },
+    agent_addons: {
+      type: "boolean",
+      title: "Agent Addons",
+      description:
+        "Whether add-on agent capabilities are enabled (approvals, presets)",
+    },
+    case_addons: {
+      type: "boolean",
+      title: "Case Addons",
+      description:
+        "Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)",
     },
   },
   type: "object",
@@ -8160,18 +8203,11 @@ export const $ExternalObject = {
 
 export const $FeatureFlag = {
   type: "string",
-  enum: [
-    "git-sync",
-    "agent-approvals",
-    "agent-presets",
-    "case-dropdowns",
-    "case-durations",
-    "case-tasks",
-    "case-triggers",
-    "rbac",
-  ],
+  enum: ["ai-ranking", "rbac"],
   title: "FeatureFlag",
-  description: "Feature flag enum.",
+  description: `Feature flag enum reserved for engineering rollouts.
+
+NOTE: At least one member is required for valid OpenAPI schema generation.`,
 } as const
 
 export const $FeatureFlagsRead = {
@@ -12599,6 +12635,20 @@ export const $RegistryActionOptions = {
       type: "boolean",
       title: "Requires Approval",
       default: false,
+    },
+    required_entitlements: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Required Entitlements",
     },
   },
   type: "object",

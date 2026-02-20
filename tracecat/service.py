@@ -45,20 +45,28 @@ BasePlatformService is specifically for:
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Callable
+from collections import OrderedDict
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, ClassVar, Self
+from functools import wraps
+from typing import TYPE_CHECKING, Any, ClassVar, Concatenate, ParamSpec, Self, TypeVar
 
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import EntitlementRequired, TracecatAuthorizationError
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
+from tracecat.tiers.access import is_org_entitled
+from tracecat.tiers.enums import Entitlement
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from tracecat.auth.types import PlatformRole, Role
+
+P = ParamSpec("P")
+R = TypeVar("R")
+S = TypeVar("S", bound="BaseOrgService")
 
 
 class BaseService:
@@ -147,6 +155,7 @@ class BaseOrgService(BaseService):
 
     role: Role  # Always non-None for org services
     organization_id: OrganizationID  # Always non-None after __init__
+    _MAX_ENTITLEMENT_CACHE_ENTRIES: ClassVar[int] = 32
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session)
@@ -161,6 +170,27 @@ class BaseOrgService(BaseService):
             )
         self.role = resolved_role
         self.organization_id = resolved_role.organization_id
+        self._entitlement_cache: OrderedDict[Entitlement, bool] = OrderedDict()
+
+    async def has_entitlement(self, entitlement: Entitlement) -> bool:
+        """Check and cache entitlement access for this service instance."""
+        if entitlement in self._entitlement_cache:
+            entitled = self._entitlement_cache[entitlement]
+            self._entitlement_cache.move_to_end(entitlement)
+            return entitled
+
+        entitled = await is_org_entitled(
+            self.session, self.organization_id, entitlement
+        )
+        if len(self._entitlement_cache) >= self._MAX_ENTITLEMENT_CACHE_ENTRIES:
+            self._entitlement_cache.popitem(last=False)
+        self._entitlement_cache[entitlement] = entitled
+        return entitled
+
+    async def require_entitlement(self, entitlement: Entitlement) -> None:
+        """Require an entitlement for this organization context."""
+        if not await self.has_entitlement(entitlement):
+            raise EntitlementRequired(entitlement.value)
 
     @classmethod
     @asynccontextmanager
@@ -207,3 +237,24 @@ class BaseWorkspaceService(BaseOrgService):
                 f"{self.service_name} service requires workspace"
             )
         self.workspace_id = self.role.workspace_id
+
+
+def requires_entitlement(
+    entitlement: Entitlement,
+) -> Callable[
+    [Callable[Concatenate[S, P], Awaitable[R]]],
+    Callable[Concatenate[S, P], Awaitable[R]],
+]:
+    """Decorator for service methods that require an entitlement."""
+
+    def decorator(
+        func: Callable[Concatenate[S, P], Awaitable[R]],
+    ) -> Callable[Concatenate[S, P], Awaitable[R]]:
+        @wraps(func)
+        async def wrapper(self: S, *args: P.args, **kwargs: P.kwargs) -> R:
+            await self.require_entitlement(entitlement)
+            return await func(self, *args, **kwargs)
+
+        return wrapper
+
+    return decorator

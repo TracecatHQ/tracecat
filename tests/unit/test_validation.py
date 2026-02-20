@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, registry
 from typing_extensions import Doc
 
-from tracecat import config
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.dsl.common import (
     DSLEntrypoint,
@@ -29,7 +28,6 @@ from tracecat.expressions.expectations import ExpectedField
 
 # Add imports for expression validation
 from tracecat.expressions.validation import TemplateValidator
-from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
@@ -49,6 +47,7 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repository import Repository
 from tracecat.registry.versions.schemas import RegistryVersionManifestAction
 from tracecat.registry.versions.service import RegistryVersionsService
+from tracecat.tiers import defaults as tier_defaults
 from tracecat.validation.schemas import ActionValidationResult, ValidationResultType
 from tracecat.validation.service import validate_dsl
 
@@ -653,7 +652,6 @@ async def test_template_action_with_optional_oauth_both_ac_and_cc(
     # Test OAuth token values
     ac_token_value = "__TEST_AC_TOKEN__"
     cc_token_value = "__TEST_CC_TOKEN__"
-
     # Create a test template action with both AC and CC OAuth secrets as optional
     test_action = TemplateAction(
         type="action",
@@ -875,7 +873,6 @@ async def test_validate_dsl_with_optional_oauth_credentials(
     """
 
     session, db_repo_id = db_session_with_repo
-
     # Create a template action with optional OAuth credentials (both AC and CC)
     test_action = TemplateAction(
         type="action",
@@ -965,13 +962,17 @@ async def test_validate_dsl_with_optional_oauth_credentials(
 
 @pytest.mark.integration
 @pytest.mark.anyio
-async def test_agent_tool_approvals_requires_feature_flag(
+async def test_agent_tool_approvals_requires_entitlement(
     test_role, db_session_with_repo, monkeypatch
 ):
     session, db_repo_id = db_session_with_repo
 
-    # Ensure feature flag disabled
-    monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", set())
+    # Ensure entitlement disabled
+    monkeypatch.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"agent_addons": False}),
+    )
 
     repo = Repository()
     repo.init(include_base=True, include_templates=False)
@@ -1022,20 +1023,20 @@ async def test_agent_tool_approvals_requires_feature_flag(
         detail_msgs: set[str] = set()
     else:
         detail_msgs = {d.msg for d in detail}
-    assert any("agent-approvals" in msg for msg in detail_msgs)
+    assert any("agent_addons" in msg for msg in detail_msgs)
 
 
 @pytest.mark.integration
 @pytest.mark.anyio
-async def test_agent_tool_approvals_passes_with_feature_flag(
+async def test_agent_tool_approvals_passes_with_entitlement(
     test_role, db_session_with_repo, monkeypatch
 ):
     session, db_repo_id = db_session_with_repo
 
     monkeypatch.setattr(
-        config,
-        "TRACECAT__FEATURE_FLAGS",
-        {FeatureFlag.AGENT_APPROVALS},
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"agent_addons": True}),
     )
 
     repo = Repository()

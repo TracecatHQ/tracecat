@@ -63,6 +63,7 @@ from tracecat.auth.dependencies import (
     ServiceRole,
     WorkspaceUserRole,
 )
+from tracecat.auth.executor_tokens import mint_executor_token
 from tracecat.auth.types import AccessLevel, Role
 from tracecat.authz.enums import OrgRole
 from tracecat.cases.durations.schemas import (
@@ -131,12 +132,23 @@ async def cases_ctx(
     await session.commit()
 
     # Set up registry context for SDK access within UDFs
+    workflow_id = "test-workflow-id"
+    wf_exec_id = "test-wf-exec-id"
+    assert cases_test_role.workspace_id is not None
+    executor_token = mint_executor_token(
+        workspace_id=cases_test_role.workspace_id,
+        user_id=cases_test_role.user_id,
+        wf_id=workflow_id,
+        wf_exec_id=wf_exec_id,
+    )
     registry_ctx = RegistryContext(
         workspace_id=str(cases_test_role.workspace_id),
-        workflow_id="test-workflow-id",
+        workflow_id=workflow_id,
         run_id="test-run-id",
+        wf_exec_id=wf_exec_id,
         environment="default",
         api_url=config.TRACECAT__API_URL,
+        token=executor_token,
     )
     set_context(registry_ctx)
 

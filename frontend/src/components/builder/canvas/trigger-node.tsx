@@ -41,7 +41,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useTriggerNodeZoomBreakpoint } from "@/hooks/canvas"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useCaseTrigger, useSchedules } from "@/lib/hooks"
 import { durationToHumanReadable } from "@/lib/time"
 import { cn } from "@/lib/utils"
@@ -69,7 +69,8 @@ export default React.memo(function TriggerNode({
     setTriggerPanelTab,
   } = useWorkflowBuilder()
   const { breakpoint, style } = useTriggerNodeZoomBreakpoint()
-  const { isFeatureEnabled } = useFeatureFlag()
+  const { hasEntitlement } = useEntitlements()
+  const caseAddonsEnabled = hasEntitlement("case_addons")
   const {
     data: caseTrigger,
     isLoading: caseTriggerIsLoading,
@@ -276,7 +277,7 @@ export default React.memo(function TriggerNode({
                 <TriggerNodeSchedulesTable workflowId={workflow.id} />
               </div>
               {/* Case triggers */}
-              {isFeatureEnabled("case-triggers") && (
+              {caseAddonsEnabled && (
                 <div
                   className="rounded-lg border cursor-pointer"
                   onClick={() =>

@@ -24,7 +24,8 @@ from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.encryption import decrypt_value
-from tracecat.service import BaseWorkspaceService
+from tracecat.service import BaseWorkspaceService, requires_entitlement
+from tracecat.tiers.enums import Entitlement
 
 
 class AgentPresetService(BaseWorkspaceService):
@@ -32,6 +33,7 @@ class AgentPresetService(BaseWorkspaceService):
 
     service_name = "agent_preset"
 
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_presets(self) -> Sequence[AgentPreset]:
         """Return all agent presets for the current workspace ordered by recency."""
 
@@ -44,6 +46,7 @@ class AgentPresetService(BaseWorkspaceService):
         return result.scalars().all()
 
     @audit_log(resource_type="agent_preset", action="create")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def create_preset(self, params: AgentPresetCreate) -> AgentPreset:
         """Create a new agent preset scoped to the current workspace."""
 
@@ -93,6 +96,7 @@ class AgentPresetService(BaseWorkspaceService):
             )
 
     @audit_log(resource_type="agent_preset", action="update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def update_preset(
         self, preset: AgentPreset, params: AgentPresetUpdate
     ) -> AgentPreset:
@@ -134,23 +138,27 @@ class AgentPresetService(BaseWorkspaceService):
         return preset
 
     @audit_log(resource_type="agent_preset", action="delete")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def delete_preset(self, preset: AgentPreset) -> None:
         """Delete a preset."""
         await self.session.delete(preset)
         await self.session.commit()
 
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_agent_config_by_slug(self, slug: str) -> AgentConfig:
         """Get the agent configuration for a preset by slug."""
         if preset := await self.get_preset_by_slug(slug):
             return await self._preset_to_agent_config(preset)
         raise TracecatNotFoundError(f"Agent preset with slug '{slug}' not found")
 
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_agent_config(self, preset_id: uuid.UUID) -> AgentConfig:
         """Get the agent configuration for a preset by ID."""
         if preset := await self.get_preset(preset_id):
             return await self._preset_to_agent_config(preset)
         raise TracecatNotFoundError(f"Agent preset with ID '{preset_id}' not found")
 
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def resolve_agent_preset_config(
         self,
         *,
@@ -404,6 +412,7 @@ class AgentPresetService(BaseWorkspaceService):
             )
         return slug
 
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_preset(self, preset_id: uuid.UUID) -> AgentPreset | None:
         """Get an agent preset by ID with proper error handling."""
         stmt = select(AgentPreset).where(
@@ -413,6 +422,7 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_preset_by_slug(self, slug: str) -> AgentPreset | None:
         """Get an agent preset by slug with proper error handling."""
         stmt = select(AgentPreset).where(

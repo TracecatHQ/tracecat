@@ -8,7 +8,8 @@ from sqlalchemy.exc import NoResultFound
 from tracecat.db.models import CaseTag, CaseTrigger
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
-from tracecat.service import BaseWorkspaceService
+from tracecat.service import BaseWorkspaceService, requires_entitlement
+from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig, CaseTriggerUpdate
 
 
@@ -17,6 +18,7 @@ class CaseTriggersService(BaseWorkspaceService):
 
     service_name = "case_triggers"
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_case_trigger(self, workflow_id: WorkflowID) -> CaseTrigger:
         stmt = select(CaseTrigger).where(
             CaseTrigger.workspace_id == self.workspace_id,
@@ -30,6 +32,7 @@ class CaseTriggersService(BaseWorkspaceService):
                 f"Case trigger for workflow {workflow_id} not found"
             ) from exc
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def upsert_case_trigger(
         self,
         workflow_id: WorkflowID,
@@ -69,6 +72,7 @@ class CaseTriggersService(BaseWorkspaceService):
                 await self.session.flush()
             return case_trigger
 
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def update_case_trigger(
         self,
         workflow_id: WorkflowID,

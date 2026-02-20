@@ -254,6 +254,7 @@ async def test_get_case_success(
 
         # Mock dropdown service
         mock_dropdown_svc = AsyncMock()
+        mock_dropdown_svc.has_entitlement.return_value = True
         mock_dropdown_svc.list_values_for_case.return_value = []
         MockDropdownService.return_value = mock_dropdown_svc
 
@@ -386,6 +387,7 @@ async def test_get_case_with_tags(
 
         # Mock dropdown service
         mock_dropdown_svc = AsyncMock()
+        mock_dropdown_svc.has_entitlement.return_value = True
         mock_dropdown_svc.list_values_for_case.return_value = []
         MockDropdownService.return_value = mock_dropdown_svc
 
@@ -444,6 +446,7 @@ async def test_get_case_with_dropdown_values(
             )
         ]
         mock_dropdown_svc = AsyncMock()
+        mock_dropdown_svc.has_entitlement.return_value = True
         mock_dropdown_svc.list_values_for_case.return_value = mock_dropdown_reads
         MockDropdownService.return_value = mock_dropdown_svc
 
@@ -468,6 +471,53 @@ async def test_get_case_with_dropdown_values(
         assert dv["option_ref"] == "production"
         assert dv["option_icon_name"] == "server"
         assert dv["option_color"] == "#00FF00"
+
+
+@pytest.mark.anyio
+async def test_get_case_hides_dropdown_values_without_case_addons(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """Test GET /cases/{id} omits dropdown values when entitlement is absent."""
+    with (
+        patch.object(cases_router, "CasesService") as MockService,
+        patch.object(cases_router, "CaseDropdownValuesService") as MockDropdownService,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.get_case.return_value = mock_case
+        mock_svc.fields = AsyncMock()
+        mock_svc.fields.get_fields.return_value = {}
+        mock_svc.fields.list_fields.return_value = []
+        MockService.return_value = mock_svc
+
+        mock_dropdown_svc = AsyncMock()
+        mock_dropdown_svc.has_entitlement.return_value = False
+        mock_dropdown_svc.list_values_for_case.return_value = [
+            CaseDropdownValueRead(
+                id=uuid.uuid4(),
+                definition_id=uuid.uuid4(),
+                definition_ref="environment",
+                definition_name="Environment",
+                option_id=uuid.uuid4(),
+                option_label="Production",
+                option_ref="production",
+                option_icon_name="server",
+                option_color="#00FF00",
+            )
+        ]
+        MockDropdownService.return_value = mock_dropdown_svc
+
+        case_id = str(mock_case.id)
+        response = client.get(
+            f"/cases/{case_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["dropdown_values"] == []
+        mock_dropdown_svc.list_values_for_case.assert_not_called()
 
 
 @pytest.mark.anyio

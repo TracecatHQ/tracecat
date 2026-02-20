@@ -30,6 +30,28 @@ async def test_list_registry_actions(test_role):
             assert isinstance(origin, str)
 
 
+@pytest.mark.anyio
+async def test_registry_actions_filtered_by_entitlements(test_role, monkeypatch):
+    """Ensure registry listings respect entitlement-gated UDFs."""
+    from tracecat.tiers import defaults as tier_defaults
+
+    monkeypatch.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"case_addons": False}),
+    )
+
+    async with RegistryActionsService.with_session(test_role) as service:
+        entries = await service.list_actions_from_index(namespace="core.cases")
+        actions = {f"{entry.namespace}.{entry.name}" for entry, _ in entries}
+
+        assert "core.cases.create_task" not in actions
+        assert "core.cases.get_case_metrics" not in actions
+
+        result = await service.get_action_from_index("core.cases.create_task")
+        assert result is None
+
+
 @pytest.fixture
 def mock_package(tmp_path):
     """Pytest fixture that creates a mock package with files and cleans up after the test."""

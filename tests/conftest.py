@@ -53,6 +53,7 @@ from tracecat.logger import logger
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.secrets import secrets_manager
+from tracecat.tiers import defaults as tier_defaults
 from tracecat.workspaces.service import WorkspaceService
 
 # Test-specific organization ID (not UUID(0) since we removed that default)
@@ -857,6 +858,19 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     logger.info("Setting up environment variables")
     importlib.reload(config)
     monkeysession.setattr(config, "TRACECAT__APP_ENV", "development")
+    # Keep test baseline behavior for suites that are not exercising entitlement
+    # migration logic directly. Explicit entitlement tests can still override this.
+    monkeysession.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(
+            update={
+                "git_sync": True,
+                "agent_addons": True,
+                "case_addons": True,
+            }
+        ),
+    )
 
     # Use module-level IN_DOCKER detection for host selection
     db_host = "postgres_db" if IN_DOCKER else "localhost"
