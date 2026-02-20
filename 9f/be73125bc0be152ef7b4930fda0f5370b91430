@@ -1,0 +1,23 @@
+scripts/check_temporal_db.py
+  6cb3c8439d0d36ad 7-10,23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.4",
+  "base_commit_sha": "9fbe73125bc0be152ef7b4930fda0f5370b91430",
+  "prompts": {
+    "6cb3c8439d0d36ad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "02ce8d6a-cbc8-4697-b264-c1caed6f261c",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 15,
+      "total_deletions": 4,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    }
+  }
+}
