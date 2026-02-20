@@ -420,12 +420,16 @@ def backfill_legacy_role_scopes(role: Role) -> Role:
         if service_scopes:
             scopes.update(service_scopes)
     elif role.type == "user":
-        if role.org_role is not None:
-            slug = _LEGACY_ORG_ROLE_TO_PRESET_SLUG.get(role.org_role)
+        # Legacy Role objects from Temporal histories may carry org_role / workspace_role
+        # as extra fields (Role has extra="allow"). Use getattr since they're not declared.
+        org_role = getattr(role, "org_role", None)
+        if org_role is not None:
+            slug = _LEGACY_ORG_ROLE_TO_PRESET_SLUG.get(org_role)
             if slug is not None:
                 scopes.update(PRESET_ROLE_SCOPES[slug])
-        if role.workspace_role is not None:
-            slug = _LEGACY_WORKSPACE_ROLE_TO_PRESET_SLUG.get(role.workspace_role)
+        workspace_role = getattr(role, "workspace_role", None)
+        if workspace_role is not None:
+            slug = _LEGACY_WORKSPACE_ROLE_TO_PRESET_SLUG.get(workspace_role)
             if slug is not None:
                 scopes.update(PRESET_ROLE_SCOPES[slug])
 

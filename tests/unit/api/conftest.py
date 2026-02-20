@@ -31,6 +31,9 @@ from tracecat.tables.router import (
 from tracecat.tables.router import (
     WorkspaceUser as TablesWorkspaceUser,
 )
+from tracecat.workspaces.router import (
+    WorkspaceUserInPath,
+)
 
 
 def override_role_dependency() -> Role:
@@ -62,6 +65,7 @@ def client() -> Generator[TestClient, None, None]:
         OrgUserRole,
         TablesWorkspaceUser,
         TablesWorkspaceEditorUser,
+        WorkspaceUserInPath,
     ]
 
     for annotated_type in role_dependencies:

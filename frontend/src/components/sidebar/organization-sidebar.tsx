@@ -88,13 +88,6 @@ export function OrganizationSidebar({
       isActive: pathname?.includes("/organization/settings/agent"),
       visible: canViewSettings === true,
     },
-    {
-      title: "Access control",
-      url: "/organization/settings/rbac",
-      icon: ShieldCheckIcon,
-      isActive: pathname?.includes("/organization/settings/rbac"),
-      visible: canViewRbac !== false,
-    },
     ...(hasEntitlement("git_sync")
       ? [
           {

@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient
 from tracecat.api.app import app
 from tracecat.auth.types import Role
 from tracecat.auth.users import current_active_user
-from tracecat.authz.enums import OrgRole
 from tracecat.db.engine import get_async_session
 
 
@@ -35,15 +34,15 @@ async def test_list_my_pending_invitations_success(
     mock_invitation = SimpleNamespace(
         token="invitation-token-123",
         organization_id=organization_id,
-        role=OrgRole.MEMBER,
         expires_at=datetime.now(UTC) + timedelta(days=7),
         created_at=datetime.now(UTC),
     )
     mock_organization = SimpleNamespace(name="Acme Security")
+    mock_role = SimpleNamespace(name="Organization Member", slug="organization-member")
 
     tuples_result = Mock()
     tuples_result.all.return_value = [
-        (mock_invitation, mock_organization, mock_inviter),
+        (mock_invitation, mock_organization, mock_inviter, mock_role),
     ]
     pending_result = Mock()
     pending_result.tuples.return_value = tuples_result
@@ -64,7 +63,8 @@ async def test_list_my_pending_invitations_success(
     assert payload[0]["organization_name"] == "Acme Security"
     assert payload[0]["inviter_name"] == "Alice Admin"
     assert payload[0]["inviter_email"] == "alice@example.com"
-    assert payload[0]["role"] == "member"
+    assert payload[0]["role_name"] == "Organization Member"
+    assert payload[0]["role_slug"] == "organization-member"
 
 
 @pytest.mark.anyio

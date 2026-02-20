@@ -64,6 +64,7 @@ class TestOrganizationInvitation:
             is_active=True,
         )
         session.add(org)
+        await session.flush()
 
         # Create inviter user
         inviter = User(

@@ -25,7 +25,7 @@ export default function InboxPage() {
     setLimit,
     setUpdatedAfter,
     setCreatedAfter,
-  } = useInbox({ enabled: agentAddonsEnabled && canReadInbox})
+  } = useInbox({ enabled: agentAddonsEnabled && canReadInbox })
 
   useEffect(() => {
     document.title = "Inbox"

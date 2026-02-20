@@ -53,10 +53,15 @@ class Role(BaseModel):
     def is_privileged(self) -> bool:
         """Check if this role has elevated privileges (platform admin).
 
-        Only platform superusers are considered privileged.
+        Platform superusers and organization owners/admins are considered
+        privileged for organization-level operations.
         All other authorization is scope-based via RBAC.
         """
-        return self.is_platform_superuser
+        if self.is_platform_superuser:
+            return True
+        if not self.scopes:
+            return False
+        return "org:workspace:read" in self.scopes
 
     def to_headers(self) -> dict[str, str]:
         headers = {

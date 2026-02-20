@@ -111,12 +111,12 @@ import {
   type GitCommitInfo,
   type GitSettingsRead,
   type GraphOperation,
+  type GroupCreate,
+  type GroupReadWithMembers,
   // RBAC types and functions
   type GroupRoleAssignmentCreate,
   type GroupRoleAssignmentReadWithDetails,
   type GroupRoleAssignmentUpdate,
-  type GroupCreate,
-  type GroupReadWithMembers,
   type GroupUpdate,
   graphApplyGraphOperations,
   graphGetGraph,
@@ -6503,7 +6503,10 @@ export function useRbacUserAssignments(options?: {
   }
 }
 
-export function useCaseDropdownDefinitions(workspaceId: string, enabled = true) {
+export function useCaseDropdownDefinitions(
+  workspaceId: string,
+  enabled = true
+) {
   const queryClient = useQueryClient()
 
   const {

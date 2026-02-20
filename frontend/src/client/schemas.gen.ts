@@ -8194,9 +8194,7 @@ export const $FeatureFlag = {
   type: "string",
   enum: ["ai-ranking", "rbac"],
   title: "FeatureFlag",
-  description: `Feature flag enum reserved for engineering rollouts.
-
-NOTE: At least one member is required for valid OpenAPI schema generation.`,
+  description: "Feature flag enum reserved for engineering rollouts.",
 } as const
 
 export const $FeatureFlagsRead = {

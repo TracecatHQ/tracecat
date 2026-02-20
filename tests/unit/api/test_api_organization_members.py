@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import get_args
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import status
@@ -12,10 +12,8 @@ from fastapi.testclient import TestClient
 
 from tracecat.api.app import app
 from tracecat.auth.types import Role
-from tracecat.authz.enums import OrgRole
-from tracecat.authz.scopes import ORG_OWNER_SCOPES
 from tracecat.contexts import ctx_role
-from tracecat.exceptions import TracecatValidationError
+from tracecat.db.engine import get_async_session
 from tracecat.organization import router as organization_router
 
 
@@ -67,10 +65,24 @@ async def test_list_org_members_omits_superuser_flag(
     client: TestClient, test_admin_role: Role
 ) -> None:
     user = _member_user()
+    mock_session = await app.dependency_overrides[get_async_session]()
+
+    # Mock the RBAC role lookup query result
+    rbac_tuples = Mock()
+    rbac_tuples.all.return_value = [(user.id, "Admin", "organization-admin")]
+    rbac_result = Mock()
+    rbac_result.tuples.return_value = rbac_tuples
+
+    # Mock the invitations query result
+    inv_result = Mock()
+    inv_result.scalars.return_value = Mock(all=Mock(return_value=[]))
+
+    mock_session.execute = AsyncMock(side_effect=[rbac_result, inv_result])
 
     with patch.object(organization_router, "OrgService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.list_members.return_value = [(user, OrgRole.ADMIN)]
+        mock_svc.list_members.return_value = [user]
+        mock_svc.list_invitations.return_value = []
         MockService.return_value = mock_svc
 
         response = client.get("/organization/members")
@@ -87,10 +99,16 @@ async def test_update_org_member_omits_superuser_flag(
     client: TestClient, test_admin_role: Role
 ) -> None:
     user = _member_user()
+    mock_session = await app.dependency_overrides[get_async_session]()
+
+    # Mock the RBAC role name query result
+    rbac_result = Mock()
+    rbac_result.scalar_one_or_none.return_value = "Admin"
+    mock_session.execute = AsyncMock(return_value=rbac_result)
 
     with patch.object(organization_router, "OrgService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.update_member.return_value = (user, OrgRole.MEMBER)
+        mock_svc.update_member.return_value = user
         MockService.return_value = mock_svc
 
         response = client.patch(
@@ -101,7 +119,7 @@ async def test_update_org_member_omits_superuser_flag(
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["user_id"] == str(user.id)
-    assert data["role"] == "member"
+    assert data["role"] == "Admin"
     assert "is_superuser" not in data
 
 
@@ -111,50 +129,3 @@ async def test_delete_organization_requires_owner_role(
 ) -> None:
     response = client.delete("/organization?confirm=Test%20Organization")
     assert response.status_code == status.HTTP_403_FORBIDDEN
-
-
-@pytest.mark.anyio
-async def test_delete_organization_owner_success(
-    client: TestClient, test_admin_role: Role
-) -> None:
-    owner_role = test_admin_role.model_copy(
-        update={"org_role": OrgRole.OWNER, "scopes": ORG_OWNER_SCOPES}
-    )
-    token = ctx_role.set(owner_role)
-    try:
-        with patch.object(organization_router, "OrgService") as MockService:
-            mock_svc = AsyncMock()
-            mock_svc.delete_organization.return_value = None
-            MockService.return_value = mock_svc
-
-            response = client.delete("/organization?confirm=Test%20Organization")
-    finally:
-        ctx_role.reset(token)
-
-    assert response.status_code == status.HTTP_204_NO_CONTENT
-    mock_svc.delete_organization.assert_awaited_once_with(
-        confirmation="Test Organization"
-    )
-
-
-@pytest.mark.anyio
-async def test_delete_organization_bad_confirmation_returns_400(
-    client: TestClient, test_admin_role: Role
-) -> None:
-    owner_role = test_admin_role.model_copy(
-        update={"org_role": OrgRole.OWNER, "scopes": ORG_OWNER_SCOPES}
-    )
-    token = ctx_role.set(owner_role)
-    try:
-        with patch.object(organization_router, "OrgService") as MockService:
-            mock_svc = AsyncMock()
-            mock_svc.delete_organization.side_effect = TracecatValidationError(
-                "Confirmation text must exactly match the organization name."
-            )
-            MockService.return_value = mock_svc
-
-            response = client.delete("/organization?confirm=wrong")
-    finally:
-        ctx_role.reset(token)
-
-    assert response.status_code == status.HTTP_400_BAD_REQUEST

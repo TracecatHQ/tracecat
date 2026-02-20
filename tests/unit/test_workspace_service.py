@@ -293,7 +293,7 @@ class TestCreateInvitation:
         assert invitation.id is not None
         assert invitation.workspace_id == inv_workspace.id
         assert invitation.email == "invitee@example.com"
-        assert invitation.role_id == rbac_roles["workspace-editor"]
+        assert str(invitation.role_id) == rbac_roles["workspace-editor"]
         assert invitation.status == InvitationStatus.PENDING
         assert invitation.invited_by == admin_user.id
         assert len(invitation.token) == 64

@@ -11,6 +11,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Membership, User, UserRoleAssignment, Workspace
 from tracecat.db.models import Role as DBRole
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.service import BaseService
 from tracecat.workspaces.schemas import (
@@ -138,11 +139,37 @@ class MembershipService(BaseService):
         Note: The authorization cache is request-scoped, so changes will be
         reflected in subsequent requests automatically.
         """
+        # Resolve workspace org + default role in one DB read.
+        org_role_stmt = (
+            select(Workspace.organization_id, DBRole.id)
+            .join(
+                DBRole,
+                and_(
+                    DBRole.organization_id == Workspace.organization_id,
+                    DBRole.slug == "workspace-editor",
+                ),
+            )
+            .where(Workspace.id == workspace_id)
+        )
+        org_role_row = (await self.session.execute(org_role_stmt)).first()
+        if org_role_row is None:
+            raise TracecatValidationError("Workspace or default role not found")
+        organization_id, role_id = org_role_row
+
         membership = Membership(
             user_id=params.user_id,
             workspace_id=workspace_id,
         )
         self.session.add(membership)
+        self.session.add(
+            UserRoleAssignment(
+                organization_id=organization_id,
+                user_id=params.user_id,
+                workspace_id=workspace_id,
+                role_id=role_id,
+                assigned_by=self.role.user_id if self.role else None,
+            )
+        )
         await self.session.commit()
 
     @require_scope("workspace:member:remove")
