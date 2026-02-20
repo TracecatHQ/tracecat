@@ -89,7 +89,9 @@ class AgentActivities:
         # workflow execution paths still enforce entitlements.
         if args.tool_approvals:
             if args.role.organization_id is None:
-                raise ValueError("Role must have organization_id to validate entitlements")
+                raise ValueError(
+                    "Role must have organization_id to validate entitlements"
+                )
             async with TierService.with_session() as tier_service:
                 entitlement_service = EntitlementService(tier_service)
                 await entitlement_service.check_entitlement(

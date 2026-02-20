@@ -250,7 +250,9 @@ class TestWorkflowExecutionEvents:
         )
 
         expected_result = {"status": "ok", "items_processed": 3}
-        with patch("tracecat.workflow.executions.service.get_result") as mock_get_result:
+        with patch(
+            "tracecat.workflow.executions.service.get_result"
+        ) as mock_get_result:
             mock_get_result.return_value = expected_result
 
             events = await workflow_executions_service.list_workflow_execution_events_compact(
