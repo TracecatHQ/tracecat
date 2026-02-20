@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
@@ -16,7 +16,6 @@ from tracecat.service import BaseService
 from tracecat.workspaces.schemas import (
     WorkspaceMember,
     WorkspaceMembershipCreate,
-    WorkspaceMembershipUpdate,
 )
 
 
@@ -52,45 +51,35 @@ class MembershipService(BaseService):
         self, workspace_id: WorkspaceID
     ) -> list[WorkspaceMember]:
         """List all workspace members with their workspace roles from RBAC."""
-        # Get workspace org_id for RBAC lookup
-        ws_stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
-        ws_result = await self.session.execute(ws_stmt)
-        org_id = ws_result.scalar_one_or_none()
-        if org_id is None:
-            return []
-
-        # Get members
         statement = (
-            select(User)
-            .join(Membership, Membership.user_id == User.id)
+            select(
+                User,
+                func.coalesce(DBRole.name, literal("Editor")).label("role_name"),
+            )
+            .select_from(Membership)
+            .join(User, Membership.user_id == User.id)  # pyright: ignore[reportArgumentType]
+            .join(Workspace, Workspace.id == Membership.workspace_id)
+            .outerjoin(
+                UserRoleAssignment,
+                and_(
+                    UserRoleAssignment.user_id == User.id,  # pyright: ignore[reportArgumentType]
+                    UserRoleAssignment.workspace_id == Membership.workspace_id,
+                    UserRoleAssignment.organization_id == Workspace.organization_id,
+                ),
+            )
+            .outerjoin(DBRole, DBRole.id == UserRoleAssignment.role_id)
             .where(Membership.workspace_id == workspace_id)
         )
-        result = await self.session.execute(statement)
-        users = result.scalars().all()
-
-        # Build RBAC role map for workspace-scoped assignments
-        user_ids = [u.id for u in users]
-        rbac_stmt = (
-            select(UserRoleAssignment.user_id, DBRole.name)
-            .join(DBRole, DBRole.id == UserRoleAssignment.role_id)
-            .where(
-                UserRoleAssignment.workspace_id == workspace_id,
-                UserRoleAssignment.organization_id == org_id,
-                UserRoleAssignment.user_id.in_(user_ids),  # pyright: ignore[reportAttributeAccessIssue]
-            )
-        )
-        rbac_result = await self.session.execute(rbac_stmt)
-        rbac_map: dict[str, str] = {str(row[0]): row[1] for row in rbac_result.all()}
-
+        rows = (await self.session.execute(statement)).all()
         return [
             WorkspaceMember(
                 user_id=user.id,
                 first_name=user.first_name,
                 last_name=user.last_name,
                 email=user.email,
-                role_name=rbac_map.get(str(user.id), "Editor"),
+                role_name=role_name,
             )
-            for user in users
+            for user, role_name in rows
         ]
 
     async def get_membership(
@@ -151,20 +140,6 @@ class MembershipService(BaseService):
             user_id=params.user_id,
             workspace_id=workspace_id,
         )
-        self.session.add(membership)
-        await self.session.commit()
-
-    @require_scope("workspace:member:update")
-    async def update_membership(
-        self, membership: Membership, params: WorkspaceMembershipUpdate
-    ) -> None:
-        """Update a workspace membership.
-
-        Note: The authorization cache is request-scoped, so changes will be
-        reflected in subsequent requests automatically.
-        """
-        for key, value in params.model_dump(exclude_unset=True).items():
-            setattr(membership, key, value)
         self.session.add(membership)
         await self.session.commit()
 

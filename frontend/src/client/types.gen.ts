@@ -6730,8 +6730,6 @@ export type WorkspaceMembershipRead = {
   workspace_id: string
 }
 
-export type WorkspaceMembershipUpdate = unknown
-
 export type WorkspaceRead = {
   id: string
   name: string
@@ -7029,7 +7027,6 @@ export type WorkspacesCreateWorkspaceMembershipData = {
 export type WorkspacesCreateWorkspaceMembershipResponse = unknown
 
 export type WorkspacesUpdateWorkspaceMembershipData = {
-  requestBody: WorkspaceMembershipUpdate
   userId: string
   workspaceId: string
 }

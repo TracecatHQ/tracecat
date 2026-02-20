@@ -20,7 +20,7 @@ from tracecat.db.models import (
     User,
 )
 from tracecat.db.models import (
-    Role as DBModel,
+    Role as DBRole,
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -156,9 +156,9 @@ def create_superuser_role(organization_id: uuid.UUID, user_id: uuid.UUID) -> Rol
 
 
 @pytest.fixture
-async def org1_member_role(session: AsyncSession, org1: Organization) -> DBModel:
+async def org1_member_role(session: AsyncSession, org1: Organization) -> DBRole:
     """Create an RBAC 'organization-member' role for org1."""
-    role = DBModel(
+    role = DBRole(
         id=uuid.uuid4(),
         name="Organization Member",
         slug="organization-member",
@@ -171,9 +171,9 @@ async def org1_member_role(session: AsyncSession, org1: Organization) -> DBModel
 
 
 @pytest.fixture
-async def org1_admin_role(session: AsyncSession, org1: Organization) -> DBModel:
+async def org1_admin_role(session: AsyncSession, org1: Organization) -> DBRole:
     """Create an RBAC 'organization-admin' role for org1."""
-    role = DBModel(
+    role = DBRole(
         id=uuid.uuid4(),
         name="Organization Admin",
         slug="organization-admin",
@@ -186,9 +186,9 @@ async def org1_admin_role(session: AsyncSession, org1: Organization) -> DBModel:
 
 
 @pytest.fixture
-async def org1_owner_role(session: AsyncSession, org1: Organization) -> DBModel:
+async def org1_owner_role(session: AsyncSession, org1: Organization) -> DBRole:
     """Create an RBAC 'organization-owner' role for org1."""
-    role = DBModel(
+    role = DBRole(
         id=uuid.uuid4(),
         name="Organization Owner",
         slug="organization-owner",
@@ -723,7 +723,7 @@ class TestOrganizationServiceInvitations:
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
-        org1_member_role: DBModel,
+        org1_member_role: DBRole,
     ):
         """Test create_invitation creates an invitation record."""
         role = create_admin_role(org1.id, admin_in_org1.id)
@@ -748,7 +748,7 @@ class TestOrganizationServiceInvitations:
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
-        org1_admin_role: DBModel,
+        org1_admin_role: DBRole,
     ):
         """Test create_invitation can assign admin role."""
         role = create_admin_role(org1.id, admin_in_org1.id)
@@ -767,7 +767,7 @@ class TestOrganizationServiceInvitations:
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
-        org1_owner_role: DBModel,
+        org1_owner_role: DBRole,
     ):
         """Test that org admins cannot create OWNER invitations."""
         # Org admin (not superuser) should not be able to create OWNER invitations
@@ -789,7 +789,7 @@ class TestOrganizationServiceInvitations:
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
-        org1_owner_role: DBModel,
+        org1_owner_role: DBRole,
     ):
         """Test that platform superusers can create OWNER invitations."""
         role = create_superuser_role(org1.id, admin_in_org1.id)
@@ -809,7 +809,7 @@ class TestOrganizationServiceInvitations:
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
-        org1_member_role: DBModel,
+        org1_member_role: DBRole,
     ):
         """Test create_invitation raises error for duplicate email in same org."""
         role = create_admin_role(org1.id, admin_in_org1.id)
@@ -833,7 +833,7 @@ class TestOrganizationServiceInvitations:
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
-        org1_member_role: DBModel,
+        org1_member_role: DBRole,
     ):
         """Test create_invitation replaces an expired invitation."""
         role = create_admin_role(org1.id, admin_in_org1.id)
@@ -864,7 +864,7 @@ class TestOrganizationServiceInvitations:
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
-        org1_member_role: DBModel,
+        org1_member_role: DBRole,
     ):
         """Test create_invitation raises error when email is already a member."""
         role = create_admin_role(org1.id, admin_in_org1.id)
@@ -886,7 +886,7 @@ class TestOrganizationServiceInvitations:
         org1: Organization,
         org2: Organization,
         admin_in_org1: User,
-        org1_member_role: DBModel,
+        org1_member_role: DBRole,
     ):
         """Test list_invitations only returns invitations for the organization."""
         role = create_admin_role(org1.id, admin_in_org1.id)
@@ -901,7 +901,7 @@ class TestOrganizationServiceInvitations:
         )
 
         # Create invitation for org2 directly (need a role for org2)
-        org2_role = DBModel(
+        org2_role = DBRole(
             id=uuid.uuid4(),
             name="Organization Member",
             slug="organization-member",
@@ -936,7 +936,7 @@ class TestOrganizationServiceInvitations:
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
-        org1_member_role: DBModel,
+        org1_member_role: DBRole,
     ):
         """Test list_invitations can filter by status."""
         role = create_admin_role(org1.id, admin_in_org1.id)
@@ -973,7 +973,7 @@ class TestOrganizationServiceInvitations:
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
-        org1_member_role: DBModel,
+        org1_member_role: DBRole,
     ):
         """Test get_invitation_by_token retrieves invitation."""
         role = create_admin_role(org1.id, admin_in_org1.id)
@@ -994,7 +994,7 @@ class TestOrganizationServiceInvitations:
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
-        org1_member_role: DBModel,
+        org1_member_role: DBRole,
     ):
         """Test get_invitation_by_token returns org name and inviter info for acceptance page."""
         # Set inviter's name for test
@@ -1052,7 +1052,7 @@ class TestOrganizationServiceInvitations:
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
-        org1_member_role: DBModel,
+        org1_member_role: DBRole,
     ):
         """Test revoke_invitation marks invitation as revoked."""
         role = create_admin_role(org1.id, admin_in_org1.id)
@@ -1073,7 +1073,7 @@ class TestOrganizationServiceInvitations:
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
-        org1_member_role: DBModel,
+        org1_member_role: DBRole,
     ):
         """Test revoke_invitation raises error for already revoked invitation."""
         role = create_admin_role(org1.id, admin_in_org1.id)
@@ -1099,7 +1099,7 @@ class TestOrganizationServiceInvitations:
     ):
         """Test revoke_invitation raises error for invitation in different org."""
         # Create invitation in org2 directly (need a role for org2)
-        org2_role = DBModel(
+        org2_role = DBRole(
             id=uuid.uuid4(),
             name="Organization Member",
             slug="organization-member",
@@ -1134,7 +1134,7 @@ class TestOrganizationServiceInvitations:
         org2: Organization,
         admin_in_org1: User,
         user_in_org2: User,
-        org1_member_role: DBModel,
+        org1_member_role: DBRole,
     ):
         """Test accept_invitation creates membership."""
         # Create invitation as admin
@@ -1172,7 +1172,7 @@ class TestOrganizationServiceInvitations:
         org2: Organization,
         admin_in_org1: User,
         user_in_org2: User,
-        org1_member_role: DBModel,
+        org1_member_role: DBRole,
     ):
         """Test accept_invitation raises error for already accepted invitation."""
         # Create and accept invitation
@@ -1205,7 +1205,7 @@ class TestOrganizationServiceInvitations:
         org2: Organization,
         admin_in_org1: User,
         user_in_org2: User,
-        org1_member_role: DBModel,
+        org1_member_role: DBRole,
     ):
         """Test accept_invitation raises error when user email doesn't match invitation."""
         # Create invitation for user_in_org2
@@ -1253,7 +1253,7 @@ class TestOrganizationServiceInvitations:
         org2: Organization,
         admin_in_org1: User,
         user_in_org2: User,
-        org1_member_role: DBModel,
+        org1_member_role: DBRole,
     ):
         """Test accept_invitation raises error for revoked invitation."""
         # Create and revoke invitation

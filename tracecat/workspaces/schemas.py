@@ -135,10 +135,6 @@ class WorkspaceMembershipCreate(Schema):
     user_id: UserID
 
 
-class WorkspaceMembershipUpdate(Schema):
-    pass
-
-
 class WorkspaceMembershipRead(Schema):
     user_id: UserID
     workspace_id: WorkspaceID

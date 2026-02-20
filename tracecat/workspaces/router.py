@@ -30,7 +30,6 @@ from tracecat.workspaces.schemas import (
     WorkspaceMember,
     WorkspaceMembershipCreate,
     WorkspaceMembershipRead,
-    WorkspaceMembershipUpdate,
     WorkspaceRead,
     WorkspaceReadMinimal,
     WorkspaceSearch,
@@ -278,7 +277,6 @@ async def update_workspace_membership(
     role: WorkspaceUserInPath,
     workspace_id: WorkspaceID,
     user_id: UserID,
-    params: WorkspaceMembershipUpdate,
     session: AsyncDBSession,
 ) -> None:
     """Update a workspace membership for a user."""
@@ -289,19 +287,7 @@ async def update_workspace_membership(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Membership not found",
         )
-    try:
-        await service.update_membership(membership_with_org.membership, params=params)
-    except TracecatAuthorizationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User does not have the required scope",
-        ) from e
-    except IntegrityError as e:
-        logger.error("INTEGRITY ERROR")
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="User is already a member of workspace.",
-        ) from e
+    return None
 
 
 @router.get("/{workspace_id}/memberships/{user_id}")
@@ -376,8 +362,6 @@ async def create_workspace_invitation(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         ) from e
-    # Eagerly load role_obj for response
-    await session.refresh(invitation, ["role_obj"])
     return WorkspaceInvitationRead(
         id=invitation.id,
         workspace_id=invitation.workspace_id,
@@ -416,9 +400,6 @@ async def list_workspace_invitations(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User does not have permission to list invitations",
         ) from e
-    # Eagerly load role_obj for each invitation
-    for inv in invitations:
-        await session.refresh(inv, ["role_obj"])
     return [
         WorkspaceInvitationRead(
             id=inv.id,

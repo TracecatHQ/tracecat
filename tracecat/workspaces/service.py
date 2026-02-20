@@ -318,8 +318,12 @@ class WorkspaceService(BaseOrgService):
             raise
 
         await self.session.commit()
-        await self.session.refresh(invitation)
-        return invitation
+        result = await self.session.execute(
+            select(Invitation)
+            .where(Invitation.id == invitation.id)
+            .options(selectinload(Invitation.role_obj))
+        )
+        return result.scalar_one()
 
     async def list_invitations(
         self,
@@ -338,7 +342,9 @@ class WorkspaceService(BaseOrgService):
         statement = select(Invitation).where(Invitation.workspace_id == workspace_id)
         if status is not None:
             statement = statement.where(Invitation.status == status)
-        statement = statement.order_by(Invitation.created_at.desc())
+        statement = statement.options(selectinload(Invitation.role_obj)).order_by(
+            Invitation.created_at.desc()
+        )
         result = await self.session.execute(statement)
         return result.scalars().all()
 

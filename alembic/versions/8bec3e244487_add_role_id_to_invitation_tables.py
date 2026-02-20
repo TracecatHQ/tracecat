@@ -81,6 +81,23 @@ def upgrade() -> None:
         """
     )
 
+    bind = op.get_bind()
+    org_inv_null_role_count = bind.execute(
+        sa.text("SELECT COUNT(*) FROM organization_invitation WHERE role_id IS NULL")
+    ).scalar_one()
+    inv_null_role_count = bind.execute(
+        sa.text("SELECT COUNT(*) FROM invitation WHERE role_id IS NULL")
+    ).scalar_one()
+    total_null_role_count = org_inv_null_role_count + inv_null_role_count
+    if total_null_role_count:
+        raise RuntimeError(
+            "Migration failed: "
+            f"{total_null_role_count} invitations still have NULL role_id "
+            f"(organization_invitation={org_inv_null_role_count}, "
+            f"invitation={inv_null_role_count}). Ensure all organizations have "
+            "seeded preset roles before rerunning this migration."
+        )
+
     # 3. Make role_id NOT NULL after backfill
     op.alter_column("organization_invitation", "role_id", nullable=False)
     op.alter_column("invitation", "role_id", nullable=False)
@@ -186,6 +203,7 @@ def downgrade() -> None:
         WHERE r.id = inv.role_id
         """
     )
+    op.alter_column("invitation", "role", server_default=None)
 
     # Re-add organization_invitation.role with default
     op.add_column(
@@ -211,6 +229,7 @@ def downgrade() -> None:
         WHERE r.id = oi.role_id
         """
     )
+    op.alter_column("organization_invitation", "role", server_default=None)
 
     # --- Reverse Phase 1: Drop role_id columns ---
     op.drop_constraint(
