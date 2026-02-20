@@ -7,7 +7,7 @@ import { useEffect, useMemo } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function NoAccessibleSections() {
@@ -33,7 +33,6 @@ function NoAccessibleSections() {
 export default function WorkspacePage() {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
-  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
   const canViewWorkflows = useScopeCheck("workflow:read")
   const canViewCases = useScopeCheck("case:read")
   const canViewAgents = useScopeCheck("agent:read")
@@ -45,9 +44,11 @@ export default function WorkspacePage() {
   const canViewInbox = useScopeCheck("inbox:read")
   const canExecuteAgents = useScopeCheck("agent:execute")
 
-  const agentPresetsEnabled = isFeatureEnabled("agent-presets")
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
+
   const isLoading =
-    featureFlagsLoading ||
+    entitlementsLoading ||
     [
       canViewWorkflows,
       canViewCases,
@@ -72,7 +73,7 @@ export default function WorkspacePage() {
     if (canViewCases === true) {
       return `${basePath}/cases`
     }
-    if (agentPresetsEnabled && canViewAgents === true) {
+    if (agentAddonsEnabled && canViewAgents === true) {
       return `${basePath}/agents`
     }
     if (canViewTables === true) {
@@ -98,7 +99,7 @@ export default function WorkspacePage() {
     }
     return null
   }, [
-    agentPresetsEnabled,
+    agentAddonsEnabled,
     canExecuteAgents,
     canViewAgents,
     canViewCases,

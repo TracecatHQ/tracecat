@@ -251,7 +251,10 @@ class WorkspaceService(BaseOrgService):
                 for this email in this workspace.
         """
 
-        role_id = uuid.UUID(params.role_id)
+        try:
+            role_id = uuid.UUID(params.role_id)
+        except ValueError as e:
+            raise TracecatValidationError("Invalid role ID format") from e
 
         # Validate role_id exists and belongs to this organization
         role_result = await self.session.execute(

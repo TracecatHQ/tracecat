@@ -2507,8 +2507,6 @@ export type ExternalObject = {
 
 /**
  * Feature flag enum reserved for engineering rollouts.
- *
- * NOTE: At least one member is required for valid OpenAPI schema generation.
  */
 export type FeatureFlag = "ai-ranking" | "rbac"
 

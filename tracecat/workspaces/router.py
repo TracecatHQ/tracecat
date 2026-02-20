@@ -265,6 +265,10 @@ async def create_workspace_membership(
             status_code=status.HTTP_409_CONFLICT,
             detail="User is already a member of workspace.",
         ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
 
 
 @router.get("/{workspace_id}/memberships/{user_id}")
