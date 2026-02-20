@@ -10,12 +10,17 @@ import { TriggerPanel } from "@/components/builder/panel/trigger-panel"
 import { WorkflowPanel } from "@/components/builder/panel/workflow-panel"
 import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
+import { useGraph } from "@/lib/hooks"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 
 export const BuilderPanel = React.forwardRef<ActionPanelRef, object>(() => {
   const { selectedNodeId } = useWorkflowBuilder()
-  const { workflow, isLoading, error } = useWorkflow()
+  const { workflow, isLoading, error, workspaceId, workflowId } = useWorkflow()
+  const { isLoading: graphIsLoading, error: graphError } = useGraph(
+    workspaceId,
+    workflowId ?? ""
+  )
   const nodes = useNodes()
   const selectedNode = nodes.find((node) => node.id === selectedNodeId)
 
@@ -34,6 +39,23 @@ export const BuilderPanel = React.forwardRef<ActionPanelRef, object>(() => {
         <AlertNotification level="error" message={error.message} />
       </div>
     )
+  }
+  if (selectedNodeId && nodes.length === 0) {
+    if (graphError) {
+      return (
+        <div className="flex size-full items-center justify-center">
+          <AlertNotification level="error" message={graphError.message} />
+        </div>
+      )
+    }
+    if (!graphIsLoading) {
+      return (
+        <div className="size-full overflow-auto">
+          <WorkflowPanel workflow={workflow} />
+        </div>
+      )
+    }
+    return <FormLoading />
   }
   if (selectedNodeId && nodes.length > 0 && !selectedNode) {
     return (

@@ -60,6 +60,7 @@ import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { useGraph, useGraphOperations } from "@/lib/hooks"
 import { pruneGraphObject } from "@/lib/workflow"
+import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 
 const dagreGraph = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}))
@@ -200,12 +201,16 @@ export const WorkflowCanvas = React.forwardRef<
   const { setViewport, getNode, screenToFlowPosition } = useReactFlow()
   const { toast } = useToast()
   const { workspaceId, workflowId } = useWorkflow()
+  const { selectedNodeId, setSelectedNodeId } = useWorkflowBuilder()
   const { data: graphData } = useGraph(workspaceId, workflowId ?? "")
   const { applyGraphOperations, refetchGraph } = useGraphOperations(
     workspaceId,
     workflowId ?? ""
   )
   const [graphVersion, setGraphVersion] = useState<number>(1)
+  const [hydratedWorkflowId, setHydratedWorkflowId] = useState<string | null>(
+    null
+  )
   const [silhouettePosition, setSilhouettePosition] =
     useState<XYPosition | null>(null)
   const [isConnecting, setIsConnecting] = useState(false)
@@ -277,9 +282,14 @@ export const WorkflowCanvas = React.forwardRef<
         }))
       })
       setEdges(rfEdges)
+      setHydratedWorkflowId(workflowId ?? null)
     },
-    [buildNodesAndEdgesFromGraph, setNodes, setEdges]
+    [buildNodesAndEdgesFromGraph, setNodes, setEdges, workflowId]
   )
+
+  useEffect(() => {
+    setHydratedWorkflowId(null)
+  }, [workflowId])
 
   /**
    * Load graph data when it becomes available.
@@ -314,17 +324,64 @@ export const WorkflowCanvas = React.forwardRef<
         y: viewport?.y ?? 0,
         zoom: viewport?.zoom ?? 1,
       })
+      setHydratedWorkflowId(workflowId ?? null)
     } catch (error) {
       console.error("Failed to initialize workflow graph:", error)
     }
   }, [
     graphData,
     reactFlowInstance,
+    workflowId,
     buildNodesAndEdgesFromGraph,
     setNodes,
     setEdges,
     setViewport,
   ])
+
+  // Keep node selection in sync with builder selection state without
+  // re-running full graph hydration logic.
+  useEffect(() => {
+    // Avoid reconciling selection against stale nodes while switching workflows.
+    if (!workflowId || hydratedWorkflowId !== workflowId) {
+      return
+    }
+
+    if (nodes.length === 0) {
+      return
+    }
+
+    // If a persisted selection points to a missing node, clear it so we
+    // don't keep restoring a stale "not found" state.
+    if (selectedNodeId && !nodes.some((node) => node.id === selectedNodeId)) {
+      setSelectedNodeId(null)
+      return
+    }
+
+    setNodes((currentNodes) => {
+      let changed = false
+      const nextNodes = currentNodes.map((node) => {
+        const shouldBeSelected =
+          selectedNodeId !== null && node.id === selectedNodeId
+        if (node.selected === shouldBeSelected) {
+          return node
+        }
+        changed = true
+        return { ...node, selected: shouldBeSelected }
+      })
+      return changed ? nextNodes : currentNodes
+    })
+  }, [
+    hydratedWorkflowId,
+    nodes,
+    selectedNodeId,
+    setNodes,
+    setSelectedNodeId,
+    workflowId,
+  ])
+
+  const onPaneClick = useCallback(() => {
+    setSelectedNodeId(null)
+  }, [setSelectedNodeId])
 
   // Connections
   const onConnect = useCallback(
@@ -961,6 +1018,7 @@ export const WorkflowCanvas = React.forwardRef<
         onEdgesChange={handleEdgesChange}
         onNodeDragStop={onNodesDragStop}
         onMoveEnd={onMoveEnd}
+        onPaneClick={onPaneClick}
         defaultEdgeOptions={defaultEdgeOptions}
         nodeTypes={nodeTypes}
         proOptions={{ hideAttribution: true }}

@@ -29,6 +29,68 @@ import {
 } from "@/components/builder/panel/trigger-panel-tabs"
 import { useWorkflow } from "@/providers/workflow"
 
+const SELECTED_NODE_STORAGE_PREFIX = "tracecat:builder:selected-node"
+
+function selectedNodeStorageKey({
+  workspaceId,
+  workflowId,
+}: {
+  workspaceId: string
+  workflowId: string | null
+}): string {
+  return `${SELECTED_NODE_STORAGE_PREFIX}:${workspaceId}:${workflowId}`
+}
+
+function readPersistedSelectedNode({
+  workspaceId,
+  workflowId,
+}: {
+  workspaceId: string
+  workflowId: string | null
+}): string | null {
+  if (!workflowId) {
+    return null
+  }
+  if (typeof window === "undefined") {
+    return null
+  }
+  try {
+    return sessionStorage.getItem(
+      selectedNodeStorageKey({ workspaceId, workflowId })
+    )
+  } catch {
+    return null
+  }
+}
+
+function writePersistedSelectedNode({
+  workspaceId,
+  workflowId,
+  selectedNodeId,
+}: {
+  workspaceId: string
+  workflowId: string | null
+  selectedNodeId: string | null
+}): void {
+  if (!workflowId) {
+    return
+  }
+  if (typeof window === "undefined") {
+    return
+  }
+
+  const key = selectedNodeStorageKey({ workspaceId, workflowId })
+  try {
+    if (selectedNodeId) {
+      sessionStorage.setItem(key, selectedNodeId)
+    } else {
+      sessionStorage.removeItem(key)
+    }
+  } catch {
+    // Ignore storage failures (e.g. blocked storage)
+  }
+}
+
 interface ReactFlowContextType {
   reactFlow: ReactFlowInstance
   workflowId: string
@@ -91,15 +153,52 @@ export const WorkflowBuilderProvider: React.FC<
   const canvasRef = useRef<WorkflowCanvasRef>(null)
   const sidebarRef = useRef<EventsSidebarRef>(null)
   const actionPanelRef = useRef<ActionPanelRef>(null)
+  const lastPersistedSelectionRef = useRef<{
+    key: string
+    value: string | null
+  } | null>(null)
 
   useEffect(() => {
-    // When the user switches workflows, clear selection, execution state,
-    // and any in-memory drafts so we don't leak state across workflows.
-    setSelectedNodeId(null)
+    // Restore the last selection for this workflow in the current browser
+    // session, then clear transient per-workflow UI state.
+    if (!workflowId) {
+      setSelectedNodeId(null)
+      return
+    }
+    const restoredSelection = readPersistedSelectedNode({
+      workspaceId,
+      workflowId,
+    })
+    const key = selectedNodeStorageKey({ workspaceId, workflowId })
+    lastPersistedSelectionRef.current = {
+      key,
+      value: restoredSelection,
+    }
+    setSelectedNodeId(restoredSelection)
     setCurrentExecutionId(null)
     setActionDrafts({})
     setTriggerPanelTab(DEFAULT_TRIGGER_PANEL_TAB)
-  }, [workflowId])
+  }, [workspaceId, workflowId])
+
+  useEffect(() => {
+    if (!workflowId) {
+      return
+    }
+    const key = selectedNodeStorageKey({ workspaceId, workflowId })
+    const lastPersisted = lastPersistedSelectionRef.current
+    if (
+      lastPersisted &&
+      lastPersisted.key === key &&
+      lastPersisted.value === selectedNodeId
+    ) {
+      return
+    }
+    writePersistedSelectedNode({ workspaceId, workflowId, selectedNodeId })
+    lastPersistedSelectionRef.current = {
+      key,
+      value: selectedNodeId,
+    }
+  }, [workspaceId, workflowId, selectedNodeId])
 
   const setReactFlowNodes = useCallback(
     (nodes: Node[] | ((nodes: Node[]) => Node[])) => {
@@ -135,7 +234,18 @@ export const WorkflowBuilderProvider: React.FC<
       if (nodeSelected?.type === "selector") {
         return
       }
-      setSelectedNodeId(nodeSelected?.id ?? null)
+      if (nodeSelected) {
+        setSelectedNodeId(nodeSelected.id)
+        return
+      }
+
+      // Keep selection when the canvas unmounts (e.g. switching to runs).
+      // The node list is empty in that state and we should not clear the
+      // persisted "last selected node" for this workflow.
+      if (reactFlowInstance.getNodes().length === 0) {
+        return
+      }
+      setSelectedNodeId(null)
     },
   })
 
