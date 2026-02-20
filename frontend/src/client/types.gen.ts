@@ -7026,13 +7026,6 @@ export type WorkspacesCreateWorkspaceMembershipData = {
 
 export type WorkspacesCreateWorkspaceMembershipResponse = unknown
 
-export type WorkspacesUpdateWorkspaceMembershipData = {
-  userId: string
-  workspaceId: string
-}
-
-export type WorkspacesUpdateWorkspaceMembershipResponse = void
-
 export type WorkspacesGetWorkspaceMembershipData = {
   userId: string
   workspaceId: string
@@ -9741,19 +9734,6 @@ export type $OpenApiTs = {
     }
   }
   "/workspaces/{workspace_id}/memberships/{user_id}": {
-    patch: {
-      req: WorkspacesUpdateWorkspaceMembershipData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
     get: {
       req: WorkspacesGetWorkspaceMembershipData
       res: {
