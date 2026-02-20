@@ -12,6 +12,7 @@ import {
 import React, { useCallback, useLayoutEffect, useMemo, useRef } from "react"
 import { TriggerSourceHandle } from "@/components/builder/canvas/custom-handle"
 import { nodeStyles } from "@/components/builder/canvas/node-styles"
+import { getCaseEventLabel } from "@/components/builder/panel/case-event-suggestions"
 import {
   DEFAULT_TRIGGER_PANEL_TAB,
   type TriggerPanelTab,
@@ -82,6 +83,14 @@ export default React.memo(function TriggerNode({
   const eventKey = useMemo(() => caseEventTypes.join("|"), [caseEventTypes])
   const hasCaseTriggerConfig =
     caseEventTypes.length > 0 || tagFilters.length > 0
+  const caseEvents = useMemo(
+    () =>
+      caseEventTypes.map((eventType) => ({
+        eventType,
+        label: getCaseEventLabel(eventType),
+      })),
+    [caseEventTypes]
+  )
   const cardRef = useRef<HTMLDivElement>(null)
   const previousHeightRef = useRef<number | null>(null)
   const pendingHeightAdjustmentRef = useRef(false)
@@ -218,7 +227,7 @@ export default React.memo(function TriggerNode({
                 </CardDescription>
               )}
             </div>
-            <div className="flex items-start">
+            <div className="flex items-start gap-1">
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -238,6 +247,61 @@ export default React.memo(function TriggerNode({
                         : "Webhook is unprotected"}
                   </TooltipContent>
                 </Tooltip>
+                {caseAddonsEnabled && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="Open case trigger settings"
+                        className="rounded-sm"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          openTriggerPanel(TriggerPanelTabs.caseTriggers)
+                        }}
+                      >
+                        <SquarePlay
+                          className={cn(
+                            "size-4",
+                            caseTriggerError
+                              ? "text-destructive/70"
+                              : caseTriggerIsLoading
+                                ? "text-muted-foreground/70"
+                                : isCaseTriggerEnabled
+                                  ? "text-emerald-400"
+                                  : hasCaseTriggerConfig
+                                    ? "text-amber-400"
+                                    : "text-muted-foreground/70"
+                          )}
+                        />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="top"
+                      align="end"
+                      sideOffset={4}
+                      className="max-w-56"
+                    >
+                      {caseTriggerIsLoading ? (
+                        <span>Loading case triggers...</span>
+                      ) : caseTriggerError ? (
+                        <span>Failed to load case triggers</span>
+                      ) : caseEvents.length > 0 ? (
+                        <div className="space-y-1">
+                          <p className="font-medium text-xs">Case events</p>
+                          <ul className="space-y-0.5 text-xs">
+                            {caseEvents.map((caseEvent) => (
+                              <li key={caseEvent.eventType}>
+                                {caseEvent.label}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : (
+                        <span>No case events configured</span>
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
               </TooltipProvider>
             </div>
           </div>
@@ -276,22 +340,6 @@ export default React.memo(function TriggerNode({
               >
                 <TriggerNodeSchedulesTable workflowId={workflow.id} />
               </div>
-              {/* Case triggers */}
-              {caseAddonsEnabled && (
-                <div
-                  className="rounded-lg border cursor-pointer"
-                  onClick={() =>
-                    openTriggerPanel(TriggerPanelTabs.caseTriggers)
-                  }
-                >
-                  <TriggerNodeCaseTriggersTable
-                    isLoading={caseTriggerIsLoading}
-                    error={caseTriggerError}
-                    enabled={isCaseTriggerEnabled}
-                    hasConfig={hasCaseTriggerConfig}
-                  />
-                </div>
-              )}
             </div>
           </div>
         </>
@@ -451,82 +499,6 @@ function TriggerNodeSchedulesTable({ workflowId }: { workflowId: string }) {
               colSpan={4}
             >
               No schedules
-            </TableCell>
-          </TableRow>
-        )}
-      </TableBody>
-    </Table>
-  )
-}
-
-function TriggerNodeCaseTriggersTable({
-  isLoading,
-  error,
-  enabled,
-  hasConfig,
-}: {
-  isLoading: boolean
-  error: unknown
-  enabled: boolean
-  hasConfig: boolean
-}) {
-  if (isLoading) {
-    return (
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="h-8 text-center text-xs" colSpan={2}>
-              <div className="flex items-center justify-center gap-1">
-                <Skeleton className="size-3" />
-                <Skeleton className="h-3 w-16" />
-              </div>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <TableRow className="items-center text-center text-xs">
-            <TableCell>
-              <div className="flex w-full items-center justify-center gap-2">
-                <Skeleton className="h-3 w-24" />
-              </div>
-            </TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center p-2">
-        <UnplugIcon className="size-4 text-muted-foreground" />
-      </div>
-    )
-  }
-
-  return (
-    <Table>
-      <TableHeader className="[&_tr]:border-b-0">
-        <TableRow className="border-b-0">
-          <TableHead className="h-8 text-center text-xs" colSpan={2}>
-            <div className="flex items-center justify-center gap-1">
-              <SquarePlay className="size-3" />
-              <span>Case triggers</span>
-              <span
-                className={cn(
-                  "ml-1 inline-block size-2 rounded-full",
-                  enabled ? "bg-emerald-500" : "bg-muted"
-                )}
-              />
-            </div>
-          </TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {!hasConfig && (
-          <TableRow className="justify-center text-xs text-muted-foreground">
-            <TableCell className="h-8 bg-muted-foreground/5 text-center">
-              No case triggers
             </TableCell>
           </TableRow>
         )}
