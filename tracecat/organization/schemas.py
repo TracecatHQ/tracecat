@@ -1,11 +1,18 @@
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from tracecat.authz.enums import OrgRole
-from tracecat.identifiers import OrganizationID, UserID
+from tracecat.identifiers import (
+    OrganizationID,
+    ScheduleUUID,
+    UserID,
+    WorkflowID,
+    WorkspaceID,
+)
 from tracecat.invitations.enums import InvitationStatus
 
 # Members
@@ -64,6 +71,58 @@ class OrgDomainRead(BaseModel):
     verification_method: str
     created_at: datetime
     updated_at: datetime
+
+
+class OrgScheduleTemporalStatus(StrEnum):
+    PRESENT = "present"
+    MISSING = "missing"
+
+
+class OrgScheduleTemporalItem(BaseModel):
+    schedule_id: ScheduleUUID
+    workspace_id: WorkspaceID
+    workspace_name: str
+    workflow_id: WorkflowID | None = None
+    workflow_title: str | None = None
+    db_status: Literal["online", "offline"]
+    temporal_status: OrgScheduleTemporalStatus
+    last_checked_at: datetime
+    error: str | None = None
+
+
+class OrgScheduleTemporalSummary(BaseModel):
+    total_schedules: int
+    present_count: int
+    missing_count: int
+
+
+class OrgScheduleTemporalSyncRead(BaseModel):
+    summary: OrgScheduleTemporalSummary
+    items: list[OrgScheduleTemporalItem]
+
+
+class OrgScheduleRecreateMissingRequest(BaseModel):
+    schedule_ids: list[ScheduleUUID] | None = None
+
+
+class OrgScheduleRecreateAction(StrEnum):
+    CREATED = "created"
+    SKIPPED_PRESENT = "skipped_present"
+    FAILED = "failed"
+
+
+class OrgScheduleRecreateResult(BaseModel):
+    schedule_id: ScheduleUUID
+    action: OrgScheduleRecreateAction
+    error: str | None = None
+
+
+class OrgScheduleRecreateResponse(BaseModel):
+    processed_count: int
+    created_count: int
+    already_present_count: int
+    failed_count: int
+    results: list[OrgScheduleRecreateResult] = Field(default_factory=list)
 
 
 # Invitations

@@ -31,6 +31,7 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.organization.schedule_sync_service import OrganizationScheduleSyncService
 from tracecat.organization.schemas import (
     OrgDomainRead,
     OrgInvitationAccept,
@@ -42,6 +43,9 @@ from tracecat.organization.schemas import (
     OrgMemberStatus,
     OrgPendingInvitationRead,
     OrgRead,
+    OrgScheduleRecreateMissingRequest,
+    OrgScheduleRecreateResponse,
+    OrgScheduleTemporalSyncRead,
 )
 from tracecat.organization.service import OrgService, accept_invitation_for_user
 from tracecat.tiers.schemas import EffectiveEntitlements
@@ -156,6 +160,32 @@ async def list_organization_domains(
         )
         for domain in domains
     ]
+
+
+@router.get("/schedules/temporal-sync", response_model=OrgScheduleTemporalSyncRead)
+async def get_temporal_schedule_sync_status(
+    *,
+    role: OrgAdminRole,
+    session: AsyncDBSession,
+) -> OrgScheduleTemporalSyncRead:
+    """List org schedules with whether each has a matching Temporal schedule."""
+    service = OrganizationScheduleSyncService(session, role=role)
+    return await service.get_temporal_sync_status()
+
+
+@router.post(
+    "/schedules/temporal-sync/recreate-missing",
+    response_model=OrgScheduleRecreateResponse,
+)
+async def recreate_missing_temporal_schedules(
+    *,
+    role: OrgAdminRole,
+    session: AsyncDBSession,
+    params: OrgScheduleRecreateMissingRequest,
+) -> OrgScheduleRecreateResponse:
+    """Create missing Temporal schedules for the organization."""
+    service = OrganizationScheduleSyncService(session, role=role)
+    return await service.recreate_missing_temporal_schedules(params.schedule_ids)
 
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)
