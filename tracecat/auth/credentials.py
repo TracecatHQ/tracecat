@@ -202,56 +202,6 @@ async def _compute_effective_scopes_cached(
         result = await session.execute(combined)
         return frozenset(result.scalars().all())
 
-@alru_cache(maxsize=10000, ttl=30)
-async def _has_any_rbac_assignments_cached(
-    user_id: uuid.UUID,
-    organization_id: uuid.UUID,
-    workspace_id: uuid.UUID | None,
-) -> bool:
-    async with get_async_session_bypass_rls_context_manager() as session:
-        user_workspace_condition = (
-            or_(
-                UserRoleAssignment.workspace_id.is_(None),
-                UserRoleAssignment.workspace_id == workspace_id,
-            )
-            if workspace_id is not None
-            else UserRoleAssignment.workspace_id.is_(None)
-        )
-
-        user_assignment_stmt = (
-            select(UserRoleAssignment.id)
-            .where(
-                UserRoleAssignment.user_id == user_id,
-                UserRoleAssignment.organization_id == organization_id,
-                user_workspace_condition,
-            )
-            .limit(1)
-        )
-        user_assignment_result = await session.execute(user_assignment_stmt)
-        if user_assignment_result.scalar_one_or_none() is not None:
-            return True
-
-        group_workspace_condition = (
-            or_(
-                GroupRoleAssignment.workspace_id.is_(None),
-                GroupRoleAssignment.workspace_id == workspace_id,
-            )
-            if workspace_id is not None
-            else GroupRoleAssignment.workspace_id.is_(None)
-        )
-        group_assignment_stmt = (
-            select(GroupRoleAssignment.id)
-            .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
-            .where(
-                GroupMember.user_id == user_id,
-                GroupRoleAssignment.organization_id == organization_id,
-                group_workspace_condition,
-            )
-            .limit(1)
-        )
-        group_assignment_result = await session.execute(group_assignment_stmt)
-        return group_assignment_result.scalar_one_or_none() is not None
-
 def get_role_from_user(
     user: User,
     organization_id: uuid.UUID,
