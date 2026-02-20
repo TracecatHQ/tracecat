@@ -180,6 +180,11 @@ class AuthDiscoveryService(BaseService):
     ) -> str | None:
         if method is not AuthDiscoveryMethod.SAML:
             return None
+        # In multi-tenant mode the SAML login endpoint requires an org hint.
+        # Return None so the frontend prompts for org selection instead of
+        # sending the user to a URL that will 428.
+        if not org_slug and config.TRACECAT__EE_MULTI_TENANT:
+            return None
         params: dict[str, str] = {"email": email}
         if org_slug:
             params["org"] = org_slug
