@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tracecat.auth.types import AccessLevel, Role
+from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.rls import (
     RLS_BYPASS_OFF,
@@ -59,7 +59,6 @@ def test_role() -> Role:
         organization_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
-        access_level=AccessLevel.BASIC,
         workspace_role=None,
     )
 
@@ -73,7 +72,6 @@ def system_role() -> Role:
         organization_id=uuid.uuid4(),
         user_id=None,
         service_id="tracecat-api",
-        access_level=AccessLevel.ADMIN,
         workspace_role=None,
     )
 
@@ -87,7 +85,6 @@ def superuser_role() -> Role:
         organization_id=None,
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
-        access_level=AccessLevel.ADMIN,
         is_platform_superuser=True,
     )
 
