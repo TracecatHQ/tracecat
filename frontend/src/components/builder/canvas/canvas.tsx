@@ -208,6 +208,9 @@ export const WorkflowCanvas = React.forwardRef<
     workflowId ?? ""
   )
   const [graphVersion, setGraphVersion] = useState<number>(1)
+  const [hydratedWorkflowId, setHydratedWorkflowId] = useState<string | null>(
+    null
+  )
   const [silhouettePosition, setSilhouettePosition] =
     useState<XYPosition | null>(null)
   const [isConnecting, setIsConnecting] = useState(false)
@@ -279,9 +282,14 @@ export const WorkflowCanvas = React.forwardRef<
         }))
       })
       setEdges(rfEdges)
+      setHydratedWorkflowId(workflowId ?? null)
     },
-    [buildNodesAndEdgesFromGraph, setNodes, setEdges]
+    [buildNodesAndEdgesFromGraph, setNodes, setEdges, workflowId]
   )
+
+  useEffect(() => {
+    setHydratedWorkflowId(null)
+  }, [workflowId])
 
   /**
    * Load graph data when it becomes available.
@@ -316,12 +324,14 @@ export const WorkflowCanvas = React.forwardRef<
         y: viewport?.y ?? 0,
         zoom: viewport?.zoom ?? 1,
       })
+      setHydratedWorkflowId(workflowId ?? null)
     } catch (error) {
       console.error("Failed to initialize workflow graph:", error)
     }
   }, [
     graphData,
     reactFlowInstance,
+    workflowId,
     buildNodesAndEdgesFromGraph,
     setNodes,
     setEdges,
@@ -331,6 +341,11 @@ export const WorkflowCanvas = React.forwardRef<
   // Keep node selection in sync with builder selection state without
   // re-running full graph hydration logic.
   useEffect(() => {
+    // Avoid reconciling selection against stale nodes while switching workflows.
+    if (!workflowId || hydratedWorkflowId !== workflowId) {
+      return
+    }
+
     if (nodes.length === 0) {
       return
     }
@@ -355,7 +370,14 @@ export const WorkflowCanvas = React.forwardRef<
       })
       return changed ? nextNodes : currentNodes
     })
-  }, [nodes, selectedNodeId, setNodes, setSelectedNodeId])
+  }, [
+    hydratedWorkflowId,
+    nodes,
+    selectedNodeId,
+    setNodes,
+    setSelectedNodeId,
+    workflowId,
+  ])
 
   const onPaneClick = useCallback(() => {
     setSelectedNodeId(null)
