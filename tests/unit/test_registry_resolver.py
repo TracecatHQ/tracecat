@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tracecat.exceptions import RegistryError
+from tracecat.exceptions import EntitlementRequired, RegistryError
 from tracecat.executor import registry_resolver
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.versions.schemas import (
@@ -199,6 +199,98 @@ class TestResolveAction:
                 )
 
             assert "Registry version not found" in str(exc_info.value)
+
+
+class TestPrefetchLock:
+    """Tests for prefetch_lock function."""
+
+    @pytest.mark.anyio
+    async def test_prefetch_lock_default_origin_does_not_check_custom_entitlement(self):
+        lock = RegistryLock(origins={"tracecat_registry": "2024.12.10"}, actions={})
+        manifest = _make_manifest({})
+
+        with (
+            patch.object(
+                registry_resolver,
+                "_has_custom_registry_entitlement",
+                new_callable=AsyncMock,
+            ) as mock_has_entitlement,
+            patch.object(
+                registry_resolver,
+                "_get_manifest_entry",
+                new_callable=AsyncMock,
+                return_value=(manifest, {}),
+            ) as mock_get_manifest_entry,
+        ):
+            await registry_resolver.prefetch_lock(lock, organization_id=uuid.uuid4())
+
+        mock_has_entitlement.assert_not_awaited()
+        mock_get_manifest_entry.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_prefetch_lock_custom_origin_requires_entitlement(self):
+        custom_origin = "git+ssh://git@github.com/acme/custom.git"
+        lock = RegistryLock(
+            origins={custom_origin: "v1"},
+            actions={"tools.custom.only_action": custom_origin},
+        )
+
+        with (
+            patch.object(
+                registry_resolver,
+                "_has_custom_registry_entitlement",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as mock_has_entitlement,
+            patch.object(
+                registry_resolver,
+                "_get_manifest_entry",
+                new_callable=AsyncMock,
+            ) as mock_get_manifest_entry,
+        ):
+            with pytest.raises(EntitlementRequired, match="custom_registry") as exc_info:
+                await registry_resolver.prefetch_lock(
+                    lock,
+                    organization_id=uuid.uuid4(),
+                )
+
+        assert exc_info.value.detail is not None
+        assert exc_info.value.detail["entitlement"] == "custom_registry"
+        assert exc_info.value.detail["unavailable_actions"] == [
+            "tools.custom.only_action"
+        ]
+        assert exc_info.value.detail["unavailable_origin_count"] == 1
+        assert "tools.custom.only_action" in str(exc_info.value)
+        assert custom_origin not in str(exc_info.value)
+        mock_has_entitlement.assert_awaited_once()
+        mock_get_manifest_entry.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_prefetch_lock_custom_origin_succeeds_when_entitled(self):
+        lock = RegistryLock(
+            origins={"git+ssh://git@github.com/acme/custom.git": "v1"},
+            actions={},
+        )
+        manifest = _make_manifest({})
+
+        with (
+            patch.object(
+                registry_resolver,
+                "_has_custom_registry_entitlement",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_has_entitlement,
+            patch.object(
+                registry_resolver,
+                "_get_manifest_entry",
+                new_callable=AsyncMock,
+                return_value=(manifest, {}),
+            ) as mock_get_manifest_entry,
+        ):
+            await registry_resolver.prefetch_lock(lock, organization_id=uuid.uuid4())
+
+        mock_has_entitlement.assert_awaited_once()
+        mock_get_manifest_entry.assert_awaited_once()
 
 
 class TestCollectActionSecretsFromManifest:

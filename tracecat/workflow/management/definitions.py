@@ -3,11 +3,12 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
-from tracecat.exceptions import TracecatException
+from tracecat.exceptions import EntitlementRequired, TracecatException
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
@@ -138,8 +139,16 @@ async def resolve_registry_lock_activity(
     This activity is called at workflow start if no lock is provided,
     ensuring all trigger paths have a valid registry lock.
     """
-    async with RegistryLockService.with_session(role=input.role) as service:
-        lock = await service.resolve_lock_with_bindings(input.action_names)
+    try:
+        async with RegistryLockService.with_session(role=input.role) as service:
+            lock = await service.resolve_lock_with_bindings(input.action_names)
+    except EntitlementRequired as e:
+        raise ApplicationError(
+            str(e),
+            e.detail,
+            non_retryable=True,
+            type=e.__class__.__name__,
+        ) from e
     logger.info(
         "Resolved registry lock",
         num_origins=len(lock.origins),

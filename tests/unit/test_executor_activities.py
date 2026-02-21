@@ -18,7 +18,7 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.dsl.types import ActionErrorInfo
-from tracecat.exceptions import ExecutionError, LoopExecutionError
+from tracecat.exceptions import EntitlementRequired, ExecutionError, LoopExecutionError
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -225,6 +225,36 @@ class TestExecuteActionActivity:
             app_error = exc_info.value
             assert app_error.type == "RuntimeError"
             assert app_error.non_retryable is True
+
+    @pytest.mark.anyio
+    async def test_entitlement_error_raises_non_retryable_application_error(
+        self, mock_run_action_input, mock_role
+    ):
+        """Test that EntitlementRequired is converted to non-retryable ApplicationError."""
+        with (
+            patch("tracecat.executor.activities.activity") as mock_activity,
+            patch("tracecat.executor.activities.get_executor_backend") as mock_backend,
+            patch(
+                "tracecat.executor.activities.dispatch_action",
+                new_callable=AsyncMock,
+            ) as mock_dispatch,
+        ):
+            mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_backend.return_value = MagicMock()
+            mock_dispatch.side_effect = EntitlementRequired("custom_registry")
+
+            with pytest.raises(ApplicationError) as exc_info:
+                await ExecutorActivities.execute_action_activity(
+                    mock_run_action_input, mock_role
+                )
+
+            app_error = exc_info.value
+            assert app_error.type == "EntitlementRequired"
+            assert app_error.non_retryable is True
+            assert len(app_error.details) > 0
+            detail = app_error.details[0]
+            assert isinstance(detail, ActionErrorInfo)
+            assert "custom_registry" in detail.message
 
     @pytest.mark.anyio
     async def test_application_error_passthrough(

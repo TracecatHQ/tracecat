@@ -227,7 +227,39 @@ class EntitlementRequired(TracecatException):
     Raised when an organization attempts to use a feature they are not entitled to.
     """
 
-    def __init__(self, entitlement: str):
+    def __init__(
+        self,
+        entitlement: str,
+        *,
+        unavailable_actions: list[str] | None = None,
+        unavailable_origins: list[str] | None = None,
+    ):
+        def _format_bulleted_preview(items: list[str], *, limit: int = 5) -> str:
+            shown = items[:limit]
+            lines = [f"- {item}" for item in shown]
+            if len(items) > limit:
+                lines.append(f"- +{len(items) - limit} more")
+            return "\n".join(lines)
+
         self.entitlement = entitlement
-        message = f"Feature '{entitlement}' requires a higher subscription tier"
-        super().__init__(message, detail={"entitlement": entitlement})
+        message = f"Feature '{entitlement}' requires a higher subscription tier."
+        detail: dict[str, object] = {"entitlement": entitlement}
+
+        if unavailable_actions:
+            unique_actions = list(dict.fromkeys(unavailable_actions))
+            detail["unavailable_actions"] = unique_actions
+            message += (
+                "\n\nUnavailable actions on your current subscription tier:\n"
+                f"{_format_bulleted_preview(unique_actions)}"
+            )
+
+        if unavailable_origins:
+            unique_origins = list(dict.fromkeys(unavailable_origins))
+            # Origins can include sensitive repository details; keep only a count.
+            detail["unavailable_origin_count"] = len(unique_origins)
+            if not unavailable_actions:
+                message += (
+                    "\n\nSome actions are unavailable on your current subscription tier."
+                )
+
+        super().__init__(message, detail=detail)

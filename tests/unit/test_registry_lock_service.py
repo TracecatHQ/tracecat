@@ -9,6 +9,8 @@ This test suite validates:
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +23,7 @@ from tracecat.db.models import (
     RegistryVersion,
 )
 from tracecat.dsl.enums import PlatformAction
-from tracecat.exceptions import RegistryError
+from tracecat.exceptions import EntitlementRequired, RegistryError
 from tracecat.registry.lock.service import RegistryLockService
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -259,6 +261,104 @@ async def test_resolve_lock_org_overrides_platform(
 
     # The org version should be used
     assert lock.origins[origin] == "org-2.0"
+
+
+@pytest.mark.anyio
+async def test_resolve_lock_requires_entitlement_for_custom_only_action(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    """Custom-only actions should require custom registry entitlement."""
+    org_repo = RegistryRepository(
+        organization_id=svc_role.organization_id,
+        origin="git+ssh://git@github.com/acme/custom.git",
+    )
+    session.add(org_repo)
+    await session.flush()
+
+    org_version = RegistryVersion(
+        organization_id=svc_role.organization_id,
+        repository_id=org_repo.id,
+        version="1.0.0",
+        manifest=_make_manifest(["tools.custom.only_action"]),
+        tarball_uri="s3://org/v1.tar.gz",
+    )
+    session.add(org_version)
+    await session.flush()
+
+    org_repo.current_version_id = org_version.id
+    session.add(org_repo)
+    await session.commit()
+
+    service = RegistryLockService(session, role=svc_role)
+    service.has_entitlement = AsyncMock(return_value=False)  # pyright: ignore[reportAttributeAccessIssue]
+
+    with pytest.raises(EntitlementRequired, match="custom_registry") as exc_info:
+        await service.resolve_lock_with_bindings({"tools.custom.only_action"})
+
+    assert exc_info.value.detail is not None
+    assert exc_info.value.detail["entitlement"] == "custom_registry"
+    assert exc_info.value.detail["unavailable_actions"] == [
+        "tools.custom.only_action"
+    ]
+    assert "tools.custom.only_action" in str(exc_info.value)
+    assert "\n\nUnavailable actions on your current subscription tier:\n-" in str(
+        exc_info.value
+    )
+    assert "git+ssh://git@github.com/acme/custom.git" not in str(exc_info.value)
+
+
+@pytest.mark.anyio
+async def test_resolve_lock_prefers_platform_when_custom_registry_disabled(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    """When custom registry is disabled, org-scoped overrides should be ignored."""
+    origin = "shared_origin"
+    action_name = "shared.action"
+
+    platform_repo = PlatformRegistryRepository(origin=origin)
+    session.add(platform_repo)
+    await session.flush()
+
+    platform_version = PlatformRegistryVersion(
+        repository_id=platform_repo.id,
+        version="platform-1.0",
+        manifest=_make_manifest([action_name]),
+        tarball_uri="s3://platform/v1.tar.gz",
+    )
+    session.add(platform_version)
+    await session.flush()
+    platform_repo.current_version_id = platform_version.id
+    session.add(platform_repo)
+
+    org_repo = RegistryRepository(
+        organization_id=svc_role.organization_id,
+        origin=origin,
+    )
+    session.add(org_repo)
+    await session.flush()
+
+    org_version = RegistryVersion(
+        organization_id=svc_role.organization_id,
+        repository_id=org_repo.id,
+        version="org-2.0",
+        manifest=_make_manifest([action_name]),
+        tarball_uri="s3://org/v2.tar.gz",
+    )
+    session.add(org_version)
+    await session.flush()
+    org_repo.current_version_id = org_version.id
+    session.add(org_repo)
+    await session.commit()
+
+    service = RegistryLockService(session, role=svc_role)
+    service.has_entitlement = AsyncMock(return_value=False)  # pyright: ignore[reportAttributeAccessIssue]
+
+    lock = await service.resolve_lock_with_bindings({action_name})
+
+    assert lock.origins[origin] == "platform-1.0"
+    assert lock.actions[action_name] == origin
 
 
 @pytest.mark.anyio
