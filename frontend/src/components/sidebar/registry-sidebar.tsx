@@ -20,13 +20,12 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useOrgMembership } from "@/hooks/use-org-membership"
 
 export function RegistrySidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const canReadRegistry = useScopeCheck("org:registry:read")
-  const { canAdministerOrg } = useOrgMembership()
+  const canAdministerOrg = useScopeCheck("org:update")
   const { hasEntitlement } = useEntitlements()
   const pathname = usePathname()
   const customRegistryEnabled = hasEntitlement("custom_registry")
