@@ -127,9 +127,9 @@ class RegistryLockService(BaseOrgService):
         if not custom_registry_enabled:
             for origin, _version, manifest_dict in org_rows:
                 origin_str = str(origin)
-                excluded_custom_origin_manifests[
-                    origin_str
-                ] = RegistryVersionManifest.model_validate(manifest_dict)
+                excluded_custom_origin_manifests[origin_str] = (
+                    RegistryVersionManifest.model_validate(manifest_dict)
+                )
 
         # 3. Build action -> origin mapping using BFS to include template step actions
         actions: dict[str, str] = {}
