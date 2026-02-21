@@ -196,7 +196,7 @@ async def test_internal_get_execution_status_unwraps_nested_failure_cause(
             self.cause = cause
 
     root_cause = ApplicationError(
-        "EntitlementRequired: Feature 'custom_registry' requires a higher subscription tier"
+        "EntitlementRequired: Feature 'custom_registry' requires an upgraded plan"
     )
     activity_wrapper = FakeActivityError("Activity task failed", cause=root_cause)
 

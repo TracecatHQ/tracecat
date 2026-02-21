@@ -222,7 +222,7 @@ class PayloadSizeExceeded(TracecatException):
 
 
 class EntitlementRequired(TracecatException):
-    """Exception raised when a feature requires a higher subscription tier.
+    """Exception raised when a feature requires an upgraded plan.
 
     Raised when an organization attempts to use a feature they are not entitled to.
     """
@@ -242,14 +242,14 @@ class EntitlementRequired(TracecatException):
             return "\n".join(lines)
 
         self.entitlement = entitlement
-        message = f"Feature '{entitlement}' requires a higher subscription tier."
+        message = f"Feature '{entitlement}' requires an upgraded plan."
         detail: dict[str, object] = {"entitlement": entitlement}
 
         if unavailable_actions:
             unique_actions = list(dict.fromkeys(unavailable_actions))
             detail["unavailable_actions"] = unique_actions
             message += (
-                "\n\nUnavailable actions on your current subscription tier:\n"
+                "\n\nUnavailable actions on your current plan:\n"
                 f"{_format_bulleted_preview(unique_actions)}"
             )
 
@@ -258,8 +258,6 @@ class EntitlementRequired(TracecatException):
             # Origins can include sensitive repository details; keep only a count.
             detail["unavailable_origin_count"] = len(unique_origins)
             if not unavailable_actions:
-                message += (
-                    "\n\nSome actions are unavailable on your current subscription tier."
-                )
+                message += "\n\nSome actions are unavailable on your current plan."
 
         super().__init__(message, detail=detail)

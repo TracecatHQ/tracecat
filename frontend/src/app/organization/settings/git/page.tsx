@@ -33,7 +33,7 @@ export default function GitSettingsPage() {
           <div className="flex flex-1 items-center justify-center pb-8">
             <EntitlementRequiredEmptyState
               title="Upgrade required"
-              description="Custom registry Git settings are unavailable on your current subscription tier."
+              description="Custom registry Git settings are unavailable on your current plan."
             >
               <Button
                 variant="link"
