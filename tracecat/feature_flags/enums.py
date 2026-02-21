@@ -6,3 +6,4 @@ class FeatureFlag(StrEnum):
 
     AI_RANKING = "ai-ranking"
     RBAC = "rbac"
+    RLS_ENABLED = "rls-enabled"
