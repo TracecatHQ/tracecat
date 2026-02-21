@@ -93,7 +93,8 @@ just test
 # Or manually: pytest --cache-clear tests/registry tests/unit tests/playbooks -x
 
 # Run specific test suites
-uv run pytest tests/unit          # Backend/API tests
+uv run pytest tests/unit          # Fast, isolated unit tests
+uv run pytest tests/integration  # Integration tests (requires live services)
 uv run pytest tests/registry     # Registry/integration tests
 uv run pytest tests/unit/test_functions.py -x --last-failed  # Inline functions tests
 
@@ -287,7 +288,9 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - Import statements at top of file only
 - Use `uv run` for executing Python/pytest commands
 - Use `uv pip install` for package installation
-- Tests under `tests/unit` are integration tests - no mocks, test as close to production as possible
+- Test directories: `tests/unit/` (fast, isolated unit tests), `tests/integration/` (live services, no mocks), `tests/temporal/` (Temporal workflows), `tests/registry/` (registry/integrations), `tests/llm/` (LLM calls), `tests/regression/` (regression tests), `tests/stress/` and `tests/load/` (performance)
+- `tests/unit/` should be fast and isolated — mocks are acceptable here
+- `tests/integration/` should test against real services with no mocks, as close to production as possible
 - Always use `@pytest.mark.anyio` in async python tests over `@pytest.mark.asyncio`
 - Always avoid use of `type: ignore` when writing python code
 - You must *NEVER* put import statements in function bodies.
@@ -408,6 +411,15 @@ Available predefined roles:
 - `scripts/cluster`: Multi-cluster orchestration script
 
 ### Testing Patterns
+- **Test directories**:
+  - `tests/unit/` — Fast, isolated unit tests (mocks OK)
+  - `tests/integration/` — Live service tests, no mocks (requires `just cluster up -d`)
+  - `tests/temporal/` — Temporal workflow tests
+  - `tests/registry/` — Registry and integration tests
+  - `tests/llm/` — LLM call tests
+  - `tests/regression/` — Regression tests
+  - `tests/stress/`, `tests/load/` — Performance tests
+  - `tests/backends/` — Backend-specific tests
 - `tests/conftest.py`: Comprehensive pytest fixtures for database, workspaces, temporal
 - Test markers: `@pytest.mark.integration`, `@pytest.mark.unit`, `@pytest.mark.slow`, `@pytest.mark.temporal`, `@pytest.mark.llm`
 - Database isolation: Each test gets its own transaction
