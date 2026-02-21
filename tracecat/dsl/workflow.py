@@ -835,7 +835,9 @@ class DSLWorkflow:
                 else None
             )
             if max_concurrent_actions is not None and self._is_executable_action(task):
-                action_permit_id = self._action_permit_id(task=task, stream_id=stream_id)
+                action_permit_id = self._action_permit_id(
+                    task=task, stream_id=stream_id
+                )
                 await self._acquire_action_permit(
                     action_id=action_permit_id,
                     limit=max_concurrent_actions,
