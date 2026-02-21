@@ -1167,7 +1167,7 @@ function AgentPresetRightPanel({
         className="flex h-full w-full flex-col"
       >
         <div className="w-full shrink-0">
-          <div className="flex items-center justify-start px-3">
+          <div className="flex items-center justify-start">
             <TabsList className="h-9 justify-start rounded-none bg-transparent p-0">
               <TabsTrigger
                 className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
@@ -1272,7 +1272,6 @@ function AgentPresetConfigurationPanel({
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-8 px-6 py-6 pb-20 text-sm">
         <section className="space-y-4">
-          <h3 className="text-sm font-medium">Model</h3>
           <div className="grid gap-4 md:grid-cols-2">
             <FormField
               control={form.control}
@@ -1407,7 +1406,6 @@ function AgentPresetConfigurationPanel({
         <Separator />
 
         <section className="space-y-4">
-          <h3 className="text-sm font-medium">Tools and integrations</h3>
           <FormField
             control={form.control}
             name="actions"
@@ -1487,11 +1485,8 @@ function AgentPresetConfigurationPanel({
         <Separator />
 
         <section className="space-y-4">
-          <h3 className="text-sm font-medium">Approval rules</h3>
           <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">
-              Add tools that require manual review before execution.
-            </p>
+            <p className="text-sm font-medium">Approval rules</p>
             <Button
               type="button"
               size="sm"
@@ -1608,7 +1603,6 @@ function AgentPresetStructuredOutputPanel({
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-8 px-6 py-6 pb-20 text-sm">
         <section className="space-y-4">
-          <h3 className="text-sm font-medium">Structured outputs</h3>
           <div className="grid gap-4 md:grid-cols-2">
             <FormField
               control={form.control}
