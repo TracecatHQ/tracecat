@@ -213,11 +213,35 @@ class RegistryActionExtractor(ExprExtractor[Mapping[ExprContext, set[str]]]):
         var_name = jsonpath.split(".", 1)[0]
         self._results[ExprContext.VARS].add(var_name)
 
+    def trigger(self, node: Tree[Token]) -> None:
+        self.logger.trace("Visit trigger expression", node=node)
+        self._results[ExprContext.TRIGGER].add("*")
+
+    def env(self, node: Tree[Token]) -> None:
+        self.logger.trace("Visit env expression", node=node)
+        self._results[ExprContext.ENV].add("*")
+
+    def local_vars(self, node: Tree[Token]) -> None:
+        self.logger.trace("Visit local vars expression", node=node)
+        self._results[ExprContext.LOCAL_VARS].add("*")
+
 
 def extract_expressions(args: Mapping[str, Any]) -> Mapping[ExprContext, set[str]]:
     extractor = RegistryActionExtractor()
     for expr_str in traverse_expressions(args):
         Expression(expr_str, visitor=extractor).visit()
+    return extractor.results()
+
+
+def extract_expression_contexts(expression: str) -> Mapping[ExprContext, set[str]]:
+    """Extract expression contexts from a single expression string."""
+    extractor = RegistryActionExtractor()
+    if match := patterns.TEMPLATE_STRING.match(expression):
+        expr = match.group("expr")
+        if expr is None:
+            return extractor.results()
+        expression = expr
+    Expression(expression, visitor=extractor).visit()
     return extractor.results()
 
 

@@ -68,4 +68,17 @@ class ActionErrorInfo:
         return f"[{locator}] (Attempt {self.attempt})\n\n{self.message}"
 
 
+@dataclass(frozen=True, slots=True)
+class CompiledExprPlan:
+    """Compiled dependency plan for a single expression."""
+
+    expression: str
+    action_refs: tuple[str, ...]
+    needs_trigger: bool
+    needs_env: bool
+    needs_vars: bool
+    needs_local_var: bool
+    needs_secrets: bool
+
+
 ActionErrorInfoAdapter = TypeAdapter(ActionErrorInfo)
