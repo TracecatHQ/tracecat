@@ -28,6 +28,41 @@ TRACECAT__LOOP_MAX_BATCH_SIZE = int(
 )
 """Maximum number of parallel requests to the worker service."""
 
+TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS = int(
+    os.environ.get("TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS", 16)
+)
+"""Maximum number of scheduler task coroutines allowed in-flight."""
+
+TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT = int(
+    os.environ.get("TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT", 8)
+)
+"""Hard cap on concurrent child workflows for looped subflow execution."""
+
+TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS = int(
+    os.environ.get("TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS", 300)
+)
+"""Maximum seconds to wait for a workflow concurrency permit before failing."""
+
+TRACECAT__WORKFLOW_PERMIT_BACKOFF_BASE_SECONDS = float(
+    os.environ.get("TRACECAT__WORKFLOW_PERMIT_BACKOFF_BASE_SECONDS", 1)
+)
+"""Base backoff in seconds when retrying workflow permit acquisition."""
+
+TRACECAT__WORKFLOW_PERMIT_BACKOFF_MAX_SECONDS = float(
+    os.environ.get("TRACECAT__WORKFLOW_PERMIT_BACKOFF_MAX_SECONDS", 30)
+)
+"""Maximum backoff in seconds when retrying workflow permit acquisition."""
+
+TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS = float(
+    os.environ.get("TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS", 60)
+)
+"""Interval in seconds between workflow permit heartbeat refreshes."""
+
+TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS = int(
+    os.environ.get("TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS", 120)
+)
+"""Maximum seconds to wait for an action concurrency permit before failing."""
+
 TRACECAT__EXECUTOR_QUEUE = os.environ.get(
     "TRACECAT__EXECUTOR_QUEUE", "shared-action-queue"
 )

@@ -49,6 +49,35 @@ class GetTierLimitsInput(BaseModel):
     """Organization ID (as string for serialization)."""
 
 
+class AcquireActionPermitInput(BaseModel):
+    """Input for acquiring an action execution permit."""
+
+    org_id: str
+    """Organization ID (as string for serialization)."""
+    action_id: str
+    """Action execution ID."""
+    limit: int
+    """Maximum concurrent action executions allowed."""
+
+
+class ReleaseActionPermitInput(BaseModel):
+    """Input for releasing an action execution permit."""
+
+    org_id: str
+    """Organization ID (as string for serialization)."""
+    action_id: str
+    """Action execution ID."""
+
+
+class HeartbeatActionPermitInput(BaseModel):
+    """Input for refreshing an action execution permit TTL."""
+
+    org_id: str
+    """Organization ID (as string for serialization)."""
+    action_id: str
+    """Action execution ID."""
+
+
 @activity.defn
 async def acquire_workflow_permit_activity(
     input: AcquireWorkflowPermitInput,
@@ -65,7 +94,7 @@ async def acquire_workflow_permit_activity(
     client = await redis_client._get_client()
     semaphore = RedisSemaphore(client)
 
-    result = await semaphore.acquire(
+    result = await semaphore.acquire_workflow(
         org_id=input.org_id,  # type: ignore[arg-type]
         workflow_id=input.workflow_id,
         limit=input.limit,
@@ -96,7 +125,7 @@ async def release_workflow_permit_activity(
     client = await redis_client._get_client()
     semaphore = RedisSemaphore(client)
 
-    await semaphore.release(
+    await semaphore.release_workflow(
         org_id=input.org_id,  # type: ignore[arg-type]
         workflow_id=input.workflow_id,
     )
@@ -124,9 +153,71 @@ async def heartbeat_workflow_permit_activity(
     client = await redis_client._get_client()
     semaphore = RedisSemaphore(client)
 
-    return await semaphore.heartbeat(
+    return await semaphore.heartbeat_workflow(
         org_id=input.org_id,  # type: ignore[arg-type]
         workflow_id=input.workflow_id,
+    )
+
+
+@activity.defn
+async def acquire_action_permit_activity(
+    input: AcquireActionPermitInput,
+) -> AcquireResult:
+    """Try to acquire an action execution permit."""
+    redis_client = await get_redis_client()
+    client = await redis_client._get_client()
+    semaphore = RedisSemaphore(client)
+
+    result = await semaphore.acquire_action(
+        org_id=input.org_id,  # type: ignore[arg-type]
+        action_id=input.action_id,
+        limit=input.limit,
+    )
+
+    logger.info(
+        "Action permit acquire attempt",
+        org_id=input.org_id,
+        action_id=input.action_id,
+        limit=input.limit,
+        acquired=result.acquired,
+        current_count=result.current_count,
+    )
+    return result
+
+
+@activity.defn
+async def release_action_permit_activity(
+    input: ReleaseActionPermitInput,
+) -> None:
+    """Release an action execution permit."""
+    redis_client = await get_redis_client()
+    client = await redis_client._get_client()
+    semaphore = RedisSemaphore(client)
+
+    await semaphore.release_action(
+        org_id=input.org_id,  # type: ignore[arg-type]
+        action_id=input.action_id,
+    )
+
+    logger.info(
+        "Action permit released",
+        org_id=input.org_id,
+        action_id=input.action_id,
+    )
+
+
+@activity.defn
+async def heartbeat_action_permit_activity(
+    input: HeartbeatActionPermitInput,
+) -> bool:
+    """Refresh TTL for an action execution permit."""
+    redis_client = await get_redis_client()
+    client = await redis_client._get_client()
+    semaphore = RedisSemaphore(client)
+
+    return await semaphore.heartbeat_action(
+        org_id=input.org_id,  # type: ignore[arg-type]
+        action_id=input.action_id,
     )
 
 
@@ -165,5 +256,8 @@ class TierActivities:
             acquire_workflow_permit_activity,
             release_workflow_permit_activity,
             heartbeat_workflow_permit_activity,
+            acquire_action_permit_activity,
+            release_action_permit_activity,
+            heartbeat_action_permit_activity,
             get_tier_limits_activity,
         ]
