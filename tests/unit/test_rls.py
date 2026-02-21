@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -22,6 +23,12 @@ from tracecat.db.rls import (
 )
 from tracecat.exceptions import TracecatRLSViolationError
 from tracecat.feature_flags.enums import FeatureFlag
+
+
+@pytest.fixture(scope="session", autouse=True)
+def workflow_bucket() -> Iterator[None]:
+    """Disable MinIO-dependent workflow bucket setup for pure unit tests."""
+    yield
 
 
 def _assert_execute_params(
@@ -108,20 +115,30 @@ class TestSetRlsContext:
     """Tests for set_rls_context function."""
 
     @pytest.mark.anyio
-    async def test_noop_when_rls_disabled(
+    async def test_applies_context_even_when_flag_not_set(
         self, mock_session: AsyncMock, monkeypatch: pytest.MonkeyPatch
     ):
-        """Test that set_rls_context does nothing when RLS is disabled."""
+        """set_rls_context should still apply GUCs even if flag is not set."""
         monkeypatch.setattr("tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS", set())
+
+        org_id = uuid.uuid4()
+        workspace_id = uuid.uuid4()
+        user_id = uuid.uuid4()
 
         await set_rls_context(
             mock_session,
-            org_id=uuid.uuid4(),
-            workspace_id=uuid.uuid4(),
-            user_id=uuid.uuid4(),
+            org_id=org_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
         )
 
-        mock_session.execute.assert_not_called()
+        _assert_execute_params(
+            mock_session,
+            bypass=RLS_BYPASS_OFF,
+            org_id=str(org_id),
+            workspace_id=str(workspace_id),
+            user_id=str(user_id),
+        )
 
     @pytest.mark.anyio
     async def test_sets_context_variables(
@@ -182,18 +199,24 @@ class TestSetRlsContextFromRole:
     """Tests for set_rls_context_from_role function."""
 
     @pytest.mark.anyio
-    async def test_noop_when_rls_disabled(
+    async def test_applies_context_even_when_flag_not_set(
         self,
         mock_session: AsyncMock,
         test_role: Role,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """Test that set_rls_context_from_role does nothing when RLS is disabled."""
+        """set_rls_context_from_role should still apply GUCs when flag is off."""
         monkeypatch.setattr("tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS", set())
 
         await set_rls_context_from_role(mock_session, test_role)
 
-        mock_session.execute.assert_not_called()
+        _assert_execute_params(
+            mock_session,
+            bypass=RLS_BYPASS_OFF,
+            org_id=str(test_role.organization_id),
+            workspace_id=str(test_role.workspace_id),
+            user_id=str(test_role.user_id),
+        )
 
     @pytest.mark.anyio
     async def test_uses_provided_role(
@@ -300,15 +323,21 @@ class TestClearRlsContext:
     """Tests for clear_rls_context function."""
 
     @pytest.mark.anyio
-    async def test_noop_when_rls_disabled(
+    async def test_clears_context_even_when_flag_not_set(
         self, mock_session: AsyncMock, monkeypatch: pytest.MonkeyPatch
     ):
-        """Test that clear_rls_context does nothing when RLS is disabled."""
+        """clear_rls_context should still enforce deny-default when flag is off."""
         monkeypatch.setattr("tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS", set())
 
         await clear_rls_context(mock_session)
 
-        mock_session.execute.assert_not_called()
+        _assert_execute_params(
+            mock_session,
+            bypass=RLS_BYPASS_OFF,
+            org_id=RLS_UNSET_VALUE,
+            workspace_id=RLS_UNSET_VALUE,
+            user_id=RLS_UNSET_VALUE,
+        )
 
     @pytest.mark.anyio
     async def test_sets_deny_default_values(

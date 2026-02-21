@@ -207,11 +207,16 @@ class BaseOrgService(BaseService):
             session: Optional existing session. If provided, caller is responsible
                 for managing its lifecycle (it won't be closed by this context manager).
         """
-        if session is not None:
-            yield cls(session, role=role)
-        else:
-            async with get_async_session_context_manager() as session:
+        token = ctx_role.set(role) if role is not None else None
+        try:
+            if session is not None:
                 yield cls(session, role=role)
+            else:
+                async with get_async_session_context_manager() as session:
+                    yield cls(session, role=role)
+        finally:
+            if token is not None:
+                ctx_role.reset(token)
 
 
 class BaseWorkspaceService(BaseOrgService):

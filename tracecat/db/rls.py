@@ -126,8 +126,6 @@ def _reapply_rls_context_after_begin(  # pyright: ignore[reportUnusedFunction] -
     connection: Connection,
 ) -> None:
     """Reapply cached RLS context whenever a new transaction begins."""
-    if not is_rls_enabled():
-        return
     context = session.info.get(_RLS_CONTEXT_INFO_KEY)
     if not isinstance(context, _RLSContext):
         return
@@ -154,9 +152,6 @@ async def set_rls_context(
         user_id: Optional user ID for audit purposes
         bypass: Whether to bypass tenant filtering in RLS policies.
     """
-    if not is_rls_enabled():
-        return
-
     context = _normalize_rls_context(
         org_id=org_id,
         workspace_id=workspace_id,
@@ -189,9 +184,6 @@ async def set_rls_context_from_role(
         session: The SQLAlchemy async session
         role: Optional Role object. If None, reads from ctx_role.
     """
-    if not is_rls_enabled():
-        return
-
     # Try to get role from argument or context
     effective_role = role or ctx_role.get()
 
@@ -235,9 +227,6 @@ async def clear_rls_context(session: AsyncSession) -> None:
     Args:
         session: The SQLAlchemy async session
     """
-    if not is_rls_enabled():
-        return
-
     logger.trace("Clearing RLS context")
     await set_rls_context(
         session,

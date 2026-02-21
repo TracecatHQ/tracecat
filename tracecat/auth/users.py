@@ -192,8 +192,9 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         statement = select(OrganizationMembership.organization_id).where(
             OrganizationMembership.user_id == user_id
         )
-        result = await self._user_db.session.execute(statement)
-        return set(result.scalars().all())
+        async with get_async_session_bypass_rls_context_manager() as session:
+            result = await session.execute(statement)
+            return set(result.scalars().all())
 
     async def _resolve_target_org_for_email(
         self, email: str, org_ids: set[OrganizationID]
@@ -211,8 +212,9 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             OrganizationDomain.normalized_domain == normalized_domain,
             OrganizationDomain.is_active.is_(True),
         )
-        result = await self._user_db.session.execute(statement)
-        organization_id = result.scalar_one_or_none()
+        async with get_async_session_bypass_rls_context_manager() as session:
+            result = await session.execute(statement)
+            organization_id = result.scalar_one_or_none()
         if organization_id is None or organization_id not in org_ids:
             return None
         return organization_id
@@ -225,7 +227,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             await get_setting(
                 "saml_enabled",
                 role=bootstrap_role(org_id),
-                session=self._user_db.session,
                 default=True,
             )
         )
@@ -235,7 +236,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         saml_enforced = await get_setting(
             "saml_enforced",
             role=bootstrap_role(org_id),
-            session=self._user_db.session,
             default=False,
         )
         return bool(saml_enforced)
