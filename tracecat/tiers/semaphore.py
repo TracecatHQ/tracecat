@@ -247,7 +247,9 @@ class RedisSemaphore:
             scope=PermitScope.WORKFLOW,
         )
 
-    async def heartbeat_workflow(self, org_id: OrganizationID, workflow_id: str) -> bool:
+    async def heartbeat_workflow(
+        self, org_id: OrganizationID, workflow_id: str
+    ) -> bool:
         """Heartbeat a workflow permit."""
         return await self._heartbeat(
             org_id=org_id,
