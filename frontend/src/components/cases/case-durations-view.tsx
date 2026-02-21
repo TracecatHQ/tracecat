@@ -5,7 +5,7 @@ import { ArrowUpRight, Timer } from "lucide-react"
 import { useState } from "react"
 import type { CaseDurationDefinitionUpdate } from "@/client"
 import { CaseDurationsTable } from "@/components/cases/case-durations-table"
-import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
+import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
@@ -139,7 +139,7 @@ export function CaseDurationsView() {
     return (
       <div className="size-full overflow-auto">
         <div className="container flex h-full max-w-[1000px] items-center justify-center py-8">
-          <FeatureFlagEmptyState
+          <EntitlementRequiredEmptyState
             title="Enterprise only"
             description="Case durations are only available on enterprise plans."
           >
@@ -157,7 +157,7 @@ export function CaseDurationsView() {
                 Learn more <ArrowUpRight className="size-4" />
               </a>
             </Button>
-          </FeatureFlagEmptyState>
+          </EntitlementRequiredEmptyState>
         </div>
       </div>
     )

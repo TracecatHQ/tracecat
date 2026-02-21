@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, NamedTuple, TypedDict
 from typing import cast as typing_cast
 
@@ -65,6 +65,7 @@ from tracecat.registry.actions.schemas import (
     TemplateAction,
 )
 from tracecat.registry.actions.types import IndexedActionResult, IndexEntry
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.loaders import (
     LoaderMode,
     get_bound_action_from_manifest,
@@ -75,6 +76,7 @@ from tracecat.registry.sync.service import RegistrySyncService
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.secrets.schemas import SecretDefinition
 from tracecat.service import BaseOrgService
+from tracecat.tiers.enums import Entitlement
 from tracecat.tiers.service import TierService
 
 if TYPE_CHECKING:
@@ -171,6 +173,7 @@ class RegistryActionsService(BaseOrgService):
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
         self._enabled_entitlements_cache: set[str] | None = None
+        self._custom_registry_enabled_cache: bool | None = None
 
     @staticmethod
     def _normalize_required_entitlements(options: dict) -> set[str]:
@@ -193,6 +196,22 @@ class RegistryActionsService(BaseOrgService):
                 key for key, value in effective.model_dump().items() if value
             }
         return self._enabled_entitlements_cache
+
+    @staticmethod
+    def _is_custom_origin(origin: str) -> bool:
+        return origin != DEFAULT_REGISTRY_ORIGIN
+
+    async def _is_custom_registry_enabled(self) -> bool:
+        if self._custom_registry_enabled_cache is None:
+            self._custom_registry_enabled_cache = await self.has_entitlement(
+                Entitlement.CUSTOM_REGISTRY
+            )
+        return self._custom_registry_enabled_cache
+
+    async def _allow_custom_origins_for_rows(self, origins: Iterable[str]) -> bool:
+        if not any(self._is_custom_origin(origin) for origin in origins):
+            return True
+        return await self._is_custom_registry_enabled()
 
     async def _filter_index_entries_by_entitlements(
         self, entries: list[tuple[IndexEntry, str]]
@@ -315,11 +334,16 @@ class RegistryActionsService(BaseOrgService):
         )
         result = await self.session.execute(combined)
         rows = typing_cast(list[_IndexSelectRow], result.all())
+        allow_custom_origins = await self._allow_custom_origins_for_rows(
+            row.origin for row in rows
+        )
 
         # Convert to index entries, deduplicating (org-scoped takes precedence)
         entries: list[tuple[IndexEntry, str]] = []
         seen_actions: set[str] = set()
         for row in rows:
+            if not allow_custom_origins and self._is_custom_origin(row.origin):
+                continue
             action_name = f"{row.namespace}.{row.name}"
             # Skip duplicates (org-scoped takes precedence due to ORDER BY)
             if action_name in seen_actions:
@@ -424,9 +448,14 @@ class RegistryActionsService(BaseOrgService):
         combined = union_all(org_statement, platform_statement)
         result = await self.session.execute(combined)
         rows = typing_cast(list[_RepoIndexRow], result.all())
+        allow_custom_origins = await self._allow_custom_origins_for_rows(
+            row.origin for row in rows
+        )
 
         required_any: set[str] = set()
         for row in rows:
+            if not allow_custom_origins and self._is_custom_origin(row.origin):
+                continue
             required_any |= self._normalize_required_entitlements(row.options or {})
         enabled_entitlements: set[str] | None = None
         if required_any:
@@ -434,6 +463,8 @@ class RegistryActionsService(BaseOrgService):
 
         actions: list[RegistryActionRead] = []
         for row in rows:
+            if not allow_custom_origins and self._is_custom_origin(row.origin):
+                continue
             required = self._normalize_required_entitlements(row.options or {})
             if required and enabled_entitlements is not None:
                 if not required.issubset(enabled_entitlements):
@@ -560,36 +591,43 @@ class RegistryActionsService(BaseOrgService):
             text("source")  # "org" < "platform" alphabetically
         )
         result = await self.session.execute(combined)
-        first_row = result.first()
-
-        if not first_row:
+        rows = typing_cast(list[_ActionIndexRow], result.all())
+        if not rows:
             return None
 
-        row = typing_cast(_ActionIndexRow, first_row)
-        required = self._normalize_required_entitlements(row.options or {})
-        if required:
-            enabled = await self._get_enabled_entitlements()
-            if not required.issubset(enabled):
-                return None
-        manifest = RegistryVersionManifest.model_validate(row.manifest)
-        return IndexedActionResult(
-            index_entry=IndexEntry(
-                id=row.id,
-                namespace=row.namespace,
-                name=row.name,
-                action_type=row.action_type,
-                description=row.description,
-                default_title=row.default_title,
-                display_group=row.display_group,
-                options=row.options or {},
-                doc_url=row.doc_url,
-                author=row.author,
-                deprecated=row.deprecated,
-            ),
-            manifest=manifest,
-            origin=row.origin,
-            repository_id=row.repo_id,
+        allow_custom_origins = await self._allow_custom_origins_for_rows(
+            row.origin for row in rows
         )
+        enabled_entitlements: set[str] | None = None
+        for row in rows:
+            if not allow_custom_origins and self._is_custom_origin(row.origin):
+                continue
+            required = self._normalize_required_entitlements(row.options or {})
+            if required:
+                if enabled_entitlements is None:
+                    enabled_entitlements = await self._get_enabled_entitlements()
+                if not required.issubset(enabled_entitlements):
+                    continue
+            manifest = RegistryVersionManifest.model_validate(row.manifest)
+            return IndexedActionResult(
+                index_entry=IndexEntry(
+                    id=row.id,
+                    namespace=row.namespace,
+                    name=row.name,
+                    action_type=row.action_type,
+                    description=row.description,
+                    default_title=row.default_title,
+                    display_group=row.display_group,
+                    options=row.options or {},
+                    doc_url=row.doc_url,
+                    author=row.author,
+                    deprecated=row.deprecated,
+                ),
+                manifest=manifest,
+                origin=row.origin,
+                repository_id=row.repo_id,
+            )
+        return None
 
     async def get_actions_from_index(
         self,
@@ -707,9 +745,14 @@ class RegistryActionsService(BaseOrgService):
         )
         result = await self.session.execute(combined)
         rows = typing_cast(list[_ActionIndexRow], result.all())
+        allow_custom_origins = await self._allow_custom_origins_for_rows(
+            row.origin for row in rows
+        )
 
         actions: dict[str, IndexedActionResult] = {}
         for row in rows:
+            if not allow_custom_origins and self._is_custom_origin(row.origin):
+                continue
             action_name = f"{row.namespace}.{row.name}"
             # Skip if already found (org-scoped takes precedence)
             if action_name in actions:
@@ -854,11 +897,16 @@ class RegistryActionsService(BaseOrgService):
             combined = combined.limit(limit)
         result = await self.session.execute(combined)
         rows = typing_cast(list[_SearchIndexRow], result.all())
+        allow_custom_origins = await self._allow_custom_origins_for_rows(
+            row.origin for row in rows
+        )
 
         entries: list[tuple[IndexEntry, str]] = []
         seen_actions: set[str] = set()
 
         for row in rows:
+            if not allow_custom_origins and self._is_custom_origin(row.origin):
+                continue
             action_name = f"{row.namespace}.{row.name}"
             # Skip duplicates (org-scoped takes precedence in union order)
             if action_name in seen_actions:

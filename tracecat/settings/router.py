@@ -19,6 +19,7 @@ from tracecat.settings.schemas import (
     SAMLSettingsUpdate,
 )
 from tracecat.settings.service import SettingsService
+from tracecat.tiers.entitlements import Entitlement, check_entitlement
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -55,6 +56,7 @@ async def get_git_settings(
     role: OrgUserRole,
     session: AsyncDBSession,
 ) -> GitSettingsRead:
+    await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
     service = SettingsService(session, role)
     keys = GitSettingsRead.keys()
     settings = await service.list_org_settings(keys=keys)
@@ -70,6 +72,7 @@ async def update_git_settings(
     session: AsyncDBSession,
     params: GitSettingsUpdate,
 ) -> None:
+    await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
     service = SettingsService(session, role)
     await service.update_git_settings(params)
 

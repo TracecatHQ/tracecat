@@ -95,6 +95,11 @@ async def sync_registry_repository(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Registry repository not found",
         ) from e
+
+    # Check entitlement for custom registry (non-default repositories)
+    if repo.origin != DEFAULT_REGISTRY_ORIGIN:
+        await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
+
     actions_service = RegistryActionsService(session, role)
     last_synced_at = datetime.now(UTC)
     target_commit_sha = sync_params.target_commit_sha if sync_params else None
@@ -504,6 +509,14 @@ async def update_registry_repository(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Registry repository not found",
         ) from e
+
+    # Check entitlement for custom registry repositories.
+    # Also gate attempts to mutate a default repo into a custom origin.
+    if repository.origin != DEFAULT_REGISTRY_ORIGIN or (
+        params.origin is not None and params.origin != DEFAULT_REGISTRY_ORIGIN
+    ):
+        await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
+
     updated_repository = await repos_service.update_repository(repository, params)
     actions = await actions_service.list_actions_from_index_by_repository(repository_id)
     return RegistryRepositoryRead(
@@ -544,6 +557,7 @@ async def delete_registry_repository(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"The {repository.origin!r} repository cannot be deleted.",
         )
+    await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
     await service.delete_repository(repository)
 
 
@@ -591,6 +605,10 @@ async def promote_registry_version(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Registry repository not found",
         ) from e
+
+    # Check entitlement for custom registry (non-default repositories)
+    if repository.origin != DEFAULT_REGISTRY_ORIGIN:
+        await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
 
     previous_version_id = repository.current_version_id
 

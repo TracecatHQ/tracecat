@@ -2,7 +2,7 @@
 
 import { useEffect } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
+import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { ActivityLayout } from "@/components/inbox"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useEntitlements } from "@/hooks/use-entitlements"
@@ -43,7 +43,7 @@ export default function InboxPage() {
     return (
       <div className="size-full overflow-auto">
         <div className="mx-auto flex h-full w-full max-w-3xl flex-1 items-center justify-center py-12">
-          <FeatureFlagEmptyState
+          <EntitlementRequiredEmptyState
             title="Enterprise only"
             description="Advanced AI agents (human-in-the-loop and subagents) are only available on enterprise plans."
           />

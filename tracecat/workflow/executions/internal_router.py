@@ -251,7 +251,7 @@ async def get_execution_status(
                 result = await handle.result()
             except WorkflowFailureError as e:
                 # Extract the failure message from the workflow error
-                error = str(e.cause) if e.cause else str(e)
+                error = WorkflowExecutionsService.format_failure_cause(e.cause)
             except Exception as e:
                 logger.warning(
                     "Failed to get workflow result",

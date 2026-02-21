@@ -82,6 +82,28 @@ class WorkflowExecutionsService:
         self.logger = logger.bind(service="workflow_executions")
 
     @staticmethod
+    def format_failure_cause(cause: BaseException | None) -> str:
+        """Return the most specific nested cause message for Temporal failures."""
+        if cause is None:
+            return "Unknown workflow failure"
+
+        current: BaseException = cause
+        seen: set[int] = set()
+        while True:
+            seen.add(id(current))
+            nested = getattr(current, "cause", None)
+            if not isinstance(nested, BaseException):
+                break
+            if id(nested) in seen:
+                break
+            current = nested
+
+        message = str(current)
+        if message:
+            return message
+        return str(cause) or current.__class__.__name__
+
+    @staticmethod
     async def connect(role: Role | None = None) -> WorkflowExecutionsService:
         """Initialize and connect to the service."""
         client = await get_temporal_client()
@@ -1054,11 +1076,13 @@ class WorkflowExecutionsService:
                     },
                 )
             else:
+                cause_message = self.format_failure_cause(e.cause)
                 self.logger.error(
                     "Workflow execution failed",
                     role=self.role,
                     wf_exec_id=wf_exec_id,
                     cause=e.cause,
+                    cause_message=cause_message,
                 )
                 raise e
         except RPCError as e:

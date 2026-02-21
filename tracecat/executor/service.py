@@ -755,10 +755,13 @@ async def invoke_once(
     if role.organization_id is None:
         raise ValueError("organization_id is required for action dispatch")
 
-    # Prefetch registry lock manifests into cache for O(1) resolution
-    await registry_resolver.prefetch_lock(input.registry_lock, role.organization_id)
-
     try:
+        # Prefetch registry lock manifests into cache for O(1) resolution.
+        # Keep this inside the error wrapper so entitlement failures are
+        # normalized into ExecutionError and then ApplicationError at activity
+        # boundaries.
+        await registry_resolver.prefetch_lock(input.registry_lock, role.organization_id)
+
         # Prepare resolved context (secrets, variables, action impl, evaluated args)
         # This is done once here and passed to all backends
         # For templates, secrets are fetched recursively for all steps
