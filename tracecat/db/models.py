@@ -746,12 +746,12 @@ class WorkflowFolder(WorkspaceModel):
 class WorkflowTag(Base):
     """Link table for workflows and tags with optional metadata."""
 
-    __tablename__ = "workflow_tag"
+    __tablename__ = "workflow_tag_link"
     __table_args__ = (PrimaryKeyConstraint("tag_id", "workflow_id"),)
 
     tag_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("tag.id", ondelete="CASCADE"),
+        ForeignKey("workflow_tag.id", ondelete="CASCADE"),
         nullable=False,
     )
     workflow_id: Mapped[uuid.UUID] = mapped_column(
@@ -3042,7 +3042,7 @@ class ChatMessage(WorkspaceModel):
 class Tag(WorkspaceModel):
     """A workflow tag for organizing and filtering workflows."""
 
-    __tablename__ = "tag"
+    __tablename__ = "workflow_tag"
     __table_args__ = (
         UniqueConstraint("name", "workspace_id", name="uq_tag_name_workspace"),
         UniqueConstraint("ref", "workspace_id", name="uq_tag_ref_workspace"),
