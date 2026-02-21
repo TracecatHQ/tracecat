@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from tracecat.auth.credentials import SuperuserRole
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat_ee.admin.settings.schemas import (
     PlatformRegistrySettingsRead,
     PlatformRegistrySettingsUpdate,
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/settings", tags=["admin:settings"])
 @router.get("/registry", response_model=PlatformRegistrySettingsRead)
 async def get_registry_settings(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
 ) -> PlatformRegistrySettingsRead:
     """Get platform registry settings."""
     service = AdminSettingsService(session, role)
@@ -28,7 +28,7 @@ async def get_registry_settings(
 @router.patch("/registry", response_model=PlatformRegistrySettingsRead)
 async def update_registry_settings(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     params: PlatformRegistrySettingsUpdate,
 ) -> PlatformRegistrySettingsRead:
     """Update platform registry settings."""

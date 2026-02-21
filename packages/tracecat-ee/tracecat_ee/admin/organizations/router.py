@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
 from tracecat.auth.credentials import SuperuserRole
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.exceptions import TracecatValidationError
 from tracecat_ee.admin.organizations.schemas import (
     OrgCreate,
@@ -40,7 +40,7 @@ def _require_multi_tenant() -> None:
 @router.get("", response_model=list[OrgRead])
 async def list_organizations(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
 ) -> list[OrgRead]:
     """List all organizations."""
     service = AdminOrgService(session, role)
@@ -50,7 +50,7 @@ async def list_organizations(
 @router.post("", response_model=OrgRead, status_code=status.HTTP_201_CREATED)
 async def create_organization(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     params: OrgCreate,
 ) -> OrgRead:
     """Create a new organization."""
@@ -65,7 +65,7 @@ async def create_organization(
 @router.get("/{org_id}", response_model=OrgRead)
 async def get_organization(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
 ) -> OrgRead:
     """Get organization by ID."""
@@ -79,7 +79,7 @@ async def get_organization(
 @router.patch("/{org_id}", response_model=OrgRead)
 async def update_organization(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     params: OrgUpdate,
 ) -> OrgRead:
@@ -98,7 +98,7 @@ async def update_organization(
 @router.delete("/{org_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_organization(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     confirm: str | None = Query(
         default=None,
@@ -124,7 +124,7 @@ async def delete_organization(
 @router.get("/{org_id}/domains", response_model=list[OrgDomainRead])
 async def list_organization_domains(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
 ) -> list[OrgDomainRead]:
     """List all assigned domains for an organization."""
@@ -142,7 +142,7 @@ async def list_organization_domains(
 )
 async def create_organization_domain(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     params: OrgDomainCreate,
 ) -> OrgDomainRead:
@@ -169,7 +169,7 @@ async def create_organization_domain(
 @router.patch("/{org_id}/domains/{domain_id}", response_model=OrgDomainRead)
 async def update_organization_domain(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     domain_id: uuid.UUID,
     params: OrgDomainUpdate,
@@ -196,7 +196,7 @@ async def update_organization_domain(
 @router.delete("/{org_id}/domains/{domain_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_organization_domain(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     domain_id: uuid.UUID,
 ) -> None:
@@ -223,7 +223,7 @@ async def delete_organization_domain(
 )
 async def list_org_repositories(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
 ) -> list[OrgRegistryRepositoryRead]:
     """List registry repositories for an organization."""
@@ -240,7 +240,7 @@ async def list_org_repositories(
 )
 async def list_org_repository_versions(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     repository_id: uuid.UUID,
 ) -> list[OrgRegistryVersionRead]:
@@ -258,7 +258,7 @@ async def list_org_repository_versions(
 )
 async def sync_org_repository(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     repository_id: uuid.UUID,
     params: OrgRegistrySyncRequest | None = None,
@@ -278,7 +278,7 @@ async def sync_org_repository(
 )
 async def promote_org_repository_version(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     repository_id: uuid.UUID,
     version_id: uuid.UUID,

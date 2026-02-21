@@ -15,7 +15,7 @@ from tracecat.admin.registry.schemas import (
 )
 from tracecat.admin.registry.service import AdminRegistryService
 from tracecat.auth.credentials import SuperuserRole
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.registry.repositories.schemas import (
     RegistryRepositoryRead,
     RegistryRepositoryReadMinimal,
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/registry", tags=["admin:registry"])
 @router.get("/repos", response_model=list[RegistryRepositoryReadMinimal])
 async def list_platform_repositories(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
 ) -> list[RegistryRepositoryReadMinimal]:
     """List all platform registry repositories."""
     service = AdminRegistryService(session, role)
@@ -37,7 +37,7 @@ async def list_platform_repositories(
 @router.get("/repos/{repository_id}", response_model=RegistryRepositoryRead)
 async def get_platform_repository(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     repository_id: uuid.UUID,
 ) -> RegistryRepositoryRead:
     """Get a specific platform registry repository."""
@@ -51,7 +51,7 @@ async def get_platform_repository(
 @router.post("/sync", response_model=RegistrySyncResponse)
 async def sync_all_repositories(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     force: bool = Query(False, description="Force sync by deleting existing version"),
 ) -> RegistrySyncResponse:
     """Trigger sync for all platform registry repositories."""
@@ -62,7 +62,7 @@ async def sync_all_repositories(
 @router.post("/sync/{repository_id}", response_model=RegistrySyncResponse)
 async def sync_repository(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     repository_id: uuid.UUID,
     force: bool = Query(False, description="Force sync by deleting existing version"),
 ) -> RegistrySyncResponse:
@@ -77,7 +77,7 @@ async def sync_repository(
 @router.get("/status", response_model=RegistryStatusResponse)
 async def get_registry_status(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
 ) -> RegistryStatusResponse:
     """Get registry sync status and health."""
     service = AdminRegistryService(session, role)
@@ -87,7 +87,7 @@ async def get_registry_status(
 @router.get("/versions", response_model=list[RegistryVersionRead])
 async def list_registry_versions(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     repository_id: uuid.UUID | None = Query(None),
     limit: int = Query(
         config.TRACECAT__LIMIT_REGISTRY_VERSIONS_DEFAULT,
@@ -106,7 +106,7 @@ async def list_registry_versions(
 )
 async def promote_registry_version(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     repository_id: uuid.UUID,
     version_id: uuid.UUID,
 ) -> RegistryVersionPromoteResponse:
