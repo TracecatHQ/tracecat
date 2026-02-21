@@ -1,24 +1,17 @@
 "use client"
 
-import { useRouter } from "next/navigation"
-import { useEffect } from "react"
+import { ArrowUpRight } from "lucide-react"
+import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { OrgSettingsGitForm } from "@/components/organization/org-settings-git"
+import { Button } from "@/components/ui/button"
 import { useEntitlements } from "@/hooks/use-entitlements"
 
 export default function GitSettingsPage() {
   const { hasEntitlement, isLoading } = useEntitlements()
-  const router = useRouter()
   const customRegistryEnabled = hasEntitlement("custom_registry")
 
-  useEffect(() => {
-    if (!isLoading && !customRegistryEnabled) {
-      router.replace("/organization/settings/sso")
-    }
-  }, [customRegistryEnabled, isLoading, router])
-
   if (isLoading) return <CenteredSpinner />
-  if (!customRegistryEnabled) return null
 
   return (
     <div className="size-full overflow-auto">
@@ -34,7 +27,31 @@ export default function GitSettingsPage() {
           </div>
         </div>
 
-        <OrgSettingsGitForm />
+        {customRegistryEnabled ? (
+          <OrgSettingsGitForm />
+        ) : (
+          <div className="flex flex-1 items-center justify-center pb-8">
+            <EntitlementRequiredEmptyState
+              title="Upgrade required"
+              description="Custom registry Git settings are unavailable on your current subscription tier."
+            >
+              <Button
+                variant="link"
+                asChild
+                className="text-muted-foreground"
+                size="sm"
+              >
+                <a
+                  href="https://tracecat.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Learn more <ArrowUpRight className="size-4" />
+                </a>
+              </Button>
+            </EntitlementRequiredEmptyState>
+          </div>
+        )}
       </div>
     </div>
   )
