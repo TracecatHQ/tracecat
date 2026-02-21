@@ -79,7 +79,10 @@ async def test_semaphore_uses_distinct_scope_keys_for_release_and_heartbeat() ->
         action_id="wf-123:root:step",
     )
 
-    assert client.zrem.await_args_list[0].args == ("tier:org:org-123:semaphore", "wf-123")
+    assert client.zrem.await_args_list[0].args == (
+        "tier:org:org-123:semaphore",
+        "wf-123",
+    )
     assert client.zrem.await_args_list[1].args == (
         "tier:org:org-123:action-semaphore",
         "wf-123:root:step",

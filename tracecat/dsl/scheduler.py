@@ -537,8 +537,7 @@ class DSLScheduler:
             pending_tasks.difference_update(done_tasks)
 
             while (
-                not self.queue.empty()
-                and len(pending_tasks) < self.max_pending_tasks
+                not self.queue.empty() and len(pending_tasks) < self.max_pending_tasks
             ):
                 task_instance = await self.queue.get()
                 self.logger.debug("Scheduling task", task=task_instance)
@@ -551,9 +550,7 @@ class DSLScheduler:
                     max_pending_tasks=self.max_pending_tasks,
                     queue_size=self.queue.qsize(),
                 )
-                await workflow.wait(
-                    pending_tasks, return_when=asyncio.FIRST_COMPLETED
-                )
+                await workflow.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)
             elif pending_tasks:
                 # Wait for at least one pending task to complete
                 await workflow.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)

@@ -805,7 +805,9 @@ class DSLWorkflow:
                 else None
             )
             if max_concurrent_actions is not None and self._is_executable_action(task):
-                action_permit_id = self._action_permit_id(task=task, stream_id=stream_id)
+                action_permit_id = self._action_permit_id(
+                    task=task, stream_id=stream_id
+                )
                 await self._acquire_action_permit(
                     action_id=action_permit_id,
                     limit=max_concurrent_actions,
@@ -1114,7 +1116,10 @@ class DSLWorkflow:
             task_result = task_result.with_error(msg, err_type)
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
         finally:
-            if action_permit_heartbeat_task is not None and not action_permit_heartbeat_task.done():
+            if (
+                action_permit_heartbeat_task is not None
+                and not action_permit_heartbeat_task.done()
+            ):
                 action_permit_heartbeat_task.cancel()
                 await asyncio.gather(
                     action_permit_heartbeat_task, return_exceptions=True
