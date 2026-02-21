@@ -19,6 +19,7 @@ from tracecat.common import UNSET
 from tracecat.contexts import ctx_role, ctx_session
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import OrganizationSetting
+from tracecat.db.rls import set_rls_context_from_role
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
@@ -366,6 +367,7 @@ async def get_setting(
         role = role.model_copy(update={"organization_id": default_org_id})
 
     if session:
+        await set_rls_context_from_role(session, role)
         service = SettingsService(session=session, role=role)
         setting = await service.get_org_setting(key)
         no_default_val = service.get_value(setting) if setting else None

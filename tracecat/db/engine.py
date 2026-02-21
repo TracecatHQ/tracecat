@@ -192,7 +192,7 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     is present, RLS defaults to deny-by-default mode.
     """
     async with AsyncSession(get_async_engine(), expire_on_commit=False) as session:
-        # Set RLS context from ctx_role (no-op if RLS disabled)
+        # Set RLS context from ctx_role (deny-default when no role exists).
         await set_rls_context_from_role(session)
         yield session
 

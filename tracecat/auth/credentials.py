@@ -50,7 +50,7 @@ from tracecat.db.models import (
 from tracecat.db.models import (
     Role as DBRole,
 )
-from tracecat.db.rls import set_rls_context_from_role
+from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 from tracecat.organization.management import get_default_organization_id
@@ -685,12 +685,26 @@ async def _role_dependency(
     role: Role | None = None
 
     if user and allow_user:
-        role = await _authenticate_user(
-            request=request,
-            session=session,
-            user=user,
-            workspace_id=workspace_id,
+        # Membership and org resolution happen before we know the final role.
+        # Use an auth-safe context for this phase so deny-default RLS does not
+        # block legitimate membership checks.
+        await set_rls_context(
+            session,
+            org_id=None,
+            workspace_id=None,
+            user_id=user.id,
+            bypass=True,
         )
+        try:
+            role = await _authenticate_user(
+                request=request,
+                session=session,
+                user=user,
+                workspace_id=workspace_id,
+            )
+        except Exception:
+            await set_rls_context_from_role(session, None)
+            raise
     elif api_key and allow_service:
         role = await _authenticate_service(request, api_key)
     elif allow_executor:

@@ -81,6 +81,7 @@ from tracecat.cases.triggers.consumer import start_case_trigger_consumer
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.rls import set_rls_context_from_role
 from tracecat.editor.router import router as editor_router
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
 from tracecat.feature_flags import FlagLike, is_feature_enabled
@@ -613,11 +614,17 @@ async def info(session: AsyncDBSession) -> AppInfo:
     # Use default organization for platform-level settings.
     # Org-specific auth routing is handled by the /auth/discover endpoint.
     org_id = await get_default_organization_id(session)
-    service = SettingsService(session, role=bootstrap_role(org_id))
+    role = bootstrap_role(org_id)
+    await set_rls_context_from_role(session, role)
+    service = SettingsService(session, role=role)
     settings = await service.list_org_settings(keys=keys)
     keyvalues = {s.key: service.get_value(s) for s in settings}
     for key in keys:
-        keyvalues[key] = get_setting_override(key) or keyvalues[key]
+        override_val = get_setting_override(key)
+        if override_val is not None:
+            keyvalues[key] = override_val
+        else:
+            keyvalues[key] = keyvalues.get(key, False)
     return AppInfo(
         version=APP_VERSION,
         public_app_url=config.TRACECAT__PUBLIC_APP_URL,
