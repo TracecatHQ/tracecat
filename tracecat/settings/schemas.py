@@ -50,6 +50,7 @@ class GitSettingsUpdate(BaseSettingsGroup):
 class SAMLSettingsRead(BaseSettingsGroup):
     saml_enabled: bool
     saml_enforced: bool
+    saml_auto_provisioning: bool
     saml_idp_metadata_url: str | None = Field(default=None)
     saml_sp_acs_url: str  # Read only
     decryption_failed_keys: list[str] = Field(
@@ -75,6 +76,11 @@ class SAMLSettingsUpdate(BaseSettingsGroup):
         default=False,
         description="Whether SAML is enforced. If true, users can only use SAML to authenticate."
         " Requires SAML to be enabled.",
+    )
+    saml_auto_provisioning: bool = Field(
+        default=True,
+        description="Whether to automatically create user accounts and org memberships"
+        " on first SAML login. When disabled, users must be pre-invited.",
     )
     saml_idp_metadata_url: str | None = Field(default=None)
 

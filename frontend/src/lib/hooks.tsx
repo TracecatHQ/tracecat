@@ -371,6 +371,7 @@ interface AppInfo {
   public_app_url: string
   auth_allowed_types: string[]
   saml_enabled: boolean
+  saml_enforced: boolean
   ee_multi_tenant: boolean
 }
 
