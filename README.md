@@ -12,7 +12,7 @@
 
 </div>
 
-[Tracecat](https://tracecat.com) is an open source AI platform for enterprise agents and automation.
+[Tracecat](https://tracecat.com) is the open source AI platform for enterprise agents and automation.
 It includes everything technical teams need to automate mission-critical work: agents, workflows, case management, and over 100+ pre-built integrations.
 
 Purpose-built for both agents and (human) builders:
