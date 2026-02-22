@@ -12,15 +12,11 @@ The following security features are available in Tracecat open source:
 - Workspaces to isolate resources
 - `nsjail` sandbox or `pid` runtime for isolated code and agent execution
 
+## Reporting Vulnerabilities
+
 > [!NOTE]
 > `nsjail` is the recommended executor runtime for production deployments. We do not accept reports related to "breakout" in the `pid` runtime using the `UnsafePidExecutor`.
 > `nsjail` is enabled by default for Helm chart / Kubernetes deployments only and must be explicitly enabled in other deployment options.
-
-## Reporting Vulnerabilities
-
-> [!IMPORTANT]
-> Please do not file GitHub issues or post on our public forum for security vulnerabilities, as they are public!
-> As part of responsible disclosure, please report any security problems to us before disclosing it publicly.
 
 If you are a security researcher and have discovered a vulnerability, please follow the steps below:
 
@@ -29,5 +25,6 @@ If you are a security researcher and have discovered a vulnerability, please fol
 3. We will review the vulnerability and determine if it is a valid security issue.
 4. If it is a valid security issue, we will work with you to reproduce and fix it.
 
-All reports are reviewed within 24 hours. Timeline for the fix is dependent on the severity of the vulnerability.
+All reports are reviewed within 24 hours. Timeline for the fix is dependent on the severity of the vulnerability. As part of responsible disclosure, please report any security problems to us before disclosing it publicly.
+
 Bounties and [exclusive Tracecat merch](https://tracecat-shop.fourthwall.com/products/tracecat-bounty-hunter) may be offered depending on the severity of the vulnerability.
