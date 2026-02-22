@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import Tag
+from tracecat.db.models import WorkflowTag
 from tracecat.identifiers import TagID
 from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagCreate, TagUpdate
@@ -15,29 +15,31 @@ from tracecat.tags.schemas import TagCreate, TagUpdate
 class TagsService(BaseWorkspaceService):
     service_name = "tags"
 
-    async def list_tags(self) -> Sequence[Tag]:
-        statement = select(Tag).where(Tag.workspace_id == self.workspace_id)
+    async def list_tags(self) -> Sequence[WorkflowTag]:
+        statement = select(WorkflowTag).where(
+            WorkflowTag.workspace_id == self.workspace_id
+        )
         result = await self.session.execute(statement)
         return result.scalars().all()
 
-    async def get_tag(self, tag_id: TagID) -> Tag:
-        statement = select(Tag).where(
-            Tag.workspace_id == self.workspace_id,
-            Tag.id == tag_id,
+    async def get_tag(self, tag_id: TagID) -> WorkflowTag:
+        statement = select(WorkflowTag).where(
+            WorkflowTag.workspace_id == self.workspace_id,
+            WorkflowTag.id == tag_id,
         )
         result = await self.session.execute(statement)
         return result.scalar_one()
 
-    async def get_tag_by_ref(self, ref: str) -> Tag:
+    async def get_tag_by_ref(self, ref: str) -> WorkflowTag:
         """Get a tag by its ref."""
-        statement = select(Tag).where(
-            Tag.workspace_id == self.workspace_id,
-            Tag.ref == ref,
+        statement = select(WorkflowTag).where(
+            WorkflowTag.workspace_id == self.workspace_id,
+            WorkflowTag.ref == ref,
         )
         result = await self.session.execute(statement)
         return result.scalar_one()
 
-    async def get_tag_by_ref_or_id(self, tag_identifier: str) -> Tag:
+    async def get_tag_by_ref_or_id(self, tag_identifier: str) -> WorkflowTag:
         """Get a tag by either ref or ID."""
         # Try UUID first
         try:
@@ -49,18 +51,20 @@ class TagsService(BaseWorkspaceService):
 
     @require_scope("tag:create")
     @audit_log(resource_type="tag", action="create")
-    async def create_tag(self, tag: TagCreate) -> Tag:
+    async def create_tag(self, tag: TagCreate) -> WorkflowTag:
         # Generate ref
         ref = slugify(tag.name)
 
         # Check if ref already exists
         existing = await self.session.execute(
-            select(Tag).where(Tag.ref == ref, Tag.workspace_id == self.workspace_id)
+            select(WorkflowTag).where(
+                WorkflowTag.ref == ref, WorkflowTag.workspace_id == self.workspace_id
+            )
         )
         if existing.one_or_none():
             raise ValueError(f"Tag with slug '{ref}' already exists")
 
-        db_tag = Tag(
+        db_tag = WorkflowTag(
             name=tag.name, ref=ref, workspace_id=self.workspace_id, color=tag.color
         )
         self.session.add(db_tag)
@@ -69,7 +73,7 @@ class TagsService(BaseWorkspaceService):
 
     @require_scope("tag:update")
     @audit_log(resource_type="tag", action="update")
-    async def update_tag(self, tag: Tag, tag_update: TagUpdate) -> Tag:
+    async def update_tag(self, tag: WorkflowTag, tag_update: TagUpdate) -> WorkflowTag:
         """Update tag and regenerate ref if name changed."""
         if tag_update.name and tag_update.name != tag.name:
             tag.ref = slugify(tag_update.name)
@@ -82,6 +86,6 @@ class TagsService(BaseWorkspaceService):
 
     @require_scope("tag:delete")
     @audit_log(resource_type="tag", action="delete")
-    async def delete_tag(self, tag: Tag) -> None:
+    async def delete_tag(self, tag: WorkflowTag) -> None:
         await self.session.delete(tag)
         await self.session.commit()

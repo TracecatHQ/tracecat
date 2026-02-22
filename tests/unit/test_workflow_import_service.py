@@ -5,7 +5,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
-from tracecat.db.models import Schedule, Tag, Workflow, WorkflowDefinition, WorkflowTag
+from tracecat.db.models import (
+    Schedule,
+    Workflow,
+    WorkflowDefinition,
+    WorkflowTag,
+    WorkflowTagLink,
+)
 from tracecat.dsl.common import DSLConfig, DSLEntrypoint, DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
@@ -163,14 +169,14 @@ class TestWorkflowImportService:
         assert schedule.status == "online"
 
         # Verify tags were created
-        stmt = select(WorkflowTag).where(WorkflowTag.workflow_id == wf_id)
+        stmt = select(WorkflowTagLink).where(WorkflowTagLink.workflow_id == wf_id)
         result = await session.execute(stmt)
         workflow_tags = result.scalars().all()
         assert len(workflow_tags) == 2
 
         # Get the actual tag names
         tag_ids = [wt.tag_id for wt in workflow_tags]
-        stmt = select(Tag).where(Tag.id.in_(tag_ids))
+        stmt = select(WorkflowTag).where(WorkflowTag.id.in_(tag_ids))
         result = await session.execute(stmt)
         tags = result.scalars().all()
         tag_names = {tag.name for tag in tags}
@@ -642,7 +648,9 @@ class TestWorkflowImportService:
         )
 
         # Verify tags in database
-        stmt = select(Tag).where(Tag.workspace_id == import_service.workspace_id)
+        stmt = select(WorkflowTag).where(
+            WorkflowTag.workspace_id == import_service.workspace_id
+        )
         result = await session.execute(stmt)
         tags = result.scalars().all()
 
@@ -654,7 +662,7 @@ class TestWorkflowImportService:
         assert len(test_tags) == 1  # Only one "test" tag should exist
 
         # Verify both workflows use the same "test" tag
-        stmt = select(WorkflowTag).where(WorkflowTag.tag_id == test_tags[0].id)
+        stmt = select(WorkflowTagLink).where(WorkflowTagLink.tag_id == test_tags[0].id)
         result = await session.execute(stmt)
         workflow_tags = result.scalars().all()
         assert len(workflow_tags) == 2  # Both workflows should use this tag

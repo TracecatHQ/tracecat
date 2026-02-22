@@ -11,7 +11,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.types import Role
-from tracecat.db.models import Action, Schedule, Tag, Webhook, Workflow, Workspace
+from tracecat.db.models import (
+    Action,
+    Schedule,
+    Webhook,
+    Workflow,
+    WorkflowTag,
+    Workspace,
+)
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat.workflow.management import router as workflow_management_router
 from tracecat.workflow.management.types import WorkflowDefinitionMinimal
@@ -170,7 +177,7 @@ async def test_list_workflows_with_tag_filter(
     ):
         mock_svc = AsyncMock()
         # Add tag to workflow
-        mock_tag = Tag(
+        mock_tag = WorkflowTag(
             id=uuid.uuid4(),
             name="test-tag",
             ref="test-tag",
@@ -497,7 +504,7 @@ async def test_get_workflow_with_relationships(
         mock_svc = AsyncMock()
 
         # Add relationships to workflow
-        mock_tag = Tag(
+        mock_tag = WorkflowTag(
             id=uuid.uuid4(),
             name="production",
             ref="production",

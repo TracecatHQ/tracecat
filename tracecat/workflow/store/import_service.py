@@ -7,7 +7,7 @@ import uuid
 from pydantic import ValidationError
 from sqlalchemy import select
 
-from tracecat.db.models import Tag, Webhook, Workflow, WorkflowTag
+from tracecat.db.models import Webhook, Workflow, WorkflowTag, WorkflowTagLink
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import TracecatAuthorizationError
@@ -468,22 +468,23 @@ class WorkflowImportService(BaseWorkspaceService):
             tag = await self._find_or_create_tag(tag_name)
 
             # Create workflow-tag association
-            workflow_tag = WorkflowTag(workflow_id=workflow.id, tag_id=tag.id)
+            workflow_tag = WorkflowTagLink(workflow_id=workflow.id, tag_id=tag.id)
             self.session.add(workflow_tag)
 
-    async def _find_or_create_tag(self, tag_name: str) -> Tag:
+    async def _find_or_create_tag(self, tag_name: str) -> WorkflowTag:
         """Find existing tag or create new one in workspace."""
         if not self.workspace_id:
             raise TracecatAuthorizationError("Workspace ID is required")
 
-        stmt = select(Tag).where(
-            Tag.workspace_id == self.workspace_id, Tag.name == tag_name
+        stmt = select(WorkflowTag).where(
+            WorkflowTag.workspace_id == self.workspace_id,
+            WorkflowTag.name == tag_name,
         )
         result = await self.session.execute(stmt)
         tag = result.scalars().first()
 
         if not tag:
-            tag = Tag(
+            tag = WorkflowTag(
                 id=uuid.uuid4(),
                 name=tag_name,
                 ref=tag_name.lower().replace(" ", "-"),

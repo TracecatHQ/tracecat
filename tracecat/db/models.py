@@ -440,8 +440,8 @@ class Workspace(OrganizationModel):
         back_populates="workspace",
         cascade="all, delete",
     )
-    workflow_tags: Mapped[list[Tag]] = relationship(
-        "Tag",
+    workflow_tags: Mapped[list[WorkflowTag]] = relationship(
+        "WorkflowTag",
         back_populates="workspace",
         cascade="all, delete",
     )
@@ -743,8 +743,8 @@ class WorkflowFolder(WorkspaceModel):
         return self.path.count("/") <= 2  # "/foldername/" has two slashes
 
 
-class WorkflowTag(Base):
-    """Link table for workflows and tags with optional metadata."""
+class WorkflowTagLink(Base):
+    """Link table for workflows and workflow tags."""
 
     __tablename__ = "workflow_tag_link"
     __table_args__ = (PrimaryKeyConstraint("tag_id", "workflow_id"),)
@@ -906,9 +906,9 @@ class Workflow(WorkspaceModel):
         cascade="all, delete",
         lazy="selectin",
     )
-    tags: Mapped[list[Tag]] = relationship(
-        "Tag",
-        secondary=WorkflowTag.__table__,
+    tags: Mapped[list[WorkflowTag]] = relationship(
+        "WorkflowTag",
+        secondary=WorkflowTagLink.__table__,
         back_populates="workflows",
     )
 
@@ -3039,13 +3039,13 @@ class ChatMessage(WorkspaceModel):
     chat: Mapped[Chat] = relationship("Chat", back_populates="messages")
 
 
-class Tag(WorkspaceModel):
+class WorkflowTag(WorkspaceModel):
     """A workflow tag for organizing and filtering workflows."""
 
     __tablename__ = "workflow_tag"
     __table_args__ = (
-        UniqueConstraint("name", "workspace_id", name="uq_tag_name_workspace"),
-        UniqueConstraint("ref", "workspace_id", name="uq_tag_ref_workspace"),
+        UniqueConstraint("name", "workspace_id", name="uq_workflow_tag_name_workspace"),
+        UniqueConstraint("ref", "workspace_id", name="uq_workflow_tag_ref_workspace"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -3067,7 +3067,7 @@ class Tag(WorkspaceModel):
     workspace: Mapped[Workspace] = relationship(back_populates="workflow_tags")
     workflows: Mapped[list[Workflow]] = relationship(
         "Workflow",
-        secondary=WorkflowTag.__table__,
+        secondary=WorkflowTagLink.__table__,
         back_populates="tags",
     )
 
