@@ -134,7 +134,7 @@ export function ServiceAccountJsonUploader({
             setUserEmail(parsed.subject)
           }
 
-          const subject = assumeUser ? userEmail : undefined
+          const subject = parsed.subject ?? (assumeUser ? userEmail : undefined)
           if (subject) {
             parsed.subject = subject
           }
