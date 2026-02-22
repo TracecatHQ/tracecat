@@ -7,6 +7,8 @@
   <p align="center">
     Automate enterprise work with secure AI agents.
   </p>
+
+  <br>
 </div>
 
 <div align="center">
