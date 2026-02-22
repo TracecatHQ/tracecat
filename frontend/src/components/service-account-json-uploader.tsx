@@ -40,6 +40,7 @@ export function ServiceAccountJsonUploader({
   const [detectedEmail, setDetectedEmail] = useState<string | null>(null)
   const [assumeUser, setAssumeUser] = useState(false)
   const [userEmail, setUserEmail] = useState("")
+  const [emailTouched, setEmailTouched] = useState(false)
 
   const setSubject = (json: string, subject?: string) => {
     try {
@@ -63,13 +64,16 @@ export function ServiceAccountJsonUploader({
     setAssumeUser(checked)
     if (!checked) {
       setUserEmail("")
+      setEmailTouched(false)
       setSubject(value)
     }
   }
 
   const handleUserEmailChange = (e: ChangeEvent<HTMLInputElement>) => {
-    setUserEmail(e.target.value)
-    setSubject(value, e.target.value)
+    const email = e.target.value
+    setUserEmail(email)
+    setEmailTouched(true)
+    setSubject(value, email.trim() ? email : undefined)
   }
 
   const resetInput = useCallback(() => {
@@ -87,6 +91,7 @@ export function ServiceAccountJsonUploader({
     resetInput()
     setAssumeUser(false)
     setUserEmail("")
+    setEmailTouched(false)
   }, [onChange, onClearError, onDetectedEmail, resetInput])
 
   const handleFile = useCallback(
@@ -283,18 +288,34 @@ export function ServiceAccountJsonUploader({
         </div>
         {assumeUser && (
           <div className="mt-4">
-            <Label htmlFor="user-email">User Email</Label>
+            <Label htmlFor="user-email">
+              User Email
+              <span className="ml-1 text-red-500">*</span>
+            </Label>
             <Input
               id="user-email"
               type="email"
+              required
               placeholder="user@example.com"
               value={userEmail}
               onChange={handleUserEmailChange}
-              className="mt-1"
+              onBlur={() => setEmailTouched(true)}
+              className={cn(
+                "mt-1",
+                emailTouched &&
+                  !userEmail.trim() &&
+                  "border-destructive focus-visible:ring-destructive"
+              )}
             />
-            <p className="mt-1 text-xs text-muted-foreground">
-              The service account will impersonate this user.
-            </p>
+            {emailTouched && !userEmail.trim() ? (
+              <p className="mt-1 text-xs text-destructive">
+                User email is required when assuming a user.
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-muted-foreground">
+                The service account will impersonate this user.
+              </p>
+            )}
           </div>
         )}
       </div>
