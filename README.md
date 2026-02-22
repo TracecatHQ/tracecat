@@ -1,5 +1,12 @@
 <div align="center">
-  <img src="img/banner.svg" alt="The open source AI platform for enterprise agents and automation.">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="img/banner-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="img/banner-light.svg">
+    <img src="img/banner-light.svg" alt="The open source AI platform for enterprise agents and automation.">
+  </picture>
+  <p align="center">
+    Automate enterprise work with secure AI agents.
+  </p>
 </div>
 
 </br>
