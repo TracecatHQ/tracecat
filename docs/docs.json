@@ -1,0 +1,101 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "aspen",
+  "name": "Tracecat Docs",
+  "colors": {
+    "primary": "#16A34A",
+    "light": "#07C983",
+    "dark": "#15803D"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get started",
+            "pages": [
+              "get-started/welcome",
+              "get-started/getting-started"
+            ]
+          },
+          {
+            "group": "Core concepts",
+            "pages": [
+              {
+                "group": "Building agents",
+                "pages": [
+                  "core-concepts/building-agents/overview"
+                ]
+              },
+              {
+                "group": "Building workflows",
+                "pages": [
+                  "core-concepts/building-workflows/overview"
+                ]
+              },
+              {
+                "group": "Credentials",
+                "pages": [
+                  "core-concepts/credentials/overview"
+                ]
+              },
+              {
+                "group": "Custom integrations",
+                "pages": [
+                  "core-concepts/custom-integrations/overview"
+                ]
+              }
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "fonts": {
+    "family": "Instrument Sans"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Support",
+        "href": "mailto:hi@mintlify.com"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Dashboard",
+      "href": "https://dashboard.mintlify.com"
+    }
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "perplexity",
+      "mcp",
+      "cursor",
+      "vscode"
+    ]
+  },
+  "footer": {
+    "socials": {
+      "x": "https://x.com/mintlify",
+      "github": "https://github.com/mintlify",
+      "linkedin": "https://linkedin.com/company/mintlify"
+    }
+  }
+}
