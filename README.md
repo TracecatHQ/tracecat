@@ -30,7 +30,7 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 - Case management: track, automate, and resolve work items with agents and workflows
 - MCP server: connect your 3rd-party agent harness to Tracecat to build and run workflows and agents
 - Integrations: over 100+ pre-built connectors to enterprise tools
-- Custom integrations: connect to any API or MCP server that supports HTTP, SMTP, gRPC, OAuth, and more
+- Protocol-agnostic: connect to any API or MCP server that supports HTTP, SMTP, gRPC, OAuth, and more
 - Code-native: turn your Python scripts into agent tools and workflow steps
 
 Other open source highlights include:
