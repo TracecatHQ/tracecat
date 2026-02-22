@@ -9,8 +9,6 @@
   </p>
 </div>
 
-</br>
-
 <div align="center">
 
 ![Commits](https://img.shields.io/github/commit-activity/m/TracecatHQ/tracecat?style=for-the-badge&logo=github&color=6E7ED8)
