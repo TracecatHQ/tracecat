@@ -61,7 +61,7 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 ## Getting Started
 
 > [!IMPORTANT]
-> Tracecat is in active development. Expect breaking changes with releases. Review the release [changelog](https://github.com/TracecatHQ/tracecat/releases) before updating.
+> Tracecat is in active development. Review the release [changelog](https://github.com/TracecatHQ/tracecat/releases) before updating.
 
 ### Self-hosting
 
