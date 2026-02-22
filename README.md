@@ -20,36 +20,34 @@
 </div>
 
 [Tracecat](https://tracecat.com) is the open source AI platform for enterprise agents and automation.
-It includes everything technical teams need to automate mission-critical work: agents, workflows, case management, and over 100+ pre-built integrations.
+It includes everything technical teams need to automate mission-critical work: agents, workflows, case management, and over 100+ integrations.
 
-Purpose-built for both agents and (human) builders:
+Purpose-built for agents and (human) builders:
 - Low-code: build custom agents and workflows with a simple, intuitive UI
-- MCP: build and run automations from your own harness (e.g. Claude code, Codex) via Tracecat's OAuth MCP server
+- Tracecat MCP: build and run agents and workflows from your own harness (e.g. Claude code, Codex)
 - Code-native: sync custom Python scripts from your Git repo into Tracecat
 
 Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run on [Temporal](https://temporal.io) for security, reliability, and scale.
 
 ## Features
 
-- Agents: build custom agents with prompts, tools, chat, and any MCP server (remote HTTP / OAuth or local via `npx` / `uvx` commands)
-- Workflows: low-code builder with complex control flow (if-conditions, loops) and durable execution (Temporal)
-- Case management: track, automate, and resolve work items with agents and workflows
-- MCP server: connect your 3rd-party agent harness to Tracecat to build and run workflows and agents
-- Integrations: over 100+ pre-built connectors to enterprise tools via HTTP, SMTP, gRPC, OAuth, and more
-- Code-native: turn your Python scripts into agent tools and workflow steps
+- **Agents**: build custom agents with prompts, tools, chat, and any MCP server (remote HTTP / OAuth or local via `npx` / `uvx` commands)
+- **Workflows**: low-code builder with complex control flow (if-conditions, loops) and durable execution (Temporal)
+- **Case management**: track, automate, and resolve work items with agents and workflows
+- **Integrations**: over 100+ pre-built connectors to enterprise tools via HTTP, SMTP, gRPC, OAuth, and more
 
 Other open source highlights include:
-- Sandboxed: run untrusted code and agents within `nsjail` sandboxes or `pid` runtimes.
-- Lookup tables: store and query structured data
-- Variables: reuse values across workflows and agents
-- No SSO tax: SAML / OIDC support
-- Audit logs: exportable into your SIEM
+- **Sandboxed**: run untrusted code and agents within `nsjail` sandboxes or `pid` runtimes.
+- **Lookup tables**: store and query structured data
+- **Variables**: reuse values across workflows and agents
+- **No SSO tax**: SAML / OIDC support
+- **Audit logs**: exportable into your SIEM
 
 Advanced features in Tracecat Enterprise Edition:
-- Human-in-the-loop: review and approve sensitive tools calls from a unified inbox, Slack, or email
-- Fine-grained access control (RBAC, ABAC, OAuth2.0 scopes) for humans and agents
-- Workflow version control (sync to GitHub, GitLab, Bitbucket, etc.)
-- Metrics and monitoring for workflows, agents, and cases
+- **Human-in-the-loop**: review and approve sensitive tools calls from a unified inbox, Slack, or email
+- **Fine-grained access control**: RBAC, ABAC, OAuth2.0 scopes for humans and agents
+- **Workflow version control**: sync to GitHub, GitLab, Bitbucket, etc.
+- **Metrics and monitoring**: for workflows, agents, and cases
 
 ## Getting Started
 
