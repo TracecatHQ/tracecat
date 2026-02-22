@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import Tag
+from tracecat.db.models import WorkflowTag
 from tracecat.identifiers import TagID
 from tracecat.tags.schemas import TagCreate, TagRead, TagUpdate
 from tracecat.tags.service import TagsService
@@ -21,7 +21,7 @@ async def list_tags(
     *,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-) -> Sequence[Tag]:
+) -> Sequence[WorkflowTag]:
     """List all tags for the current workspace."""
     service = TagsService(session, role)
     return await service.list_tags()
@@ -34,7 +34,7 @@ async def get_tag(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     tag_id: TagID,
-) -> Tag:
+) -> WorkflowTag:
     """Get a specific tag by ID."""
     service = TagsService(session, role)
     try:
@@ -53,7 +53,7 @@ async def create_tag(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     tag: TagCreate,
-) -> Tag:
+) -> WorkflowTag:
     """Create a new tag."""
     service = TagsService(session, role)
     try:
@@ -73,7 +73,7 @@ async def update_tag(
     session: AsyncDBSession,
     tag_id: TagID,
     tag_update: TagUpdate,
-) -> Tag:
+) -> WorkflowTag:
     """Update an existing tag."""
     service = TagsService(session, role)
     tag = await service.get_tag(tag_id)
