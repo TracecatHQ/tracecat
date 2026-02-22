@@ -18,11 +18,11 @@ from tracecat.contexts import ctx_logical_time
 from tracecat.db.models import (
     Action,
     CaseTrigger,
-    Tag,
     Webhook,
     Workflow,
     WorkflowDefinition,
     WorkflowTag,
+    WorkflowTagLink,
 )
 from tracecat.dsl.action import materialize_context
 from tracecat.dsl.common import (
@@ -131,13 +131,19 @@ class WorkflowsManagementService(BaseWorkspaceService):
 
         if tags:
             tag_set = set(tags)
-            # Join through the WorkflowTag link table to Tag table
+            # Join through the WorkflowTagLink table to WorkflowTag table
             stmt = (
                 stmt.join(
-                    WorkflowTag,
-                    sa.cast(Workflow.id, sa.UUID) == WorkflowTag.workflow_id,
+                    WorkflowTagLink,
+                    sa.cast(Workflow.id, sa.UUID) == WorkflowTagLink.workflow_id,
                 )
-                .join(Tag, and_(Tag.id == WorkflowTag.tag_id, Tag.name.in_(tag_set)))
+                .join(
+                    WorkflowTag,
+                    and_(
+                        WorkflowTag.id == WorkflowTagLink.tag_id,
+                        WorkflowTag.name.in_(tag_set),
+                    ),
+                )
                 # Ensure we get distinct workflows when multiple tags match
                 .distinct()
             )
@@ -209,10 +215,16 @@ class WorkflowsManagementService(BaseWorkspaceService):
             tag_set = set(tags)
             stmt = (
                 stmt.join(
-                    WorkflowTag,
-                    sa.cast(Workflow.id, sa.UUID) == WorkflowTag.workflow_id,
+                    WorkflowTagLink,
+                    sa.cast(Workflow.id, sa.UUID) == WorkflowTagLink.workflow_id,
                 )
-                .join(Tag, and_(Tag.id == WorkflowTag.tag_id, Tag.name.in_(tag_set)))
+                .join(
+                    WorkflowTag,
+                    and_(
+                        WorkflowTag.id == WorkflowTagLink.tag_id,
+                        WorkflowTag.name.in_(tag_set),
+                    ),
+                )
                 .distinct()
             )
 
