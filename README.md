@@ -131,6 +131,6 @@ Check out our [Contribution Guide](CONTRIBUTING.md) for more information.
 
 <div align="center">
 
-  <sub>**`Tracecat`** is distributed under [**AGPL-3.0**](https://github.com/TracecatHQ/tracecat/blob/main/LICENSE)</sub>
+  <p>**`Tracecat`** is distributed under [**AGPL-3.0**](https://github.com/TracecatHQ/tracecat/blob/main/LICENSE)</p>
 
 </div>
