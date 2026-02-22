@@ -18,7 +18,6 @@ It includes everything technical teams need to automate mission-critical work: a
 Purpose-built for both agents and (human) builders:
 - Low-code: build custom agents and workflows with a simple, intuitive UI
 - MCP: build and run automations from your own harness (e.g. Claude code, Codex) via Tracecat's OAuth MCP server
-- Cases: collaborate with agents on work items
 - Code-native: sync custom Python scripts from your Git repo into Tracecat
 
 Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run on [Temporal](https://temporal.io) for security, reliability, and scale.
@@ -29,8 +28,7 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 - Workflows: low-code builder with complex control flow (if-conditions, loops) and durable execution (Temporal)
 - Case management: track, automate, and resolve work items with agents and workflows
 - MCP server: connect your 3rd-party agent harness to Tracecat to build and run workflows and agents
-- Integrations: over 100+ pre-built connectors to enterprise tools
-- Protocol-agnostic: connect to any API or MCP server that supports HTTP, SMTP, gRPC, OAuth, and more
+- Integrations: over 100+ pre-built connectors (via REST, SMTP, gRPC, OAuth, and more) to enterprise tools
 - Code-native: turn your Python scripts into agent tools and workflow steps
 
 Other open source highlights include:
