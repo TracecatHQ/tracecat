@@ -28,7 +28,7 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 - Workflows: low-code builder with complex control flow (if-conditions, loops) and durable execution (Temporal)
 - Case management: track, automate, and resolve work items with agents and workflows
 - MCP server: connect your 3rd-party agent harness to Tracecat to build and run workflows and agents
-- Integrations: over 100+ pre-built connectors (via REST, SMTP, gRPC, OAuth, and more) to enterprise tools
+- Integrations: over 100+ pre-built connectors to enterprise tools via HTTP, SMTP, gRPC, OAuth, and more
 - Code-native: turn your Python scripts into agent tools and workflow steps
 
 Other open source highlights include:
