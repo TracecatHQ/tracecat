@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 import redis.asyncio as redis
-import orjson
 from tracecat_registry import ActionIsInterfaceError, registry
 from tracecat_registry._internal.jsonpath import eval_jsonpath
 from tracecat_registry._internal.safe_lambda import build_safe_lambda
@@ -49,90 +48,6 @@ def reshape(
     ],
 ) -> Any:
     return value
-
-
-@registry.register(
-    default_title="Filter",
-    description="Filter a collection using a Python lambda function.",
-    display_group="Data Transform",
-    namespace="core.transform",
-)
-def filter(
-    items: Annotated[
-        list[Any],
-        Doc("Items to filter."),
-    ],
-    python_lambda: Annotated[
-        str,
-        Doc(
-            'Filter condition as a Python lambda expression (e.g. `"lambda x: x > 2"`).'
-        ),
-    ],
-) -> Any:
-    fn = build_safe_lambda(python_lambda)
-    return list(filter_(fn, items))
-
-
-@registry.register(
-    default_title="Is in",
-    description="Filters items in a list based on whether they are in a collection.",
-    display_group="Data Transform",
-    namespace="core.transform",
-)
-def is_in(
-    items: Annotated[
-        list[Any],
-        Doc("Items to filter."),
-    ],
-    collection: Annotated[
-        list[Any],
-        Doc("Collection of hashable items to check against."),
-    ],
-    python_lambda: Annotated[
-        str | None,
-        Doc(
-            "Python lambda applied to each item before checking membership (e.g. `\"lambda x: x.get('name')\"`). Similar to `key` in the Python `sorted` function."
-        ),
-    ] = None,
-) -> list[Any]:
-    col_set = set(collection)
-    if python_lambda:
-        fn = build_safe_lambda(python_lambda)
-        result = [item for item in items if fn(item) in col_set]
-    else:
-        result = [item for item in items if item in col_set]
-    return result
-
-
-@registry.register(
-    default_title="Not in",
-    description="Filters items in a list based on whether they are not in a collection.",
-    display_group="Data Transform",
-    namespace="core.transform",
-)
-def not_in(
-    items: Annotated[
-        list[Any],
-        Doc("Items to filter."),
-    ],
-    collection: Annotated[
-        list[Any],
-        Doc("Collection of hashable items to check against."),
-    ],
-    python_lambda: Annotated[
-        str | None,
-        Doc(
-            "Python lambda applied to each item before checking membership (e.g. `\"lambda x: x.get('name')\"`). Similar to `key` in the Python `sorted` function."
-        ),
-    ] = None,
-) -> list[Any]:
-    col_set = set(collection)
-    if python_lambda:
-        fn = build_safe_lambda(python_lambda)
-        result = [item for item in items if fn(item) not in col_set]
-    else:
-        result = [item for item in items if item not in col_set]
-    return result
 
 
 async def _deduplicate_redis(
@@ -313,7 +228,7 @@ async def is_duplicate(
 
 
 @registry.register(
-    default_title="Apply",
+    default_title="Apply lambda to value",
     description="Apply a Python lambda function to a value.",
     display_group="Data Transform",
     namespace="core.transform",
@@ -333,7 +248,7 @@ def apply(
 
 
 @registry.register(
-    default_title="Map",
+    default_title="Map lambda to list",
     description="Map a Python lambda function to each item in a list.",
     display_group="Data Transform",
     namespace="core.transform",
@@ -353,15 +268,25 @@ def map(
 
 
 @registry.register(
-    default_title="Compact",
-    description="Remove all null or empty string values from a list.",
+    default_title="Filter",
+    description="Filter a collection using a Python lambda function.",
     display_group="Data Transform",
     namespace="core.transform",
 )
-def compact(
-    items: Annotated[list[Any], Doc("List of items to compact.")],
-) -> list[Any]:
-    return [item for item in items if item is not None and item != ""]
+def filter(
+    items: Annotated[
+        list[Any],
+        Doc("Items to filter."),
+    ],
+    python_lambda: Annotated[
+        str,
+        Doc(
+            'Filter condition as a Python lambda expression (e.g. `"lambda x: x > 2"`).'
+        ),
+    ],
+) -> Any:
+    fn = build_safe_lambda(python_lambda)
+    return list(filter_(fn, items))
 
 
 @registry.register(
@@ -421,91 +346,3 @@ def gather(
     ] = "partition",
 ) -> list[Any]:
     raise ActionIsInterfaceError()
-
-
-def flatten_dict(x: dict[str, Any] | list[Any], max_depth: int = 100) -> dict[str, Any]:
-    """Return object with single level of keys (as jsonpath) and values."""
-
-    def _flatten(
-        obj: dict[str, Any] | list[Any], prefix: str = "", depth: int = 0
-    ) -> dict[str, Any]:
-        if depth > max_depth:
-            raise ValueError(
-                f"Maximum recursion depth ({max_depth}) exceeded while flattening object"
-            )
-
-        result: dict[str, Any] = {}
-
-        # Handle arrays
-        if isinstance(obj, list):
-            for index, item in enumerate(obj):
-                array_path = f"[{index}]"
-                full_path = f"{prefix}{array_path}" if prefix else array_path
-
-                if isinstance(item, (dict, list)):
-                    result.update(_flatten(item, full_path, depth + 1))
-                else:
-                    result[full_path] = item
-            return result
-
-        # Handle dictionaries
-        if isinstance(obj, dict):
-            for key, value in obj.items():
-                # Build the path with dot notation
-                full_path = f"{prefix}.{key}" if prefix else key
-
-                if isinstance(value, dict):
-                    # Recursively flatten nested dicts
-                    result.update(_flatten(value, full_path, depth + 1))
-                elif isinstance(value, list):
-                    # Handle arrays within objects
-                    for index, item in enumerate(value):
-                        array_path = f"{full_path}[{index}]"
-                        if isinstance(item, (dict, list)):
-                            result.update(_flatten(item, array_path, depth + 1))
-                        else:
-                            result[array_path] = item
-                else:
-                    # Leaf value
-                    result[full_path] = value
-            return result
-
-        # Shouldn't reach here, but handle primitives
-        return {prefix: obj} if prefix else {"": obj}
-
-    return _flatten(x)
-
-
-@registry.register(
-    default_title="Flatten JSON",
-    description="Flatten a JSON object into a single level of fields.",
-    display_group="Data Transform",
-    namespace="core.transform",
-)
-def flatten_json(
-    json: Annotated[str | dict[str, Any], Doc("JSON object to flatten.")],
-) -> dict[str, Any]:
-    if isinstance(json, str):
-        json = orjson.loads(json)
-    if not isinstance(json, dict):
-        raise ValueError("json must be a JSON object or a string")
-    return flatten_dict(json)
-
-
-@registry.register(
-    default_title="Eval JSONPaths",
-    description="Eval multiple JSONPath expressions on an object.",
-    display_group="Data Transform",
-    namespace="core.transform",
-)
-def eval_jsonpaths(
-    json: Annotated[
-        str | dict[str, Any], Doc("JSON object to eval JSONPath expressions on.")
-    ],
-    jsonpaths: Annotated[list[str], Doc("JSONPath expressions to eval.")],
-) -> dict[str, Any]:
-    if isinstance(json, str):
-        json = orjson.loads(json)
-    if not isinstance(json, dict):
-        raise ValueError("json must be a JSON object or a string")
-    return {jsonpath: eval_jsonpath(jsonpath, json) for jsonpath in jsonpaths}

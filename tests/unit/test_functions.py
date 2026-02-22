@@ -36,6 +36,7 @@ from tracecat.expressions.functions import (
     div,
     endswith,
     flatten,
+    flatten_json,
     format_datetime,
     format_string,
     from_timestamp,
@@ -986,6 +987,83 @@ def test_flatten(input_iterables: list, expected: list) -> None:
     The function recursively flattens all sequences (including tuples) into a single list.
     """
     assert flatten(input_iterables) == expected
+
+
+@pytest.mark.parametrize(
+    "input_json,expected",
+    [
+        ({"a": {"b": 1}}, {"a.b": 1}),
+        ({"a": {"b": {"c": 1}}}, {"a.b.c": 1}),
+        ({"a": 1, "b": 2, "c": 3}, {"a": 1, "b": 2, "c": 3}),
+        (
+            {"user": {"name": "Alice", "profile": {"age": 30}}},
+            {"user.name": "Alice", "user.profile.age": 30},
+        ),
+        ({"items": [1, 2, 3]}, {"items[0]": 1, "items[1]": 2, "items[2]": 3}),
+        (
+            {"users": [{"id": 1}, {"id": 2}]},
+            {"users[0].id": 1, "users[1].id": 2},
+        ),
+        (
+            {"data": {"users": [{"name": "Alice"}, {"name": "Bob"}]}},
+            {"data.users[0].name": "Alice", "data.users[1].name": "Bob"},
+        ),
+        (
+            {
+                "event": {
+                    "type": "login",
+                    "users": [{"id": 1, "roles": ["admin", "user"]}],
+                }
+            },
+            {
+                "event.type": "login",
+                "event.users[0].id": 1,
+                "event.users[0].roles[0]": "admin",
+                "event.users[0].roles[1]": "user",
+            },
+        ),
+        ({}, {}),
+        ({"key": "value"}, {"key": "value"}),
+        ({"a": {}, "b": []}, {}),
+        (
+            {"str": "text", "num": 42, "bool": True, "null": None},
+            {"str": "text", "num": 42, "bool": True, "null": None},
+        ),
+        ({"a": {"b": [{"c": [1, 2]}]}}, {"a.b[0].c[0]": 1, "a.b[0].c[1]": 2}),
+    ],
+)
+def test_flatten_json(input_json: dict[str, Any], expected: dict[str, Any]) -> None:
+    assert flatten_json(input_json) == expected
+
+
+@pytest.mark.parametrize(
+    "input_str,expected",
+    [
+        ('{"a": {"b": 1}}', {"a.b": 1}),
+        ('{"items": [1, 2]}', {"items[0]": 1, "items[1]": 2}),
+        (
+            '{"user": {"name": "Alice", "data": [1, 2]}}',
+            {"user.name": "Alice", "user.data[0]": 1, "user.data[1]": 2},
+        ),
+    ],
+)
+def test_flatten_json_string_input(input_str: str, expected: dict[str, Any]) -> None:
+    assert flatten_json(input_str) == expected
+
+
+@pytest.mark.parametrize(
+    "input_json,error_match",
+    [
+        ("{invalid json}", ""),
+        ("123", "json must be a JSON object"),
+        ('"string"', "json must be a JSON object"),
+        ("true", "json must be a JSON object"),
+        ("null", "json must be a JSON object"),
+    ],
+)
+def test_flatten_json_errors(input_json: str, error_match: str) -> None:
+    with pytest.raises(ValueError, match=error_match):
+        flatten_json(input_json)
 
 
 @pytest.mark.parametrize(

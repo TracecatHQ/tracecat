@@ -356,6 +356,11 @@ def compact(x: list[Any]) -> list[Any]:
     return [item for item in x if item is not None]
 
 
+def drop_nulls(items: list[Any]) -> list[Any]:
+    """Remove all null or empty string values from a list."""
+    return [item for item in items if item is not None and item != ""]
+
+
 def is_in(item: Any, container: Sequence[Any]) -> bool:
     """Check if item exists in a sequence."""
     return item in container
@@ -473,6 +478,61 @@ def is_json(x: str) -> bool:
 def merge_dicts(x: list[dict[Any, Any]]) -> dict[Any, Any]:
     """Merge list of objects. Similar to merge function in Terraform."""
     return {k: v for d in x for k, v in d.items()}
+
+
+def flatten_dict(x: dict[str, Any] | list[Any], max_depth: int = 100) -> dict[str, Any]:
+    """Return object with single level of keys (as jsonpath) and values."""
+
+    def _flatten(
+        obj: dict[str, Any] | list[Any], prefix: str = "", depth: int = 0
+    ) -> dict[str, Any]:
+        if depth > max_depth:
+            raise ValueError(
+                f"Maximum recursion depth ({max_depth}) exceeded while flattening object"
+            )
+
+        result: dict[str, Any] = {}
+
+        if isinstance(obj, list):
+            for index, item in enumerate(obj):
+                array_path = f"[{index}]"
+                full_path = f"{prefix}{array_path}" if prefix else array_path
+
+                if isinstance(item, (dict, list)):
+                    result.update(_flatten(item, full_path, depth + 1))
+                else:
+                    result[full_path] = item
+            return result
+
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                full_path = f"{prefix}.{key}" if prefix else key
+
+                if isinstance(value, dict):
+                    result.update(_flatten(value, full_path, depth + 1))
+                elif isinstance(value, list):
+                    for index, item in enumerate(value):
+                        array_path = f"{full_path}[{index}]"
+                        if isinstance(item, (dict, list)):
+                            result.update(_flatten(item, array_path, depth + 1))
+                        else:
+                            result[array_path] = item
+                else:
+                    result[full_path] = value
+            return result
+
+        return {prefix: obj} if prefix else {"": obj}
+
+    return _flatten(x)
+
+
+def flatten_json(x: str | dict[str, Any]) -> dict[str, Any]:
+    """Flatten a JSON object into a single level of fields."""
+    if isinstance(x, str):
+        x = orjson.loads(x)
+    if not isinstance(x, dict):
+        raise ValueError("json must be a JSON object or a string")
+    return flatten_dict(x)
 
 
 def dict_keys(x: dict[Any, Any]) -> list[Any]:
@@ -1077,6 +1137,7 @@ _FUNCTION_MAPPING = {
     "difference": difference,
     "flatten": flatten,
     "intersection": intersection,
+    "drop_nulls": drop_nulls,
     "is_empty": is_empty,
     "is_in": is_in,
     "length": len,
@@ -1109,6 +1170,8 @@ _FUNCTION_MAPPING = {
     "lookup": dict_lookup,
     "map_keys": map_dict_keys,
     "merge": merge_dicts,
+    "flatten_dict": flatten_dict,
+    "flatten_json": flatten_json,
     "to_keys": dict_keys,
     "to_values": dict_values,
     "tabulate": tabulate,
