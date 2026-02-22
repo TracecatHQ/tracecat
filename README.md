@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="img/banner.svg" alt="The open source AI automation platform for agents and builders.">
+  <img src="img/banner.svg" alt="The open source AI platform for enterprise agents and automation.">
 </div>
 
 </br>
@@ -12,27 +12,48 @@
 
 </div>
 
-[Tracecat](https://tracecat.com)
+[Tracecat](https://tracecat.com) is an open source AI platform for enterprise agents and automation.
+It includes everything technical teams need to automate mission-critical work: agents, workflows, case management, and over 100+ pre-built integrations.
 
-## Feature Highlights
-- Agents:
-- Workflows:
-- Cases:
-- Integrations:
-- Custom Python: 
-- Sandboxed-by-default: run untrusted code and agents within `nsjail` sandboxes or `pid` runtimes.
-- No SSO tax: open source SAML / OIDC support and audit logs
+Purpose-built for both agents and (human) builders:
+- Low-code: build custom agents and workflows with a simple, intuitive UI
+- MCP: build and run automations from your own harness (e.g. Claude code, Codex) via Tracecat's OAuth MCP server
+- Cases: collaborate with agents on work items
+- Code-native: sync custom Python scripts from your Git repo into Tracecat
 
-Along with advanced features in our enterprise edition:
+Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run on [Temporal](https://temporal.io) for security, reliability, and scale.
+
+## Features
+
+- Agents: build custom agents with prompts, tools, chat, and any MCP server (remote HTTP / OAuth or local via `npx` / `uvx` commands)
+- Workflows: low-code builder with complex control flow (if-conditions, loops) and durable execution (Temporal)
+- Case management: track, automate, and resolve work items with agents and workflows
+- MCP server: connect your 3rd-party agent harness to Tracecat to build and run workflows and agents
+- Integrations: over 100+ pre-built connectors to enterprise tools
+- Custom integrations: connect to any API or MCP server that supports HTTP, SMTP, gRPC, OAuth, and more
+- Code-native: turn your Python scripts into agent tools and workflow steps
+
+Other open source highlights include:
+- Sandboxed: run untrusted code and agents within `nsjail` sandboxes or `pid` runtimes.
+- Lookup tables: store and query structured data
+- Variables: reuse values across workflows and agents
+- No SSO tax: SAML / OIDC support
+- Audit logs: exportable into your SIEM
+
+Advanced features in Tracecat Enterprise Edition:
+- Human-in-the-loop: review and approve sensitive tools calls from a unified inbox, Slack, or email
 - Fine-grained access control (RBAC, ABAC, OAuth2.0 scopes) for humans and agents
-- Workflow git sync
+- Workflow version control (sync to GitHub, GitLab, Bitbucket, etc.)
+- Metrics and monitoring for workflows, agents, and cases
 
 ## Getting Started
 
 > [!IMPORTANT]
 > Tracecat is in active development. Expect breaking changes with releases. Review the release [changelog](https://github.com/TracecatHQ/tracecat/releases) before updating.
 
-### Local deployment
+### Self-hosting
+
+### Run Tracecat locally
 
 Deploy a local Tracecat stack using Docker Compose. View full instructions [here](https://docs.tracecat.com/self-hosting/deployment-options/docker-compose).
 
@@ -60,11 +81,14 @@ For production deployments, check out one of the following IaaC (Infrastructure 
 - AWS ECS Fargate (Terraform) under [`deployments/fargate`](https://github.com/TracecatHQ/tracecat/tree/main/deployments/fargate)
 - AWS EKS (Terraform) under [`deployments/eks`](https://github.com/TracecatHQ/tracecat/tree/main/deployments/eks)
 
-## Tech
+## Tech Stack
 
-## Community
-
-Have questions? Feedback? Come hang out with us in the [Tracecat Community Discord](https://discord.gg/H4XZwsYzY4).
+- Backend: Python with FastAPI, SQLAlchemy, Pydantic, uv
+- Frontend: Next.js with TypeScript, React Query, Shadcn UI
+- Durable workflows and jobs: Temporal
+- Sandbox: nsjail
+- Database: PostgreSQL
+- Object store: S3-compatible
 
 ## Open Source vs Enterprise
 
@@ -76,6 +100,10 @@ This repo is available under the AGPL-3.0 license with the following exceptions:
 Code within the above directories must not be redistributed, sold, or otherwise commercialized without permission.
 
 *If you are interested in Tracecat's Enterprise License or managed Cloud offering, check out [our website](https://tracecat.com) or [book a meeting with us](https://cal.com/team/tracecat).*
+
+## Community
+
+Have questions? Feedback? Come hang out with us in the [Tracecat Community Discord](https://discord.gg/H4XZwsYzY4).
 
 ## Contributors
 
