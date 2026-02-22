@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
@@ -24,6 +25,7 @@ from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.providers import all_providers
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
+    ServiceAccountOAuthProvider,
 )
 from tracecat.integrations.schemas import (
     CustomOAuthProviderCreate,
@@ -303,6 +305,28 @@ async def get_integration(
         configured_token=integration.token_endpoint,
     )
 
+    client_id = (
+        svc.decrypt_client_credential(integration.encrypted_client_id)
+        if integration.encrypted_client_id
+        else None
+    )
+    if issubclass(provider_info.impl, ServiceAccountOAuthProvider):
+        client_secret = (
+            svc.decrypt_client_credential(integration.encrypted_client_secret)
+            if integration.encrypted_client_secret
+            else None
+        )
+        if client_secret:
+            try:
+                secret_json = json.loads(client_secret)
+                if subject := secret_json.get("subject"):
+                    client_id = subject
+            except json.JSONDecodeError:
+                logger.warning(
+                    "Failed to parse client_secret as JSON for service account keys",
+                    provider_id=integration.provider_id,
+                )
+
     return IntegrationRead(
         id=integration.id,
         user_id=integration.user_id,
@@ -319,11 +343,7 @@ async def get_integration(
         updated_at=integration.updated_at,
         status=integration.status,
         is_expired=integration.is_expired,
-        client_id=(
-            svc.decrypt_client_credential(integration.encrypted_client_id)
-            if integration.encrypted_client_id
-            else None
-        ),
+        client_id=client_id,
     )
 
 

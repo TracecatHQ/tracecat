@@ -9,6 +9,9 @@ import {
   useState,
 } from "react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 
 interface ServiceAccountJsonUploaderProps {
@@ -35,6 +38,39 @@ export function ServiceAccountJsonUploader({
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
   const [detectedEmail, setDetectedEmail] = useState<string | null>(null)
+  const [assumeUser, setAssumeUser] = useState(false)
+  const [userEmail, setUserEmail] = useState("")
+
+  const setSubject = (json: string, subject?: string) => {
+    try {
+      const parsed = JSON.parse(json)
+      if (subject) {
+        parsed.subject = subject
+      } else {
+        delete parsed.subject
+      }
+      onChange(JSON.stringify(parsed))
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to parse service account JSON key."
+      onError(message)
+    }
+  }
+
+  const handleAssumeUserChange = (checked: boolean) => {
+    setAssumeUser(checked)
+    if (!checked) {
+      setUserEmail("")
+      setSubject(value)
+    }
+  }
+
+  const handleUserEmailChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setUserEmail(e.target.value)
+    setSubject(value, e.target.value)
+  }
 
   const resetInput = useCallback(() => {
     if (fileInputRef.current) {
@@ -49,6 +85,8 @@ export function ServiceAccountJsonUploader({
     onChange("")
     onClearError()
     resetInput()
+    setAssumeUser(false)
+    setUserEmail("")
   }, [onChange, onClearError, onDetectedEmail, resetInput])
 
   const handleFile = useCallback(
@@ -86,6 +124,15 @@ export function ServiceAccountJsonUploader({
             throw new Error("JSON key is missing a private_key.")
           }
 
+          if (parsed.subject) {
+            setAssumeUser(true)
+            setUserEmail(parsed.subject)
+          }
+
+          const subject = assumeUser ? userEmail : undefined
+          if (subject) {
+            parsed.subject = subject
+          }
           const normalized = JSON.stringify(parsed)
           onChange(normalized)
           setFileName(file.name)
@@ -124,7 +171,15 @@ export function ServiceAccountJsonUploader({
 
       reader.readAsText(file)
     },
-    [onChange, onClearError, onDetectedEmail, onError, resetInput]
+    [
+      onChange,
+      onClearError,
+      onDetectedEmail,
+      onError,
+      resetInput,
+      assumeUser,
+      userEmail,
+    ]
   )
 
   const handleInputChange = useCallback(
@@ -216,6 +271,32 @@ export function ServiceAccountJsonUploader({
             </p>
           )}
         </div>
+        <hr />
+        <div className="mt-4 flex items-center space-x-2">
+          <Switch
+            id="assume-user"
+            checked={assumeUser}
+            onCheckedChange={handleAssumeUserChange}
+            disabled={!value}
+          />
+          <Label htmlFor="assume-user">Assume User</Label>
+        </div>
+        {assumeUser && (
+          <div className="mt-4">
+            <Label htmlFor="user-email">User Email</Label>
+            <Input
+              id="user-email"
+              type="email"
+              placeholder="user@example.com"
+              value={userEmail}
+              onChange={handleUserEmailChange}
+              className="mt-1"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              The service account will impersonate this user.
+            </p>
+          </div>
+        )}
       </div>
     </>
   )
