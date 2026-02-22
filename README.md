@@ -106,10 +106,11 @@ For production deployments, check out one of the following IaaC (Infrastructure 
 
 This repo is available under the [AGPL-3.0 license](https://github.com/TracecatHQ/tracecat/blob/main/LICENSE) with the following exceptions:
 
-- `packages/tracecat-ee` directory is under Tracecat's paid EE (Enterprise Edition) license. This excludes extra security and monitoring features useful for larger organizations.
+- `packages/tracecat-ee` directory is under Tracecat's paid EE (Enterprise Edition) license.
 - `deployments/helm` and `deployments/eks` directory is under the source available [PolyForm Shield License](https://polyformproject.org/licenses/shield/1.0.0/). This allows you to use the Tracecat Helm chart and EKS deployment templates for internal use only.
+- Any code that gates `ee` features across the repo
 
-Code within the above directories must not be redistributed, sold, or otherwise commercialized without permission.
+Code that fall under the above exceptions must not be redistributed, sold, or otherwise commercialized without permission.
 
 *If you are interested in Tracecat's Enterprise License or managed Cloud offering, check out [our website](https://tracecat.com) or [book a meeting with us](https://cal.com/team/tracecat).*
 
