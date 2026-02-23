@@ -307,7 +307,7 @@ temporal:
         visibilityStore: visibility
         numHistoryShards: 1024
         # Configure these when using self-hosted Temporal with an external database.
-        # See deployments/terraform/aws/modules/eks/helm.tf for a production example.
+        # See deployments/eks/modules/eks/helm.tf for a production example.
         datastores:
           default:
             sql:

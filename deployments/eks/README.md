@@ -35,7 +35,7 @@ Network hardening:
 - Estimated cost: `$4500/month`
 
 Definitions used above:
-- `guardrail model`: The plan-time capacity checks in `deployments/terraform/aws/modules/eks/main.tf` that compare required capacity vs configured node capacity.
+- `guardrail model`: The plan-time capacity checks in `deployments/eks/modules/eks/main.tf` that compare required capacity vs configured node capacity.
 - `rollout peak`: Replica requests with rollout surge applied (`rollout_surge_percent`, default `25`), across API/worker/executor/agentExecutor/UI.
 - `reserved headroom`: Extra fixed capacity reserved for system/auxiliary workloads (`capacity_reserved_cpu_millicores`, `capacity_reserved_memory_mib`, `capacity_reserved_pod_eni`).
 

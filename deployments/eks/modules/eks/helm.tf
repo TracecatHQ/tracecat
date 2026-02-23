@@ -61,7 +61,7 @@ locals {
 # Tracecat Helm Release
 resource "helm_release" "tracecat" {
   name      = "tracecat"
-  chart     = "${path.module}/../../../../helm/tracecat"
+  chart     = "${path.module}/../../../helm/tracecat"
   namespace = kubernetes_namespace.tracecat.metadata[0].name
 
   wait            = true

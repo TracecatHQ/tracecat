@@ -379,7 +379,7 @@ PostgreSQL requirements for self-hosted Temporal:
 3. With `createDatabase=true` (default), the configured DB user must have `CREATE DATABASE` privileges.
 4. If your DB user cannot create databases, pre-create `temporal` and `temporal_visibility` and set `createDatabase=false` for both stores.
 
-See `terraform/aws/modules/eks/helm.tf` for a production example.
+See `deployments/eks/modules/eks/helm.tf` for a production example.
 
 For Temporal chart `1.0.0-rc.1`, archival is rendered from `server.archival` and `server.namespaceDefaults` in `temporal/templates/server-configmap.yaml` (the bundled `values/values.archival.s3.yaml` still matches those active keys).
 
@@ -472,7 +472,7 @@ externalSecrets:
 | `externalSecrets.redis.secretArn` | ARN for Redis URL |
 | `externalSecrets.temporal.secretArn` | ARN for Temporal API key |
 
-For AWS production, see `terraform/aws/modules/eks/helm.tf`.
+For AWS production, see `deployments/eks/modules/eks/helm.tf`.
 
 ## Upgrading
 
