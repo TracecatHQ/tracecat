@@ -203,6 +203,7 @@ function matchesNamespace(
 
 function isCoreAction(action: RegistryActionReadMinimal): boolean {
   if (action.action === "core.transform.reshape") return true
+  if (action.action === "core.require") return true
   if (action.action === "core.send_email_smtp") return true
   if (action.action.startsWith("core.http_")) return true
   if (matchesNamespace(action.namespace, "core.script")) return true
