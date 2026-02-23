@@ -61,19 +61,66 @@ spec:
               VISIBILITY_ARCHIVAL_STATE="{{ include "tracecat.temporalNamespaceVisibilityArchivalState" . }}"
               VISIBILITY_ARCHIVAL_URI="{{ include "tracecat.temporalNamespaceVisibilityArchivalURI" . }}"
 
-              set -- --namespace "$NAMESPACE" --retention "$RETENTION"
-              if [ -n "$HISTORY_ARCHIVAL_STATE" ]; then
-                set -- "$@" --history-archival-state "$HISTORY_ARCHIVAL_STATE"
-              fi
-              if [ -n "$HISTORY_ARCHIVAL_URI" ]; then
-                set -- "$@" --history-uri "$HISTORY_ARCHIVAL_URI"
-              fi
-              if [ -n "$VISIBILITY_ARCHIVAL_STATE" ]; then
-                set -- "$@" --visibility-archival-state "$VISIBILITY_ARCHIVAL_STATE"
-              fi
-              if [ -n "$VISIBILITY_ARCHIVAL_URI" ]; then
-                set -- "$@" --visibility-uri "$VISIBILITY_ARCHIVAL_URI"
-              fi
+              normalize_state() {
+                echo "$1" | tr '[:upper:]' '[:lower:]'
+              }
+
+              create_namespace() {
+                set -- --namespace "$NAMESPACE"
+                if [ -n "$RETENTION" ]; then
+                  set -- "$@" --retention "$RETENTION"
+                fi
+                if [ -n "$HISTORY_ARCHIVAL_STATE" ]; then
+                  set -- "$@" --history-archival-state "$HISTORY_ARCHIVAL_STATE"
+                fi
+                if [ -n "$HISTORY_ARCHIVAL_URI" ]; then
+                  set -- "$@" --history-uri "$HISTORY_ARCHIVAL_URI"
+                fi
+                if [ -n "$VISIBILITY_ARCHIVAL_STATE" ]; then
+                  set -- "$@" --visibility-archival-state "$VISIBILITY_ARCHIVAL_STATE"
+                fi
+                if [ -n "$VISIBILITY_ARCHIVAL_URI" ]; then
+                  set -- "$@" --visibility-uri "$VISIBILITY_ARCHIVAL_URI"
+                fi
+                temporal operator namespace create "$@"
+              }
+
+              load_current_namespace_settings() {
+                CURRENT_HISTORY_ARCHIVAL_STATE="$(printf '%s\n' "$NAMESPACE_DESC" | awk '$1=="Config.HistoryArchivalState"{print tolower($2); exit}')"
+                CURRENT_VISIBILITY_ARCHIVAL_STATE="$(printf '%s\n' "$NAMESPACE_DESC" | awk '$1=="Config.VisibilityArchivalState"{print tolower($2); exit}')"
+              }
+
+              reconcile_existing_namespace() {
+                set -- --namespace "$NAMESPACE"
+
+                # Retention is applied on create only. Existing namespaces may be
+                # constrained by cluster max retention settings and reject updates.
+                if [ -n "$HISTORY_ARCHIVAL_STATE" ] && [ "$HISTORY_ARCHIVAL_STATE" != "$CURRENT_HISTORY_ARCHIVAL_STATE" ]; then
+                  set -- "$@" --history-archival-state "$HISTORY_ARCHIVAL_STATE"
+                fi
+                if [ -n "$VISIBILITY_ARCHIVAL_STATE" ] && [ "$VISIBILITY_ARCHIVAL_STATE" != "$CURRENT_VISIBILITY_ARCHIVAL_STATE" ]; then
+                  set -- "$@" --visibility-archival-state "$VISIBILITY_ARCHIVAL_STATE"
+                fi
+
+                # Namespace archival URIs are immutable once archival is enabled.
+                # Only set URIs the first time archival is transitioned to enabled.
+                if [ "$HISTORY_ARCHIVAL_STATE" = "enabled" ] && [ "$CURRENT_HISTORY_ARCHIVAL_STATE" != "enabled" ] && [ -n "$HISTORY_ARCHIVAL_URI" ]; then
+                  set -- "$@" --history-uri "$HISTORY_ARCHIVAL_URI"
+                fi
+                if [ "$VISIBILITY_ARCHIVAL_STATE" = "enabled" ] && [ "$CURRENT_VISIBILITY_ARCHIVAL_STATE" != "enabled" ] && [ -n "$VISIBILITY_ARCHIVAL_URI" ]; then
+                  set -- "$@" --visibility-uri "$VISIBILITY_ARCHIVAL_URI"
+                fi
+
+                if [ "$#" -eq 2 ]; then
+                  echo "Namespace settings already match desired archival configuration"
+                  return 0
+                fi
+
+                temporal operator namespace update "$@"
+              }
+
+              HISTORY_ARCHIVAL_STATE="$(normalize_state "$HISTORY_ARCHIVAL_STATE")"
+              VISIBILITY_ARCHIVAL_STATE="$(normalize_state "$VISIBILITY_ARCHIVAL_STATE")"
 
               # Validate archival settings early with a clear error message.
               if [ "$HISTORY_ARCHIVAL_STATE" = "enabled" ] && [ -z "$HISTORY_ARCHIVAL_URI" ]; then
@@ -87,25 +134,24 @@ spec:
 
               # Reconcile namespace settings (idempotent)
               echo "Checking namespace..."
-              if temporal operator namespace describe "$NAMESPACE" 2>/dev/null; then
+              if NAMESPACE_DESC="$(temporal operator namespace describe "$NAMESPACE" 2>/dev/null)"; then
                 echo "Namespace '$NAMESPACE' already exists, reconciling settings..."
-                temporal operator namespace update "$@"
-                echo "Namespace updated"
+                load_current_namespace_settings
+                reconcile_existing_namespace
+                echo "Namespace reconciled"
               else
                 echo "Creating namespace '$NAMESPACE'..."
-                if temporal operator namespace create "$@"; then
+                if create_namespace; then
                   echo "Namespace created"
-                  echo "Reconciling namespace settings after create..."
-                  temporal operator namespace update "$@"
-                  echo "Namespace updated"
                 else
                   # Handle race conditions where another setup job creates the namespace
                   # between the initial describe and this create call.
                   echo "Namespace create failed, checking if it now exists..."
-                  if temporal operator namespace describe "$NAMESPACE" 2>/dev/null; then
+                  if NAMESPACE_DESC="$(temporal operator namespace describe "$NAMESPACE" 2>/dev/null)"; then
                     echo "Namespace '$NAMESPACE' already exists, reconciling settings..."
-                    temporal operator namespace update "$@"
-                    echo "Namespace updated"
+                    load_current_namespace_settings
+                    reconcile_existing_namespace
+                    echo "Namespace reconciled"
                   else
                     echo "Namespace create failed for an unexpected reason"
                     exit 1
