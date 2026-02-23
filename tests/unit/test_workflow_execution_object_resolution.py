@@ -150,3 +150,25 @@ class TestWorkflowExecutionObjectResolution:
             )
 
         assert item == {"n": 1}
+
+    async def test_get_collection_item_for_object_ops_normalizes_validation_errors(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        collection = create_collection_object(element_kind="stored_object")
+
+        with patch.object(
+            workflow_executions_service,
+            "get_collection_page",
+            AsyncMock(return_value=(collection, [object()])),
+        ):
+            with pytest.raises(
+                TypeError,
+                match="Collection item at index 0 is not a valid StoredObject",
+            ):
+                await workflow_executions_service.get_collection_item_for_object_ops(
+                    workflow_exec_id,
+                    99,
+                    index=0,
+                )

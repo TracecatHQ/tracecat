@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator, Awaitable, Sequence
 from typing import Any
 
 import temporalio.api.enums.v1
+from pydantic import ValidationError
 from temporalio.api.enums.v1 import EventType, PendingActivityState
 from temporalio.api.history.v1 import HistoryEvent
 from temporalio.client import (
@@ -498,7 +499,12 @@ class WorkflowExecutionsService:
 
         item = items[0]
         if collection.element_kind == "stored_object":
-            return StoredObjectValidator.validate_python(item)
+            try:
+                return StoredObjectValidator.validate_python(item)
+            except ValidationError as e:
+                raise TypeError(
+                    f"Collection item at index {index} is not a valid StoredObject"
+                ) from e
         return item
 
     async def _resolve_completed_event(
