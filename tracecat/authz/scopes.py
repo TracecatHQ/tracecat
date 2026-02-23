@@ -362,6 +362,7 @@ WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
         "workspace:delete",
         "workspace:member:read",
         "action:*:execute",
+        "org:secret:read",
     }
 )
 
@@ -371,11 +372,6 @@ SERVICE_PRINCIPAL_SCOPES: dict[InternalServiceID, frozenset[str]] = {
     cast(InternalServiceID, service_id): WORKSPACE_OPERATIONAL_SCOPES
     for service_id in get_args(InternalServiceID)
 }
-
-# tracecat-service needs org-scoped secret reads for registry sync SSH key lookup.
-SERVICE_PRINCIPAL_SCOPES["tracecat-service"] = SERVICE_PRINCIPAL_SCOPES[
-    "tracecat-service"
-] | frozenset({"org:secret:read"})
 
 
 # =============================================================================
