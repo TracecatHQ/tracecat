@@ -67,3 +67,38 @@ async def test_materialize_task_result_collection_index_retrieves_single_item(
     materialized = await action._materialize_task_result(task_result)
 
     assert materialized["result"] == {"idx": 3}
+
+
+@pytest.mark.anyio
+async def test_materialize_task_result_collection_index_preserves_list_item(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    collection = CollectionObject(
+        manifest_ref=ObjectRef(
+            bucket="test-bucket",
+            key="wf-123/manifest.json",
+            size_bytes=256,
+            sha256="abc123",
+        ),
+        count=2,
+        chunk_size=2,
+        element_kind="value",
+    )
+    task_result = TaskResult(
+        result=collection,
+        result_typename="list",
+        collection_index=1,
+    )
+
+    class MockStorage:
+        async def retrieve(self, stored: CollectionObject | InlineObject) -> object:
+            assert isinstance(stored, CollectionObject)
+            assert stored.index == 1
+            # Simulate indexed retrieval for a list-valued element.
+            return [3, 4]
+
+    monkeypatch.setattr(action, "get_object_storage", lambda: MockStorage())
+
+    materialized = await action._materialize_task_result(task_result)
+
+    assert materialized["result"] == [3, 4]

@@ -207,8 +207,8 @@ async def _store_collection_as_refs(prefix: str, items: list[Any]) -> Collection
 async def _materialize_task_result(task_result: TaskResult) -> MaterializedTaskResult:
     """Materialize a TaskResult's StoredObject result to raw value.
 
-    Handles collection_index for scatter items - when set, the stored result
-    is a collection and we extract the item at that index.
+    Handles collection_index for scatter items. When set, CollectionObject
+    retrieval resolves a single item directly via CollectionObject.at(index).
 
     Args:
         task_result: A TaskResult
@@ -236,10 +236,6 @@ async def _materialize_task_result(task_result: TaskResult) -> MaterializedTaskR
                 "Expected TaskResult.result to be a StoredObject, "
                 f"got {type(task_result.result).__name__}"
             )
-
-    # Handle scatter item extraction - if collection_index is set, extract the item
-    if task_result.collection_index is not None and isinstance(raw_result, list):
-        raw_result = raw_result[task_result.collection_index]
 
     return MaterializedTaskResult(
         result=raw_result,
