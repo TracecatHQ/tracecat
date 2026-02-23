@@ -382,6 +382,14 @@ def action_collection_prefix(
     return f"{workspace_id}/{wf_exec_id}/actions/{stream_id}/{ref}"
 
 
+def collection_item_key(prefix: str, index: int) -> str:
+    """Generate S3 key for the i-th collection item blob.
+
+    Format: {prefix}/items/{index}.json
+    """
+    return f"{prefix}/items/{index}.json"
+
+
 __all__ = [
     # Types
     "CollectionObject",
@@ -398,6 +406,7 @@ __all__ = [
     # Key helpers
     "action_collection_prefix",
     "action_key",
+    "collection_item_key",
     "return_key",
     "trigger_key",
 ]

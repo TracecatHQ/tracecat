@@ -6,7 +6,10 @@ from typing import Any
 
 from tracecat.logger import logger
 from tracecat.storage import blob
-from tracecat.storage.collection import get_collection_item, get_collection_page
+from tracecat.storage.collection import (
+    get_collection_item,
+    materialize_collection_values,
+)
 from tracecat.storage.object import (
     CollectionObject,
     ExternalObject,
@@ -127,5 +130,5 @@ class S3ObjectStorage(ObjectStorage):
                     # Retrieve specific item by index
                     return await get_collection_item(coll, coll.index)
                 else:
-                    # Retrieve entire collection
-                    return await get_collection_page(coll)
+                    # Retrieve and materialize entire collection
+                    return await materialize_collection_values(coll)
