@@ -649,7 +649,6 @@ class RBACService(BaseOrgService):
             raise TracecatNotFoundError("User role assignment not found")
         return assignment
 
-    @require_scope("org:rbac:create")
     @audit_log(resource_type="rbac_user_assignment", action="create")
     async def create_user_assignment(
         self,
@@ -702,7 +701,6 @@ class RBACService(BaseOrgService):
         await self.session.refresh(assignment, ["user", "role", "workspace"])
         return assignment
 
-    @require_scope("org:rbac:update")
     @audit_log(
         resource_type="rbac_user_assignment",
         action="update",
@@ -725,7 +723,6 @@ class RBACService(BaseOrgService):
         await self.session.refresh(assignment, ["user", "role", "workspace"])
         return assignment
 
-    @require_scope("org:rbac:delete")
     @audit_log(
         resource_type="rbac_user_assignment",
         action="delete",

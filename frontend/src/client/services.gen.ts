@@ -8704,6 +8704,168 @@ export const usersGetMyScopes = (
 }
 
 /**
+ * List Roles
+ * List roles for the organization.
+ *
+ * Requires: authenticated organization member.
+ * @returns RoleList Successful Response
+ * @throws ApiError
+ */
+export const rbacListRoles = (): CancelablePromise<RbacListRolesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/rbac/roles",
+  })
+}
+
+/**
+ * Create Role
+ * Create a custom role.
+ *
+ * Requires: org:rbac:create scope
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns RoleReadWithScopes Successful Response
+ * @throws ApiError
+ */
+export const rbacCreateRole = (
+  data: RbacCreateRoleData
+): CancelablePromise<RbacCreateRoleResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/rbac/roles",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List User Assignments
+ * List user role assignments for the organization.
+ * @param data The data for the request.
+ * @param data.userId Filter by user ID
+ * @param data.workspaceId Filter by workspace ID
+ * @returns UserRoleAssignmentList Successful Response
+ * @throws ApiError
+ */
+export const rbacListUserAssignments = (
+  data: RbacListUserAssignmentsData = {}
+): CancelablePromise<RbacListUserAssignmentsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/rbac/user-assignments",
+    query: {
+      user_id: data.userId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create User Assignment
+ * Create a user role assignment.
+ *
+ * Assigns a role directly to a user. If workspace_id is None, creates an org-wide
+ * assignment that applies to all workspaces. Each user can have at most
+ * one assignment per workspace (or one org-wide assignment).
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns UserRoleAssignmentReadWithDetails Successful Response
+ * @throws ApiError
+ */
+export const rbacCreateUserAssignment = (
+  data: RbacCreateUserAssignmentData
+): CancelablePromise<RbacCreateUserAssignmentResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/rbac/user-assignments",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get User Assignment
+ * Get a user role assignment by ID.
+ * @param data The data for the request.
+ * @param data.assignmentId
+ * @returns UserRoleAssignmentReadWithDetails Successful Response
+ * @throws ApiError
+ */
+export const rbacGetUserAssignment = (
+  data: RbacGetUserAssignmentData
+): CancelablePromise<RbacGetUserAssignmentResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/rbac/user-assignments/{assignment_id}",
+    path: {
+      assignment_id: data.assignmentId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update User Assignment
+ * Update a user role assignment (change role).
+ * @param data The data for the request.
+ * @param data.assignmentId
+ * @param data.requestBody
+ * @returns UserRoleAssignmentReadWithDetails Successful Response
+ * @throws ApiError
+ */
+export const rbacUpdateUserAssignment = (
+  data: RbacUpdateUserAssignmentData
+): CancelablePromise<RbacUpdateUserAssignmentResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/rbac/user-assignments/{assignment_id}",
+    path: {
+      assignment_id: data.assignmentId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete User Assignment
+ * Delete a user role assignment.
+ * @param data The data for the request.
+ * @param data.assignmentId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const rbacDeleteUserAssignment = (
+  data: RbacDeleteUserAssignmentData
+): CancelablePromise<RbacDeleteUserAssignmentResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/rbac/user-assignments/{assignment_id}",
+    path: {
+      assignment_id: data.assignmentId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Scopes
  * List scopes available to the organization.
  *
@@ -8800,45 +8962,6 @@ export const rbacDeleteScope = (
     path: {
       scope_id: data.scopeId,
     },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Roles
- * List roles for the organization.
- *
- * Requires: org:rbac:read scope
- * @returns RoleList Successful Response
- * @throws ApiError
- */
-export const rbacListRoles = (): CancelablePromise<RbacListRolesResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/rbac/roles",
-  })
-}
-
-/**
- * Create Role
- * Create a custom role.
- *
- * Requires: org:rbac:create scope
- * @param data The data for the request.
- * @param data.requestBody
- * @returns RoleReadWithScopes Successful Response
- * @throws ApiError
- */
-export const rbacCreateRole = (
-  data: RbacCreateRoleData
-): CancelablePromise<RbacCreateRoleResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/rbac/roles",
-    body: data.requestBody,
-    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
@@ -9223,139 +9346,6 @@ export const rbacDeleteAssignment = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/rbac/assignments/{assignment_id}",
-    path: {
-      assignment_id: data.assignmentId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List User Assignments
- * List user role assignments for the organization.
- *
- * Requires: org:rbac:read scope
- * @param data The data for the request.
- * @param data.userId Filter by user ID
- * @param data.workspaceId Filter by workspace ID
- * @returns UserRoleAssignmentList Successful Response
- * @throws ApiError
- */
-export const rbacListUserAssignments = (
-  data: RbacListUserAssignmentsData = {}
-): CancelablePromise<RbacListUserAssignmentsResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/rbac/user-assignments",
-    query: {
-      user_id: data.userId,
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Create User Assignment
- * Create a user role assignment.
- *
- * Assigns a role directly to a user. If workspace_id is None, creates an org-wide
- * assignment that applies to all workspaces. Each user can have at most
- * one assignment per workspace (or one org-wide assignment).
- *
- * Requires: org:rbac:create scope
- * @param data The data for the request.
- * @param data.requestBody
- * @returns UserRoleAssignmentReadWithDetails Successful Response
- * @throws ApiError
- */
-export const rbacCreateUserAssignment = (
-  data: RbacCreateUserAssignmentData
-): CancelablePromise<RbacCreateUserAssignmentResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/rbac/user-assignments",
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Get User Assignment
- * Get a user role assignment by ID.
- *
- * Requires: org:rbac:read scope
- * @param data The data for the request.
- * @param data.assignmentId
- * @returns UserRoleAssignmentReadWithDetails Successful Response
- * @throws ApiError
- */
-export const rbacGetUserAssignment = (
-  data: RbacGetUserAssignmentData
-): CancelablePromise<RbacGetUserAssignmentResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/rbac/user-assignments/{assignment_id}",
-    path: {
-      assignment_id: data.assignmentId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Update User Assignment
- * Update a user role assignment (change role).
- *
- * Requires: org:rbac:update scope
- * @param data The data for the request.
- * @param data.assignmentId
- * @param data.requestBody
- * @returns UserRoleAssignmentReadWithDetails Successful Response
- * @throws ApiError
- */
-export const rbacUpdateUserAssignment = (
-  data: RbacUpdateUserAssignmentData
-): CancelablePromise<RbacUpdateUserAssignmentResponse> => {
-  return __request(OpenAPI, {
-    method: "PATCH",
-    url: "/rbac/user-assignments/{assignment_id}",
-    path: {
-      assignment_id: data.assignmentId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Delete User Assignment
- * Delete a user role assignment.
- *
- * Requires: org:rbac:delete scope
- * @param data The data for the request.
- * @param data.assignmentId
- * @returns void Successful Response
- * @throws ApiError
- */
-export const rbacDeleteUserAssignment = (
-  data: RbacDeleteUserAssignmentData
-): CancelablePromise<RbacDeleteUserAssignmentResponse> => {
-  return __request(OpenAPI, {
-    method: "DELETE",
-    url: "/rbac/user-assignments/{assignment_id}",
     path: {
       assignment_id: data.assignmentId,
     },
