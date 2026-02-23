@@ -45,6 +45,7 @@ from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.sessions import Session
+from tracecat.storage.object import CollectionObject, StoredObject
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
     extract_first,
@@ -155,6 +156,74 @@ class WorkflowExecutionObjectRequest(BaseModel):
     event_id: int = Field(..., ge=1, description="Temporal history event ID")
     field: WorkflowExecutionObjectField = Field(
         default=WorkflowExecutionObjectField.ACTION_RESULT
+    )
+    collection_index: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Optional index into a CollectionObject result. "
+            "When omitted, operates on the top-level object result."
+        ),
+    )
+
+
+class WorkflowExecutionCollectionPageRequest(BaseModel):
+    event_id: int = Field(..., ge=1, description="Temporal history event ID")
+    field: WorkflowExecutionObjectField = Field(
+        default=WorkflowExecutionObjectField.ACTION_RESULT
+    )
+    offset: int = Field(default=0, ge=0, description="Page start index (0-indexed)")
+    limit: int = Field(
+        default=25,
+        ge=1,
+        le=100,
+        description="Maximum number of items to return",
+    )
+
+
+class WorkflowExecutionCollectionPageItemKind(StrEnum):
+    STORED_OBJECT_REF = "stored_object_ref"
+    INLINE_VALUE = "inline_value"
+
+
+class WorkflowExecutionCollectionPageItem(BaseModel):
+    index: int = Field(..., ge=0, description="Collection index for this item")
+    kind: WorkflowExecutionCollectionPageItemKind = Field(
+        ..., description="Descriptor type for this collection page item"
+    )
+    stored: StoredObject | None = Field(
+        default=None,
+        description="StoredObject descriptor when kind is stored_object_ref",
+    )
+    value_preview: str | None = Field(
+        default=None,
+        description="UTF-8 preview of serialized inline value when kind is inline_value",
+    )
+    value_size_bytes: int | None = Field(
+        default=None,
+        ge=0,
+        description="Serialized inline value size in bytes when kind is inline_value",
+    )
+    truncated: bool = Field(
+        default=False,
+        description="Whether value_preview was truncated",
+    )
+
+
+class WorkflowExecutionCollectionPageResponse(BaseModel):
+    collection: CollectionObject = Field(
+        ..., description="Collection metadata for the requested result"
+    )
+    offset: int = Field(..., ge=0, description="Requested page offset")
+    limit: int = Field(..., ge=1, description="Requested page size")
+    next_offset: int | None = Field(
+        default=None,
+        ge=0,
+        description="Offset to use for next page, or null if no more items",
+    )
+    items: list[WorkflowExecutionCollectionPageItem] = Field(
+        default_factory=list,
+        description="Collection page descriptors",
     )
 
 

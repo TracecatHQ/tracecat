@@ -1,4 +1,5 @@
-from typing import Any
+import base64
+from typing import Any, Literal
 
 import temporalio.service
 from fastapi import APIRouter, HTTPException, Query, status
@@ -30,9 +31,20 @@ from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.settings.service import get_setting
 from tracecat.storage import blob
+from tracecat.storage.object import (
+    CollectionObject,
+    ExternalObject,
+    InlineObject,
+    StoredObjectValidator,
+)
+from tracecat.storage.utils import serialize_object
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.schemas import (
+    WorkflowExecutionCollectionPageItem,
+    WorkflowExecutionCollectionPageItemKind,
+    WorkflowExecutionCollectionPageRequest,
+    WorkflowExecutionCollectionPageResponse,
     WorkflowExecutionCreate,
     WorkflowExecutionCreateResponse,
     WorkflowExecutionObjectDownloadResponse,
@@ -48,6 +60,7 @@ from tracecat.workflow.management.management import WorkflowsManagementService
 
 router = APIRouter(prefix="/workflow-executions", tags=["workflow-executions"])
 PREVIEW_MAX_BYTES = 256 * 1024  # 256 KB
+COLLECTION_PAGE_PREVIEW_MAX_BYTES = 4 * 1024  # 4 KB per item preview in page responses
 
 
 def _is_previewable_content_type(content_type: str) -> bool:
@@ -62,6 +75,133 @@ def _suggest_download_filename(key: str, event_id: int, content_type: str) -> st
 
     suffix = ".json" if "json" in content_type.lower() else ".txt"
     return f"workflow-result-{event_id}{suffix}"
+
+
+def _decode_preview_bytes(content_bytes: bytes) -> tuple[str, Literal["utf-8", "unknown"]]:
+    try:
+        return content_bytes.decode("utf-8"), "utf-8"
+    except UnicodeDecodeError:
+        return content_bytes.decode("utf-8", errors="replace"), "unknown"
+
+
+def _inline_item_filename(event_id: int, collection_index: int | None) -> str:
+    if collection_index is None:
+        return f"workflow-result-{event_id}.json"
+    return f"workflow-result-{event_id}-item-{collection_index}.json"
+
+
+def _inline_data_url(content: bytes, content_type: str) -> str:
+    encoded = base64.b64encode(content).decode("ascii")
+    return f"data:{content_type};base64,{encoded}"
+
+
+def _inline_preview_response(
+    value: Any,
+    *,
+    content_type: str = "application/json",
+    preview_limit: int = PREVIEW_MAX_BYTES,
+) -> WorkflowExecutionObjectPreviewResponse:
+    serialized = serialize_object(value)
+    content_bytes = serialized[:preview_limit]
+    content, encoding = _decode_preview_bytes(content_bytes)
+    preview_size = len(content_bytes)
+    return WorkflowExecutionObjectPreviewResponse(
+        content=content,
+        content_type=content_type,
+        size_bytes=len(serialized),
+        preview_bytes=preview_size,
+        truncated=len(serialized) > preview_size,
+        encoding=encoding,
+    )
+
+
+def _inline_download_response(
+    value: Any,
+    *,
+    event_id: int,
+    collection_index: int | None,
+) -> WorkflowExecutionObjectDownloadResponse:
+    serialized = serialize_object(value)
+    content_type = "application/json"
+    return WorkflowExecutionObjectDownloadResponse(
+        download_url=_inline_data_url(serialized, content_type),
+        file_name=_inline_item_filename(event_id, collection_index),
+        content_type=content_type,
+        size_bytes=len(serialized),
+        expires_in_seconds=config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY,
+    )
+
+
+async def _external_download_response(
+    external: ExternalObject,
+    *,
+    event_id: int,
+) -> WorkflowExecutionObjectDownloadResponse:
+    ref = external.ref
+    if not await blob.file_exists(key=ref.key, bucket=ref.bucket):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Object not found: {ref.bucket}/{ref.key}",
+        )
+
+    expiry = config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
+    download_url = await blob.generate_presigned_download_url(
+        key=ref.key,
+        bucket=ref.bucket,
+        expiry=expiry,
+        force_download=True,
+        override_content_type="application/octet-stream",
+    )
+    return WorkflowExecutionObjectDownloadResponse(
+        download_url=download_url,
+        file_name=_suggest_download_filename(ref.key, event_id, ref.content_type),
+        content_type=ref.content_type,
+        size_bytes=ref.size_bytes,
+        expires_in_seconds=expiry,
+    )
+
+
+async def _external_preview_response(
+    external: ExternalObject,
+) -> WorkflowExecutionObjectPreviewResponse:
+    ref = external.ref
+    if not await blob.file_exists(key=ref.key, bucket=ref.bucket):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Object not found: {ref.bucket}/{ref.key}",
+        )
+    if not _is_previewable_content_type(ref.content_type):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Preview is not supported for content type: {ref.content_type}",
+        )
+
+    preview_limit = min(ref.size_bytes, PREVIEW_MAX_BYTES)
+    content_bytes = b""
+    if preview_limit > 0:
+        try:
+            content_bytes = await blob.download_file_range(
+                key=ref.key,
+                bucket=ref.bucket,
+                start=0,
+                end=preview_limit - 1,
+            )
+        except FileNotFoundError as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Object not found: {ref.bucket}/{ref.key}",
+            ) from e
+
+    content, encoding = _decode_preview_bytes(content_bytes)
+    preview_size = len(content_bytes)
+    return WorkflowExecutionObjectPreviewResponse(
+        content=content,
+        content_type=ref.content_type,
+        size_bytes=ref.size_bytes,
+        preview_bytes=preview_size,
+        truncated=ref.size_bytes > preview_size,
+        encoding=encoding,
+    )
 
 
 async def _list_interactions(
@@ -272,13 +412,49 @@ async def get_workflow_execution_object_download(
         )
 
     try:
-        external = await service.get_external_action_result(
+        if params.collection_index is None:
+            external = await service.get_external_action_result(
+                execution_id,
+                params.event_id,
+            )
+            return await _external_download_response(external, event_id=params.event_id)
+
+        item = await service.get_collection_item_for_object_ops(
             execution_id,
             params.event_id,
+            index=params.collection_index,
         )
+        match item:
+            case ExternalObject() as external:
+                return await _external_download_response(
+                    external, event_id=params.event_id
+                )
+            case InlineObject(data=data):
+                return _inline_download_response(
+                    data,
+                    event_id=params.event_id,
+                    collection_index=params.collection_index,
+                )
+            case CollectionObject() as collection:
+                return _inline_download_response(
+                    collection.model_dump(mode="json"),
+                    event_id=params.event_id,
+                    collection_index=params.collection_index,
+                )
+            case _:
+                return _inline_download_response(
+                    item,
+                    event_id=params.event_id,
+                    collection_index=params.collection_index,
+                )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except IndexError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
     except TypeError as e:
@@ -286,31 +462,6 @@ async def get_workflow_execution_object_download(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         ) from e
-
-    ref = external.ref
-    if not await blob.file_exists(key=ref.key, bucket=ref.bucket):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Object not found: {ref.bucket}/{ref.key}",
-        )
-
-    expiry = config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
-    download_url = await blob.generate_presigned_download_url(
-        key=ref.key,
-        bucket=ref.bucket,
-        expiry=expiry,
-        force_download=True,
-        override_content_type="application/octet-stream",
-    )
-    return WorkflowExecutionObjectDownloadResponse(
-        download_url=download_url,
-        file_name=_suggest_download_filename(
-            ref.key, params.event_id, ref.content_type
-        ),
-        content_type=ref.content_type,
-        size_bytes=ref.size_bytes,
-        expires_in_seconds=expiry,
-    )
 
 
 @router.post("/{execution_id:path}/objects/preview")
@@ -336,9 +487,72 @@ async def get_workflow_execution_object_preview(
         )
 
     try:
-        external = await service.get_external_action_result(
+        if params.collection_index is None:
+            external = await service.get_external_action_result(
+                execution_id,
+                params.event_id,
+            )
+            return await _external_preview_response(external)
+
+        item = await service.get_collection_item_for_object_ops(
             execution_id,
             params.event_id,
+            index=params.collection_index,
+        )
+        match item:
+            case ExternalObject() as external:
+                return await _external_preview_response(external)
+            case InlineObject(data=data):
+                return _inline_preview_response(data)
+            case CollectionObject() as collection:
+                return _inline_preview_response(collection.model_dump(mode="json"))
+            case _:
+                return _inline_preview_response(item)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except IndexError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except TypeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+
+
+@router.post("/{execution_id:path}/objects/collection/page")
+@require_scope("workflow:read")
+async def get_workflow_execution_collection_page(
+    role: WorkspaceUserRole,
+    execution_id: UnquotedExecutionID,
+    params: WorkflowExecutionCollectionPageRequest,
+) -> WorkflowExecutionCollectionPageResponse:
+    """Fetch a bounded page of collection item descriptors."""
+    if params.field != "action_result":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported field: {params.field}",
+        )
+
+    service = await WorkflowExecutionsService.connect(role=role)
+    execution = await service.get_execution(execution_id)
+    if not execution:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow execution not found",
+        )
+
+    try:
+        collection, page_items = await service.get_collection_page(
+            execution_id,
+            params.event_id,
+            offset=params.offset,
+            limit=params.limit,
         )
     except ValueError as e:
         raise HTTPException(
@@ -351,50 +565,50 @@ async def get_workflow_execution_object_preview(
             detail=str(e),
         ) from e
 
-    ref = external.ref
-    if not await blob.file_exists(key=ref.key, bucket=ref.bucket):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Object not found: {ref.bucket}/{ref.key}",
-        )
-
-    if not _is_previewable_content_type(ref.content_type):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Preview is not supported for content type: {ref.content_type}",
-        )
-
-    preview_limit = min(ref.size_bytes, PREVIEW_MAX_BYTES)
-    content_bytes = b""
-    if preview_limit > 0:
-        try:
-            content_bytes = await blob.download_file_range(
-                key=ref.key,
-                bucket=ref.bucket,
-                start=0,
-                end=preview_limit - 1,
+    response_items: list[WorkflowExecutionCollectionPageItem] = []
+    if collection.element_kind == "stored_object":
+        for i, raw_item in enumerate(page_items, start=params.offset):
+            try:
+                stored = StoredObjectValidator.validate_python(raw_item)
+            except ValidationError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        f"Collection item at index {i} is not a valid StoredObject"
+                    ),
+                ) from e
+            response_items.append(
+                WorkflowExecutionCollectionPageItem(
+                    index=i,
+                    kind=WorkflowExecutionCollectionPageItemKind.STORED_OBJECT_REF,
+                    stored=stored,
+                )
             )
-        except FileNotFoundError as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Object not found: {ref.bucket}/{ref.key}",
-            ) from e
+    else:
+        for i, value in enumerate(page_items, start=params.offset):
+            serialized = serialize_object(value)
+            preview_bytes = serialized[:COLLECTION_PAGE_PREVIEW_MAX_BYTES]
+            preview_text, _ = _decode_preview_bytes(preview_bytes)
+            response_items.append(
+                WorkflowExecutionCollectionPageItem(
+                    index=i,
+                    kind=WorkflowExecutionCollectionPageItemKind.INLINE_VALUE,
+                    value_preview=preview_text,
+                    value_size_bytes=len(serialized),
+                    truncated=len(serialized) > len(preview_bytes),
+                )
+            )
 
-    try:
-        content = content_bytes.decode("utf-8")
-        encoding = "utf-8"
-    except UnicodeDecodeError:
-        content = content_bytes.decode("utf-8", errors="replace")
-        encoding = "unknown"
+    next_offset = params.offset + len(page_items)
+    if next_offset >= collection.count:
+        next_offset = None
 
-    preview_size = len(content_bytes)
-    return WorkflowExecutionObjectPreviewResponse(
-        content=content,
-        content_type=ref.content_type,
-        size_bytes=ref.size_bytes,
-        preview_bytes=preview_size,
-        truncated=ref.size_bytes > preview_size,
-        encoding=encoding,
+    return WorkflowExecutionCollectionPageResponse(
+        collection=collection,
+        offset=params.offset,
+        limit=params.limit,
+        next_offset=next_offset,
+        items=response_items,
     )
 
 

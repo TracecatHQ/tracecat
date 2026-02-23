@@ -20,6 +20,7 @@ import {
 import { MessagePart } from "@/components/chat/chat-session-pane"
 import { CodeBlock } from "@/components/code-block"
 import { getWorkflowEventIcon } from "@/components/events/workflow-event-status"
+import { CollectionObjectResult } from "@/components/executions/collection-object-result"
 import { ExternalObjectResult } from "@/components/executions/external-object-result"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Spinner } from "@/components/loading/spinner"
@@ -53,7 +54,10 @@ import {
   type WorkflowExecutionEventCompact,
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
-import { isExternalStoredObject } from "@/lib/stored-object"
+import {
+  isCollectionStoredObject,
+  isExternalStoredObject,
+} from "@/lib/stored-object"
 import { useWorkflowBuilder } from "@/providers/builder"
 
 type TabType = "input" | "result" | "interaction"
@@ -262,6 +266,16 @@ function ActionResultViewer({
         executionId={executionId}
         eventId={eventId}
         external={result}
+      />
+    )
+  }
+
+  if (isCollectionStoredObject(result)) {
+    return (
+      <CollectionObjectResult
+        executionId={executionId}
+        eventId={eventId}
+        collection={result}
       />
     )
   }

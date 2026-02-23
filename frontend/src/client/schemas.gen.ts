@@ -20085,6 +20085,171 @@ export const $WorkflowEventType = {
   description: "The event types we care about.",
 } as const
 
+export const $WorkflowExecutionCollectionPageItem = {
+  properties: {
+    index: {
+      type: "integer",
+      minimum: 0,
+      title: "Index",
+      description: "Collection index for this item",
+    },
+    kind: {
+      $ref: "#/components/schemas/WorkflowExecutionCollectionPageItemKind",
+      description: "Descriptor type for this collection page item",
+    },
+    stored: {
+      anyOf: [
+        {
+          oneOf: [
+            {
+              $ref: "#/components/schemas/InlineObject",
+            },
+            {
+              $ref: "#/components/schemas/ExternalObject",
+            },
+            {
+              $ref: "#/components/schemas/CollectionObject",
+            },
+          ],
+          discriminator: {
+            propertyName: "type",
+            mapping: {
+              collection: "#/components/schemas/CollectionObject",
+              external: "#/components/schemas/ExternalObject",
+              inline: "#/components/schemas/InlineObject",
+            },
+          },
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stored",
+      description: "StoredObject descriptor when kind is stored_object_ref",
+    },
+    value_preview: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Value Preview",
+      description:
+        "UTF-8 preview of serialized inline value when kind is inline_value",
+    },
+    value_size_bytes: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Value Size Bytes",
+      description:
+        "Serialized inline value size in bytes when kind is inline_value",
+    },
+    truncated: {
+      type: "boolean",
+      title: "Truncated",
+      description: "Whether value_preview was truncated",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["index", "kind"],
+  title: "WorkflowExecutionCollectionPageItem",
+} as const
+
+export const $WorkflowExecutionCollectionPageItemKind = {
+  type: "string",
+  enum: ["stored_object_ref", "inline_value"],
+  title: "WorkflowExecutionCollectionPageItemKind",
+} as const
+
+export const $WorkflowExecutionCollectionPageRequest = {
+  properties: {
+    event_id: {
+      type: "integer",
+      minimum: 1,
+      title: "Event Id",
+      description: "Temporal history event ID",
+    },
+    field: {
+      $ref: "#/components/schemas/WorkflowExecutionObjectField",
+      default: "action_result",
+    },
+    offset: {
+      type: "integer",
+      minimum: 0,
+      title: "Offset",
+      description: "Page start index (0-indexed)",
+      default: 0,
+    },
+    limit: {
+      type: "integer",
+      maximum: 100,
+      minimum: 1,
+      title: "Limit",
+      description: "Maximum number of items to return",
+      default: 25,
+    },
+  },
+  type: "object",
+  required: ["event_id"],
+  title: "WorkflowExecutionCollectionPageRequest",
+} as const
+
+export const $WorkflowExecutionCollectionPageResponse = {
+  properties: {
+    collection: {
+      $ref: "#/components/schemas/CollectionObject",
+      description: "Collection metadata for the requested result",
+    },
+    offset: {
+      type: "integer",
+      minimum: 0,
+      title: "Offset",
+      description: "Requested page offset",
+    },
+    limit: {
+      type: "integer",
+      minimum: 1,
+      title: "Limit",
+      description: "Requested page size",
+    },
+    next_offset: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Offset",
+      description: "Offset to use for next page, or null if no more items",
+    },
+    items: {
+      items: {
+        $ref: "#/components/schemas/WorkflowExecutionCollectionPageItem",
+      },
+      type: "array",
+      title: "Items",
+      description: "Collection page descriptors",
+    },
+  },
+  type: "object",
+  required: ["collection", "offset", "limit"],
+  title: "WorkflowExecutionCollectionPageResponse",
+} as const
+
 export const $WorkflowExecutionCreate = {
   properties: {
     workflow_id: {
@@ -20507,6 +20672,20 @@ export const $WorkflowExecutionObjectRequest = {
     field: {
       $ref: "#/components/schemas/WorkflowExecutionObjectField",
       default: "action_result",
+    },
+    collection_index: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Collection Index",
+      description:
+        "Optional index into a CollectionObject result. When omitted, operates on the top-level object result.",
     },
   },
   type: "object",

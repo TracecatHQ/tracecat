@@ -592,6 +592,8 @@ import type {
   WorkflowExecutionsCreateDraftWorkflowExecutionResponse,
   WorkflowExecutionsCreateWorkflowExecutionData,
   WorkflowExecutionsCreateWorkflowExecutionResponse,
+  WorkflowExecutionsGetWorkflowExecutionCollectionPageData,
+  WorkflowExecutionsGetWorkflowExecutionCollectionPageResponse,
   WorkflowExecutionsGetWorkflowExecutionCompactData,
   WorkflowExecutionsGetWorkflowExecutionCompactResponse,
   WorkflowExecutionsGetWorkflowExecutionData,
@@ -2037,6 +2039,36 @@ export const workflowExecutionsGetWorkflowExecutionObjectPreview = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/workflow-executions/{execution_id}/objects/preview",
+    path: {
+      execution_id: data.executionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workflow Execution Collection Page
+ * Fetch a bounded page of collection item descriptors.
+ * @param data The data for the request.
+ * @param data.executionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowExecutionCollectionPageResponse Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsGetWorkflowExecutionCollectionPage = (
+  data: WorkflowExecutionsGetWorkflowExecutionCollectionPageData
+): CancelablePromise<WorkflowExecutionsGetWorkflowExecutionCollectionPageResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflow-executions/{execution_id}/objects/collection/page",
     path: {
       execution_id: data.executionId,
     },

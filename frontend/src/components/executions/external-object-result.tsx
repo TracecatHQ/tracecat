@@ -1,6 +1,6 @@
 "use client"
 
-import { DownloadIcon, EyeIcon, LoaderIcon } from "lucide-react"
+import { DownloadIcon, EyeIcon, LoaderIcon, XIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 import {
   type WorkflowExecutionObjectPreviewResponse,
@@ -40,10 +40,14 @@ export function ExternalObjectResult({
   executionId,
   eventId,
   external,
+  collectionIndex,
+  compact = false,
 }: {
   executionId: string
   eventId: number
   external: ExternalStoredObject
+  collectionIndex?: number
+  compact?: boolean
 }) {
   const workspaceId = useWorkspaceId()
   const [isDownloading, setIsDownloading] = useState(false)
@@ -57,7 +61,13 @@ export function ExternalObjectResult({
     // Clear preview when switching to a different event/object to avoid
     // showing stale content from a previous selection.
     setPreview(null)
-  }, [eventId, executionId, external.ref.key, external.ref.sha256])
+  }, [
+    collectionIndex,
+    eventId,
+    executionId,
+    external.ref.key,
+    external.ref.sha256,
+  ])
 
   const handleDownload = async () => {
     setIsDownloading(true)
@@ -68,6 +78,7 @@ export function ExternalObjectResult({
           workspaceId,
           requestBody: {
             event_id: eventId,
+            collection_index: collectionIndex,
           },
         })
 
@@ -117,6 +128,7 @@ export function ExternalObjectResult({
           workspaceId,
           requestBody: {
             event_id: eventId,
+            collection_index: collectionIndex,
           },
         })
       setPreview(response)
@@ -133,15 +145,27 @@ export function ExternalObjectResult({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-md border bg-muted-foreground/5 p-4 text-xs">
+    <div
+      className={
+        compact
+          ? "flex flex-col gap-2 text-xs"
+          : "flex flex-col gap-3 rounded-md border bg-muted-foreground/5 p-4 text-xs"
+      }
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="space-y-1">
-          <p className="text-foreground/80">
-            This object is too large to load ({sizeLabel}).
-          </p>
-          <p className="text-muted-foreground">
-            Download to inspect it, or fetch a truncated preview.
-          </p>
+          {compact ? (
+            <p className="text-foreground/80">Large file ({sizeLabel}).</p>
+          ) : (
+            <>
+              <p className="text-foreground/80">
+                This object is too large to load ({sizeLabel}).
+              </p>
+              <p className="text-muted-foreground">
+                Download to inspect it, or fetch a truncated preview.
+              </p>
+            </>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -176,15 +200,26 @@ export function ExternalObjectResult({
       </div>
       {preview && (
         <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="text-[10px]">
-              {preview.content_type}
-            </Badge>
-            {preview.truncated && (
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
               <Badge variant="secondary" className="text-[10px]">
-                Preview truncated ({formatSize(preview.preview_bytes)})
+                {preview.content_type}
               </Badge>
-            )}
+              {preview.truncated && (
+                <Badge variant="secondary" className="text-[10px]">
+                  Preview truncated ({formatSize(preview.preview_bytes)})
+                </Badge>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => setPreview(null)}
+            >
+              <XIcon className="mr-1 size-3" />
+              Close preview
+            </Button>
           </div>
           <CodeBlock title="Preview">{preview.content}</CodeBlock>
         </div>
