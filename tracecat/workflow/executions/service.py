@@ -83,6 +83,10 @@ from tracecat.workflow.executions.schemas import (
 from tracecat.workspaces.service import WorkspaceService
 
 
+class WorkflowExecutionResultNotFoundError(ValueError):
+    """Raised when no matching completed event exists for a given event ID."""
+
+
 class WorkflowExecutionsService:
     """Workflow executions service."""
 
@@ -526,7 +530,9 @@ class WorkflowExecutionsService:
                 source_match = event
 
         if source_match is None:
-            raise ValueError(f"No completed event found for event_id={event_id}")
+            raise WorkflowExecutionResultNotFoundError(
+                f"No completed event found for event_id={event_id}"
+            )
         return source_match
 
     async def _get_stored_result_for_event(

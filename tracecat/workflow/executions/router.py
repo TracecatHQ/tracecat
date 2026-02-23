@@ -55,7 +55,10 @@ from tracecat.workflow.executions.schemas import (
     WorkflowExecutionReadMinimal,
     WorkflowExecutionTerminate,
 )
-from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.executions.service import (
+    WorkflowExecutionResultNotFoundError,
+    WorkflowExecutionsService,
+)
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 router = APIRouter(prefix="/workflow-executions", tags=["workflow-executions"])
@@ -449,9 +452,14 @@ async def get_workflow_execution_object_download(
                     event_id=params.event_id,
                     collection_index=params.collection_index,
                 )
-    except ValueError as e:
+    except WorkflowExecutionResultNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         ) from e
     except IndexError as e:
@@ -510,9 +518,14 @@ async def get_workflow_execution_object_preview(
                 return _inline_preview_response(collection.model_dump(mode="json"))
             case _:
                 return _inline_preview_response(item)
-    except ValueError as e:
+    except WorkflowExecutionResultNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         ) from e
     except IndexError as e:
@@ -556,9 +569,14 @@ async def get_workflow_execution_collection_page(
             offset=params.offset,
             limit=params.limit,
         )
-    except ValueError as e:
+    except WorkflowExecutionResultNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         ) from e
     except TypeError as e:

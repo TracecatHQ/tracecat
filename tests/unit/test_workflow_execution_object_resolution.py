@@ -9,7 +9,10 @@ from temporalio.client import Client, WorkflowHandle
 
 from tracecat.identifiers.workflow import WorkflowExecutionID
 from tracecat.storage.object import CollectionObject, InlineObject, ObjectRef
-from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.executions.service import (
+    WorkflowExecutionResultNotFoundError,
+    WorkflowExecutionsService,
+)
 
 
 @pytest.fixture
@@ -75,6 +78,31 @@ class TestWorkflowExecutionObjectResolution:
         )
 
         assert matched is completed_event
+
+    async def test_resolve_completed_event_missing_raises_not_found_error(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**_kwargs: Any):
+            if False:
+                yield None
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        with pytest.raises(
+            WorkflowExecutionResultNotFoundError,
+            match="No completed event found for event_id=3",
+        ):
+            await workflow_executions_service._resolve_completed_event(
+                workflow_exec_id,
+                3,
+            )
 
     async def test_get_collection_page_returns_refs_for_stored_object_collection(
         self,

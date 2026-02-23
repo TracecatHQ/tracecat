@@ -85,6 +85,8 @@ export function CollectionObjectResult({
 
   useEffect(() => {
     setOffset(0)
+    setPage(null)
+    setPageError(null)
   }, [eventId, executionId])
 
   useEffect(() => {
