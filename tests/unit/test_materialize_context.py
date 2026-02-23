@@ -102,3 +102,20 @@ async def test_materialize_task_result_collection_index_preserves_list_item(
     materialized = await action._materialize_task_result(task_result)
 
     assert materialized["result"] == [3, 4]
+
+
+@pytest.mark.anyio
+async def test_materialize_task_result_inline_collection_index_returns_single_item() -> None:
+    """Inline scatter results should honor collection_index during materialization."""
+    task_result = TaskResult(
+        result=InlineObject(
+            data=[{"idx": 0, "name": "zero"}, {"idx": 1, "name": "one"}],
+            typename="list",
+        ),
+        result_typename="dict",
+        collection_index=1,
+    )
+
+    materialized = await action._materialize_task_result(task_result)
+
+    assert materialized["result"] == {"idx": 1, "name": "one"}

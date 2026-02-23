@@ -207,8 +207,9 @@ async def _store_collection_as_refs(prefix: str, items: list[Any]) -> Collection
 async def _materialize_task_result(task_result: TaskResult) -> MaterializedTaskResult:
     """Materialize a TaskResult's StoredObject result to raw value.
 
-    Handles collection_index for scatter items. When set, CollectionObject
-    retrieval resolves a single item directly via CollectionObject.at(index).
+    Handles collection_index for scatter items. When set:
+    - CollectionObject retrieval resolves a single item via CollectionObject.at(index).
+    - InlineObject(list) retrieval resolves the indexed list item directly.
 
     Args:
         task_result: A TaskResult
@@ -220,8 +221,11 @@ async def _materialize_task_result(task_result: TaskResult) -> MaterializedTaskR
     # Handle Pydantic TaskResult instance
     storage = get_object_storage()
     match task_result.result:
-        case InlineObject():
-            raw_result = task_result.result.data
+        case InlineObject(data=data):
+            if task_result.collection_index is not None and isinstance(data, list):
+                raw_result = data[task_result.collection_index]
+            else:
+                raw_result = data
         case ExternalObject():
             raw_result = await storage.retrieve(task_result.result)
         case CollectionObject() as collection:
