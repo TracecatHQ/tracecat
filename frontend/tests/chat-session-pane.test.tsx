@@ -83,9 +83,7 @@ describe("ChatSessionPane", () => {
 
     const textarea = screen.getByRole("textbox")
     fireEvent.change(textarea, { target: { value: "Hello" } })
-
-    const form = textarea.closest("form") as HTMLFormElement
-    fireEvent.submit(form)
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
 
     await waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith({ text: "Hello" })
