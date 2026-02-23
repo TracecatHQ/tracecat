@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { organizationGetOrganizationEntitlements } from "@/client"
+import { useOrganization } from "@/hooks/use-organization"
 
 type EntitlementKey = keyof Awaited<
   ReturnType<typeof organizationGetOrganizationEntitlements>
@@ -11,13 +12,15 @@ export function useEntitlements(): {
   isLoading: boolean
   hasEntitlementData: boolean
 } {
+  const { organization, isLoading: organizationLoading } = useOrganization()
   const {
     data: entitlements,
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["organization-entitlements"],
+    queryKey: ["organization-entitlements", organization?.id],
     queryFn: async () => await organizationGetOrganizationEntitlements(),
+    enabled: Boolean(organization?.id),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   })
@@ -26,10 +29,10 @@ export function useEntitlements(): {
 
   return {
     hasEntitlement: (key: EntitlementKey) => {
-      if (isLoading || error) return false
+      if (organizationLoading || isLoading || error) return false
       return Boolean(entitlements?.[key])
     },
-    isLoading,
+    isLoading: organizationLoading || isLoading,
     hasEntitlementData,
   }
 }
