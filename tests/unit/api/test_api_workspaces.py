@@ -142,6 +142,27 @@ async def test_create_workspace_conflict(
 
 
 @pytest.mark.anyio
+async def test_create_workspace_membership_conflict(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test POST /workspaces/{workspace_id}/memberships duplicate returns 409."""
+    with patch.object(workspaces_router, "MembershipService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_membership.side_effect = IntegrityError(
+            "", {}, Exception("Duplicate")
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            f"/workspaces/{uuid.uuid4()}/memberships",
+            json={"user_id": str(uuid.uuid4())},
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+
+@pytest.mark.anyio
 async def test_search_workspaces_success(
     client: TestClient,
     test_admin_role: Role,

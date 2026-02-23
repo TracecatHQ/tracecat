@@ -4,6 +4,7 @@ import uuid
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.schemas import UserRole
@@ -259,3 +260,27 @@ async def test_create_membership_heals_stale_workspace_assignment(
     assert assignment_list[0].organization_id == organization.id
     assert assignment_list[0].role_id == workspace_editor_role.id
     assert assignment_list[0].assigned_by == actor_user.id
+
+
+async def test_create_membership_duplicate_raises_integrity_error(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """Creating an existing membership should raise an integrity conflict."""
+    assert workspace_editor_role.slug == "workspace-editor"
+    session.add(
+        Membership(
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+        )
+    )
+    await session.commit()
+
+    with pytest.raises(IntegrityError):
+        await membership_service.create_membership(
+            workspace_id=workspace.id,
+            params=WorkspaceMembershipCreate(user_id=member_user.id),
+        )

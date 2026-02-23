@@ -156,10 +156,6 @@ class MembershipService(BaseService):
             raise TracecatValidationError("Workspace or default role not found")
         organization_id, role_id = org_role_row
 
-        # Reject existing memberships explicitly and avoid relying on DB integrity errors.
-        if await self.get_membership(workspace_id, params.user_id):
-            raise TracecatValidationError("User is already a member of this workspace")
-
         # Heal stale direct assignments left behind by prior failed remove flows.
         await self.session.execute(
             delete(UserRoleAssignment).where(
