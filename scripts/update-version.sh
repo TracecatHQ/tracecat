@@ -119,6 +119,21 @@ if ! [[ $NEW_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?$ ]]; then
     exit 1
 fi
 
+# Bump chart version patch in Chart.yaml (e.g. 0.3.24 -> 0.3.25)
+CHART_FILE="deployments/helm/tracecat/Chart.yaml"
+if [ ! -f "$CHART_FILE" ]; then
+    echo "Error: Cannot find $CHART_FILE"
+    exit 1
+fi
+
+CHART_CURRENT_VERSION=$(grep -E '^version:[[:space:]]*' "$CHART_FILE" | head -1 | sed -E 's/^version:[[:space:]]*"?([^"]+)"?/\1/')
+if [[ $CHART_CURRENT_VERSION =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)([-+].*)?$ ]]; then
+    CHART_NEW_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
+else
+    echo "Error: Could not parse chart version from $CHART_FILE (found: $CHART_CURRENT_VERSION)"
+    exit 1
+fi
+
 # List of files to update (hardcoded)
 FILES=(
     "tracecat/__init__.py"
@@ -156,12 +171,14 @@ update_version() {
 
     # File-specific update strategies
     if [[ "$basename" == "Chart.yaml" ]]; then
-        # Targeted: update the appVersion field regardless of its current value
+        # Targeted: update both appVersion and chart version fields.
         if [[ "$(uname)" == "Darwin" ]]; then
-            sed -i '' -E 's/^(appVersion: ).*/\1"'"$NEW_VERSION"'"/' "$file" && \
+            sed -i '' -E 's/^(version:[[:space:]]*).*/\1'"$CHART_NEW_VERSION"'/' "$file" && \
+            sed -i '' -E 's/^(appVersion:[[:space:]]*).*/\1"'"$NEW_VERSION"'"/' "$file" && \
             echo "✓ Updated $file" || echo "✗ Failed to update $file"
         else
-            sed -i -E 's/^(appVersion: ).*/\1"'"$NEW_VERSION"'"/' "$file" && \
+            sed -i -E 's/^(version:[[:space:]]*).*/\1'"$CHART_NEW_VERSION"'/' "$file" && \
+            sed -i -E 's/^(appVersion:[[:space:]]*).*/\1"'"$NEW_VERSION"'"/' "$file" && \
             echo "✓ Updated $file" || echo "✗ Failed to update $file"
         fi
     elif [[ "$basename" == "variables.tf" ]]; then
@@ -199,6 +216,7 @@ update_version() {
 
 # Main execution
 echo "Updating version from $CURRENT_VERSION to $NEW_VERSION"
+echo "Bumping chart version from $CHART_CURRENT_VERSION to $CHART_NEW_VERSION"
 echo "The following files will be modified:"
 echo "----------------------------------------"
 for file in "${FILES[@]}"; do
