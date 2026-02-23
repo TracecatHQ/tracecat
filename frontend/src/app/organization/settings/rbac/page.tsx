@@ -9,7 +9,7 @@ import { OrgRbacRoles } from "@/components/organization/org-rbac-roles"
 import { OrgRbacScopes } from "@/components/organization/org-rbac-scopes"
 import { OrgRbacUserAssignments } from "@/components/organization/org-rbac-user-assignments"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 
 type RbacTab =
   | "roles"
@@ -20,17 +20,17 @@ type RbacTab =
 
 export default function RbacSettingsPage() {
   const router = useRouter()
-  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
-  const rbacEnabled = isFeatureEnabled("rbac")
+  const { hasEntitlement, isLoading } = useEntitlements()
+  const rbacEnabled = hasEntitlement("rbac_addons")
   const [activeTab, setActiveTab] = useState<RbacTab>("roles")
 
   useEffect(() => {
-    if (!featureFlagsLoading && !rbacEnabled) {
+    if (!isLoading && !rbacEnabled) {
       router.replace("/organization/members")
     }
-  }, [featureFlagsLoading, rbacEnabled, router])
+  }, [isLoading, rbacEnabled, router])
 
-  if (featureFlagsLoading || !rbacEnabled) {
+  if (isLoading || !rbacEnabled) {
     return <CenteredSpinner />
   }
 

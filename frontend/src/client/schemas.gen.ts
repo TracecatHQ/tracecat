@@ -7628,6 +7628,13 @@ export const $EffectiveEntitlements = {
         "Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)",
       default: false,
     },
+    rbac_addons: {
+      type: "boolean",
+      title: "Rbac Addons",
+      description:
+        "Whether RBAC add-ons are enabled (custom roles, groups, and assignments)",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -7659,6 +7666,12 @@ export const $EntitlementsDict = {
       title: "Case Addons",
       description:
         "Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)",
+    },
+    rbac_addons: {
+      type: "boolean",
+      title: "Rbac Addons",
+      description:
+        "Whether RBAC add-ons are enabled (custom roles, groups, and assignments)",
     },
   },
   type: "object",
@@ -8192,7 +8205,7 @@ export const $ExternalObject = {
 
 export const $FeatureFlag = {
   type: "string",
-  enum: ["ai-ranking", "rbac"],
+  enum: ["ai-ranking"],
   title: "FeatureFlag",
   description: "Feature flag enum reserved for engineering rollouts.",
 } as const

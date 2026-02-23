@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.dependencies import OrgUserRole
@@ -14,6 +14,8 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 from tracecat_ee.rbac.schemas import (
     GroupCreate,
     GroupList,
@@ -39,11 +41,24 @@ from tracecat_ee.rbac.schemas import (
 )
 from tracecat_ee.rbac.service import RBACService
 
+
+async def _require_rbac_entitlement(
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> None:
+    """Router-level dependency that gates all EE RBAC endpoints behind the RBAC entitlement."""
+    await check_entitlement(session, role, Entitlement.RBAC_ADDONS)
+
+
 # =============================================================================
 # Scopes Router
 # =============================================================================
 
-scopes_router = APIRouter(prefix="/rbac/scopes", tags=["rbac"])
+scopes_router = APIRouter(
+    prefix="/rbac/scopes",
+    tags=["rbac"],
+    dependencies=[Depends(_require_rbac_entitlement)],
+)
 
 
 @scopes_router.get("", response_model=ScopeList)
@@ -144,7 +159,11 @@ async def delete_scope(
 # Roles Router
 # =============================================================================
 
-roles_router = APIRouter(prefix="/rbac/roles", tags=["rbac"])
+roles_router = APIRouter(
+    prefix="/rbac/roles",
+    tags=["rbac"],
+    dependencies=[Depends(_require_rbac_entitlement)],
+)
 
 
 @roles_router.get("", response_model=RoleList)
@@ -326,7 +345,11 @@ async def delete_role(
 # Groups Router
 # =============================================================================
 
-groups_router = APIRouter(prefix="/rbac/groups", tags=["rbac"])
+groups_router = APIRouter(
+    prefix="/rbac/groups",
+    tags=["rbac"],
+    dependencies=[Depends(_require_rbac_entitlement)],
+)
 
 
 @groups_router.get("", response_model=GroupList)
@@ -575,7 +598,11 @@ async def remove_group_member(
 # Group Assignments Router
 # =============================================================================
 
-assignments_router = APIRouter(prefix="/rbac/assignments", tags=["rbac"])
+assignments_router = APIRouter(
+    prefix="/rbac/assignments",
+    tags=["rbac"],
+    dependencies=[Depends(_require_rbac_entitlement)],
+)
 
 
 @assignments_router.get("", response_model=GroupRoleAssignmentList)
@@ -756,7 +783,11 @@ async def delete_assignment(
 # User Role Assignments Router
 # =============================================================================
 
-user_assignments_router = APIRouter(prefix="/rbac/user-assignments", tags=["rbac"])
+user_assignments_router = APIRouter(
+    prefix="/rbac/user-assignments",
+    tags=["rbac"],
+    dependencies=[Depends(_require_rbac_entitlement)],
+)
 
 
 @user_assignments_router.get("", response_model=UserRoleAssignmentList)

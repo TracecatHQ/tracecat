@@ -172,4 +172,5 @@ class TierService(BaseService):
             git_sync=resolve_entitlement("git_sync"),
             agent_addons=resolve_entitlement("agent_addons"),
             case_addons=resolve_entitlement("case_addons"),
+            rbac_addons=resolve_entitlement("rbac_addons"),
         )

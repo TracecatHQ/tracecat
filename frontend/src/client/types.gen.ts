@@ -2332,6 +2332,10 @@ export type EffectiveEntitlements = {
    * Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)
    */
   case_addons?: boolean
+  /**
+   * Whether RBAC add-ons are enabled (custom roles, groups, and assignments)
+   */
+  rbac_addons?: boolean
 }
 
 /**
@@ -2356,6 +2360,10 @@ export type EntitlementsDict = {
    * Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)
    */
   case_addons?: boolean
+  /**
+   * Whether RBAC add-ons are enabled (custom roles, groups, and assignments)
+   */
+  rbac_addons?: boolean
 }
 
 export type ErrorDetails = {
@@ -2508,7 +2516,7 @@ export type ExternalObject = {
 /**
  * Feature flag enum reserved for engineering rollouts.
  */
-export type FeatureFlag = "ai-ranking" | "rbac"
+export type FeatureFlag = "ai-ranking"
 
 /**
  * Response model for feature flags.

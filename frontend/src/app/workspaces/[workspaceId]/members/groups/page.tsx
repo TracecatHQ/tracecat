@@ -6,7 +6,7 @@ import { ScopeGuard } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { WorkspaceRbacGroups } from "@/components/workspaces/workspace-rbac-groups"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -14,16 +14,16 @@ export default function WorkspaceGroupsPage() {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
   const { workspace, workspaceLoading, workspaceError } = useWorkspaceDetails()
-  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
-  const rbacEnabled = isFeatureEnabled("rbac")
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const rbacEnabled = hasEntitlement("rbac_addons")
 
   useEffect(() => {
-    if (!featureFlagsLoading && !rbacEnabled) {
+    if (!entitlementsLoading && !rbacEnabled) {
       router.replace(`/workspaces/${workspaceId}/members`)
     }
-  }, [featureFlagsLoading, rbacEnabled, router, workspaceId])
+  }, [entitlementsLoading, rbacEnabled, router, workspaceId])
 
-  if (featureFlagsLoading || !rbacEnabled) {
+  if (entitlementsLoading || !rbacEnabled) {
     return <CenteredSpinner />
   }
   if (workspaceLoading) {

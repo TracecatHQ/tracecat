@@ -20,6 +20,7 @@ DEFAULT_LIMITS = EffectiveLimits(
 
 _AGENT_ADDON_FLAGS = ("agent-approvals", "agent-presets")
 _CASE_ADDON_FLAGS = ("case-dropdowns", "case-durations", "case-tasks", "case-triggers")
+_RBAC_FLAGS = ("rbac",)
 
 
 def get_legacy_feature_flags_env() -> str | None:
@@ -52,6 +53,7 @@ def resolve_oss_default_entitlements(
             git_sync=False,
             agent_addons=False,
             case_addons=False,
+            rbac_addons=False,
         )
 
     # Existing install path: map legacy feature flags to entitlement groups.
@@ -70,11 +72,18 @@ def resolve_oss_default_entitlements(
             case_addons_enabled = True
             break
 
+    rbac_enabled = False
+    for flag in _RBAC_FLAGS:
+        if flag in normalized_flags:
+            rbac_enabled = True
+            break
+
     return EffectiveEntitlements(
         custom_registry=True,
         git_sync=git_sync_enabled,
         agent_addons=agent_addons_enabled,
         case_addons=case_addons_enabled,
+        rbac_addons=rbac_enabled,
     )
 
 

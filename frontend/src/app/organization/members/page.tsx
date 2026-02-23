@@ -5,14 +5,14 @@ import { OrgMembersTable } from "@/components/organization/org-members-table"
 import { OrgRbacGroups } from "@/components/organization/org-rbac-groups"
 import { OrgRbacRoles } from "@/components/organization/org-rbac-roles"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 
 const tabTriggerClassName =
   "rounded-none border-b-2 border-transparent px-4 py-2.5 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
 
 export default function MembersPage() {
-  const { isFeatureEnabled } = useFeatureFlag()
-  const rbacEnabled = isFeatureEnabled("rbac")
+  const { hasEntitlement, isLoading } = useEntitlements()
+  const rbacEnabled = !isLoading && hasEntitlement("rbac_addons")
 
   return (
     <div className="size-full overflow-auto">

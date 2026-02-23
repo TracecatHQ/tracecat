@@ -9,7 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { cn } from "@/lib/utils"
 
 export enum MembersViewMode {
@@ -36,12 +36,9 @@ export function MembersViewToggle({
   groupsHref,
   rbacScope,
 }: MembersViewToggleProps) {
-  const { isFeatureEnabled } = useFeatureFlag()
-  const rbacEnabled = isFeatureEnabled("rbac")
+  const { hasEntitlement } = useEntitlements()
 
-  // Don't render the toggle at all when RBAC is disabled —
-  // a single "Members" button in a toggle group is pointless.
-  if (!rbacEnabled) {
+  if (!hasEntitlement("rbac_addons")) {
     return null
   }
 
