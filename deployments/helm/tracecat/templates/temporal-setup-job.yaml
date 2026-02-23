@@ -83,8 +83,21 @@ spec:
                 echo "Namespace updated"
               else
                 echo "Creating namespace '$NAMESPACE'..."
-                temporal operator namespace create "$@"
-                echo "Namespace created"
+                if temporal operator namespace create "$@"; then
+                  echo "Namespace created"
+                else
+                  # Handle race conditions where another setup job creates the namespace
+                  # between the initial describe and this create call.
+                  echo "Namespace create failed, checking if it now exists..."
+                  if temporal operator namespace describe "$NAMESPACE" 2>/dev/null; then
+                    echo "Namespace '$NAMESPACE' already exists, reconciling settings..."
+                    temporal operator namespace update "$@"
+                    echo "Namespace updated"
+                  else
+                    echo "Namespace create failed for an unexpected reason"
+                    exit 1
+                  fi
+                fi
               fi
 
               # Add search attributes (idempotent - check each before adding)
