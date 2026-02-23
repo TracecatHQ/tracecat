@@ -24,6 +24,10 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import InvitationID, UserID, WorkspaceID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.service import (
+    InvitationService,
+    accept_workspace_invitation_for_user,
+)
 from tracecat.logger import logger
 from tracecat.workspaces.schemas import (
     WorkspaceCreate,
@@ -42,10 +46,7 @@ from tracecat.workspaces.schemas import (
     WorkspaceSettingsRead,
     WorkspaceUpdate,
 )
-from tracecat.workspaces.service import (
-    WorkspaceService,
-    accept_workspace_invitation_for_user,
-)
+from tracecat.workspaces.service import WorkspaceService
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -183,6 +184,7 @@ async def get_workspace_invitation_by_token(
         select(Invitation, DBRole)
         .join(DBRole, DBRole.id == Invitation.role_id)  # pyright: ignore[reportArgumentType]
         .where(Invitation.token == token)
+        .where(Invitation.workspace_id.is_not(None))
     )
     row = result.first()
     if row is None:
@@ -353,8 +355,8 @@ async def list_workspace_members(
 
     # Append pending, non-expired invitations as "invited" members
     now = datetime.now(UTC)
-    ws_service = WorkspaceService(session, role=role)
-    invitations = await ws_service.list_invitations(
+    inv_service = InvitationService(session, role=role)
+    invitations = await inv_service.list_workspace_invitations(
         workspace_id, status=InvitationStatus.PENDING
     )
     for inv in invitations:
@@ -365,7 +367,6 @@ async def list_workspace_members(
                     email=inv.email,
                     role_name=inv.role_obj.name,
                     status=WorkspaceMemberStatus.INVITED,
-                    token=inv.token,
                     expires_at=inv.expires_at,
                     created_at=inv.created_at,
                 )
@@ -486,9 +487,9 @@ async def create_workspace_invitation(
     -------------
     - Workspace Admin: Can create invitations for their workspace.
     """
-    service = WorkspaceService(session, role=role)
+    service = InvitationService(session, role=role)
     try:
-        invitation = await service.create_invitation(workspace_id, params)
+        invitation = await service.create_workspace_invitation(workspace_id, params)
     except TracecatAuthorizationError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -499,6 +500,7 @@ async def create_workspace_invitation(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         ) from e
+    assert invitation.workspace_id is not None
     return WorkspaceInvitationRead(
         id=invitation.id,
         workspace_id=invitation.workspace_id,
@@ -530,9 +532,11 @@ async def list_workspace_invitations(
     -------------
     - Workspace Admin: Can list invitations for their workspace.
     """
-    service = WorkspaceService(session, role=role)
+    service = InvitationService(session, role=role)
     try:
-        invitations = await service.list_invitations(workspace_id, status=params.status)
+        invitations = await service.list_workspace_invitations(
+            workspace_id, status=params.status
+        )
     except TracecatAuthorizationError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -541,7 +545,7 @@ async def list_workspace_invitations(
     return [
         WorkspaceInvitationRead(
             id=inv.id,
-            workspace_id=inv.workspace_id,
+            workspace_id=workspace_id,
             email=inv.email,
             role_id=str(inv.role_id),
             role_name=inv.role_obj.name,
@@ -570,8 +574,8 @@ async def get_workspace_invitation_token(
 
     Used to generate shareable invitation links.
     """
-    service = WorkspaceService(session, role=role)
-    invitation = await service.get_invitation(workspace_id, invitation_id)
+    service = InvitationService(session, role=role)
+    invitation = await service.get_workspace_invitation(workspace_id, invitation_id)
     if invitation is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -598,9 +602,9 @@ async def revoke_workspace_invitation(
     -------------
     - Workspace Admin: Can revoke invitations for their workspace.
     """
-    service = WorkspaceService(session, role=role)
+    service = InvitationService(session, role=role)
     try:
-        await service.revoke_invitation(workspace_id, invitation_id)
+        await service.revoke_workspace_invitation(workspace_id, invitation_id)
     except TracecatAuthorizationError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

@@ -392,8 +392,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         Errors during invitation acceptance are logged but do NOT fail registration.
         This ensures users can still register even if the invitation is invalid/expired.
         """
-        # Import here to avoid circular import (organization.service imports from auth.users)
-        from tracecat.organization.service import accept_invitation_for_user
+        # Import here to avoid circular import
+        from tracecat.invitations.service import accept_org_invitation_for_user
 
         token = self._pending_invitation_token
         self._pending_invitation_token = None  # Clear to prevent reuse
@@ -403,7 +403,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
         try:
             async with get_async_session_context_manager() as session:
-                membership = await accept_invitation_for_user(
+                membership = await accept_org_invitation_for_user(
                     session, user_id=user.id, token=token
                 )
                 self.logger.info(
