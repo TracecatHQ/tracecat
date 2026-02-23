@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from typing import NotRequired, TypedDict
+from uuid import UUID
 
 from pydantic import EmailStr, Field, computed_field, field_validator
 
@@ -111,12 +113,23 @@ class WorkspaceReadMinimal(Schema):
     name: str
 
 
+class WorkspaceMemberStatus(StrEnum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    INVITED = "invited"
+
+
 class WorkspaceMember(Schema):
-    user_id: UserID
-    first_name: str | None
-    last_name: str | None
+    user_id: UserID | None = None
+    invitation_id: UUID | None = None
+    first_name: str | None = None
+    last_name: str | None = None
     email: EmailStr
     role_name: str
+    status: WorkspaceMemberStatus = WorkspaceMemberStatus.ACTIVE
+    token: str | None = None
+    expires_at: datetime | None = None
+    created_at: datetime | None = None
 
 
 class WorkspaceRead(Schema):
@@ -162,9 +175,30 @@ class WorkspaceInvitationRead(Schema):
     expires_at: datetime
     accepted_at: datetime | None
     created_at: datetime
+    token: str | None = None
 
 
 class WorkspaceInvitationList(Schema):
     """Query params for listing workspace invitations."""
 
     status: InvitationStatus | None = None
+
+
+class WorkspaceInvitationReadMinimal(Schema):
+    """Public token lookup response for workspace invitation acceptance page."""
+
+    workspace_id: WorkspaceID
+    workspace_name: str
+    organization_name: str
+    inviter_name: str | None = None
+    inviter_email: str | None = None
+    role_name: str
+    status: InvitationStatus
+    expires_at: datetime
+    email_matches: bool | None = None
+
+
+class WorkspaceInvitationAccept(Schema):
+    """Request body for accepting a workspace invitation via token."""
+
+    token: str

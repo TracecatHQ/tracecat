@@ -24,11 +24,13 @@ from tracecat.auth.users import (
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.db.models import (
     AccessToken,
+    Invitation,
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
     User,
     UserRoleAssignment,
+    Workspace,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
@@ -328,6 +330,37 @@ class OrgService(BaseOrgService):
         await self.session.refresh(membership)
         return membership
 
+    @require_scope("org:member:read")
+    async def list_member_workspace_memberships(
+        self,
+        user_id: UserID,
+    ) -> list[tuple[uuid.UUID, str, str]]:
+        """List workspace memberships for an org member.
+
+        Returns a list of (workspace_id, workspace_name, role_name) tuples.
+        """
+        from tracecat.db.models import Membership
+
+        statement = (
+            select(Workspace.id, Workspace.name, DBRole.name)
+            .join(Membership, Membership.workspace_id == Workspace.id)
+            .outerjoin(
+                UserRoleAssignment,
+                and_(
+                    UserRoleAssignment.user_id == user_id,
+                    UserRoleAssignment.workspace_id == Workspace.id,
+                    UserRoleAssignment.organization_id == self.organization_id,
+                ),
+            )
+            .outerjoin(DBRole, DBRole.id == UserRoleAssignment.role_id)
+            .where(
+                Membership.user_id == user_id,
+                Workspace.organization_id == self.organization_id,
+            )
+        )
+        result = await self.session.execute(statement)
+        return list(result.tuples().all())
+
     @audit_log(resource_type="organization", action="delete")
     @require_scope("org:delete")
     async def delete_organization(self, *, confirmation: str | None) -> None:
@@ -409,6 +442,7 @@ class OrgService(BaseOrgService):
         *,
         email: str,
         role_id: uuid.UUID,
+        workspace_assignments: list[tuple[uuid.UUID, uuid.UUID]] | None = None,
     ) -> OrganizationInvitation:
         """Create an invitation to join the organization.
 
@@ -423,6 +457,9 @@ class OrgService(BaseOrgService):
             raise TracecatAuthorizationError(
                 "User must be authenticated to create invitation"
             )
+
+        # Normalize email to lowercase
+        email = email.lower()
 
         # Validate role_id exists and belongs to this organization
         role_result = await self.session.execute(
@@ -481,16 +518,32 @@ class OrgService(BaseOrgService):
             await self.session.delete(existing)
             await self.session.flush()
 
+        expires_at = datetime.now(UTC) + timedelta(days=7)
         invitation = OrganizationInvitation(
             organization_id=self.organization_id,
             email=email,
             role_id=role_id,
             invited_by=self.role.user_id,
             token=secrets.token_urlsafe(32),
-            expires_at=datetime.now(UTC) + timedelta(days=7),
+            expires_at=expires_at,
             status=InvitationStatus.PENDING,
         )
         self.session.add(invitation)
+
+        # Create workspace invitations if workspace_assignments provided
+        if workspace_assignments:
+            for ws_id, ws_role_id in workspace_assignments:
+                ws_invitation = Invitation(
+                    workspace_id=ws_id,
+                    email=email,
+                    role_id=ws_role_id,
+                    invited_by=self.role.user_id,
+                    token=secrets.token_urlsafe(48)[:64],
+                    expires_at=expires_at,
+                    status=InvitationStatus.PENDING,
+                )
+                self.session.add(ws_invitation)
+
         await self.session.commit()
         result = await self.session.execute(
             select(OrganizationInvitation)

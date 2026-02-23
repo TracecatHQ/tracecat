@@ -2,14 +2,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type ApiError,
+  type WorkspaceInvitationRead,
   type WorkspaceMember,
   type WorkspaceRead,
+  type WorkspacesCreateWorkspaceInvitationData,
   type WorkspacesCreateWorkspaceMembershipData,
   type WorkspacesCreateWorkspaceMembershipResponse,
+  workspacesCreateWorkspaceInvitation,
   workspacesCreateWorkspaceMembership,
   workspacesDeleteWorkspaceMembership,
   workspacesGetWorkspace,
+  workspacesListWorkspaceInvitations,
   workspacesListWorkspaceMembers,
+  workspacesRevokeWorkspaceInvitation,
 } from "@/client"
 import { retryHandler } from "@/lib/errors"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -103,4 +108,60 @@ export function useWorkspaceMembers(
   })
 
   return { members, membersLoading, membersError }
+}
+
+/* ── INVITATIONS ──────────────────────────────────────────────────────── */
+
+export function useWorkspaceInvitations(workspaceId: string) {
+  const qc = useQueryClient()
+
+  const {
+    data: invitations,
+    isLoading: invitationsLoading,
+    error: invitationsError,
+  } = useQuery<WorkspaceInvitationRead[], ApiError>({
+    queryKey: ["workspace", workspaceId, "invitations"],
+    queryFn: () => workspacesListWorkspaceInvitations({ workspaceId }),
+  })
+
+  const { mutateAsync: createInvitation, isPending: createPending } =
+    useMutation<
+      WorkspaceInvitationRead,
+      ApiError,
+      WorkspacesCreateWorkspaceInvitationData
+    >({
+      mutationFn: workspacesCreateWorkspaceInvitation,
+      onSuccess: () => {
+        qc.invalidateQueries({
+          queryKey: ["workspace", workspaceId, "invitations"],
+        })
+        qc.invalidateQueries({
+          queryKey: ["workspace", workspaceId, "members"],
+        })
+      },
+    })
+
+  const { mutateAsync: revokeInvitation, isPending: revokePending } =
+    useMutation<unknown, ApiError, string>({
+      mutationFn: (invitationId: string) =>
+        workspacesRevokeWorkspaceInvitation({ workspaceId, invitationId }),
+      onSuccess: () => {
+        qc.invalidateQueries({
+          queryKey: ["workspace", workspaceId, "invitations"],
+        })
+        qc.invalidateQueries({
+          queryKey: ["workspace", workspaceId, "members"],
+        })
+      },
+    })
+
+  return {
+    invitations,
+    invitationsLoading,
+    invitationsError,
+    createInvitation,
+    createPending,
+    revokeInvitation,
+    revokePending,
+  }
 }

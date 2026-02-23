@@ -41,6 +41,7 @@ from tracecat.organization.schemas import (
     OrgMemberStatus,
     OrgPendingInvitationRead,
     OrgRead,
+    UserWorkspaceMembership,
 )
 from tracecat.organization.service import OrgService, accept_invitation_for_user
 from tracecat.tiers.schemas import EffectiveEntitlements
@@ -339,6 +340,7 @@ async def list_org_members(
                     status=OrgMemberStatus.INVITED,
                     expires_at=inv.expires_at,
                     created_at=inv.created_at,
+                    token=inv.token,
                 )
             )
 
@@ -415,6 +417,27 @@ async def update_org_member(
         ) from e
 
 
+@router.get("/members/{user_id}/workspace-memberships")
+@require_scope("org:member:read")
+async def list_member_workspace_memberships(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    user_id: UserID,
+) -> list[UserWorkspaceMembership]:
+    """List workspace memberships for an organization member."""
+    service = OrgService(session, role=role)
+    memberships = await service.list_member_workspace_memberships(user_id)
+    return [
+        UserWorkspaceMembership(
+            workspace_id=ws_id,
+            workspace_name=ws_name,
+            role_name=role_name or "Member",
+        )
+        for ws_id, ws_name, role_name in memberships
+    ]
+
+
 @router.get("/sessions", response_model=list[SessionRead])
 @require_scope("org:member:read")
 async def list_sessions(
@@ -461,9 +484,15 @@ async def create_invitation(
     """Create an invitation to join the organization."""
     service = OrgService(session, role=role)
     try:
+        workspace_assignments = (
+            [(wa.workspace_id, wa.role_id) for wa in params.workspace_assignments]
+            if params.workspace_assignments
+            else None
+        )
         invitation = await service.create_invitation(
             email=params.email,
             role_id=params.role_id,
+            workspace_assignments=workspace_assignments,
         )
     except TracecatAuthorizationError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e

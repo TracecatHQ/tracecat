@@ -2,6 +2,7 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useQueryClient } from "@tanstack/react-query"
+import { Check, Copy } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { WorkspaceMember, WorkspaceRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -21,6 +22,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -46,6 +48,7 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import {
+  useWorkspaceInvitations,
   useWorkspaceMembers,
   useWorkspaceMutations,
 } from "@/hooks/use-workspace"
@@ -57,11 +60,14 @@ export function WorkspaceMembersTable({
   workspace: WorkspaceRead
 }) {
   const queryClient = useQueryClient()
-  const canUpdateMembers = useScopeCheck("workspace:member:update")
+  const canManageMembers = useScopeCheck("workspace:member:update")
   const canRemoveMembers = useScopeCheck("workspace:member:remove")
-  const [selectedUser, setSelectedUser] = useState<WorkspaceMember | null>(null)
+  const [selectedMember, setSelectedMember] = useState<WorkspaceMember | null>(
+    null
+  )
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
   const { removeMember } = useWorkspaceMutations()
+  const { revokeInvitation } = useWorkspaceInvitations(workspace.id)
   const { members, membersLoading, membersError } = useWorkspaceMembers(
     workspace.id
   )
@@ -77,10 +83,19 @@ export function WorkspaceMembersTable({
     enabled: isChangeRoleOpen,
   })
 
+  const [copied, setCopied] = useState<string | null>(null)
+
+  async function handleCopyInviteLink(token: string) {
+    const link = `${window.location.origin}/invitations/workspace/accept?token=${token}`
+    await navigator.clipboard.writeText(link)
+    setCopied(token)
+    setTimeout(() => setCopied(null), 2000)
+  }
+
   const handleChangeRole = useCallback(
     async (roleId: string) => {
       try {
-        if (!selectedUser) {
+        if (!selectedMember?.user_id) {
           return toast({
             title: "No user selected",
             description: "Please select a user to change role",
@@ -101,7 +116,7 @@ export function WorkspaceMembersTable({
         // Find the existing RBAC assignment for this user in this workspace
         const existingAssignment = userAssignments?.find(
           (a) =>
-            a.user_id === selectedUser.user_id &&
+            a.user_id === selectedMember.user_id &&
             a.workspace_id === workspace.id
         )
         if (existingAssignment) {
@@ -110,9 +125,8 @@ export function WorkspaceMembersTable({
             role_id: roleId,
           })
         } else {
-          // No existing assignment — create one
           await createUserAssignment({
-            user_id: selectedUser.user_id,
+            user_id: selectedMember.user_id,
             role_id: roleId,
             workspace_id: workspace.id,
           })
@@ -124,11 +138,11 @@ export function WorkspaceMembersTable({
         console.log("Failed to change role", error)
       } finally {
         setIsChangeRoleOpen(false)
-        setSelectedUser(null)
+        setSelectedMember(null)
       }
     },
     [
-      selectedUser,
+      selectedMember,
       userAssignments,
       workspace.id,
       updateUserAssignment,
@@ -146,7 +160,7 @@ export function WorkspaceMembersTable({
       <AlertDialog
         onOpenChange={(isOpen) => {
           if (!isOpen) {
-            setSelectedUser(null)
+            setSelectedMember(null)
           }
         }}
       >
@@ -173,39 +187,21 @@ export function WorkspaceMembersTable({
               enableHiding: false,
             },
             {
-              accessorKey: "first_name",
+              id: "name",
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="First name"
+                  title="Name"
                 />
               ),
-              cell: ({ row }) => (
-                <div className="text-xs">
-                  {row.getValue<WorkspaceMember["first_name"]>("first_name") ||
-                    "-"}
-                </div>
-              ),
-              enableSorting: true,
-              enableHiding: false,
-            },
-            {
-              accessorKey: "last_name",
-              header: ({ column }) => (
-                <DataTableColumnHeader
-                  className="text-xs"
-                  column={column}
-                  title="Last name"
-                />
-              ),
-              cell: ({ row }) => (
-                <div className="text-xs">
-                  {row.getValue<WorkspaceMember["last_name"]>("last_name") ||
-                    "-"}
-                </div>
-              ),
-              enableSorting: true,
+              cell: ({ row }) => {
+                const first = row.original.first_name
+                const last = row.original.last_name
+                const name = [first, last].filter(Boolean).join(" ")
+                return <div className="text-xs">{name || "-"}</div>
+              },
+              enableSorting: false,
               enableHiding: false,
             },
             {
@@ -225,11 +221,39 @@ export function WorkspaceMembersTable({
               enableSorting: true,
               enableHiding: false,
             },
-
+            {
+              accessorKey: "status",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Status"
+                />
+              ),
+              cell: ({ row }) => {
+                const memberStatus = row.getValue<string>("status")
+                const variant =
+                  memberStatus === "active"
+                    ? "default"
+                    : memberStatus === "invited"
+                      ? "outline"
+                      : "secondary"
+                return (
+                  <Badge variant={variant} className="text-xs capitalize">
+                    {memberStatus}
+                  </Badge>
+                )
+              },
+              enableSorting: true,
+              enableHiding: false,
+            },
             {
               id: "actions",
               enableHiding: false,
               cell: ({ row }) => {
+                const member = row.original
+                const isInvited = member.status === "invited"
+
                 return (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -239,39 +263,69 @@ export function WorkspaceMembersTable({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent>
-                      <DropdownMenuItem
-                        onClick={() =>
-                          navigator.clipboard.writeText(row.original.user_id)
-                        }
-                      >
-                        Copy user ID
-                      </DropdownMenuItem>
-
-                      {canUpdateMembers && (
-                        <DialogTrigger asChild>
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setSelectedUser(row.original)
-                              setIsChangeRoleOpen(true)
-                            }}
-                          >
-                            Change role
-                          </DropdownMenuItem>
-                        </DialogTrigger>
-                      )}
-
-                      {canRemoveMembers && (
-                        <AlertDialogTrigger asChild>
-                          <DropdownMenuItem
-                            className="text-rose-500 focus:text-rose-600"
-                            onClick={() => {
-                              setSelectedUser(row.original)
-                              console.debug("Selected user", row.original)
-                            }}
-                          >
-                            Remove from workspace
-                          </DropdownMenuItem>
-                        </AlertDialogTrigger>
+                      {isInvited ? (
+                        <>
+                          {member.token && (
+                            <DropdownMenuItem
+                              onClick={() =>
+                                handleCopyInviteLink(member.token as string)
+                              }
+                            >
+                              {copied === member.token ? (
+                                <Check className="mr-2 size-4" />
+                              ) : (
+                                <Copy className="mr-2 size-4" />
+                              )}
+                              Copy invitation link
+                            </DropdownMenuItem>
+                          )}
+                          {canRemoveMembers && (
+                            <AlertDialogTrigger asChild>
+                              <DropdownMenuItem
+                                className="text-rose-500 focus:text-rose-600"
+                                onClick={() => setSelectedMember(member)}
+                              >
+                                Revoke invitation
+                              </DropdownMenuItem>
+                            </AlertDialogTrigger>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {member.user_id && (
+                            <DropdownMenuItem
+                              onClick={() =>
+                                navigator.clipboard.writeText(
+                                  member.user_id as string
+                                )
+                              }
+                            >
+                              Copy user ID
+                            </DropdownMenuItem>
+                          )}
+                          {canManageMembers && (
+                            <DialogTrigger asChild>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setSelectedMember(member)
+                                  setIsChangeRoleOpen(true)
+                                }}
+                              >
+                                Change role
+                              </DropdownMenuItem>
+                            </DialogTrigger>
+                          )}
+                          {canRemoveMembers && (
+                            <AlertDialogTrigger asChild>
+                              <DropdownMenuItem
+                                className="text-rose-500 focus:text-rose-600"
+                                onClick={() => setSelectedMember(member)}
+                              >
+                                Remove from workspace
+                              </DropdownMenuItem>
+                            </AlertDialogTrigger>
+                          )}
+                        </>
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -283,10 +337,15 @@ export function WorkspaceMembersTable({
         />
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove user</AlertDialogTitle>
+            <AlertDialogTitle>
+              {selectedMember?.status === "invited"
+                ? "Revoke invitation"
+                : "Remove user"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to remove this user from the workspace? This
-              action cannot be undone.
+              {selectedMember?.status === "invited"
+                ? `Are you sure you want to revoke the invitation for ${selectedMember?.email}?`
+                : "Are you sure you want to remove this user from the workspace? This action cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -294,10 +353,16 @@ export function WorkspaceMembersTable({
             <AlertDialogAction
               variant="destructive"
               onClick={async () => {
-                if (selectedUser) {
-                  console.log("Removing member", selectedUser)
+                if (selectedMember) {
                   try {
-                    await removeMember(selectedUser.user_id)
+                    if (
+                      selectedMember.status === "invited" &&
+                      selectedMember.invitation_id
+                    ) {
+                      await revokeInvitation(selectedMember.invitation_id)
+                    } else if (selectedMember.user_id) {
+                      await removeMember(selectedMember.user_id)
+                    }
                   } catch (error) {
                     const description =
                       error instanceof Error
@@ -311,7 +376,7 @@ export function WorkspaceMembersTable({
                     })
                   }
                 }
-                setSelectedUser(null)
+                setSelectedMember(null)
               }}
             >
               Confirm
@@ -321,7 +386,7 @@ export function WorkspaceMembersTable({
       </AlertDialog>
       <ChangeUserRoleDialog
         open={isChangeRoleOpen}
-        selectedUser={selectedUser}
+        selectedUser={selectedMember}
         isSubmitting={isRoleMutationPending || userAssignmentsIsLoading}
         setOpen={setIsChangeRoleOpen}
         onConfirm={handleChangeRole}
@@ -401,7 +466,7 @@ function ChangeUserRoleDialog({
 
 const defaultToolbarProps: DataTableToolbarProps<WorkspaceMember> = {
   filterProps: {
-    placeholder: "Filter users by email...",
+    placeholder: "Filter by email...",
     column: "email",
   },
 }

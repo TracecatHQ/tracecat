@@ -10872,6 +10872,14 @@ export const $OrgInvitationCreate = {
       format: "uuid",
       title: "Role Id",
     },
+    workspace_assignments: {
+      items: {
+        $ref: "#/components/schemas/WorkspaceAssignment",
+      },
+      type: "array",
+      title: "Workspace Assignments",
+      default: [],
+    },
   },
   type: "object",
   required: ["email", "role_id"],
@@ -11236,6 +11244,17 @@ export const $OrgMemberRead = {
         },
       ],
       title: "Created At",
+    },
+    token: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token",
     },
   },
   type: "object",
@@ -19177,6 +19196,28 @@ export const $UserUpdate = {
   title: "UserUpdate",
 } as const
 
+export const $UserWorkspaceMembership = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+  },
+  type: "object",
+  required: ["workspace_id", "workspace_name", "role_name"],
+  title: "UserWorkspaceMembership",
+  description: "A user's workspace membership with role info.",
+} as const
+
 export const $ValidationDetail = {
   properties: {
     type: {
@@ -22095,6 +22136,26 @@ export const $WorkflowUpdate = {
   title: "WorkflowUpdate",
 } as const
 
+export const $WorkspaceAssignment = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+  },
+  type: "object",
+  required: ["workspace_id", "role_id"],
+  title: "WorkspaceAssignment",
+  description:
+    "Workspace + role pair for org invitation workspace assignments.",
+} as const
+
 export const $WorkspaceCreate = {
   properties: {
     name: {
@@ -22129,6 +22190,19 @@ export const $WorkspaceCreate = {
   type: "object",
   required: ["name"],
   title: "WorkspaceCreate",
+} as const
+
+export const $WorkspaceInvitationAccept = {
+  properties: {
+    token: {
+      type: "string",
+      title: "Token",
+    },
+  },
+  type: "object",
+  required: ["token"],
+  title: "WorkspaceInvitationAccept",
+  description: "Request body for accepting a workspace invitation via token.",
 } as const
 
 export const $WorkspaceInvitationCreate = {
@@ -22222,6 +22296,17 @@ export const $WorkspaceInvitationRead = {
       format: "date-time",
       title: "Created At",
     },
+    token: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token",
+    },
   },
   type: "object",
   required: [
@@ -22240,12 +22325,106 @@ export const $WorkspaceInvitationRead = {
   description: "Response schema for a workspace invitation.",
 } as const
 
+export const $WorkspaceInvitationReadMinimal = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    inviter_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Name",
+    },
+    inviter_email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Email",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    status: {
+      $ref: "#/components/schemas/InvitationStatus",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+    email_matches: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Email Matches",
+    },
+  },
+  type: "object",
+  required: [
+    "workspace_id",
+    "workspace_name",
+    "organization_name",
+    "role_name",
+    "status",
+    "expires_at",
+  ],
+  title: "WorkspaceInvitationReadMinimal",
+  description:
+    "Public token lookup response for workspace invitation acceptance page.",
+} as const
+
 export const $WorkspaceMember = {
   properties: {
     user_id: {
-      type: "string",
-      format: "uuid",
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "User Id",
+    },
+    invitation_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Invitation Id",
     },
     first_name: {
       anyOf: [
@@ -22278,10 +22457,55 @@ export const $WorkspaceMember = {
       type: "string",
       title: "Role Name",
     },
+    status: {
+      $ref: "#/components/schemas/WorkspaceMemberStatus",
+      default: "active",
+    },
+    token: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token",
+    },
+    expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expires At",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
   },
   type: "object",
-  required: ["user_id", "first_name", "last_name", "email", "role_name"],
+  required: ["email", "role_name"],
   title: "WorkspaceMember",
+} as const
+
+export const $WorkspaceMemberStatus = {
+  type: "string",
+  enum: ["active", "inactive", "invited"],
+  title: "WorkspaceMemberStatus",
 } as const
 
 export const $WorkspaceMembershipCreate = {

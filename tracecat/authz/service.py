@@ -17,6 +17,7 @@ from tracecat.service import BaseService
 from tracecat.workspaces.schemas import (
     WorkspaceMember,
     WorkspaceMembershipCreate,
+    WorkspaceMemberStatus,
 )
 
 
@@ -81,6 +82,9 @@ class MembershipService(BaseService):
                 last_name=user.last_name,
                 email=user.email,
                 role_name=role_name,
+                status=WorkspaceMemberStatus.ACTIVE
+                if user.is_active
+                else WorkspaceMemberStatus.INACTIVE,
             )
             for user, role_name in rows
         ]
