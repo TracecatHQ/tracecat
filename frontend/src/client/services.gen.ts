@@ -8774,6 +8774,8 @@ export const rbacListUserAssignments = (
  * Assigns a role directly to a user. If workspace_id is None, creates an org-wide
  * assignment that applies to all workspaces. Each user can have at most
  * one assignment per workspace (or one org-wide assignment).
+ *
+ * Requires: org:rbac:create scope
  * @param data The data for the request.
  * @param data.requestBody
  * @returns UserRoleAssignmentReadWithDetails Successful Response
@@ -8819,6 +8821,8 @@ export const rbacGetUserAssignment = (
 /**
  * Update User Assignment
  * Update a user role assignment (change role).
+ *
+ * Requires: org:rbac:update scope
  * @param data The data for the request.
  * @param data.assignmentId
  * @param data.requestBody
@@ -8845,6 +8849,8 @@ export const rbacUpdateUserAssignment = (
 /**
  * Delete User Assignment
  * Delete a user role assignment.
+ *
+ * Requires: org:rbac:delete scope
  * @param data The data for the request.
  * @param data.assignmentId
  * @returns void Successful Response

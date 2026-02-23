@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat.audit.logger import audit_log
@@ -649,6 +650,7 @@ class RBACService(BaseOrgService):
             raise TracecatNotFoundError("User role assignment not found")
         return assignment
 
+    @require_scope("org:rbac:create")
     @audit_log(resource_type="rbac_user_assignment", action="create")
     async def create_user_assignment(
         self,
@@ -697,10 +699,17 @@ class RBACService(BaseOrgService):
             assigned_by=self.role.user_id,
         )
         self.session.add(assignment)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as e:
+            await self.session.rollback()
+            raise TracecatValidationError(
+                "User already has an assignment for this workspace"
+            ) from e
         await self.session.refresh(assignment, ["user", "role", "workspace"])
         return assignment
 
+    @require_scope("org:rbac:update")
     @audit_log(
         resource_type="rbac_user_assignment",
         action="update",
@@ -723,6 +732,7 @@ class RBACService(BaseOrgService):
         await self.session.refresh(assignment, ["user", "role", "workspace"])
         return assignment
 
+    @require_scope("org:rbac:delete")
     @audit_log(
         resource_type="rbac_user_assignment",
         action="delete",
