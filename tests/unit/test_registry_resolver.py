@@ -248,7 +248,9 @@ class TestPrefetchLock:
                 new_callable=AsyncMock,
             ) as mock_get_manifest_entry,
         ):
-            with pytest.raises(EntitlementRequired, match="custom_registry") as exc_info:
+            with pytest.raises(
+                EntitlementRequired, match="custom_registry"
+            ) as exc_info:
                 await registry_resolver.prefetch_lock(
                     lock,
                     organization_id=uuid.uuid4(),

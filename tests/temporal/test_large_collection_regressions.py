@@ -366,7 +366,9 @@ async def test_scatter_gather_large_payload_stores_refs_not_raw_chunk_values(
 
     raw_context = await to_data(result)
     actions = raw_context["ACTIONS"]
-    assert "gather" in actions, f"Expected gather action in context, got: {actions.keys()}"
+    assert "gather" in actions, (
+        f"Expected gather action in context, got: {actions.keys()}"
+    )
     gather_stored = StoredObjectValidator.validate_python(actions["gather"]["result"])
     assert isinstance(gather_stored, CollectionObject)
     await _assert_refs_layout(
@@ -464,7 +466,9 @@ async def test_scatter_gather_massive_payload_50x2mb_e2e(
 
     raw_context = await to_data(result)
     actions = raw_context["ACTIONS"]
-    assert "gather" in actions, f"Expected gather action in context, got: {actions.keys()}"
+    assert "gather" in actions, (
+        f"Expected gather action in context, got: {actions.keys()}"
+    )
     gather_stored = StoredObjectValidator.validate_python(actions["gather"]["result"])
     assert isinstance(gather_stored, CollectionObject)
     await _assert_refs_layout(

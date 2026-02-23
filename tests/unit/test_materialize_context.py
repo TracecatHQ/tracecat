@@ -105,7 +105,9 @@ async def test_materialize_task_result_collection_index_preserves_list_item(
 
 
 @pytest.mark.anyio
-async def test_materialize_task_result_inline_collection_index_returns_single_item() -> None:
+async def test_materialize_task_result_inline_collection_index_returns_single_item() -> (
+    None
+):
     """Inline scatter results should honor collection_index during materialization."""
     task_result = TaskResult(
         result=InlineObject(

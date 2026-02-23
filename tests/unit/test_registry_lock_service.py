@@ -298,9 +298,7 @@ async def test_resolve_lock_requires_entitlement_for_custom_only_action(
 
     assert exc_info.value.detail is not None
     assert exc_info.value.detail["entitlement"] == "custom_registry"
-    assert exc_info.value.detail["unavailable_actions"] == [
-        "tools.custom.only_action"
-    ]
+    assert exc_info.value.detail["unavailable_actions"] == ["tools.custom.only_action"]
     assert "tools.custom.only_action" in str(exc_info.value)
     assert "\n\nUnavailable actions on your current plan:\n-" in str(exc_info.value)
     assert "git+ssh://git@github.com/acme/custom.git" not in str(exc_info.value)

@@ -49,7 +49,9 @@ async def _seed_platform_registry(
     action_names: list[str],
 ) -> PlatformRegistryRepository:
     repo = await session.scalar(
-        select(PlatformRegistryRepository).where(PlatformRegistryRepository.origin == origin)
+        select(PlatformRegistryRepository).where(
+            PlatformRegistryRepository.origin == origin
+        )
     )
     if repo is None:
         repo = PlatformRegistryRepository(origin=origin)
@@ -158,7 +160,9 @@ async def test_index_list_hides_custom_actions_without_entitlement(
     ) as mock_has_entitlement:
         entries = await service.list_actions_from_index(namespace="acme.test")
 
-    actions_to_origin = {f"{entry.namespace}.{entry.name}": origin for entry, origin in entries}
+    actions_to_origin = {
+        f"{entry.namespace}.{entry.name}": origin for entry, origin in entries
+    }
     assert actions_to_origin[shared_action] == DEFAULT_REGISTRY_ORIGIN
     assert custom_only_action not in actions_to_origin
     mock_has_entitlement.assert_awaited_once()
@@ -188,9 +192,7 @@ async def test_get_action_from_index_uses_platform_fallback_without_entitlement(
     )
 
     service = RegistryActionsService(session, role=svc_role)
-    with patch.object(
-        service, "has_entitlement", new=AsyncMock(return_value=False)
-    ):
+    with patch.object(service, "has_entitlement", new=AsyncMock(return_value=False)):
         shared = await service.get_action_from_index(shared_action)
         custom_only = await service.get_action_from_index(custom_only_action)
 
@@ -223,9 +225,7 @@ async def test_get_actions_from_index_filters_custom_and_keeps_platform_fallback
     )
 
     service = RegistryActionsService(session, role=svc_role)
-    with patch.object(
-        service, "has_entitlement", new=AsyncMock(return_value=False)
-    ):
+    with patch.object(service, "has_entitlement", new=AsyncMock(return_value=False)):
         results = await service.get_actions_from_index(
             [shared_action, custom_only_action]
         )
@@ -249,9 +249,7 @@ async def test_list_actions_from_index_by_repository_returns_empty_for_custom_re
     )
 
     service = RegistryActionsService(session, role=svc_role)
-    with patch.object(
-        service, "has_entitlement", new=AsyncMock(return_value=False)
-    ):
+    with patch.object(service, "has_entitlement", new=AsyncMock(return_value=False)):
         actions = await service.list_actions_from_index_by_repository(custom_repo.id)
 
     assert actions == []
@@ -281,11 +279,11 @@ async def test_search_actions_from_index_hides_custom_actions_without_entitlemen
     )
 
     service = RegistryActionsService(session, role=svc_role)
-    with patch.object(
-        service, "has_entitlement", new=AsyncMock(return_value=False)
-    ):
+    with patch.object(service, "has_entitlement", new=AsyncMock(return_value=False)):
         entries = await service.search_actions_from_index("acme.search")
 
-    actions_to_origin = {f"{entry.namespace}.{entry.name}": origin for entry, origin in entries}
+    actions_to_origin = {
+        f"{entry.namespace}.{entry.name}": origin for entry, origin in entries
+    }
     assert actions_to_origin[shared_action] == DEFAULT_REGISTRY_ORIGIN
     assert custom_only_action not in actions_to_origin
