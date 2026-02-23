@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator, Awaitable, Sequence
 from typing import Any
 
 import temporalio.api.enums.v1
+from pydantic import ValidationError
 from temporalio.api.enums.v1 import EventType, PendingActivityState
 from temporalio.api.history.v1 import HistoryEvent
 from temporalio.client import (
@@ -41,7 +42,16 @@ from tracecat.identifiers.workflow import (
 )
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.storage.object import ExternalObject, StoredObject, get_object_storage
+from tracecat.storage.collection import (
+    get_collection_page as get_storage_collection_page,
+)
+from tracecat.storage.object import (
+    CollectionObject,
+    ExternalObject,
+    StoredObject,
+    StoredObjectValidator,
+    get_object_storage,
+)
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
     build_query,
@@ -71,6 +81,10 @@ from tracecat.workflow.executions.schemas import (
     WorkflowExecutionEventCompact,
 )
 from tracecat.workspaces.service import WorkspaceService
+
+
+class WorkflowExecutionResultNotFoundError(ValueError):
+    """Raised when no matching completed event exists for a given event ID."""
 
 
 class WorkflowExecutionsService:
@@ -419,6 +433,90 @@ class WorkflowExecutionsService:
         - the completed event ID (e.g. ACTIVITY_TASK_COMPLETED), or
         - the source scheduled event ID used by compact event payloads.
         """
+        source_match, stored = await self._get_stored_result_for_event(
+            wf_exec_id=wf_exec_id,
+            event_id=event_id,
+        )
+
+        match stored:
+            case ExternalObject() as external:
+                return external
+            case _:
+                raise TypeError(
+                    f"Event {source_match.event_id} result is not external (got {stored.type})"
+                )
+
+    async def get_collection_action_result(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+        event_id: int,
+    ) -> CollectionObject:
+        """Get a CollectionObject result for an event/source event ID."""
+        source_match, stored = await self._get_stored_result_for_event(
+            wf_exec_id=wf_exec_id,
+            event_id=event_id,
+        )
+        match stored:
+            case CollectionObject() as collection:
+                return collection
+            case _:
+                raise TypeError(
+                    f"Event {source_match.event_id} result is not a collection (got {stored.type})"
+                )
+
+    async def get_collection_page(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+        event_id: int,
+        *,
+        offset: int,
+        limit: int,
+    ) -> tuple[CollectionObject, list[Any]]:
+        """Get a page from a collection result without full materialization."""
+        collection = await self.get_collection_action_result(wf_exec_id, event_id)
+        items = await get_storage_collection_page(
+            collection, offset=offset, limit=limit
+        )
+        return collection, items
+
+    async def get_collection_item_for_object_ops(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+        event_id: int,
+        *,
+        index: int,
+    ) -> StoredObject | Any:
+        """Resolve a collection item for object preview/download operations."""
+        if index < 0:
+            raise ValueError(f"collection index must be >= 0, got {index}")
+
+        collection, items = await self.get_collection_page(
+            wf_exec_id=wf_exec_id,
+            event_id=event_id,
+            offset=index,
+            limit=1,
+        )
+        if not items:
+            raise IndexError(
+                f"Collection index {index} out of range [0, {collection.count})"
+            )
+
+        item = items[0]
+        if collection.element_kind == "stored_object":
+            try:
+                return StoredObjectValidator.validate_python(item)
+            except ValidationError as e:
+                raise TypeError(
+                    f"Collection item at index {index} is not a valid StoredObject"
+                ) from e
+        return item
+
+    async def _resolve_completed_event(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+        event_id: int,
+    ) -> HistoryEvent:
+        """Resolve a completed Temporal event by event ID or source event ID."""
         handle = self.handle(wf_exec_id)
         source_match: HistoryEvent | None = None
 
@@ -432,21 +530,28 @@ class WorkflowExecutionsService:
                 source_match = event
 
         if source_match is None:
-            raise ValueError(f"No completed event found for event_id={event_id}")
+            raise WorkflowExecutionResultNotFoundError(
+                f"No completed event found for event_id={event_id}"
+            )
+        return source_match
 
+    async def _get_stored_result_for_event(
+        self,
+        *,
+        wf_exec_id: WorkflowExecutionID,
+        event_id: int,
+    ) -> tuple[HistoryEvent, StoredObject]:
+        """Get a StoredObject from a completed event or its source event ID."""
+        source_match = await self._resolve_completed_event(
+            wf_exec_id=wf_exec_id,
+            event_id=event_id,
+        )
         stored = await get_stored_result(source_match)
         if stored is None:
             raise TypeError(
                 f"Event {source_match.event_id} result is not a StoredObject"
             )
-
-        match stored:
-            case ExternalObject() as external:
-                return external
-            case _:
-                raise TypeError(
-                    f"Event {source_match.event_id} result is not external (got {stored.type})"
-                )
+        return source_match, stored
 
     async def list_workflow_execution_events(
         self,

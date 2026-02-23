@@ -3,11 +3,15 @@
 import { FileInputIcon, ShapesIcon, TriangleAlert } from "lucide-react"
 import React from "react"
 import { CodeBlock } from "@/components/code-block"
+import { CollectionObjectResult } from "@/components/executions/collection-object-result"
 import { ExternalObjectResult } from "@/components/executions/external-object-result"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { WorkflowExecutionEventCompact } from "@/lib/event-history"
-import { isExternalStoredObject } from "@/lib/stored-object"
+import {
+  isCollectionStoredObject,
+  isExternalStoredObject,
+} from "@/lib/stored-object"
 
 export function WorkflowExecutionEventDetailView({
   event,
@@ -107,6 +111,12 @@ export function WorkflowExecutionEventDetailView({
                     executionId={executionId}
                     eventId={event.source_event_id}
                     external={event.action_result}
+                  />
+                ) : isCollectionStoredObject(event.action_result) ? (
+                  <CollectionObjectResult
+                    executionId={executionId}
+                    eventId={event.source_event_id}
+                    collection={event.action_result}
                   />
                 ) : (
                   <JsonViewContent src={event.action_result} />

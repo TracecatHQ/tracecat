@@ -6260,6 +6260,76 @@ export type WorkflowEventType =
   | "WORKFLOW_EXECUTION_UPDATE_REJECTED"
   | "WORKFLOW_EXECUTION_UPDATE_COMPLETED"
 
+export type WorkflowExecutionCollectionPageItem = {
+  /**
+   * Collection index for this item
+   */
+  index: number
+  /**
+   * Descriptor type for this collection page item
+   */
+  kind: WorkflowExecutionCollectionPageItemKind
+  /**
+   * StoredObject descriptor when kind is stored_object_ref
+   */
+  stored?: InlineObject | ExternalObject | CollectionObject | null
+  /**
+   * UTF-8 preview of serialized inline value when kind is inline_value
+   */
+  value_preview?: string | null
+  /**
+   * Serialized inline value size in bytes when kind is inline_value
+   */
+  value_size_bytes?: number | null
+  /**
+   * Whether value_preview was truncated
+   */
+  truncated?: boolean
+}
+
+export type WorkflowExecutionCollectionPageItemKind =
+  | "stored_object_ref"
+  | "inline_value"
+
+export type WorkflowExecutionCollectionPageRequest = {
+  /**
+   * Temporal history event ID
+   */
+  event_id: number
+  field?: WorkflowExecutionObjectField
+  /**
+   * Page start index (0-indexed)
+   */
+  offset?: number
+  /**
+   * Maximum number of items to return
+   */
+  limit?: number
+}
+
+export type WorkflowExecutionCollectionPageResponse = {
+  /**
+   * Collection metadata for the requested result
+   */
+  collection: CollectionObject
+  /**
+   * Requested page offset
+   */
+  offset: number
+  /**
+   * Requested page size
+   */
+  limit: number
+  /**
+   * Offset to use for next page, or null if no more items
+   */
+  next_offset?: number | null
+  /**
+   * Collection page descriptors
+   */
+  items?: Array<WorkflowExecutionCollectionPageItem>
+}
+
 export type WorkflowExecutionCreate = {
   workflow_id: string
   inputs?: unknown | null
@@ -6386,6 +6456,10 @@ export type WorkflowExecutionObjectRequest = {
    */
   event_id: number
   field?: WorkflowExecutionObjectField
+  /**
+   * Optional index into a CollectionObject result. When omitted, operates on the top-level object result.
+   */
+  collection_index?: number | null
 }
 
 export type WorkflowExecutionRead = {
@@ -7312,6 +7386,15 @@ export type WorkflowExecutionsGetWorkflowExecutionObjectPreviewData = {
 
 export type WorkflowExecutionsGetWorkflowExecutionObjectPreviewResponse =
   WorkflowExecutionObjectPreviewResponse
+
+export type WorkflowExecutionsGetWorkflowExecutionCollectionPageData = {
+  executionId: string
+  requestBody: WorkflowExecutionCollectionPageRequest
+  workspaceId: string
+}
+
+export type WorkflowExecutionsGetWorkflowExecutionCollectionPageResponse =
+  WorkflowExecutionCollectionPageResponse
 
 export type WorkflowExecutionsCreateDraftWorkflowExecutionData = {
   requestBody: WorkflowExecutionCreate
@@ -10216,6 +10299,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkflowExecutionObjectPreviewResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/{execution_id}/objects/collection/page": {
+    post: {
+      req: WorkflowExecutionsGetWorkflowExecutionCollectionPageData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowExecutionCollectionPageResponse
         /**
          * Validation Error
          */
