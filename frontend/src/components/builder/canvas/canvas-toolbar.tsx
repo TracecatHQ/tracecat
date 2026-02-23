@@ -5,7 +5,6 @@ import {
   DatabaseIcon,
   LayersIcon,
   SparklesIcon,
-  SquareFunctionIcon,
   Table2Icon,
   WorkflowIcon,
 } from "lucide-react"
@@ -53,24 +52,17 @@ const ACTION_CATEGORIES: ActionCategory[] = [
     align: "center",
   },
   {
+    id: "ai",
+    label: "AI",
+    namespace: "ai",
+    icon: SparklesIcon,
+    align: "center",
+  },
+  {
     id: "core.workflow",
     label: "Workflow",
     namespace: "core.workflow",
     icon: WorkflowIcon,
-    align: "center",
-  },
-  {
-    id: "core.transform",
-    label: "Transform",
-    namespace: "core.transform",
-    icon: SquareFunctionIcon,
-    align: "center",
-  },
-  {
-    id: "core.sql",
-    label: "SQL",
-    namespace: "core.sql",
-    icon: DatabaseIcon,
     align: "center",
   },
   {
@@ -88,10 +80,10 @@ const ACTION_CATEGORIES: ActionCategory[] = [
     align: "center",
   },
   {
-    id: "ai",
-    label: "AI",
-    namespace: "ai",
-    icon: SparklesIcon,
+    id: "core.sql",
+    label: "SQL",
+    namespace: "core.sql",
+    icon: DatabaseIcon,
     align: "center",
   },
   {
@@ -107,20 +99,16 @@ const ACTION_CATEGORIES: ActionCategory[] = [
 // Custom sort orders for specific namespaces
 const CORE_TOP = [
   "core.transform.reshape",
+  "core.script.run_python",
   "core.http_request",
   "core.http_paginate",
   "core.http_poll",
-  "core.script.run_python",
   "core.send_email_smtp",
   "core.grpc.request",
 ]
-const TRANSFORM_TOP = [
-  "core.transform.reshape",
-  "core.transform.scatter",
-  "core.transform.gather",
-]
 const WORKFLOW_TOP = [
   "core.workflow.execute",
+  "core.workflow.get_status",
   "core.transform.scatter",
   "core.transform.gather",
 ]
@@ -175,8 +163,6 @@ function sortActions(
 ): RegistryActionReadMinimal[] {
   if (categoryId === "core") {
     return sortWithTop(actions, CORE_TOP)
-  } else if (categoryId === "core.transform") {
-    return sortWithTop(actions, TRANSFORM_TOP)
   } else if (categoryId === "core.workflow") {
     return sortWithTop(actions, WORKFLOW_TOP)
   } else if (categoryId === "core.sql") {
