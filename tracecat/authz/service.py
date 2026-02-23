@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import and_, func, literal, select
+from sqlalchemy import and_, delete, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
@@ -156,6 +156,14 @@ class MembershipService(BaseService):
             raise TracecatValidationError("Workspace or default role not found")
         organization_id, role_id = org_role_row
 
+        # Heal stale direct assignments left behind by prior failed remove flows.
+        await self.session.execute(
+            delete(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == params.user_id,
+                UserRoleAssignment.workspace_id == workspace_id,
+            )
+        )
+
         membership = Membership(
             user_id=params.user_id,
             workspace_id=workspace_id,
@@ -181,6 +189,16 @@ class MembershipService(BaseService):
         Note: The authorization cache is request-scoped, so changes will be
         reflected in subsequent requests automatically.
         """
-        if membership_with_org := await self.get_membership(workspace_id, user_id):
-            await self.session.delete(membership_with_org.membership)
-            await self.session.commit()
+        await self.session.execute(
+            delete(Membership).where(
+                Membership.workspace_id == workspace_id,
+                Membership.user_id == user_id,
+            )
+        )
+        await self.session.execute(
+            delete(UserRoleAssignment).where(
+                UserRoleAssignment.workspace_id == workspace_id,
+                UserRoleAssignment.user_id == user_id,
+            )
+        )
+        await self.session.commit()

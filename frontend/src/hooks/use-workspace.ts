@@ -45,8 +45,14 @@ export function useWorkspaceMutations() {
     WorkspacesCreateWorkspaceMembershipData
   >({
     mutationFn: workspacesCreateWorkspaceMembership,
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["workspace", workspaceId] }),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["workspace", workspaceId] }),
+        qc.invalidateQueries({
+          queryKey: ["workspace", workspaceId, "members"],
+        }),
+      ])
+    },
   })
 
   const { mutateAsync: removeMember, isPending: removePending } = useMutation<
@@ -59,8 +65,14 @@ export function useWorkspaceMutations() {
         workspaceId,
         userId,
       }),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["workspace", workspaceId] }),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["workspace", workspaceId] }),
+        qc.invalidateQueries({
+          queryKey: ["workspace", workspaceId, "members"],
+        }),
+      ])
+    },
   })
 
   return {

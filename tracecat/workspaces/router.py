@@ -260,7 +260,7 @@ async def create_workspace_membership(
             detail="User does not have the required scope",
         ) from e
     except IntegrityError as e:
-        logger.error("INTEGRITY ERROR")
+        logger.error("INTEGRITY ERROR", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="User is already a member of workspace.",
