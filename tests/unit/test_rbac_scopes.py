@@ -22,7 +22,9 @@ from tracecat.authz.scopes import (
     ORG_MEMBER_SCOPES,
     ORG_OWNER_SCOPES,
     PRESET_ROLE_SCOPES,
+    SERVICE_PRINCIPAL_SCOPES,
     VIEWER_SCOPES,
+    WORKSPACE_OPERATIONAL_SCOPES,
 )
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
@@ -483,3 +485,32 @@ class TestRequireActionScope:
         # Should fail for non-matching actions
         with pytest.raises(ScopeDeniedError):
             require_action_scope("tools.slack.send_message")
+
+
+class TestServicePrincipalScopes:
+    """Tests for service principal scope definitions.
+
+    Regression: the LLM gateway needs org:secret:read to fetch provider
+    credentials for copilot chat via SecretsService.get_org_secret_by_name().
+    Without it, copilot chat fails with ScopeDeniedError for all users.
+    """
+
+    def test_llm_gateway_has_org_secret_read(self):
+        """LLM gateway must have org:secret:read for provider credential lookup."""
+        assert "org:secret:read" in SERVICE_PRINCIPAL_SCOPES["tracecat-llm-gateway"]
+
+    def test_all_service_principals_have_org_secret_read(self):
+        """All service principals inherit org:secret:read from WORKSPACE_OPERATIONAL_SCOPES."""
+        assert "org:secret:read" in WORKSPACE_OPERATIONAL_SCOPES
+        for service_id, scopes in SERVICE_PRINCIPAL_SCOPES.items():
+            assert "org:secret:read" in scopes, (
+                f"Service principal {service_id!r} is missing org:secret:read"
+            )
+
+    def test_llm_gateway_has_agent_read(self):
+        """LLM gateway needs agent:read for the get_provider_credentials call chain."""
+        assert "agent:read" in SERVICE_PRINCIPAL_SCOPES["tracecat-llm-gateway"]
+
+    def test_llm_gateway_has_secret_read(self):
+        """LLM gateway needs secret:read for workspace credential lookup (case chat path)."""
+        assert "secret:read" in SERVICE_PRINCIPAL_SCOPES["tracecat-llm-gateway"]
