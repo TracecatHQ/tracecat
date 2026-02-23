@@ -201,6 +201,10 @@ async def select_field(
             min_items=1,
             max_items=1,
         )
+    else:
+        raise ValueError(
+            f"Unsupported algorithm: {algorithm}. Expected 'pairwise' or 'single-pass'."
+        )
 
     if not ranked_ids:
         raise ValueError("Ranking did not return any keys to extract.")
@@ -298,6 +302,10 @@ async def select_fields(
             model_provider=model_provider,
             min_items=min_fields,
             max_items=max_fields,
+        )
+    else:
+        raise ValueError(
+            f"Unsupported algorithm: {algorithm}. Expected 'pairwise' or 'single-pass'."
         )
 
     if not ranked_ids:
