@@ -489,8 +489,7 @@ def flatten_dict(
         x = orjson.loads(x)
         if not isinstance(x, (dict, list)):
             raise ValueError(
-                "Input string must decode to a JSON object or array, "
-                f"got {type(x)}."
+                f"Input string must decode to a JSON object or array, got {type(x)}."
             )
     return _flatten_dict(x=x, max_depth=max_depth)
 
