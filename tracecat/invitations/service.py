@@ -36,7 +36,11 @@ from tracecat.service import BaseOrgService
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from tracecat.workspaces.schemas import WorkspaceInvitationCreate
+    from tracecat.workspaces.schemas import (
+        WorkspaceAddMemberRequest,
+        WorkspaceAddMemberResponse,
+        WorkspaceInvitationCreate,
+    )
 
 
 def _generate_invitation_token() -> str:
@@ -524,6 +528,86 @@ class InvitationService(BaseOrgService):
     async def create_workspace_invitation(
         self,
         workspace_id: WorkspaceID,
+        params: WorkspaceAddMemberRequest,
+    ) -> WorkspaceAddMemberResponse:
+        """Create a workspace invitation (or direct membership).
+
+        If the email belongs to an existing org member, creates a direct
+        membership.  Otherwise, creates a token-based invitation.
+        """
+        from tracecat.authz.service import MembershipService
+        from tracecat.workspaces.schemas import (
+            WorkspaceAddMemberResponse,
+            WorkspaceInvitationCreate,
+            WorkspaceInvitationRead,
+            WorkspaceMembershipCreate,
+        )
+
+        email = params.email.lower()
+
+        # Resolve org_id from workspace
+        ws_result = await self.session.execute(
+            select(Workspace.organization_id).where(Workspace.id == workspace_id)
+        )
+        ws_org_id = ws_result.scalar_one_or_none()
+        if ws_org_id is None:
+            raise TracecatValidationError("Workspace not found")
+
+        # Check if email belongs to an existing org member
+        user_result = await self.session.execute(
+            select(User)
+            .join(
+                OrganizationMembership,
+                OrganizationMembership.user_id == User.id,  # pyright: ignore[reportArgumentType]
+            )
+            .where(
+                func.lower(User.email) == email,
+                OrganizationMembership.organization_id == ws_org_id,
+            )
+        )
+        existing_user = user_result.scalar_one_or_none()
+
+        if existing_user is not None:
+            # Direct membership — user is already in the org
+            membership_service = MembershipService(self.session, role=self.role)
+            await membership_service.create_membership(
+                workspace_id,
+                params=WorkspaceMembershipCreate(
+                    user_id=existing_user.id,
+                    role_id=params.role_id,
+                ),
+            )
+            return WorkspaceAddMemberResponse(outcome="membership_created")
+
+        # External user — create email invitation
+        invitation = await self.create_email_invitation(
+            workspace_id,
+            params=WorkspaceInvitationCreate(
+                email=params.email,
+                role_id=params.role_id,
+            ),
+        )
+        return WorkspaceAddMemberResponse(
+            outcome="invitation_created",
+            invitation=WorkspaceInvitationRead(
+                id=invitation.id,
+                workspace_id=workspace_id,
+                email=invitation.email,
+                role_id=str(invitation.role_id),
+                role_name=invitation.role_obj.name,
+                role_slug=invitation.role_obj.slug,
+                status=invitation.status,
+                invited_by=invitation.invited_by,
+                expires_at=invitation.expires_at,
+                accepted_at=invitation.accepted_at,
+                created_at=invitation.created_at,
+                token=invitation.token,
+            ),
+        )
+
+    async def create_email_invitation(
+        self,
+        workspace_id: WorkspaceID,
         params: WorkspaceInvitationCreate,
     ) -> Invitation:
         """Create a new workspace invitation."""
@@ -596,7 +680,7 @@ class InvitationService(BaseOrgService):
                 if existing_invitation and existing_invitation.expires_at < now:
                     await self.session.delete(existing_invitation)
                     await self.session.commit()
-                    return await self.create_workspace_invitation(workspace_id, params)
+                    return await self.create_email_invitation(workspace_id, params)
 
                 raise TracecatValidationError(
                     f"An invitation already exists for {email} in this workspace"

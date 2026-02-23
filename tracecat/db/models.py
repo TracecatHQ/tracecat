@@ -3061,6 +3061,22 @@ class Invitation(TimestampMixin, Base):
     """
 
     __tablename__ = "invitation"
+    __table_args__ = (
+        Index(
+            "uq_invitation_workspace_email",
+            "workspace_id",
+            "email",
+            unique=True,
+            postgresql_where=text("workspace_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_invitation_org_email",
+            "organization_id",
+            "email",
+            unique=True,
+            postgresql_where=text("workspace_id IS NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(

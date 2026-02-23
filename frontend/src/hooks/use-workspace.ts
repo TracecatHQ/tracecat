@@ -2,12 +2,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type ApiError,
+  type WorkspaceAddMemberResponse,
   type WorkspaceInvitationRead,
   type WorkspaceMember,
   type WorkspaceRead,
+  type WorkspacesAddWorkspaceMemberData,
   type WorkspacesCreateWorkspaceInvitationData,
   type WorkspacesCreateWorkspaceMembershipData,
   type WorkspacesCreateWorkspaceMembershipResponse,
+  workspacesAddWorkspaceMember,
   workspacesCreateWorkspaceInvitation,
   workspacesCreateWorkspaceMembership,
   workspacesDeleteWorkspaceMembership,

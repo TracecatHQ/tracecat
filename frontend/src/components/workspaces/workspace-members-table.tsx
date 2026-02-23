@@ -406,7 +406,7 @@ function ChangeUserRoleDialog({
   selectedUser: WorkspaceMember | null
   isSubmitting: boolean
   setOpen: (open: boolean) => void
-  onConfirm: (roleId: string) => void
+  onConfirm: (roleId: string) => Promise<unknown>
 }) {
   const { roles, isLoading: rolesIsLoading } = useRbacRoles({
     enabled: open,

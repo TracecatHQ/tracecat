@@ -35,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useWorkspaceInvitations } from "@/hooks/use-workspace"
+import { useAddWorkspaceMember } from "@/hooks/use-workspace"
 import { useRbacRoles } from "@/lib/hooks"
 
 const inviteSchema = z.object({
@@ -44,18 +44,18 @@ const inviteSchema = z.object({
 })
 type InviteForm = z.infer<typeof inviteSchema>
 
-type DialogState = "form" | "success"
+type DialogState = "form" | "success_membership" | "success_invitation"
 
 export function AddWorkspaceMember({
   workspace,
   className,
 }: { workspace: WorkspaceRead } & React.HTMLAttributes<HTMLButtonElement>) {
   const canInviteMembers = useScopeCheck("workspace:member:invite")
-  const { createInvitation } = useWorkspaceInvitations(workspace.id)
+  const { addMember } = useAddWorkspaceMember(workspace.id)
   const [showDialog, setShowDialog] = useState(false)
   const [dialogState, setDialogState] = useState<DialogState>("form")
   const [inviteLink, setInviteLink] = useState("")
-  const [invitedEmail, setInvitedEmail] = useState("")
+  const [addedEmail, setAddedEmail] = useState("")
   const [copied, setCopied] = useState(false)
   const { roles } = useRbacRoles({ enabled: showDialog })
 
@@ -74,7 +74,7 @@ export function AddWorkspaceMember({
   function resetDialog() {
     setDialogState("form")
     setInviteLink("")
-    setInvitedEmail("")
+    setAddedEmail("")
     setCopied(false)
     form.reset()
   }
@@ -88,7 +88,7 @@ export function AddWorkspaceMember({
 
   async function onSubmit(values: InviteForm) {
     try {
-      const invitation = await createInvitation({
+      const result = await addMember({
         workspaceId: workspace.id,
         requestBody: {
           email: values.email,
@@ -96,20 +96,27 @@ export function AddWorkspaceMember({
         },
       })
 
-      // Get the token — it may already be in the response, or fetch it
-      let token = invitation.token
-      if (!token) {
-        const tokenResponse = await workspacesGetWorkspaceInvitationToken({
-          workspaceId: workspace.id,
-          invitationId: invitation.id,
-        })
-        token = tokenResponse.token
-      }
+      setAddedEmail(values.email)
 
-      const link = `${window.location.origin}/invitations/workspace/accept?token=${token}`
-      setInviteLink(link)
-      setInvitedEmail(values.email)
-      setDialogState("success")
+      if (result.outcome === "membership_created") {
+        setDialogState("success_membership")
+      } else {
+        // invitation_created — build the invite link
+        let token = result.invitation?.token
+        if (!token && result.invitation) {
+          const tokenResponse = await workspacesGetWorkspaceInvitationToken({
+            workspaceId: workspace.id,
+            invitationId: result.invitation.id,
+          })
+          token = tokenResponse.token
+        }
+        if (token) {
+          setInviteLink(
+            `${window.location.origin}/invitations/workspace/accept?token=${token}`
+          )
+        }
+        setDialogState("success_invitation")
+      }
     } catch (e) {
       if (e instanceof ApiError) {
         form.setError("email", {
@@ -119,7 +126,7 @@ export function AddWorkspaceMember({
         })
       } else {
         form.setError("email", {
-          message: "Failed to create invitation",
+          message: "Failed to add member",
         })
       }
     }
@@ -148,10 +155,12 @@ export function AddWorkspaceMember({
         {dialogState === "form" ? (
           <>
             <DialogHeader>
-              <DialogTitle>Invite a workspace member</DialogTitle>
+              <DialogTitle>Add a workspace member</DialogTitle>
               <DialogDescription>
-                Send an invitation to join the{" "}
-                <b className="inline-block">{workspace.name}</b> workspace.
+                Add a member to the{" "}
+                <b className="inline-block">{workspace.name}</b> workspace. Org
+                members are added directly; external users receive an invitation
+                link.
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -211,21 +220,34 @@ export function AddWorkspaceMember({
                     variant="default"
                     disabled={form.formState.isSubmitting}
                   >
-                    {form.formState.isSubmitting
-                      ? "Sending..."
-                      : "Send invitation"}
+                    {form.formState.isSubmitting ? "Adding..." : "Add member"}
                   </Button>
                 </DialogFooter>
               </form>
             </Form>
           </>
+        ) : dialogState === "success_membership" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Member added</DialogTitle>
+              <DialogDescription>
+                <b>{addedEmail}</b> has been added to the workspace.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={resetDialog}>
+                Add another
+              </Button>
+              <Button onClick={() => handleOpenChange(false)}>Done</Button>
+            </DialogFooter>
+          </>
         ) : (
           <>
             <DialogHeader>
-              <DialogTitle>Invitation sent</DialogTitle>
+              <DialogTitle>Invitation created</DialogTitle>
               <DialogDescription>
-                An invitation has been created for <b>{invitedEmail}</b>. Share
-                this link with them to join the workspace.
+                <b>{addedEmail}</b> is not an org member. Share this link with
+                them to join the workspace.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -251,7 +273,7 @@ export function AddWorkspaceMember({
             </div>
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={resetDialog}>
-                Invite another
+                Add another
               </Button>
               <Button onClick={() => handleOpenChange(false)}>Done</Button>
             </DialogFooter>

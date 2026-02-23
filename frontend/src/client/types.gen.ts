@@ -6864,6 +6864,27 @@ export type WorkflowUpdate = {
 }
 
 /**
+ * Request schema for adding a member to a workspace.
+ *
+ * The backend resolves whether to create a direct membership
+ * (if the email belongs to an existing org member) or an invitation.
+ */
+export type WorkspaceAddMemberRequest = {
+  email: string
+  role_id: string
+}
+
+/**
+ * Response schema indicating which path was taken.
+ */
+export type WorkspaceAddMemberResponse = {
+  outcome: "membership_created" | "invitation_created"
+  invitation?: WorkspaceInvitationRead | null
+}
+
+export type outcome = "membership_created" | "invitation_created"
+
+/**
  * Workspace + role pair for org invitation workspace assignments.
  */
 export type WorkspaceAssignment = {
@@ -6942,6 +6963,7 @@ export type WorkspaceMemberStatus = "active" | "inactive" | "invited"
 
 export type WorkspaceMembershipCreate = {
   user_id: string
+  role_id?: string | null
 }
 
 export type WorkspaceMembershipRead = {
@@ -7239,6 +7261,13 @@ export type WorkspacesDeleteWorkspaceData = {
 }
 
 export type WorkspacesDeleteWorkspaceResponse = void
+
+export type WorkspacesAddWorkspaceMemberData = {
+  requestBody: WorkspaceAddMemberRequest
+  workspaceId: string
+}
+
+export type WorkspacesAddWorkspaceMemberResponse = WorkspaceAddMemberResponse
 
 export type WorkspacesListWorkspaceMembersData = {
   workspaceId: string
@@ -10042,6 +10071,19 @@ export type $OpenApiTs = {
     }
   }
   "/workspaces/{workspace_id}/members": {
+    post: {
+      req: WorkspacesAddWorkspaceMemberData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: WorkspaceAddMemberResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
     get: {
       req: WorkspacesListWorkspaceMembersData
       res: {

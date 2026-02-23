@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict
 from uuid import UUID
 
 from pydantic import EmailStr, Field, computed_field, field_validator
@@ -146,6 +146,9 @@ WorkspaceSettingsUpdate.model_rebuild()
 # === Membership === #
 class WorkspaceMembershipCreate(Schema):
     user_id: UserID
+    role_id: str | None = (
+        None  # UUID as string; defaults to workspace-editor if not provided
+    )
 
 
 class WorkspaceMembershipRead(Schema):
@@ -202,3 +205,22 @@ class WorkspaceInvitationAccept(Schema):
     """Request body for accepting a workspace invitation via token."""
 
     token: str
+
+
+# === Unified Add Member === #
+class WorkspaceAddMemberRequest(Schema):
+    """Request schema for adding a member to a workspace.
+
+    The backend resolves whether to create a direct membership
+    (if the email belongs to an existing org member) or an invitation.
+    """
+
+    email: EmailStr
+    role_id: str  # UUID as string
+
+
+class WorkspaceAddMemberResponse(Schema):
+    """Response schema indicating which path was taken."""
+
+    outcome: Literal["membership_created", "invitation_created"]
+    invitation: WorkspaceInvitationRead | None = None
