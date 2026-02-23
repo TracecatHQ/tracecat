@@ -77,7 +77,9 @@ def _suggest_download_filename(key: str, event_id: int, content_type: str) -> st
     return f"workflow-result-{event_id}{suffix}"
 
 
-def _decode_preview_bytes(content_bytes: bytes) -> tuple[str, Literal["utf-8", "unknown"]]:
+def _decode_preview_bytes(
+    content_bytes: bytes,
+) -> tuple[str, Literal["utf-8", "unknown"]]:
     try:
         return content_bytes.decode("utf-8"), "utf-8"
     except UnicodeDecodeError:

@@ -469,7 +469,9 @@ class WorkflowExecutionsService:
     ) -> tuple[CollectionObject, list[Any]]:
         """Get a page from a collection result without full materialization."""
         collection = await self.get_collection_action_result(wf_exec_id, event_id)
-        items = await get_storage_collection_page(collection, offset=offset, limit=limit)
+        items = await get_storage_collection_page(
+            collection, offset=offset, limit=limit
+        )
         return collection, items
 
     async def get_collection_item_for_object_ops(

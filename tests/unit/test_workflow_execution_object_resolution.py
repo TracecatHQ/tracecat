@@ -95,7 +95,10 @@ class TestWorkflowExecutionObjectResolution:
                 AsyncMock(return_value=[stored_item]),
             ) as mock_get_page,
         ):
-            resolved_collection, items = await workflow_executions_service.get_collection_page(
+            (
+                resolved_collection,
+                items,
+            ) = await workflow_executions_service.get_collection_page(
                 workflow_exec_id,
                 101,
                 offset=0,
