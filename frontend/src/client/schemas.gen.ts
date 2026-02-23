@@ -5114,6 +5114,7 @@ export const $CaseRead = {
     "description",
     "fields",
     "payload",
+    "dropdown_values",
   ],
   title: "CaseRead",
 } as const
@@ -5197,6 +5198,7 @@ export const $CaseReadMinimal = {
     "status",
     "priority",
     "severity",
+    "dropdown_values",
   ],
   title: "CaseReadMinimal",
 } as const

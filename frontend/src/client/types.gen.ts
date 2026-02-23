@@ -1440,7 +1440,7 @@ export type CaseRead = {
     [key: string]: unknown
   } | null
   tags?: Array<CaseTagRead>
-  dropdown_values?: Array<CaseDropdownValueRead>
+  dropdown_values: Array<CaseDropdownValueRead>
 }
 
 export type CaseReadMinimal = {
@@ -1454,7 +1454,7 @@ export type CaseReadMinimal = {
   severity: CaseSeverity
   assignee?: UserRead | null
   tags?: Array<CaseTagRead>
-  dropdown_values?: Array<CaseDropdownValueRead>
+  dropdown_values: Array<CaseDropdownValueRead>
   num_tasks_completed?: number
   num_tasks_total?: number
 }

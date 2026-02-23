@@ -106,7 +106,7 @@ class CaseRead(TypedDict):
     payload: dict[str, Any] | None
     fields: list[CaseFieldRead]
     tags: list[CaseTagRead]
-    dropdown_values: NotRequired[list[CaseDropdownValueRead]]
+    dropdown_values: list[CaseDropdownValueRead]
     assignee: UserRead | None
     created_at: datetime
     updated_at: datetime
@@ -125,7 +125,7 @@ class CaseReadMinimal(TypedDict):
     severity: str
     status: str
     tags: list[CaseTagRead]
-    dropdown_values: NotRequired[list[CaseDropdownValueRead]]
+    dropdown_values: list[CaseDropdownValueRead]
     assignee: UserRead | None
     created_at: datetime
     updated_at: datetime
@@ -196,6 +196,9 @@ class CaseDurationMetric(TypedDict):
     case_status: str
     case_id: str
     case_short_id: str
+    fields: list[CaseFieldRead]
+    tags: list[CaseTagRead]
+    dropdown_values: list[CaseDropdownValueRead]
 
 
 class TagRead(TypedDict):

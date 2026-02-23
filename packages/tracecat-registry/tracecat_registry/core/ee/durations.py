@@ -36,6 +36,7 @@ async def get_case_metrics(
     - duration_slug: Slugified name for filtering (e.g., "time_to_resolve")
     - case_priority, case_severity, case_status: Dimensions for groupby
     - case_id, case_short_id: Identifiers for drill-down
+    - fields, tags, dropdown_values: Full case metadata snapshot for each metric row
     """
     if not case_ids:
         return []

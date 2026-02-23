@@ -80,6 +80,7 @@ async def test_list_cases_success(
             severity=mock_case.severity,
             assignee=None,
             tags=[],
+            dropdown_values=[],
             num_tasks_completed=0,
             num_tasks_total=0,
         )
@@ -143,6 +144,7 @@ async def test_list_cases_with_filters(
             severity=mock_case.severity,
             assignee=None,
             tags=[],
+            dropdown_values=[],
             num_tasks_completed=0,
             num_tasks_total=0,
         )
@@ -543,6 +545,7 @@ async def test_search_cases_success(
             severity=mock_case.severity,
             assignee=None,
             tags=[],
+            dropdown_values=[],
             num_tasks_completed=0,
             num_tasks_total=0,
         )
@@ -596,6 +599,7 @@ async def test_search_cases_forwards_date_filters(
             severity=mock_case.severity,
             assignee=None,
             tags=[],
+            dropdown_values=[],
             num_tasks_completed=0,
             num_tasks_total=0,
         )
