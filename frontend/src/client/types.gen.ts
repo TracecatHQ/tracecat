@@ -2333,9 +2333,9 @@ export type EffectiveEntitlements = {
    */
   case_addons?: boolean
   /**
-   * Whether RBAC is enabled (custom roles, groups, and assignments)
+   * Whether RBAC add-ons are enabled (custom roles, groups, and assignments)
    */
-  rbac?: boolean
+  rbac_addons?: boolean
 }
 
 /**
@@ -2361,9 +2361,9 @@ export type EntitlementsDict = {
    */
   case_addons?: boolean
   /**
-   * Whether RBAC is enabled (custom roles, groups, and assignments)
+   * Whether RBAC add-ons are enabled (custom roles, groups, and assignments)
    */
-  rbac?: boolean
+  rbac_addons?: boolean
 }
 
 export type ErrorDetails = {

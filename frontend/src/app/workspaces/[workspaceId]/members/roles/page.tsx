@@ -15,7 +15,7 @@ export default function WorkspaceRolesPage() {
   const workspaceId = useWorkspaceId()
   const { workspace, workspaceLoading, workspaceError } = useWorkspaceDetails()
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
-  const rbacEnabled = hasEntitlement("rbac")
+  const rbacEnabled = hasEntitlement("rbac_addons")
 
   useEffect(() => {
     if (!entitlementsLoading && !rbacEnabled) {

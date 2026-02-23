@@ -7628,11 +7628,11 @@ export const $EffectiveEntitlements = {
         "Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)",
       default: false,
     },
-    rbac: {
+    rbac_addons: {
       type: "boolean",
-      title: "Rbac",
+      title: "Rbac Addons",
       description:
-        "Whether RBAC is enabled (custom roles, groups, and assignments)",
+        "Whether RBAC add-ons are enabled (custom roles, groups, and assignments)",
       default: false,
     },
   },
@@ -7667,11 +7667,11 @@ export const $EntitlementsDict = {
       description:
         "Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)",
     },
-    rbac: {
+    rbac_addons: {
       type: "boolean",
-      title: "Rbac",
+      title: "Rbac Addons",
       description:
-        "Whether RBAC is enabled (custom roles, groups, and assignments)",
+        "Whether RBAC add-ons are enabled (custom roles, groups, and assignments)",
     },
   },
   type: "object",

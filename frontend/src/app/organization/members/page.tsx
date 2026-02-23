@@ -11,8 +11,8 @@ const tabTriggerClassName =
   "rounded-none border-b-2 border-transparent px-4 py-2.5 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
 
 export default function MembersPage() {
-  const { hasEntitlement } = useEntitlements()
-  const rbacEnabled = hasEntitlement("rbac")
+  const { hasEntitlement, isLoading } = useEntitlements()
+  const rbacEnabled = !isLoading && hasEntitlement("rbac_addons")
 
   return (
     <div className="size-full overflow-auto">

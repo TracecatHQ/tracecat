@@ -38,7 +38,7 @@ export function MembersViewToggle({
 }: MembersViewToggleProps) {
   const { hasEntitlement } = useEntitlements()
 
-  if (!hasEntitlement("rbac")) {
+  if (!hasEntitlement("rbac_addons")) {
     return null
   }
 

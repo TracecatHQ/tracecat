@@ -10,4 +10,4 @@ class Entitlement(StrEnum):
     GIT_SYNC = "git_sync"
     AGENT_ADDONS = "agent_addons"
     CASE_ADDONS = "case_addons"
-    RBAC = "rbac"
+    RBAC_ADDONS = "rbac_addons"

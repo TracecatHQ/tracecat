@@ -439,7 +439,7 @@ def create_app(**kwargs) -> FastAPI:
     # RBAC routers - user_scopes_router is always included (OSS)
     app.include_router(user_scopes_router)
 
-    # EE-only RBAC management endpoints - gated by feature flag
+    # EE-only RBAC management endpoints - gated by RBAC entitlement
     from tracecat_ee.rbac.router import (
         assignments_router as rbac_assignments_router,
     )

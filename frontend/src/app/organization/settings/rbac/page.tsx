@@ -21,7 +21,7 @@ type RbacTab =
 export default function RbacSettingsPage() {
   const router = useRouter()
   const { hasEntitlement, isLoading } = useEntitlements()
-  const rbacEnabled = hasEntitlement("rbac")
+  const rbacEnabled = hasEntitlement("rbac_addons")
   const [activeTab, setActiveTab] = useState<RbacTab>("roles")
 
   useEffect(() => {
