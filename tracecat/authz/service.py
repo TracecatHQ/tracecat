@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid as _uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -143,22 +144,40 @@ class MembershipService(BaseService):
         Note: The authorization cache is request-scoped, so changes will be
         reflected in subsequent requests automatically.
         """
-        # Resolve workspace org + default role in one DB read.
-        org_role_stmt = (
-            select(Workspace.organization_id, DBRole.id)
-            .join(
-                DBRole,
-                and_(
-                    DBRole.organization_id == Workspace.organization_id,
-                    DBRole.slug == "workspace-editor",
-                ),
-            )
-            .where(Workspace.id == workspace_id)
+        # Resolve workspace org (and optionally the default role).
+        ws_result = await self.session.execute(
+            select(Workspace.organization_id).where(Workspace.id == workspace_id)
         )
-        org_role_row = (await self.session.execute(org_role_stmt)).first()
-        if org_role_row is None:
-            raise TracecatValidationError("Workspace or default role not found")
-        organization_id, role_id = org_role_row
+        organization_id = ws_result.scalar_one_or_none()
+        if organization_id is None:
+            raise TracecatValidationError("Workspace not found")
+
+        if params.role_id is not None:
+            # Caller-specified role — validate it belongs to this org.
+            try:
+                parsed_role_id = _uuid.UUID(params.role_id)
+            except ValueError as e:
+                raise TracecatValidationError("Invalid role ID format") from e
+            role_check = await self.session.execute(
+                select(DBRole.id).where(
+                    DBRole.id == parsed_role_id,
+                    DBRole.organization_id == organization_id,
+                )
+            )
+            role_id = role_check.scalar_one_or_none()
+            if role_id is None:
+                raise TracecatValidationError("Invalid role ID for this organization")
+        else:
+            # Fall back to default workspace-editor role.
+            default_role_result = await self.session.execute(
+                select(DBRole.id).where(
+                    DBRole.organization_id == organization_id,
+                    DBRole.slug == "workspace-editor",
+                )
+            )
+            role_id = default_role_result.scalar_one_or_none()
+            if role_id is None:
+                raise TracecatValidationError("Default workspace role not found")
 
         # Heal stale direct assignments left behind by prior failed remove flows.
         await self.session.execute(

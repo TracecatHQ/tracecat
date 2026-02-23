@@ -30,6 +30,8 @@ from tracecat.invitations.service import (
 )
 from tracecat.logger import logger
 from tracecat.workspaces.schemas import (
+    WorkspaceAddMemberRequest,
+    WorkspaceAddMemberResponse,
     WorkspaceCreate,
     WorkspaceInvitationAccept,
     WorkspaceInvitationCreate,
@@ -341,6 +343,40 @@ async def delete_workspace(
 
 
 # === Memberships === #
+
+
+@router.post(
+    "/{workspace_id}/members",
+    response_model=WorkspaceAddMemberResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@require_scope("workspace:member:invite")
+async def add_workspace_member(
+    *,
+    role: WorkspaceUserInPath,
+    workspace_id: WorkspaceID,
+    params: WorkspaceAddMemberRequest,
+    session: AsyncDBSession,
+) -> WorkspaceAddMemberResponse:
+    """Add a member to a workspace.
+
+    If the email belongs to an existing org member, creates a direct
+    membership.  Otherwise, creates a token-based invitation.
+    """
+    service = InvitationService(session, role=role)
+    try:
+        return await service.create_workspace_invitation(workspace_id, params)
+    except TracecatAuthorizationError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except IntegrityError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Member already exists in this workspace",
+        ) from e
+
+
 @router.get("/{workspace_id}/members")
 @require_scope("workspace:member:read")
 async def list_workspace_members(
@@ -489,7 +525,7 @@ async def create_workspace_invitation(
     """
     service = InvitationService(session, role=role)
     try:
-        invitation = await service.create_workspace_invitation(workspace_id, params)
+        invitation = await service.create_email_invitation(workspace_id, params)
     except TracecatAuthorizationError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

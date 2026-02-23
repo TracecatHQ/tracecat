@@ -373,7 +373,7 @@ function ChangeUserRoleDialog({
 }: {
   selectedUser: WorkspaceMember | null
   setOpen: (open: boolean) => void
-  onConfirm: (roleId: string) => void
+  onConfirm: (roleId: string) => Promise<unknown>
 }) {
   const { roles } = useRbacRoles()
   const workspaceRoles = useMemo(
@@ -414,7 +414,9 @@ function ChangeUserRoleDialog({
         <Button variant="outline" onClick={() => setOpen(false)}>
           Cancel
         </Button>
-        <Button onClick={() => onConfirm(selectedRoleId)}>Change role</Button>
+        <Button onClick={() => void onConfirm(selectedRoleId)}>
+          Change role
+        </Button>
       </DialogFooter>
     </DialogContent>
   )

@@ -648,6 +648,8 @@ import type {
   WorkflowsValidateWorkflowEntrypointResponse,
   WorkspacesAcceptWorkspaceInvitationData,
   WorkspacesAcceptWorkspaceInvitationResponse,
+  WorkspacesAddWorkspaceMemberData,
+  WorkspacesAddWorkspaceMemberResponse,
   WorkspacesCreateWorkspaceData,
   WorkspacesCreateWorkspaceInvitationData,
   WorkspacesCreateWorkspaceInvitationResponse,
@@ -1054,6 +1056,35 @@ export const workspacesDeleteWorkspace = (
     path: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Add Workspace Member
+ * Add a member to a workspace.
+ *
+ * If the email belongs to an existing org member, creates a direct
+ * membership.  Otherwise, creates a token-based invitation.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkspaceAddMemberResponse Successful Response
+ * @throws ApiError
+ */
+export const workspacesAddWorkspaceMember = (
+  data: WorkspacesAddWorkspaceMemberData
+): CancelablePromise<WorkspacesAddWorkspaceMemberResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/members",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

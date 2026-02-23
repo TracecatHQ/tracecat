@@ -21854,6 +21854,51 @@ export const $WorkflowUpdate = {
   title: "WorkflowUpdate",
 } as const
 
+export const $WorkspaceAddMemberRequest = {
+  properties: {
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role_id: {
+      type: "string",
+      title: "Role Id",
+    },
+  },
+  type: "object",
+  required: ["email", "role_id"],
+  title: "WorkspaceAddMemberRequest",
+  description: `Request schema for adding a member to a workspace.
+
+The backend resolves whether to create a direct membership
+(if the email belongs to an existing org member) or an invitation.`,
+} as const
+
+export const $WorkspaceAddMemberResponse = {
+  properties: {
+    outcome: {
+      type: "string",
+      enum: ["membership_created", "invitation_created"],
+      title: "Outcome",
+    },
+    invitation: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceInvitationRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["outcome"],
+  title: "WorkspaceAddMemberResponse",
+  description: "Response schema indicating which path was taken.",
+} as const
+
 export const $WorkspaceAssignment = {
   properties: {
     workspace_id: {
@@ -22232,6 +22277,17 @@ export const $WorkspaceMembershipCreate = {
       type: "string",
       format: "uuid",
       title: "User Id",
+    },
+    role_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Id",
     },
   },
   type: "object",
