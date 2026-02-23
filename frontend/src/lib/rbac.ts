@@ -87,6 +87,69 @@ export const LEVEL_LABELS: Record<PermissionLevel, string> = {
   mixed: "Custom",
 }
 
+function isActionScopeResource(resource: string): boolean {
+  return resource === "action" || resource.startsWith("action:")
+}
+
+function extractNamespace(value: string): string | null {
+  const normalized = value.trim()
+  if (!normalized) return null
+  const delimiter = [".", "/", ":"].find((separator) =>
+    normalized.includes(separator)
+  )
+  if (!delimiter) return normalized
+  return normalized.slice(0, normalized.indexOf(delimiter))
+}
+
+function getActionScopeTarget(scope: ScopeRead): string | null {
+  const sourceRef = scope.source_ref?.trim()
+  if (sourceRef) return sourceRef
+
+  if (scope.resource.startsWith("action:")) {
+    const resourceTarget = scope.resource.slice("action:".length).trim()
+    if (resourceTarget) return resourceTarget
+  }
+
+  if (scope.name.startsWith("action:") && scope.name.endsWith(":execute")) {
+    const nameTarget = scope.name.slice("action:".length, -":execute".length)
+    if (nameTarget.trim()) return nameTarget.trim()
+  }
+
+  return null
+}
+
+export function getScopeActionNamespace(scope: ScopeRead): string | null {
+  if (!isActionScopeResource(scope.resource)) return null
+  const target = getActionScopeTarget(scope)
+  if (!target) return null
+  return extractNamespace(target)
+}
+
+export function getScopeActionLabel(scope: ScopeRead): string {
+  if (!isActionScopeResource(scope.resource)) return scope.action
+
+  const namespace = getScopeActionNamespace(scope)
+  const target = getActionScopeTarget(scope)
+  if (!target || !namespace || target === namespace) {
+    return scope.action
+  }
+
+  const namespacePrefix = `${namespace}.`
+  if (target.startsWith(namespacePrefix)) {
+    return target.slice(namespacePrefix.length)
+  }
+  const colonPrefix = `${namespace}:`
+  if (target.startsWith(colonPrefix)) {
+    return target.slice(colonPrefix.length)
+  }
+  const slashPrefix = `${namespace}/`
+  if (target.startsWith(slashPrefix)) {
+    return target.slice(slashPrefix.length)
+  }
+
+  return target
+}
+
 /**
  * Get scopes that match a category's resources
  */
