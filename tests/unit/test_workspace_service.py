@@ -23,6 +23,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.service import InvitationService
 from tracecat.workspaces.schemas import (
     WorkspaceInvitationCreate,
     WorkspaceSettings,
@@ -270,7 +271,7 @@ def create_workspace_admin_role(
 
 @pytest.mark.anyio
 class TestCreateInvitation:
-    """Tests for WorkspaceService.create_invitation()."""
+    """Tests for InvitationService.create_workspace_invitation()."""
 
     async def test_create_invitation_success(
         self,
@@ -282,13 +283,13 @@ class TestCreateInvitation:
     ):
         """Test creating a workspace invitation successfully."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
         params = WorkspaceInvitationCreate(
             email="invitee@example.com",
             role_id=rbac_roles["workspace-editor"],
         )
-        invitation = await service.create_invitation(inv_workspace.id, params)
+        invitation = await service.create_workspace_invitation(inv_workspace.id, params)
 
         assert invitation.id is not None
         assert invitation.workspace_id == inv_workspace.id
@@ -310,7 +311,7 @@ class TestCreateInvitation:
     ):
         """Test creating duplicate pending invitation fails."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
         params = WorkspaceInvitationCreate(
             email="duplicate@example.com",
@@ -318,13 +319,13 @@ class TestCreateInvitation:
         )
 
         # Create first invitation
-        await service.create_invitation(inv_workspace.id, params)
+        await service.create_workspace_invitation(inv_workspace.id, params)
 
         # Try to create duplicate - should fail
         with pytest.raises(
             TracecatValidationError, match="pending invitation already exists"
         ):
-            await service.create_invitation(inv_workspace.id, params)
+            await service.create_workspace_invitation(inv_workspace.id, params)
 
     async def test_create_invitation_unique_constraint_violation(
         self,
@@ -340,7 +341,7 @@ class TestCreateInvitation:
         pending check is bypassed (e.g., first invitation is revoked).
         """
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
         email = "constraint-test@example.com"
         params = WorkspaceInvitationCreate(
@@ -349,15 +350,15 @@ class TestCreateInvitation:
         )
 
         # Create first invitation
-        invitation = await service.create_invitation(inv_workspace.id, params)
+        invitation = await service.create_workspace_invitation(inv_workspace.id, params)
 
         # Revoke it so the pending check passes
-        await service.revoke_invitation(inv_workspace.id, invitation.id)
+        await service.revoke_workspace_invitation(inv_workspace.id, invitation.id)
 
         # Try to create another invitation for the same email
         # This should fail due to the unique constraint (revoked != expired)
         with pytest.raises(TracecatValidationError, match="invitation already exists"):
-            await service.create_invitation(inv_workspace.id, params)
+            await service.create_workspace_invitation(inv_workspace.id, params)
 
     async def test_create_invitation_replaces_expired_invitation(
         self,
@@ -369,7 +370,7 @@ class TestCreateInvitation:
     ):
         """Test that expired invitation is deleted and new one created."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
         email = "expired-test@example.com"
         params = WorkspaceInvitationCreate(
@@ -378,7 +379,7 @@ class TestCreateInvitation:
         )
 
         # Create first invitation
-        invitation = await service.create_invitation(inv_workspace.id, params)
+        invitation = await service.create_workspace_invitation(inv_workspace.id, params)
         old_id = invitation.id
 
         # Manually expire it (set expires_at to the past)
@@ -387,7 +388,9 @@ class TestCreateInvitation:
 
         # Create another invitation for the same email
         # This should succeed because the old one is expired
-        new_invitation = await service.create_invitation(inv_workspace.id, params)
+        new_invitation = await service.create_workspace_invitation(
+            inv_workspace.id, params
+        )
 
         assert new_invitation.id != old_id
         assert new_invitation.email == email
@@ -396,7 +399,7 @@ class TestCreateInvitation:
 
 @pytest.mark.anyio
 class TestListInvitations:
-    """Tests for WorkspaceService.list_invitations()."""
+    """Tests for InvitationService.list_workspace_invitations()."""
 
     async def test_list_invitations_returns_workspace_invitations(
         self,
@@ -408,7 +411,7 @@ class TestListInvitations:
     ):
         """Test listing invitations returns only workspace invitations."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
         # Create some invitations
         for i in range(3):
@@ -416,9 +419,9 @@ class TestListInvitations:
                 email=f"invitee{i}@example.com",
                 role_id=rbac_roles["workspace-editor"],
             )
-            await service.create_invitation(inv_workspace.id, params)
+            await service.create_workspace_invitation(inv_workspace.id, params)
 
-        invitations = await service.list_invitations(inv_workspace.id)
+        invitations = await service.list_workspace_invitations(inv_workspace.id)
 
         assert len(invitations) == 3
 
@@ -432,14 +435,14 @@ class TestListInvitations:
     ):
         """Test filtering invitations by status."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
         # Create a pending invitation
         params = WorkspaceInvitationCreate(
             email="pending@example.com",
             role_id=rbac_roles["workspace-editor"],
         )
-        invitation = await service.create_invitation(inv_workspace.id, params)
+        invitation = await service.create_workspace_invitation(inv_workspace.id, params)
 
         # Manually revoke it
         invitation.status = InvitationStatus.REVOKED
@@ -450,17 +453,17 @@ class TestListInvitations:
             email="pending2@example.com",
             role_id=rbac_roles["workspace-editor"],
         )
-        await service.create_invitation(inv_workspace.id, params2)
+        await service.create_workspace_invitation(inv_workspace.id, params2)
 
         # List only pending
-        pending = await service.list_invitations(
+        pending = await service.list_workspace_invitations(
             inv_workspace.id, status=InvitationStatus.PENDING
         )
         assert len(pending) == 1
         assert pending[0].email == "pending2@example.com"
 
         # List only revoked
-        revoked = await service.list_invitations(
+        revoked = await service.list_workspace_invitations(
             inv_workspace.id, status=InvitationStatus.REVOKED
         )
         assert len(revoked) == 1
@@ -469,7 +472,7 @@ class TestListInvitations:
 
 @pytest.mark.anyio
 class TestGetInvitationByToken:
-    """Tests for WorkspaceService.get_invitation_by_token()."""
+    """Tests for InvitationService.get_workspace_invitation_by_token()."""
 
     async def test_get_invitation_by_token_success(
         self,
@@ -481,16 +484,16 @@ class TestGetInvitationByToken:
     ):
         """Test retrieving an invitation by token."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
         params = WorkspaceInvitationCreate(
             email="token-test@example.com",
             role_id=rbac_roles["workspace-editor"],
         )
-        created = await service.create_invitation(inv_workspace.id, params)
+        created = await service.create_workspace_invitation(inv_workspace.id, params)
 
         # Retrieve by token
-        retrieved = await service.get_invitation_by_token(created.token)
+        retrieved = await service.get_workspace_invitation_by_token(created.token)
 
         assert retrieved is not None
         assert retrieved.id == created.id
@@ -505,15 +508,15 @@ class TestGetInvitationByToken:
     ):
         """Test retrieving non-existent token returns None."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
-        result = await service.get_invitation_by_token("nonexistent-token")
+        result = await service.get_workspace_invitation_by_token("nonexistent-token")
         assert result is None
 
 
 @pytest.mark.anyio
 class TestAcceptInvitation:
-    """Tests for WorkspaceService.accept_invitation()."""
+    """Tests for accept_workspace_invitation_for_user()."""
 
     async def test_accept_invitation_success_existing_org_member(
         self,
@@ -525,18 +528,22 @@ class TestAcceptInvitation:
         rbac_roles: dict[str, str],
     ):
         """Test accepting invitation as existing org member."""
+        from tracecat.invitations.service import accept_workspace_invitation_for_user
+
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
         # Create invitation for basic_user's email
         params = WorkspaceInvitationCreate(
             email=basic_user.email,
             role_id=rbac_roles["workspace-editor"],
         )
-        invitation = await service.create_invitation(inv_workspace.id, params)
+        invitation = await service.create_workspace_invitation(inv_workspace.id, params)
 
         # Accept invitation
-        membership = await service.accept_invitation(invitation.token, basic_user.id)
+        membership = await accept_workspace_invitation_for_user(
+            session, user_id=basic_user.id, token=invitation.token
+        )
 
         assert membership.user_id == basic_user.id
         assert membership.workspace_id == inv_workspace.id
@@ -556,18 +563,22 @@ class TestAcceptInvitation:
         rbac_roles: dict[str, str],
     ):
         """Test accepting invitation auto-creates org membership for external user."""
+        from tracecat.invitations.service import accept_workspace_invitation_for_user
+
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
         # Create invitation for external user
         params = WorkspaceInvitationCreate(
             email=external_user.email,
             role_id=rbac_roles["workspace-editor"],
         )
-        invitation = await service.create_invitation(inv_workspace.id, params)
+        invitation = await service.create_workspace_invitation(inv_workspace.id, params)
 
         # Accept invitation
-        membership = await service.accept_invitation(invitation.token, external_user.id)
+        membership = await accept_workspace_invitation_for_user(
+            session, user_id=external_user.id, token=invitation.token
+        )
 
         assert membership.user_id == external_user.id
 
@@ -590,11 +601,12 @@ class TestAcceptInvitation:
         admin_user: User,
     ):
         """Test accepting non-existent invitation fails."""
-        role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        from tracecat.invitations.service import accept_workspace_invitation_for_user
 
         with pytest.raises(TracecatNotFoundError, match="Invitation not found"):
-            await service.accept_invitation("invalid-token", admin_user.id)
+            await accept_workspace_invitation_for_user(
+                session, user_id=admin_user.id, token="invalid-token"
+            )
 
     async def test_accept_invitation_already_accepted(
         self,
@@ -606,17 +618,21 @@ class TestAcceptInvitation:
         rbac_roles: dict[str, str],
     ):
         """Test accepting already-accepted invitation fails."""
+        from tracecat.invitations.service import accept_workspace_invitation_for_user
+
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
         params = WorkspaceInvitationCreate(
             email=basic_user.email,
             role_id=rbac_roles["workspace-editor"],
         )
-        invitation = await service.create_invitation(inv_workspace.id, params)
+        invitation = await service.create_workspace_invitation(inv_workspace.id, params)
 
         # Accept once
-        await service.accept_invitation(invitation.token, basic_user.id)
+        await accept_workspace_invitation_for_user(
+            session, user_id=basic_user.id, token=invitation.token
+        )
 
         # Try to accept again with different user
         another_user = User(
@@ -632,7 +648,9 @@ class TestAcceptInvitation:
         await session.commit()
 
         with pytest.raises(TracecatValidationError, match="already been accepted"):
-            await service.accept_invitation(invitation.token, another_user.id)
+            await accept_workspace_invitation_for_user(
+                session, user_id=another_user.id, token=invitation.token
+            )
 
     async def test_accept_invitation_revoked(
         self,
@@ -644,20 +662,24 @@ class TestAcceptInvitation:
         rbac_roles: dict[str, str],
     ):
         """Test accepting revoked invitation fails."""
+        from tracecat.invitations.service import accept_workspace_invitation_for_user
+
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
         params = WorkspaceInvitationCreate(
             email=basic_user.email,
             role_id=rbac_roles["workspace-editor"],
         )
-        invitation = await service.create_invitation(inv_workspace.id, params)
+        invitation = await service.create_workspace_invitation(inv_workspace.id, params)
 
         # Revoke invitation
-        await service.revoke_invitation(inv_workspace.id, invitation.id)
+        await service.revoke_workspace_invitation(inv_workspace.id, invitation.id)
 
         with pytest.raises(TracecatValidationError, match="has been revoked"):
-            await service.accept_invitation(invitation.token, basic_user.id)
+            await accept_workspace_invitation_for_user(
+                session, user_id=basic_user.id, token=invitation.token
+            )
 
     async def test_accept_invitation_user_already_member(
         self,
@@ -669,6 +691,8 @@ class TestAcceptInvitation:
         rbac_roles: dict[str, str],
     ):
         """Test accepting invitation when user is already a workspace member fails."""
+        from tracecat.invitations.service import accept_workspace_invitation_for_user
+
         # Add basic_user to workspace
         ws_membership = Membership(
             user_id=basic_user.id,
@@ -678,23 +702,25 @@ class TestAcceptInvitation:
         await session.commit()
 
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
         params = WorkspaceInvitationCreate(
             email=basic_user.email,
             role_id=rbac_roles["workspace-admin"],
         )
-        invitation = await service.create_invitation(inv_workspace.id, params)
+        invitation = await service.create_workspace_invitation(inv_workspace.id, params)
 
         with pytest.raises(
             TracecatValidationError, match="already a member of this workspace"
         ):
-            await service.accept_invitation(invitation.token, basic_user.id)
+            await accept_workspace_invitation_for_user(
+                session, user_id=basic_user.id, token=invitation.token
+            )
 
 
 @pytest.mark.anyio
 class TestRevokeInvitation:
-    """Tests for WorkspaceService.revoke_invitation()."""
+    """Tests for InvitationService.revoke_workspace_invitation()."""
 
     async def test_revoke_invitation_success(
         self,
@@ -706,15 +732,15 @@ class TestRevokeInvitation:
     ):
         """Test revoking a pending invitation."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
         params = WorkspaceInvitationCreate(
             email="to-revoke@example.com",
             role_id=rbac_roles["workspace-editor"],
         )
-        invitation = await service.create_invitation(inv_workspace.id, params)
+        invitation = await service.create_workspace_invitation(inv_workspace.id, params)
 
-        await service.revoke_invitation(inv_workspace.id, invitation.id)
+        await service.revoke_workspace_invitation(inv_workspace.id, invitation.id)
 
         await session.refresh(invitation)
         assert invitation.status == InvitationStatus.REVOKED
@@ -728,10 +754,10 @@ class TestRevokeInvitation:
     ):
         """Test revoking non-existent invitation fails."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
         with pytest.raises(TracecatNotFoundError, match="Invitation not found"):
-            await service.revoke_invitation(inv_workspace.id, uuid.uuid4())
+            await service.revoke_workspace_invitation(inv_workspace.id, uuid.uuid4())
 
     async def test_revoke_invitation_already_accepted(
         self,
@@ -743,23 +769,27 @@ class TestRevokeInvitation:
         rbac_roles: dict[str, str],
     ):
         """Test revoking already-accepted invitation fails."""
+        from tracecat.invitations.service import accept_workspace_invitation_for_user
+
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
         params = WorkspaceInvitationCreate(
             email=basic_user.email,
             role_id=rbac_roles["workspace-editor"],
         )
-        invitation = await service.create_invitation(inv_workspace.id, params)
+        invitation = await service.create_workspace_invitation(inv_workspace.id, params)
 
         # Accept the invitation
-        await service.accept_invitation(invitation.token, basic_user.id)
+        await accept_workspace_invitation_for_user(
+            session, user_id=basic_user.id, token=invitation.token
+        )
 
         # Try to revoke
         with pytest.raises(
             TracecatValidationError, match="Cannot revoke invitation with status"
         ):
-            await service.revoke_invitation(inv_workspace.id, invitation.id)
+            await service.revoke_workspace_invitation(inv_workspace.id, invitation.id)
 
     async def test_revoke_invitation_already_revoked(
         self,
@@ -771,22 +801,22 @@ class TestRevokeInvitation:
     ):
         """Test revoking already-revoked invitation fails."""
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
-        service = WorkspaceService(session, role=role)
+        service = InvitationService(session, role=role)
 
         params = WorkspaceInvitationCreate(
             email="revoke-twice@example.com",
             role_id=rbac_roles["workspace-editor"],
         )
-        invitation = await service.create_invitation(inv_workspace.id, params)
+        invitation = await service.create_workspace_invitation(inv_workspace.id, params)
 
         # Revoke once
-        await service.revoke_invitation(inv_workspace.id, invitation.id)
+        await service.revoke_workspace_invitation(inv_workspace.id, invitation.id)
 
         # Try to revoke again
         with pytest.raises(
             TracecatValidationError, match="Cannot revoke invitation with status"
         ):
-            await service.revoke_invitation(inv_workspace.id, invitation.id)
+            await service.revoke_workspace_invitation(inv_workspace.id, invitation.id)
 
 
 class TestTokenGeneration:
@@ -794,10 +824,14 @@ class TestTokenGeneration:
 
     def test_generate_token_length(self):
         """Test that generated token has correct length."""
-        token = WorkspaceService._generate_invitation_token()
+        from tracecat.invitations.service import _generate_invitation_token
+
+        token = _generate_invitation_token()
         assert len(token) == 64
 
     def test_generate_token_unique(self):
         """Test that generated tokens are unique."""
-        tokens = {WorkspaceService._generate_invitation_token() for _ in range(100)}
+        from tracecat.invitations.service import _generate_invitation_token
+
+        tokens = {_generate_invitation_token() for _ in range(100)}
         assert len(tokens) == 100  # All unique

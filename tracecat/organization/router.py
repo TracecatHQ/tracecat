@@ -13,9 +13,9 @@ from tracecat.auth.users import current_active_user
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import (
+    Invitation,
     Organization,
     OrganizationDomain,
-    OrganizationInvitation,
     OrganizationMembership,
     User,
     UserRoleAssignment,
@@ -30,6 +30,10 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.service import (
+    InvitationService,
+    accept_org_invitation_for_user,
+)
 from tracecat.organization.schemas import (
     OrgDomainRead,
     OrgInvitationAccept,
@@ -43,7 +47,7 @@ from tracecat.organization.schemas import (
     OrgRead,
     UserWorkspaceMembership,
 )
-from tracecat.organization.service import OrgService, accept_invitation_for_user
+from tracecat.organization.service import OrgService
 from tracecat.tiers.schemas import EffectiveEntitlements
 from tracecat.tiers.service import TierService
 
@@ -328,7 +332,10 @@ async def list_org_members(
         )
 
     # Add pending, non-expired invitations as "invited" members
-    invitations = await service.list_invitations(status=InvitationStatus.PENDING)
+    inv_service = InvitationService(session, role=role)
+    invitations = await inv_service.list_org_invitations(
+        status=InvitationStatus.PENDING
+    )
     for inv in invitations:
         if inv.expires_at > now:
             result.append(
@@ -340,7 +347,6 @@ async def list_org_members(
                     status=OrgMemberStatus.INVITED,
                     expires_at=inv.expires_at,
                     created_at=inv.created_at,
-                    token=inv.token,
                 )
             )
 
@@ -482,14 +488,14 @@ async def create_invitation(
     params: OrgInvitationCreate,
 ) -> OrgInvitationRead:
     """Create an invitation to join the organization."""
-    service = OrgService(session, role=role)
+    service = InvitationService(session, role=role)
     try:
         workspace_assignments = (
             [(wa.workspace_id, wa.role_id) for wa in params.workspace_assignments]
             if params.workspace_assignments
             else None
         )
-        invitation = await service.create_invitation(
+        invitation = await service.create_org_invitation(
             email=params.email,
             role_id=params.role_id,
             workspace_assignments=workspace_assignments,
@@ -531,8 +537,8 @@ async def list_invitations(
     invitation_status: InvitationStatus | None = Query(None, alias="status"),
 ) -> list[OrgInvitationRead]:
     """List invitations for the organization."""
-    service = OrgService(session, role=role)
-    invitations = await service.list_invitations(status=invitation_status)
+    service = InvitationService(session, role=role)
+    invitations = await service.list_org_invitations(status=invitation_status)
     return [
         OrgInvitationRead(
             id=inv.id,
@@ -560,9 +566,9 @@ async def revoke_invitation(
     invitation_id: UUID,
 ) -> None:
     """Revoke a pending invitation."""
-    service = OrgService(session, role=role)
+    service = InvitationService(session, role=role)
     try:
-        await service.revoke_invitation(invitation_id)
+        await service.revoke_org_invitation(invitation_id)
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found"
@@ -583,9 +589,9 @@ async def get_invitation_token(
 
     This endpoint is used to generate shareable invitation links.
     """
-    service = OrgService(session, role=role)
+    service = InvitationService(session, role=role)
     try:
-        invitation = await service.get_invitation(invitation_id)
+        invitation = await service.get_org_invitation(invitation_id)
         return {"token": invitation.token}
     except NoResultFound as e:
         raise HTTPException(
@@ -609,7 +615,7 @@ async def accept_invitation(
     # user_id is guaranteed to be set by AuthenticatedUserOnly
     assert role.user_id is not None
     try:
-        await accept_invitation_for_user(
+        await accept_org_invitation_for_user(
             session,
             user_id=role.user_id,
             token=params.token,
@@ -640,25 +646,26 @@ async def list_my_pending_invitations(
 
     now = datetime.now(UTC)
     statement = (
-        select(OrganizationInvitation, Organization, User, DBRole)
+        select(Invitation, Organization, User, DBRole)
         .join(
             Organization,
-            Organization.id == OrganizationInvitation.organization_id,  # pyright: ignore[reportArgumentType]
+            Organization.id == Invitation.organization_id,  # pyright: ignore[reportArgumentType]
         )
         .join(
             DBRole,
-            DBRole.id == OrganizationInvitation.role_id,  # pyright: ignore[reportArgumentType]
+            DBRole.id == Invitation.role_id,  # pyright: ignore[reportArgumentType]
         )
         .outerjoin(
             User,
-            User.id == OrganizationInvitation.invited_by,  # pyright: ignore[reportArgumentType]
+            User.id == Invitation.invited_by,  # pyright: ignore[reportArgumentType]
         )
         .where(
-            func.lower(OrganizationInvitation.email) == user.email.lower(),
-            OrganizationInvitation.status == InvitationStatus.PENDING,
-            OrganizationInvitation.expires_at > now,
+            Invitation.workspace_id.is_(None),
+            func.lower(Invitation.email) == user.email.lower(),
+            Invitation.status == InvitationStatus.PENDING,
+            Invitation.expires_at > now,
         )
-        .order_by(OrganizationInvitation.created_at.desc())
+        .order_by(Invitation.created_at.desc())
     )
     result = await session.execute(statement)
     rows = result.tuples().all()
@@ -694,15 +701,18 @@ async def get_invitation_by_token(
     Returns organization name and inviter info for the acceptance page.
     If user is authenticated, also returns whether their email matches the invitation.
     """
-    # Query invitation directly without OrgService since we don't have org context yet
+    # Query invitation directly since we don't have org context yet
     try:
         result = await session.execute(
-            select(OrganizationInvitation, DBRole)
+            select(Invitation, DBRole)
             .join(
                 DBRole,
-                DBRole.id == OrganizationInvitation.role_id,  # pyright: ignore[reportArgumentType]
+                DBRole.id == Invitation.role_id,  # pyright: ignore[reportArgumentType]
             )
-            .where(OrganizationInvitation.token == token)
+            .where(
+                Invitation.token == token,
+                Invitation.workspace_id.is_(None),
+            )
         )
         row = result.first()
         if row is None:
