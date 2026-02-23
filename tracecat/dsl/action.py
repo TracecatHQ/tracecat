@@ -56,6 +56,7 @@ from tracecat.storage.object import (
     InlineObject,
     StoredObject,
     StoredObjectValidator,
+    collection_item_key,
     get_object_storage,
 )
 from tracecat.validation.schemas import ValidationDetail
@@ -193,11 +194,22 @@ def run_sync[T: Any](coro: Coroutine[Any, Any, T]) -> T:
     return runner.run(coro)
 
 
+async def _store_collection_as_refs(prefix: str, items: list[Any]) -> CollectionObject:
+    """Store collection items as StoredObject handles and persist refs in chunks."""
+    storage = get_object_storage()
+    refs: list[dict[str, Any]] = []
+    for i, item in enumerate(items):
+        stored = await storage.store(collection_item_key(prefix, i), item)
+        refs.append(stored.model_dump())
+    return await store_collection(prefix, refs, element_kind="stored_object")
+
+
 async def _materialize_task_result(task_result: TaskResult) -> MaterializedTaskResult:
     """Materialize a TaskResult's StoredObject result to raw value.
 
-    Handles collection_index for scatter items - when set, the stored result
-    is a collection and we extract the item at that index.
+    Handles collection_index for scatter items. When set:
+    - CollectionObject retrieval resolves a single item via CollectionObject.at(index).
+    - InlineObject(list) retrieval resolves the indexed list item directly.
 
     Args:
         task_result: A TaskResult
@@ -209,21 +221,25 @@ async def _materialize_task_result(task_result: TaskResult) -> MaterializedTaskR
     # Handle Pydantic TaskResult instance
     storage = get_object_storage()
     match task_result.result:
-        case InlineObject():
-            raw_result = task_result.result.data
+        case InlineObject(data=data):
+            if task_result.collection_index is not None and isinstance(data, list):
+                raw_result = data[task_result.collection_index]
+            else:
+                raw_result = data
         case ExternalObject():
             raw_result = await storage.retrieve(task_result.result)
-        case CollectionObject():
-            raw_result = await materialize_collection_values(task_result.result)
+        case CollectionObject() as collection:
+            if task_result.collection_index is not None:
+                raw_result = await storage.retrieve(
+                    collection.at(task_result.collection_index)
+                )
+            else:
+                raw_result = await materialize_collection_values(collection)
         case _:
             raise TypeError(
                 "Expected TaskResult.result to be a StoredObject, "
                 f"got {type(task_result.result).__name__}"
             )
-
-    # Handle scatter item extraction - if collection_index is set, extract the item
-    if task_result.collection_index is not None and isinstance(raw_result, list):
-        raw_result = raw_result[task_result.collection_index]
 
     return MaterializedTaskResult(
         result=raw_result,
@@ -484,18 +500,25 @@ class DSLActivities:
 
         Returns CollectionObject if externalized, InlineObject otherwise.
         """
-        # Materialize each StoredObject to get its raw value
-        storage = get_object_storage()
-        values: list[Any] = []
-        for obj in input.collection:
-            value = await storage.retrieve(obj)
-            values.append(value)
-
         # Guard CollectionObject: only use chunked storage when externalization
         # is enabled. Fall back to inline list for non-externalized deployments.
+        storage = get_object_storage()
         if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
-            return await store_collection(input.key, values)
+            refs: list[dict[str, Any]] = []
+            for i, obj in enumerate(input.collection):
+                value = await storage.retrieve(obj)
+                stored = await storage.store(collection_item_key(input.key, i), value)
+                refs.append(stored.model_dump())
+            return await store_collection(
+                input.key,
+                refs,
+                element_kind="stored_object",
+            )
         else:
+            values: list[Any] = []
+            for obj in input.collection:
+                value = await storage.retrieve(obj)
+                values.append(value)
             return InlineObject(data=values, typename="list")
 
     @staticmethod
@@ -541,7 +564,7 @@ class DSLActivities:
         # Guard CollectionObject: only use chunked storage when externalization
         # is enabled. Fall back to inline list for non-externalized deployments.
         if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
-            stored: StoredObject = await store_collection(input.key, results)
+            stored = await _store_collection_as_refs(input.key, results)
         else:
             stored = InlineObject(data=results, typename="list")
         return FinalizeGatherActivityResult(result=stored, errors=errors)
@@ -663,7 +686,7 @@ def _evaluate_scatter_input(input: ScatterActionInput) -> StoredObject:
     # Guard CollectionObject: only use chunked storage when externalization
     # is enabled. Fall back to inline list for non-externalized deployments.
     if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
-        return run_sync(store_collection(input.key, items))
+        return run_sync(_store_collection_as_refs(input.key, items))
     else:
         return InlineObject(data=items, typename="list")
 
@@ -788,7 +811,7 @@ def _resolve_subflow_batch(
     storage = get_object_storage()
     trigger_inputs_stored: list[StoredObject] = []
     for i, trigger_input in enumerate(trigger_inputs_list):
-        key = f"{input.key}/item_{i}.json"
+        key = collection_item_key(input.key, i)
         stored = run_sync(storage.store(key, trigger_input))
         trigger_inputs_stored.append(stored)
 
@@ -956,7 +979,7 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
     # is enabled. Fall back to inline list for non-externalized deployments.
     trigger_inputs_stored: StoredObject
     if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
-        trigger_inputs_stored = await store_collection(
+        trigger_inputs_stored = await _store_collection_as_refs(
             f"{input.key}/trigger_inputs", trigger_inputs_list
         )
     else:

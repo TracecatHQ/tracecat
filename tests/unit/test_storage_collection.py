@@ -3,15 +3,26 @@
 Tests CollectionObject variant and chunked manifest storage.
 """
 
-import pytest
-from pydantic import TypeAdapter
+import asyncio
 
+import pytest
+from botocore.exceptions import ClientError
+from pydantic import TypeAdapter
+from temporalio.exceptions import ApplicationError
+
+from tracecat.dsl.action import (
+    DSLActivities,
+    NormalizeTriggerInputsActivityInputs,
+)
+from tracecat.storage import blob
+from tracecat.storage.collection import get_collection_item, store_collection
 from tracecat.storage.object import (
     CollectionObject,
     ExternalObject,
     InlineObject,
     ObjectRef,
     StoredObject,
+    get_object_storage,
 )
 
 
@@ -421,6 +432,39 @@ class TestCollectionStorageFunctions:
         assert item == {"id": 49, "name": "item-49"}
 
     @pytest.mark.anyio
+    async def test_get_collection_item_stored_object_materializes_value(
+        self, mock_blob_storage
+    ):
+        """Test get_collection_item dereferences stored_object handles."""
+
+        large_payload = "x" * (
+            300 * 1024
+        )  # 300 KB payload to exceed S3 Select limits for testing
+        values = [{"id": i, "payload": large_payload} for i in range(3)]
+
+        storage = get_object_storage()
+        handles: list[dict[str, object]] = []
+        for i, value in enumerate(values):
+            stored = await storage.store(f"wf-123/stored-object-source/{i}.json", value)
+            handles.append(stored.model_dump())
+
+        collection = await store_collection(
+            prefix="wf-123/stored-object-collection",
+            items=handles,
+            element_kind="stored_object",
+            chunk_size=2,
+            bucket="test-bucket",
+        )
+
+        item = await get_collection_item(collection, 1)
+        assert item["id"] == 1
+        assert len(item["payload"]) == len(large_payload)
+
+        last = await get_collection_item(collection, -1)
+        assert last["id"] == 2
+        assert len(last["payload"]) == len(large_payload)
+
+    @pytest.mark.anyio
     async def test_get_collection_item_out_of_bounds(self, mock_blob_storage):
         """Test get_collection_item raises IndexError for out of bounds."""
         from tracecat.storage.collection import get_collection_item, store_collection
@@ -470,3 +514,60 @@ class TestCollectionStorageFunctions:
         assert len(values) == 20
         assert values[0] == {"id": 10}
         assert values[19] == {"id": 29}
+
+    @pytest.mark.anyio
+    async def test_looped_subflow_indexed_trigger_input_without_s3_select(
+        self, mock_blob_storage, monkeypatch
+    ):
+        """Red test: looped subflow indexed retrieval should not depend on S3 Select.
+
+        Current implementation calls S3 Select for indexed collection lookups, which
+        fails on AWS S3 for >1MB JSON records (OverMaxRecordSize). The expected
+        behavior is to still retrieve the i-th trigger input successfully.
+        """
+
+        large_payload = "x" * (2 * 1024 * 1024)  # 2 MB per item
+        items = [{"idx": i, "payload": large_payload} for i in range(25)]
+
+        collection = await store_collection(
+            prefix="wf-123/looped-subflow",
+            items=items,
+            element_kind="value",
+            chunk_size=25,
+            bucket="test-bucket",
+        )
+
+        async def over_max_record_size(key: str, bucket: str, expression: str) -> bytes:
+            raise ClientError(
+                {
+                    "Error": {
+                        "Code": "OverMaxRecordSize",
+                        "Message": (
+                            "The character number in one record is more than our max "
+                            "threshold, maxCharsPerRecord: 1,048,576"
+                        ),
+                    }
+                },
+                "SelectObjectContent",
+            )
+
+        monkeypatch.setattr(blob, "select_object_content", over_max_record_size)
+
+        # This should succeed after refactor, because indexed lookup should avoid S3 Select.
+        try:
+            normalized = await asyncio.to_thread(
+                DSLActivities.normalize_trigger_inputs_activity,
+                NormalizeTriggerInputsActivityInputs(
+                    input_schema={},
+                    trigger_inputs=collection.at(0),
+                    key="wf-123/looped-subflow/normalized-trigger-input.json",
+                ),
+            )
+        except ApplicationError:  # pragma: no cover - expected red failure today
+            pytest.fail(
+                "Looped subflow indexed trigger input retrieval still depends on "
+                "S3 Select and fails with OverMaxRecordSize"
+            )
+
+        resolved = await get_object_storage().retrieve(normalized)
+        assert resolved == items[0]
