@@ -167,13 +167,17 @@ def test_map(input: list[Any], python_lambda: str, expected: list[Any]) -> None:
 @pytest.mark.parametrize(
     "items,expected",
     [
-        ([1, None, 2, "", 3], [1, 2, 3]),
-        ([None, "", None], []),
+        ([1, None, 2, "", 3], [1, 2, "", 3]),
+        ([None, "", None], [""]),
         (["a", "b", "c"], ["a", "b", "c"]),
     ],
 )
 def test_drop_nulls(items: list[Any], expected: list[Any]) -> None:
     assert drop_nulls(items) == expected
+
+
+def test_drop_nulls_action_key() -> None:
+    assert getattr(drop_nulls, "__tracecat_udf_key") == "core.transform.drop_nulls"
 
 
 @pytest.mark.parametrize(

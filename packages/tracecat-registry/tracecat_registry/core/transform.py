@@ -355,14 +355,14 @@ def map(
 
 @registry.register(
     default_title="Drop nulls",
-    description="Remove all null or empty string values from a list.",
+    description="Remove null values from a list.",
     display_group="Data Transform",
     namespace="core.transform",
 )
 def drop_nulls(
     items: Annotated[list[Any], Doc("List of items to filter.")],
 ) -> list[Any]:
-    return [item for item in items if item is not None and item != ""]
+    return [item for item in items if item is not None]
 
 
 @registry.register(
