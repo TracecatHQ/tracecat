@@ -27,5 +27,5 @@ def test_require_all(conditions):
     ],
 )
 def test_require_all_fail(conditions):
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         require(conditions)

@@ -20,6 +20,7 @@ from uuid import uuid4
 import orjson
 import yaml
 from slugify import slugify
+from tracecat_registry._internal.flatten import flatten_dict as _flatten_dict
 
 from tracecat.common import is_iterable
 from tracecat.contexts import ctx_interaction, ctx_logical_time
@@ -356,6 +357,11 @@ def compact(x: list[Any]) -> list[Any]:
     return [item for item in x if item is not None]
 
 
+def drop_nulls(items: list[Any]) -> list[Any]:
+    """Remove all null or empty string values from a list."""
+    return [item for item in items if item is not None and item != ""]
+
+
 def is_in(item: Any, container: Sequence[Any]) -> bool:
     """Check if item exists in a sequence."""
     return item in container
@@ -473,6 +479,19 @@ def is_json(x: str) -> bool:
 def merge_dicts(x: list[dict[Any, Any]]) -> dict[Any, Any]:
     """Merge list of objects. Similar to merge function in Terraform."""
     return {k: v for d in x for k, v in d.items()}
+
+
+def flatten_dict(
+    x: str | dict[str, Any] | list[Any], max_depth: int = 100
+) -> dict[str, Any]:
+    """Return object with single level of keys (as jsonpath) and values."""
+    if isinstance(x, str):
+        x = orjson.loads(x)
+        if not isinstance(x, (dict, list)):
+            raise ValueError(
+                f"Input string must decode to a JSON object or array, got {type(x)}."
+            )
+    return _flatten_dict(x=x, max_depth=max_depth)
 
 
 def dict_keys(x: dict[Any, Any]) -> list[Any]:
@@ -1077,6 +1096,7 @@ _FUNCTION_MAPPING = {
     "difference": difference,
     "flatten": flatten,
     "intersection": intersection,
+    "drop_nulls": drop_nulls,
     "is_empty": is_empty,
     "is_in": is_in,
     "length": len,
@@ -1109,6 +1129,7 @@ _FUNCTION_MAPPING = {
     "lookup": dict_lookup,
     "map_keys": map_dict_keys,
     "merge": merge_dicts,
+    "flatten_dict": flatten_dict,
     "to_keys": dict_keys,
     "to_values": dict_values,
     "tabulate": tabulate,

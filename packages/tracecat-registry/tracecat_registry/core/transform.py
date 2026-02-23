@@ -9,6 +9,7 @@ import os
 import redis.asyncio as redis
 import orjson
 from tracecat_registry import ActionIsInterfaceError, registry
+from tracecat_registry._internal.flatten import flatten_dict as _flatten_dict
 from tracecat_registry._internal.jsonpath import eval_jsonpath
 from tracecat_registry._internal.safe_lambda import build_safe_lambda
 from tracecat_registry.context import get_context
@@ -353,15 +354,15 @@ def map(
 
 
 @registry.register(
-    default_title="Compact",
-    description="Remove all null or empty string values from a list.",
+    default_title="Drop nulls",
+    description="Remove null values from a list.",
     display_group="Data Transform",
     namespace="core.transform",
 )
-def compact(
-    items: Annotated[list[Any], Doc("List of items to compact.")],
+def drop_nulls(
+    items: Annotated[list[Any], Doc("List of items to filter.")],
 ) -> list[Any]:
-    return [item for item in items if item is not None and item != ""]
+    return [item for item in items if item is not None]
 
 
 @registry.register(
@@ -425,55 +426,7 @@ def gather(
 
 def flatten_dict(x: dict[str, Any] | list[Any], max_depth: int = 100) -> dict[str, Any]:
     """Return object with single level of keys (as jsonpath) and values."""
-
-    def _flatten(
-        obj: dict[str, Any] | list[Any], prefix: str = "", depth: int = 0
-    ) -> dict[str, Any]:
-        if depth > max_depth:
-            raise ValueError(
-                f"Maximum recursion depth ({max_depth}) exceeded while flattening object"
-            )
-
-        result: dict[str, Any] = {}
-
-        # Handle arrays
-        if isinstance(obj, list):
-            for index, item in enumerate(obj):
-                array_path = f"[{index}]"
-                full_path = f"{prefix}{array_path}" if prefix else array_path
-
-                if isinstance(item, (dict, list)):
-                    result.update(_flatten(item, full_path, depth + 1))
-                else:
-                    result[full_path] = item
-            return result
-
-        # Handle dictionaries
-        if isinstance(obj, dict):
-            for key, value in obj.items():
-                # Build the path with dot notation
-                full_path = f"{prefix}.{key}" if prefix else key
-
-                if isinstance(value, dict):
-                    # Recursively flatten nested dicts
-                    result.update(_flatten(value, full_path, depth + 1))
-                elif isinstance(value, list):
-                    # Handle arrays within objects
-                    for index, item in enumerate(value):
-                        array_path = f"{full_path}[{index}]"
-                        if isinstance(item, (dict, list)):
-                            result.update(_flatten(item, array_path, depth + 1))
-                        else:
-                            result[array_path] = item
-                else:
-                    # Leaf value
-                    result[full_path] = value
-            return result
-
-        # Shouldn't reach here, but handle primitives
-        return {prefix: obj} if prefix else {"": obj}
-
-    return _flatten(x)
+    return _flatten_dict(x, max_depth=max_depth)
 
 
 @registry.register(

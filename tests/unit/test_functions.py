@@ -36,6 +36,7 @@ from tracecat.expressions.functions import (
     div,
     endswith,
     flatten,
+    flatten_dict,
     format_datetime,
     format_string,
     from_timestamp,
@@ -986,6 +987,21 @@ def test_flatten(input_iterables: list, expected: list) -> None:
     The function recursively flattens all sequences (including tuples) into a single list.
     """
     assert flatten(input_iterables) == expected
+
+
+@pytest.mark.parametrize(
+    "input_json,expected",
+    [
+        ('{"a": {"b": 1}}', {"a.b": 1}),
+        ('{"items": [1, 2]}', {"items[0]": 1, "items[1]": 2}),
+        (
+            '{"user": {"name": "Alice", "data": [1, 2]}}',
+            {"user.name": "Alice", "user.data[0]": 1, "user.data[1]": 2},
+        ),
+    ],
+)
+def test_flatten_dict_string_input(input_json: str, expected: dict[str, Any]) -> None:
+    assert flatten_dict(input_json) == expected
 
 
 @pytest.mark.parametrize(

@@ -6,6 +6,7 @@ from tracecat_registry._internal.exceptions import TracecatExpressionError
 from tracecat_registry.core.transform import (
     apply,
     deduplicate,
+    drop_nulls,
     eval_jsonpaths,
     filter,
     flatten_json,
@@ -161,6 +162,22 @@ def test_apply(input: Any, python_lambda: str, expected: Any) -> None:
 )
 def test_map(input: list[Any], python_lambda: str, expected: list[Any]) -> None:
     assert map(input, python_lambda) == expected
+
+
+@pytest.mark.parametrize(
+    "items,expected",
+    [
+        ([1, None, 2, "", 3], [1, 2, "", 3]),
+        ([None, "", None], [""]),
+        (["a", "b", "c"], ["a", "b", "c"]),
+    ],
+)
+def test_drop_nulls(items: list[Any], expected: list[Any]) -> None:
+    assert drop_nulls(items) == expected
+
+
+def test_drop_nulls_action_key() -> None:
+    assert getattr(drop_nulls, "__tracecat_udf_key") == "core.transform.drop_nulls"
 
 
 @pytest.mark.parametrize(

@@ -44,7 +44,7 @@ def require(
 
     if not check(conditions):
         if raise_error:
-            raise AssertionError(
+            raise ValueError(
                 f"{msg} condition must evaluate to true. Got values: "
                 + ", ".join(str(condition) for condition in conditions)
             )

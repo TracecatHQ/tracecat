@@ -487,20 +487,20 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                 "implementation": email_impl,
             }
 
-            # core.open_case
-            open_case_impl = {
+            # core.cases.create_case
+            create_case_impl = {
                 "type": "udf",
                 "url": origin,
                 "module": "tracecat_registry.core.cases",
-                "name": "open_case",
+                "name": "create_case",
             }
-            manifest_actions["core.open_case"] = {
-                "namespace": "core",
-                "name": "open_case",
+            manifest_actions["core.cases.create_case"] = {
+                "namespace": "core.cases",
+                "name": "create_case",
                 "action_type": "udf",
-                "description": "Open a case",
+                "description": "Create a case",
                 "interface": {"expects": {}, "returns": None},
-                "implementation": open_case_impl,
+                "implementation": create_case_impl,
             }
 
             # core.table.lookup
@@ -565,22 +565,6 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                 "description": "Run a Python script",
                 "interface": {"expects": {}, "returns": None},
                 "implementation": script_impl,
-            }
-
-            # core.ai.extract
-            ai_extract_impl = {
-                "type": "udf",
-                "url": origin,
-                "module": "tracecat_registry.core.ai",
-                "name": "extract",
-            }
-            manifest_actions["core.ai.extract"] = {
-                "namespace": "core.ai",
-                "name": "extract",
-                "action_type": "udf",
-                "description": "AI extraction",
-                "interface": {"expects": {}, "returns": None},
-                "implementation": ai_extract_impl,
             }
 
             # core.transform.map
