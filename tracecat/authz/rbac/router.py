@@ -1,16 +1,35 @@
-"""RBAC API routers - user scopes endpoint (OSS).
+"""RBAC API routers - OSS endpoints.
 
-The RBAC management endpoints (scopes, roles, groups, assignments) are
-available in the Enterprise Edition (tracecat_ee.rbac.router).
+Read-only role listing is exposed here; write operations are in the Enterprise
+Edition RBAC router (`tracecat_ee.rbac.router`).
 """
 
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from tracecat_ee.rbac.schemas import (
+    RoleList,
+    RoleReadWithScopes,
+    ScopeRead,
+    UserRoleAssignmentCreate,
+    UserRoleAssignmentList,
+    UserRoleAssignmentReadWithDetails,
+    UserRoleAssignmentUpdate,
+)
+from tracecat_ee.rbac.service import RBACService
 
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.types import Role
+from tracecat.authz.controls import require_scope
+from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import Role as DBRole
+from tracecat.db.models import UserRoleAssignment
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 
 # =============================================================================
 # User Scopes Schemas (kept here for OSS endpoint)
@@ -51,3 +70,200 @@ async def get_my_scopes(
     """
     current_scopes = role.scopes or frozenset()
     return UserScopesRead(scopes=sorted(current_scopes))
+
+
+# =============================================================================
+# Roles Router (Public read)
+# =============================================================================
+
+roles_router = APIRouter(prefix="/rbac/roles", tags=["rbac"])
+
+
+@roles_router.get("", response_model=RoleList)
+async def list_roles(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> RoleList:
+    """List roles for the organization.
+
+    Requires: authenticated organization member.
+    """
+    if role.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No organization context",
+        )
+
+    stmt = (
+        select(DBRole)
+        .where(DBRole.organization_id == role.organization_id)
+        .options(selectinload(DBRole.scopes))
+        .order_by(DBRole.name)
+    )
+    result = await session.execute(stmt)
+    roles = result.scalars().all()
+
+    return RoleList(
+        items=[
+            RoleReadWithScopes(
+                id=r.id,
+                name=r.name,
+                slug=r.slug,
+                description=r.description,
+                organization_id=r.organization_id,
+                created_at=r.created_at,
+                updated_at=r.updated_at,
+                created_by=r.created_by,
+                scopes=ScopeRead.list_adapter().validate_python(r.scopes),
+            )
+            for r in roles
+        ],
+        total=len(roles),
+    )
+
+
+# =============================================================================
+# User Role Assignments Router
+# =============================================================================
+
+user_assignments_router = APIRouter(prefix="/rbac/user-assignments", tags=["rbac"])
+
+
+def _assignment_to_read(
+    a: UserRoleAssignment,
+) -> UserRoleAssignmentReadWithDetails:
+    """Convert a UserRoleAssignment DB model to its read schema."""
+    return UserRoleAssignmentReadWithDetails(
+        id=a.id,
+        organization_id=a.organization_id,
+        user_id=a.user_id,
+        workspace_id=a.workspace_id,
+        role_id=a.role_id,
+        assigned_at=a.assigned_at,
+        assigned_by=a.assigned_by,
+        user_email=a.user.email,
+        role_name=a.role.name,
+        workspace_name=a.workspace.name if a.workspace else None,
+    )
+
+
+@user_assignments_router.get("", response_model=UserRoleAssignmentList)
+@require_scope("org:rbac:read")
+async def list_user_assignments(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    user_id: UUID | None = Query(None, description="Filter by user ID"),
+    workspace_id: UUID | None = Query(None, description="Filter by workspace ID"),
+) -> UserRoleAssignmentList:
+    """List user role assignments for the organization."""
+    service = RBACService(session, role=role)
+    assignments = await service.list_user_assignments(
+        user_id=user_id,
+        workspace_id=workspace_id,
+    )
+    return UserRoleAssignmentList(
+        items=[_assignment_to_read(a) for a in assignments],
+        total=len(assignments),
+    )
+
+
+@user_assignments_router.get(
+    "/{assignment_id}", response_model=UserRoleAssignmentReadWithDetails
+)
+@require_scope("org:rbac:read")
+async def get_user_assignment(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    assignment_id: UUID,
+) -> UserRoleAssignmentReadWithDetails:
+    """Get a user role assignment by ID."""
+    service = RBACService(session, role=role)
+    try:
+        a = await service.get_user_assignment(assignment_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    return _assignment_to_read(a)
+
+
+@user_assignments_router.post(
+    "",
+    response_model=UserRoleAssignmentReadWithDetails,
+    status_code=status.HTTP_201_CREATED,
+)
+@require_scope("org:rbac:create")
+async def create_user_assignment(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    params: UserRoleAssignmentCreate,
+) -> UserRoleAssignmentReadWithDetails:
+    """Create a user role assignment.
+
+    Assigns a role directly to a user. If workspace_id is None, creates an org-wide
+    assignment that applies to all workspaces. Each user can have at most
+    one assignment per workspace (or one org-wide assignment).
+
+    Requires: org:rbac:create scope
+    """
+    service = RBACService(session, role=role)
+    try:
+        a = await service.create_user_assignment(
+            user_id=params.user_id,
+            role_id=params.role_id,
+            workspace_id=params.workspace_id,
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
+    return _assignment_to_read(a)
+
+
+@user_assignments_router.patch(
+    "/{assignment_id}", response_model=UserRoleAssignmentReadWithDetails
+)
+@require_scope("org:rbac:update")
+async def update_user_assignment(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    assignment_id: UUID,
+    params: UserRoleAssignmentUpdate,
+) -> UserRoleAssignmentReadWithDetails:
+    """Update a user role assignment (change role).
+
+    Requires: org:rbac:update scope
+    """
+    service = RBACService(session, role=role)
+    try:
+        a = await service.update_user_assignment(assignment_id, role_id=params.role_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    return _assignment_to_read(a)
+
+
+@user_assignments_router.delete(
+    "/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+@require_scope("org:rbac:delete")
+async def delete_user_assignment(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    assignment_id: UUID,
+) -> None:
+    """Delete a user role assignment.
+
+    Requires: org:rbac:delete scope
+    """
+    service = RBACService(session, role=role)
+    try:
+        await service.delete_user_assignment(assignment_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

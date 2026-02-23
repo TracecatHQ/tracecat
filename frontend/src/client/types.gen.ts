@@ -9351,6 +9351,52 @@ export type UsersGetMyScopesData = {
 
 export type UsersGetMyScopesResponse = UserScopesRead
 
+export type RbacListRolesResponse = RoleList
+
+export type RbacCreateRoleData = {
+  requestBody: RoleCreate
+}
+
+export type RbacCreateRoleResponse = RoleReadWithScopes
+
+export type RbacListUserAssignmentsData = {
+  /**
+   * Filter by user ID
+   */
+  userId?: string | null
+  /**
+   * Filter by workspace ID
+   */
+  workspaceId?: string | null
+}
+
+export type RbacListUserAssignmentsResponse = UserRoleAssignmentList
+
+export type RbacCreateUserAssignmentData = {
+  requestBody: UserRoleAssignmentCreate
+}
+
+export type RbacCreateUserAssignmentResponse = UserRoleAssignmentReadWithDetails
+
+export type RbacGetUserAssignmentData = {
+  assignmentId: string
+}
+
+export type RbacGetUserAssignmentResponse = UserRoleAssignmentReadWithDetails
+
+export type RbacUpdateUserAssignmentData = {
+  assignmentId: string
+  requestBody: UserRoleAssignmentUpdate
+}
+
+export type RbacUpdateUserAssignmentResponse = UserRoleAssignmentReadWithDetails
+
+export type RbacDeleteUserAssignmentData = {
+  assignmentId: string
+}
+
+export type RbacDeleteUserAssignmentResponse = void
+
 export type RbacListScopesData = {
   /**
    * Include system/registry scopes
@@ -9381,14 +9427,6 @@ export type RbacDeleteScopeData = {
 }
 
 export type RbacDeleteScopeResponse = void
-
-export type RbacListRolesResponse = RoleList
-
-export type RbacCreateRoleData = {
-  requestBody: RoleCreate
-}
-
-export type RbacCreateRoleResponse = RoleReadWithScopes
 
 export type RbacGetRoleData = {
   roleId: string
@@ -9489,44 +9527,6 @@ export type RbacDeleteAssignmentData = {
 }
 
 export type RbacDeleteAssignmentResponse = void
-
-export type RbacListUserAssignmentsData = {
-  /**
-   * Filter by user ID
-   */
-  userId?: string | null
-  /**
-   * Filter by workspace ID
-   */
-  workspaceId?: string | null
-}
-
-export type RbacListUserAssignmentsResponse = UserRoleAssignmentList
-
-export type RbacCreateUserAssignmentData = {
-  requestBody: UserRoleAssignmentCreate
-}
-
-export type RbacCreateUserAssignmentResponse = UserRoleAssignmentReadWithDetails
-
-export type RbacGetUserAssignmentData = {
-  assignmentId: string
-}
-
-export type RbacGetUserAssignmentResponse = UserRoleAssignmentReadWithDetails
-
-export type RbacUpdateUserAssignmentData = {
-  assignmentId: string
-  requestBody: UserRoleAssignmentUpdate
-}
-
-export type RbacUpdateUserAssignmentResponse = UserRoleAssignmentReadWithDetails
-
-export type RbacDeleteUserAssignmentData = {
-  assignmentId: string
-}
-
-export type RbacDeleteUserAssignmentResponse = void
 
 export type UsersUsersCurrentUserResponse = UserRead
 
@@ -13879,6 +13879,98 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/rbac/roles": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RoleList
+      }
+    }
+    post: {
+      req: RbacCreateRoleData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: RoleReadWithScopes
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/rbac/user-assignments": {
+    get: {
+      req: RbacListUserAssignmentsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRoleAssignmentList
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: RbacCreateUserAssignmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: UserRoleAssignmentReadWithDetails
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/rbac/user-assignments/{assignment_id}": {
+    get: {
+      req: RbacGetUserAssignmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRoleAssignmentReadWithDetails
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: RbacUpdateUserAssignmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: UserRoleAssignmentReadWithDetails
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: RbacDeleteUserAssignmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/rbac/scopes": {
     get: {
       req: RbacListScopesData
@@ -13928,29 +14020,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/rbac/roles": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: RoleList
-      }
-    }
-    post: {
-      req: RbacCreateRoleData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: RoleReadWithScopes
         /**
          * Validation Error
          */
@@ -14152,75 +14221,6 @@ export type $OpenApiTs = {
     }
     delete: {
       req: RbacDeleteAssignmentData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/rbac/user-assignments": {
-    get: {
-      req: RbacListUserAssignmentsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: UserRoleAssignmentList
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    post: {
-      req: RbacCreateUserAssignmentData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: UserRoleAssignmentReadWithDetails
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/rbac/user-assignments/{assignment_id}": {
-    get: {
-      req: RbacGetUserAssignmentData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: UserRoleAssignmentReadWithDetails
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    patch: {
-      req: RbacUpdateUserAssignmentData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: UserRoleAssignmentReadWithDetails
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: RbacDeleteUserAssignmentData
       res: {
         /**
          * Successful Response

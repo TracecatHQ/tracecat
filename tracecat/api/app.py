@@ -49,6 +49,10 @@ from tracecat.auth.users import (
     auth_backend,
     fastapi_users,
 )
+from tracecat.authz.rbac.router import roles_router as rbac_roles_read_router
+from tracecat.authz.rbac.router import (
+    user_assignments_router as rbac_user_assignments_router,
+)
 from tracecat.authz.rbac.router import user_scopes_router
 from tracecat.authz.seeding import seed_all_system_data
 from tracecat.cases.attachments.internal_router import (
@@ -436,8 +440,10 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(mcp_router)
     app.include_router(feature_flags_router)
     app.include_router(vcs_router)
-    # RBAC routers - user_scopes_router is always included (OSS)
+    # RBAC routers - user scopes + role listing + user role assignments are always included (OSS)
     app.include_router(user_scopes_router)
+    app.include_router(rbac_roles_read_router)
+    app.include_router(rbac_user_assignments_router)
 
     # EE-only RBAC management endpoints - gated by RBAC entitlement
     from tracecat_ee.rbac.router import (
@@ -452,15 +458,11 @@ def create_app(**kwargs) -> FastAPI:
     from tracecat_ee.rbac.router import (
         scopes_router as rbac_scopes_router,
     )
-    from tracecat_ee.rbac.router import (
-        user_assignments_router as rbac_user_assignments_router,
-    )
 
     app.include_router(rbac_scopes_router)
     app.include_router(rbac_roles_router)
     app.include_router(rbac_groups_router)
     app.include_router(rbac_assignments_router)
-    app.include_router(rbac_user_assignments_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",
