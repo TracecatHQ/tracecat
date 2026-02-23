@@ -2,10 +2,12 @@ import type { LucideIcon } from "lucide-react"
 import {
   BlocksIcon,
   BoxIcon,
+  DatabaseIcon,
   LayersIcon,
   SparklesIcon,
   SquareFunctionIcon,
   Table2Icon,
+  WorkflowIcon,
 } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 import type { RegistryActionReadMinimal } from "@/client"
@@ -51,10 +53,24 @@ const ACTION_CATEGORIES: ActionCategory[] = [
     align: "center",
   },
   {
+    id: "core.workflow",
+    label: "Workflow",
+    namespace: "core.workflow",
+    icon: WorkflowIcon,
+    align: "center",
+  },
+  {
     id: "core.transform",
     label: "Transform",
     namespace: "core.transform",
     icon: SquareFunctionIcon,
+    align: "center",
+  },
+  {
+    id: "core.sql",
+    label: "SQL",
+    namespace: "core.sql",
+    icon: DatabaseIcon,
     align: "center",
   },
   {
@@ -89,64 +105,87 @@ const ACTION_CATEGORIES: ActionCategory[] = [
 ]
 
 // Custom sort orders for specific namespaces
-const CORE_HTTP_ORDER = [
+const CORE_TOP = [
+  "core.transform.reshape",
   "core.http_request",
-  "core.http_poll",
   "core.http_paginate",
+  "core.http_poll",
+  "core.script.run_python",
+  "core.send_email_smtp",
+  "core.grpc.request",
 ]
-const TRANSFORM_TOP = ["core.transform.reshape"]
+const TRANSFORM_TOP = [
+  "core.transform.reshape",
+  "core.transform.scatter",
+  "core.transform.gather",
+]
+const WORKFLOW_TOP = [
+  "core.workflow.execute",
+  "core.transform.scatter",
+  "core.transform.gather",
+]
+const SQL_TOP = ["core.duckdb.execute_sql", "core.sql.execute_query"]
 const AI_TOP = ["ai.action", "ai.agent", "ai.preset_agent", "ai.slackbot"]
+
+const WORKFLOW_EXTRA_ACTIONS = new Set([
+  "core.transform.scatter",
+  "core.transform.gather",
+])
+const SQL_NAMESPACES = ["core.sql", "core.duckdb"]
+
+function matchesNamespace(
+  actionNamespace: string | undefined,
+  namespace: string
+): boolean {
+  return (
+    actionNamespace === namespace ||
+    actionNamespace?.startsWith(`${namespace}.`) === true
+  )
+}
+
+function isCoreAction(action: RegistryActionReadMinimal): boolean {
+  if (action.action === "core.transform.reshape") return true
+  if (action.action === "core.send_email_smtp") return true
+  if (action.action.startsWith("core.http_")) return true
+  if (matchesNamespace(action.namespace, "core.script")) return true
+  if (matchesNamespace(action.namespace, "core.grpc")) return true
+  return false
+}
+
+function sortWithTop(
+  actions: RegistryActionReadMinimal[],
+  topActions: string[]
+): RegistryActionReadMinimal[] {
+  return [...actions].sort((a, b) => {
+    const aTopIndex = topActions.indexOf(a.action)
+    const bTopIndex = topActions.indexOf(b.action)
+    const aIsTop = aTopIndex !== -1
+    const bIsTop = bTopIndex !== -1
+
+    if (aIsTop && bIsTop) return aTopIndex - bTopIndex
+    if (aIsTop) return -1
+    if (bIsTop) return 1
+    return a.action.localeCompare(b.action)
+  })
+}
 
 function sortActions(
   actions: RegistryActionReadMinimal[],
   categoryId: string
 ): RegistryActionReadMinimal[] {
-  const sorted = [...actions]
-
   if (categoryId === "core") {
-    // Sort HTTP actions: request -> poll -> paginate, then alphabetical
-    sorted.sort((a, b) => {
-      const aHttpIndex = CORE_HTTP_ORDER.indexOf(a.action)
-      const bHttpIndex = CORE_HTTP_ORDER.indexOf(b.action)
-      const aIsHttp = aHttpIndex !== -1
-      const bIsHttp = bHttpIndex !== -1
-
-      if (aIsHttp && bIsHttp) return aHttpIndex - bHttpIndex
-      if (aIsHttp) return -1
-      if (bIsHttp) return 1
-      return a.action.localeCompare(b.action)
-    })
+    return sortWithTop(actions, CORE_TOP)
   } else if (categoryId === "core.transform") {
-    // Move reshape to top, then alphabetical
-    sorted.sort((a, b) => {
-      const aTopIndex = TRANSFORM_TOP.indexOf(a.action)
-      const bTopIndex = TRANSFORM_TOP.indexOf(b.action)
-      const aIsTop = aTopIndex !== -1
-      const bIsTop = bTopIndex !== -1
-
-      if (aIsTop && bIsTop) return aTopIndex - bTopIndex
-      if (aIsTop) return -1
-      if (bIsTop) return 1
-      return a.action.localeCompare(b.action)
-    })
+    return sortWithTop(actions, TRANSFORM_TOP)
+  } else if (categoryId === "core.workflow") {
+    return sortWithTop(actions, WORKFLOW_TOP)
+  } else if (categoryId === "core.sql") {
+    return sortWithTop(actions, SQL_TOP)
   } else if (categoryId === "ai") {
-    // Sort AI actions with specific order at top
-    sorted.sort((a, b) => {
-      const aTopIndex = AI_TOP.indexOf(a.action)
-      const bTopIndex = AI_TOP.indexOf(b.action)
-      const aIsTop = aTopIndex !== -1
-      const bIsTop = bTopIndex !== -1
-
-      if (aIsTop && bIsTop) return aTopIndex - bTopIndex
-      if (aIsTop) return -1
-      if (bIsTop) return 1
-      return a.action.localeCompare(b.action)
-    })
-  } else {
-    sorted.sort((a, b) => a.action.localeCompare(b.action))
+    return sortWithTop(actions, AI_TOP)
   }
 
-  return sorted
+  return [...actions].sort((a, b) => a.action.localeCompare(b.action))
 }
 
 export interface CanvasToolbarProps {
@@ -164,19 +203,26 @@ export function CanvasToolbar({ onAddAction }: CanvasToolbarProps) {
 
     for (const category of ACTION_CATEGORIES) {
       const actions = registryActions.filter((action) => {
-        // For "core", match exactly "core" namespace (not core.*)
-        if (category.namespace === "core") {
-          return action.namespace === "core"
+        if (category.id === "core") {
+          return isCoreAction(action)
+        }
+        if (category.id === "core.workflow") {
+          return (
+            matchesNamespace(action.namespace, "core.workflow") ||
+            WORKFLOW_EXTRA_ACTIONS.has(action.action)
+          )
+        }
+        if (category.id === "core.sql") {
+          return SQL_NAMESPACES.some((namespace) =>
+            matchesNamespace(action.namespace, namespace)
+          )
         }
         // For "tools", match anything starting with "tools."
         if (category.namespace === "tools") {
           return action.namespace?.startsWith("tools.") ?? false
         }
         // For others, match the exact namespace or starts with namespace.
-        return (
-          action.namespace === category.namespace ||
-          action.namespace?.startsWith(`${category.namespace}.`)
-        )
+        return matchesNamespace(action.namespace, category.namespace)
       })
       grouped.set(category.id, sortActions(actions, category.id))
     }
