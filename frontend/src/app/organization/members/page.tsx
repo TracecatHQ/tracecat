@@ -5,11 +5,15 @@ import { OrgMembersTable } from "@/components/organization/org-members-table"
 import { OrgRbacGroups } from "@/components/organization/org-rbac-groups"
 import { OrgRbacRoles } from "@/components/organization/org-rbac-roles"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useEntitlements } from "@/hooks/use-entitlements"
 
 const tabTriggerClassName =
   "rounded-none border-b-2 border-transparent px-4 py-2.5 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
 
 export default function MembersPage() {
+  const { hasEntitlement } = useEntitlements()
+  const rbacEnabled = hasEntitlement("rbac")
+
   return (
     <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[1200px] flex-col space-y-8 py-6">
@@ -23,34 +27,38 @@ export default function MembersPage() {
             </p>
           </div>
         </div>
-        <ScopeGuard
-          scope="org:rbac:read"
-          fallback={<OrgMembersTable />}
-          loading={null}
-        >
-          <Tabs defaultValue="members" className="w-full">
-            <TabsList className="inline-flex h-auto w-auto justify-start gap-0 rounded-none border-b border-border/30 bg-transparent p-0">
-              <TabsTrigger value="members" className={tabTriggerClassName}>
-                Members
-              </TabsTrigger>
-              <TabsTrigger value="roles" className={tabTriggerClassName}>
-                Roles
-              </TabsTrigger>
-              <TabsTrigger value="groups" className={tabTriggerClassName}>
-                Groups
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="members" className="mt-6">
-              <OrgMembersTable />
-            </TabsContent>
-            <TabsContent value="roles" className="mt-6">
-              <OrgRbacRoles />
-            </TabsContent>
-            <TabsContent value="groups" className="mt-6">
-              <OrgRbacGroups />
-            </TabsContent>
-          </Tabs>
-        </ScopeGuard>
+        {rbacEnabled ? (
+          <ScopeGuard
+            scope="org:rbac:read"
+            fallback={<OrgMembersTable />}
+            loading={null}
+          >
+            <Tabs defaultValue="members" className="w-full">
+              <TabsList className="inline-flex h-auto w-auto justify-start gap-0 rounded-none border-b border-border/30 bg-transparent p-0">
+                <TabsTrigger value="members" className={tabTriggerClassName}>
+                  Members
+                </TabsTrigger>
+                <TabsTrigger value="roles" className={tabTriggerClassName}>
+                  Roles
+                </TabsTrigger>
+                <TabsTrigger value="groups" className={tabTriggerClassName}>
+                  Groups
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="members" className="mt-6">
+                <OrgMembersTable />
+              </TabsContent>
+              <TabsContent value="roles" className="mt-6">
+                <OrgRbacRoles />
+              </TabsContent>
+              <TabsContent value="groups" className="mt-6">
+                <OrgRbacGroups />
+              </TabsContent>
+            </Tabs>
+          </ScopeGuard>
+        ) : (
+          <OrgMembersTable />
+        )}
       </div>
     </div>
   )

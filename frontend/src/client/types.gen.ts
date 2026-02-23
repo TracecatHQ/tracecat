@@ -2332,6 +2332,10 @@ export type EffectiveEntitlements = {
    * Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)
    */
   case_addons?: boolean
+  /**
+   * Whether RBAC is enabled (custom roles, groups, and assignments)
+   */
+  rbac?: boolean
 }
 
 /**
@@ -2356,6 +2360,10 @@ export type EntitlementsDict = {
    * Whether add-on case capabilities are enabled (dropdowns, durations, tasks, triggers)
    */
   case_addons?: boolean
+  /**
+   * Whether RBAC is enabled (custom roles, groups, and assignments)
+   */
+  rbac?: boolean
 }
 
 export type ErrorDetails = {

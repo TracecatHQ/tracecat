@@ -9,6 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { cn } from "@/lib/utils"
 
 export enum MembersViewMode {
@@ -35,6 +36,12 @@ export function MembersViewToggle({
   groupsHref,
   rbacScope,
 }: MembersViewToggleProps) {
+  const { hasEntitlement } = useEntitlements()
+
+  if (!hasEntitlement("rbac")) {
+    return null
+  }
+
   const toggleItems = [
     {
       mode: MembersViewMode.Members,

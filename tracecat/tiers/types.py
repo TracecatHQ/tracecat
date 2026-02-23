@@ -32,3 +32,10 @@ class EntitlementsDict(TypedDict, total=False):
             " (dropdowns, durations, tasks, triggers)"
         ),
     ]
+    rbac: Annotated[
+        bool,
+        Field(
+            description="Whether RBAC is enabled"
+            " (custom roles, groups, and assignments)"
+        ),
+    ]

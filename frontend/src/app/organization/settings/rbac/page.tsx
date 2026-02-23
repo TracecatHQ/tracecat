@@ -1,12 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import { OrgRbacAssignments } from "@/components/organization/org-rbac-assignments"
 import { OrgRbacGroups } from "@/components/organization/org-rbac-groups"
 import { OrgRbacRoles } from "@/components/organization/org-rbac-roles"
 import { OrgRbacScopes } from "@/components/organization/org-rbac-scopes"
 import { OrgRbacUserAssignments } from "@/components/organization/org-rbac-user-assignments"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useEntitlements } from "@/hooks/use-entitlements"
 
 type RbacTab =
   | "roles"
@@ -16,7 +19,20 @@ type RbacTab =
   | "user-assignments"
 
 export default function RbacSettingsPage() {
+  const router = useRouter()
+  const { hasEntitlement, isLoading } = useEntitlements()
+  const rbacEnabled = hasEntitlement("rbac")
   const [activeTab, setActiveTab] = useState<RbacTab>("roles")
+
+  useEffect(() => {
+    if (!isLoading && !rbacEnabled) {
+      router.replace("/organization/members")
+    }
+  }, [isLoading, rbacEnabled, router])
+
+  if (isLoading || !rbacEnabled) {
+    return <CenteredSpinner />
+  }
 
   return (
     <div className="size-full overflow-auto">

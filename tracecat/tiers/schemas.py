@@ -57,6 +57,10 @@ class EffectiveEntitlements(Schema):
         description="Whether add-on case capabilities are enabled"
         " (dropdowns, durations, tasks, triggers)",
     )
+    rbac: bool = Field(
+        default=False,
+        description="Whether RBAC is enabled (custom roles, groups, and assignments)",
+    )
 
 
 class TierRead(Schema):
