@@ -1,9 +1,8 @@
 "use client"
 
-import { ChevronDownIcon, ChevronRightIcon } from "lucide-react"
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react"
 import { memo, useCallback, useMemo, useState } from "react"
 import type { ScopeRead } from "@/client"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Select,
   SelectContent,
@@ -14,6 +13,8 @@ import {
 import {
   getCategoryPermissionLevel,
   getCategoryScopes,
+  getScopeActionLabel,
+  getScopeActionNamespace,
   getScopesForLevel,
   groupScopesByResource,
   LEVEL_LABELS,
@@ -26,11 +27,11 @@ export interface ScopeCategoryRowProps {
   category: { label: string; description: string; resources: string[] }
   scopes: ScopeRead[]
   selectedScopeIds: Set<string>
-  onScopeToggle: (scopeId: string) => void
+  onScopeToggle: (scopeId: string, checked: boolean) => void
   onLevelChange: (categoryResources: string[], level: PermissionLevel) => void
 }
 
-export function ScopeCategoryRow({
+export const ScopeCategoryRow = memo(function ScopeCategoryRow({
   categoryKey,
   category,
   scopes,
@@ -39,6 +40,7 @@ export function ScopeCategoryRow({
   onLevelChange,
 }: ScopeCategoryRowProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const isActionsCategory = categoryKey === "actions"
 
   // Get scopes for this category
   const categoryScopes = useMemo(
@@ -53,11 +55,65 @@ export function ScopeCategoryRow({
     [category.resources, scopes, selectedScopeIds]
   )
 
-  // Group scopes by resource for expanded view
-  const scopesByResource = useMemo(
-    () => groupScopesByResource(categoryScopes),
-    [categoryScopes]
-  )
+  // Group scopes by resource for expanded view (sorted for predictable ordering)
+  const scopesByResource = useMemo(() => {
+    const groupedScopes = groupScopesByResource(categoryScopes)
+    const sortedEntries = Object.entries(groupedScopes).sort(
+      ([resourceA], [resourceB]) => resourceA.localeCompare(resourceB)
+    )
+    const sortedScopesByResource: Record<string, ScopeRead[]> = {}
+    for (const [resource, resourceScopes] of sortedEntries) {
+      sortedScopesByResource[resource] = [...resourceScopes].sort(
+        (scopeA, scopeB) =>
+          getScopeActionLabel(scopeA).localeCompare(getScopeActionLabel(scopeB))
+      )
+    }
+    return sortedScopesByResource
+  }, [categoryScopes])
+
+  const actionNamespaces = useMemo(() => {
+    if (!isActionsCategory) return []
+    const namespaces = new Set<string>()
+    for (const scope of categoryScopes) {
+      const namespace = getScopeActionNamespace(scope)
+      if (namespace) {
+        namespaces.add(namespace)
+      }
+    }
+    return Array.from(namespaces).sort((a, b) => a.localeCompare(b))
+  }, [categoryScopes, isActionsCategory])
+
+  const actionNamespaceValue = useMemo(() => {
+    if (!isActionsCategory) return "all"
+    if (categoryScopes.length === 0) return "none"
+
+    const selectedActionScopes = categoryScopes.filter((scope) =>
+      selectedScopeIds.has(scope.id)
+    )
+
+    if (selectedActionScopes.length === 0) return "none"
+    if (selectedActionScopes.length === categoryScopes.length) return "all"
+
+    const selectedNamespaces = new Set(
+      selectedActionScopes
+        .map((scope) => getScopeActionNamespace(scope))
+        .filter((namespace): namespace is string => Boolean(namespace))
+    )
+
+    if (selectedNamespaces.size !== 1) return "custom"
+    const [namespace] = Array.from(selectedNamespaces)
+
+    const namespaceScopeIds = categoryScopes
+      .filter((scope) => getScopeActionNamespace(scope) === namespace)
+      .map((scope) => scope.id)
+    const selectedIds = new Set(selectedActionScopes.map((scope) => scope.id))
+
+    const isExactNamespaceSelection =
+      namespaceScopeIds.length === selectedIds.size &&
+      namespaceScopeIds.every((scopeId) => selectedIds.has(scopeId))
+
+    return isExactNamespaceSelection ? namespace : "custom"
+  }, [categoryScopes, isActionsCategory, selectedScopeIds])
 
   const handleLevelChange = useCallback(
     (newLevel: string) => {
@@ -68,6 +124,32 @@ export function ScopeCategoryRow({
       onLevelChange(category.resources, level)
     },
     [category.resources, onLevelChange]
+  )
+
+  const handleActionNamespaceChange = useCallback(
+    (value: string) => {
+      if (value === "custom") return
+
+      if (value === "none") {
+        for (const scope of categoryScopes) {
+          onScopeToggle(scope.id, false)
+        }
+        return
+      }
+
+      if (value === "all") {
+        for (const scope of categoryScopes) {
+          onScopeToggle(scope.id, true)
+        }
+        return
+      }
+
+      for (const scope of categoryScopes) {
+        const namespace = getScopeActionNamespace(scope)
+        onScopeToggle(scope.id, namespace === value)
+      }
+    },
+    [categoryScopes, onScopeToggle]
   )
 
   if (categoryScopes.length === 0) return null
@@ -108,29 +190,48 @@ export function ScopeCategoryRow({
             {category.description}
           </p>
         </div>
-        <Select value={currentLevel} onValueChange={handleLevelChange}>
-          <SelectTrigger className="w-[110px] h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">None</SelectItem>
-            <SelectItem value="read">Read</SelectItem>
-            {categoryKey !== "organization" && (
-              <SelectItem value="write">Write</SelectItem>
-            )}
-            {(categoryKey === "workflows" ||
-              categoryKey === "agents" ||
-              categoryKey === "actions") && (
-              <SelectItem value="execute">Execute</SelectItem>
-            )}
-            <SelectItem value="admin">Admin</SelectItem>
-            {currentLevel === "mixed" && (
+        {isActionsCategory ? (
+          <Select
+            value={actionNamespaceValue}
+            onValueChange={handleActionNamespaceChange}
+          >
+            <SelectTrigger className="w-[140px] h-8 text-xs">
+              <SelectValue placeholder="Namespace" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None</SelectItem>
+              <SelectItem value="all">All namespaces</SelectItem>
+              {actionNamespaces.map((namespace) => (
+                <SelectItem key={namespace} value={namespace}>
+                  {namespace}
+                </SelectItem>
+              ))}
+              <SelectItem value="custom" disabled>
+                Custom
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        ) : (
+          <Select value={currentLevel} onValueChange={handleLevelChange}>
+            <SelectTrigger className="w-[110px] h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None</SelectItem>
+              <SelectItem value="read">Read</SelectItem>
+              {(categoryKey !== "organization" || currentLevel === "write") && (
+                <SelectItem value="write">Write</SelectItem>
+              )}
+              {(categoryKey === "workflows" || categoryKey === "agents") && (
+                <SelectItem value="execute">Execute</SelectItem>
+              )}
+              <SelectItem value="admin">Admin</SelectItem>
               <SelectItem value="mixed" disabled>
                 Custom
               </SelectItem>
-            )}
-          </SelectContent>
-        </Select>
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {isExpanded && (
@@ -148,6 +249,7 @@ export function ScopeCategoryRow({
                       scope={scope}
                       isSelected={selectedScopeIds.has(scope.id)}
                       onToggle={onScopeToggle}
+                      label={getScopeActionLabel(scope)}
                     />
                   ))}
                 </div>
@@ -158,21 +260,23 @@ export function ScopeCategoryRow({
       )}
     </div>
   )
-}
+})
 
 // Memoized checkbox to prevent re-render cascades
 const ScopeCheckbox = memo(function ScopeCheckbox({
   scope,
   isSelected,
   onToggle,
+  label,
 }: {
   scope: ScopeRead
   isSelected: boolean
-  onToggle: (scopeId: string) => void
+  onToggle: (scopeId: string, checked: boolean) => void
+  label: string
 }) {
   const handleClick = useCallback(() => {
-    onToggle(scope.id)
-  }, [scope.id, onToggle])
+    onToggle(scope.id, !isSelected)
+  }, [isSelected, onToggle, scope.id])
 
   return (
     <button
@@ -180,14 +284,23 @@ const ScopeCheckbox = memo(function ScopeCheckbox({
       className="flex items-center gap-1.5 cursor-pointer text-xs"
       onClick={handleClick}
     >
-      <Checkbox checked={isSelected} className="size-3.5 pointer-events-none" />
+      <span
+        className={cn(
+          "flex size-3.5 shrink-0 items-center justify-center rounded-sm border",
+          isSelected
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-muted-foreground"
+        )}
+      >
+        {isSelected && <CheckIcon className="size-3" strokeWidth={3} />}
+      </span>
       <code
         className={cn(
           "text-[10px]",
           isSelected ? "text-foreground" : "text-muted-foreground"
         )}
       >
-        {scope.action}
+        {label}
       </code>
     </button>
   )

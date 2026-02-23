@@ -16,7 +16,6 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   getCategoryScopes,
   type PermissionLevel,
@@ -57,13 +56,13 @@ export function RoleFormDialog({
     new Set(initialData?.scopes?.map((s) => s.id) ?? [])
   )
 
-  const toggleScope = useCallback((scopeId: string) => {
+  const toggleScope = useCallback((scopeId: string, checked: boolean) => {
     setSelectedScopeIds((prev) => {
       const next = new Set(prev)
-      if (next.has(scopeId)) {
-        next.delete(scopeId)
-      } else {
+      if (checked) {
         next.add(scopeId)
+      } else {
+        next.delete(scopeId)
       }
       return next
     })
@@ -163,7 +162,7 @@ export function RoleFormDialog({
               Set permission levels by category, or expand to select individual
               scopes.
             </div>
-            <ScrollArea className="h-[400px] rounded-md border">
+            <div className="h-[400px] overflow-y-auto rounded-md border">
               <div className="divide-y divide-border/50">
                 {Object.entries(filteredCategories).map(([key, category]) => (
                   <ScopeCategoryRow
@@ -177,7 +176,7 @@ export function RoleFormDialog({
                   />
                 ))}
               </div>
-            </ScrollArea>
+            </div>
           </div>
         </div>
 

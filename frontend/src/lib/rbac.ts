@@ -87,6 +87,45 @@ export const LEVEL_LABELS: Record<PermissionLevel, string> = {
   mixed: "Custom",
 }
 
+export function getScopeActionNamespace(scope: ScopeRead): string | null {
+  if (scope.resource !== "action") return null
+
+  const sourceRef = scope.source_ref?.trim()
+  if (!sourceRef) return null
+
+  const delimiter = [".", "/", ":"].find((separator) =>
+    sourceRef.includes(separator)
+  )
+  if (!delimiter) return sourceRef
+
+  return sourceRef.slice(0, sourceRef.indexOf(delimiter))
+}
+
+export function getScopeActionLabel(scope: ScopeRead): string {
+  if (scope.resource !== "action") return scope.action
+
+  const namespace = getScopeActionNamespace(scope)
+  const sourceRef = scope.source_ref?.trim()
+  if (!sourceRef || !namespace || sourceRef === namespace) {
+    return scope.action
+  }
+
+  const namespacePrefix = `${namespace}.`
+  if (sourceRef.startsWith(namespacePrefix)) {
+    return sourceRef.slice(namespacePrefix.length)
+  }
+  const colonPrefix = `${namespace}:`
+  if (sourceRef.startsWith(colonPrefix)) {
+    return sourceRef.slice(colonPrefix.length)
+  }
+  const slashPrefix = `${namespace}/`
+  if (sourceRef.startsWith(slashPrefix)) {
+    return sourceRef.slice(slashPrefix.length)
+  }
+
+  return sourceRef
+}
+
 /**
  * Get scopes that match a category's resources
  */

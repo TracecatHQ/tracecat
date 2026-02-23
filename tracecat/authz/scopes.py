@@ -64,8 +64,7 @@ EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
         "tag:update",
         "variable:create",
         "variable:update",
-        # Core actions available to editors
-        "action:core.*:execute",
+        "action:*:execute",
     }
 )
 
@@ -293,6 +292,7 @@ ORG_MEMBER_SCOPES: frozenset[str] = frozenset(
         # Baseline org access; workspace/resource access requires workspace membership
         "org:read",
         "org:member:read",
+        "org:registry:read",
     }
 )
 
