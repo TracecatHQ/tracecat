@@ -11,6 +11,7 @@ import {
 import { useEffect, useMemo, useState } from "react"
 import {
   type CollectionObject,
+  type WorkflowExecutionCollectionPageItem,
   type WorkflowExecutionCollectionPageResponse,
   type WorkflowExecutionObjectPreviewResponse,
   workflowExecutionsGetWorkflowExecutionCollectionPage,
@@ -23,23 +24,32 @@ import { JsonViewWithControls } from "@/components/json-viewer"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
-import { isExternalStoredObject } from "@/lib/stored-object"
+import {
+  isExternalStoredObject,
+  isInlineStoredObject,
+} from "@/lib/stored-object"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const DEFAULT_PAGE_SIZE = 25
 
 function getElementKindLabel(kind: CollectionObject["element_kind"]): string {
   if (kind === "stored_object") {
-    return "Files"
+    return "Stored items"
   }
   return "Inline values"
 }
 
-function getItemKindLabel(kind: "stored_object_ref" | "inline_value"): string {
-  if (kind === "stored_object_ref") {
+function getItemKindLabel(item: WorkflowExecutionCollectionPageItem): string {
+  if (item.kind === "inline_value") {
+    return "Value"
+  }
+  if (item.stored && isExternalStoredObject(item.stored)) {
     return "File"
   }
-  return "Value"
+  if (item.stored && isInlineStoredObject(item.stored)) {
+    return "Value"
+  }
+  return "Stored item"
 }
 
 function formatSize(sizeBytes: number): string {
@@ -294,7 +304,7 @@ export function CollectionObjectResult({
                     </span>
                     <span className="text-muted-foreground">•</span>
                     <span className="text-muted-foreground">
-                      {getItemKindLabel(item.kind)}
+                      {getItemKindLabel(item)}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-muted-foreground">
@@ -320,6 +330,58 @@ export function CollectionObjectResult({
                       collectionIndex={item.index}
                       compact={true}
                     />
+                  ) : isInlineStoredObject(item.stored) ? (
+                    <div className="space-y-2">
+                      <CodeBlock title={`Item ${item.index} value`}>
+                        {JSON.stringify(item.stored.data, null, 2)}
+                      </CodeBlock>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => void handleInlinePreview(item.index)}
+                          disabled={isPreviewingIndex === item.index}
+                        >
+                          {isPreviewingIndex === item.index ? (
+                            <LoaderIcon className="mr-2 size-3 animate-spin" />
+                          ) : (
+                            <EyeIcon className="mr-2 size-3" />
+                          )}
+                          Preview
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => void handleInlineDownload(item.index)}
+                          disabled={isDownloadingIndex === item.index}
+                        >
+                          {isDownloadingIndex === item.index ? (
+                            <LoaderIcon className="mr-2 size-3 animate-spin" />
+                          ) : (
+                            <DownloadIcon className="mr-2 size-3" />
+                          )}
+                          Download
+                        </Button>
+                        {previewByIndex[item.index] ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => closeInlinePreview(item.index)}
+                          >
+                            <XIcon className="mr-1 size-3" />
+                            Close preview
+                          </Button>
+                        ) : null}
+                      </div>
+                      {previewByIndex[item.index] ? (
+                        <CodeBlock title={`Preview item ${item.index}`}>
+                          {previewByIndex[item.index]?.content ?? ""}
+                        </CodeBlock>
+                      ) : null}
+                    </div>
                   ) : (
                     <div className="rounded-sm border border-dashed p-2">
                       <JsonViewWithControls
