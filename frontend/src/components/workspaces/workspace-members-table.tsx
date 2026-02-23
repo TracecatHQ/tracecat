@@ -57,7 +57,8 @@ export function WorkspaceMembersTable({
   workspace: WorkspaceRead
 }) {
   const queryClient = useQueryClient()
-  const canManageMembers = useScopeCheck("workspace:member:update")
+  const canUpdateMembers = useScopeCheck("workspace:member:update")
+  const canRemoveMembers = useScopeCheck("workspace:member:remove")
   const [selectedUser, setSelectedUser] = useState<WorkspaceMember | null>(null)
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
   const { removeMember } = useWorkspaceMutations()
@@ -220,31 +221,31 @@ export function WorkspaceMembersTable({
                         Copy user ID
                       </DropdownMenuItem>
 
-                      {canManageMembers && (
-                        <>
-                          <DialogTrigger asChild>
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setSelectedUser(row.original)
-                                setIsChangeRoleOpen(true)
-                              }}
-                            >
-                              Change role
-                            </DropdownMenuItem>
-                          </DialogTrigger>
+                      {canUpdateMembers && (
+                        <DialogTrigger asChild>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSelectedUser(row.original)
+                              setIsChangeRoleOpen(true)
+                            }}
+                          >
+                            Change role
+                          </DropdownMenuItem>
+                        </DialogTrigger>
+                      )}
 
-                          <AlertDialogTrigger asChild>
-                            <DropdownMenuItem
-                              className="text-rose-500 focus:text-rose-600"
-                              onClick={() => {
-                                setSelectedUser(row.original)
-                                console.debug("Selected user", row.original)
-                              }}
-                            >
-                              Remove from workspace
-                            </DropdownMenuItem>
-                          </AlertDialogTrigger>
-                        </>
+                      {canRemoveMembers && (
+                        <AlertDialogTrigger asChild>
+                          <DropdownMenuItem
+                            className="text-rose-500 focus:text-rose-600"
+                            onClick={() => {
+                              setSelectedUser(row.original)
+                              console.debug("Selected user", row.original)
+                            }}
+                          >
+                            Remove from workspace
+                          </DropdownMenuItem>
+                        </AlertDialogTrigger>
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -272,7 +273,16 @@ export function WorkspaceMembersTable({
                   try {
                     await removeMember(selectedUser.user_id)
                   } catch (error) {
-                    console.log("Failed to remove member", error)
+                    const description =
+                      error instanceof Error
+                        ? error.message
+                        : "The request could not be completed."
+                    console.error("Failed to remove member", error)
+                    toast({
+                      title: "Failed to remove member",
+                      description,
+                      variant: "destructive",
+                    })
                   }
                 }
                 setSelectedUser(null)
