@@ -27,6 +27,7 @@ module "eks" {
 
   # Node Group Configuration
   node_instance_types      = var.node_instance_types
+  node_architecture        = var.node_architecture
   node_ami_type            = var.node_ami_type
   node_desired_size        = var.node_desired_size
   node_min_size            = var.node_min_size

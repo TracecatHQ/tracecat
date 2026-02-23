@@ -1,4 +1,8 @@
 locals {
+  tracecat_node_arch_selector = {
+    "kubernetes.io/arch" = var.node_architecture
+  }
+
   tracecat_spot_scheduling = {
     affinity = {
       nodeAffinity = {
@@ -25,6 +29,19 @@ locals {
         whenUnsatisfiable = "ScheduleAnyway"
       }
     ]
+  }
+  tracecat_scheduling = {
+    architecture = var.node_architecture
+    affinity = (
+      var.spot_node_group_enabled
+      ? local.tracecat_spot_scheduling.affinity
+      : null
+    )
+    topologySpreadConstraints = (
+      var.spot_node_group_enabled
+      ? local.tracecat_spot_scheduling.topologySpreadConstraints
+      : []
+    )
   }
 
   alb_group_name_raw = replace(lower(var.cluster_name), "/[^a-z0-9-]/", "-")
@@ -109,6 +126,18 @@ resource "helm_release" "tracecat" {
         publicApp = "https://${var.domain_name}"
         publicApi = "https://${var.domain_name}/api"
       }
+      scheduling = local.tracecat_scheduling
+      temporal = {
+        admintools = {
+          nodeSelector = local.tracecat_node_arch_selector
+        }
+        web = {
+          nodeSelector = local.tracecat_node_arch_selector
+        }
+        server = {
+          nodeSelector = local.tracecat_node_arch_selector
+        }
+      }
       tracecat = {
         auth = {
           types = var.auth_types
@@ -130,9 +159,6 @@ resource "helm_release" "tracecat" {
         }
       }
     },
-    var.spot_node_group_enabled ? {
-      scheduling = local.tracecat_spot_scheduling
-    } : {},
     var.feature_flags != "" ? {
       enterprise = {
         featureFlags = var.feature_flags

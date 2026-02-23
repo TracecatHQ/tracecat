@@ -61,6 +61,7 @@ ui_memory_request_mib=512
 
 # Node groups: 8 on-demand + 2 spot, all m7g.2xlarge
 node_instance_types='["m7g.2xlarge"]'
+node_architecture="arm64"
 node_ami_type="AL2023_ARM_64_STANDARD"
 node_min_size=8
 node_desired_size=8
@@ -104,6 +105,17 @@ You can disable spot by setting `spot_node_group_enabled=false` or change the mi
 
 Terraform includes plan-time capacity guardrails that verify the desired node count can support the configured replicas and resource requests at rollout peak (with a 25% surge). If capacity is insufficient, `terraform plan` will emit a warning. See `modules/eks/main.tf` for the check blocks.
 
+### Architecture requirement
+
+Tracecat workloads must run on a single CPU architecture. This stack defaults to ARM (`node_architecture="arm64"`). If you deploy on x86_64, set:
+
+```bash
+node_architecture="amd64"
+node_ami_type="AL2023_x86_64_STANDARD"
+```
+
+and use AMD64-compatible instance types for both `node_instance_types` and `spot_node_instance_types`. Terraform enforces that on-demand and spot node groups use instance types matching the same selected architecture.
+
 ## Light deployment profile
 
 - Nodes: `3 x m7g.xlarge`
@@ -136,6 +148,7 @@ ui_memory_request_mib=512
 
 # Node groups: 3 on-demand, all m7g.xlarge
 node_instance_types='["m7g.xlarge"]'
+node_architecture="arm64"
 node_ami_type="AL2023_ARM_64_STANDARD"
 node_min_size=3
 node_desired_size=3

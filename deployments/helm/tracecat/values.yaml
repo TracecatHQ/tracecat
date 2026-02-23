@@ -108,6 +108,10 @@ securityContext:
 
 scheduling:
   # Global pod scheduling defaults for all Tracecat workloads.
+  # Pins all workloads to a single Kubernetes CPU architecture when set.
+  # Common values: arm64, amd64 (x86_64).
+  # Set to "" to disable architecture pinning.
+  architecture: arm64
   nodeSelector: {}
   affinity: {}
   topologySpreadConstraints: []
@@ -296,11 +300,18 @@ temporal:
   enabled: true
   # Temporal task queue used by Tracecat workers.
   clusterQueue: tracecat-task-queue
+  admintools:
+    nodeSelector:
+      kubernetes.io/arch: arm64
   web:
     # Optional envFrom secret for Temporal Web UI auth settings.
     # Set to temporal-ui-oidc (or your secret name) to enable OIDC auth via secret keys.
     additionalEnvSecretName: ""
+    nodeSelector:
+      kubernetes.io/arch: arm64
   server:
+    nodeSelector:
+      kubernetes.io/arch: arm64
     config:
       persistence:
         defaultStore: default
