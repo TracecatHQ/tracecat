@@ -289,6 +289,7 @@ class SecretReadMinimal(BaseModel):
     description: str | None = None
     keys: list[str]
     environment: str
+    is_corrupted: bool = False
 
 
 class SecretReadBase(BaseModel):

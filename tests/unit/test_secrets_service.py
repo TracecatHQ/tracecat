@@ -311,6 +311,72 @@ class TestSecretsService:
         assert "key3" not in decrypted_keys  # Key removed
         assert decrypted_keys["key4"] == "new_value4"  # New key added
 
+    async def test_update_secret_recovers_from_corrupted_encrypted_keys(
+        self, service: SecretsService
+    ) -> None:
+        """Test that corrupted encrypted keys can be recovered with full key input."""
+        create_params = SecretCreate(
+            name="test-corrupted-secret-recovery",
+            type=SecretType.CUSTOM,
+            description="Initial description",
+            keys=[
+                SecretKeyValue(key="api_key", value=SecretStr("old-api-key")),
+                SecretKeyValue(key="api_secret", value=SecretStr("old-api-secret")),
+            ],
+        )
+        await service.create_secret(create_params)
+        secret = await service.get_secret_by_name(create_params.name)
+
+        # Simulate a bad DB encryption key by corrupting the stored ciphertext.
+        secret.encrypted_keys = b"not-a-valid-fernet-token"
+        service.session.add(secret)
+        await service.session.commit()
+
+        update_params = SecretUpdate(
+            description="Recovered description",
+            keys=[
+                SecretKeyValue(key="api_key", value=SecretStr("new-api-key")),
+                SecretKeyValue(key="api_secret", value=SecretStr("new-api-secret")),
+            ],
+        )
+        await service.update_secret(secret, update_params)
+
+        recovered_secret = await service.get_secret_by_name(create_params.name)
+        recovered_keys = {
+            k.key: k.value.get_secret_value()
+            for k in service.decrypt_keys(recovered_secret.encrypted_keys)
+        }
+        assert recovered_secret.description == "Recovered description"
+        assert recovered_keys == {
+            "api_key": "new-api-key",
+            "api_secret": "new-api-secret",
+        }
+
+    async def test_update_secret_corrupted_encrypted_keys_require_full_values(
+        self, service: SecretsService
+    ) -> None:
+        """Test that corrupted secrets reject blank key values on recovery."""
+        create_params = SecretCreate(
+            name="test-corrupted-secret-empty-values",
+            type=SecretType.CUSTOM,
+            description="Initial description",
+            keys=[SecretKeyValue(key="token", value=SecretStr("old-token"))],
+        )
+        await service.create_secret(create_params)
+        secret = await service.get_secret_by_name(create_params.name)
+
+        secret.encrypted_keys = b"not-a-valid-fernet-token"
+        service.session.add(secret)
+        await service.session.commit()
+
+        with pytest.raises(ValueError, match="Re-enter all key values"):
+            await service.update_secret(
+                secret,
+                SecretUpdate(
+                    keys=[SecretKeyValue(key="token", value=SecretStr(""))],
+                ),
+            )
+
     async def test_update_mtls_secret_preserves_empty_values(
         self,
         service: SecretsService,

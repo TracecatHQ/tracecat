@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-import type { SecretReadMinimal } from "@/client"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,7 +12,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { useWorkspaceSecrets } from "@/lib/hooks"
+import { useWorkspaceSecrets, type WorkspaceSecretListItem } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function DeleteSecretAlertDialog({
@@ -21,8 +20,8 @@ export function DeleteSecretAlertDialog({
   setSelectedSecret,
   children,
 }: React.PropsWithChildren<{
-  selectedSecret: SecretReadMinimal | null
-  setSelectedSecret: (selectedSecret: SecretReadMinimal | null) => void
+  selectedSecret: WorkspaceSecretListItem | null
+  setSelectedSecret: (selectedSecret: WorkspaceSecretListItem | null) => void
 }>) {
   const workspaceId = useWorkspaceId()
   const { deleteSecretById } = useWorkspaceSecrets(workspaceId)

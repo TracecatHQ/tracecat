@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from cryptography.fernet import InvalidToken
 from fastapi import status
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
@@ -93,6 +94,32 @@ async def test_list_secrets_with_type_filter(
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert len(data) == 1
+
+
+@pytest.mark.anyio
+async def test_list_secrets_with_corrupted_values(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_secret: Secret,
+) -> None:
+    """Test GET /secrets tolerates decryption failures for corrupted rows."""
+    with patch.object(secrets_router, "SecretsService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.list_secrets.return_value = [mock_secret]
+        mock_svc.decrypt_keys = MagicMock(side_effect=InvalidToken())
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            "/secrets",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "test_secret"
+        assert data[0]["keys"] == []
+        assert data[0]["is_corrupted"] is True
 
 
 @pytest.mark.anyio
@@ -411,6 +438,29 @@ async def test_list_org_secrets_success(
         data = response.json()
         assert len(data) == 1
         assert data[0]["name"] == "org_secret"
+
+
+@pytest.mark.anyio
+async def test_list_org_secrets_with_corrupted_values(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_org_secret: OrganizationSecret,
+) -> None:
+    """Test GET /organization/secrets tolerates decryption failures."""
+    with patch.object(secrets_router, "SecretsService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.list_org_secrets.return_value = [mock_org_secret]
+        mock_svc.decrypt_keys = MagicMock(side_effect=InvalidToken())
+        MockService.return_value = mock_svc
+
+        response = client.get("/organization/secrets")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "org_secret"
+        assert data[0]["keys"] == []
+        assert data[0]["is_corrupted"] is True
 
 
 @pytest.mark.anyio
