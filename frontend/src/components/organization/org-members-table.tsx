@@ -3,11 +3,11 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogTrigger } from "@radix-ui/react-dialog"
 import { DotsHorizontalIcon, PlusIcon } from "@radix-ui/react-icons"
-import { FolderIcon, GlobeIcon, Trash2Icon } from "lucide-react"
+import { FolderIcon, GlobeIcon, Trash2Icon, XIcon } from "lucide-react"
 import { useState } from "react"
-import { useForm } from "react-hook-form"
+import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
-import { type OrgMemberRead, organizationGetInvitationToken } from "@/client"
+import type { OrgMemberRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
@@ -74,6 +74,12 @@ import { toast } from "../ui/use-toast"
 const invitationFormSchema = z.object({
   email: z.string().email("Invalid email address"),
   role_id: z.string().uuid("Please select a role"),
+  workspace_assignments: z.array(
+    z.object({
+      workspace_id: z.string().uuid(),
+      role_id: z.string().uuid(),
+    })
+  ),
 })
 
 type InvitationFormValues = z.infer<typeof invitationFormSchema>
@@ -83,10 +89,13 @@ function InviteMemberDialogButton() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const { createInvitation, createInvitationIsPending } = useOrgMembers()
   const { roles } = useRbacRoles()
+  const { workspaces } = useWorkspaceManager()
 
-  // Include organization preset roles and custom roles (custom roles have no slug prefix)
   const orgRoles = roles.filter(
     (r) => !r.slug || r.slug.startsWith("organization-")
+  )
+  const workspaceRoles = roles.filter(
+    (r) => !r.slug || r.slug.startsWith("workspace-")
   )
 
   const form = useForm<InvitationFormValues>({
@@ -94,14 +103,28 @@ function InviteMemberDialogButton() {
     defaultValues: {
       email: "",
       role_id: "",
+      workspace_assignments: [],
     },
   })
+
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "workspace_assignments",
+  })
+
+  const selectedWorkspaceIds = form
+    .watch("workspace_assignments")
+    .map((a) => a.workspace_id)
+  const availableWorkspaces = (workspaces ?? []).filter(
+    (ws) => !selectedWorkspaceIds.includes(ws.id)
+  )
 
   const handleCreateInvitation = async (values: InvitationFormValues) => {
     try {
       await createInvitation({
         email: values.email,
         role_id: values.role_id,
+        workspace_assignments: values.workspace_assignments,
       })
       form.reset()
       setIsCreateDialogOpen(false)
@@ -115,7 +138,13 @@ function InviteMemberDialogButton() {
   }
 
   return (
-    <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+    <Dialog
+      open={isCreateDialogOpen}
+      onOpenChange={(open) => {
+        setIsCreateDialogOpen(open)
+        if (!open) form.reset()
+      }}
+    >
       <DialogTrigger asChild>
         <Button size="sm">
           <PlusIcon className="mr-2 size-4" />
@@ -159,7 +188,7 @@ function InviteMemberDialogButton() {
               name="role_id"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Role</FormLabel>
+                  <FormLabel>Organization role</FormLabel>
                   <Select
                     onValueChange={field.onChange}
                     defaultValue={field.value}
@@ -184,6 +213,90 @@ function InviteMemberDialogButton() {
                 </FormItem>
               )}
             />
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">Workspaces</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={availableWorkspaces.length === 0}
+                  onClick={() => append({ workspace_id: "", role_id: "" })}
+                >
+                  Add
+                </Button>
+              </div>
+              {fields.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No workspace assignments. The user will only be invited to the
+                  organization.
+                </p>
+              )}
+              {fields.map((field, index) => (
+                <div key={field.id} className="flex items-center gap-2">
+                  <Select
+                    value={form.watch(
+                      `workspace_assignments.${index}.workspace_id`
+                    )}
+                    onValueChange={(value) =>
+                      form.setValue(
+                        `workspace_assignments.${index}.workspace_id`,
+                        value
+                      )
+                    }
+                  >
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Select workspace" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(workspaces ?? [])
+                        .filter(
+                          (ws) =>
+                            !selectedWorkspaceIds.includes(ws.id) ||
+                            ws.id ===
+                              form.watch(
+                                `workspace_assignments.${index}.workspace_id`
+                              )
+                        )
+                        .map((ws) => (
+                          <SelectItem key={ws.id} value={ws.id}>
+                            {ws.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={form.watch(`workspace_assignments.${index}.role_id`)}
+                    onValueChange={(value) =>
+                      form.setValue(
+                        `workspace_assignments.${index}.role_id`,
+                        value
+                      )
+                    }
+                  >
+                    <SelectTrigger className="w-36">
+                      <SelectValue placeholder="Role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {workspaceRoles.map((role) => (
+                        <SelectItem key={role.id} value={role.id}>
+                          {role.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 shrink-0"
+                    onClick={() => remove(index)}
+                  >
+                    <XIcon className="size-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
             <DialogFooter>
               <Button
                 type="button"
@@ -388,13 +501,9 @@ export function OrgMembersTable() {
                               <>
                                 <DropdownMenuItem
                                   onSelect={async () => {
-                                    if (!member.invitation_id) return
+                                    if (!member.token) return
                                     try {
-                                      const { token } =
-                                        await organizationGetInvitationToken({
-                                          invitationId: member.invitation_id,
-                                        })
-                                      const url = `${window.location.origin}/invitations/accept?token=${token}`
+                                      const url = `${window.location.origin}/invitations/accept?token=${member.token}`
                                       await navigator.clipboard.writeText(url)
                                       toast({
                                         title: "Copied",

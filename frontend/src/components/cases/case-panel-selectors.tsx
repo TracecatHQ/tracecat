@@ -298,7 +298,7 @@ export function AssigneeSelect({
           return
         }
         const user = workspaceMembers.find((user) => user.user_id === value)
-        if (user) {
+        if (user?.user_id) {
           onValueChange({
             id: user.user_id,
             email: user.email,
@@ -361,15 +361,17 @@ export function AssigneeSelect({
             No users available to assign
           </div>
         ) : (
-          workspaceMembers.map((member) => (
-            <SelectItem key={member.user_id} value={member.user_id}>
-              <AssignedUser
-                email={member.email}
-                firstName={member.first_name}
-                lastName={member.last_name}
-              />
-            </SelectItem>
-          ))
+          workspaceMembers
+            .filter((m) => m.user_id)
+            .map((member) => (
+              <SelectItem key={member.user_id} value={member.user_id as string}>
+                <AssignedUser
+                  email={member.email}
+                  firstName={member.first_name}
+                  lastName={member.last_name}
+                />
+              </SelectItem>
+            ))
         )}
       </SelectContent>
     </Select>
