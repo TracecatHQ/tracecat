@@ -1,29 +1,18 @@
 "use client"
 
-import {
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  DownloadIcon,
-  EyeIcon,
-  LoaderIcon,
-  XIcon,
-} from "lucide-react"
+import { ChevronLeftIcon, ChevronRightIcon, LoaderIcon } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import {
   type CollectionObject,
   type WorkflowExecutionCollectionPageItem,
   type WorkflowExecutionCollectionPageResponse,
-  type WorkflowExecutionObjectPreviewResponse,
   workflowExecutionsGetWorkflowExecutionCollectionPage,
-  workflowExecutionsGetWorkflowExecutionObjectDownload,
-  workflowExecutionsGetWorkflowExecutionObjectPreview,
 } from "@/client"
 import { CodeBlock } from "@/components/code-block"
 import { ExternalObjectResult } from "@/components/executions/external-object-result"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { toast } from "@/components/ui/use-toast"
 import {
   isExternalStoredObject,
   isInlineStoredObject,
@@ -78,15 +67,6 @@ function formatPageWindow(
   return `${start}–${end} of ${total}`
 }
 
-function shouldProbeDownloadUrl(downloadUrl: string): boolean {
-  try {
-    const parsed = new URL(downloadUrl, window.location.href)
-    return parsed.origin === window.location.origin
-  } catch {
-    return false
-  }
-}
-
 export function CollectionObjectResult({
   executionId,
   eventId,
@@ -102,19 +82,9 @@ export function CollectionObjectResult({
   const [pageError, setPageError] = useState<string | null>(null)
   const [page, setPage] =
     useState<WorkflowExecutionCollectionPageResponse | null>(null)
-  const [isPreviewingIndex, setIsPreviewingIndex] = useState<number | null>(
-    null
-  )
-  const [isDownloadingIndex, setIsDownloadingIndex] = useState<number | null>(
-    null
-  )
-  const [previewByIndex, setPreviewByIndex] = useState<
-    Record<number, WorkflowExecutionObjectPreviewResponse | undefined>
-  >({})
 
   useEffect(() => {
     setOffset(0)
-    setPreviewByIndex({})
   }, [eventId, executionId])
 
   useEffect(() => {
@@ -174,89 +144,6 @@ export function CollectionObjectResult({
     pageItems.length,
     resolvedCollection.count
   )
-
-  function closeInlinePreview(index: number) {
-    setPreviewByIndex((curr) => {
-      if (curr[index] === undefined) {
-        return curr
-      }
-      const next = { ...curr }
-      delete next[index]
-      return next
-    })
-  }
-
-  async function handleInlinePreview(index: number) {
-    setIsPreviewingIndex(index)
-    try {
-      const response =
-        await workflowExecutionsGetWorkflowExecutionObjectPreview({
-          executionId,
-          workspaceId,
-          requestBody: {
-            event_id: eventId,
-            collection_index: index,
-          },
-        })
-      setPreviewByIndex((curr) => ({ ...curr, [index]: response }))
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to preview item"
-      toast({
-        title: "Preview failed",
-        description: message,
-      })
-    } finally {
-      setIsPreviewingIndex(null)
-    }
-  }
-
-  async function handleInlineDownload(index: number) {
-    setIsDownloadingIndex(index)
-    try {
-      const response =
-        await workflowExecutionsGetWorkflowExecutionObjectDownload({
-          executionId,
-          workspaceId,
-          requestBody: {
-            event_id: eventId,
-            collection_index: index,
-          },
-        })
-
-      if (shouldProbeDownloadUrl(response.download_url)) {
-        const probe = await fetch(response.download_url, {
-          method: "GET",
-          headers: {
-            Range: "bytes=0-0",
-          },
-        })
-        if (!probe.ok) {
-          throw new Error(
-            `Object download probe failed (${probe.status} ${probe.statusText})`
-          )
-        }
-      }
-
-      const link = document.createElement("a")
-      link.href = response.download_url
-      link.download = response.file_name
-      link.rel = "noopener"
-      link.style.display = "none"
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to download item"
-      toast({
-        title: "Download failed",
-        description: message,
-      })
-    } finally {
-      setIsDownloadingIndex(null)
-    }
-  }
 
   return (
     <div className="flex flex-col gap-3 p-3 text-xs">
@@ -331,56 +218,11 @@ export function CollectionObjectResult({
                       compact={true}
                     />
                   ) : isInlineStoredObject(item.stored) ? (
-                    <div className="space-y-2">
-                      <CodeBlock title={`Item ${item.index} value`}>
-                        {JSON.stringify(item.stored.data, null, 2)}
-                      </CodeBlock>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs"
-                          onClick={() => void handleInlinePreview(item.index)}
-                          disabled={isPreviewingIndex === item.index}
-                        >
-                          {isPreviewingIndex === item.index ? (
-                            <LoaderIcon className="mr-2 size-3 animate-spin" />
-                          ) : (
-                            <EyeIcon className="mr-2 size-3" />
-                          )}
-                          Preview
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs"
-                          onClick={() => void handleInlineDownload(item.index)}
-                          disabled={isDownloadingIndex === item.index}
-                        >
-                          {isDownloadingIndex === item.index ? (
-                            <LoaderIcon className="mr-2 size-3 animate-spin" />
-                          ) : (
-                            <DownloadIcon className="mr-2 size-3" />
-                          )}
-                          Download
-                        </Button>
-                        {previewByIndex[item.index] ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            onClick={() => closeInlinePreview(item.index)}
-                          >
-                            <XIcon className="mr-1 size-3" />
-                            Close preview
-                          </Button>
-                        ) : null}
-                      </div>
-                      {previewByIndex[item.index] ? (
-                        <CodeBlock title={`Preview item ${item.index}`}>
-                          {previewByIndex[item.index]?.content ?? ""}
-                        </CodeBlock>
-                      ) : null}
+                    <div className="rounded-sm border border-dashed p-2">
+                      <JsonViewWithControls
+                        src={item.stored.data}
+                        defaultExpanded={false}
+                      />
                     </div>
                   ) : (
                     <div className="rounded-sm border border-dashed p-2">
@@ -392,60 +234,13 @@ export function CollectionObjectResult({
                   )
                 ) : (
                   <div className="space-y-2">
-                    {item.value_preview ? (
-                      <CodeBlock title={`Item ${item.index} preview`}>
-                        {item.value_preview}
-                      </CodeBlock>
-                    ) : (
-                      <div className="text-muted-foreground">
-                        No inline preview available.
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => void handleInlinePreview(item.index)}
-                        disabled={isPreviewingIndex === item.index}
-                      >
-                        {isPreviewingIndex === item.index ? (
-                          <LoaderIcon className="mr-2 size-3 animate-spin" />
-                        ) : (
-                          <EyeIcon className="mr-2 size-3" />
-                        )}
-                        Preview
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => void handleInlineDownload(item.index)}
-                        disabled={isDownloadingIndex === item.index}
-                      >
-                        {isDownloadingIndex === item.index ? (
-                          <LoaderIcon className="mr-2 size-3 animate-spin" />
-                        ) : (
-                          <DownloadIcon className="mr-2 size-3" />
-                        )}
-                        Download
-                      </Button>
-                      {previewByIndex[item.index] ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          onClick={() => closeInlinePreview(item.index)}
-                        >
-                          <XIcon className="mr-1 size-3" />
-                          Close preview
-                        </Button>
-                      ) : null}
-                    </div>
-                    {previewByIndex[item.index] ? (
-                      <CodeBlock title={`Preview item ${item.index}`}>
-                        {previewByIndex[item.index]?.content ?? ""}
-                      </CodeBlock>
+                    <CodeBlock title={`Item ${item.index} preview`}>
+                      {item.value_preview ?? "No inline preview available."}
+                    </CodeBlock>
+                    {item.truncated ? (
+                      <p className="text-muted-foreground">
+                        Showing a truncated preview for this value.
+                      </p>
                     ) : null}
                   </div>
                 )}
