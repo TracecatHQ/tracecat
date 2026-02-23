@@ -412,7 +412,7 @@ async def validate_dsl_actions(
                         type="action",
                         msg=(
                             "`tool_approvals` requires the 'agent_addons' entitlement. "
-                            "Remove the field or upgrade your subscription tier."
+                            "Remove the field or upgrade your plan."
                         ),
                         loc=(act_stmt.ref, "tool_approvals"),
                     )

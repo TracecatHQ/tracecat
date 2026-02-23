@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
 
-type FeatureFlagEmptyStateProps = {
+type EntitlementRequiredEmptyStateProps = {
   title: string
   description: ReactNode
   icon?: ReactNode
@@ -18,13 +18,17 @@ type FeatureFlagEmptyStateProps = {
   children?: ReactNode
 }
 
-export function FeatureFlagEmptyState({
+/**
+ * Reusable empty state for routes or sections that remain visible
+ * but are unavailable without the required entitlement.
+ */
+export function EntitlementRequiredEmptyState({
   title,
   description,
   icon,
   className,
   children,
-}: FeatureFlagEmptyStateProps) {
+}: EntitlementRequiredEmptyStateProps) {
   const iconNode = icon ?? <Lock className="h-6 w-6" />
 
   return (

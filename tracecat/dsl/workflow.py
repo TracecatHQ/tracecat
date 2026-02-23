@@ -335,15 +335,28 @@ class DSLWorkflow:
         if not registry_lock:
             self.logger.debug("Resolving registry lock via activity")
             action_names = {task.action for task in self.dsl.actions}
-            self.registry_lock = await workflow.execute_activity(
-                resolve_registry_lock_activity,
-                arg=ResolveRegistryLockActivityInputs(
-                    role=self.role,
-                    action_names=action_names,
-                ),
-                start_to_close_timeout=self.start_to_close_timeout,
-                retry_policy=RETRY_POLICIES["activity:fail_slow"],
-            )
+            try:
+                self.registry_lock = await workflow.execute_activity(
+                    resolve_registry_lock_activity,
+                    arg=ResolveRegistryLockActivityInputs(
+                        role=self.role,
+                        action_names=action_names,
+                    ),
+                    start_to_close_timeout=self.start_to_close_timeout,
+                    retry_policy=RETRY_POLICIES["activity:fail_slow"],
+                )
+            except ActivityError as e:
+                match cause := e.cause:
+                    case ApplicationError():
+                        # Preserve structured application errors from the activity,
+                        # including entitlement failures and non-retryable flags.
+                        raise cause from e
+                    case _:
+                        raise ApplicationError(
+                            f"Failed to resolve registry lock: {e}",
+                            non_retryable=True,
+                            type=e.__class__.__name__,
+                        ) from cause
         else:
             self.registry_lock = registry_lock
 

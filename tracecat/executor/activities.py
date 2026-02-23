@@ -25,6 +25,7 @@ from tracecat.dsl.action import materialize_context
 from tracecat.dsl.schemas import RunActionInput
 from tracecat.dsl.types import ActionErrorInfo
 from tracecat.exceptions import (
+    EntitlementRequired,
     ExecutionError,
     LoopExecutionError,
     RateLimitExceeded,
@@ -149,6 +150,25 @@ class ExecutorActivities:
             # Non-retryable: retrying won't help if user lacks permission
             raise ApplicationError(
                 err_msg, err_info, type=kind, non_retryable=True
+            ) from e
+        except EntitlementRequired as e:
+            # Entitlement errors are user-facing and non-retryable
+            kind = e.__class__.__name__
+            msg = str(e)
+            log.warning("Action entitlement denied", action=action_name, error=msg)
+            err_info = ActionErrorInfo(
+                ref=task.ref,
+                message=msg,
+                type=kind,
+                attempt=act_attempt,
+                stream_id=input.stream_id,
+            )
+            err_msg = err_info.format("execute_action")
+            raise ApplicationError(
+                err_msg,
+                err_info,
+                type=kind,
+                non_retryable=True,
             ) from e
         except ExecutionError as e:
             # ExecutionError from dispatch_action (single action failure)

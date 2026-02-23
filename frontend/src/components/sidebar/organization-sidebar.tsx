@@ -25,6 +25,7 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
@@ -37,6 +38,7 @@ export function OrganizationSidebar({
 }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const { hasEntitlement } = useEntitlements()
+  const customRegistryEnabled = hasEntitlement("custom_registry")
 
   // Fetch workspaces for the sidebar
   const { workspaces } = useWorkspaceManager()
@@ -52,6 +54,7 @@ export function OrganizationSidebar({
       icon: GitBranchIcon,
       isActive: pathname?.includes("/organization/settings/git"),
       visible: canViewSettings === true,
+      locked: !customRegistryEnabled,
     },
     {
       title: "Single sign-on",
@@ -59,6 +62,7 @@ export function OrganizationSidebar({
       icon: LockIcon,
       isActive: pathname?.includes("/organization/settings/sso"),
       visible: canViewSettings === true,
+      locked: false,
     },
     {
       title: "Domains",
@@ -66,6 +70,7 @@ export function OrganizationSidebar({
       icon: GlobeIcon,
       isActive: pathname?.includes("/organization/settings/domains"),
       visible: canViewSettings === true,
+      locked: false,
     },
     {
       title: "Application",
@@ -73,6 +78,7 @@ export function OrganizationSidebar({
       icon: Settings2,
       isActive: pathname?.includes("/organization/settings/app"),
       visible: canViewSettings === true,
+      locked: false,
     },
     {
       title: "Audit Logs",
@@ -80,6 +86,7 @@ export function OrganizationSidebar({
       icon: LogsIcon,
       isActive: pathname?.includes("/organization/settings/audit"),
       visible: canViewSettings === true,
+      locked: false,
     },
     {
       title: "Agent",
@@ -87,6 +94,7 @@ export function OrganizationSidebar({
       icon: BotIcon,
       isActive: pathname?.includes("/organization/settings/agent"),
       visible: canViewSettings === true,
+      locked: false,
     },
     ...(hasEntitlement("git_sync")
       ? [
@@ -96,6 +104,7 @@ export function OrganizationSidebar({
             icon: GitBranchIcon,
             isActive: pathname?.includes("/organization/vcs"),
             visible: canViewSettings === true,
+            locked: false,
           },
         ]
       : []),
@@ -171,6 +180,12 @@ export function OrganizationSidebar({
                           <span>{item.title}</span>
                         </Link>
                       </SidebarMenuButton>
+                      {item.locked ? (
+                        <SidebarMenuBadge>
+                          <LockIcon aria-hidden="true" className="size-3.5" />
+                          <span className="sr-only">Requires upgrade</span>
+                        </SidebarMenuBadge>
+                      ) : null}
                     </SidebarMenuItem>
                   ))}
               </SidebarMenu>

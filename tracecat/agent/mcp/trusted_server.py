@@ -34,7 +34,7 @@ from tracecat.agent.tokens import MCPTokenClaims, verify_mcp_token
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
-from tracecat.exceptions import ExecutionError
+from tracecat.exceptions import EntitlementRequired, ExecutionError
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 
@@ -113,6 +113,8 @@ async def execute_action_tool(
             error=error_msg,
         )
         raise ToolError(error_msg) from e
+    except EntitlementRequired as e:
+        raise ToolError(str(e)) from e
     except Exception as e:
         # Unexpected platform errors - log full details but return generic message
         logger.error(

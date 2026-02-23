@@ -174,6 +174,56 @@ async def test_internal_get_execution_status_returns_error_for_failed_workflow(
     assert "connection timeout" in payload["error"]
 
 
+@pytest.mark.anyio
+async def test_internal_get_execution_status_unwraps_nested_failure_cause(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test that nested ActivityError-style causes are unwrapped to root message."""
+    from temporalio.client import WorkflowFailureError
+    from temporalio.exceptions import ApplicationError
+
+    wf_exec_id = "wf_abc/exec_failed_nested"
+
+    mock_execution = Mock()
+    mock_execution.status = WorkflowExecutionStatus.FAILED
+    mock_execution.start_time = datetime(2024, 1, 1, tzinfo=UTC)
+    mock_execution.close_time = datetime(2024, 1, 1, 0, 1, tzinfo=UTC)
+
+    class FakeActivityError(Exception):
+        def __init__(self, message: str, cause: Exception | None = None) -> None:
+            super().__init__(message)
+            self.cause = cause
+
+    root_cause = ApplicationError(
+        "EntitlementRequired: Feature 'custom_registry' requires an upgraded plan"
+    )
+    activity_wrapper = FakeActivityError("Activity task failed", cause=root_cause)
+
+    mock_handle = Mock()
+    mock_handle.result = AsyncMock(
+        side_effect=WorkflowFailureError(cause=activity_wrapper)
+    )
+
+    mock_svc = AsyncMock()
+    mock_svc.get_execution.return_value = mock_execution
+    mock_svc.handle = Mock(return_value=mock_handle)
+
+    with patch.object(
+        internal_executions_router.WorkflowExecutionsService,
+        "connect",
+        AsyncMock(return_value=mock_svc),
+    ):
+        response = client.get(f"/internal/workflows/executions/{wf_exec_id}")
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
+    assert payload["status"] == "FAILED"
+    assert payload["error"] is not None
+    assert "custom_registry" in payload["error"]
+    assert "Activity task failed" not in payload["error"]
+
+
 # --- Internal Router: POST /executions ---
 
 

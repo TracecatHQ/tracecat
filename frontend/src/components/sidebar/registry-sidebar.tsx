@@ -14,16 +14,21 @@ import {
   SidebarGroupContent,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { useEntitlements } from "@/hooks/use-entitlements"
 
 export function RegistrySidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const canReadRegistry = useScopeCheck("org:registry:read")
+  const canAdministerOrg = useScopeCheck("org:update")
+  const { hasEntitlement } = useEntitlements()
   const pathname = usePathname()
+  const customRegistryEnabled = hasEntitlement("custom_registry")
 
   const navMain = [
     ...(canReadRegistry
@@ -33,13 +38,19 @@ export function RegistrySidebar({
             url: "/registry/actions",
             icon: BookOpenIcon,
             isActive: pathname?.includes("/registry/actions"),
+            locked: false,
           },
-          {
-            title: "Repositories",
-            url: "/registry/repositories",
-            icon: GitBranchIcon,
-            isActive: pathname?.includes("/registry/repositories"),
-          },
+          ...(canAdministerOrg
+            ? [
+                {
+                  title: "Repositories",
+                  url: "/registry/repositories",
+                  icon: GitBranchIcon,
+                  isActive: pathname?.includes("/registry/repositories"),
+                  locked: !customRegistryEnabled,
+                },
+              ]
+            : []),
         ]
       : []),
   ]
@@ -70,6 +81,9 @@ export function RegistrySidebar({
                       <span>{item.title}</span>
                     </Link>
                   </SidebarMenuButton>
+                  {item.locked ? (
+                    <SidebarMenuBadge>Requires upgrade</SidebarMenuBadge>
+                  ) : null}
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>

@@ -2,7 +2,7 @@
 
 import { ArrowUpRight, ListIcon } from "lucide-react"
 import { DropdownsTable } from "@/components/cases/dropdowns-table"
-import { FeatureFlagEmptyState } from "@/components/feature-flag-empty-state"
+import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
@@ -48,7 +48,7 @@ export function DropdownsView() {
     return (
       <div className="size-full overflow-auto">
         <div className="container flex h-full max-w-[1000px] items-center justify-center py-8">
-          <FeatureFlagEmptyState
+          <EntitlementRequiredEmptyState
             title="Enterprise only"
             description="Case dropdowns are only available on enterprise plans."
           >
@@ -66,7 +66,7 @@ export function DropdownsView() {
                 Learn more <ArrowUpRight className="size-4" />
               </a>
             </Button>
-          </FeatureFlagEmptyState>
+          </EntitlementRequiredEmptyState>
         </div>
       </div>
     )
