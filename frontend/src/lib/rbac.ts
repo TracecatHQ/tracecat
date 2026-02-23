@@ -87,43 +87,67 @@ export const LEVEL_LABELS: Record<PermissionLevel, string> = {
   mixed: "Custom",
 }
 
-export function getScopeActionNamespace(scope: ScopeRead): string | null {
-  if (scope.resource !== "action") return null
+function isActionScopeResource(resource: string): boolean {
+  return resource === "action" || resource.startsWith("action:")
+}
 
-  const sourceRef = scope.source_ref?.trim()
-  if (!sourceRef) return null
-
+function extractNamespace(value: string): string | null {
+  const normalized = value.trim()
+  if (!normalized) return null
   const delimiter = [".", "/", ":"].find((separator) =>
-    sourceRef.includes(separator)
+    normalized.includes(separator)
   )
-  if (!delimiter) return sourceRef
+  if (!delimiter) return normalized
+  return normalized.slice(0, normalized.indexOf(delimiter))
+}
 
-  return sourceRef.slice(0, sourceRef.indexOf(delimiter))
+function getActionScopeTarget(scope: ScopeRead): string | null {
+  const sourceRef = scope.source_ref?.trim()
+  if (sourceRef) return sourceRef
+
+  if (scope.resource.startsWith("action:")) {
+    const resourceTarget = scope.resource.slice("action:".length).trim()
+    if (resourceTarget) return resourceTarget
+  }
+
+  if (scope.name.startsWith("action:") && scope.name.endsWith(":execute")) {
+    const nameTarget = scope.name.slice("action:".length, -":execute".length)
+    if (nameTarget.trim()) return nameTarget.trim()
+  }
+
+  return null
+}
+
+export function getScopeActionNamespace(scope: ScopeRead): string | null {
+  if (!isActionScopeResource(scope.resource)) return null
+  const target = getActionScopeTarget(scope)
+  if (!target) return null
+  return extractNamespace(target)
 }
 
 export function getScopeActionLabel(scope: ScopeRead): string {
-  if (scope.resource !== "action") return scope.action
+  if (!isActionScopeResource(scope.resource)) return scope.action
 
   const namespace = getScopeActionNamespace(scope)
-  const sourceRef = scope.source_ref?.trim()
-  if (!sourceRef || !namespace || sourceRef === namespace) {
+  const target = getActionScopeTarget(scope)
+  if (!target || !namespace || target === namespace) {
     return scope.action
   }
 
   const namespacePrefix = `${namespace}.`
-  if (sourceRef.startsWith(namespacePrefix)) {
-    return sourceRef.slice(namespacePrefix.length)
+  if (target.startsWith(namespacePrefix)) {
+    return target.slice(namespacePrefix.length)
   }
   const colonPrefix = `${namespace}:`
-  if (sourceRef.startsWith(colonPrefix)) {
-    return sourceRef.slice(colonPrefix.length)
+  if (target.startsWith(colonPrefix)) {
+    return target.slice(colonPrefix.length)
   }
   const slashPrefix = `${namespace}/`
-  if (sourceRef.startsWith(slashPrefix)) {
-    return sourceRef.slice(slashPrefix.length)
+  if (target.startsWith(slashPrefix)) {
+    return target.slice(slashPrefix.length)
   }
 
-  return sourceRef
+  return target
 }
 
 /**

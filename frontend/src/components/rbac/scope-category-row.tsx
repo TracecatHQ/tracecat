@@ -22,6 +22,22 @@ import {
 } from "@/lib/rbac"
 import { cn } from "@/lib/utils"
 
+const ACTION_SCOPE_CONTROL_PREFIX = "__control__:"
+const ACTION_SCOPE_NAMESPACE_PREFIX = "__namespace__:"
+
+function toControlValue(value: "none" | "all" | "custom"): string {
+  return `${ACTION_SCOPE_CONTROL_PREFIX}${value}`
+}
+
+function toNamespaceValue(namespace: string): string {
+  return `${ACTION_SCOPE_NAMESPACE_PREFIX}${namespace}`
+}
+
+function parseNamespaceValue(value: string): string | null {
+  if (!value.startsWith(ACTION_SCOPE_NAMESPACE_PREFIX)) return null
+  return value.slice(ACTION_SCOPE_NAMESPACE_PREFIX.length)
+}
+
 export interface ScopeCategoryRowProps {
   categoryKey: string
   category: { label: string; description: string; resources: string[] }
@@ -84,15 +100,17 @@ export const ScopeCategoryRow = memo(function ScopeCategoryRow({
   }, [categoryScopes, isActionsCategory])
 
   const actionNamespaceValue = useMemo(() => {
-    if (!isActionsCategory) return "all"
-    if (categoryScopes.length === 0) return "none"
+    if (!isActionsCategory) return toControlValue("all")
+    if (categoryScopes.length === 0) return toControlValue("none")
 
     const selectedActionScopes = categoryScopes.filter((scope) =>
       selectedScopeIds.has(scope.id)
     )
 
-    if (selectedActionScopes.length === 0) return "none"
-    if (selectedActionScopes.length === categoryScopes.length) return "all"
+    if (selectedActionScopes.length === 0) return toControlValue("none")
+    if (selectedActionScopes.length === categoryScopes.length) {
+      return toControlValue("all")
+    }
 
     const selectedNamespaces = new Set(
       selectedActionScopes
@@ -100,7 +118,7 @@ export const ScopeCategoryRow = memo(function ScopeCategoryRow({
         .filter((namespace): namespace is string => Boolean(namespace))
     )
 
-    if (selectedNamespaces.size !== 1) return "custom"
+    if (selectedNamespaces.size !== 1) return toControlValue("custom")
     const [namespace] = Array.from(selectedNamespaces)
 
     const namespaceScopeIds = categoryScopes
@@ -112,7 +130,9 @@ export const ScopeCategoryRow = memo(function ScopeCategoryRow({
       namespaceScopeIds.length === selectedIds.size &&
       namespaceScopeIds.every((scopeId) => selectedIds.has(scopeId))
 
-    return isExactNamespaceSelection ? namespace : "custom"
+    return isExactNamespaceSelection
+      ? toNamespaceValue(namespace)
+      : toControlValue("custom")
   }, [categoryScopes, isActionsCategory, selectedScopeIds])
 
   const handleLevelChange = useCallback(
@@ -128,25 +148,28 @@ export const ScopeCategoryRow = memo(function ScopeCategoryRow({
 
   const handleActionNamespaceChange = useCallback(
     (value: string) => {
-      if (value === "custom") return
+      if (value === toControlValue("custom")) return
 
-      if (value === "none") {
+      if (value === toControlValue("none")) {
         for (const scope of categoryScopes) {
           onScopeToggle(scope.id, false)
         }
         return
       }
 
-      if (value === "all") {
+      if (value === toControlValue("all")) {
         for (const scope of categoryScopes) {
           onScopeToggle(scope.id, true)
         }
         return
       }
 
+      const namespace = parseNamespaceValue(value)
+      if (!namespace) return
+
       for (const scope of categoryScopes) {
-        const namespace = getScopeActionNamespace(scope)
-        onScopeToggle(scope.id, namespace === value)
+        const scopeNamespace = getScopeActionNamespace(scope)
+        onScopeToggle(scope.id, scopeNamespace === namespace)
       }
     },
     [categoryScopes, onScopeToggle]
@@ -199,14 +222,16 @@ export const ScopeCategoryRow = memo(function ScopeCategoryRow({
               <SelectValue placeholder="Namespace" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="none">None</SelectItem>
-              <SelectItem value="all">All namespaces</SelectItem>
+              <SelectItem value={toControlValue("none")}>None</SelectItem>
+              <SelectItem value={toControlValue("all")}>
+                All namespaces
+              </SelectItem>
               {actionNamespaces.map((namespace) => (
-                <SelectItem key={namespace} value={namespace}>
+                <SelectItem key={namespace} value={toNamespaceValue(namespace)}>
                   {namespace}
                 </SelectItem>
               ))}
-              <SelectItem value="custom" disabled>
+              <SelectItem value={toControlValue("custom")} disabled>
                 Custom
               </SelectItem>
             </SelectContent>

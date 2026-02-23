@@ -285,7 +285,9 @@ class TestOrgRoleScopes:
         assert "org:billing:read" in ORG_ADMIN_SCOPES
 
     def test_member_has_minimal_scopes(self):
-        assert ORG_MEMBER_SCOPES == frozenset({"org:read", "org:member:read"})
+        assert ORG_MEMBER_SCOPES == frozenset(
+            {"org:read", "org:member:read", "org:registry:read"}
+        )
 
 
 class TestRequireScopeDecorator:
