@@ -893,6 +893,10 @@ function AgentPresetForm({
       <form
         onSubmit={(event) => {
           event.preventDefault()
+          // Ignore submits bubbling from nested forms (e.g., chat prompt inputs).
+          if (event.target !== event.currentTarget) {
+            return
+          }
           void handleSubmit()
         }}
         className="h-full"

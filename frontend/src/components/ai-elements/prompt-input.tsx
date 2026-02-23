@@ -17,11 +17,10 @@ import {
   type ClipboardEventHandler,
   type ComponentProps,
   createContext,
-  type FormEvent,
-  type FormEventHandler,
   Fragment,
   type HTMLAttributes,
   type KeyboardEventHandler,
+  type MouseEventHandler,
   type RefObject,
   useCallback,
   useContext,
@@ -53,6 +52,7 @@ type AttachmentsContext = {
   add: (files: File[] | FileList) => void
   remove: (id: string) => void
   clear: () => void
+  submit: () => void
   openFileDialog: () => void
   fileInputRef: RefObject<HTMLInputElement | null>
 }
@@ -195,7 +195,7 @@ export type PromptInputMessage = {
 }
 
 export type PromptInputProps = Omit<
-  HTMLAttributes<HTMLFormElement>,
+  HTMLAttributes<HTMLDivElement>,
   "onSubmit"
 > & {
   accept?: string // e.g., "image/*" or leave undefined for any
@@ -211,10 +211,7 @@ export type PromptInputProps = Omit<
     code: "max_files" | "max_file_size" | "accept"
     message: string
   }) => void
-  onSubmit: (
-    message: PromptInputMessage,
-    event: FormEvent<HTMLFormElement>
-  ) => void
+  onSubmit: (message: PromptInputMessage) => void
 }
 
 export const PromptInput = ({
@@ -232,16 +229,7 @@ export const PromptInput = ({
 }: PromptInputProps) => {
   const [items, setItems] = useState<(FileUIPart & { id: string })[]>([])
   const inputRef = useRef<HTMLInputElement | null>(null)
-  const anchorRef = useRef<HTMLSpanElement>(null)
-  const formRef = useRef<HTMLFormElement | null>(null)
-
-  // Find nearest form to scope drag & drop
-  useEffect(() => {
-    const root = anchorRef.current?.closest("form")
-    if (root instanceof HTMLFormElement) {
-      formRef.current = root
-    }
-  }, [])
+  const rootRef = useRef<HTMLDivElement | null>(null)
 
   const openFileDialog = useCallback(() => {
     inputRef.current?.click()
@@ -345,8 +333,8 @@ export const PromptInput = ({
 
   // Attach drop handlers on nearest form and document (opt-in)
   useEffect(() => {
-    const form = formRef.current
-    if (!form) {
+    const root = rootRef.current
+    if (!root) {
       return
     }
     const onDragOver = (e: DragEvent) => {
@@ -362,11 +350,11 @@ export const PromptInput = ({
         add(e.dataTransfer.files)
       }
     }
-    form.addEventListener("dragover", onDragOver)
-    form.addEventListener("drop", onDrop)
+    root.addEventListener("dragover", onDragOver)
+    root.addEventListener("drop", onDrop)
     return () => {
-      form.removeEventListener("dragover", onDragOver)
-      form.removeEventListener("drop", onDrop)
+      root.removeEventListener("dragover", onDragOver)
+      root.removeEventListener("drop", onDrop)
     }
   }, [add])
 
@@ -412,12 +400,11 @@ export const PromptInput = ({
     })
   }
 
-  const handleSubmit: FormEventHandler<HTMLFormElement> = (event) => {
-    event.preventDefault()
-
-    const formData = new FormData(event.currentTarget)
-    const text = (formData.get("message") as string) || ""
-
+  const submit = useCallback(() => {
+    const messageField = rootRef.current?.querySelector<
+      HTMLTextAreaElement | HTMLInputElement
+    >("[name='message']")
+    const text = messageField?.value ?? ""
     // Convert blob URLs to data URLs asynchronously
     Promise.all(
       items.map(async ({ id, ...item }) => {
@@ -430,10 +417,10 @@ export const PromptInput = ({
         return item
       })
     ).then((files: FileUIPart[]) => {
-      onSubmit({ text, files }, event)
+      onSubmit({ text, files })
       clear()
     })
-  }
+  }, [items, onSubmit, clear])
 
   const ctx = useMemo<AttachmentsContext>(
     () => ({
@@ -441,15 +428,15 @@ export const PromptInput = ({
       add,
       remove,
       clear,
+      submit,
       openFileDialog,
       fileInputRef: inputRef,
     }),
-    [items, add, remove, clear, openFileDialog]
+    [items, add, remove, clear, submit, openFileDialog]
   )
 
   return (
     <AttachmentsContext.Provider value={ctx}>
-      <span aria-hidden="true" className="hidden" ref={anchorRef} />
       <input
         accept={accept}
         className="hidden"
@@ -458,16 +445,17 @@ export const PromptInput = ({
         ref={inputRef}
         type="file"
       />
-      <form
+      <div
+        data-prompt-input="true"
+        ref={rootRef}
         className={cn(
           "w-full overflow-hidden rounded-xl border bg-background shadow-sm",
           className
         )}
-        onSubmit={handleSubmit}
         {...props}
       >
         {children}
-      </form>
+      </div>
     </AttachmentsContext.Provider>
   )
 }
@@ -524,10 +512,7 @@ export const PromptInputTextarea = ({
 
       // Submit on Enter (without Shift)
       e.preventDefault()
-      const form = e.currentTarget.form
-      if (form) {
-        form.requestSubmit()
-      }
+      attachments.submit()
     }
   }
 
@@ -685,9 +670,19 @@ export const PromptInputSubmit = ({
   variant = "ghost",
   size = "icon",
   status,
+  onClick,
   children,
   ...props
 }: PromptInputSubmitProps) => {
+  const attachments = usePromptInputAttachments()
+
+  const handleClick: MouseEventHandler<HTMLButtonElement> = (event) => {
+    onClick?.(event)
+    if (!event.defaultPrevented) {
+      attachments.submit()
+    }
+  }
+
   let Icon = <ArrowUpIcon className="size-3.5" />
 
   if (status === "submitted") {
@@ -703,8 +698,9 @@ export const PromptInputSubmit = ({
       aria-label="Send message"
       className={cn("size-6 rounded-md hover:text-muted-foreground", className)}
       size={size}
-      type="submit"
+      type="button"
       variant={variant}
+      onClick={handleClick}
       {...props}
     >
       {children ?? Icon}
