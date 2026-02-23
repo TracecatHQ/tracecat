@@ -75,6 +75,16 @@ spec:
                 set -- "$@" --visibility-uri "$VISIBILITY_ARCHIVAL_URI"
               fi
 
+              # Validate archival settings early with a clear error message.
+              if [ "$HISTORY_ARCHIVAL_STATE" = "enabled" ] && [ -z "$HISTORY_ARCHIVAL_URI" ]; then
+                echo "History archival is enabled but history URI is empty"
+                exit 1
+              fi
+              if [ "$VISIBILITY_ARCHIVAL_STATE" = "enabled" ] && [ -z "$VISIBILITY_ARCHIVAL_URI" ]; then
+                echo "Visibility archival is enabled but visibility URI is empty"
+                exit 1
+              fi
+
               # Reconcile namespace settings (idempotent)
               echo "Checking namespace..."
               if temporal operator namespace describe "$NAMESPACE" 2>/dev/null; then
@@ -85,6 +95,9 @@ spec:
                 echo "Creating namespace '$NAMESPACE'..."
                 if temporal operator namespace create "$@"; then
                   echo "Namespace created"
+                  echo "Reconciling namespace settings after create..."
+                  temporal operator namespace update "$@"
+                  echo "Namespace updated"
                 else
                   # Handle race conditions where another setup job creates the namespace
                   # between the initial describe and this create call.
@@ -102,13 +115,23 @@ spec:
 
               # Add search attributes (idempotent - check each before adding)
               echo "Checking search attributes..."
-              EXISTING_ATTRS=$(temporal operator search-attribute list --namespace "$NAMESPACE" 2>/dev/null || echo "")
               {{- range $name, $type := .Values.tracecat.temporal.searchAttributes }}
-              if echo "$EXISTING_ATTRS" | grep -q "{{ $name }}"; then
+              if temporal operator search-attribute list --namespace "$NAMESPACE" 2>/dev/null | grep -q "{{ $name }}"; then
                 echo "Search attribute '{{ $name }}' already exists"
               else
                 echo "Adding search attribute '{{ $name }}' ({{ $type }})..."
-                temporal operator search-attribute create --namespace "$NAMESPACE" --name {{ $name }} --type {{ $type }}
+                if temporal operator search-attribute create --namespace "$NAMESPACE" --name {{ $name }} --type {{ $type }}; then
+                  echo "Search attribute '{{ $name }}' created"
+                else
+                  # Handle race conditions where another process creates the attribute first.
+                  echo "Create failed for '{{ $name }}', checking if it now exists..."
+                  if temporal operator search-attribute list --namespace "$NAMESPACE" 2>/dev/null | grep -q "{{ $name }}"; then
+                    echo "Search attribute '{{ $name }}' already exists"
+                  else
+                    echo "Failed to create search attribute '{{ $name }}'"
+                    exit 1
+                  fi
+                fi
               fi
               {{- end }}
 
