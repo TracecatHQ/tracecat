@@ -43,28 +43,30 @@ export function AdminSidebar({
     }
   }, [multiTenantEnabled])
 
-  const navPlatform = multiTenantEnabled
-    ? [
-        {
-          title: "Organizations",
-          url: "/admin/organizations",
-          icon: BuildingIcon,
-          isActive: pathname?.includes("/admin/organizations"),
-        },
-        {
-          title: "Users",
-          url: "/admin/users",
-          icon: UsersIcon,
-          isActive: pathname?.includes("/admin/users"),
-        },
-        {
-          title: "Tiers",
-          url: "/admin/tiers",
-          icon: LayersIcon,
-          isActive: pathname?.includes("/admin/tiers"),
-        },
-      ]
-    : []
+  const navPlatform = [
+    ...(multiTenantEnabled
+      ? [
+          {
+            title: "Organizations",
+            url: "/admin/organizations",
+            icon: BuildingIcon,
+            isActive: pathname?.includes("/admin/organizations"),
+          },
+        ]
+      : []),
+    {
+      title: "Users",
+      url: "/admin/users",
+      icon: UsersIcon,
+      isActive: pathname?.includes("/admin/users"),
+    },
+    {
+      title: "Tiers",
+      url: "/admin/tiers",
+      icon: LayersIcon,
+      isActive: pathname?.includes("/admin/tiers"),
+    },
+  ]
 
   const navRegistry = [
     {
