@@ -356,17 +356,22 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       </div>
     ),
     "core.workflow": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-violet-200/70", className)}>
+      <div className={cn(basicIconsCommon, "bg-violet-100/80", className)}>
         <WorkflowIcon {...rest} />
       </div>
     ),
     "core.table": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-sky-200/50", className)}>
+      <div className={cn(basicIconsCommon, "bg-sky-100/80", className)}>
         <Table {...rest} />
       </div>
     ),
     "core.sql": ({ className, ...rest }) => (
-      <div className={cn(basicIconsCommon, "bg-sky-200/50", className)}>
+      <div className={cn(basicIconsCommon, "bg-teal-100/80", className)}>
+        <DatabaseIcon {...rest} />
+      </div>
+    ),
+    "core.duckdb": ({ className, ...rest }) => (
+      <div className={cn(basicIconsCommon, "bg-teal-100/80", className)}>
         <DatabaseIcon {...rest} />
       </div>
     ),

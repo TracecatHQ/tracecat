@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 import {
   BlocksIcon,
+  BotIcon,
   BoxIcon,
   DatabaseIcon,
   LayersIcon,
@@ -32,6 +33,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useBuilderRegistryActions } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
 
 interface ActionCategory {
   id: string
@@ -56,6 +58,13 @@ const ACTION_CATEGORIES: ActionCategory[] = [
     label: "AI",
     namespace: "ai",
     icon: SparklesIcon,
+    align: "center",
+  },
+  {
+    id: "agent",
+    label: "Agent",
+    namespace: "ai",
+    icon: BotIcon,
     align: "center",
   },
   {
@@ -113,13 +122,48 @@ const WORKFLOW_TOP = [
   "core.transform.gather",
 ]
 const SQL_TOP = ["core.duckdb.execute_sql", "core.sql.execute_query"]
-const AI_TOP = ["ai.action", "ai.agent", "ai.preset_agent", "ai.slackbot"]
+const AI_TOP = ["ai.action", "ai.ranker", "ai.slackbot"]
+const AGENT_TOP = ["ai.agent", "ai.preset_agent"]
 
 const WORKFLOW_EXTRA_ACTIONS = new Set([
   "core.transform.scatter",
   "core.transform.gather",
 ])
 const SQL_NAMESPACES = ["core.sql", "core.duckdb"]
+const CATEGORY_STYLES: Record<string, { buttonClass: string }> = {
+  core: {
+    buttonClass:
+      "text-muted-foreground hover:bg-zinc-100/70 hover:text-foreground data-[state=open]:bg-zinc-100/70",
+  },
+  ai: {
+    buttonClass:
+      "text-muted-foreground hover:bg-sky-50/70 hover:text-foreground data-[state=open]:bg-sky-50/70",
+  },
+  agent: {
+    buttonClass:
+      "text-muted-foreground hover:bg-emerald-50/70 hover:text-foreground data-[state=open]:bg-emerald-50/70",
+  },
+  "core.workflow": {
+    buttonClass:
+      "text-muted-foreground hover:bg-slate-100/75 hover:text-foreground data-[state=open]:bg-slate-100/75",
+  },
+  "core.cases": {
+    buttonClass:
+      "text-muted-foreground hover:bg-slate-100/75 hover:text-foreground data-[state=open]:bg-slate-100/75",
+  },
+  "core.table": {
+    buttonClass:
+      "text-muted-foreground hover:bg-slate-100/75 hover:text-foreground data-[state=open]:bg-slate-100/75",
+  },
+  "core.sql": {
+    buttonClass:
+      "text-muted-foreground hover:bg-slate-100/75 hover:text-foreground data-[state=open]:bg-slate-100/75",
+  },
+  tools: {
+    buttonClass:
+      "text-muted-foreground hover:bg-orange-50/70 hover:text-foreground data-[state=open]:bg-orange-50/70",
+  },
+}
 
 function matchesNamespace(
   actionNamespace: string | undefined,
@@ -138,6 +182,17 @@ function isCoreAction(action: RegistryActionReadMinimal): boolean {
   if (matchesNamespace(action.namespace, "core.script")) return true
   if (matchesNamespace(action.namespace, "core.grpc")) return true
   return false
+}
+
+function isAgentAction(action: RegistryActionReadMinimal): boolean {
+  return (
+    action.action.startsWith("ai.") &&
+    action.action.toLowerCase().includes("agent")
+  )
+}
+
+function isAiAction(action: RegistryActionReadMinimal): boolean {
+  return matchesNamespace(action.namespace, "ai") && !isAgentAction(action)
 }
 
 function sortWithTop(
@@ -169,6 +224,8 @@ function sortActions(
     return sortWithTop(actions, SQL_TOP)
   } else if (categoryId === "ai") {
     return sortWithTop(actions, AI_TOP)
+  } else if (categoryId === "agent") {
+    return sortWithTop(actions, AGENT_TOP)
   }
 
   return [...actions].sort((a, b) => a.action.localeCompare(b.action))
@@ -191,6 +248,12 @@ export function CanvasToolbar({ onAddAction }: CanvasToolbarProps) {
       const actions = registryActions.filter((action) => {
         if (category.id === "core") {
           return isCoreAction(action)
+        }
+        if (category.id === "ai") {
+          return isAiAction(action)
+        }
+        if (category.id === "agent") {
+          return isAgentAction(action)
         }
         if (category.id === "core.workflow") {
           return (
@@ -256,6 +319,9 @@ function ToolbarCategoryDropdown({
 }: ToolbarCategoryDropdownProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
+  const isAiCategory = category.id === "ai"
+  const isAgentCategory = category.id === "agent"
+  const categoryStyle = CATEGORY_STYLES[category.id]
 
   const filteredActions = useMemo(() => {
     if (!search) return actions
@@ -276,6 +342,47 @@ function ToolbarCategoryDropdown({
     [onAddAction]
   )
 
+  function renderActionIcon(action: RegistryActionReadMinimal) {
+    if (isAiCategory) {
+      return (
+        <div className="flex size-8 items-center justify-center rounded-md border border-sky-100 bg-sky-50/80">
+          <SparklesIcon className="size-4 text-zinc-700" />
+        </div>
+      )
+    }
+    if (isAgentCategory) {
+      return (
+        <div className="flex size-8 items-center justify-center rounded-md border border-emerald-100 bg-emerald-50/80">
+          <BotIcon className="size-4 text-zinc-700" />
+        </div>
+      )
+    }
+    return getIcon(action.action, {
+      className: "size-8 rounded-md border p-1.5",
+    })
+  }
+
+  function renderActionItem(action: RegistryActionReadMinimal) {
+    return (
+      <CommandItem
+        key={action.action}
+        value={action.action}
+        onSelect={() => handleSelect(action)}
+        className="flex cursor-pointer items-center gap-3 py-2"
+      >
+        {renderActionIcon(action)}
+        <div className="flex min-w-0 flex-col">
+          <span className="truncate text-xs font-medium">
+            {action.default_title ?? action.action}
+          </span>
+          <span className="truncate text-xs text-muted-foreground">
+            {action.action}
+          </span>
+        </div>
+      </CommandItem>
+    )
+  }
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <Tooltip>
@@ -284,7 +391,7 @@ function ToolbarCategoryDropdown({
             <Button
               variant="ghost"
               size="icon"
-              className="size-9"
+              className={cn("size-9", categoryStyle?.buttonClass)}
               disabled={isLoading || actions.length === 0}
             >
               <Icon className="size-5" />
@@ -318,26 +425,7 @@ function ToolbarCategoryDropdown({
               heading={`${category.label} actions`}
               className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium"
             >
-              {filteredActions.map((action) => (
-                <CommandItem
-                  key={action.action}
-                  value={action.action}
-                  onSelect={() => handleSelect(action)}
-                  className="flex cursor-pointer items-center gap-3 py-2"
-                >
-                  {getIcon(action.action, {
-                    className: "size-8 rounded-md border p-1.5",
-                  })}
-                  <div className="flex min-w-0 flex-col">
-                    <span className="truncate text-xs font-medium">
-                      {action.default_title ?? action.action}
-                    </span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      {action.action}
-                    </span>
-                  </div>
-                </CommandItem>
-              ))}
+              {filteredActions.map((action) => renderActionItem(action))}
             </CommandGroup>
           </CommandList>
         </Command>

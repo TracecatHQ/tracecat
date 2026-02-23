@@ -20,6 +20,7 @@ from uuid import uuid4
 import orjson
 import yaml
 from slugify import slugify
+from tracecat_registry._internal.flatten import flatten_dict as _flatten_dict
 
 from tracecat.common import is_iterable
 from tracecat.contexts import ctx_interaction, ctx_logical_time
@@ -480,59 +481,18 @@ def merge_dicts(x: list[dict[Any, Any]]) -> dict[Any, Any]:
     return {k: v for d in x for k, v in d.items()}
 
 
-def flatten_dict(x: dict[str, Any] | list[Any], max_depth: int = 100) -> dict[str, Any]:
+def flatten_dict(
+    x: str | dict[str, Any] | list[Any], max_depth: int = 100
+) -> dict[str, Any]:
     """Return object with single level of keys (as jsonpath) and values."""
-
-    def _flatten(
-        obj: dict[str, Any] | list[Any], prefix: str = "", depth: int = 0
-    ) -> dict[str, Any]:
-        if depth > max_depth:
-            raise ValueError(
-                f"Maximum recursion depth ({max_depth}) exceeded while flattening object"
-            )
-
-        result: dict[str, Any] = {}
-
-        if isinstance(obj, list):
-            for index, item in enumerate(obj):
-                array_path = f"[{index}]"
-                full_path = f"{prefix}{array_path}" if prefix else array_path
-
-                if isinstance(item, (dict, list)):
-                    result.update(_flatten(item, full_path, depth + 1))
-                else:
-                    result[full_path] = item
-            return result
-
-        if isinstance(obj, dict):
-            for key, value in obj.items():
-                full_path = f"{prefix}.{key}" if prefix else key
-
-                if isinstance(value, dict):
-                    result.update(_flatten(value, full_path, depth + 1))
-                elif isinstance(value, list):
-                    for index, item in enumerate(value):
-                        array_path = f"{full_path}[{index}]"
-                        if isinstance(item, (dict, list)):
-                            result.update(_flatten(item, array_path, depth + 1))
-                        else:
-                            result[array_path] = item
-                else:
-                    result[full_path] = value
-            return result
-
-        return {prefix: obj} if prefix else {"": obj}
-
-    return _flatten(x)
-
-
-def flatten_json(x: str | dict[str, Any]) -> dict[str, Any]:
-    """Flatten a JSON object into a single level of fields."""
     if isinstance(x, str):
         x = orjson.loads(x)
-    if not isinstance(x, dict):
-        raise ValueError("json must be a JSON object or a string")
-    return flatten_dict(x)
+        if not isinstance(x, (dict, list)):
+            raise ValueError(
+                "Input string must decode to a JSON object or array, "
+                f"got {type(x)}."
+            )
+    return _flatten_dict(x=x, max_depth=max_depth)
 
 
 def dict_keys(x: dict[Any, Any]) -> list[Any]:
@@ -1171,7 +1131,6 @@ _FUNCTION_MAPPING = {
     "map_keys": map_dict_keys,
     "merge": merge_dicts,
     "flatten_dict": flatten_dict,
-    "flatten_json": flatten_json,
     "to_keys": dict_keys,
     "to_values": dict_values,
     "tabulate": tabulate,

@@ -6,8 +6,13 @@ from tracecat_registry._internal.exceptions import TracecatExpressionError
 from tracecat_registry.core.transform import (
     apply,
     deduplicate,
+    drop_nulls,
+    eval_jsonpaths,
     filter,
+    flatten_json,
+    is_in,
     map,
+    not_in,
 )
 
 
@@ -157,6 +162,93 @@ def test_apply(input: Any, python_lambda: str, expected: Any) -> None:
 )
 def test_map(input: list[Any], python_lambda: str, expected: list[Any]) -> None:
     assert map(input, python_lambda) == expected
+
+
+@pytest.mark.parametrize(
+    "items,expected",
+    [
+        ([1, None, 2, "", 3], [1, 2, 3]),
+        ([None, "", None], []),
+        (["a", "b", "c"], ["a", "b", "c"]),
+    ],
+)
+def test_drop_nulls(items: list[Any], expected: list[Any]) -> None:
+    assert drop_nulls(items) == expected
+
+
+@pytest.mark.parametrize(
+    "items,collection,python_lambda,expected",
+    [
+        # Basic cases
+        ([1, 2, 3], [2, 3, 4], None, [2, 3]),
+        # Empty cases
+        ([1, 2], [3, 4], None, []),
+        ([], [1, 2], None, []),
+        ([1, 2], [], None, []),
+        # String values
+        (["a", "b", "b"], ["b", "c"], None, ["b", "b"]),
+        # With lambda transformation
+        (
+            [{"id": 1}, {"id": 2}, {"id": 2}],
+            [2, 4, 6],
+            "lambda x: x['id'] * 2",
+            [{"id": 1}, {"id": 2}, {"id": 2}],
+        ),
+        # Complex objects with duplicates - using hashable collection
+        (
+            [{"name": "a"}, {"name": "b"}, {"name": "b"}],
+            ["b", "c"],  # Collection contains transformed values
+            "lambda x: x['name']",
+            [{"name": "b"}, {"name": "b"}],
+        ),
+    ],
+)
+def test_is_in(
+    items: list,
+    collection: list,
+    python_lambda: str | None,
+    expected: list,
+) -> None:
+    """Test the is_in function with various inputs and transformations."""
+    result = is_in(items, collection, python_lambda)
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "items,collection,python_lambda,expected",
+    [
+        # Basic cases
+        ([1, 2, 3], [2, 3, 4], None, [1]),
+        # Empty cases
+        ([], [1, 2], None, []),
+        ([1, 2], [], None, [1, 2]),
+        # String values with duplicates
+        (["a", "a", "b"], ["b", "c"], None, ["a", "a"]),
+        # With lambda transformation
+        (
+            [{"id": 1}, {"id": 1}, {"id": 2}],
+            [2, 3],  # Collection contains transformed values
+            "lambda x: x['id']",
+            [{"id": 1}, {"id": 1}],
+        ),
+        # Complex nested objects
+        (
+            [{"user": {"id": 1}}, {"user": {"id": 1}}, {"user": {"id": 2}}],
+            [2],  # Collection contains transformed values
+            "lambda x: x['user']['id']",
+            [{"user": {"id": 1}}, {"user": {"id": 1}}],
+        ),
+    ],
+)
+def test_not_in(
+    items: list[Any],
+    collection: list[Any],
+    python_lambda: str | None,
+    expected: list[Any],
+) -> None:
+    """Test filtering items not in the collection."""
+    result = not_in(items, collection, python_lambda)
+    assert result == expected
 
 
 @pytest.mark.parametrize(
@@ -727,3 +819,262 @@ async def test_deduplicate_skip_persistence_vs_redis(
 
     except ConnectionError:
         pytest.skip("Redis not available")
+
+
+@pytest.mark.parametrize(
+    "input_json,expected",
+    [
+        # Basic nested object
+        ({"a": {"b": 1}}, {"a.b": 1}),
+        # Multiple levels of nesting
+        ({"a": {"b": {"c": 1}}}, {"a.b.c": 1}),
+        # Multiple keys at same level
+        ({"a": 1, "b": 2, "c": 3}, {"a": 1, "b": 2, "c": 3}),
+        # Mixed nested structure
+        (
+            {"user": {"name": "Alice", "profile": {"age": 30}}},
+            {"user.name": "Alice", "user.profile.age": 30},
+        ),
+        # Array in object
+        ({"items": [1, 2, 3]}, {"items[0]": 1, "items[1]": 2, "items[2]": 3}),
+        # Array of objects
+        (
+            {"users": [{"id": 1}, {"id": 2}]},
+            {"users[0].id": 1, "users[1].id": 2},
+        ),
+        # Nested array of objects
+        (
+            {"data": {"users": [{"name": "Alice"}, {"name": "Bob"}]}},
+            {"data.users[0].name": "Alice", "data.users[1].name": "Bob"},
+        ),
+        # Complex nested structure with arrays
+        (
+            {
+                "event": {
+                    "type": "login",
+                    "users": [{"id": 1, "roles": ["admin", "user"]}],
+                }
+            },
+            {
+                "event.type": "login",
+                "event.users[0].id": 1,
+                "event.users[0].roles[0]": "admin",
+                "event.users[0].roles[1]": "user",
+            },
+        ),
+        # Empty object
+        ({}, {}),
+        # Single key-value
+        ({"key": "value"}, {"key": "value"}),
+        # Object with empty nested structures
+        ({"a": {}, "b": []}, {}),
+        # Mixed types as values
+        (
+            {"str": "text", "num": 42, "bool": True, "null": None},
+            {"str": "text", "num": 42, "bool": True, "null": None},
+        ),
+        # Deeply nested array in object
+        (
+            {"a": {"b": [{"c": [1, 2]}]}},
+            {"a.b[0].c[0]": 1, "a.b[0].c[1]": 2},
+        ),
+    ],
+)
+def test_flatten_json(input_json: dict[str, Any], expected: dict[str, Any]) -> None:
+    """Test the flatten_json function with various structures."""
+    result = flatten_json(input_json)
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "input_str,expected",
+    [
+        # String JSON object
+        ('{"a": {"b": 1}}', {"a.b": 1}),
+        # String JSON with array
+        ('{"items": [1, 2]}', {"items[0]": 1, "items[1]": 2}),
+        # Complex string JSON
+        (
+            '{"user": {"name": "Alice", "data": [1, 2]}}',
+            {"user.name": "Alice", "user.data[0]": 1, "user.data[1]": 2},
+        ),
+    ],
+)
+def test_flatten_json_string_input(input_str: str, expected: dict[str, Any]) -> None:
+    """Test flatten_json with string JSON input."""
+    result = flatten_json(input_str)
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "input_json,error_match",
+    [
+        # Invalid JSON string
+        ("{invalid json}", ""),
+        # Non-dict after parsing (list at top level is OK, but primitives aren't)
+        ("123", "json must be a JSON object"),
+        ('"string"', "json must be a JSON object"),
+        ("true", "json must be a JSON object"),
+        ("null", "json must be a JSON object"),
+    ],
+)
+def test_flatten_json_errors(input_json: str, error_match: str) -> None:
+    """Test flatten_json error cases."""
+    with pytest.raises(ValueError, match=error_match):
+        flatten_json(input_json)
+
+
+@pytest.mark.parametrize(
+    "input_json,jsonpaths,expected",
+    [
+        # Single path
+        ({"name": "Alice"}, ["$.name"], {"$.name": "Alice"}),
+        # Multiple paths
+        (
+            {"name": "Alice", "age": 30},
+            ["$.name", "$.age"],
+            {"$.name": "Alice", "$.age": 30},
+        ),
+        # Nested path
+        (
+            {"user": {"profile": {"email": "alice@example.com"}}},
+            ["$.user.profile.email"],
+            {"$.user.profile.email": "alice@example.com"},
+        ),
+        # Array index access
+        (
+            {"items": [1, 2, 3]},
+            ["$.items[0]", "$.items[2]"],
+            {"$.items[0]": 1, "$.items[2]": 3},
+        ),
+        # Array wildcard (returns list)
+        (
+            {"items": [1, 2, 3]},
+            ["$.items[*]"],
+            {"$.items[*]": [1, 2, 3]},
+        ),
+        # Complex nested structure
+        (
+            {"data": {"users": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]}},
+            ["$.data.users[0].name", "$.data.users[1].id"],
+            {"$.data.users[0].name": "Alice", "$.data.users[1].id": 2},
+        ),
+        # Empty jsonpaths list
+        ({"a": 1}, [], {}),
+        # Multiple levels of nesting
+        (
+            {"a": {"b": {"c": {"d": "value"}}}},
+            ["$.a.b.c.d"],
+            {"$.a.b.c.d": "value"},
+        ),
+        # Array of objects with wildcard
+        (
+            {"users": [{"name": "Alice"}, {"name": "Bob"}]},
+            ["$.users[*].name"],
+            {"$.users[*].name": ["Alice", "Bob"]},
+        ),
+        # Mixed types
+        (
+            {"str": "text", "num": 42, "bool": True, "null": None, "arr": [1, 2]},
+            ["$.str", "$.num", "$.bool", "$.null", "$.arr"],
+            {
+                "$.str": "text",
+                "$.num": 42,
+                "$.bool": True,
+                "$.null": None,
+                "$.arr": [1, 2],
+            },
+        ),
+    ],
+)
+def test_eval_jsonpaths(
+    input_json: dict[str, Any], jsonpaths: list[str], expected: dict[str, Any]
+) -> None:
+    """Test the eval_jsonpaths function with various JSONPath expressions."""
+    result = eval_jsonpaths(input_json, jsonpaths)
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "input_str,jsonpaths,expected",
+    [
+        # String JSON input
+        ('{"name": "Alice"}', ["$.name"], {"$.name": "Alice"}),
+        # Complex string JSON
+        (
+            '{"user": {"id": 1, "profile": {"email": "test@example.com"}}}',
+            ["$.user.id", "$.user.profile.email"],
+            {"$.user.id": 1, "$.user.profile.email": "test@example.com"},
+        ),
+        # String JSON with array
+        (
+            '{"items": [{"id": 1}, {"id": 2}]}',
+            ["$.items[0].id", "$.items[*].id"],
+            {"$.items[0].id": 1, "$.items[*].id": [1, 2]},
+        ),
+    ],
+)
+def test_eval_jsonpaths_string_input(
+    input_str: str, jsonpaths: list[str], expected: dict[str, Any]
+) -> None:
+    """Test eval_jsonpaths with string JSON input."""
+    result = eval_jsonpaths(input_str, jsonpaths)
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "input_json,jsonpaths,expected",
+    [
+        # Non-existent path returns None
+        ({"a": 1}, ["$.b"], {"$.b": None}),
+        # Partially non-existent nested path
+        ({"a": {"b": 1}}, ["$.a.c"], {"$.a.c": None}),
+        # Mix of existing and non-existing paths
+        (
+            {"a": 1, "b": 2},
+            ["$.a", "$.c", "$.b"],
+            {"$.a": 1, "$.c": None, "$.b": 2},
+        ),
+    ],
+)
+def test_eval_jsonpaths_nonexistent_paths(
+    input_json: dict[str, Any], jsonpaths: list[str], expected: dict[str, Any]
+) -> None:
+    """Test eval_jsonpaths with non-existent paths."""
+    result = eval_jsonpaths(input_json, jsonpaths)
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "input_json,error_type",
+    [
+        # Invalid JSON string
+        ("{invalid}", Exception),
+        # Non-dict after parsing
+        ("123", ValueError),
+        ('"string"', ValueError),
+        ("true", ValueError),
+        ("null", ValueError),
+    ],
+)
+def test_eval_jsonpaths_errors(input_json: str, error_type: type[Exception]) -> None:
+    """Test eval_jsonpaths error cases."""
+    with pytest.raises(error_type):
+        eval_jsonpaths(input_json, ["$.test"])
+
+
+@pytest.mark.parametrize(
+    "input_json,jsonpaths",
+    [
+        # Invalid JSONPath syntax - missing closing bracket
+        ({"a": 1}, ["[broken"]),
+        # Invalid JSONPath syntax - multiple invalid patterns
+        ({"a": 1}, ["$[unclosed", "[incomplete"]),
+    ],
+)
+def test_eval_jsonpaths_invalid_expressions(
+    input_json: dict[str, Any], jsonpaths: list[str]
+) -> None:
+    """Test eval_jsonpaths with invalid JSONPath expressions."""
+    with pytest.raises(TracecatExpressionError):
+        eval_jsonpaths(input_json, jsonpaths)

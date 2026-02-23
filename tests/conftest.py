@@ -567,6 +567,22 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                 "implementation": script_impl,
             }
 
+            # core.ai.extract
+            ai_extract_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.ai",
+                "name": "extract",
+            }
+            manifest_actions["core.ai.extract"] = {
+                "namespace": "core.ai",
+                "name": "extract",
+                "action_type": "udf",
+                "description": "AI extraction",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": ai_extract_impl,
+            }
+
             # core.transform.map
             map_impl = {
                 "type": "udf",
