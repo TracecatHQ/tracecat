@@ -6,6 +6,7 @@ import {
   DatabaseIcon,
   LayersIcon,
   SparklesIcon,
+  SquareFunctionIcon,
   Table2Icon,
   WorkflowIcon,
 } from "lucide-react"
@@ -75,6 +76,13 @@ const ACTION_CATEGORIES: ActionCategory[] = [
     align: "center",
   },
   {
+    id: "core.transform",
+    label: "Transform",
+    namespace: "core.transform",
+    icon: SquareFunctionIcon,
+    align: "center",
+  },
+  {
     id: "core.cases",
     label: "Cases",
     namespace: "core.cases",
@@ -121,6 +129,20 @@ const WORKFLOW_TOP = [
   "core.transform.scatter",
   "core.transform.gather",
 ]
+const TRANSFORM_TOP = [
+  "core.transform.reshape",
+  "core.transform.scatter",
+  "core.transform.gather",
+  "core.transform.deduplicate",
+  "core.transform.is_duplicate",
+  "core.transform.apply",
+  "core.transform.map",
+  "core.transform.filter",
+  "core.transform.flatten_json",
+  "core.transform.eval_jsonpaths",
+  "core.transform.is_in",
+  "core.transform.not_in",
+]
 const SQL_TOP = ["core.duckdb.execute_sql", "core.sql.execute_query"]
 const AI_TOP = ["ai.action", "ai.ranker", "ai.slackbot"]
 const AGENT_TOP = ["ai.agent", "ai.preset_agent"]
@@ -144,6 +166,10 @@ const CATEGORY_STYLES: Record<string, { buttonClass: string }> = {
       "text-muted-foreground hover:bg-emerald-50/70 hover:text-foreground data-[state=open]:bg-emerald-50/70",
   },
   "core.workflow": {
+    buttonClass:
+      "text-muted-foreground hover:bg-slate-100/75 hover:text-foreground data-[state=open]:bg-slate-100/75",
+  },
+  "core.transform": {
     buttonClass:
       "text-muted-foreground hover:bg-slate-100/75 hover:text-foreground data-[state=open]:bg-slate-100/75",
   },
@@ -220,6 +246,8 @@ function sortActions(
     return sortWithTop(actions, CORE_TOP)
   } else if (categoryId === "core.workflow") {
     return sortWithTop(actions, WORKFLOW_TOP)
+  } else if (categoryId === "core.transform") {
+    return sortWithTop(actions, TRANSFORM_TOP)
   } else if (categoryId === "core.sql") {
     return sortWithTop(actions, SQL_TOP)
   } else if (categoryId === "ai") {
