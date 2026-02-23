@@ -221,52 +221,6 @@ async def select_field(
 
 
 @registry.register(
-    default_title="Extract field (Legacy)",
-    description="Legacy alias for ai.select_field.",
-    namespace="core.ai",
-    secrets=PYDANTIC_AI_REGISTRY_SECRETS,
-)
-async def extract(
-    json: Annotated[
-        dict[str, Any],
-        Doc("JSON object to extract the field from."),
-    ],
-    criteria_prompt: Annotated[
-        str,
-        Doc(
-            'Criteria to determine which field to select. For example, "the name of the alert."'
-        ),
-    ],
-    flatten: Annotated[
-        bool,
-        Doc(
-            "Extract from and return a flattened single level object with JSONPath notation as keys."
-        ),
-    ] = False,
-    model_name: Annotated[
-        str,
-        Doc("LLM model to use for ranking."),
-    ] = DEFAULT_RANKING_MODEL,
-    model_provider: Annotated[
-        str,
-        Doc("LLM provider (e.g., 'openai', 'anthropic')."),
-    ] = DEFAULT_RANKING_MODEL_PROVIDER,
-    algorithm: Annotated[
-        Literal["single-pass", "pairwise"],
-        Doc("Algorithm to use for ranking."),
-    ] = DEFAULT_RANKING_ALGORITHM,
-) -> ExtractFieldResult:
-    return await select_field(
-        json=json,
-        criteria_prompt=criteria_prompt,
-        flatten=flatten,
-        model_name=model_name,
-        model_provider=model_provider,
-        algorithm=algorithm,
-    )
-
-
-@registry.register(
     default_title="Select many fields",
     description="Use AI to select and rank fields from a JSON object. Returns the JSON object with only the selected fields.",
     namespace="ai",
