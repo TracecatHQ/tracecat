@@ -1012,6 +1012,12 @@ Validate Temporal KEDA autoscaling configuration.
 {{- if and $agentExecutorAutoscalingEnabled (lt (int (default 0 $agentExecutorAutoscaling.maxReplicas)) (int (default 0 $agentExecutorAutoscaling.minReplicas))) -}}
 {{- fail "agentExecutor.autoscaling.maxReplicas must be >= agentExecutor.autoscaling.minReplicas" -}}
 {{- end -}}
+{{- if and $executorAutoscalingEnabled (not (or $executorAutoscaling.targetCPUUtilizationPercentage $executorAutoscaling.targetMemoryUtilizationPercentage)) -}}
+{{- fail "executor.autoscaling requires at least one target metric (CPU and/or memory utilization)" -}}
+{{- end -}}
+{{- if and $agentExecutorAutoscalingEnabled (not (or $agentExecutorAutoscaling.targetCPUUtilizationPercentage $agentExecutorAutoscaling.targetMemoryUtilizationPercentage)) -}}
+{{- fail "agentExecutor.autoscaling requires at least one target metric (CPU and/or memory utilization)" -}}
+{{- end -}}
 {{- if $temporalAutoscalingEnabled -}}
 {{- if not (or .Values.temporal.enabled .Values.externalTemporal.enabled) -}}
 {{- fail "worker/executor/agentExecutor autoscaling requires temporal.enabled=true or externalTemporal.enabled=true" -}}

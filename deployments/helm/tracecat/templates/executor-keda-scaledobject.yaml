@@ -28,4 +28,16 @@ spec:
       authenticationRef:
         name: {{ include "tracecat.temporalKedaTriggerAuthName" . }}
       {{- end }}
+    {{- if $autoscaling.targetCPUUtilizationPercentage }}
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: {{ $autoscaling.targetCPUUtilizationPercentage | quote }}
+    {{- end }}
+    {{- if $autoscaling.targetMemoryUtilizationPercentage }}
+    - type: memory
+      metricType: Utilization
+      metadata:
+        value: {{ $autoscaling.targetMemoryUtilizationPercentage | quote }}
+    {{- end }}
 {{- end }}

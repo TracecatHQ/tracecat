@@ -342,6 +342,7 @@ Expected outcomes:
 - KEDA `ScaledObject`s are present for `worker`, `executor`, and `agent-executor` in both `temporal_mode=self-hosted` and `temporal_mode=cloud`.
 - In `temporal_mode=self-hosted` with no Temporal auth source, no KEDA `TriggerAuthentication` is rendered and `ScaledObject`s omit `authenticationRef`.
 - In `temporal_mode=cloud`, Temporal auth is required for autoscaling and KEDA `TriggerAuthentication` is rendered from the configured auth source.
+- Executor and agent-executor KEDA HPAs include resource metrics (CPU and memory utilization) in addition to Temporal queue metrics.
 - KEDA services (`keda-operator`, `keda-operator-metrics-apiserver`) have Prometheus scrape annotations so observability annotation autodiscovery can collect KEDA metrics.
 
 Note: these settings are EKS/Kubernetes-specific. The Terraform Fargate deployment in `deployments/fargate/` remains unchanged.

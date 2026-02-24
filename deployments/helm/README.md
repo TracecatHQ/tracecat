@@ -346,11 +346,14 @@ Temporal auth modes for external/cloud KEDA scaler authentication:
 
 When both are configured, the chart uses Kubernetes secret auth first. In self-hosted mode without an auth source, the chart renders valid `ScaledObject`s without `TriggerAuthentication`/`authenticationRef`.
 
+For `executor` and `agentExecutor`, autoscaling also includes CPU and memory resource triggers (via KEDA-generated HPA metrics), similar to API/UI resource-based autoscaling.
+
 Validation enforces:
 
 - `keda.enabled=true` when `worker`/`executor`/`agentExecutor` autoscaling is enabled
 - `maxReplicas >= minReplicas` for `worker`, `executor`, and `agentExecutor`
 - external/cloud autoscaling requires a Temporal auth source
+- `executor` and `agentExecutor` autoscaling requires at least one resource metric target (CPU and/or memory utilization)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -373,6 +376,8 @@ Validation enforces:
 | `executor.autoscaling.targetQueueSize` | `5` | Executor target Temporal queue size |
 | `executor.autoscaling.activationTargetQueueSize` | `0` | Executor activation threshold |
 | `executor.autoscaling.queueTypes` | `workflow,activity` | Executor queue types passed to Temporal scaler |
+| `executor.autoscaling.targetCPUUtilizationPercentage` | `70` | Executor CPU utilization target (resource metric) |
+| `executor.autoscaling.targetMemoryUtilizationPercentage` | `80` | Executor memory utilization target (resource metric) |
 | `agentExecutor.autoscaling.enabled` | `false` | Enable KEDA Temporal queue autoscaling for agent-executor |
 | `agentExecutor.autoscaling.minReplicas` | `1` | Agent executor min replicas |
 | `agentExecutor.autoscaling.maxReplicas` | `8` | Agent executor max replicas |
@@ -381,6 +386,8 @@ Validation enforces:
 | `agentExecutor.autoscaling.targetQueueSize` | `5` | Agent executor target Temporal queue size |
 | `agentExecutor.autoscaling.activationTargetQueueSize` | `0` | Agent executor activation threshold |
 | `agentExecutor.autoscaling.queueTypes` | `workflow,activity` | Agent executor queue types passed to Temporal scaler |
+| `agentExecutor.autoscaling.targetCPUUtilizationPercentage` | `70` | Agent executor CPU utilization target (resource metric) |
+| `agentExecutor.autoscaling.targetMemoryUtilizationPercentage` | `80` | Agent executor memory utilization target (resource metric) |
 | `externalTemporal.auth.kedaAwsSecretManager.region` | `""` | AWS region for KEDA `awsSecretManager` auth |
 | `externalTemporal.auth.kedaAwsSecretManager.secretKey` | `""` | JSON key in the AWS secret (`secretString`) |
 | `externalTemporal.auth.kedaAwsSecretManager.version` | `""` | AWS Secrets Manager version stage (for example `AWSCURRENT`) |

@@ -363,6 +363,8 @@ executor:
     targetQueueSize: 5
     activationTargetQueueSize: 0
     queueTypes: "workflow,activity"
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
   # Executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default)
   backend: "ephemeral"
   resources:
@@ -389,6 +391,8 @@ agentExecutor:
     targetQueueSize: 5
     activationTargetQueueSize: 0
     queueTypes: "workflow,activity"
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
   backend: "ephemeral"
   resources:
     requests:
