@@ -1,27 +1,45 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useWorkspaceManager } from "@/lib/hooks"
 
 export default function WorkspacesPage() {
-  const { workspaces, createWorkspace, getLastWorkspaceId } =
-    useWorkspaceManager()
+  const {
+    workspaces,
+    workspacesError,
+    workspacesLoading,
+    workspacesFetching,
+    createWorkspace,
+    getLastWorkspaceId,
+    clearLastWorkspaceId,
+  } = useWorkspaceManager()
   const router = useRouter()
+  const hasStartedWorkspaceCreationRef = useRef(false)
 
   useEffect(() => {
     // Determine which workspace the user should land on
-    if (!workspaces) {
+    if (
+      workspacesLoading ||
+      workspacesFetching ||
+      workspacesError ||
+      !workspaces
+    ) {
       return
     }
 
     if (workspaces.length === 0) {
+      if (hasStartedWorkspaceCreationRef.current) {
+        return
+      }
+      hasStartedWorkspaceCreationRef.current = true
       console.log("Creating a new workspace")
       createWorkspace({ name: "New Workspace" })
         .then((workspace) => router.replace(`/workspaces/${workspace.id}`))
         .catch((error) => {
           console.error("Error creating workspace", error)
+          hasStartedWorkspaceCreationRef.current = false
         })
       return
     }
@@ -35,6 +53,8 @@ export default function WorkspacesPage() {
       workspaces.some((workspace) => workspace.id === lastViewedId)
     ) {
       targetWorkspaceId = lastViewedId
+    } else if (lastViewedId && lastViewedId.trim().length > 0) {
+      clearLastWorkspaceId()
     }
 
     if (!targetWorkspaceId) {
@@ -44,7 +64,16 @@ export default function WorkspacesPage() {
     if (targetWorkspaceId) {
       router.replace(`/workspaces/${targetWorkspaceId}`)
     }
-  }, [createWorkspace, getLastWorkspaceId, router, workspaces])
+  }, [
+    clearLastWorkspaceId,
+    createWorkspace,
+    getLastWorkspaceId,
+    router,
+    workspaces,
+    workspacesError,
+    workspacesFetching,
+    workspacesLoading,
+  ])
 
   // Return a loading indicator while waiting for redirection
   return <CenteredSpinner />

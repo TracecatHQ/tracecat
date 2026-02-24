@@ -32,7 +32,11 @@ from tracecat.auth.users import (
 )
 from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.authz.service import MembershipService, MembershipWithOrg
+from tracecat.authz.service import (
+    MembershipService,
+    MembershipWithOrg,
+    register_effective_scopes_cache_clearer,
+)
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
@@ -201,6 +205,9 @@ async def _compute_effective_scopes_cached(
         combined = user_scopes.union(group_scopes)
         result = await session.execute(combined)
         return frozenset(result.scalars().all())
+
+
+register_effective_scopes_cache_clearer(_compute_effective_scopes_cached.cache_clear)
 
 
 def get_role_from_user(

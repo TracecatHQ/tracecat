@@ -53,6 +53,8 @@ export function useWorkspaceMutations() {
         qc.invalidateQueries({
           queryKey: ["workspace", workspaceId, "members"],
         }),
+        qc.invalidateQueries({ queryKey: ["workspaces"] }),
+        qc.invalidateQueries({ queryKey: ["user-scopes"] }),
       ])
     },
   })
@@ -73,6 +75,8 @@ export function useWorkspaceMutations() {
         qc.invalidateQueries({
           queryKey: ["workspace", workspaceId, "members"],
         }),
+        qc.invalidateQueries({ queryKey: ["workspaces"] }),
+        qc.invalidateQueries({ queryKey: ["user-scopes"] }),
       ])
     },
   })

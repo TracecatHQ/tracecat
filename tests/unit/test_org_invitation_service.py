@@ -15,6 +15,7 @@ from tracecat.db.models import (
     Organization,
     OrganizationMembership,
     User,
+    Workspace,
 )
 from tracecat.db.models import (
     Role as DBRole,
@@ -176,6 +177,78 @@ def create_superuser_role(organization_id: uuid.UUID, user_id: uuid.UUID) -> Rol
     )
 
 
+def create_org_inviter_role(organization_id: uuid.UUID, user_id: uuid.UUID) -> Role:
+    """Create a role with org invite scope but no workspace invite scope."""
+    return Role(
+        type="user",
+        user_id=user_id,
+        organization_id=organization_id,
+        service_id="tracecat-api",
+        is_platform_superuser=False,
+        scopes=frozenset({"org:member:invite"}),
+    )
+
+
+@pytest.fixture
+async def org1_workspace(session: AsyncSession, org1: Organization) -> Workspace:
+    """Create a workspace in org1."""
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Org1 Workspace",
+        organization_id=org1.id,
+    )
+    session.add(workspace)
+    await session.commit()
+    return workspace
+
+
+@pytest.fixture
+async def org2_workspace(session: AsyncSession, org2: Organization) -> Workspace:
+    """Create a workspace in org2."""
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Org2 Workspace",
+        organization_id=org2.id,
+    )
+    session.add(workspace)
+    await session.commit()
+    return workspace
+
+
+@pytest.fixture
+async def org1_workspace_admin_role(
+    session: AsyncSession, org1: Organization
+) -> DBRole:
+    """Create a workspace role in org1."""
+    role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Admin",
+        slug="workspace-admin",
+        description="Workspace admin role",
+        organization_id=org1.id,
+    )
+    session.add(role)
+    await session.commit()
+    return role
+
+
+@pytest.fixture
+async def org2_workspace_admin_role(
+    session: AsyncSession, org2: Organization
+) -> DBRole:
+    """Create a workspace role in org2."""
+    role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Admin",
+        slug="workspace-admin",
+        description="Workspace admin role",
+        organization_id=org2.id,
+    )
+    session.add(role)
+    await session.commit()
+    return role
+
+
 class TestOrgInvitationService:
     """Tests for InvitationService org-level invitation methods."""
 
@@ -222,6 +295,107 @@ class TestOrgInvitationService:
         )
 
         assert invitation.role_id == org1_admin_role.id
+
+    @pytest.mark.anyio
+    async def test_create_invitation_workspace_assignments_validate_workspace_org(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+        org1_workspace_admin_role: DBRole,
+        org2_workspace: Workspace,
+    ):
+        """Workspace assignments must not target workspaces outside the org."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = InvitationService(session, role=role)
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="workspaces do not belong to this organization",
+        ):
+            await service.create_org_invitation(
+                email="cross-org-workspace@example.com",
+                role_id=org1_member_role.id,
+                workspace_assignments=[
+                    (org2_workspace.id, org1_workspace_admin_role.id),
+                ],
+            )
+
+    @pytest.mark.anyio
+    async def test_create_invitation_workspace_assignments_validate_role_org(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+        org1_workspace: Workspace,
+        org2_workspace_admin_role: DBRole,
+    ):
+        """Workspace assignment roles must belong to the current organization."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = InvitationService(session, role=role)
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="Workspace assignment role must belong to this organization",
+        ):
+            await service.create_org_invitation(
+                email="foreign-role@example.com",
+                role_id=org1_member_role.id,
+                workspace_assignments=[
+                    (org1_workspace.id, org2_workspace_admin_role.id),
+                ],
+            )
+
+    @pytest.mark.anyio
+    async def test_create_invitation_workspace_assignments_require_workspace_role(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+        org1_workspace: Workspace,
+    ):
+        """Workspace assignments must use workspace roles, not org roles."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = InvitationService(session, role=role)
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="Workspace assignment role must be a workspace role",
+        ):
+            await service.create_org_invitation(
+                email="org-role-assignment@example.com",
+                role_id=org1_member_role.id,
+                workspace_assignments=[(org1_workspace.id, org1_member_role.id)],
+            )
+
+    @pytest.mark.anyio
+    async def test_create_invitation_workspace_assignments_require_workspace_invite_scope(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+        org1_workspace: Workspace,
+        org1_workspace_admin_role: DBRole,
+    ):
+        """Workspace assignments require workspace invite scope per workspace."""
+        role = create_org_inviter_role(org1.id, admin_in_org1.id)
+        service = InvitationService(session, role=role)
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Insufficient permissions to invite members",
+        ):
+            await service.create_org_invitation(
+                email="missing-workspace-scope@example.com",
+                role_id=org1_member_role.id,
+                workspace_assignments=[
+                    (org1_workspace.id, org1_workspace_admin_role.id),
+                ],
+            )
 
     @pytest.mark.anyio
     async def test_create_owner_invitation_requires_owner_or_superuser(

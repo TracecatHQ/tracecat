@@ -1,5 +1,6 @@
 "use client"
 
+import { useQueryClient } from "@tanstack/react-query"
 import { ReactFlowProvider } from "@xyflow/react"
 import { LogOut, Plus, Shield } from "lucide-react"
 import Image from "next/image"
@@ -7,7 +8,7 @@ import Link from "next/link"
 import { useParams, usePathname, useRouter } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { ApiError } from "@/client"
 import { NoOrganizationAccess } from "@/components/auth/no-organization-access"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -45,14 +46,19 @@ export default function WorkspaceLayout({
 }: {
   children: React.ReactNode
 }) {
+  const queryClient = useQueryClient()
   const router = useRouter()
   const {
     workspaces,
     workspacesLoading,
+    workspacesFetching,
     workspacesError,
+    refetchWorkspaces,
     setLastWorkspaceId,
     getLastWorkspaceId,
+    clearLastWorkspaceId,
   } = useWorkspaceManager()
+  const redirectedFromInvalidWorkspaceRef = useRef<string | null>(null)
   const params = useParams<{ workspaceId?: string; workflowId?: string }>()
   const workspaceId = params?.workspaceId
   const workflowId = params?.workflowId
@@ -78,39 +84,69 @@ export default function WorkspaceLayout({
   }, [getLastWorkspaceId, workspaces])
 
   useEffect(() => {
-    if (workspaceId && requestedWorkspaceExists) {
+    if (workspaceId && requestedWorkspaceExists && !workspacesFetching) {
       setLastWorkspaceId(workspaceId)
     }
-  }, [requestedWorkspaceExists, setLastWorkspaceId, workspaceId])
+  }, [
+    requestedWorkspaceExists,
+    setLastWorkspaceId,
+    workspaceId,
+    workspacesFetching,
+  ])
 
-  const fallbackWorkspaceId = useMemo(() => {
+  const preferredWorkspaceId = useMemo(() => {
     if (!workspaces || workspaces.length === 0) {
       return undefined
     }
     return lastViewedWorkspaceId ?? workspaces[0]?.id
   }, [lastViewedWorkspaceId, workspaces])
 
+  const recoveryWorkspaceId = useMemo(() => {
+    if (!workspaces || workspaces.length === 0) {
+      return undefined
+    }
+    return workspaces[0]?.id
+  }, [workspaces])
+
   useEffect(() => {
     if (
       workspacesLoading ||
+      workspacesFetching ||
       workspacesError ||
       !workspaceId ||
       requestedWorkspaceExists ||
-      !fallbackWorkspaceId
+      !recoveryWorkspaceId
     ) {
       return
     }
-    router.replace(`/workspaces/${fallbackWorkspaceId}`)
+    if (redirectedFromInvalidWorkspaceRef.current === workspaceId) {
+      return
+    }
+    redirectedFromInvalidWorkspaceRef.current = workspaceId
+    clearLastWorkspaceId()
+    void queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+    void refetchWorkspaces()
+    router.replace(`/workspaces/${recoveryWorkspaceId}`)
   }, [
-    fallbackWorkspaceId,
+    clearLastWorkspaceId,
+    queryClient,
+    recoveryWorkspaceId,
+    refetchWorkspaces,
     requestedWorkspaceExists,
     router,
     workspaceId,
     workspacesError,
+    workspacesFetching,
     workspacesLoading,
   ])
 
-  if (workspacesLoading) {
+  useEffect(() => {
+    if (!workspaceId || requestedWorkspaceExists) {
+      redirectedFromInvalidWorkspaceRef.current = null
+    }
+  }, [requestedWorkspaceExists, workspaceId])
+
+  if (workspacesLoading || (!workspaces && workspacesFetching)) {
     return <CenteredSpinner />
   }
   if (workspacesError && isNoOrgMembershipsError(workspacesError)) {
@@ -136,8 +172,8 @@ export default function WorkspaceLayout({
     selectedWorkspaceId = workspaceId
   } else if (lastViewedWorkspaceId) {
     selectedWorkspaceId = lastViewedWorkspaceId
-  } else if (workspaces.length > 0) {
-    selectedWorkspaceId = workspaces[0].id
+  } else if (preferredWorkspaceId) {
+    selectedWorkspaceId = preferredWorkspaceId
   } else {
     return (
       <ScopeProvider>

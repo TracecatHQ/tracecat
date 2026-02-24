@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import and_, delete, func, literal, select
@@ -19,6 +19,20 @@ from tracecat.workspaces.schemas import (
     WorkspaceMembershipCreate,
     WorkspaceMemberStatus,
 )
+
+_clear_effective_scopes_cache: Callable[[], None] | None = None
+
+
+def register_effective_scopes_cache_clearer(clearer: Callable[[], None]) -> None:
+    """Register a callback used to clear effective scope caches."""
+    global _clear_effective_scopes_cache
+    _clear_effective_scopes_cache = clearer
+
+
+def invalidate_authz_caches() -> None:
+    """Clear in-process authorization caches after RBAC/membership mutations."""
+    if _clear_effective_scopes_cache is not None:
+        _clear_effective_scopes_cache()
 
 
 @dataclass
@@ -197,6 +211,7 @@ class MembershipService(BaseService):
             )
         )
         await self.session.commit()
+        invalidate_authz_caches()
 
     @require_scope("workspace:member:remove")
     async def delete_membership(
@@ -220,3 +235,4 @@ class MembershipService(BaseService):
             )
         )
         await self.session.commit()
+        invalidate_authz_caches()

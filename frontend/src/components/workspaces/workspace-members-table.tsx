@@ -4,7 +4,11 @@ import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useQueryClient } from "@tanstack/react-query"
 import { Check, Copy } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import type { WorkspaceMember, WorkspaceRead } from "@/client"
+import {
+  invitationsGetInvitationToken,
+  type WorkspaceMember,
+  type WorkspaceRead,
+} from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
@@ -60,6 +64,7 @@ export function WorkspaceMembersTable({
   workspace: WorkspaceRead
 }) {
   const queryClient = useQueryClient()
+  const canInviteMembers = useScopeCheck("workspace:member:invite")
   const canManageMembers = useScopeCheck("workspace:member:update")
   const canRemoveMembers = useScopeCheck("workspace:member:remove")
   const [selectedMember, setSelectedMember] = useState<WorkspaceMember | null>(
@@ -85,11 +90,20 @@ export function WorkspaceMembersTable({
 
   const [copied, setCopied] = useState<string | null>(null)
 
-  async function handleCopyInviteLink(token: string) {
-    const link = `${window.location.origin}/invitations/accept?token=${token}`
-    await navigator.clipboard.writeText(link)
-    setCopied(token)
-    setTimeout(() => setCopied(null), 2000)
+  async function handleCopyInviteLink(invitationId: string) {
+    try {
+      const { token } = await invitationsGetInvitationToken({ invitationId })
+      const link = `${window.location.origin}/invitations/accept?token=${token}`
+      await navigator.clipboard.writeText(link)
+      setCopied(invitationId)
+      setTimeout(() => setCopied(null), 2000)
+    } catch {
+      toast({
+        title: "Failed to copy invitation link",
+        description: "Could not retrieve the invitation token.",
+        variant: "destructive",
+      })
+    }
   }
 
   const handleChangeRole = useCallback(
@@ -265,13 +279,15 @@ export function WorkspaceMembersTable({
                     <DropdownMenuContent>
                       {isInvited ? (
                         <>
-                          {member.token && (
+                          {canInviteMembers && member.invitation_id && (
                             <DropdownMenuItem
                               onClick={() =>
-                                handleCopyInviteLink(member.token as string)
+                                handleCopyInviteLink(
+                                  member.invitation_id as string
+                                )
                               }
                             >
-                              {copied === member.token ? (
+                              {copied === member.invitation_id ? (
                                 <Check className="mr-2 size-4" />
                               ) : (
                                 <Copy className="mr-2 size-4" />
@@ -279,7 +295,7 @@ export function WorkspaceMembersTable({
                               Copy invitation link
                             </DropdownMenuItem>
                           )}
-                          {canRemoveMembers && (
+                          {canInviteMembers && (
                             <AlertDialogTrigger asChild>
                               <DropdownMenuItem
                                 className="text-rose-500 focus:text-rose-600"

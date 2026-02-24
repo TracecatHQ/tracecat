@@ -62,20 +62,19 @@ async def _check_scope(
     required_scope: str,
     workspace_id: WorkspaceID | None = None,
 ) -> None:
-    """Verify the user has the required scope, checking org then workspace scopes.
+    """Verify the user has the required scope, with workspace-context checks.
 
-    1. Check org-level scopes already on the role (free).
-    2. For workspace ops, compute workspace-specific scopes (cached 30s TTL).
+    For org-level operations, checks the role's resolved scopes.
+    For workspace operations, always computes effective scopes in the workspace
+    context, which includes both org-wide and workspace-specific assignments.
 
     Raises:
         HTTPException 403 if the user lacks the required scope.
     """
-    # Org-level scopes are already resolved on the role
-    if role.scopes and has_scope(role.scopes, required_scope):
-        return
-
-    # For workspace operations, compute workspace-specific scopes
-    if workspace_id is not None:
+    if workspace_id is None:
+        if role.scopes and has_scope(role.scopes, required_scope):
+            return
+    else:
         ws_role = role.model_copy(update={"workspace_id": workspace_id})
         ws_scopes = await compute_effective_scopes(ws_role)
         if has_scope(ws_scopes, required_scope):
@@ -87,7 +86,9 @@ async def _check_scope(
     )
 
 
-def _invitation_to_read(inv: Invitation) -> InvitationRead:
+def _invitation_to_read(
+    inv: Invitation, *, include_token: bool = False
+) -> InvitationRead:
     """Convert an Invitation DB model to InvitationRead response."""
     return InvitationRead(
         id=inv.id,
@@ -102,7 +103,7 @@ def _invitation_to_read(inv: Invitation) -> InvitationRead:
         expires_at=inv.expires_at,
         created_at=inv.created_at,
         accepted_at=inv.accepted_at,
-        token=inv.token,
+        token=inv.token if include_token else None,
     )
 
 
@@ -133,7 +134,7 @@ async def create_invitation(
             )
             if invitation is None:
                 return None
-            return _invitation_to_read(invitation)
+            return _invitation_to_read(invitation, include_token=True)
         except TracecatAuthorizationError as e:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail=str(e)
@@ -173,7 +174,7 @@ async def create_invitation(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="An invitation already exists for this email",
             ) from e
-        return _invitation_to_read(invitation)
+        return _invitation_to_read(invitation, include_token=True)
 
 
 @router.get("")
@@ -189,9 +190,18 @@ async def list_invitations(
 
     if workspace_id is not None:
         await _check_scope(role, "workspace:member:read", workspace_id)
-        invitations = await service.list_workspace_invitations(
-            workspace_id, status=invitation_status
-        )
+        try:
+            invitations = await service.list_workspace_invitations(
+                workspace_id, status=invitation_status
+            )
+        except TracecatAuthorizationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=str(e)
+            ) from e
+        except TracecatValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+            ) from e
     else:
         await _check_scope(role, "org:member:read")
         invitations = await service.list_org_invitations(status=invitation_status)

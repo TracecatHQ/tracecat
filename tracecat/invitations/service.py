@@ -16,10 +16,15 @@ from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
+from tracecat.authz.service import invalidate_authz_caches
 from tracecat.db.models import (
+    GroupMember,
+    GroupRoleAssignment,
     Invitation,
     Membership,
     OrganizationMembership,
+    RoleScope,
+    Scope,
     User,
     UserRoleAssignment,
     Workspace,
@@ -43,6 +48,54 @@ if TYPE_CHECKING:
 def _generate_invitation_token() -> str:
     """Generate a unique 64-character token for invitation magic links."""
     return secrets.token_urlsafe(48)[:64]
+
+
+async def _compute_workspace_effective_scopes(
+    session: AsyncSession,
+    *,
+    role: Role,
+    workspace_id: WorkspaceID,
+) -> frozenset[str]:
+    """Compute effective scopes for a role in a specific workspace context.
+
+    This combines currently resolved role scopes with workspace-specific direct
+    and group assignments for the same organization.
+    """
+    if role.is_platform_superuser:
+        return frozenset({"*"})
+
+    base_scopes = role.scopes or frozenset()
+    if role.type != "user" or role.user_id is None or role.organization_id is None:
+        return base_scopes
+
+    user_scopes_stmt = (
+        select(Scope.name)
+        .join(RoleScope, RoleScope.scope_id == Scope.id)
+        .join(DBRole, DBRole.id == RoleScope.role_id)
+        .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
+        .where(
+            UserRoleAssignment.user_id == role.user_id,
+            UserRoleAssignment.organization_id == role.organization_id,
+            UserRoleAssignment.workspace_id == workspace_id,
+        )
+    )
+
+    group_scopes_stmt = (
+        select(Scope.name)
+        .join(RoleScope, RoleScope.scope_id == Scope.id)
+        .join(DBRole, DBRole.id == RoleScope.role_id)
+        .join(GroupRoleAssignment, GroupRoleAssignment.role_id == DBRole.id)
+        .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
+        .where(
+            GroupMember.user_id == role.user_id,
+            GroupRoleAssignment.organization_id == role.organization_id,
+            GroupRoleAssignment.workspace_id == workspace_id,
+        )
+    )
+
+    scoped_result = await session.execute(user_scopes_stmt.union(group_scopes_stmt))
+    scoped_scopes = frozenset(scoped_result.scalars().all())
+    return frozenset(base_scopes | scoped_scopes)
 
 
 # === Standalone acceptance function ===
@@ -144,6 +197,7 @@ async def accept_invitation_for_user(
             )
 
         await session.commit()
+        invalidate_authz_caches()
         await session.refresh(membership)
     except (TracecatAuthorizationError, TracecatValidationError):
         raise
@@ -175,7 +229,11 @@ async def _accept_org_invitation(
     user_id: UserID,
     organization_id: uuid.UUID,
 ) -> OrganizationMembership:
-    """Create org membership + RBAC assignment for an org-level invitation."""
+    """Create org membership + RBAC assignment for an org-level invitation.
+
+    Also cascades to accept all pending workspace invitations for the same
+    email + organization, creating workspace memberships and RBAC assignments.
+    """
     membership = OrganizationMembership(
         user_id=user_id,
         organization_id=organization_id,
@@ -189,6 +247,58 @@ async def _accept_org_invitation(
         role_id=invitation.role_id,
     )
     session.add(assignment)
+
+    # Flush so that org membership exists before creating workspace memberships
+    await session.flush()
+
+    # Cascade: accept all pending workspace invitations for this email + org
+    now = datetime.now(UTC)
+    ws_inv_result = await session.execute(
+        select(Invitation).where(
+            Invitation.organization_id == organization_id,
+            Invitation.workspace_id.is_not(None),
+            func.lower(Invitation.email) == invitation.email.lower(),
+            Invitation.status == InvitationStatus.PENDING,
+            Invitation.expires_at > now,
+        )
+    )
+    ws_invitations = ws_inv_result.scalars().all()
+
+    if ws_invitations:
+        # Batch-check existing workspace memberships
+        ws_ids = [inv.workspace_id for inv in ws_invitations]
+        existing_result = await session.execute(
+            select(Membership.workspace_id).where(
+                Membership.user_id == user_id,
+                Membership.workspace_id.in_(ws_ids),
+            )
+        )
+        existing_ws_ids = set(existing_result.scalars().all())
+
+        for ws_inv in ws_invitations:
+            # Mark as accepted
+            ws_inv.status = InvitationStatus.ACCEPTED
+            ws_inv.accepted_at = now
+
+            # Skip if already a member of this workspace
+            if ws_inv.workspace_id in existing_ws_ids:
+                continue
+
+            session.add(
+                Membership(
+                    user_id=user_id,
+                    workspace_id=ws_inv.workspace_id,
+                )
+            )
+            session.add(
+                UserRoleAssignment(
+                    organization_id=organization_id,
+                    user_id=user_id,
+                    workspace_id=ws_inv.workspace_id,
+                    role_id=ws_inv.role_id,
+                )
+            )
+
     return membership
 
 
@@ -241,23 +351,57 @@ async def _accept_workspace_invitation(
     )
     session.add(ws_assignment)
 
-    # If we auto-created org membership, also assign org-member RBAC role
+    # If we auto-created org membership, assign the org role from any pending
+    # org invitation for this email; otherwise fall back to organization-member.
+    now = datetime.now(UTC)
     if created_org_membership:
-        org_member_role_result = await session.execute(
-            select(DBRole).where(
-                DBRole.organization_id == organization_id,
-                DBRole.slug == "organization-member",
+        org_invitation_result = await session.execute(
+            select(Invitation)
+            .where(
+                Invitation.organization_id == organization_id,
+                Invitation.workspace_id.is_(None),
+                func.lower(Invitation.email) == invitation.email.lower(),
+                Invitation.status == InvitationStatus.PENDING,
+                Invitation.expires_at > now,
             )
+            .order_by(Invitation.created_at.desc())
         )
-        org_member_role = org_member_role_result.scalar_one_or_none()
-        if org_member_role is not None:
-            org_assignment = UserRoleAssignment(
-                organization_id=organization_id,
-                user_id=user_id,
-                workspace_id=None,
-                role_id=org_member_role.id,
+        org_invitation = org_invitation_result.scalars().first()
+        org_role_id = org_invitation.role_id if org_invitation is not None else None
+
+        if org_role_id is None:
+            org_member_role_result = await session.execute(
+                select(DBRole).where(
+                    DBRole.organization_id == organization_id,
+                    DBRole.slug == "organization-member",
+                )
             )
-            session.add(org_assignment)
+            org_member_role = org_member_role_result.scalar_one_or_none()
+            org_role_id = org_member_role.id if org_member_role is not None else None
+
+        if org_role_id is not None:
+            session.add(
+                UserRoleAssignment(
+                    organization_id=organization_id,
+                    user_id=user_id,
+                    workspace_id=None,
+                    role_id=org_role_id,
+                )
+            )
+
+    # Also accept the org-level invitation so it doesn't appear as stale "invited"
+    now = datetime.now(UTC)
+    await session.execute(
+        update(Invitation)
+        .where(
+            Invitation.organization_id == organization_id,
+            Invitation.workspace_id.is_(None),
+            func.lower(Invitation.email) == invitation.email.lower(),
+            Invitation.status == InvitationStatus.PENDING,
+            Invitation.expires_at > now,
+        )
+        .values(status=InvitationStatus.ACCEPTED, accepted_at=now)
+    )
 
     return membership
 
@@ -266,6 +410,22 @@ class InvitationService(BaseOrgService):
     """Consolidated invitation service for both org-level and workspace-level invitations."""
 
     service_name = "invitation"
+
+    async def _get_workspace_organization_id(
+        self, workspace_id: WorkspaceID
+    ) -> uuid.UUID:
+        """Resolve workspace organization and enforce current-org access."""
+        ws_result = await self.session.execute(
+            select(Workspace.organization_id).where(Workspace.id == workspace_id)
+        )
+        ws_org_id = ws_result.scalar_one_or_none()
+        if ws_org_id is None:
+            raise TracecatValidationError("Workspace not found")
+        if ws_org_id != self.organization_id:
+            raise TracecatAuthorizationError(
+                "Workspace does not belong to this organization"
+            )
+        return ws_org_id
 
     # === Organization-level invitations ===
 
@@ -366,7 +526,60 @@ class InvitationService(BaseOrgService):
 
         # Create workspace invitations if workspace_assignments provided
         if workspace_assignments:
+            workspace_ids = {workspace_id for workspace_id, _ in workspace_assignments}
+            ws_role_ids = {ws_role_id for _, ws_role_id in workspace_assignments}
+
+            ws_result = await self.session.execute(
+                select(Workspace.id, Workspace.organization_id).where(
+                    Workspace.id.in_(workspace_ids)
+                )
+            )
+            workspace_org_by_id: dict[uuid.UUID, uuid.UUID] = dict(
+                ws_result.tuples().all()
+            )
+            missing_workspace_ids = workspace_ids - set(workspace_org_by_id)
+            if missing_workspace_ids:
+                raise TracecatValidationError("One or more workspace IDs are invalid")
+            if any(
+                org_id != self.organization_id
+                for org_id in workspace_org_by_id.values()
+            ):
+                raise TracecatAuthorizationError(
+                    "One or more workspaces do not belong to this organization"
+                )
+
+            ws_role_result = await self.session.execute(
+                select(DBRole.id, DBRole.organization_id, DBRole.slug).where(
+                    DBRole.id.in_(ws_role_ids)
+                )
+            )
+            ws_role_map = {
+                role_id: (org_id, slug) for role_id, org_id, slug in ws_role_result
+            }
+            missing_role_ids = ws_role_ids - set(ws_role_map)
+            if missing_role_ids:
+                raise TracecatValidationError("One or more role IDs are invalid")
+            for org_id, slug in ws_role_map.values():
+                if org_id != self.organization_id:
+                    raise TracecatValidationError(
+                        "Workspace assignment role must belong to this organization"
+                    )
+                if slug is not None and slug.startswith("organization-"):
+                    raise TracecatValidationError(
+                        "Workspace assignment role must be a workspace role"
+                    )
+
             for ws_id, ws_role_id in workspace_assignments:
+                ws_scopes = await _compute_workspace_effective_scopes(
+                    self.session,
+                    role=self.role,
+                    workspace_id=ws_id,
+                )
+                if not has_scope(ws_scopes, "workspace:member:invite"):
+                    raise TracecatAuthorizationError(
+                        "Insufficient permissions to invite members for one or more workspaces"
+                    )
+
                 ws_invitation = Invitation(
                     organization_id=self.organization_id,
                     workspace_id=ws_id,
@@ -425,6 +638,9 @@ class InvitationService(BaseOrgService):
     async def revoke_invitation(self, invitation_id: InvitationID) -> Invitation:
         """Revoke any pending invitation by ID within this organization.
 
+        If the invitation is org-level (workspace_id IS NULL), also revokes
+        all pending workspace invitations for the same email within the org.
+
         No @require_scope — the caller (router) checks scopes manually based
         on whether the invitation is org-scoped or workspace-scoped.
         """
@@ -436,6 +652,20 @@ class InvitationService(BaseOrgService):
             )
 
         invitation.status = InvitationStatus.REVOKED
+
+        # Org-level revocation cascades to all workspace invitations for this email
+        if invitation.workspace_id is None:
+            await self.session.execute(
+                update(Invitation)
+                .where(
+                    Invitation.organization_id == self.organization_id,
+                    Invitation.workspace_id.is_not(None),
+                    func.lower(Invitation.email) == invitation.email.lower(),
+                    Invitation.status == InvitationStatus.PENDING,
+                )
+                .values(status=InvitationStatus.REVOKED)
+            )
+
         await self.session.commit()
         await self.session.refresh(invitation)
         return invitation
@@ -462,12 +692,7 @@ class InvitationService(BaseOrgService):
         email = params.email.lower()
 
         # Resolve org_id from workspace
-        ws_result = await self.session.execute(
-            select(Workspace.organization_id).where(Workspace.id == workspace_id)
-        )
-        ws_org_id = ws_result.scalar_one_or_none()
-        if ws_org_id is None:
-            raise TracecatValidationError("Workspace not found")
+        ws_org_id = await self._get_workspace_organization_id(workspace_id)
 
         # Check if email belongs to an existing org member
         user_result = await self.session.execute(
@@ -485,7 +710,20 @@ class InvitationService(BaseOrgService):
 
         if existing_user is not None:
             # Direct membership — user is already in the org
-            membership_service = MembershipService(self.session, role=self.role)
+            if self.role is None:
+                raise TracecatAuthorizationError(
+                    "User must be authenticated to create workspace membership"
+                )
+
+            ws_role = self.role.model_copy(update={"workspace_id": workspace_id})
+            ws_scopes = await _compute_workspace_effective_scopes(
+                self.session,
+                role=self.role,
+                workspace_id=workspace_id,
+            )
+            membership_role = ws_role.model_copy(update={"scopes": ws_scopes})
+
+            membership_service = MembershipService(self.session, role=membership_role)
             await membership_service.create_membership(
                 workspace_id,
                 params=WorkspaceMembershipCreate(
@@ -500,6 +738,7 @@ class InvitationService(BaseOrgService):
             workspace_id,
             email=params.email,
             role_id=params.role_id,
+            workspace_org_id=ws_org_id,
         )
 
     async def _create_email_invitation(
@@ -508,6 +747,7 @@ class InvitationService(BaseOrgService):
         *,
         email: str,
         role_id: uuid.UUID,
+        workspace_org_id: uuid.UUID | None = None,
     ) -> Invitation:
         """Create a new workspace invitation (internal helper)."""
         email = email.lower()
@@ -523,13 +763,11 @@ class InvitationService(BaseOrgService):
         if role_obj is None:
             raise TracecatValidationError("Invalid role ID for this organization")
 
-        # Derive organization_id from workspace
-        ws_result = await self.session.execute(
-            select(Workspace.organization_id).where(Workspace.id == workspace_id)
+        ws_org_id = (
+            workspace_org_id
+            if workspace_org_id is not None
+            else await self._get_workspace_organization_id(workspace_id)
         )
-        ws_org_id = ws_result.scalar_one_or_none()
-        if ws_org_id is None:
-            raise TracecatValidationError("Workspace not found")
 
         # Check for existing pending invitation that hasn't expired
         now = datetime.now(UTC)
@@ -575,7 +813,10 @@ class InvitationService(BaseOrgService):
                     await self.session.delete(existing_invitation)
                     await self.session.commit()
                     return await self._create_email_invitation(
-                        workspace_id, email=email, role_id=role_id
+                        workspace_id,
+                        email=email,
+                        role_id=role_id,
+                        workspace_org_id=ws_org_id,
                     )
 
                 raise TracecatValidationError(
@@ -597,6 +838,8 @@ class InvitationService(BaseOrgService):
         status: InvitationStatus | None = None,
     ) -> Sequence[Invitation]:
         """List invitations for a workspace."""
+        await self._get_workspace_organization_id(workspace_id)
+
         statement = select(Invitation).where(Invitation.workspace_id == workspace_id)
         if status is not None:
             statement = statement.where(Invitation.status == status)

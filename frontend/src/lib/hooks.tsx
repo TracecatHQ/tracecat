@@ -869,10 +869,14 @@ export function useWorkspaceManager() {
     data: workspaces,
     error: workspacesError,
     isLoading: workspacesLoading,
+    isFetching: workspacesFetching,
+    refetch: refetchWorkspaces,
   } = useQuery({
     queryKey: ["workspaces"],
     queryFn: async () => await workspacesListWorkspaces(),
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
     retry: retryHandler,
   })
 
@@ -966,6 +970,8 @@ export function useWorkspaceManager() {
     workspaces,
     workspacesError,
     workspacesLoading,
+    workspacesFetching,
+    refetchWorkspaces,
     createWorkspace,
     deleteWorkspace,
     getLastWorkspaceId,

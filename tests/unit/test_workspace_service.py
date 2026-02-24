@@ -12,10 +12,12 @@ from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.db.models import (
+    Invitation,
     Membership,
     Organization,
     OrganizationMembership,
     User,
+    UserRoleAssignment,
     Workspace,
 )
 from tracecat.db.models import (
@@ -27,6 +29,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.schemas import InvitationCreate
 from tracecat.invitations.service import InvitationService
 from tracecat.workspaces.schemas import (
     WorkspaceSettings,
@@ -163,6 +166,8 @@ async def rbac_roles(
     """
     roles: dict[str, uuid.UUID] = {}
     for slug, name in [
+        ("organization-member", "Organization Member"),
+        ("organization-admin", "Organization Admin"),
         ("workspace-editor", "Workspace Editor"),
         ("workspace-admin", "Workspace Admin"),
         ("workspace-viewer", "Workspace Viewer"),
@@ -187,6 +192,35 @@ async def inv_workspace(session: AsyncSession, inv_org: Organization) -> Workspa
         id=uuid.uuid4(),
         name="Test Workspace",
         organization_id=inv_org.id,
+    )
+    session.add(workspace)
+    await session.commit()
+    return workspace
+
+
+@pytest.fixture
+async def foreign_org(session: AsyncSession) -> Organization:
+    """Create another organization for cross-org access tests."""
+    org = Organization(
+        id=uuid.uuid4(),
+        name="Foreign Organization",
+        slug=f"foreign-org-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    session.add(org)
+    await session.commit()
+    return org
+
+
+@pytest.fixture
+async def foreign_workspace(
+    session: AsyncSession, foreign_org: Organization
+) -> Workspace:
+    """Create a workspace in another organization."""
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Foreign Workspace",
+        organization_id=foreign_org.id,
     )
     session.add(workspace)
     await session.commit()
@@ -402,6 +436,86 @@ class TestCreateInvitation:
         assert new_invitation.email == email
         assert new_invitation.expires_at > datetime.now(UTC)
 
+    async def test_create_workspace_invitation_rejects_foreign_workspace(
+        self,
+        session: AsyncSession,
+        inv_org: Organization,
+        inv_workspace: Workspace,
+        foreign_workspace: Workspace,
+        admin_user: User,
+        rbac_roles: dict[str, uuid.UUID],
+    ):
+        """Creating workspace invitations for foreign-org workspaces is denied."""
+        role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
+        service = InvitationService(session, role=role)
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Workspace does not belong to this organization",
+        ):
+            await service.create_workspace_invitation(
+                foreign_workspace.id,
+                InvitationCreate(
+                    email="foreign-ws@example.com",
+                    role_id=rbac_roles["workspace-editor"],
+                    workspace_id=foreign_workspace.id,
+                ),
+            )
+
+    async def test_create_workspace_invitation_direct_add_uses_workspace_scopes(
+        self,
+        session: AsyncSession,
+        inv_org: Organization,
+        inv_workspace: Workspace,
+        admin_user: User,
+        basic_user: User,
+        rbac_roles: dict[str, uuid.UUID],
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Direct-add path should use workspace-effective scopes for authorization."""
+
+        async def mock_compute_workspace_effective_scopes(
+            _session: AsyncSession,
+            *,
+            role: Role,
+            workspace_id: uuid.UUID,
+        ) -> frozenset[str]:
+            assert role.user_id == admin_user.id
+            assert workspace_id == inv_workspace.id
+            return frozenset({"workspace:member:invite"})
+
+        monkeypatch.setattr(
+            "tracecat.invitations.service._compute_workspace_effective_scopes",
+            mock_compute_workspace_effective_scopes,
+        )
+
+        role = Role(
+            type="user",
+            user_id=admin_user.id,
+            organization_id=inv_org.id,
+            service_id="tracecat-api",
+            scopes=frozenset({"org:member:invite"}),
+        )
+        service = InvitationService(session, role=role)
+
+        result = await service.create_workspace_invitation(
+            inv_workspace.id,
+            InvitationCreate(
+                email=basic_user.email,
+                role_id=rbac_roles["workspace-editor"],
+                workspace_id=inv_workspace.id,
+            ),
+        )
+        assert result is None
+
+        membership_result = await session.execute(
+            select(Membership).where(
+                Membership.workspace_id == inv_workspace.id,
+                Membership.user_id == basic_user.id,
+            )
+        )
+        assert membership_result.scalar_one_or_none() is not None
+
 
 @pytest.mark.anyio
 class TestListInvitations:
@@ -430,6 +544,24 @@ class TestListInvitations:
         invitations = await service.list_workspace_invitations(inv_workspace.id)
 
         assert len(invitations) == 3
+
+    async def test_list_invitations_rejects_foreign_workspace(
+        self,
+        session: AsyncSession,
+        inv_org: Organization,
+        inv_workspace: Workspace,
+        foreign_workspace: Workspace,
+        admin_user: User,
+    ):
+        """Listing workspace invitations for foreign-org workspaces is denied."""
+        role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
+        service = InvitationService(session, role=role)
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Workspace does not belong to this organization",
+        ):
+            await service.list_workspace_invitations(foreign_workspace.id)
 
     async def test_list_invitations_filter_by_status(
         self,
@@ -597,6 +729,166 @@ class TestAcceptInvitation:
         org_membership = result.scalar_one()
         assert org_membership.user_id == external_user.id
         assert org_membership.organization_id == inv_org.id
+
+    async def test_accept_workspace_invitation_applies_pending_org_invite_role(
+        self,
+        session: AsyncSession,
+        inv_org: Organization,
+        inv_workspace: Workspace,
+        admin_user: User,
+        external_user: User,
+        rbac_roles: dict[str, uuid.UUID],
+    ):
+        """Auto-accepted org invitations should preserve their requested org role."""
+        from tracecat.invitations.service import accept_invitation_for_user
+
+        role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
+        service = InvitationService(session, role=role)
+
+        ws_invitation = await service._create_email_invitation(
+            inv_workspace.id,
+            email=external_user.email,
+            role_id=rbac_roles["workspace-editor"],
+        )
+
+        org_invitation = Invitation(
+            id=uuid.uuid4(),
+            organization_id=inv_org.id,
+            workspace_id=None,
+            email=external_user.email.lower(),
+            role_id=rbac_roles["organization-admin"],
+            status=InvitationStatus.PENDING,
+            invited_by=admin_user.id,
+            token=f"org-role-{uuid.uuid4().hex}"[:64],
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        session.add(org_invitation)
+        await session.commit()
+
+        await accept_invitation_for_user(
+            session, user_id=external_user.id, token=ws_invitation.token
+        )
+
+        org_assignment_result = await session.execute(
+            select(UserRoleAssignment).where(
+                UserRoleAssignment.organization_id == inv_org.id,
+                UserRoleAssignment.user_id == external_user.id,
+                UserRoleAssignment.workspace_id.is_(None),
+            )
+        )
+        org_assignment = org_assignment_result.scalar_one_or_none()
+        assert org_assignment is not None
+        assert org_assignment.role_id == rbac_roles["organization-admin"]
+
+        await session.refresh(org_invitation)
+        assert org_invitation.status == InvitationStatus.ACCEPTED
+        assert org_invitation.accepted_at is not None
+
+    async def test_accept_org_invitation_ignores_expired_workspace_invites(
+        self,
+        session: AsyncSession,
+        inv_org: Organization,
+        inv_workspace: Workspace,
+        admin_user: User,
+        external_user: User,
+        rbac_roles: dict[str, uuid.UUID],
+    ):
+        """Expired workspace invites should not be auto-accepted on org invite accept."""
+        from tracecat.invitations.service import accept_invitation_for_user
+
+        role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
+        service = InvitationService(session, role=role)
+
+        ws_invitation = await service._create_email_invitation(
+            inv_workspace.id,
+            email=external_user.email,
+            role_id=rbac_roles["workspace-editor"],
+        )
+        ws_invitation.expires_at = datetime.now(UTC) - timedelta(days=1)
+
+        org_invitation = Invitation(
+            id=uuid.uuid4(),
+            organization_id=inv_org.id,
+            workspace_id=None,
+            email=external_user.email.lower(),
+            role_id=rbac_roles["organization-member"],
+            status=InvitationStatus.PENDING,
+            invited_by=admin_user.id,
+            token=f"org-cascade-{uuid.uuid4().hex}"[:64],
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        session.add(org_invitation)
+        await session.commit()
+
+        await accept_invitation_for_user(
+            session, user_id=external_user.id, token=org_invitation.token
+        )
+
+        workspace_membership_result = await session.execute(
+            select(Membership).where(
+                Membership.user_id == external_user.id,
+                Membership.workspace_id == inv_workspace.id,
+            )
+        )
+        assert workspace_membership_result.scalar_one_or_none() is None
+
+        await session.refresh(ws_invitation)
+        assert ws_invitation.status == InvitationStatus.PENDING
+        assert ws_invitation.accepted_at is None
+
+    async def test_accept_workspace_invitation_ignores_expired_org_invite_role(
+        self,
+        session: AsyncSession,
+        inv_org: Organization,
+        inv_workspace: Workspace,
+        admin_user: User,
+        external_user: User,
+        rbac_roles: dict[str, uuid.UUID],
+    ):
+        """Expired org invites should not drive org role derivation on workspace accept."""
+        from tracecat.invitations.service import accept_invitation_for_user
+
+        role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
+        service = InvitationService(session, role=role)
+
+        ws_invitation = await service._create_email_invitation(
+            inv_workspace.id,
+            email=external_user.email,
+            role_id=rbac_roles["workspace-editor"],
+        )
+
+        expired_org_invitation = Invitation(
+            id=uuid.uuid4(),
+            organization_id=inv_org.id,
+            workspace_id=None,
+            email=external_user.email.lower(),
+            role_id=rbac_roles["organization-admin"],
+            status=InvitationStatus.PENDING,
+            invited_by=admin_user.id,
+            token=f"org-expired-{uuid.uuid4().hex}"[:64],
+            expires_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        session.add(expired_org_invitation)
+        await session.commit()
+
+        await accept_invitation_for_user(
+            session, user_id=external_user.id, token=ws_invitation.token
+        )
+
+        org_assignment_result = await session.execute(
+            select(UserRoleAssignment).where(
+                UserRoleAssignment.organization_id == inv_org.id,
+                UserRoleAssignment.user_id == external_user.id,
+                UserRoleAssignment.workspace_id.is_(None),
+            )
+        )
+        org_assignment = org_assignment_result.scalar_one_or_none()
+        assert org_assignment is not None
+        assert org_assignment.role_id == rbac_roles["organization-member"]
+
+        await session.refresh(expired_org_invitation)
+        assert expired_org_invitation.status == InvitationStatus.PENDING
+        assert expired_org_invitation.accepted_at is None
 
     async def test_accept_invitation_not_found(
         self,

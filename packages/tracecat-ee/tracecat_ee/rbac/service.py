@@ -13,6 +13,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope, validate_scope_string
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.scopes import PRESET_ROLE_SCOPES
+from tracecat.authz.service import invalidate_authz_caches
 from tracecat.db.models import (
     Group,
     GroupMember,
@@ -563,6 +564,7 @@ class RBACService(BaseOrgService):
         )
         self.session.add(assignment)
         await self.session.commit()
+        invalidate_authz_caches()
         await self.session.refresh(assignment, ["group", "role", "workspace"])
         return assignment
 
@@ -586,6 +588,7 @@ class RBACService(BaseOrgService):
 
         assignment.role_id = role_id
         await self.session.commit()
+        invalidate_authz_caches()
         await self.session.refresh(assignment, ["group", "role", "workspace"])
         return assignment
 
@@ -600,6 +603,7 @@ class RBACService(BaseOrgService):
         assignment = await self.get_group_role_assignment(assignment_id)
         await self.session.delete(assignment)
         await self.session.commit()
+        invalidate_authz_caches()
 
     # =========================================================================
     # User Role Assignment Management
@@ -706,6 +710,7 @@ class RBACService(BaseOrgService):
             raise TracecatValidationError(
                 "User already has an assignment for this workspace"
             ) from e
+        invalidate_authz_caches()
         await self.session.refresh(assignment, ["user", "role", "workspace"])
         return assignment
 
@@ -729,6 +734,7 @@ class RBACService(BaseOrgService):
 
         assignment.role_id = role_id
         await self.session.commit()
+        invalidate_authz_caches()
         await self.session.refresh(assignment, ["user", "role", "workspace"])
         return assignment
 
@@ -743,6 +749,7 @@ class RBACService(BaseOrgService):
         assignment = await self.get_user_assignment(assignment_id)
         await self.session.delete(assignment)
         await self.session.commit()
+        invalidate_authz_caches()
 
     async def get_user_role_scopes(
         self,

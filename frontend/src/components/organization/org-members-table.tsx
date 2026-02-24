@@ -7,7 +7,7 @@ import { FolderIcon, GlobeIcon, Trash2Icon, XIcon } from "lucide-react"
 import { useState } from "react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
-import type { OrgMemberRead } from "@/client"
+import { invitationsGetInvitationToken, type OrgMemberRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
@@ -501,9 +501,13 @@ export function OrgMembersTable() {
                               <>
                                 <DropdownMenuItem
                                   onSelect={async () => {
-                                    if (!member.token) return
+                                    if (!member.invitation_id) return
                                     try {
-                                      const url = `${window.location.origin}/invitations/accept?token=${member.token}`
+                                      const { token } =
+                                        await invitationsGetInvitationToken({
+                                          invitationId: member.invitation_id,
+                                        })
+                                      const url = `${window.location.origin}/invitations/accept?token=${token}`
                                       await navigator.clipboard.writeText(url)
                                       toast({
                                         title: "Copied",

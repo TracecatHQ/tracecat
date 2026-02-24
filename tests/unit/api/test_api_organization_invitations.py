@@ -1,4 +1,4 @@
-"""HTTP-level tests for organization invitation endpoints."""
+"""HTTP-level tests for invitation endpoints."""
 
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -34,6 +34,7 @@ async def test_list_my_pending_invitations_success(
     mock_invitation = SimpleNamespace(
         token="invitation-token-123",
         organization_id=organization_id,
+        workspace_id=None,
         expires_at=datetime.now(UTC) + timedelta(days=7),
         created_at=datetime.now(UTC),
     )
@@ -42,7 +43,7 @@ async def test_list_my_pending_invitations_success(
 
     tuples_result = Mock()
     tuples_result.all.return_value = [
-        (mock_invitation, mock_organization, mock_inviter, mock_role),
+        (mock_invitation, mock_organization, mock_inviter, mock_role, None),
     ]
     pending_result = Mock()
     pending_result.tuples.return_value = tuples_result
@@ -51,7 +52,7 @@ async def test_list_my_pending_invitations_success(
     app.dependency_overrides[current_active_user] = lambda: mock_user
 
     try:
-        response = client.get("/organization/invitations/pending/me")
+        response = client.get("/invitations/pending/me")
     finally:
         app.dependency_overrides.pop(current_active_user, None)
 
@@ -61,6 +62,8 @@ async def test_list_my_pending_invitations_success(
     assert payload[0]["token"] == mock_invitation.token
     assert payload[0]["organization_id"] == str(organization_id)
     assert payload[0]["organization_name"] == "Acme Security"
+    assert payload[0]["workspace_id"] is None
+    assert payload[0]["workspace_name"] is None
     assert payload[0]["inviter_name"] == "Alice Admin"
     assert payload[0]["inviter_email"] == "alice@example.com"
     assert payload[0]["role_name"] == "Organization Member"
@@ -86,7 +89,7 @@ async def test_list_my_pending_invitations_empty_result(
     app.dependency_overrides[current_active_user] = lambda: mock_user
 
     try:
-        response = client.get("/organization/invitations/pending/me")
+        response = client.get("/invitations/pending/me")
     finally:
         app.dependency_overrides.pop(current_active_user, None)
 

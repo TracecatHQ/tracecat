@@ -81,6 +81,7 @@ class InvitationRead(BaseModel):
     expires_at: datetime
     created_at: datetime
     accepted_at: datetime | None = None
+    # Only populated on create responses for users with invite scope.
     token: str | None = None
 
 

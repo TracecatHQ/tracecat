@@ -1,7 +1,7 @@
 """consolidate invitation tables
 
 Revision ID: 1e4dac3e5fe5
-Revises: 672fecea1d32
+Revises: c9e4f54f0a2b
 Create Date: 2026-02-23 14:05:32.219708
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "1e4dac3e5fe5"
-down_revision: str | None = "672fecea1d32"
+down_revision: str | None = "c9e4f54f0a2b"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -48,7 +48,12 @@ def upgrade() -> None:
         """
     )
 
-    # 3. Copy rows from organization_invitation → invitation (workspace_id=NULL)
+    # 3. Make workspace_id nullable BEFORE inserting org-level rows with NULL
+    op.alter_column(
+        "invitation", "workspace_id", existing_type=sa.UUID(), nullable=True
+    )
+
+    # 4. Copy rows from organization_invitation → invitation (workspace_id=NULL)
     op.execute(
         """
         INSERT INTO invitation (
@@ -63,13 +68,8 @@ def upgrade() -> None:
         """
     )
 
-    # 4. Make organization_id NOT NULL after backfill
+    # 5. Make organization_id NOT NULL after backfill
     op.alter_column("invitation", "organization_id", nullable=False)
-
-    # 5. Make workspace_id nullable (org-level invitations have NULL workspace_id)
-    op.alter_column(
-        "invitation", "workspace_id", existing_type=sa.UUID(), nullable=True
-    )
 
     # 6. Drop old unique constraint, replace with partial unique indexes
     op.drop_constraint("uq_invitation_workspace_id_email", "invitation", type_="unique")
