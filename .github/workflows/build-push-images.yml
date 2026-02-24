@@ -132,7 +132,8 @@ jobs:
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf 'ghcr.io/tracecathq/tracecat@sha256:%s ' *) \
-            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/tags/nightly-') && '-t ghcr.io/tracecathq/tracecat:latest' || '' }}
+            ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/tags/nightly-')) && '-t ghcr.io/tracecathq/tracecat:latest' || '' }} \
+            ${{ (github.event_name == 'workflow_dispatch' && inputs.tag != '' && !startsWith(inputs.tag, 'nightly-')) && '-t ghcr.io/tracecathq/tracecat:latest' || '' }}
 
       - name: Inspect image
         run: |
@@ -259,7 +260,8 @@ jobs:
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf 'ghcr.io/tracecathq/tracecat-ui@sha256:%s ' *) \
-            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/tags/nightly-') && '-t ghcr.io/tracecathq/tracecat-ui:latest' || '' }}
+            ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/tags/nightly-')) && '-t ghcr.io/tracecathq/tracecat-ui:latest' || '' }} \
+            ${{ (github.event_name == 'workflow_dispatch' && inputs.tag != '' && !startsWith(inputs.tag, 'nightly-')) && '-t ghcr.io/tracecathq/tracecat-ui:latest' || '' }}
 
       - name: Inspect image
         run: |
