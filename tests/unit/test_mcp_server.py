@@ -432,7 +432,10 @@ async def test_get_workflow_includes_layout_when_definition_build_fails(monkeypa
     payload = json.loads(result)
     assert payload["definition_yaml"] != ""
     exported = yaml.safe_load(payload["definition_yaml"])
-    assert exported["definition_error"] == "dsl failed"
+    assert (
+        exported["definition_error"]
+        == "Failed to build workflow definition. Check server logs for details."
+    )
     assert exported["layout"]["trigger"] == {"x": 12.0, "y": 24.0}
     assert exported["layout"]["actions"] == [{"ref": "step_a", "x": 100.0, "y": 200.0}]
 

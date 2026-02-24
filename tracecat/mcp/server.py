@@ -1569,7 +1569,9 @@ async def get_workflow(
                     workflow_id=workflow_id,
                     error=str(e),
                 )
-                payload["definition_error"] = str(e)
+                payload["definition_error"] = (
+                    "Failed to build workflow definition. Check server logs for details."
+                )
 
             definition_yaml = yaml.dump(
                 payload,
@@ -2189,8 +2191,7 @@ async def validate_workflow(
                 "errors": [
                     {
                         "type": "internal",
-                        "message": msg,
-                        "exc_type": type(e).__name__,
+                        "message": "An internal error occurred during validation. Check server logs for details.",
                     }
                 ],
             }
