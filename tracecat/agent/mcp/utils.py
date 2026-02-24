@@ -89,6 +89,27 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
     return mcp_tool_name
 
 
+def mcp_tool_name_to_canonical(discovered_name: str) -> str:
+    """Convert discovered MCP tool name to canonical dot format.
+
+    Discovered names follow the pattern ``mcp__{server}__{tool}``.
+    The canonical format is ``mcp.{server}.{tool}``.
+
+    This must produce the same result as :func:`normalize_mcp_tool_name`
+    when given the runtime-wrapped version
+    ``mcp__tracecat-registry__mcp__{server}__{tool}``.
+
+    Examples:
+        mcp__Linear__list_issues  -> mcp.Linear.list_issues
+        mcp__Sentry__get_issue    -> mcp.Sentry.get_issue
+    """
+    if discovered_name.startswith("mcp__"):
+        parts = discovered_name.split("__", 2)
+        if len(parts) >= 3:
+            return f"mcp.{parts[1]}.{parts[2]}"
+    return discovered_name
+
+
 async def fetch_tool_definitions(
     action_names: list[str],
 ) -> dict[str, MCPToolDefinition]:

@@ -364,7 +364,8 @@ class ClaudeAgentRuntime:
         - Auto-approved (tool_approvals[action] is False or not set)
         - Require approval (tool_approvals[action] is True) -> trigger approval request
 
-        User MCP servers are auto-approved.
+        Both registry actions and user MCP tools are checked against tool_approvals
+        using their canonical names (e.g. ``mcp.Linear.list_issues``).
         """
 
         tool_name: str = input_data.get("tool_name", "")

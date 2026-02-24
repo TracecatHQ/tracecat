@@ -11,7 +11,13 @@ from slugify import slugify
 from sqlalchemy import select
 
 from tracecat import config
-from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
+from tracecat.agent.mcp.user_client import discover_user_mcp_tools
+from tracecat.agent.mcp.utils import mcp_tool_name_to_canonical
+from tracecat.agent.preset.schemas import (
+    AgentPresetCreate,
+    AgentPresetUpdate,
+    DiscoveredMCPTool,
+)
 from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
@@ -83,16 +89,23 @@ class AgentPresetService(BaseWorkspaceService):
         return preset
 
     async def _validate_actions(self, actions: list[str]) -> None:
-        """Validate that all actions are in the registry index."""
-        actions_set = set(actions)
+        """Validate that all actions are in the registry index.
+
+        MCP tool keys (``mcp.*``) are skipped — they are discovered
+        dynamically from user MCP servers, not stored in the registry.
+        """
+        # Separate MCP tools from registry actions
+        registry_actions = {a for a in actions if not a.startswith("mcp.")}
+        if not registry_actions:
+            return
         registry_service = RegistryActionsService(self.session, role=self.role)
         index_entries = await registry_service.list_actions_from_index(
-            include_keys=actions_set
+            include_keys=registry_actions
         )
         available_identifiers = {
             f"{entry.namespace}.{entry.name}" for entry, _ in index_entries
         }
-        if missing_actions := actions_set - available_identifiers:
+        if missing_actions := registry_actions - available_identifiers:
             raise TracecatValidationError(
                 f"{len(missing_actions)} actions were not found in the registry: {sorted(missing_actions)}"
             )
@@ -456,3 +469,52 @@ class AgentPresetService(BaseWorkspaceService):
             model_settings=model_settings,
             enable_internet_access=preset.enable_internet_access,
         )
+
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def discover_mcp_tools(
+        self, mcp_integration_ids: list[str]
+    ) -> list[DiscoveredMCPTool]:
+        """Discover tools from MCP integrations for the approval selector.
+
+        Also seeds RBAC scopes for discovered MCP tools so they appear
+        in the role scope assignment UI.
+        """
+        mcp_servers = await self._resolve_mcp_integrations(mcp_integration_ids)
+        if not mcp_servers:
+            return []
+
+        tools = await discover_user_mcp_tools(mcp_servers)
+        if not tools:
+            return []
+
+        # Seed RBAC scopes for discovered MCP tools
+        mcp_action_keys = [mcp_tool_name_to_canonical(name) for name in tools]
+        await self._seed_mcp_tool_scopes(mcp_action_keys)
+
+        return [
+            DiscoveredMCPTool(
+                name=mcp_tool_name_to_canonical(name),
+                description=defn.description,
+                server_name=name.split("__")[1] if "__" in name else "unknown",
+            )
+            for name, defn in tools.items()
+        ]
+
+    async def _seed_mcp_tool_scopes(self, mcp_action_keys: list[str]) -> None:
+        """Seed RBAC scopes for MCP tools using existing registry scope infra."""
+        if not mcp_action_keys:
+            return
+
+        from tracecat.authz.seeding import seed_registry_scopes
+
+        try:
+            await seed_registry_scopes(self.session, mcp_action_keys)
+            await self.session.commit()
+            logger.info(
+                "Seeded MCP tool scopes",
+                tool_count=len(mcp_action_keys),
+                tools=mcp_action_keys,
+            )
+        except Exception:
+            logger.exception("Failed to seed MCP tool scopes")
+            await self.session.rollback()
