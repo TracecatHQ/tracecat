@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import html
+import json
 import re
 import uuid
+from base64 import urlsafe_b64decode
+from typing import Any
 
 import sqlalchemy
 from fastmcp.server.auth import AuthProvider, RemoteAuthProvider, TokenVerifier
@@ -14,6 +17,7 @@ from fastmcp.server.auth.providers.introspection import (
 )
 from fastmcp.server.auth.providers.jwt import JWTVerifier
 from fastmcp.server.dependencies import get_access_token
+from mcp.server.auth.provider import TokenError
 from pydantic import AnyHttpUrl, BaseModel, Field
 from sqlalchemy import or_ as sa_or
 from sqlalchemy import select
@@ -33,6 +37,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
+from tracecat.logger import logger
 from tracecat.mcp.config import (
     TRACECAT_MCP__AUTH_MODE,
     TRACECAT_MCP__AUTHORIZATION_SERVER_URL,
@@ -435,7 +440,54 @@ def create_mcp_auth() -> AuthProvider:
             )
 
         class TracecatOIDCProxy(OIDCProxy):
-            """OIDC proxy with a custom consent page."""
+            """OIDC proxy with user-existence validation and a custom consent page."""
+
+            async def _extract_upstream_claims(
+                self, idp_tokens: dict[str, Any]
+            ) -> dict[str, Any] | None:
+                """Validate the authenticated user exists in Tracecat before issuing a session token."""
+                id_token = idp_tokens.get("id_token")
+                if not id_token:
+                    raise TokenError(
+                        "invalid_grant",
+                        "OIDC provider did not return an id_token",
+                    )
+
+                # Decode the JWT payload without verification (already
+                # validated by the upstream exchange).
+                try:
+                    payload_b64 = id_token.split(".")[1]
+                    # Pad base64
+                    padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+                    claims = json.loads(urlsafe_b64decode(padded))
+                except Exception as exc:
+                    raise TokenError(
+                        "invalid_grant",
+                        "Failed to decode id_token claims",
+                    ) from exc
+
+                email = claims.get("email")
+                if not email:
+                    raise TokenError(
+                        "invalid_client",
+                        "No email claim in id_token — cannot resolve Tracecat user",
+                    )
+
+                # Check the user exists in the platform DB
+                try:
+                    await resolve_user_by_email(email)
+                except ValueError:
+                    logger.warning(
+                        "MCP auth rejected: no Tracecat user for email",
+                        email=email,
+                    )
+                    raise TokenError(
+                        "invalid_client",
+                        f"No Tracecat account found for {email}. "
+                        "Please sign up or ask an admin to invite you.",
+                    ) from None
+
+                return {"email": email}
 
             async def _show_consent_page(
                 self, request: Request
