@@ -356,6 +356,7 @@ temporal:
             retention: 720h
     # Optional archival settings for self-hosted Temporal (chart 1.0.0-rc.1).
     # These are rendered from temporal/templates/server-configmap.yaml.
+    # For EKS deployments, Terraform set blocks in helm.tf override these values.
     # archival:
     #   history:
     #     state: "enabled"

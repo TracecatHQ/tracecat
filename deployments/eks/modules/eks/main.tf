@@ -61,7 +61,8 @@ locals {
   s3_suffix             = random_id.s3_suffix.hex
   s3_attachments_bucket = "tracecat-attachments-${local.s3_suffix}"
   s3_registry_bucket    = "tracecat-registry-${local.s3_suffix}"
-  s3_workflow_bucket    = "tracecat-workflow-${local.s3_suffix}"
+  s3_workflow_bucket            = "tracecat-workflow-${local.s3_suffix}"
+  s3_temporal_archival_bucket   = "tracecat-temporal-archival-${local.s3_suffix}"
 
   # Common labels for Kubernetes resources
   common_labels = {

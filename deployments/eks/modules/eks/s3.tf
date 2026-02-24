@@ -234,3 +234,88 @@ resource "aws_s3_bucket_policy" "workflow" {
   bucket = aws_s3_bucket.workflow.id
   policy = data.aws_iam_policy_document.workflow_bucket.json
 }
+
+# S3 Bucket for Temporal Archival (self-hosted only)
+resource "aws_s3_bucket" "temporal_archival" {
+  count  = var.temporal_mode == "self-hosted" ? 1 : 0
+  bucket = local.s3_temporal_archival_bucket
+
+  tags = merge(var.tags, {
+    Name = local.s3_temporal_archival_bucket
+  })
+}
+
+resource "aws_s3_bucket_versioning" "temporal_archival" {
+  count  = var.temporal_mode == "self-hosted" ? 1 : 0
+  bucket = aws_s3_bucket.temporal_archival[0].id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "temporal_archival" {
+  count  = var.temporal_mode == "self-hosted" ? 1 : 0
+  bucket = aws_s3_bucket.temporal_archival[0].id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "temporal_archival" {
+  count  = var.temporal_mode == "self-hosted" ? 1 : 0
+  bucket = aws_s3_bucket.temporal_archival[0].id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+data "aws_iam_policy_document" "temporal_archival_bucket" {
+  count = var.temporal_mode == "self-hosted" ? 1 : 0
+
+  statement {
+    sid    = "AllowTemporalS3Role"
+    effect = "Allow"
+    principals {
+      type        = "AWS"
+      identifiers = [aws_iam_role.temporal_s3[0].arn]
+    }
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:ListBucket"
+    ]
+    resources = [
+      aws_s3_bucket.temporal_archival[0].arn,
+      "${aws_s3_bucket.temporal_archival[0].arn}/*"
+    ]
+  }
+
+  statement {
+    sid     = "DenyInsecureTransport"
+    effect  = "Deny"
+    actions = ["s3:*"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    resources = [
+      aws_s3_bucket.temporal_archival[0].arn,
+      "${aws_s3_bucket.temporal_archival[0].arn}/*"
+    ]
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "temporal_archival" {
+  count  = var.temporal_mode == "self-hosted" ? 1 : 0
+  bucket = aws_s3_bucket.temporal_archival[0].id
+  policy = data.aws_iam_policy_document.temporal_archival_bucket[0].json
+}

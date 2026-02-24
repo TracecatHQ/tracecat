@@ -389,9 +389,55 @@ PostgreSQL requirements for self-hosted Temporal:
 
 See `deployments/eks/modules/eks/helm.tf` for a production example.
 
-For Temporal chart `1.0.0-rc.1`, archival is rendered from `server.archival` and `server.namespaceDefaults` in `temporal/templates/server-configmap.yaml` (the bundled `values/values.archival.s3.yaml` still matches those active keys).
-
 The chart runs a Helm hook job after install/upgrade to reconcile the `default` namespace settings (retention + archival when configured) and the search attributes in `tracecat.temporal.searchAttributes`.
+
+#### Archival (S3)
+
+Temporal archival persists completed workflow history and visibility records to S3 for long-term retention beyond the database retention period. Two layers of configuration are required:
+
+1. **Server-level**: Enables the archival capability and registers the S3 provider.
+2. **Namespace-level**: Enables archival on the `default` namespace with S3 URIs.
+
+The setup job automatically reconciles namespace archival settings on each Helm upgrade. Archival URIs are immutable once set on a namespace — the job only sets them on the first transition from `disabled` to `enabled`.
+
+```yaml
+temporal:
+  server:
+    archival:
+      history:
+        state: "enabled"
+        enableRead: true
+        provider:
+          s3store:
+            region: "us-west-2"
+      visibility:
+        state: "enabled"
+        enableRead: true
+        provider:
+          s3store:
+            region: "us-west-2"
+    namespaceDefaults:
+      archival:
+        history:
+          state: "enabled"
+          URI: "s3://your-bucket/temporal-history"
+        visibility:
+          state: "enabled"
+          URI: "s3://your-bucket/temporal-visibility"
+```
+
+The Temporal server pods need S3 write access. For EKS with IRSA, configure the temporal subchart's service account:
+
+```yaml
+temporal:
+  serviceAccount:
+    create: true
+    name: tracecat-temporal
+    extraAnnotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::123456789:role/your-temporal-s3-role
+```
+
+For the EKS Terraform module, archival is enabled automatically when `temporal_mode = "self-hosted"`. See `deployments/eks/modules/eks/helm.tf` for the production configuration.
 
 #### External
 

@@ -53,6 +53,11 @@ output "s3_registry_bucket" {
   value       = aws_s3_bucket.registry.id
 }
 
+output "s3_temporal_archival_bucket" {
+  description = "S3 bucket name for Temporal archival (self-hosted only)"
+  value       = var.temporal_mode == "self-hosted" ? aws_s3_bucket.temporal_archival[0].id : null
+}
+
 output "tracecat_url" {
   description = "URL for accessing Tracecat"
   value       = "https://${var.domain_name}"
@@ -99,6 +104,7 @@ output "encryption_at_rest" {
     s3_attachments_sse_algorithm = one(one(aws_s3_bucket_server_side_encryption_configuration.attachments.rule).apply_server_side_encryption_by_default).sse_algorithm
     s3_registry_sse_algorithm    = one(one(aws_s3_bucket_server_side_encryption_configuration.registry.rule).apply_server_side_encryption_by_default).sse_algorithm
     s3_workflow_sse_algorithm    = one(one(aws_s3_bucket_server_side_encryption_configuration.workflow.rule).apply_server_side_encryption_by_default).sse_algorithm
+    s3_temporal_archival_sse_algorithm = var.temporal_mode == "self-hosted" ? one(one(aws_s3_bucket_server_side_encryption_configuration.temporal_archival[0].rule).apply_server_side_encryption_by_default).sse_algorithm : null
   }
 }
 

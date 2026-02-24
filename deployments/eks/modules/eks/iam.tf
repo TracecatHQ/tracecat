@@ -479,6 +479,59 @@ resource "aws_iam_role" "tracecat_s3" {
   tags = var.tags
 }
 
+# S3 Access IAM Role for Temporal Server (IRSA) — archival to S3
+resource "aws_iam_role" "temporal_s3" {
+  count = var.temporal_mode == "self-hosted" ? 1 : 0
+  name  = "${var.cluster_name}-temporal-s3-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Federated = aws_iam_openid_connect_provider.eks.arn
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = [
+              "system:serviceaccount:${kubernetes_namespace.tracecat.metadata[0].name}:tracecat-temporal"
+            ]
+            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" = "sts.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy" "temporal_s3" {
+  count = var.temporal_mode == "self-hosted" ? 1 : 0
+  name  = "${var.cluster_name}-temporal-s3-policy"
+  role  = aws_iam_role.temporal_s3[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.temporal_archival[0].arn,
+          "${aws_s3_bucket.temporal_archival[0].arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role_policy" "tracecat_s3" {
   name = "${var.cluster_name}-tracecat-s3-policy"
   role = aws_iam_role.tracecat_s3.id

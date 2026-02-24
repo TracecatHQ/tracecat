@@ -659,6 +659,113 @@ resource "helm_release" "tracecat" {
     }
   }
 
+  # Temporal service account for IRSA (S3 archival access)
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.serviceAccount.create"
+      value = "true"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.serviceAccount.name"
+      value = "tracecat-temporal"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.serviceAccount.extraAnnotations.eks\\.amazonaws\\.com/role-arn"
+      value = aws_iam_role.temporal_s3[0].arn
+    }
+  }
+
+  # Temporal S3 archival — server-level provider config
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.archival.history.state"
+      value = "enabled"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.archival.history.enableRead"
+      value = "true"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.archival.history.provider.s3store.region"
+      value = local.aws_region
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.archival.visibility.state"
+      value = "enabled"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.archival.visibility.enableRead"
+      value = "true"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.archival.visibility.provider.s3store.region"
+      value = local.aws_region
+    }
+  }
+
+  # Temporal S3 archival — namespace defaults (applied by setup job)
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.namespaceDefaults.archival.history.state"
+      value = "enabled"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.namespaceDefaults.archival.history.URI"
+      value = "s3://${aws_s3_bucket.temporal_archival[0].id}/temporal-history"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.namespaceDefaults.archival.visibility.state"
+      value = "enabled"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.namespaceDefaults.archival.visibility.URI"
+      value = "s3://${aws_s3_bucket.temporal_archival[0].id}/temporal-visibility"
+    }
+  }
+
   # External Temporal cluster configuration
   dynamic "set" {
     for_each = var.temporal_mode == "cloud" ? [1] : []
