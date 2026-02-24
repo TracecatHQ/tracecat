@@ -12,6 +12,7 @@ import { z } from "zod"
 import type { AuthDiscoverResponse } from "@/client"
 import { authDiscoverAuthMethod } from "@/client"
 import { OidcOAuthButton } from "@/components/auth/oauth-buttons"
+import { SamlSSOButton } from "@/components/auth/saml"
 import { Icons } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
@@ -95,6 +96,15 @@ export function SignIn({ className, returnUrl }: SignInProps) {
   const showOidcAuth = showGenericOidcAuth || showGoogleOauthAuth
   const oidcProviderLabel = showGenericOidcAuth ? "Single sign-on" : "Google"
   const oidcProviderIcon = showGenericOidcAuth ? "saml" : "google"
+  // Keep a manual SAML entry point for single-tenant self-hosted setups.
+  // In multi-tenant mode, SAML login requires org context and should only be
+  // initiated from org-scoped discovery `next_url` links.
+  const showSingleTenantSamlAuth =
+    allowedAuthTypes.includes("saml") &&
+    appInfo?.saml_enabled &&
+    !appInfo?.ee_multi_tenant
+  const showAlternativeAuthActions =
+    (discoveredMethod === null && showOidcAuth) || showSingleTenantSamlAuth
   const onDiscover = async (email: string) => {
     setIsDiscovering(true)
     setDiscoveredEmail(email)
@@ -120,9 +130,15 @@ export function SignIn({ className, returnUrl }: SignInProps) {
         return
       }
       if (data.method === "saml") {
+        if (appInfo?.ee_multi_tenant && !data.next_url) {
+          throw new Error(
+            "SAML login requires organization context in multi-tenant mode"
+          )
+        }
         await startSamlLogin(returnUrl, data.next_url)
         return
       }
+      throw new Error(`Unsupported authentication method: ${data.method}`)
     } catch (error) {
       console.error("Error discovering auth method", error)
       toast({
@@ -161,7 +177,7 @@ export function SignIn({ className, returnUrl }: SignInProps) {
               onSubmit={onDiscover}
             />
           )}
-          {discoveredMethod === null && showOidcAuth && (
+          {showAlternativeAuthActions && (
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
                 <span className="w-full border-t" />
@@ -180,6 +196,9 @@ export function SignIn({ className, returnUrl }: SignInProps) {
               providerLabel={oidcProviderLabel}
               providerIcon={oidcProviderIcon}
             />
+          )}
+          {showSingleTenantSamlAuth && (
+            <SamlSSOButton className="w-full" returnUrl={returnUrl} />
           )}
         </CardContent>
         {showBasicAuth && (

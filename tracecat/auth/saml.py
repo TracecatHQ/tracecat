@@ -1,3 +1,41 @@
+"""SAML authentication flow and security gates.
+
+This module implements the two public SAML endpoints:
+- `GET /auth/saml/login`: starts SP-initiated SAML login.
+- `POST /auth/saml/acs`: handles the IdP callback and finalizes login.
+
+Tenant and organization model:
+- Single-tenant: pre-auth SAML flows use the default organization.
+- Multi-tenant: login must resolve an explicit org context before redirecting
+  to the IdP. ACS derives org context from server-issued RelayState.
+
+Configuration source model:
+- SAML metadata URL is resolved per organization from settings.
+- In single-tenant mode, `SAML_IDP_METADATA_URL` from env is intentionally
+  preferred to preserve self-hosted compatibility when org settings are not
+  configured yet.
+
+Security and policy gates:
+- `/login` is gated by auth-type checks, resolves the target org, and stores a
+  one-time SAML request record with expiry.
+- RelayState embeds org ID so ACS can select org-scoped configuration without
+  trusting query/body parameters.
+- `/acs` requires the `tracecat-ui` service role, validates RelayState exists
+  and is not expired, validates `InResponseTo`, and deletes used request rows to
+  prevent replay.
+- Assertion email is selected from known claims and then validated against the
+  org-domain allowlist. In multi-tenant mode, at least one active org domain is
+  required for successful SAML login.
+- Membership enforcement is org-scoped: with auto-provisioning off, only
+  existing org members can complete login; with it on, membership is provisioned
+  just-in-time for the resolved organization.
+
+IDOR hardening note:
+- ACS organization context is derived from server-issued RelayState and matched
+  against stored request data. We do not trust caller-supplied org identifiers
+  at callback time.
+"""
+
 import base64
 import os
 import secrets
@@ -243,14 +281,19 @@ async def get_org_saml_metadata_url(
     In single-tenant mode, prefer explicit environment configuration over
     encrypted DB settings to support self-hosted deployments and safe fallback.
     """
+    # Single-tenant self-hosting compatibility:
+    # prefer explicit env config to avoid forcing DB settings during bootstrap.
     if not TRACECAT__EE_MULTI_TENANT and SAML_IDP_METADATA_URL:
         return SAML_IDP_METADATA_URL
 
+    # Multi-tenant hardening:
+    # do not inherit global env metadata defaults across organizations.
+    default_metadata_url = None if TRACECAT__EE_MULTI_TENANT else SAML_IDP_METADATA_URL
     value = await get_setting(
         "saml_idp_metadata_url",
         role=bootstrap_role(organization_id),
         session=session,
-        default=SAML_IDP_METADATA_URL,
+        default=default_metadata_url,
     )
     if not value:
         logger.error("SAML SSO metadata URL has not been configured")
@@ -270,7 +313,7 @@ async def get_org_saml_metadata_url(
 async def should_allow_email_for_org(
     session: AsyncSession, organization_id: OrganizationID, email: str
 ) -> bool:
-    """Apply org-domain allowlist when active domains are configured."""
+    """Apply org-domain allowlist with multi-tenant safety defaults."""
     if "@" not in email:
         return False
     raw_domain = email.split("@", 1)[1].strip().lower()
@@ -284,8 +327,11 @@ async def should_allow_email_for_org(
         OrganizationDomain.is_active.is_(True),
     )
     active_domains = set((await session.execute(domains_stmt)).scalars().all())
+    # Single-tenant compatibility: no domains means allow any domain.
+    # Multi-tenant hardening: require at least one active domain to avoid
+    # admitting identities from arbitrary domains into the selected org.
     if not active_domains:
-        return True
+        return not TRACECAT__EE_MULTI_TENANT
     return normalized_domain in active_domains
 
 
@@ -456,11 +502,14 @@ async def login(
     db_session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> SAMLDatabaseLoginResponse:
     """Initiate SAML login flow"""
+    # Org resolution is explicit in multi-tenant mode and default-org in
+    # single-tenant mode. This keeps login org-scoped before we contact the IdP.
     organization_id = await resolve_auth_organization_id(request, session=db_session)
     saml_idp_metadata_url = await get_org_saml_metadata_url(db_session, organization_id)
     client = await create_saml_client(saml_idp_metadata_url)
 
-    # Encode org context into relay state so ACS can resolve org-scoped config.
+    # RelayState carries org context so ACS can resolve org-scoped config without
+    # trusting callback query/body org parameters.
     relay_state = build_relay_state(organization_id)
 
     # Prepare the authentication request
@@ -522,6 +571,8 @@ async def sso_acs(
 
     organization_id = parse_relay_state_org_id(relay_state)
     if organization_id is None:
+        # Backward-compatible fallback for legacy RelayState values that predate
+        # org-prefixed RelayState format.
         logger.warning(
             "RelayState missing org prefix; using default organization fallback"
         )
@@ -541,6 +592,8 @@ async def sso_acs(
             detail="Authentication failed",
         )
 
+    # Load IdP metadata after RelayState validation so ACS config is tied to the
+    # validated org context.
     saml_idp_metadata_url = await get_org_saml_metadata_url(db_session, organization_id)
     client = await create_saml_client(saml_idp_metadata_url)
 
@@ -729,6 +782,7 @@ async def sso_acs(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Authentication failed",
             )
+        # JIT membership creation is always scoped to the RelayState-resolved org.
         db_session.add(
             OrganizationMembership(
                 user_id=user.id,  # pyright: ignore[reportArgumentType]

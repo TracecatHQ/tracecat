@@ -22,6 +22,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { useOrgDomains } from "@/hooks/use-org-domains"
 import { useAppInfo, useOrgSamlSettings } from "@/lib/hooks"
 
 const ssoFormSchema = z.object({
@@ -36,6 +37,7 @@ type SsoFormValues = z.infer<typeof ssoFormSchema>
 
 export function OrgSettingsSsoForm() {
   const { appInfo } = useAppInfo()
+  const { domains } = useOrgDomains()
   const {
     samlSettings,
     samlSettingsIsLoading,
@@ -55,8 +57,22 @@ export function OrgSettingsSsoForm() {
   })
 
   const isSamlAllowed = appInfo?.auth_allowed_types.includes("saml")
+  const requiresDomainGuard = appInfo?.ee_multi_tenant ?? false
+  const hasActiveDomains = Boolean(domains?.some((domain) => domain.is_active))
   const samlEnabled = methods.watch("saml_enabled")
+
+  const canEnableSaml = !requiresDomainGuard || hasActiveDomains
   const onSubmit = async (data: SsoFormValues) => {
+    if (
+      requiresDomainGuard &&
+      !hasActiveDomains &&
+      (data.saml_enabled || data.saml_auto_provisioning)
+    ) {
+      console.error(
+        "Refusing to enable SAML without at least one active org domain in multi-tenant mode"
+      )
+      return
+    }
     const conditional: Partial<SAMLSettingsUpdate> = {}
     if (isSamlAllowed) {
       conditional.saml_enabled = data.saml_enabled
@@ -106,6 +122,18 @@ export function OrgSettingsSsoForm() {
             </AlertDescription>
           </Alert>
         )}
+        {requiresDomainGuard && !hasActiveDomains && (
+          <Alert>
+            <AlertTriangleIcon className="size-4 !text-destructive" />
+            <AlertTitle className="text-destructive">
+              Active domain required
+            </AlertTitle>
+            <AlertDescription>
+              Multi-tenant SAML requires at least one active organization
+              domain. Configure domains first, then enable SAML.
+            </AlertDescription>
+          </Alert>
+        )}
         <FormField
           control={methods.control}
           name="saml_enabled"
@@ -121,6 +149,7 @@ export function OrgSettingsSsoForm() {
                 <Switch
                   checked={field.value}
                   onCheckedChange={field.onChange}
+                  disabled={!canEnableSaml && !field.value}
                 />
               </FormControl>
             </FormItem>
@@ -143,7 +172,7 @@ export function OrgSettingsSsoForm() {
                 <Switch
                   checked={field.value}
                   onCheckedChange={field.onChange}
-                  disabled={!samlEnabled}
+                  disabled={(!canEnableSaml && !field.value) || !samlEnabled}
                 />
               </FormControl>
             </FormItem>
@@ -166,7 +195,7 @@ export function OrgSettingsSsoForm() {
                 <Switch
                   checked={field.value}
                   onCheckedChange={field.onChange}
-                  disabled={!samlEnabled}
+                  disabled={(!canEnableSaml && !field.value) || !samlEnabled}
                 />
               </FormControl>
             </FormItem>

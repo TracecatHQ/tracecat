@@ -9,8 +9,13 @@ from tracecat import config
 from tracecat.auth.enums import AuthType
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
+from tracecat.db.models import OrganizationDomain
+from tracecat.organization.domains import normalize_domain
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
-from tracecat.settings.router import check_other_auth_enabled
+from tracecat.settings.router import (
+    check_other_auth_enabled,
+    check_saml_domain_prerequisites,
+)
 from tracecat.settings.schemas import (
     AuditSettingsUpdate,
     GitSettingsUpdate,
@@ -522,6 +527,81 @@ async def test_check_other_auth_enabled_failure(
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "At least one other auth type must be enabled"
+
+
+@pytest.mark.anyio
+async def test_check_saml_domain_prerequisites_raises_without_domains(
+    settings_service_with_defaults: SettingsService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = settings_service_with_defaults
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await check_saml_domain_prerequisites(
+            session=service.session,
+            role=service.role,
+            params=SAMLSettingsUpdate(saml_enabled=True),
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "active organization domain" in str(exc_info.value.detail)
+
+
+@pytest.mark.anyio
+async def test_check_saml_domain_prerequisites_passes_with_active_domain(
+    settings_service_with_defaults: SettingsService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = settings_service_with_defaults
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+    normalized = normalize_domain("acme.example")
+    service.session.add(
+        OrganizationDomain(
+            organization_id=service.organization_id,
+            domain=normalized.domain,
+            normalized_domain=normalized.normalized_domain,
+            is_primary=True,
+            is_active=True,
+        )
+    )
+    await service.session.commit()
+
+    await check_saml_domain_prerequisites(
+        session=service.session,
+        role=service.role,
+        params=SAMLSettingsUpdate(saml_enabled=True),
+    )
+
+
+@pytest.mark.anyio
+async def test_check_saml_domain_prerequisites_ignores_non_enabling_updates(
+    settings_service_with_defaults: SettingsService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = settings_service_with_defaults
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+
+    await check_saml_domain_prerequisites(
+        session=service.session,
+        role=service.role,
+        params=SAMLSettingsUpdate(saml_idp_metadata_url="https://idp.example.com"),
+    )
+
+
+@pytest.mark.anyio
+async def test_check_saml_domain_prerequisites_skips_single_tenant_without_domains(
+    settings_service_with_defaults: SettingsService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = settings_service_with_defaults
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+
+    await check_saml_domain_prerequisites(
+        session=service.session,
+        role=service.role,
+        params=SAMLSettingsUpdate(saml_enabled=True),
+    )
 
 
 @pytest.mark.anyio
