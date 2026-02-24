@@ -550,43 +550,32 @@ async def _upsert_registry_scope_rows(
 # =============================================================================
 
 
-async def seed_system_roles_for_all_orgs(session: AsyncSession) -> list[UUID]:
-    """Seed system roles for all existing organizations.
+async def seed_system_roles_for_org(
+    session: AsyncSession,
+    org_id: UUID,
+) -> None:
+    """Seed system roles for a single organization.
 
-    This is called during app startup to ensure existing organizations
-    have all system roles. Idempotent - will not create duplicate roles.
+    Upserts preset roles and their scope assignments. Idempotent.
 
     Args:
         session: Database session
-
-    Returns:
-        List of organization IDs processed.
+        org_id: Organization to seed roles for
     """
-    logger.info("Seeding system roles for all organizations")
+    logger.info("Seeding system roles for organization", organization_id=str(org_id))
 
-    # Get all organizations
-    org_stmt = select(Organization.id)
-    org_result = await session.execute(org_stmt)
-    org_ids = [row[0] for row in org_result.all()]
-
-    if not org_ids:
-        logger.info("No organizations found, skipping system role seeding")
-        return []
-
-    # 1) Upsert all preset roles for all orgs in one bulk query.
-    role_values = []
-    for org_id in org_ids:
-        for slug, role_def in PRESET_ROLE_DEFINITIONS.items():
-            role_values.append(
-                {
-                    "id": uuid4(),
-                    "name": role_def.name,
-                    "slug": slug,
-                    "description": role_def.description,
-                    "organization_id": org_id,
-                    "created_by": None,
-                }
-            )
+    # 1) Upsert preset roles for this org.
+    role_values = [
+        {
+            "id": uuid4(),
+            "name": role_def.name,
+            "slug": slug,
+            "description": role_def.description,
+            "organization_id": org_id,
+            "created_by": None,
+        }
+        for slug, role_def in PRESET_ROLE_DEFINITIONS.items()
+    ]
 
     role_insert_stmt = pg_insert(Role).values(role_values)
     role_insert_stmt = role_insert_stmt.on_conflict_do_update(
@@ -598,16 +587,16 @@ async def seed_system_roles_for_all_orgs(session: AsyncSession) -> list[UUID]:
     )
     await session.execute(role_insert_stmt)
 
-    # 2) Fetch all relevant global scopes once.
+    # 2) Fetch all relevant global scopes.
     scope_stmt = select(Scope.id, Scope.name).where(Scope.organization_id.is_(None))
     scope_result = await session.execute(scope_stmt)
     scope_id_by_name: dict[str, UUID] = {
         scope_name: scope_id for scope_id, scope_name in scope_result.tuples().all()
     }
 
-    # 3) Fetch all preset roles for those orgs and bulk insert role-scope links.
+    # 3) Fetch preset roles for this org and insert role-scope links.
     role_stmt = select(Role.id, Role.slug).where(
-        Role.organization_id.in_(org_ids),
+        Role.organization_id == org_id,
         Role.slug.in_(PRESET_ROLE_DEFINITIONS),
     )
     role_result = await session.execute(role_stmt)
@@ -636,6 +625,36 @@ async def seed_system_roles_for_all_orgs(session: AsyncSession) -> list[UUID]:
             index_elements=["role_id", "scope_id"]
         )
         await session.execute(role_scope_stmt)
+
+    logger.info("System roles seeded for organization", organization_id=str(org_id))
+
+
+async def seed_system_roles_for_all_orgs(session: AsyncSession) -> list[UUID]:
+    """Seed system roles for all existing organizations.
+
+    This is called during app startup to ensure existing organizations
+    have all system roles. Idempotent - will not create duplicate roles.
+
+    Args:
+        session: Database session
+
+    Returns:
+        List of organization IDs processed.
+    """
+    logger.info("Seeding system roles for all organizations")
+
+    # Get all organizations
+    org_stmt = select(Organization.id)
+    org_result = await session.execute(org_stmt)
+    org_ids = [row[0] for row in org_result.all()]
+
+    if not org_ids:
+        logger.info("No organizations found, skipping system role seeding")
+        return []
+
+    for org_id in org_ids:
+        await seed_system_roles_for_org(session, org_id)
+
     await session.commit()
 
     logger.info(
