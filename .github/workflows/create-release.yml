@@ -135,15 +135,20 @@ jobs:
             git push origin "${VERSION}"
           fi
 
-      - name: Wait for publish images and retry up to 3 times
+      - name: Trigger and wait for publish images
         run: |
           tag="${{ steps.version.outputs.version }}"
 
+          # Explicitly dispatch build-push-images (workflow_dispatch events
+          # DO trigger new runs even when using GITHUB_TOKEN, unlike push events)
+          gh workflow run build-push-images.yml --field "tag=${tag}"
+
+          # Wait for the dispatched run to appear
           for _ in $(seq 1 30); do
             run_id=$(gh run list \
               --workflow build-push-images.yml \
               --json databaseId,headBranch,event,status \
-              --jq "map(select(.headBranch == \"$tag\" and .event == \"push\")) | sort_by(.databaseId) | reverse | .[0].databaseId")
+              --jq "map(select(.headBranch == \"main\" and .event == \"workflow_dispatch\")) | sort_by(.databaseId) | reverse | .[0].databaseId")
 
             if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
               break
