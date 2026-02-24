@@ -1,0 +1,69 @@
+name: Publish release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  publish-release:
+    if: >-
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.title, 'release:')
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Extract version from PR title
+        id: version
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          VERSION=$(echo "$PR_TITLE" | sed -E 's/^release:[[:space:]]*//')
+          if [ -z "$VERSION" ]; then
+            echo "Failed to extract version from PR title: $PR_TITLE" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Publish draft release
+        uses: actions/github-script@v7
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        with:
+          script: |
+            const version = process.env.VERSION
+            const mergeSha = process.env.MERGE_SHA
+            const { data: releases } = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            })
+
+            const draft = releases.find((release) => release.draft)
+
+            if (!draft) {
+              core.setFailed('No draft release found to publish')
+              return
+            }
+
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: draft.id,
+              draft: false,
+              tag_name: version,
+              target_commitish: mergeSha,
+              name: `Tracecat ${version}`,
+            })
+
+            core.info(`Published release ${version}`)
+
+      - name: Delete release branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/release/${VERSION}" || true
