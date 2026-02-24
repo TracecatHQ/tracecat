@@ -1,0 +1,43 @@
+{{- $autoscaling := default (dict) .Values.executor.autoscaling -}}
+{{- if default false $autoscaling.enabled }}
+{{- $temporalKedaHasAuthSource := eq (include "tracecat.temporalKedaHasAuthSource" . | trim) "true" -}}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "tracecat.fullname" . }}-executor
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: executor
+spec:
+  scaleTargetRef:
+    name: {{ include "tracecat.fullname" . }}-executor
+  pollingInterval: {{ default 10 $autoscaling.pollingInterval }}
+  cooldownPeriod: {{ default 120 $autoscaling.cooldownPeriod }}
+  minReplicaCount: {{ default 1 $autoscaling.minReplicas }}
+  maxReplicaCount: {{ default 8 $autoscaling.maxReplicas }}
+  triggers:
+    - type: temporal
+      metadata:
+        namespace: {{ include "tracecat.temporalNamespace" . | quote }}
+        endpoint: {{ include "tracecat.temporalClusterUrl" . | quote }}
+        taskQueue: {{ .Values.executor.queue | quote }}
+        targetQueueSize: {{ default 5 $autoscaling.targetQueueSize | quote }}
+        activationTargetQueueSize: {{ default 0 $autoscaling.activationTargetQueueSize | quote }}
+        queueTypes: {{ default "workflow,activity" $autoscaling.queueTypes | quote }}
+      {{- if $temporalKedaHasAuthSource }}
+      authenticationRef:
+        name: {{ include "tracecat.temporalKedaTriggerAuthName" . }}
+      {{- end }}
+    {{- if $autoscaling.targetCPUUtilizationPercentage }}
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: {{ $autoscaling.targetCPUUtilizationPercentage | quote }}
+    {{- end }}
+    {{- if $autoscaling.targetMemoryUtilizationPercentage }}
+    - type: memory
+      metricType: Utilization
+      metadata:
+        value: {{ $autoscaling.targetMemoryUtilizationPercentage | quote }}
+    {{- end }}
+{{- end }}

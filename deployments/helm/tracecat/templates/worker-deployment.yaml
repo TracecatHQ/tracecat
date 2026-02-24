@@ -6,7 +6,9 @@ metadata:
     {{- include "tracecat.labels" . | nindent 4 }}
     app.kubernetes.io/component: worker
 spec:
+  {{- if not (default false .Values.worker.autoscaling.enabled) }}
   replicas: {{ .Values.worker.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "tracecat.selectorLabels" . | nindent 6 }}

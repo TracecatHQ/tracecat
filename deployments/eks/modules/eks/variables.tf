@@ -36,7 +36,7 @@ variable "acm_certificate_arn" {
 variable "node_instance_types" {
   description = "Instance types for the EKS node group"
   type        = list(string)
-  default     = ["m7g.2xlarge"]
+  default     = ["c7g.2xlarge"]
 }
 
 variable "node_architecture" {
@@ -76,6 +76,14 @@ variable "node_desired_size" {
   description = "Desired number of nodes in the node group"
   type        = number
   default     = 8
+
+  validation {
+    condition = (
+      var.node_min_size <= var.node_desired_size &&
+      var.node_desired_size <= var.node_max_size
+    )
+    error_message = "node_min_size must be <= node_desired_size and node_desired_size must be <= node_max_size."
+  }
 }
 
 variable "node_min_size" {
@@ -87,7 +95,7 @@ variable "node_min_size" {
 variable "node_max_size" {
   description = "Maximum number of nodes in the node group"
   type        = number
-  default     = 12
+  default     = 20
 }
 
 variable "node_disk_size" {
@@ -105,25 +113,63 @@ variable "spot_node_group_enabled" {
 variable "spot_node_instance_types" {
   description = "Instance types for the spot managed node group."
   type        = list(string)
-  default     = ["m7g.2xlarge"]
+  default     = ["c7g.2xlarge", "m7g.2xlarge"]
 }
 
 variable "spot_node_desired_size" {
   description = "Desired number of nodes in the spot managed node group."
   type        = number
-  default     = 2
+  default     = 0
+
+  validation {
+    condition = (
+      var.spot_node_min_size <= var.spot_node_desired_size &&
+      var.spot_node_desired_size <= var.spot_node_max_size
+    )
+    error_message = "spot_node_min_size must be <= spot_node_desired_size and spot_node_desired_size must be <= spot_node_max_size."
+  }
 }
 
 variable "spot_node_min_size" {
   description = "Minimum number of nodes in the spot managed node group."
   type        = number
-  default     = 2
+  default     = 0
 }
 
 variable "spot_node_max_size" {
   description = "Maximum number of nodes in the spot managed node group."
   type        = number
-  default     = 4
+  default     = 40
+}
+
+variable "cluster_autoscaler_enabled" {
+  description = "Enable Cluster Autoscaler for managed node groups."
+  type        = bool
+  default     = true
+}
+
+variable "cluster_autoscaler_chart_version" {
+  description = "Cluster Autoscaler Helm chart version."
+  type        = string
+  default     = "9.53.0"
+}
+
+variable "metrics_server_enabled" {
+  description = "Enable bundled metrics-server chart via Tracecat Helm dependency."
+  type        = bool
+  default     = true
+}
+
+variable "metrics_server_replicas" {
+  description = "Replica count for metrics-server when enabled."
+  type        = number
+  default     = 2
+}
+
+variable "metrics_server_kubelet_insecure_tls" {
+  description = "Set metrics-server --kubelet-insecure-tls for clusters with kubelet TLS issues."
+  type        = bool
+  default     = false
 }
 
 # Tracecat Configuration
@@ -352,6 +398,69 @@ variable "ui_replicas" {
   default     = 2
 }
 
+variable "api_autoscaling_min_replicas" {
+  description = "Minimum HPA replicas for the Tracecat API deployment."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.api_autoscaling_min_replicas >= 2
+    error_message = "api_autoscaling_min_replicas must be >= 2."
+  }
+}
+
+variable "api_autoscaling_max_replicas" {
+  description = "Maximum HPA replicas for the Tracecat API deployment."
+  type        = number
+  default     = 10
+
+  validation {
+    condition     = var.api_autoscaling_max_replicas >= var.api_autoscaling_min_replicas
+    error_message = "api_autoscaling_max_replicas must be >= api_autoscaling_min_replicas."
+  }
+}
+
+variable "api_autoscaling_target_cpu_utilization_percentage" {
+  description = "Target average CPU utilization percentage for API HPA."
+  type        = number
+  default     = 70
+}
+
+variable "api_autoscaling_target_memory_utilization_percentage" {
+  description = "Target average memory utilization percentage for API HPA."
+  type        = number
+  default     = 80
+}
+
+variable "ui_autoscaling_min_replicas" {
+  description = "Minimum HPA replicas for the Tracecat UI deployment."
+  type        = number
+  default     = 2
+}
+
+variable "ui_autoscaling_max_replicas" {
+  description = "Maximum HPA replicas for the Tracecat UI deployment."
+  type        = number
+  default     = 6
+
+  validation {
+    condition     = var.ui_autoscaling_max_replicas >= var.ui_autoscaling_min_replicas
+    error_message = "ui_autoscaling_max_replicas must be >= ui_autoscaling_min_replicas."
+  }
+}
+
+variable "ui_autoscaling_target_cpu_utilization_percentage" {
+  description = "Target average CPU utilization percentage for UI HPA."
+  type        = number
+  default     = 70
+}
+
+variable "ui_autoscaling_target_memory_utilization_percentage" {
+  description = "Target average memory utilization percentage for UI HPA."
+  type        = number
+  default     = 80
+}
+
 # Tracecat resource requests (also applied as limits)
 variable "api_cpu_request_millicores" {
   description = "API CPU request in millicores"
@@ -413,19 +522,7 @@ variable "ui_memory_request_mib" {
   default     = 512
 }
 
-# Plan-time rollout guardrails (capacity model inputs)
-variable "node_schedulable_cpu_millicores_per_node" {
-  description = "Schedulable CPU per worker node in millicores used for rollout capacity guardrails"
-  type        = number
-  default     = 8000
-}
-
-variable "node_schedulable_memory_mib_per_node" {
-  description = "Schedulable memory per worker node in MiB used for rollout capacity guardrails"
-  type        = number
-  default     = 32768
-}
-
+# Plan-time rollout guardrails (capacity policy)
 variable "pod_eni_capacity_per_node" {
   description = "Estimated pod-eni budget per node used for rollout guardrails"
   type        = number
@@ -438,22 +535,39 @@ variable "rollout_surge_percent" {
   default     = 25
 }
 
-variable "capacity_reserved_cpu_millicores" {
-  description = "Reserved CPU headroom in millicores for system and auxiliary workloads in guardrails"
+variable "capacity_headroom_percent" {
+  description = "Additional CPU and memory headroom percentage applied to rollout peak requirements"
   type        = number
-  default     = 3000
+  default     = 20
+
+  validation {
+    condition     = var.capacity_headroom_percent >= 0 && var.capacity_headroom_percent <= 100
+    error_message = "capacity_headroom_percent must be between 0 and 100."
+  }
 }
 
-variable "capacity_reserved_memory_mib" {
-  description = "Reserved memory headroom in MiB for system and auxiliary workloads in guardrails"
+variable "pod_eni_capacity_reserved" {
+  description = "Reserved pod-eni headroom for system and auxiliary workloads in guardrails"
+  type        = number
+  default     = 8
+}
+
+variable "temporal_guardrail_cpu_millicores" {
+  description = "Terraform-only Temporal CPU reservation used in self-hosted capacity guardrails."
+  type        = number
+  default     = 8000
+}
+
+variable "temporal_guardrail_memory_mib" {
+  description = "Terraform-only Temporal memory reservation used in self-hosted capacity guardrails."
   type        = number
   default     = 8192
 }
 
-variable "capacity_reserved_pod_eni" {
-  description = "Reserved pod-eni headroom for system and auxiliary workloads in guardrails"
+variable "temporal_guardrail_pod_count" {
+  description = "Terraform-only Temporal pod reservation used in self-hosted pod-eni guardrails."
   type        = number
-  default     = 8
+  default     = 6
 }
 
 # WAF Configuration

@@ -79,8 +79,8 @@ resource "helm_release" "tracecat" {
 
   wait            = true
   wait_for_jobs   = true
-  atomic          = true
-  cleanup_on_fail = true
+  atomic          = false
+  cleanup_on_fail = false
   upgrade_install = true
   timeout         = 1500
 
@@ -174,11 +174,15 @@ resource "helm_release" "tracecat" {
     value = var.tracecat_secrets_arn
   }
 
-  # PostgreSQL credentials via ESO are managed by Terraform (kubernetes_manifest.postgres_credentials_external_secret)
-  # so migration hooks do not race Helm-created ExternalSecrets.
+  # PostgreSQL credentials via ESO — managed by Helm chart with deletionPolicy: Retain
   set {
     name  = "externalSecrets.postgres.enabled"
-    value = "false"
+    value = "true"
+  }
+
+  set {
+    name  = "externalSecrets.postgres.secretArn"
+    value = local.rds_master_secret_arn
   }
 
   # Redis URL via ESO
@@ -212,6 +216,106 @@ resource "helm_release" "tracecat" {
   set {
     name  = "tracecat.auth.superadminEmail"
     value = var.superadmin_email
+  }
+
+  # Cluster metrics provider and HPA configuration.
+  # EKS Terraform keeps API/UI HPA enabled and only exposes tuning knobs.
+  set {
+    name  = "metricsServer.enabled"
+    value = var.metrics_server_enabled ? "true" : "false"
+  }
+
+  set {
+    name  = "metricsServer.replicas"
+    value = var.metrics_server_replicas
+  }
+
+  dynamic "set" {
+    for_each = var.metrics_server_kubelet_insecure_tls ? [1] : []
+    content {
+      name  = "metricsServer.args[0]"
+      value = "--kubelet-insecure-tls"
+    }
+  }
+
+  set {
+    name  = "keda.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "keda.prometheus.operator.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "keda.prometheus.metricServer.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "api.autoscaling.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "api.autoscaling.minReplicas"
+    value = var.api_autoscaling_min_replicas
+  }
+
+  set {
+    name  = "api.autoscaling.maxReplicas"
+    value = var.api_autoscaling_max_replicas
+  }
+
+  set {
+    name  = "api.autoscaling.targetCPUUtilizationPercentage"
+    value = var.api_autoscaling_target_cpu_utilization_percentage
+  }
+
+  set {
+    name  = "api.autoscaling.targetMemoryUtilizationPercentage"
+    value = var.api_autoscaling_target_memory_utilization_percentage
+  }
+
+  set {
+    name  = "ui.autoscaling.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "ui.autoscaling.minReplicas"
+    value = var.ui_autoscaling_min_replicas
+  }
+
+  set {
+    name  = "ui.autoscaling.maxReplicas"
+    value = var.ui_autoscaling_max_replicas
+  }
+
+  set {
+    name  = "ui.autoscaling.targetCPUUtilizationPercentage"
+    value = var.ui_autoscaling_target_cpu_utilization_percentage
+  }
+
+  set {
+    name  = "ui.autoscaling.targetMemoryUtilizationPercentage"
+    value = var.ui_autoscaling_target_memory_utilization_percentage
+  }
+
+  set {
+    name  = "worker.autoscaling.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "executor.autoscaling.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "agentExecutor.autoscaling.enabled"
+    value = "true"
   }
 
   # Replica counts
@@ -424,10 +528,21 @@ resource "helm_release" "tracecat" {
     value = var.temporal_mode == "self-hosted" ? "true" : "false"
   }
 
+  # Temporal remains unbounded: Terraform does not set Temporal pod resources.
+  # Capacity guardrails reserve Temporal capacity via temporal_guardrail_* variables.
+
   # Self-hosted Temporal with RDS
   set {
     name  = "temporal.server.podLabels.tracecat\\.com/access-postgres"
     value = "true"
+    type  = "string"
+  }
+
+  # Schema setup job needs RDS access via SecurityGroupPolicy
+  set {
+    name  = "temporal.schema.podLabels.tracecat\\.com/access-postgres"
+    value = "true"
+    type  = "string"
   }
 
   # Mount the RDS CA certificate into Temporal server pods for TLS verification
@@ -647,6 +762,113 @@ resource "helm_release" "tracecat" {
     }
   }
 
+  # Temporal service account for IRSA (S3 archival access)
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.serviceAccount.create"
+      value = "true"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.serviceAccount.name"
+      value = "tracecat-temporal"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.serviceAccount.extraAnnotations.eks\\.amazonaws\\.com/role-arn"
+      value = aws_iam_role.temporal_s3[0].arn
+    }
+  }
+
+  # Temporal S3 archival — server-level provider config
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.archival.history.state"
+      value = "enabled"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.archival.history.enableRead"
+      value = "true"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.archival.history.provider.s3store.region"
+      value = local.aws_region
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.archival.visibility.state"
+      value = "enabled"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.archival.visibility.enableRead"
+      value = "true"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.archival.visibility.provider.s3store.region"
+      value = local.aws_region
+    }
+  }
+
+  # Temporal S3 archival — namespace defaults (applied by setup job)
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.namespaceDefaults.archival.history.state"
+      value = "enabled"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.namespaceDefaults.archival.history.URI"
+      value = "s3://${aws_s3_bucket.temporal_archival[0].id}/temporal-history"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.namespaceDefaults.archival.visibility.state"
+      value = "enabled"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "self-hosted" ? [1] : []
+    content {
+      name  = "temporal.server.namespaceDefaults.archival.visibility.URI"
+      value = "s3://${aws_s3_bucket.temporal_archival[0].id}/temporal-visibility"
+    }
+  }
+
   # External Temporal cluster configuration
   dynamic "set" {
     for_each = var.temporal_mode == "cloud" ? [1] : []
@@ -692,8 +914,40 @@ resource "helm_release" "tracecat" {
   dynamic "set" {
     for_each = var.temporal_mode == "cloud" && var.temporal_secret_arn != "" ? [1] : []
     content {
+      name  = "externalTemporal.auth.secretArn"
+      value = var.temporal_secret_arn
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "cloud" && var.temporal_secret_arn != "" ? [1] : []
+    content {
       name  = "externalTemporal.auth.existingSecret"
       value = "tracecat-temporal-credentials"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "cloud" ? [1] : []
+    content {
+      name  = "externalTemporal.auth.kedaAwsSecretManager.region"
+      value = local.aws_region
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "cloud" && var.temporal_secret_arn != "" ? [1] : []
+    content {
+      name  = "keda.podIdentity.aws.irsa.enabled"
+      value = "true"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "cloud" && var.temporal_secret_arn != "" ? [1] : []
+    content {
+      name  = "keda.podIdentity.aws.irsa.roleArn"
+      value = aws_iam_role.keda_operator_temporal_secret[0].arn
     }
   }
 
@@ -740,8 +994,8 @@ resource "helm_release" "tracecat" {
     aws_eks_node_group.tracecat,
     aws_eks_node_group.tracecat_spot,
     helm_release.aws_load_balancer_controller,
+    kubernetes_manifest.keda_crds,
     kubernetes_manifest.external_secrets_cluster_store,
-    kubernetes_manifest.postgres_credentials_external_secret,
     aws_secretsmanager_secret_version.redis_url,
     kubernetes_job_v1.create_temporal_databases
   ]

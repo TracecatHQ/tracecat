@@ -256,13 +256,262 @@ urls:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `api.replicas` | `1` | API service replicas |
-| `worker.replicas` | `1` | Temporal worker replicas |
-| `executor.replicas` | `1` | Action executor replicas |
-| `agentExecutor.replicas` | `1` | Agent executor replicas |
+| `api.replicas` | `2` | API service replicas (used when `api.autoscaling.enabled=false`) |
+| `worker.replicas` | `4` | Temporal worker replicas |
+| `executor.replicas` | `4` | Action executor replicas |
+| `agentExecutor.replicas` | `2` | Agent executor replicas |
 | `ui.replicas` | `1` | UI service replicas |
 
 Each service also supports `resources.requests.cpu`, `resources.requests.memory`, `resources.limits.cpu`, and `resources.limits.memory`. See `values.yaml` for defaults.
+
+### Autoscaling
+
+All autoscaling is disabled by default for backwards compatibility with existing Helm users:
+
+- `metricsServer.enabled=false`
+- `keda.enabled=false`
+- `api.autoscaling.enabled=false`
+- `ui.autoscaling.enabled=false`
+- `worker.autoscaling.enabled=false`
+- `executor.autoscaling.enabled=false`
+- `agentExecutor.autoscaling.enabled=false`
+
+#### Cluster autoscaling toggle guide
+
+Use one of these modes depending on your cluster:
+
+| Mode | Required values |
+|------|------------------|
+| Disable all autoscaling (default) | Keep all autoscaling toggles above `false` |
+| Enable API/UI HPA only | `api.autoscaling.enabled=true`, `ui.autoscaling.enabled=true`, plus a `metrics.k8s.io` provider (`metricsServer.enabled=true` or platform-managed metrics-server) |
+| Enable Temporal KEDA only | `keda.enabled=true` and one or more of `worker/executor/agentExecutor.autoscaling.enabled=true` |
+| Enable both HPA + KEDA | Combine both sets above |
+
+Disable all autoscaling:
+
+```yaml
+metricsServer:
+  enabled: false
+
+keda:
+  enabled: false
+
+api:
+  autoscaling:
+    enabled: false
+ui:
+  autoscaling:
+    enabled: false
+worker:
+  autoscaling:
+    enabled: false
+executor:
+  autoscaling:
+    enabled: false
+agentExecutor:
+  autoscaling:
+    enabled: false
+```
+
+Enable only API/UI HPA:
+
+```yaml
+metricsServer:
+  enabled: true # Or keep false when your cluster already provides metrics-server.
+
+api:
+  autoscaling:
+    enabled: true
+ui:
+  autoscaling:
+    enabled: true
+
+keda:
+  enabled: false
+worker:
+  autoscaling:
+    enabled: false
+executor:
+  autoscaling:
+    enabled: false
+agentExecutor:
+  autoscaling:
+    enabled: false
+```
+
+Enable only Temporal KEDA autoscaling:
+
+```yaml
+keda:
+  enabled: true
+
+worker:
+  autoscaling:
+    enabled: true
+executor:
+  autoscaling:
+    enabled: true
+agentExecutor:
+  autoscaling:
+    enabled: true
+
+api:
+  autoscaling:
+    enabled: false
+ui:
+  autoscaling:
+    enabled: false
+metricsServer:
+  enabled: false
+```
+
+Enable both HPA + KEDA:
+
+```yaml
+metricsServer:
+  enabled: true # Optional when metrics-server already exists in-cluster.
+
+api:
+  autoscaling:
+    enabled: true
+ui:
+  autoscaling:
+    enabled: true
+
+keda:
+  enabled: true
+worker:
+  autoscaling:
+    enabled: true
+executor:
+  autoscaling:
+    enabled: true
+agentExecutor:
+  autoscaling:
+    enabled: true
+```
+
+### API/UI autoscaling (HPA)
+
+Tracecat supports `autoscaling/v2` HPAs for API and UI:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `api.autoscaling.enabled` | `false` | Enable API HPA |
+| `api.autoscaling.minReplicas` | `2` | API minimum replicas (enforced `>=2`) |
+| `api.autoscaling.maxReplicas` | `10` | API maximum replicas |
+| `api.autoscaling.targetCPUUtilizationPercentage` | `70` | API CPU target |
+| `api.autoscaling.targetMemoryUtilizationPercentage` | `80` | API memory target |
+| `ui.autoscaling.enabled` | `false` | Enable UI HPA |
+| `ui.autoscaling.minReplicas` | `2` | UI minimum replicas |
+| `ui.autoscaling.maxReplicas` | `6` | UI maximum replicas |
+| `ui.autoscaling.targetCPUUtilizationPercentage` | `70` | UI CPU target |
+| `ui.autoscaling.targetMemoryUtilizationPercentage` | `80` | UI memory target |
+
+When HPA is enabled, a metrics provider is required (`metrics.k8s.io` APIService). The chart does not perform cluster-time API discovery checks during render, so shared-cluster installs with externally managed metrics providers are supported.
+
+### Bundled metrics-server (optional)
+
+For one-command installs on dedicated clusters, you can enable the bundled `metrics-server` dependency:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `metricsServer.enabled` | `false` | Install metrics-server as a chart dependency |
+| `metricsServer.replicas` | `2` | Metrics-server replica count |
+| `metricsServer.podDisruptionBudget.enabled` | `true` | Enable metrics-server PDB |
+| `metricsServer.resources.requests.cpu` | `100m` | Metrics-server CPU request |
+| `metricsServer.resources.requests.memory` | `200Mi` | Metrics-server memory request |
+| `metricsServer.args` | `[]` | Optional extra args (for example `--kubelet-insecure-tls`) |
+
+For shared clusters where platform teams already manage metrics-server, keep `metricsServer.enabled=false` and only enable HPAs.
+
+For EKS Terraform deployment (`deployments/eks`), API and UI HPAs are always enabled by module defaults; tune `*_autoscaling_*` min/max/target variables to adjust behavior.
+
+### Temporal autoscaling (KEDA)
+
+Temporal queue autoscaling is available for:
+
+- `worker`
+- `executor`
+- `agentExecutor`
+
+For self-hosted Temporal (`temporal.enabled=true`), component autoscaling works without a Temporal auth source. The chart renders valid `ScaledObject`s without `TriggerAuthentication`/`authenticationRef`.
+
+For external/cloud Temporal auth configuration, see [Temporal configuration](#temporal-configuration).
+
+For `executor` and `agentExecutor`, autoscaling also includes CPU and memory resource triggers (via KEDA-generated HPA metrics), similar to API/UI resource-based autoscaling.
+
+Validation enforces:
+
+- `keda.enabled=true` when `worker`/`executor`/`agentExecutor` autoscaling is enabled
+- `maxReplicas >= minReplicas` for `worker`, `executor`, and `agentExecutor`
+- `executor` and `agentExecutor` autoscaling requires at least one resource metric target (CPU and/or memory utilization)
+
+For EKS Terraform deployments (`deployments/eks`), Temporal autoscaling toggles are required and are always set to `true` by the module.
+
+#### KEDA metrics and Prometheus
+
+When KEDA is enabled, Prometheus metrics for the KEDA operator and metrics-apiserver are exposed by default:
+
+- `keda.prometheus.operator.enabled=true`
+- `keda.prometheus.metricServer.enabled=true`
+
+The default metrics collection path uses annotation-based scraping with Grafana Alloy
+(for example Grafana `k8s-monitoring` `annotationAutodiscovery`) and does not
+require Prometheus Operator resources.
+
+Warning:
+
+- The KEDA chart only adds `prometheus.io/*` annotations on KEDA Services when
+  `serviceMonitor.enabled=false` and `podMonitor.enabled=false` for the same
+  component.
+- If you enable `keda.prometheus.operator.serviceMonitor` or
+  `keda.prometheus.operator.podMonitor`, annotation-based scraping for
+  `keda-operator` will no longer be emitted by the chart.
+- If you enable `keda.prometheus.metricServer.serviceMonitor` or
+  `keda.prometheus.metricServer.podMonitor`, annotation-based scraping for
+  `keda-operator-metrics-apiserver` will no longer be emitted by the chart.
+- If you turn those on, make sure you also collect via Prometheus Operator
+  objects or another explicit scrape configuration.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `keda.enabled` | `false` | Install KEDA as a chart dependency |
+| `keda.crds.install` | `true` | Install KEDA CRDs with the KEDA chart |
+| `keda.certificates.certManager.enabled` | `false` | Use cert-manager for KEDA TLS certs |
+| `keda.prometheus.operator.enabled` | `true` | Expose KEDA operator Prometheus metrics |
+| `keda.prometheus.metricServer.enabled` | `true` | Expose KEDA metrics-apiserver Prometheus metrics |
+| `worker.autoscaling.enabled` | `false` | Enable KEDA Temporal queue autoscaling for worker |
+| `worker.autoscaling.minReplicas` | `1` | Worker min replicas |
+| `worker.autoscaling.maxReplicas` | `8` | Worker max replicas |
+| `worker.autoscaling.pollingInterval` | `10` | Worker scaler poll interval (seconds) |
+| `worker.autoscaling.cooldownPeriod` | `120` | Worker scaler cooldown (seconds) |
+| `worker.autoscaling.targetQueueSize` | `5` | Worker target Temporal queue size |
+| `worker.autoscaling.activationTargetQueueSize` | `0` | Worker activation threshold |
+| `worker.autoscaling.queueTypes` | `workflow,activity` | Worker queue types passed to Temporal scaler |
+| `executor.autoscaling.enabled` | `false` | Enable KEDA Temporal queue autoscaling for executor |
+| `executor.autoscaling.minReplicas` | `1` | Executor min replicas |
+| `executor.autoscaling.maxReplicas` | `8` | Executor max replicas |
+| `executor.autoscaling.pollingInterval` | `10` | Executor scaler poll interval (seconds) |
+| `executor.autoscaling.cooldownPeriod` | `120` | Executor scaler cooldown (seconds) |
+| `executor.autoscaling.targetQueueSize` | `5` | Executor target Temporal queue size |
+| `executor.autoscaling.activationTargetQueueSize` | `0` | Executor activation threshold |
+| `executor.autoscaling.queueTypes` | `workflow,activity` | Executor queue types passed to Temporal scaler |
+| `executor.autoscaling.targetCPUUtilizationPercentage` | `70` | Executor CPU utilization target (resource metric) |
+| `executor.autoscaling.targetMemoryUtilizationPercentage` | `80` | Executor memory utilization target (resource metric) |
+| `agentExecutor.autoscaling.enabled` | `false` | Enable KEDA Temporal queue autoscaling for agent-executor |
+| `agentExecutor.autoscaling.minReplicas` | `1` | Agent executor min replicas |
+| `agentExecutor.autoscaling.maxReplicas` | `8` | Agent executor max replicas |
+| `agentExecutor.autoscaling.pollingInterval` | `10` | Agent executor scaler poll interval (seconds) |
+| `agentExecutor.autoscaling.cooldownPeriod` | `120` | Agent executor scaler cooldown (seconds) |
+| `agentExecutor.autoscaling.targetQueueSize` | `5` | Agent executor target Temporal queue size |
+| `agentExecutor.autoscaling.activationTargetQueueSize` | `0` | Agent executor activation threshold |
+| `agentExecutor.autoscaling.queueTypes` | `workflow,activity` | Agent executor queue types passed to Temporal scaler |
+| `agentExecutor.autoscaling.targetCPUUtilizationPercentage` | `70` | Agent executor CPU utilization target (resource metric) |
+| `agentExecutor.autoscaling.targetMemoryUtilizationPercentage` | `80` | Agent executor memory utilization target (resource metric) |
+| `externalTemporal.auth.kedaAwsSecretManager.region` | `""` | AWS region for KEDA `awsSecretManager` auth |
+| `externalTemporal.auth.kedaAwsSecretManager.secretKey` | `""` | JSON key in the AWS secret (`secretString`) |
+| `externalTemporal.auth.kedaAwsSecretManager.version` | `""` | AWS Secrets Manager version stage (for example `AWSCURRENT`) |
 
 ### Sandbox (nsjail)
 
@@ -389,9 +638,55 @@ PostgreSQL requirements for self-hosted Temporal:
 
 See `deployments/eks/modules/eks/helm.tf` for a production example.
 
-For Temporal chart `1.0.0-rc.1`, archival is rendered from `server.archival` and `server.namespaceDefaults` in `temporal/templates/server-configmap.yaml` (the bundled `values/values.archival.s3.yaml` still matches those active keys).
-
 The chart runs a Helm hook job after install/upgrade to reconcile the `default` namespace settings (retention + archival when configured) and the search attributes in `tracecat.temporal.searchAttributes`.
+
+#### Archival (S3)
+
+Temporal archival persists completed workflow history and visibility records to S3 for long-term retention beyond the database retention period. Two layers of configuration are required:
+
+1. **Server-level**: Enables the archival capability and registers the S3 provider.
+2. **Namespace-level**: Enables archival on the `default` namespace with S3 URIs.
+
+The setup job automatically reconciles namespace archival settings on each Helm upgrade. Archival URIs are immutable once set on a namespace — the job only sets them on the first transition from `disabled` to `enabled`.
+
+```yaml
+temporal:
+  server:
+    archival:
+      history:
+        state: "enabled"
+        enableRead: true
+        provider:
+          s3store:
+            region: "us-west-2"
+      visibility:
+        state: "enabled"
+        enableRead: true
+        provider:
+          s3store:
+            region: "us-west-2"
+    namespaceDefaults:
+      archival:
+        history:
+          state: "enabled"
+          URI: "s3://your-bucket/temporal-history"
+        visibility:
+          state: "enabled"
+          URI: "s3://your-bucket/temporal-visibility"
+```
+
+The Temporal server pods need S3 write access. For EKS with IRSA, configure the temporal subchart's service account:
+
+```yaml
+temporal:
+  serviceAccount:
+    create: true
+    name: tracecat-temporal
+    extraAnnotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::123456789:role/your-temporal-s3-role
+```
+
+For the EKS Terraform module, archival is enabled automatically when `temporal_mode = "self-hosted"`. See `deployments/eks/modules/eks/helm.tf` for the production configuration.
 
 #### External
 
@@ -405,6 +700,11 @@ Set `temporal.enabled=false` and configure `externalTemporal`:
 | `externalTemporal.clusterQueue` | Temporal task queue for Tracecat workers |
 | `externalTemporal.auth.existingSecret` | K8s secret with `apiKey` key |
 | `externalTemporal.auth.secretArn` | AWS Secrets Manager ARN with API key |
+| `externalTemporal.auth.kedaAwsSecretManager.region` | Optional AWS region for KEDA `awsSecretManager` auth |
+| `externalTemporal.auth.kedaAwsSecretManager.secretKey` | Optional JSON key in AWS secret |
+| `externalTemporal.auth.kedaAwsSecretManager.version` | Optional AWS secret version stage |
+
+When `externalTemporal.enabled=true` and worker/executor/agentExecutor autoscaling is enabled, set Temporal auth via `externalTemporal.auth.existingSecret` (or `externalSecrets.temporal`) or `externalTemporal.auth.secretArn`.
 
 When using an external cluster, you must create the namespace and search attributes yourself.
 

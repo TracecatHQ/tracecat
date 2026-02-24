@@ -419,6 +419,35 @@ Temporal Queue
 {{- end }}
 
 {{/*
+Returns true when temporal autoscaling is enabled for at least one workload.
+*/}}
+{{- define "tracecat.temporalAutoscalingEnabled" -}}
+{{- $workerAutoscaling := default (dict) .Values.worker.autoscaling -}}
+{{- $executorAutoscaling := default (dict) .Values.executor.autoscaling -}}
+{{- $agentExecutorAutoscaling := default (dict) .Values.agentExecutor.autoscaling -}}
+{{- if or (default false $workerAutoscaling.enabled) (default false $executorAutoscaling.enabled) (default false $agentExecutorAutoscaling.enabled) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
+Shared TriggerAuthentication name for Temporal KEDA scalers.
+*/}}
+{{- define "tracecat.temporalKedaTriggerAuthName" -}}
+{{- printf "%s-temporal-keda-auth" (include "tracecat.fullname" .) -}}
+{{- end }}
+
+{{/*
+Returns true when a Temporal auth source exists for KEDA TriggerAuthentication.
+*/}}
+{{- define "tracecat.temporalKedaHasAuthSource" -}}
+{{- $temporalSecretName := include "tracecat.secrets.temporalName" . | trim -}}
+{{- if or (ne $temporalSecretName "") .Values.externalTemporal.auth.secretArn -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
 =============================================================================
 Environment Variable Helpers
 Following the pattern from terraform-fargate locals.tf where env vars are
@@ -466,15 +495,16 @@ Temporal environment variables (shared by api, worker, executor)
 - name: TEMPORAL__CLUSTER_QUEUE
   value: {{ include "tracecat.temporalQueue" . | quote }}
 {{- if .Values.externalTemporal.enabled }}
-{{- if .Values.externalTemporal.auth.secretArn }}
-- name: TEMPORAL__API_KEY__ARN
-  value: {{ .Values.externalTemporal.auth.secretArn | quote }}
-{{- else if .Values.externalTemporal.auth.existingSecret }}
+{{- $temporalSecretName := include "tracecat.secrets.temporalName" . | trim }}
+{{- if $temporalSecretName }}
 - name: TEMPORAL__API_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.externalTemporal.auth.existingSecret }}
+      name: {{ $temporalSecretName }}
       key: apiKey
+{{- else if .Values.externalTemporal.auth.secretArn }}
+- name: TEMPORAL__API_KEY__ARN
+  value: {{ .Values.externalTemporal.auth.secretArn | quote }}
 {{- end }}
 {{- end }}
 {{- end }}
@@ -934,6 +964,71 @@ Validate infrastructure dependencies
 {{- $visibilitySql := dig "temporal" "server" "config" "persistence" "datastores" "visibility" "sql" nil $values -}}
 {{- include "tracecat.validateTemporalSqlStore" (dict "storeName" "default" "storeConfig" $defaultSql) -}}
 {{- include "tracecat.validateTemporalSqlStore" (dict "storeName" "visibility" "storeConfig" $visibilitySql) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Validate autoscaling configuration.
+*/}}
+{{- define "tracecat.validateAutoscaling" -}}
+{{- $apiAutoscaling := default (dict) .Values.api.autoscaling -}}
+{{- $uiAutoscaling := default (dict) .Values.ui.autoscaling -}}
+{{- $apiAutoscalingEnabled := default false $apiAutoscaling.enabled -}}
+{{- $uiAutoscalingEnabled := default false $uiAutoscaling.enabled -}}
+{{- if and $apiAutoscalingEnabled (lt (int (default 0 $apiAutoscaling.minReplicas)) 2) -}}
+{{- fail "api.autoscaling.minReplicas must be >= 2 to preserve mission-critical API availability" -}}
+{{- end -}}
+{{- if and $apiAutoscalingEnabled (lt (int (default 0 $apiAutoscaling.maxReplicas)) (int (default 0 $apiAutoscaling.minReplicas))) -}}
+{{- fail "api.autoscaling.maxReplicas must be >= api.autoscaling.minReplicas" -}}
+{{- end -}}
+{{- if and $uiAutoscalingEnabled (lt (int (default 0 $uiAutoscaling.maxReplicas)) (int (default 0 $uiAutoscaling.minReplicas))) -}}
+{{- fail "ui.autoscaling.maxReplicas must be >= ui.autoscaling.minReplicas" -}}
+{{- end -}}
+{{- if and $apiAutoscalingEnabled (not (or $apiAutoscaling.targetCPUUtilizationPercentage $apiAutoscaling.targetMemoryUtilizationPercentage)) -}}
+{{- fail "api.autoscaling requires at least one target metric (CPU and/or memory utilization)" -}}
+{{- end -}}
+{{- if and $uiAutoscalingEnabled (not (or $uiAutoscaling.targetCPUUtilizationPercentage $uiAutoscaling.targetMemoryUtilizationPercentage)) -}}
+{{- fail "ui.autoscaling requires at least one target metric (CPU and/or memory utilization)" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Validate Temporal KEDA autoscaling configuration.
+*/}}
+{{- define "tracecat.validateTemporalAutoscaling" -}}
+{{- $workerAutoscaling := default (dict) .Values.worker.autoscaling -}}
+{{- $executorAutoscaling := default (dict) .Values.executor.autoscaling -}}
+{{- $agentExecutorAutoscaling := default (dict) .Values.agentExecutor.autoscaling -}}
+{{- $workerAutoscalingEnabled := default false $workerAutoscaling.enabled -}}
+{{- $executorAutoscalingEnabled := default false $executorAutoscaling.enabled -}}
+{{- $agentExecutorAutoscalingEnabled := default false $agentExecutorAutoscaling.enabled -}}
+{{- $temporalAutoscalingEnabled := or $workerAutoscalingEnabled $executorAutoscalingEnabled $agentExecutorAutoscalingEnabled -}}
+{{- if and $workerAutoscalingEnabled (lt (int (default 0 $workerAutoscaling.maxReplicas)) (int (default 0 $workerAutoscaling.minReplicas))) -}}
+{{- fail "worker.autoscaling.maxReplicas must be >= worker.autoscaling.minReplicas" -}}
+{{- end -}}
+{{- if and $executorAutoscalingEnabled (lt (int (default 0 $executorAutoscaling.maxReplicas)) (int (default 0 $executorAutoscaling.minReplicas))) -}}
+{{- fail "executor.autoscaling.maxReplicas must be >= executor.autoscaling.minReplicas" -}}
+{{- end -}}
+{{- if and $agentExecutorAutoscalingEnabled (lt (int (default 0 $agentExecutorAutoscaling.maxReplicas)) (int (default 0 $agentExecutorAutoscaling.minReplicas))) -}}
+{{- fail "agentExecutor.autoscaling.maxReplicas must be >= agentExecutor.autoscaling.minReplicas" -}}
+{{- end -}}
+{{- if and $executorAutoscalingEnabled (not (or $executorAutoscaling.targetCPUUtilizationPercentage $executorAutoscaling.targetMemoryUtilizationPercentage)) -}}
+{{- fail "executor.autoscaling requires at least one target metric (CPU and/or memory utilization)" -}}
+{{- end -}}
+{{- if and $agentExecutorAutoscalingEnabled (not (or $agentExecutorAutoscaling.targetCPUUtilizationPercentage $agentExecutorAutoscaling.targetMemoryUtilizationPercentage)) -}}
+{{- fail "agentExecutor.autoscaling requires at least one target metric (CPU and/or memory utilization)" -}}
+{{- end -}}
+{{- if $temporalAutoscalingEnabled -}}
+{{- if not (or .Values.temporal.enabled .Values.externalTemporal.enabled) -}}
+{{- fail "worker/executor/agentExecutor autoscaling requires temporal.enabled=true or externalTemporal.enabled=true" -}}
+{{- end -}}
+{{- if not .Values.keda.enabled -}}
+{{- fail "worker/executor/agentExecutor autoscaling requires keda.enabled=true" -}}
+{{- end -}}
+{{- $temporalKedaHasAuthSource := eq (include "tracecat.temporalKedaHasAuthSource" . | trim) "true" -}}
+{{- if and .Values.externalTemporal.enabled (not $temporalKedaHasAuthSource) -}}
+{{- fail "worker/executor/agentExecutor autoscaling with external Temporal requires auth via externalTemporal.auth.existingSecret (or externalSecrets.temporal) or externalTemporal.auth.secretArn" -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 

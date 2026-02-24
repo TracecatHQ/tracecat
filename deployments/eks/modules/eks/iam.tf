@@ -451,6 +451,79 @@ resource "aws_iam_role_policy" "external_dns" {
   })
 }
 
+# Cluster Autoscaler IAM Role (IRSA)
+resource "aws_iam_role" "cluster_autoscaler" {
+  count = var.cluster_autoscaler_enabled ? 1 : 0
+  name  = "${var.cluster_name}-cluster-autoscaler-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Federated = aws_iam_openid_connect_provider.eks.arn
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = "system:serviceaccount:kube-system:cluster-autoscaler"
+            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" = "sts.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy" "cluster_autoscaler" {
+  count = var.cluster_autoscaler_enabled ? 1 : 0
+  name  = "${var.cluster_name}-cluster-autoscaler-policy"
+  role  = aws_iam_role.cluster_autoscaler[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "autoscaling:DescribeAutoScalingGroups",
+          "autoscaling:DescribeAutoScalingInstances",
+          "autoscaling:DescribeLaunchConfigurations",
+          "autoscaling:DescribeScalingActivities",
+          "autoscaling:DescribeTags",
+          "autoscaling:GetInstanceTypesFromInstanceRequirements",
+          "ec2:DescribeImages",
+          "ec2:DescribeInstanceTypes",
+          "ec2:DescribeLaunchTemplateVersions",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeAvailabilityZones",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeSpotPriceHistory",
+          "eks:DescribeNodegroup"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "autoscaling:SetDesiredCapacity",
+          "autoscaling:TerminateInstanceInAutoScalingGroup"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:ResourceTag/k8s.io/cluster-autoscaler/enabled"             = "true"
+            "aws:ResourceTag/k8s.io/cluster-autoscaler/${var.cluster_name}" = "owned"
+          }
+        }
+      }
+    ]
+  })
+}
+
 # S3 Access IAM Role for Tracecat (IRSA)
 resource "aws_iam_role" "tracecat_s3" {
   name = "${var.cluster_name}-tracecat-s3-role"
@@ -477,6 +550,108 @@ resource "aws_iam_role" "tracecat_s3" {
   })
 
   tags = var.tags
+}
+
+# S3 Access IAM Role for Temporal Server (IRSA) — archival to S3
+resource "aws_iam_role" "temporal_s3" {
+  count = var.temporal_mode == "self-hosted" ? 1 : 0
+  name  = "${var.cluster_name}-temporal-s3-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Federated = aws_iam_openid_connect_provider.eks.arn
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = [
+              "system:serviceaccount:${kubernetes_namespace.tracecat.metadata[0].name}:tracecat-temporal"
+            ]
+            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" = "sts.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy" "temporal_s3" {
+  count = var.temporal_mode == "self-hosted" ? 1 : 0
+  name  = "${var.cluster_name}-temporal-s3-policy"
+  role  = aws_iam_role.temporal_s3[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.temporal_archival[0].arn,
+          "${aws_s3_bucket.temporal_archival[0].arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
+# KEDA operator IAM role (IRSA) for Temporal API key fallback auth
+resource "aws_iam_role" "keda_operator_temporal_secret" {
+  count = var.temporal_mode == "cloud" && var.temporal_secret_arn != "" ? 1 : 0
+  name  = "${var.cluster_name}-keda-operator-temporal-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Federated = aws_iam_openid_connect_provider.eks.arn
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = "system:serviceaccount:${kubernetes_namespace.tracecat.metadata[0].name}:keda-operator"
+            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" = "sts.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy" "keda_operator_temporal_secret" {
+  count = var.temporal_mode == "cloud" && var.temporal_secret_arn != "" ? 1 : 0
+  name  = "${var.cluster_name}-keda-operator-temporal-policy"
+  role  = aws_iam_role.keda_operator_temporal_secret[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret"
+        ]
+        Resource = [
+          var.temporal_secret_arn
+        ]
+      }
+    ]
+  })
 }
 
 resource "aws_iam_role_policy" "tracecat_s3" {

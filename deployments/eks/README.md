@@ -27,17 +27,26 @@ Network hardening:
 
 ## Default deployment profile (~100 concurrent users)
 
-- Nodes: `10 x m7g.2xlarge` (`8` on-demand + `2` spot by default)
-- Guardrail requirement (rollout peak + reserved headroom): `46.5 vCPU`, `95.5 GiB RAM`
-- Scheduled capacity (on-demand only): `64 vCPU`, `256 GiB RAM`
-- Scheduled capacity (on-demand + spot): `80 vCPU`, `320 GiB RAM`
-- Percent headroom (on-demand only): `~27% CPU`, `~63% RAM` (`17.5 vCPU`, `160.5 GiB RAM`)
-- Estimated cost: `$4500/month`
+- Node type defaults: `c7g.2xlarge` for both on-demand and spot node groups.
+- Default node profile: on-demand `min/desired/max = 8/8/20`, spot `min/desired/max = 0/0/40`.
+- Cluster Autoscaler defaults: enabled with spot-first scaling and on-demand fallback.
+- Baseline cost behavior: runs at `8` on-demand nodes and keeps spot at `0` until burst demand arrives.
+
+Capacity summary (guardrail model):
+
+| Mode | Guardrail node basis | Required CPU | Available CPU | Required memory | Available memory |
+| --- | --- | --- | --- | --- | --- |
+| `temporal_mode=cloud` | On-demand `node_min_size` (`8`) | `52.2 vCPU` | `64 vCPU` | `90.6 GiB` | `128 GiB` |
+| `temporal_mode=self-hosted` | On-demand `node_min_size` (`8`) | `60.2 vCPU` (`52.2` Tracecat + `8.0` Temporal reservation) | `64 vCPU` | `98.6 GiB` (`90.6` Tracecat + `8.0` Temporal reservation) | `128 GiB` |
+
+Burst ceiling (autoscaler max): on-demand `20` + spot `40` = `60 x c7g.2xlarge` (`480 vCPU`, `960 GiB RAM`).
 
 Definitions used above:
 - `guardrail model`: The plan-time capacity checks in `deployments/eks/modules/eks/main.tf` that compare required capacity vs configured node capacity.
 - `rollout peak`: Replica requests with rollout surge applied (`rollout_surge_percent`, default `25`), across API/worker/executor/agentExecutor/UI.
-- `reserved headroom`: Extra fixed capacity reserved for system/auxiliary workloads (`capacity_reserved_cpu_millicores`, `capacity_reserved_memory_mib`, `capacity_reserved_pod_eni`).
+- `capacity headroom`: CPU and memory requirements are scaled by `capacity_headroom_percent` (default `20`).
+- `pod reserve`: Extra pod-eni headroom reserved for system/auxiliary workloads (`pod_eni_capacity_reserved`).
+- `Temporal guardrail reservation`: Terraform-only reservation variables used only for self-hosted Temporal capacity checks (`temporal_guardrail_cpu_millicores`, `temporal_guardrail_memory_mib`, `temporal_guardrail_pod_count`).
 
 ```bash
 # Replica counts
@@ -55,31 +64,43 @@ worker_memory_request_mib=2048
 executor_cpu_request_millicores=4000
 executor_memory_request_mib=8192
 agent_executor_cpu_request_millicores=2000
-agent_executor_memory_request_mib=8192
+agent_executor_memory_request_mib=4096
 ui_cpu_request_millicores=500
 ui_memory_request_mib=512
 
-# Node groups: 8 on-demand + 2 spot, all m7g.2xlarge
-node_instance_types='["m7g.2xlarge"]'
+# Node groups: on-demand 8/8/20, spot 0/0/40, all c7g.2xlarge
+node_instance_types='["c7g.2xlarge"]'
 node_architecture="arm64"
 node_ami_type="AL2023_ARM_64_STANDARD"
 node_min_size=8
 node_desired_size=8
-node_max_size=12
+node_max_size=20
 spot_node_group_enabled=true
-spot_node_instance_types='["m7g.2xlarge"]'
-spot_node_min_size=2
-spot_node_desired_size=2
-spot_node_max_size=4
+spot_node_instance_types='["c7g.2xlarge", "m7g.2xlarge"]'
+spot_node_min_size=0
+spot_node_desired_size=0
+spot_node_max_size=40
+cluster_autoscaler_enabled=true
+cluster_autoscaler_chart_version="9.53.0"
+metrics_server_enabled=true
+metrics_server_replicas=2
+metrics_server_kubelet_insecure_tls=false
 
-# Capacity guardrail inputs
-node_schedulable_cpu_millicores_per_node=8000
-node_schedulable_memory_mib_per_node=32768
-pod_eni_capacity_per_node=16
-rollout_surge_percent=25
-capacity_reserved_cpu_millicores=3000
-capacity_reserved_memory_mib=8192
-capacity_reserved_pod_eni=8
+# HPA defaults (balanced profile)
+# EKS Terraform always enables API/UI HPA; tune bounds/targets only.
+api_autoscaling_min_replicas=2
+api_autoscaling_max_replicas=10
+api_autoscaling_target_cpu_utilization_percentage=70
+api_autoscaling_target_memory_utilization_percentage=80
+ui_autoscaling_min_replicas=2
+ui_autoscaling_max_replicas=6
+ui_autoscaling_target_cpu_utilization_percentage=70
+ui_autoscaling_target_memory_utilization_percentage=80
+
+# Temporal guardrail reservations (capacity-model only, no pod resource enforcement)
+temporal_guardrail_cpu_millicores=8000
+temporal_guardrail_memory_mib=8192
+temporal_guardrail_pod_count=6
 
 # Persistence services and Temporal mode
 rds_instance_class="db.t4g.xlarge"
@@ -101,9 +122,35 @@ When the spot node group is enabled, Terraform injects scheduling defaults into 
 - **Preferred node affinity** for `tracecat.com/capacity=spot` (soft preference).
 - **Topology spread** across `tracecat.com/capacity` with `whenUnsatisfiable=ScheduleAnyway` to balance across on-demand and spot when both are available.
 
-You can disable spot by setting `spot_node_group_enabled=false` or change the mix by adjusting the on-demand and spot sizes.
+Cluster Autoscaler is enabled by default and discovers both managed node groups using tags. It is configured with:
 
-Terraform includes plan-time capacity guardrails that verify the desired node count can support the configured replicas and resource requests at rollout peak (with a 25% surge). If capacity is insufficient, `terraform plan` will emit a warning. See `modules/eks/main.tf` for the check blocks.
+- `expander=priority,least-waste`
+- `balance-similar-node-groups=true`
+- `skip-nodes-with-system-pods=false`
+- `max-node-provision-time=5m`
+- Priority expander rules that prefer `*-spot-node-group` first, then `*-node-group` as fallback.
+
+`desired_size` for both managed node groups is ignored in Terraform state to let Cluster Autoscaler control live desired counts without Terraform drift.
+
+You can disable spot by setting `spot_node_group_enabled=false`, disable autoscaler by setting `cluster_autoscaler_enabled=false`, or change scaling envelopes with the `*_min_size`, `*_desired_size`, and `*_max_size` variables.
+
+Terraform includes plan-time capacity guardrails that verify rollout requirements at plan time:
+
+- `temporal_mode=cloud`: guardrails use on-demand `node_min_size` and Tracecat workload requirements only.
+- `temporal_mode=self-hosted`: guardrails use on-demand `node_min_size` when autoscaler is enabled, otherwise `node_desired_size`; both include Tracecat workload requirements plus Temporal reservation variables.
+- Spot capacity is intentionally excluded from guardrail pass/fail to keep checks deterministic even when spot is unavailable.
+
+### Temporal guardrail policy (Temporal unbounded)
+
+Temporal remains unbounded in Kubernetes: Terraform does not set Temporal pod resource requests/limits in Helm values.
+
+Terraform still models Temporal capacity in self-hosted mode through reservation-only guardrail inputs:
+
+- `temporal_guardrail_cpu_millicores` (default `8000`)
+- `temporal_guardrail_memory_mib` (default `8192`)
+- `temporal_guardrail_pod_count` (default `6`)
+
+These inputs are used for capacity planning checks only and do not enforce Temporal pod resources.
 
 ### Architecture requirement
 
@@ -119,9 +166,9 @@ and use AMD64-compatible instance types for both `node_instance_types` and `spot
 ## Light deployment profile
 
 - Nodes: `3 x m7g.xlarge`
-- Guardrail requirement (rollout peak + reserved headroom): `9.75 vCPU`, `23 GiB RAM`
+- Guardrail requirement (rollout peak + `20%` headroom): `8.1 vCPU`, `18 GiB RAM`
 - Scheduled capacity (on-demand only): `12 vCPU`, `48 GiB RAM`
-- Percent headroom (on-demand only): `~19% CPU`, `~52% RAM` (`2.25 vCPU`, `25 GiB RAM`)
+- Percent headroom (on-demand only): `~48% CPU`, `~167% RAM` (`3.9 vCPU`, `30 GiB RAM`)
 - Cost estimate: `$1000/month`
 
 Set these Terraform variables:
@@ -133,6 +180,19 @@ worker_replicas=2
 executor_replicas=2
 agent_executor_replicas=1
 ui_replicas=1
+
+# Metrics + HPA tuning for light profile
+# EKS Terraform always enables API/UI HPA; tune bounds/targets only.
+metrics_server_enabled=true
+metrics_server_replicas=2
+api_autoscaling_min_replicas=2
+api_autoscaling_max_replicas=4
+api_autoscaling_target_cpu_utilization_percentage=70
+api_autoscaling_target_memory_utilization_percentage=80
+ui_autoscaling_min_replicas=1
+ui_autoscaling_max_replicas=2
+ui_autoscaling_target_cpu_utilization_percentage=70
+ui_autoscaling_target_memory_utilization_percentage=80
 
 # Resource requests (requests == limits)
 api_cpu_request_millicores=500
@@ -154,12 +214,6 @@ node_min_size=3
 node_desired_size=3
 node_max_size=4
 spot_node_group_enabled=false
-
-# Capacity guardrail inputs
-node_schedulable_cpu_millicores_per_node=4000
-node_schedulable_memory_mib_per_node=16384
-capacity_reserved_cpu_millicores=3000
-capacity_reserved_memory_mib=8192
 
 # Persistence services
 rds_instance_class="db.m7g.large"
@@ -265,6 +319,89 @@ terraform apply \
 terraform apply
 ```
 
+### Metrics and autoscaling validation
+
+After deploy, validate cluster metrics and autoscaling:
+
+```bash
+kubectl get apiservice v1beta1.metrics.k8s.io
+kubectl top nodes
+kubectl top pods -n tracecat
+kubectl get hpa -n tracecat
+kubectl describe hpa -n tracecat "$(kubectl get hpa -n tracecat -o name | sed -n '1p' | cut -d/ -f2)"
+kubectl get triggerauthentication.keda.sh -n tracecat
+kubectl get scaledobject.keda.sh -n tracecat
+kubectl get svc -n tracecat keda-operator keda-operator-metrics-apiserver -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.prometheus\.io/scrape}{"\t"}{.metadata.annotations.prometheus\.io/port}{"\n"}{end}'
+```
+
+Expected outcomes:
+
+- `v1beta1.metrics.k8s.io` is `Available=True`.
+- `api` and `ui` HPAs are present (enabled by EKS module defaults).
+- API HPA minimum replicas is `2` or greater.
+- KEDA `ScaledObject`s are present for `worker`, `executor`, and `agent-executor` in both `temporal_mode=self-hosted` and `temporal_mode=cloud`.
+- In `temporal_mode=self-hosted` with no Temporal auth source, no KEDA `TriggerAuthentication` is rendered and `ScaledObject`s omit `authenticationRef`.
+- In `temporal_mode=cloud`, Temporal auth is required for autoscaling and KEDA `TriggerAuthentication` is rendered from the configured auth source.
+- Executor and agent-executor KEDA HPAs include resource metrics (CPU and memory utilization) in addition to Temporal queue metrics.
+- KEDA services (`keda-operator`, `keda-operator-metrics-apiserver`) have Prometheus scrape annotations so observability annotation autodiscovery can collect KEDA metrics.
+
+Note: these settings are EKS/Kubernetes-specific. The Terraform Fargate deployment in `deployments/fargate/` remains unchanged.
+
+## Scale staging to zero
+
+Use a temporary override file for staging so you can scale down and restore with predictable values.
+
+Important behavior:
+- This scales worker-node compute to zero by setting both node groups to `min=0` and `desired=0`.
+- RDS, ElastiCache, NAT, ALB, and the EKS control plane still incur cost.
+- With zero nodes, Cluster Autoscaler is not running, so scale-up must be done via Terraform.
+
+### 1. Create a scale-to-zero override file
+
+```bash
+cat > scale-to-zero.tfvars <<'EOF'
+# App workloads
+api_replicas=0
+worker_replicas=0
+executor_replicas=0
+agent_executor_replicas=0
+ui_replicas=0
+
+# On-demand node group
+node_min_size=0
+node_desired_size=0
+
+# Spot node group
+spot_node_min_size=0
+spot_node_desired_size=0
+
+# Guardrail inputs (required for plan-time checks when node count is 0)
+pod_eni_capacity_reserved=0
+temporal_guardrail_cpu_millicores=0
+temporal_guardrail_memory_mib=0
+temporal_guardrail_pod_count=0
+EOF
+```
+
+### 2. Apply the scale-down
+
+```bash
+terraform plan -var-file=terraform.tfvars -var-file=scale-to-zero.tfvars
+terraform apply -var-file=terraform.tfvars -var-file=scale-to-zero.tfvars
+```
+
+### 3. Restore staging capacity
+
+Delete the override and apply the normal staging config:
+
+```bash
+rm -f scale-to-zero.tfvars
+terraform plan -var-file=terraform.tfvars
+terraform apply -var-file=terraform.tfvars
+```
+
+If you prefer to keep the file for reuse, keep it on disk and simply omit it from `plan/apply` when scaling back up.
+
 ## Outbound allowlisting (Elastic, etc.)
 
 If a third-party service needs Tracecat egress IPs (for example, Elastic IP allowlists), use the NAT Gateway EIPs:
@@ -343,6 +480,8 @@ export TF_VAR_elasticache_node_type="cache.r7g.xlarge"
 To connect to an external Temporal cluster (cloud or self-hosted), set `temporal_mode` to `cloud`.
 Then configure the Temporal cluster URL, namespace, and API key (if required).
 
+The EKS module always enables KEDA autoscaling for `worker`, `executor`, and `agent-executor` (`keda.enabled=true` and component autoscaling toggles enabled). In `temporal_mode=self-hosted`, Temporal autoscaling works without API-key auth. In `temporal_mode=cloud`, Temporal auth remains required; the chart prefers ESO/Kubernetes secret auth and keeps an IRSA-backed AWS Secrets Manager fallback path for KEDA TriggerAuthentication.
+
 Create an API key (if required) and store it in AWS Secrets Manager.
 ```bash
 aws secretsmanager create-secret --name tracecat/temporal-api-key --secret-string "your-temporal-api-key"
@@ -362,11 +501,61 @@ export TF_VAR_temporal_secret_arn="arn:aws:secretsmanager:us-east-1:123456789012
 The stack includes an optional observability pipeline that deploys:
 
 1. **Grafana K8s Monitoring Helm chart** (Alloy-based) for in-cluster metrics and logs
-2. **CloudWatch Metric Streams + Kinesis Firehose** for AWS service metrics (RDS, ElastiCache, ALB, WAF, S3)
+2. **CloudWatch Metric Streams + Kinesis Firehose** for AWS service and capacity metrics (Auto Scaling, EC2, EKS, RDS, ElastiCache, ALB, WAF, S3)
 3. **ESO ExternalSecret** for syncing Grafana Cloud credentials into the cluster
 4. **IAM roles** with confused-deputy protections for CloudWatch and Firehose
 
 All observability resources are gated by `enable_observability` (default `false`).
+
+When observability and KEDA are both enabled (module defaults for KEDA), KEDA operator and metrics-apiserver Prometheus metrics are collected automatically through annotation autodiscovery.
+
+Warning:
+
+- This module expects KEDA service annotation scraping (via Grafana
+  `annotationAutodiscovery`) as the default KEDA metrics collection path.
+- If you override Helm values to enable KEDA `ServiceMonitor`/`PodMonitor`
+  resources (`keda.prometheus.operator.*` or `keda.prometheus.metricServer.*`),
+  KEDA service `prometheus.io/*` annotations are no longer emitted for those
+  components.
+- If you enable those CRD-based monitors, configure a matching scrape path
+  (for example Prometheus Operator object scraping) so KEDA metrics are still
+  collected.
+
+### Node group and capacity visibility setup
+
+To track instance utilization and capacity behavior over time (including spot capacity), the observability setup combines:
+
+1. **In-cluster metrics** from `node-exporter`, `kubelet`, `cadvisor`, and `kube-state-metrics` for per-node CPU/memory utilization and pod scheduling pressure.
+   - kube-state-metrics node label allowlist includes node group, instance-type, and capacity-type labels so you can segment spot vs on-demand utilization in Prometheus/Grafana.
+2. **CloudWatch infrastructure metrics** streamed to Grafana Cloud for:
+   - `AWS/AutoScaling` (ASG/node-group desired, in-service, pending, terminating capacity)
+   - `AWS/EC2` (instance-level compute and status metrics)
+   - `AWS/EKS` (control plane and cluster service metrics)
+3. Existing service namespaces (`AWS/RDS`, `AWS/ElastiCache`, `AWS/ApplicationELB`, `AWS/WAFV2`, `AWS/S3`) so app and infra metrics remain in one pipeline.
+
+Terraform enables Auto Scaling group metrics collection at 1-minute granularity for both EKS managed node-group backing ASGs (on-demand and spot when enabled). This is required for `AWS/AutoScaling` metrics to be emitted and streamed.
+
+`AWS/EC2` and `AWS/EKS` metrics do not require extra per-resource Terraform toggles for baseline CloudWatch emission. The stream filters collect them as soon as they are available in CloudWatch.
+
+This lets you analyze:
+- on-demand vs spot utilization over time using node labels in Kubernetes metrics
+- node group scaling dynamics from Auto Scaling metrics
+- cluster health alongside workload utilization in a single Grafana workspace
+
+Requirements for `terraform apply` when observability is enabled:
+- Terraform runner has `aws` CLI installed (used to enable ASG metrics on EKS-managed backing ASGs).
+- Caller credentials include `autoscaling:EnableMetricsCollection` on the node-group backing ASGs.
+
+Why this uses Terraform `local-exec` instead of Helm:
+- This setting is an AWS Auto Scaling API setting, not a Kubernetes/Helm setting.
+- We manage node capacity with `aws_eks_node_group`, and EKS creates/owns the backing ASGs.
+- Terraform can set ASG metrics declaratively only on `aws_autoscaling_group` resources it manages directly.
+- For EKS-managed backing ASGs, enabling metrics requires calling `EnableMetricsCollection` after node groups exist.
+
+Implementation options for EKS managed node groups:
+1. Terraform `local-exec` API call (current setup): simple and keeps behavior in infra code.
+2. EventBridge + Lambda reconciler: automatically re-enables metrics if EKS rotates/replaces backing ASGs.
+3. Manual CLI/console enablement: possible, but not recommended because it is not IaC-managed.
 
 ### 1. Create a Grafana Cloud credentials secret
 
