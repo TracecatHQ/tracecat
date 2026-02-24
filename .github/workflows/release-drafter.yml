@@ -1,15 +1,16 @@
 name: Update draft release
 
 on:
-  push:
+  pull_request_target:
     branches:
       - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - labeled
+      - unlabeled
   workflow_dispatch:
-    inputs:
-      # Latest commit to include with the release. If omitted, use the latest commit on the main branch.
-      sha:
-        description: Commit SHA
-        type: string
 
 permissions:
   contents: write
@@ -19,18 +20,7 @@ jobs:
   main:
     runs-on: blacksmith-4vcpu-ubuntu-2204
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.sha || github.sha }}
-      - name: Extract version from __init__.py
-        id: version
-        run: |
-          VERSION=$(grep -oP '__version__ = "\K[^"]+' tracecat/__init__.py)
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Draft release
         uses: release-drafter/release-drafter@v6
-        with:
-          commitish: ${{ inputs.sha || github.sha }}
-          version: ${{ steps.version.outputs.version }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
