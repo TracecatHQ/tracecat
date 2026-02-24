@@ -188,7 +188,6 @@ resource "kubernetes_job_v1" "create_temporal_databases" {
   depends_on = [
     aws_db_instance.tracecat,
     kubernetes_manifest.tracecat_postgres_sg_policy,
-    kubernetes_manifest.postgres_credentials_external_secret,
     kubernetes_namespace.tracecat
   ]
 }

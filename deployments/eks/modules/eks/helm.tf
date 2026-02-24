@@ -174,11 +174,15 @@ resource "helm_release" "tracecat" {
     value = var.tracecat_secrets_arn
   }
 
-  # PostgreSQL credentials via ESO are managed by Terraform (kubernetes_manifest.postgres_credentials_external_secret)
-  # so migration hooks do not race Helm-created ExternalSecrets.
+  # PostgreSQL credentials via ESO — managed by Helm chart with deletionPolicy: Retain
   set {
     name  = "externalSecrets.postgres.enabled"
-    value = "false"
+    value = "true"
+  }
+
+  set {
+    name  = "externalSecrets.postgres.secretArn"
+    value = local.rds_master_secret_arn
   }
 
   # Redis URL via ESO
@@ -428,6 +432,14 @@ resource "helm_release" "tracecat" {
   set {
     name  = "temporal.server.podLabels.tracecat\\.com/access-postgres"
     value = "true"
+    type  = "string"
+  }
+
+  # Schema setup job needs RDS access via SecurityGroupPolicy
+  set {
+    name  = "temporal.schema.podLabels.tracecat\\.com/access-postgres"
+    value = "true"
+    type  = "string"
   }
 
   # Mount the RDS CA certificate into Temporal server pods for TLS verification
@@ -741,7 +753,6 @@ resource "helm_release" "tracecat" {
     aws_eks_node_group.tracecat_spot,
     helm_release.aws_load_balancer_controller,
     kubernetes_manifest.external_secrets_cluster_store,
-    kubernetes_manifest.postgres_credentials_external_secret,
     aws_secretsmanager_secret_version.redis_url,
     kubernetes_job_v1.create_temporal_databases
   ]

@@ -90,6 +90,26 @@ spec:
                 CURRENT_VISIBILITY_ARCHIVAL_STATE="$(printf '%s\n' "$NAMESPACE_DESC" | awk '$1=="Config.VisibilityArchivalState"{print tolower($2); exit}')"
               }
 
+              run_namespace_update() {
+                if UPDATE_OUTPUT="$(temporal operator namespace update "$@" 2>&1)"; then
+                  [ -n "$UPDATE_OUTPUT" ] && echo "$UPDATE_OUTPUT"
+                  return 0
+                fi
+
+                echo "Namespace update command failed"
+                echo "$UPDATE_OUTPUT"
+                echo "Desired archival settings:"
+                echo "  history: state=${HISTORY_ARCHIVAL_STATE:-<empty>} uri=${HISTORY_ARCHIVAL_URI:-<empty>}"
+                echo "  visibility: state=${VISIBILITY_ARCHIVAL_STATE:-<empty>} uri=${VISIBILITY_ARCHIVAL_URI:-<empty>}"
+                echo "Current archival states:"
+                echo "  history: state=${CURRENT_HISTORY_ARCHIVAL_STATE:-<unknown>}"
+                echo "  visibility: state=${CURRENT_VISIBILITY_ARCHIVAL_STATE:-<unknown>}"
+                echo "Current namespace description:"
+                temporal operator namespace describe "$NAMESPACE" || true
+                echo "Hint: ensure Temporal cluster archival provider config matches namespace URI schemes (for example, s3:// requires s3 archiver support)."
+                return 1
+              }
+
               reconcile_existing_namespace() {
                 set -- --namespace "$NAMESPACE"
 
@@ -116,7 +136,7 @@ spec:
                   return 0
                 fi
 
-                temporal operator namespace update "$@"
+                run_namespace_update "$@"
               }
 
               HISTORY_ARCHIVAL_STATE="$(normalize_state "$HISTORY_ARCHIVAL_STATE")"
@@ -141,12 +161,14 @@ spec:
                 echo "Namespace reconciled"
               else
                 echo "Creating namespace '$NAMESPACE'..."
-                if create_namespace; then
+                if CREATE_OUTPUT="$(create_namespace 2>&1)"; then
+                  [ -n "$CREATE_OUTPUT" ] && echo "$CREATE_OUTPUT"
                   echo "Namespace created"
                 else
                   # Handle race conditions where another setup job creates the namespace
                   # between the initial describe and this create call.
                   echo "Namespace create failed, checking if it now exists..."
+                  echo "$CREATE_OUTPUT"
                   if NAMESPACE_DESC="$(temporal operator namespace describe "$NAMESPACE" 2>/dev/null)"; then
                     echo "Namespace '$NAMESPACE' already exists, reconciling settings..."
                     load_current_namespace_settings
@@ -166,11 +188,13 @@ spec:
                 echo "Search attribute '{{ $name }}' already exists"
               else
                 echo "Adding search attribute '{{ $name }}' ({{ $type }})..."
-                if temporal operator search-attribute create --namespace "$NAMESPACE" --name {{ $name }} --type {{ $type }}; then
+                if CREATE_ATTR_OUTPUT="$(temporal operator search-attribute create --namespace "$NAMESPACE" --name {{ $name }} --type {{ $type }} 2>&1)"; then
+                  [ -n "$CREATE_ATTR_OUTPUT" ] && echo "$CREATE_ATTR_OUTPUT"
                   echo "Search attribute '{{ $name }}' created"
                 else
                   # Handle race conditions where another process creates the attribute first.
                   echo "Create failed for '{{ $name }}', checking if it now exists..."
+                  echo "$CREATE_ATTR_OUTPUT"
                   if temporal operator search-attribute list --namespace "$NAMESPACE" 2>/dev/null | grep -q "{{ $name }}"; then
                     echo "Search attribute '{{ $name }}' already exists"
                   else
