@@ -8464,6 +8464,28 @@ export const $GetWorkflowDefinitionActivityInputs = {
   title: "GetWorkflowDefinitionActivityInputs",
 } as const
 
+export const $GitBranchInfo = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Name",
+      description: "Branch name",
+    },
+    is_default: {
+      type: "boolean",
+      title: "Is Default",
+      description: "Whether this branch is the repository default branch",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "GitBranchInfo",
+  description: "Git branch information for repository management.",
+} as const
+
 export const $GitCommitInfo = {
   properties: {
     sha: {
@@ -20023,9 +20045,99 @@ export const $WorkflowDslPublish = {
       ],
       title: "Message",
     },
+    branch: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Branch",
+    },
+    create_pr: {
+      type: "boolean",
+      title: "Create Pr",
+      default: false,
+    },
+    pr_base_branch: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Base Branch",
+    },
   },
   type: "object",
   title: "WorkflowDslPublish",
+} as const
+
+export const $WorkflowDslPublishResult = {
+  properties: {
+    status: {
+      type: "string",
+      enum: ["committed", "no_op"],
+      title: "Status",
+    },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+    },
+    branch: {
+      type: "string",
+      title: "Branch",
+    },
+    base_branch: {
+      type: "string",
+      title: "Base Branch",
+    },
+    pr_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Url",
+    },
+    pr_number: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Number",
+    },
+    pr_reused: {
+      type: "boolean",
+      title: "Pr Reused",
+      default: false,
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: ["status", "branch", "base_branch", "message"],
+  title: "WorkflowDslPublishResult",
 } as const
 
 export const $WorkflowEntrypointValidationRequest = {
@@ -21319,6 +21431,17 @@ export const $WorkflowRead = {
         },
       ],
       title: "Alias",
+    },
+    git_sync_branch: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Git Sync Branch",
     },
     error_handler: {
       anyOf: [

@@ -853,6 +853,11 @@ class Workflow(WorkspaceModel):
     alias: Mapped[str | None] = mapped_column(
         String, nullable=True, index=True, doc="Alias for the workflow"
     )
+    git_sync_branch: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        doc="Shared preferred branch for workflow publish operations",
+    )
     error_handler: Mapped[str | None] = mapped_column(
         String,
         nullable=True,

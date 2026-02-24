@@ -624,6 +624,8 @@ import type {
   WorkflowsGetWorkflowResponse,
   WorkflowsListTagsData,
   WorkflowsListTagsResponse,
+  WorkflowsListWorkflowBranchesData,
+  WorkflowsListWorkflowBranchesResponse,
   WorkflowsListWorkflowCommitsData,
   WorkflowsListWorkflowCommitsResponse,
   WorkflowsListWorkflowDefinitionsData,
@@ -2432,7 +2434,7 @@ export const workflowsRemoveTag = (
  * @param data.workflowId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns void Successful Response
+ * @returns WorkflowDslPublishResult Successful Response
  * @throws ApiError
  */
 export const workflowsPublishWorkflow = (
@@ -2476,6 +2478,31 @@ export const workflowsListWorkflowCommits = (
     url: "/workflows/sync/commits",
     query: {
       branch: data.branch,
+      limit: data.limit,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Workflow Branches
+ * Get branch list for workflow repository via GitHub App.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit Maximum number of branches to return
+ * @returns GitBranchInfo Successful Response
+ * @throws ApiError
+ */
+export const workflowsListWorkflowBranches = (
+  data: WorkflowsListWorkflowBranchesData
+): CancelablePromise<WorkflowsListWorkflowBranchesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workflows/sync/branches",
+    query: {
       limit: data.limit,
       workspace_id: data.workspaceId,
     },

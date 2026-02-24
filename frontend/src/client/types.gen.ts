@@ -2592,6 +2592,20 @@ export type GetWorkflowDefinitionActivityInputs = {
 }
 
 /**
+ * Git branch information for repository management.
+ */
+export type GitBranchInfo = {
+  /**
+   * Branch name
+   */
+  name: string
+  /**
+   * Whether this branch is the repository default branch
+   */
+  is_default?: boolean
+}
+
+/**
  * Git commit information for repository management.
  */
 export type GitCommitInfo = {
@@ -6218,7 +6232,23 @@ export type WorkflowDirectoryItem = {
 
 export type WorkflowDslPublish = {
   message?: string | null
+  branch?: string | null
+  create_pr?: boolean
+  pr_base_branch?: string | null
 }
+
+export type WorkflowDslPublishResult = {
+  status: "committed" | "no_op"
+  commit_sha?: string | null
+  branch: string
+  base_branch: string
+  pr_url?: string | null
+  pr_number?: number | null
+  pr_reused?: boolean
+  message: string
+}
+
+export type status4 = "committed" | "no_op"
 
 export type WorkflowEntrypointValidationRequest = {
   expects?: {
@@ -6513,7 +6543,7 @@ export type WorkflowExecutionRead = {
   interactions?: Array<InteractionRead>
 }
 
-export type status4 =
+export type status5 =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"
@@ -6679,6 +6709,7 @@ export type WorkflowRead = {
   returns: unknown
   config: DSLConfig_Output | null
   alias?: string | null
+  git_sync_branch?: string | null
   error_handler?: string | null
   trigger_position_x?: number
   trigger_position_y?: number
@@ -7495,7 +7526,7 @@ export type WorkflowsPublishWorkflowData = {
   workspaceId: string
 }
 
-export type WorkflowsPublishWorkflowResponse = void
+export type WorkflowsPublishWorkflowResponse = WorkflowDslPublishResult
 
 export type WorkflowsListWorkflowCommitsData = {
   /**
@@ -7510,6 +7541,16 @@ export type WorkflowsListWorkflowCommitsData = {
 }
 
 export type WorkflowsListWorkflowCommitsResponse = Array<GitCommitInfo>
+
+export type WorkflowsListWorkflowBranchesData = {
+  /**
+   * Maximum number of branches to return
+   */
+  limit?: number
+  workspaceId: string
+}
+
+export type WorkflowsListWorkflowBranchesResponse = Array<GitBranchInfo>
 
 export type WorkflowsPullWorkflowsData = {
   requestBody: WorkflowSyncPullRequest
@@ -10500,7 +10541,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: WorkflowDslPublishResult
         /**
          * Validation Error
          */
@@ -10516,6 +10557,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<GitCommitInfo>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/sync/branches": {
+    get: {
+      req: WorkflowsListWorkflowBranchesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<GitBranchInfo>
         /**
          * Validation Error
          */

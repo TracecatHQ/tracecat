@@ -323,6 +323,7 @@ async def get_workflow(
         webhook=WebhookRead.model_validate(workflow.webhook, from_attributes=True),
         schedules=ScheduleRead.list_adapter().validate_python(workflow.schedules),
         alias=workflow.alias,
+        git_sync_branch=workflow.git_sync_branch,
         error_handler=workflow.error_handler,
         trigger_position_x=workflow.trigger_position_x,
         trigger_position_y=workflow.trigger_position_y,

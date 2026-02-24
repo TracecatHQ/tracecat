@@ -199,10 +199,22 @@ def configure_ldap_secrets(live_ldap_server: dict[str, Any]):
 def _run_search(
     ldap_data: dict[str, str],
 ) -> list[dict[str, Any]]:
-    return search_entries(
-        search_base=ldap_data["base_dn"],
-        search_filter=ldap_data["filter"],
-    )
+    last_error: LDAPException | None = None
+    for attempt in range(LDAP_MAX_RETRIES):
+        try:
+            return search_entries(
+                search_base=ldap_data["base_dn"],
+                search_filter=ldap_data["filter"],
+            )
+        except LDAPException as exc:
+            last_error = exc
+            if attempt == LDAP_MAX_RETRIES - 1:
+                raise
+            time.sleep(1 + attempt)
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Failed to execute LDAP search")
 
 
 def test_live_search_all_attributes(

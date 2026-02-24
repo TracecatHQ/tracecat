@@ -44,6 +44,13 @@ class ConflictStrategy(StrEnum):
     """Overwrite existing workflows with new definitions"""
 
 
+class PushStatus(StrEnum):
+    """Status of a push/commit operation."""
+
+    COMMITTED = "committed"
+    NO_OP = "no_op"
+
+
 @dataclass(frozen=True)
 class PullOptions:
     """Options controlling pull/checkout behavior."""
@@ -75,6 +82,12 @@ class PushOptions:
     create_pr: bool = False
     """Create a pull request if supported"""
 
+    branch: str | None = None
+    """Target branch for branch-target publish mode; None enables legacy temp-branch flow."""
+
+    pr_base_branch: str | None = None
+    """Optional PR base branch override; defaults to repository default branch."""
+
     sign: bool = False
     """GPG signing if configured"""
 
@@ -83,11 +96,29 @@ class PushOptions:
 class CommitInfo:
     """Result of a push/commit operation."""
 
-    sha: str
-    """SHA of the commit"""
+    status: PushStatus
+    """Outcome status for the push operation."""
+
+    sha: str | None
+    """SHA of the commit; None for no-op pushes."""
 
     ref: str
     """Resolved ref after push (e.g., branch)"""
+
+    base_ref: str
+    """Resolved base branch used for branch creation and PR operations."""
+
+    pr_url: str | None = None
+    """Created or reused pull request URL if available."""
+
+    pr_number: int | None = None
+    """Created or reused pull request number if available."""
+
+    pr_reused: bool = False
+    """Whether an existing PR was reused instead of creating a new one."""
+
+    message: str = ""
+    """Human-readable summary of the push outcome."""
 
 
 @dataclass(frozen=True)
@@ -184,7 +215,8 @@ class SyncService[T: BaseModel](Protocol):
             options: Commit metadata and optional provider hints.
 
         Returns:
-            CommitInfo containing the resulting commit SHA and ref.
+            CommitInfo containing push outcome details (status, commit SHA, branch,
+            PR metadata).
 
         Raises:
             RuntimeError: Transport or push errors (conflicts, auth).

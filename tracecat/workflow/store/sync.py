@@ -19,7 +19,7 @@ from tracecat.db.models import User
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.git.utils import GitUrl
 from tracecat.logger import logger
-from tracecat.registry.repositories.schemas import GitCommitInfo
+from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import (
     CommitInfo,
@@ -28,6 +28,7 @@ from tracecat.sync import (
     PullResult,
     PushObject,
     PushOptions,
+    PushStatus,
 )
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.workflow.store.import_service import WorkflowImportService
@@ -329,147 +330,19 @@ class WorkflowSyncService(BaseWorkspaceService):
         try:
             repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
 
-            # Get base branch
-            base_branch_name = url.ref or repo.default_branch
-            base_branch = await asyncio.to_thread(repo.get_branch, base_branch_name)
-
-            # Create feature branch
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            branch_name = f"tracecat-sync-{timestamp}"
-
-            logger.info(
-                "Creating branch via GitHub API",
-                branch=branch_name,
-                base_branch=base_branch_name,
-                repo=f"{url.org}/{url.repo}",
-            )
-
-            await asyncio.to_thread(
-                repo.create_git_ref,
-                ref=f"refs/heads/{branch_name}",
-                sha=base_branch.commit.sha,
-            )
-
-            # Create/update workflow files via API
-            file_path = obj.path_str
-
-            yaml_content = yaml.dump(
-                obj.data.model_dump(mode="json", exclude_none=True, exclude_unset=True),
-                sort_keys=False,
-            )
-
-            # NOTE: We intentionally omit author/committer parameters to enable
-            # GitHub's automatic commit signing for GitHub Apps. Per GitHub docs:
-            # "Signature verification for bots will only work if the request
-            # contains no custom author information, custom committer information"
-            # https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification
-
-            try:
-                # Try to get existing file to update it
-                contents = await asyncio.to_thread(
-                    repo.get_contents, file_path, ref=branch_name
+            if options.branch is not None:
+                return await self._push_to_target_branch(
+                    repo=repo,
+                    url=url,
+                    obj=obj,
+                    options=options,
                 )
-                # get_contents returns ContentFile for files, or list for directories
-                if isinstance(contents, list):
-                    raise GithubException(404, {"message": "Not a file"}, {})
 
-                await asyncio.to_thread(
-                    repo.update_file,
-                    path=contents.path,
-                    message=options.message,
-                    content=yaml_content,
-                    sha=contents.sha,
-                    branch=branch_name,
-                )
-                logger.debug(
-                    "Updated workflow file via API",
-                    path=file_path,
-                    branch=branch_name,
-                )
-            except GithubException as e:
-                if e.status == 404:
-                    # File doesn't exist, create it
-                    await asyncio.to_thread(
-                        repo.create_file,
-                        path=file_path,
-                        message=options.message,
-                        content=yaml_content,
-                        branch=branch_name,
-                    )
-                    logger.debug(
-                        "Created workflow file via API",
-                        path=file_path,
-                        branch=branch_name,
-                    )
-
-            # Get the latest commit SHA from the branch
-            branch = await asyncio.to_thread(repo.get_branch, branch_name)
-            commit_sha = branch.commit.sha
-
-            # Create PR if requested
-            pr_url = None
-            if options.create_pr:
-                try:
-                    ws_svc = WorkspaceService(session=self.session, role=self.role)
-                    workspace = await ws_svc.get_workspace(self.workspace_id)
-                    if not workspace:
-                        raise TracecatNotFoundError("Workspace not found")
-
-                    try:
-                        title = obj.data.definition.title
-                        description = obj.data.definition.description
-                    except ValueError:
-                        title = "<An error occurred while determining the title>"
-                        description = (
-                            "<An error occurred while determining the description>"
-                        )
-
-                    try:
-                        current_user = await self.session.get(User, self.role.user_id)
-                    except Exception:
-                        current_user = None
-
-                    published_by = current_user.email if current_user else "<unknown>"
-
-                    pr = await asyncio.to_thread(
-                        repo.create_pull,
-                        title=options.message,
-                        body=(
-                            f"Automated workflow sync from Tracecat\n\n"
-                            f"**Workspace:** {workspace.name}\n"
-                            f"**Published by:** {published_by}\n"
-                            f"**Workflow Title:** {title}\n"
-                            f"**Workflow Description:** {description}"
-                        ),
-                        head=branch_name,
-                        base=base_branch_name,
-                    )
-                    pr_url = pr.html_url
-
-                    logger.info(
-                        "Created PR via GitHub API",
-                        pr_number=pr.number,
-                        pr_url=pr_url,
-                    )
-                except GithubException as e:
-                    logger.error(
-                        "Failed to create PR via GitHub API",
-                        error=str(e),
-                        branch=branch_name,
-                    )
-                    # Don't fail the entire operation if PR creation fails
-
-            logger.info(
-                "Successfully pushed workflows via GitHub API",
-                count=1,
-                branch=branch_name,
-                commit_sha=commit_sha,
-                pr_created=pr_url is not None,
-            )
-
-            return CommitInfo(
-                sha=commit_sha,
-                ref=branch_name,
+            return await self._push_legacy(
+                repo=repo,
+                url=url,
+                obj=obj,
+                options=options,
             )
 
         except GithubException as e:
@@ -482,6 +355,368 @@ class WorkflowSyncService(BaseWorkspaceService):
             raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
         finally:
             gh.close()
+
+    async def _push_to_target_branch(
+        self,
+        *,
+        repo: Any,
+        url: GitUrl,
+        obj: PushObject[RemoteWorkflowDefinition],
+        options: PushOptions,
+    ) -> CommitInfo:
+        branch_name = options.branch
+        if branch_name is None:
+            raise ValueError("branch is required for target-branch push mode")
+        base_branch_name = options.pr_base_branch or url.ref or repo.default_branch
+        base_branch = await asyncio.to_thread(repo.get_branch, base_branch_name)
+
+        try:
+            await asyncio.to_thread(repo.get_branch, branch_name)
+        except GithubException as e:
+            if e.status != 404:
+                raise
+            await asyncio.to_thread(
+                repo.create_git_ref,
+                ref=f"refs/heads/{branch_name}",
+                sha=base_branch.commit.sha,
+            )
+            logger.info(
+                "Created target branch via GitHub API",
+                branch=branch_name,
+                base_branch=base_branch_name,
+                repo=f"{url.org}/{url.repo}",
+            )
+
+        file_path = obj.path_str
+        yaml_content = yaml.dump(
+            obj.data.model_dump(mode="json", exclude_none=True, exclude_unset=True),
+            sort_keys=False,
+        )
+
+        pr_url: str | None = None
+        pr_number: int | None = None
+        pr_reused = False
+
+        try:
+            contents = await asyncio.to_thread(
+                repo.get_contents, file_path, ref=branch_name
+            )
+            if isinstance(contents, list):
+                raise GithubException(404, {"message": "Not a file"}, {})
+            existing_content = base64.b64decode(contents.content).decode("utf-8")
+            if existing_content == yaml_content:
+                if options.create_pr:
+                    pr_url, pr_number, pr_reused = await self._upsert_pull_request_safe(
+                        repo=repo,
+                        url=url,
+                        obj=obj,
+                        options=options,
+                        branch_name=branch_name,
+                        base_branch_name=base_branch_name,
+                    )
+                return CommitInfo(
+                    status=PushStatus.NO_OP,
+                    sha=None,
+                    ref=branch_name,
+                    base_ref=base_branch_name,
+                    pr_url=pr_url,
+                    pr_number=pr_number,
+                    pr_reused=pr_reused,
+                    message="No changes detected; nothing to commit.",
+                )
+
+            await asyncio.to_thread(
+                repo.update_file,
+                path=contents.path,
+                message=options.message,
+                content=yaml_content,
+                sha=contents.sha,
+                branch=branch_name,
+            )
+            logger.debug(
+                "Updated workflow file via API",
+                path=file_path,
+                branch=branch_name,
+            )
+        except GithubException as e:
+            if e.status != 404:
+                raise
+            await asyncio.to_thread(
+                repo.create_file,
+                path=file_path,
+                message=options.message,
+                content=yaml_content,
+                branch=branch_name,
+            )
+            logger.debug(
+                "Created workflow file via API",
+                path=file_path,
+                branch=branch_name,
+            )
+
+        branch = await asyncio.to_thread(repo.get_branch, branch_name)
+        commit_sha = branch.commit.sha
+
+        if options.create_pr:
+            pr_url, pr_number, pr_reused = await self._upsert_pull_request_safe(
+                repo=repo,
+                url=url,
+                obj=obj,
+                options=options,
+                branch_name=branch_name,
+                base_branch_name=base_branch_name,
+            )
+
+        logger.info(
+            "Successfully pushed workflow via GitHub API",
+            branch=branch_name,
+            base_branch=base_branch_name,
+            commit_sha=commit_sha,
+            pr_url=pr_url,
+            pr_number=pr_number,
+            pr_reused=pr_reused,
+        )
+
+        return CommitInfo(
+            status=PushStatus.COMMITTED,
+            sha=commit_sha,
+            ref=branch_name,
+            base_ref=base_branch_name,
+            pr_url=pr_url,
+            pr_number=pr_number,
+            pr_reused=pr_reused,
+            message="Committed workflow changes.",
+        )
+
+    async def _push_legacy(
+        self,
+        *,
+        repo: Any,
+        url: GitUrl,
+        obj: PushObject[RemoteWorkflowDefinition],
+        options: PushOptions,
+    ) -> CommitInfo:
+        base_branch_name = url.ref or repo.default_branch
+        base_branch = await asyncio.to_thread(repo.get_branch, base_branch_name)
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        branch_name = f"tracecat-sync-{timestamp}"
+
+        logger.info(
+            "Creating legacy temp branch via GitHub API",
+            branch=branch_name,
+            base_branch=base_branch_name,
+            repo=f"{url.org}/{url.repo}",
+        )
+
+        await asyncio.to_thread(
+            repo.create_git_ref,
+            ref=f"refs/heads/{branch_name}",
+            sha=base_branch.commit.sha,
+        )
+
+        file_path = obj.path_str
+        yaml_content = yaml.dump(
+            obj.data.model_dump(mode="json", exclude_none=True, exclude_unset=True),
+            sort_keys=False,
+        )
+
+        try:
+            contents = await asyncio.to_thread(
+                repo.get_contents, file_path, ref=branch_name
+            )
+            if isinstance(contents, list):
+                raise GithubException(404, {"message": "Not a file"}, {})
+            await asyncio.to_thread(
+                repo.update_file,
+                path=contents.path,
+                message=options.message,
+                content=yaml_content,
+                sha=contents.sha,
+                branch=branch_name,
+            )
+            logger.debug(
+                "Updated workflow file via API (legacy)",
+                path=file_path,
+                branch=branch_name,
+            )
+        except GithubException as e:
+            if e.status != 404:
+                raise
+            await asyncio.to_thread(
+                repo.create_file,
+                path=file_path,
+                message=options.message,
+                content=yaml_content,
+                branch=branch_name,
+            )
+            logger.debug(
+                "Created workflow file via API (legacy)",
+                path=file_path,
+                branch=branch_name,
+            )
+
+        branch = await asyncio.to_thread(repo.get_branch, branch_name)
+        commit_sha = branch.commit.sha
+
+        pr_url: str | None = None
+        pr_number: int | None = None
+        if options.create_pr:
+            try:
+                pr_url, pr_number, _ = await self._create_pull_request(
+                    repo=repo,
+                    obj=obj,
+                    options=options,
+                    branch_name=branch_name,
+                    base_branch_name=base_branch_name,
+                )
+            except GithubException as e:
+                logger.error(
+                    "Failed to create PR via GitHub API (legacy)",
+                    error=str(e),
+                    branch=branch_name,
+                )
+
+        return CommitInfo(
+            status=PushStatus.COMMITTED,
+            sha=commit_sha,
+            ref=branch_name,
+            base_ref=base_branch_name,
+            pr_url=pr_url,
+            pr_number=pr_number,
+            pr_reused=False,
+            message="Committed workflow changes on a temporary legacy branch.",
+        )
+
+    async def _upsert_pull_request(
+        self,
+        *,
+        repo: Any,
+        url: GitUrl,
+        obj: PushObject[RemoteWorkflowDefinition],
+        options: PushOptions,
+        branch_name: str,
+        base_branch_name: str,
+    ) -> tuple[str | None, int | None, bool]:
+        def _first_open_pull_request() -> Any | None:
+            pulls = repo.get_pulls(
+                state="open",
+                head=f"{url.org}:{branch_name}",
+                base=base_branch_name,
+            )
+            return next(iter(pulls), None)
+
+        try:
+            existing_pr = await asyncio.to_thread(_first_open_pull_request)
+        except GithubException as e:
+            logger.error(
+                "Failed to search for open pull requests",
+                error=str(e),
+                branch=branch_name,
+                base_branch=base_branch_name,
+            )
+            existing_pr = None
+
+        if existing_pr is not None:
+            logger.info(
+                "Reused existing pull request",
+                pr_number=existing_pr.number,
+                pr_url=existing_pr.html_url,
+                branch=branch_name,
+                base_branch=base_branch_name,
+            )
+            return existing_pr.html_url, existing_pr.number, True
+
+        return await self._create_pull_request(
+            repo=repo,
+            obj=obj,
+            options=options,
+            branch_name=branch_name,
+            base_branch_name=base_branch_name,
+        )
+
+    async def _upsert_pull_request_safe(
+        self,
+        *,
+        repo: Any,
+        url: GitUrl,
+        obj: PushObject[RemoteWorkflowDefinition],
+        options: PushOptions,
+        branch_name: str,
+        base_branch_name: str,
+    ) -> tuple[str | None, int | None, bool]:
+        try:
+            return await self._upsert_pull_request(
+                repo=repo,
+                url=url,
+                obj=obj,
+                options=options,
+                branch_name=branch_name,
+                base_branch_name=base_branch_name,
+            )
+        except GithubException as e:
+            logger.error(
+                "Failed to create or reuse pull request via GitHub API",
+                status=e.status,
+                data=e.data,
+                branch=branch_name,
+                base_branch=base_branch_name,
+                repo=f"{url.org}/{url.repo}",
+            )
+            return None, None, False
+
+    async def _create_pull_request(
+        self,
+        *,
+        repo: Any,
+        obj: PushObject[RemoteWorkflowDefinition],
+        options: PushOptions,
+        branch_name: str,
+        base_branch_name: str,
+    ) -> tuple[str, int, bool]:
+        ws_svc = WorkspaceService(session=self.session, role=self.role)
+        workspace = await ws_svc.get_workspace(self.workspace_id)
+        if not workspace:
+            raise TracecatNotFoundError("Workspace not found")
+
+        try:
+            title = obj.data.definition.title
+            description = obj.data.definition.description
+        except ValueError:
+            title = "<An error occurred while determining the title>"
+            description = "<An error occurred while determining the description>"
+
+        current_user = None
+        if self.role.user_id is not None:
+            try:
+                current_user = await self.session.get(User, self.role.user_id)
+            except Exception:
+                current_user = None
+
+        published_by = current_user.email if current_user else "<unknown>"
+
+        pr = await asyncio.to_thread(
+            repo.create_pull,
+            title=options.message,
+            body=(
+                f"Automated workflow sync from Tracecat\n\n"
+                f"**Workspace:** {workspace.name}\n"
+                f"**Published by:** {published_by}\n"
+                f"**Workflow Title:** {title}\n"
+                f"**Workflow Description:** {description}"
+            ),
+            head=branch_name,
+            base=base_branch_name,
+        )
+
+        logger.info(
+            "Created PR via GitHub API",
+            pr_number=pr.number,
+            pr_url=pr.html_url,
+            branch=branch_name,
+            base_branch=base_branch_name,
+        )
+        return pr.html_url, pr.number, False
 
     async def list_commits(
         self,
@@ -567,5 +802,45 @@ class WorkflowSyncService(BaseWorkspaceService):
                 data=e.data,
                 repo=f"{url.org}/{url.repo}",
                 branch=branch,
+            )
+            raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
+
+    async def list_branches(
+        self,
+        *,
+        url: GitUrl,
+        limit: int = 100,
+    ) -> list[GitBranchInfo]:
+        """List branches from a Git repository using GitHub App API."""
+        try:
+            gh_svc = GitHubAppService(session=self.session, role=self.role)
+            gh = await gh_svc.get_github_client_for_repo(url)
+
+            try:
+                repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
+                branches_paginated = await asyncio.to_thread(repo.get_branches)
+
+                branches: list[GitBranchInfo] = []
+                count = 0
+                for branch_obj in branches_paginated:
+                    if count >= limit:
+                        break
+                    branches.append(
+                        GitBranchInfo(
+                            name=branch_obj.name,
+                            is_default=branch_obj.name == repo.default_branch,
+                        )
+                    )
+                    count += 1
+
+                return branches
+            finally:
+                gh.close()
+        except GithubException as e:
+            logger.error(
+                "GitHub API error during branch listing",
+                status=e.status,
+                data=e.data,
+                repo=f"{url.org}/{url.repo}",
             )
             raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
