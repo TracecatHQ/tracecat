@@ -1,34 +1,35 @@
 "use client"
 
 import * as AccordionPrimitive from "@radix-ui/react-accordion"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import {
   CheckCircleIcon,
   ChevronRightIcon,
   CircleIcon,
   CirclePauseIcon,
   FlagTriangleRightIcon,
+  Loader2Icon,
   TrafficConeIcon,
 } from "lucide-react"
-import { useMemo } from "react"
+import type { ComponentType } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
   CaseReadMinimal,
+  CaseSearchAggregateRead,
   CaseStatus,
   CaseTagRead,
   WorkspaceMember,
 } from "@/client"
 import { CaseItem } from "@/components/cases/case-item"
-import type { SortDirection } from "@/components/cases/cases-header"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import type { CasesRecencySort } from "@/hooks/use-cases"
+import type { FilterMode, SortDirection } from "@/components/cases/cases-header"
 import { cn } from "@/lib/utils"
 
-// Define the status groups we want to display
 type StatusGroup = "new" | "in_progress" | "on_hold" | "resolved" | "other"
 
 interface StatusGroupConfig {
   label: string
-  icon: React.ComponentType<{ className?: string }>
+  icon: ComponentType<{ className?: string }>
   statuses: CaseStatus[]
   iconColor: string
 }
@@ -66,7 +67,6 @@ const STATUS_GROUPS: Record<StatusGroup, StatusGroupConfig> = {
   },
 }
 
-// Order in which groups should appear
 const GROUP_ORDER: StatusGroup[] = [
   "new",
   "in_progress",
@@ -85,12 +85,159 @@ interface CasesAccordionProps {
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
-  /** When any sort direction is active, preserve the order from the hook */
   prioritySortDirection?: SortDirection
   severitySortDirection?: SortDirection
   assigneeSortDirection?: SortDirection
   tagSortDirection?: SortDirection
-  updatedAtSort?: CasesRecencySort
+  statusFilter?: CaseStatus[]
+  statusMode?: FilterMode
+  totalFilteredCaseEstimate?: number | null
+  stageCounts?: CaseSearchAggregateRead["status_groups"] | null
+  isCountsLoading?: boolean
+  isCountsFetching?: boolean
+  hasNextPage?: boolean
+  isFetchingNextPage?: boolean
+  onLoadMore?: () => void
+}
+
+interface VirtualizedGroupRowsProps {
+  groupCases: CaseReadMinimal[]
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>
+  selectedId: string | null
+  selectedCaseIds: Set<string>
+  onSelect: (id: string) => void
+  onCheckChange: (id: string, checked: boolean) => void
+  onDeleteRequest?: (caseData: CaseReadMinimal) => void
+  tags?: CaseTagRead[]
+  members?: WorkspaceMember[]
+  dropdownDefinitions?: CaseDropdownDefinitionRead[]
+}
+
+function VirtualizedGroupRows({
+  groupCases,
+  scrollContainerRef,
+  selectedId,
+  selectedCaseIds,
+  onSelect,
+  onCheckChange,
+  onDeleteRequest,
+  tags,
+  members,
+  dropdownDefinitions,
+}: VirtualizedGroupRowsProps) {
+  const groupContainerRef = useRef<HTMLDivElement | null>(null)
+  const [scrollMargin, setScrollMargin] = useState(0)
+
+  useLayoutEffect(() => {
+    const scrollElement = scrollContainerRef.current
+    const groupElement = groupContainerRef.current
+    if (!scrollElement || !groupElement) {
+      return
+    }
+
+    let frameId = 0
+
+    const updateScrollMargin = () => {
+      const currentScrollElement = scrollContainerRef.current
+      const currentGroupElement = groupContainerRef.current
+      if (!currentScrollElement || !currentGroupElement) {
+        return
+      }
+
+      const nextMargin =
+        currentGroupElement.getBoundingClientRect().top -
+        currentScrollElement.getBoundingClientRect().top +
+        currentScrollElement.scrollTop
+
+      setScrollMargin((prev) =>
+        Math.abs(prev - nextMargin) < 0.5 ? prev : nextMargin
+      )
+    }
+
+    const scheduleUpdate = () => {
+      if (frameId) {
+        return
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = 0
+        updateScrollMargin()
+      })
+    }
+
+    updateScrollMargin()
+
+    const resizeObserver = new ResizeObserver(scheduleUpdate)
+    resizeObserver.observe(groupElement)
+    const accordionRoot = scrollElement.firstElementChild
+    if (accordionRoot instanceof HTMLElement) {
+      resizeObserver.observe(accordionRoot)
+    }
+
+    scrollElement.addEventListener("scroll", scheduleUpdate, { passive: true })
+    window.addEventListener("resize", scheduleUpdate)
+
+    return () => {
+      resizeObserver.disconnect()
+      scrollElement.removeEventListener("scroll", scheduleUpdate)
+      window.removeEventListener("resize", scheduleUpdate)
+      if (frameId) {
+        window.cancelAnimationFrame(frameId)
+      }
+    }
+  }, [groupCases.length, scrollContainerRef])
+
+  const rowVirtualizer = useVirtualizer({
+    count: groupCases.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 44,
+    overscan: 8,
+    scrollMargin,
+    getItemKey: (index) => groupCases[index]?.id ?? index,
+  })
+
+  if (groupCases.length === 0) {
+    return null
+  }
+
+  return (
+    <div
+      ref={groupContainerRef}
+      className="relative w-full"
+      style={{
+        height: `${rowVirtualizer.getTotalSize()}px`,
+      }}
+    >
+      {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+        const caseData = groupCases[virtualItem.index]
+        if (!caseData) {
+          return null
+        }
+
+        return (
+          <div
+            key={virtualItem.key}
+            className="absolute left-0 top-0 w-full"
+            style={{
+              transform: `translateY(${virtualItem.start - scrollMargin}px)`,
+            }}
+          >
+            <CaseItem
+              caseData={caseData}
+              isSelected={selectedId === caseData.id}
+              isChecked={selectedCaseIds.has(caseData.id)}
+              onCheckChange={(checked) => onCheckChange(caseData.id, checked)}
+              onClick={() => onSelect(caseData.id)}
+              onDeleteRequest={onDeleteRequest}
+              tags={tags}
+              members={members}
+              dropdownDefinitions={dropdownDefinitions}
+            />
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 export function CasesAccordion({
@@ -107,17 +254,22 @@ export function CasesAccordion({
   severitySortDirection,
   assigneeSortDirection,
   tagSortDirection,
-  updatedAtSort = "desc",
+  statusFilter = [],
+  statusMode = "include",
+  totalFilteredCaseEstimate = null,
+  stageCounts = null,
+  isCountsLoading = false,
+  isCountsFetching = false,
+  hasNextPage = false,
+  isFetchingNextPage = false,
+  onLoadMore,
 }: CasesAccordionProps) {
-  // Check if any explicit sort is active (from the header)
   const hasExplicitSort =
     prioritySortDirection ||
     severitySortDirection ||
     assigneeSortDirection ||
-    tagSortDirection ||
-    updatedAtSort === "asc"
+    tagSortDirection
 
-  // Group cases by status category
   const groupedCases = useMemo(() => {
     const groups: Record<StatusGroup, CaseReadMinimal[]> = {
       new: [],
@@ -136,14 +288,11 @@ export function CasesAccordion({
           break
         }
       }
-      // If no match, put in "other"
       if (!matched) {
         groups.other.push(caseData)
       }
     }
 
-    // Only apply default updated_at sorting when no explicit sort is active
-    // When explicit sorting is applied, preserve the order from the hook
     if (!hasExplicitSort) {
       for (const groupKey of Object.keys(groups) as StatusGroup[]) {
         groups[groupKey].sort(
@@ -156,13 +305,57 @@ export function CasesAccordion({
     return groups
   }, [cases, hasExplicitSort])
 
-  // Calculate which groups have items and should be expanded by default
   const defaultExpandedGroups = useMemo(() => {
     return GROUP_ORDER.filter((group) => groupedCases[group].length > 0)
   }, [groupedCases])
 
+  const singleFilteredGroup = useMemo<StatusGroup | null>(() => {
+    if (statusMode !== "include" || statusFilter.length === 0) {
+      return null
+    }
+
+    const matchingGroups = GROUP_ORDER.filter((group) =>
+      statusFilter.every((status) =>
+        STATUS_GROUPS[group].statuses.includes(status)
+      )
+    )
+
+    return matchingGroups.length === 1 ? matchingGroups[0] : null
+  }, [statusFilter, statusMode])
+
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const loadMoreRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!hasNextPage || !onLoadMore) {
+      return
+    }
+
+    const root = scrollContainerRef.current
+    const target = loadMoreRef.current
+    if (!root || !target) {
+      return
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const isVisible = entries.some((entry) => entry.isIntersecting)
+        if (isVisible && !isFetchingNextPage) {
+          onLoadMore()
+        }
+      },
+      {
+        root,
+        rootMargin: "300px 0px",
+      }
+    )
+
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [hasNextPage, isFetchingNextPage, onLoadMore])
+
   return (
-    <ScrollArea className="h-full">
+    <div ref={scrollContainerRef} className="h-full overflow-auto">
       <AccordionPrimitive.Root
         type="multiple"
         defaultValue={defaultExpandedGroups}
@@ -172,6 +365,14 @@ export function CasesAccordion({
           const config = STATUS_GROUPS[groupKey]
           const groupCases = groupedCases[groupKey]
           const StatusIcon = config.icon
+          const hasGlobalCount = typeof stageCounts?.[groupKey] === "number"
+          const groupCount =
+            singleFilteredGroup === groupKey &&
+            typeof totalFilteredCaseEstimate === "number"
+              ? totalFilteredCaseEstimate
+              : hasGlobalCount
+                ? stageCounts[groupKey]
+                : groupCases.length
 
           return (
             <AccordionPrimitive.Item
@@ -183,11 +384,9 @@ export function CasesAccordion({
               <AccordionPrimitive.Header className="flex">
                 <AccordionPrimitive.Trigger
                   className={cn(
-                    // Use pl-[10px] to compensate for border-l-2 (2px) so total left offset matches px-3 (12px)
                     "flex w-full items-center gap-1 border-l-2 border-l-transparent py-1.5 pl-[10px] pr-3 text-left transition-colors",
                     "hover:bg-muted/50",
                     "[&[data-state=open]_.chevron]:rotate-90",
-                    // Tint backgrounds when open
                     "data-[state=open]:border-l-current",
                     groupKey === "new" &&
                       "data-[state=open]:border-l-yellow-600 data-[state=open]:bg-yellow-600/[0.03] dark:data-[state=open]:bg-yellow-600/[0.08]",
@@ -201,7 +400,6 @@ export function CasesAccordion({
                       "data-[state=open]:border-l-muted-foreground data-[state=open]:bg-muted/50"
                   )}
                 >
-                  {/* Match SidebarTrigger dimensions (h-7 w-7) for alignment */}
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center">
                     <ChevronRightIcon className="chevron size-4 text-muted-foreground transition-transform duration-200" />
                   </div>
@@ -211,35 +409,43 @@ export function CasesAccordion({
                     />
                     <span className="text-xs font-medium">{config.label}</span>
                     <span className="text-xs text-muted-foreground">
-                      {groupCases.length}
+                      {groupCount}
                     </span>
+                    {(isCountsLoading || isCountsFetching) && (
+                      <Loader2Icon className="size-3 animate-spin text-muted-foreground" />
+                    )}
                   </div>
                 </AccordionPrimitive.Trigger>
               </AccordionPrimitive.Header>
               <AccordionPrimitive.Content className="overflow-hidden data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
                 <div className="ml-[18px]">
-                  {groupCases.map((caseData) => (
-                    <CaseItem
-                      key={caseData.id}
-                      caseData={caseData}
-                      isSelected={selectedId === caseData.id}
-                      isChecked={selectedCaseIds.has(caseData.id)}
-                      onCheckChange={(checked) =>
-                        onCheckChange(caseData.id, checked)
-                      }
-                      onClick={() => onSelect(caseData.id)}
-                      onDeleteRequest={onDeleteRequest}
-                      tags={tags}
-                      members={members}
-                      dropdownDefinitions={dropdownDefinitions}
-                    />
-                  ))}
+                  <VirtualizedGroupRows
+                    groupCases={groupCases}
+                    scrollContainerRef={scrollContainerRef}
+                    selectedId={selectedId}
+                    selectedCaseIds={selectedCaseIds}
+                    onSelect={onSelect}
+                    onCheckChange={onCheckChange}
+                    onDeleteRequest={onDeleteRequest}
+                    tags={tags}
+                    members={members}
+                    dropdownDefinitions={dropdownDefinitions}
+                  />
                 </div>
               </AccordionPrimitive.Content>
             </AccordionPrimitive.Item>
           )
         })}
       </AccordionPrimitive.Root>
-    </ScrollArea>
+
+      {(hasNextPage || isFetchingNextPage) && (
+        <div
+          ref={loadMoreRef}
+          className="flex h-10 items-center justify-center text-xs text-muted-foreground"
+        >
+          {isFetchingNextPage ? "Loading more cases..." : "Scroll to load more"}
+        </div>
+      )}
+    </div>
   )
 }

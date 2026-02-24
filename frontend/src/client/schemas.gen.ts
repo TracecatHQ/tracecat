@@ -5203,6 +5203,21 @@ export const $CaseReadMinimal = {
   title: "CaseReadMinimal",
 } as const
 
+export const $CaseSearchAggregateRead = {
+  properties: {
+    total: {
+      type: "integer",
+      title: "Total",
+    },
+    status_groups: {
+      $ref: "#/components/schemas/CaseStatusGroupCounts",
+    },
+  },
+  type: "object",
+  required: ["total", "status_groups"],
+  title: "CaseSearchAggregateRead",
+} as const
+
 export const $CaseSeverity = {
   type: "string",
   enum: [
@@ -5242,6 +5257,38 @@ export const $CaseStatus = {
   ],
   title: "CaseStatus",
   description: "Case status values aligned with OCSF Incident Finding status.",
+} as const
+
+export const $CaseStatusGroupCounts = {
+  properties: {
+    new: {
+      type: "integer",
+      title: "New",
+      default: 0,
+    },
+    in_progress: {
+      type: "integer",
+      title: "In Progress",
+      default: 0,
+    },
+    on_hold: {
+      type: "integer",
+      title: "On Hold",
+      default: 0,
+    },
+    resolved: {
+      type: "integer",
+      title: "Resolved",
+      default: 0,
+    },
+    other: {
+      type: "integer",
+      title: "Other",
+      default: 0,
+    },
+  },
+  type: "object",
+  title: "CaseStatusGroupCounts",
 } as const
 
 export const $CaseTagCreate = {
@@ -15334,6 +15381,11 @@ export const $SecretReadMinimal = {
     environment: {
       type: "string",
       title: "Environment",
+    },
+    is_corrupted: {
+      type: "boolean",
+      title: "Is Corrupted",
+      default: false,
     },
   },
   type: "object",

@@ -35,6 +35,8 @@ from tracecat.cases.schemas import (
     CaseCreate,
     CaseEventVariant,
     CaseReadMinimal,
+    CaseSearchAggregateRead,
+    CaseStatusGroupCounts,
     CaseTaskCreate,
     CaseTaskUpdate,
     CaseUpdate,
@@ -189,9 +191,9 @@ class CasesService(BaseWorkspaceService):
 
         return counts
 
-    async def search_cases(
+    def _build_search_filters(
         self,
-        params: CursorPaginationParams,
+        *,
         search_term: str | None = None,
         status: CaseStatus | Sequence[CaseStatus] | None = None,
         priority: CasePriority | Sequence[CasePriority] | None = None,
@@ -204,44 +206,16 @@ class CasesService(BaseWorkspaceService):
         end_time: datetime | None = None,
         updated_before: datetime | None = None,
         updated_after: datetime | None = None,
-        order_by: Literal[
-            "created_at", "updated_at", "priority", "severity", "status", "tasks"
-        ]
-        | None = None,
-        sort: Literal["asc", "desc"] | None = None,
-    ) -> CursorPaginatedResponse[CaseReadMinimal]:
-        """Search cases with cursor-based pagination and filtering."""
-        paginator = BaseCursorPaginator(self.session)
+    ) -> list[Any]:
         filters: list[Any] = [Case.workspace_id == self.workspace_id]
 
-        # Base query - eagerly load tags, assignee, and dropdown values
-        stmt = (
-            select(Case)
-            .options(selectinload(Case.tags))
-            .options(selectinload(Case.assignee))
-            .options(
-                selectinload(Case.dropdown_values).selectinload(
-                    CaseDropdownValue.definition
-                )
-            )
-            .options(
-                selectinload(Case.dropdown_values).selectinload(
-                    CaseDropdownValue.option
-                )
-            )
-        )
-
-        # Apply search term filter
         if search_term:
-            # Validate search term to prevent abuse
             if len(search_term) > 1000:
                 raise ValueError("Search term cannot exceed 1000 characters")
             if "\x00" in search_term:
                 raise ValueError("Search term cannot contain null bytes")
 
-            # Use SQLAlchemy's concat function for proper parameter binding
             search_pattern = func.concat("%", search_term, "%")
-            # Build short_id expression in SQL: 'CASE-' + lpad(case_number, 4, '0')
             short_id_expr = func.concat(
                 "CASE-", func.lpad(cast(Case.case_number, sa.String), 4, "0")
             )
@@ -257,36 +231,28 @@ class CasesService(BaseWorkspaceService):
         if normalized_statuses:
             filters.append(Case.status.in_(normalized_statuses))
 
-        # Apply priority filter
         normalized_priorities = _normalize_filter_values(priority)
         if normalized_priorities:
             filters.append(Case.priority.in_(normalized_priorities))
 
-        # Apply severity filter
         normalized_severities = _normalize_filter_values(severity)
         if normalized_severities:
             filters.append(Case.severity.in_(normalized_severities))
 
-        # Apply assignee filter
-        if include_unassigned or assignee_ids:
-            unique_assignees = list(dict.fromkeys(assignee_ids or []))
-            assignee_conditions: list[Any] = []
+        unique_assignees = list(dict.fromkeys(assignee_ids or []))
+        assignee_conditions: list[Any] = []
+        if unique_assignees:
+            assignee_conditions.append(Case.assignee_id.in_(unique_assignees))
+        if include_unassigned:
+            assignee_conditions.append(Case.assignee_id.is_(None))
+        if assignee_conditions:
+            assignee_clause = (
+                assignee_conditions[0]
+                if len(assignee_conditions) == 1
+                else or_(*assignee_conditions)
+            )
+            filters.append(assignee_clause)
 
-            if unique_assignees:
-                assignee_conditions.append(Case.assignee_id.in_(unique_assignees))
-
-            if include_unassigned:
-                assignee_conditions.append(Case.assignee_id.is_(None))
-
-            if assignee_conditions:
-                assignee_clause = (
-                    assignee_conditions[0]
-                    if len(assignee_conditions) == 1
-                    else or_(*assignee_conditions)
-                )
-                filters.append(assignee_clause)
-
-        # Apply tag filtering if tag_ids provided (AND logic - case must have all tags)
         if tag_ids:
             for tag_id in tag_ids:
                 filters.append(
@@ -295,7 +261,6 @@ class CasesService(BaseWorkspaceService):
                     )
                 )
 
-        # Apply dropdown filters (AND across definitions, OR within a definition's option refs)
         if dropdown_filters:
             for def_ref, option_refs in dropdown_filters.items():
                 if not option_refs:
@@ -319,7 +284,6 @@ class CasesService(BaseWorkspaceService):
                     )
                 )
 
-        # Apply date filters
         if start_time is not None:
             filters.append(Case.created_at >= start_time)
 
@@ -331,6 +295,63 @@ class CasesService(BaseWorkspaceService):
 
         if updated_before is not None:
             filters.append(Case.updated_at <= updated_before)
+
+        return filters
+
+    async def search_cases(
+        self,
+        params: CursorPaginationParams,
+        search_term: str | None = None,
+        status: CaseStatus | Sequence[CaseStatus] | None = None,
+        priority: CasePriority | Sequence[CasePriority] | None = None,
+        severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
+        assignee_ids: Sequence[uuid.UUID] | None = None,
+        include_unassigned: bool = False,
+        tag_ids: list[uuid.UUID] | None = None,
+        dropdown_filters: dict[str, list[str]] | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        updated_before: datetime | None = None,
+        updated_after: datetime | None = None,
+        order_by: Literal[
+            "created_at", "updated_at", "priority", "severity", "status", "tasks"
+        ]
+        | None = None,
+        sort: Literal["asc", "desc"] | None = None,
+    ) -> CursorPaginatedResponse[CaseReadMinimal]:
+        """Search cases with cursor-based pagination and filtering."""
+        paginator = BaseCursorPaginator(self.session)
+        filters = self._build_search_filters(
+            search_term=search_term,
+            status=status,
+            priority=priority,
+            severity=severity,
+            assignee_ids=assignee_ids,
+            include_unassigned=include_unassigned,
+            tag_ids=tag_ids,
+            dropdown_filters=dropdown_filters,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
+        )
+
+        # Base query - eagerly load tags, assignee, and dropdown values
+        stmt = (
+            select(Case)
+            .options(selectinload(Case.tags))
+            .options(selectinload(Case.assignee))
+            .options(
+                selectinload(Case.dropdown_values).selectinload(
+                    CaseDropdownValue.definition
+                )
+            )
+            .options(
+                selectinload(Case.dropdown_values).selectinload(
+                    CaseDropdownValue.option
+                )
+            )
+        )
 
         for clause in filters:
             stmt = stmt.where(clause)
@@ -571,6 +592,94 @@ class CasesService(BaseWorkspaceService):
             has_more=has_more,
             has_previous=has_previous,
             total_estimate=total_estimate,
+        )
+
+    async def get_search_case_aggregates(
+        self,
+        *,
+        search_term: str | None = None,
+        status: CaseStatus | Sequence[CaseStatus] | None = None,
+        priority: CasePriority | Sequence[CasePriority] | None = None,
+        severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
+        assignee_ids: Sequence[uuid.UUID] | None = None,
+        include_unassigned: bool = False,
+        tag_ids: list[uuid.UUID] | None = None,
+        dropdown_filters: dict[str, list[str]] | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        updated_before: datetime | None = None,
+        updated_after: datetime | None = None,
+    ) -> CaseSearchAggregateRead:
+        """Return global totals for the current case search filter set."""
+        filters = self._build_search_filters(
+            search_term=search_term,
+            status=status,
+            priority=priority,
+            severity=severity,
+            assignee_ids=assignee_ids,
+            include_unassigned=include_unassigned,
+            tag_ids=tag_ids,
+            dropdown_filters=dropdown_filters,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
+        )
+
+        aggregate_stmt = select(
+            func.count(Case.id).label("total"),
+            func.coalesce(
+                func.sum(sa.case((Case.status == CaseStatus.NEW, 1), else_=0)),
+                0,
+            ).label("new"),
+            func.coalesce(
+                func.sum(sa.case((Case.status == CaseStatus.IN_PROGRESS, 1), else_=0)),
+                0,
+            ).label("in_progress"),
+            func.coalesce(
+                func.sum(sa.case((Case.status == CaseStatus.ON_HOLD, 1), else_=0)),
+                0,
+            ).label("on_hold"),
+            func.coalesce(
+                func.sum(
+                    sa.case(
+                        (
+                            Case.status.in_([CaseStatus.RESOLVED, CaseStatus.CLOSED]),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("resolved"),
+            func.coalesce(
+                func.sum(
+                    sa.case(
+                        (
+                            Case.status.in_([CaseStatus.OTHER, CaseStatus.UNKNOWN]),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("other"),
+        )
+
+        for clause in filters:
+            aggregate_stmt = aggregate_stmt.where(clause)
+
+        row = (await self.session.execute(aggregate_stmt)).one()
+
+        return CaseSearchAggregateRead(
+            total=int(row.total or 0),
+            status_groups=CaseStatusGroupCounts(
+                new=int(row.new or 0),
+                in_progress=int(row.in_progress or 0),
+                on_hold=int(row.on_hold or 0),
+                resolved=int(row.resolved or 0),
+                other=int(row.other or 0),
+            ),
         )
 
     async def list_cases(

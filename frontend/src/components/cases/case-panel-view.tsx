@@ -239,6 +239,40 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     }
   }
 
+  const panelFieldRowClassName =
+    "group -mx-2 flex h-7 w-full cursor-pointer items-center gap-2 rounded-sm px-2 transition-colors hover:bg-muted/70 focus-within:bg-muted/70"
+  const panelFieldRowInteractiveSelector =
+    "input:not([type='hidden']):not([disabled]), textarea:not([disabled]), [role='combobox']:not([aria-disabled='true']), button:not([disabled])"
+  const panelFieldRowTargetSelector =
+    "button:not([disabled]), input:not([type='hidden']):not([disabled]), textarea:not([disabled]), [role='combobox']:not([aria-disabled='true']), a[href]"
+  const handlePanelFieldRowClick = (
+    event: React.MouseEvent<HTMLDivElement>
+  ) => {
+    const target = event.target as HTMLElement | null
+    if (target?.closest(panelFieldRowTargetSelector)) {
+      return
+    }
+
+    const controlContainer = event.currentTarget.querySelector<HTMLElement>(
+      ".tc-panel-row-control"
+    )
+    const control = controlContainer?.querySelector<HTMLElement>(
+      panelFieldRowInteractiveSelector
+    )
+    if (!control) return
+
+    if (
+      control instanceof HTMLInputElement ||
+      control instanceof HTMLTextAreaElement
+    ) {
+      control.focus()
+      return
+    }
+
+    control.click()
+    control.focus()
+  }
+
   return (
     <>
       <CaseWorkflowTrigger caseData={caseData} />
@@ -396,59 +430,71 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
               <SidebarGroupLabel>Properties</SidebarGroupLabel>
               <SidebarGroupContent className="px-2">
                 <div className="space-y-2">
-                  <div className="flex h-7 w-full items-center gap-2">
+                  <div
+                    className={panelFieldRowClassName}
+                    onClick={handlePanelFieldRowClick}
+                  >
                     <span className="text-sm text-muted-foreground">
                       Status
                     </span>
-                    <div className="ml-auto min-w-0 flex-1">
+                    <div className="ml-auto min-w-0 flex-1 tc-panel-row-control">
                       <StatusSelect
                         status={caseData.status}
                         onValueChange={handleStatusChange}
                         showLabel={false}
-                        triggerClassName="h-7 w-full justify-end px-2 text-sm [&>span]:w-full"
+                        triggerClassName="h-7 w-full justify-end border-none px-2 text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:border-none data-[state=open]:ring-0 [&>span]:w-full"
                         valueClassName="text-sm"
                       />
                     </div>
                   </div>
-                  <div className="flex h-7 w-full items-center gap-2">
+                  <div
+                    className={panelFieldRowClassName}
+                    onClick={handlePanelFieldRowClick}
+                  >
                     <span className="text-sm text-muted-foreground">
                       Priority
                     </span>
-                    <div className="ml-auto min-w-0 flex-1">
+                    <div className="ml-auto min-w-0 flex-1 tc-panel-row-control">
                       <PrioritySelect
                         priority={caseData.priority || "unknown"}
                         onValueChange={handlePriorityChange}
                         showLabel={false}
-                        triggerClassName="h-7 w-full justify-end px-2 text-sm [&>span]:w-full"
+                        triggerClassName="h-7 w-full justify-end border-none px-2 text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:border-none data-[state=open]:ring-0 [&>span]:w-full"
                         valueClassName="text-sm"
                       />
                     </div>
                   </div>
-                  <div className="flex h-7 w-full items-center gap-2">
+                  <div
+                    className={panelFieldRowClassName}
+                    onClick={handlePanelFieldRowClick}
+                  >
                     <span className="text-sm text-muted-foreground">
                       Severity
                     </span>
-                    <div className="ml-auto min-w-0 flex-1">
+                    <div className="ml-auto min-w-0 flex-1 tc-panel-row-control">
                       <SeveritySelect
                         severity={caseData.severity || "unknown"}
                         onValueChange={handleSeverityChange}
                         showLabel={false}
-                        triggerClassName="h-7 w-full justify-end px-2 text-sm [&>span]:w-full"
+                        triggerClassName="h-7 w-full justify-end border-none px-2 text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:border-none data-[state=open]:ring-0 [&>span]:w-full"
                         valueClassName="text-sm"
                       />
                     </div>
                   </div>
-                  <div className="flex h-7 w-full items-center gap-2">
+                  <div
+                    className={panelFieldRowClassName}
+                    onClick={handlePanelFieldRowClick}
+                  >
                     <span className="text-sm text-muted-foreground">
                       Assignee
                     </span>
-                    <div className="ml-auto min-w-0 flex-1">
+                    <div className="ml-auto min-w-0 flex-1 tc-panel-row-control">
                       <AssigneeSelect
                         assignee={caseData.assignee}
                         workspaceMembers={members ?? []}
                         onValueChange={handleAssigneeChange}
                         showLabel={false}
-                        triggerClassName="h-7 w-full justify-end px-2 text-sm [&>span]:w-full"
+                        triggerClassName="h-7 w-full justify-end border-none px-2 text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:border-none data-[state=open]:ring-0 [&>span]:w-full"
                         valueClassName="text-sm"
                       />
                     </div>
@@ -462,7 +508,8 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                         return (
                           <div
                             key={def.id}
-                            className="flex h-7 w-full items-center gap-2"
+                            className={panelFieldRowClassName}
+                            onClick={handlePanelFieldRowClick}
                           >
                             <span
                               className="truncate text-sm text-muted-foreground"
@@ -470,7 +517,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                             >
                               {def.name}
                             </span>
-                            <div className="ml-auto min-w-0 flex-1">
+                            <div className="ml-auto min-w-0 flex-1 tc-panel-row-control">
                               <CaseDropdownSelect
                                 definition={def}
                                 currentValue={currentValue}
@@ -482,7 +529,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                                   })
                                 }
                                 showLabel={false}
-                                triggerClassName="h-7 w-full justify-end px-2 text-sm [&>span]:w-full"
+                                triggerClassName="h-7 w-full justify-end border-none px-2 text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:border-none data-[state=open]:ring-0 [&>span]:w-full"
                                 valueClassName="text-sm"
                               />
                             </div>
@@ -503,7 +550,8 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                       return (
                         <div
                           key={field.id}
-                          className="flex h-7 w-full items-center gap-2"
+                          className={panelFieldRowClassName}
+                          onClick={handlePanelFieldRowClick}
                         >
                           {showAllCustomFields && (
                             <Button
@@ -525,14 +573,14 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                           >
                             {label}
                           </span>
-                          <div className="ml-auto min-w-0 flex-1">
+                          <div className="ml-auto min-w-0 flex-1 tc-panel-row-control">
                             <div className="flex h-7 w-full items-center gap-2">
                               <div className="min-w-0 flex-1">
                                 <CustomField
                                   customField={field}
                                   updateCase={updateCase}
                                   formClassName="w-full"
-                                  inputClassName="w-full min-w-0 text-sm"
+                                  inputClassName="w-full min-w-0 border-none text-sm hover:bg-transparent focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0"
                                 />
                               </div>
                             </div>

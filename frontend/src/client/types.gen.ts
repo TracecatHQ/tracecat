@@ -1459,6 +1459,11 @@ export type CaseReadMinimal = {
   num_tasks_total?: number
 }
 
+export type CaseSearchAggregateRead = {
+  total: number
+  status_groups: CaseStatusGroupCounts
+}
+
 /**
  * Case severity values aligned with OCSF severity values.
  *
@@ -1493,6 +1498,14 @@ export type CaseStatus =
   | "resolved"
   | "closed"
   | "other"
+
+export type CaseStatusGroupCounts = {
+  new?: number
+  in_progress?: number
+  on_hold?: number
+  resolved?: number
+  other?: number
+}
 
 export type CaseTagCreate = {
   /**
@@ -4834,6 +4847,7 @@ export type SecretReadMinimal = {
   description?: string | null
   keys: Array<string>
   environment: string
+  is_corrupted?: boolean
 }
 
 /**
@@ -8783,6 +8797,56 @@ export type CasesSearchCasesData = {
 }
 
 export type CasesSearchCasesResponse = CursorPaginatedResponse_CaseReadMinimal_
+
+export type CasesSearchCaseAggregatesData = {
+  /**
+   * Filter by assignee ID or 'unassigned'
+   */
+  assigneeId?: Array<string> | null
+  /**
+   * Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
+   */
+  dropdown?: Array<string> | null
+  /**
+   * Return cases created at or before this timestamp
+   */
+  endTime?: string | null
+  /**
+   * Filter by case priority
+   */
+  priority?: Array<CasePriority> | null
+  /**
+   * Text to search for in case summary, description, or short ID
+   */
+  searchTerm?: string | null
+  /**
+   * Filter by case severity
+   */
+  severity?: Array<CaseSeverity> | null
+  /**
+   * Return cases created at or after this timestamp
+   */
+  startTime?: string | null
+  /**
+   * Filter by case status
+   */
+  status?: Array<CaseStatus> | null
+  /**
+   * Filter by tag IDs or slugs (AND logic)
+   */
+  tags?: Array<string> | null
+  /**
+   * Return cases updated at or after this timestamp
+   */
+  updatedAfter?: string | null
+  /**
+   * Return cases updated at or before this timestamp
+   */
+  updatedBefore?: string | null
+  workspaceId: string
+}
+
+export type CasesSearchCaseAggregatesResponse = CaseSearchAggregateRead
 
 export type CasesGetCaseData = {
   caseId: string
@@ -12812,6 +12876,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: CursorPaginatedResponse_CaseReadMinimal_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/search/aggregate": {
+    get: {
+      req: CasesSearchCaseAggregatesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseSearchAggregateRead
         /**
          * Validation Error
          */

@@ -12,7 +12,11 @@ from tracecat.auth.types import Role
 from tracecat.cases import router as cases_router
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.schemas import CaseReadMinimal
+from tracecat.cases.schemas import (
+    CaseReadMinimal,
+    CaseSearchAggregateRead,
+    CaseStatusGroupCounts,
+)
 from tracecat.db.models import Case, CaseTag, Workspace
 from tracecat.pagination import CursorPaginatedResponse
 
@@ -625,3 +629,46 @@ async def test_search_cases_forwards_date_filters(
 
         assert response.status_code == status.HTTP_200_OK
         mock_svc.search_cases.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_search_case_aggregates_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test GET /cases/search/aggregate returns grouped global counts."""
+    with (
+        patch.object(cases_router, "CasesService") as MockService,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.get_search_case_aggregates.return_value = CaseSearchAggregateRead(
+            total=42,
+            status_groups=CaseStatusGroupCounts(
+                new=10,
+                in_progress=8,
+                on_hold=4,
+                resolved=18,
+                other=2,
+            ),
+        )
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            "/cases/search/aggregate",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "status": "new",
+                "priority": "medium",
+                "severity": "high",
+                "search_term": "incident",
+                "start_time": "2024-01-01T00:00:00Z",
+                "updated_after": "2024-01-15T00:00:00Z",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["total"] == 42
+        assert data["status_groups"]["new"] == 10
+        assert data["status_groups"]["resolved"] == 18
+        mock_svc.get_search_case_aggregates.assert_called_once()

@@ -1,5 +1,6 @@
 import uuid  # noqa: I001
 import asyncio
+from datetime import UTC, datetime
 from typing import Literal
 from unittest.mock import patch, MagicMock
 
@@ -17,6 +18,7 @@ from tracecat.cases.service import CaseFieldsService, CasesService
 from tracecat.tables.enums import SqlType
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.db.models import Case
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.pagination import CursorPaginationParams
 
@@ -674,6 +676,80 @@ class TestCasesService:
         )
 
         assert search_response.model_dump() == list_response.model_dump()
+
+    async def test_get_search_case_aggregates_applies_enum_filters(
+        self, cases_service: CasesService, session: AsyncSession
+    ) -> None:
+        """Aggregate counts should respect include/exclude enum filters."""
+        now = datetime.now(UTC)
+        session.add_all(
+            [
+                Case(
+                    workspace_id=cases_service.workspace_id,
+                    summary="Case A",
+                    description="A",
+                    status=CaseStatus.NEW,
+                    priority=CasePriority.MEDIUM,
+                    severity=CaseSeverity.LOW,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                Case(
+                    workspace_id=cases_service.workspace_id,
+                    summary="Case B",
+                    description="B",
+                    status=CaseStatus.IN_PROGRESS,
+                    priority=CasePriority.HIGH,
+                    severity=CaseSeverity.MEDIUM,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                Case(
+                    workspace_id=cases_service.workspace_id,
+                    summary="Case C",
+                    description="C",
+                    status=CaseStatus.ON_HOLD,
+                    priority=CasePriority.HIGH,
+                    severity=CaseSeverity.HIGH,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                Case(
+                    workspace_id=cases_service.workspace_id,
+                    summary="Case D",
+                    description="D",
+                    status=CaseStatus.RESOLVED,
+                    priority=CasePriority.CRITICAL,
+                    severity=CaseSeverity.HIGH,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                Case(
+                    workspace_id=cases_service.workspace_id,
+                    summary="Case E",
+                    description="E",
+                    status=CaseStatus.CLOSED,
+                    priority=CasePriority.LOW,
+                    severity=CaseSeverity.LOW,
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ]
+        )
+        await session.commit()
+
+        aggregates = await cases_service.get_search_case_aggregates(
+            status=[CaseStatus.IN_PROGRESS, CaseStatus.RESOLVED],
+            priority=[CasePriority.HIGH, CasePriority.CRITICAL],
+            severity=[CaseSeverity.MEDIUM, CaseSeverity.HIGH],
+        )
+
+        assert aggregates.total == 2
+        assert aggregates.status_groups.new == 0
+        assert aggregates.status_groups.in_progress == 1
+        assert aggregates.status_groups.on_hold == 0
+        assert aggregates.status_groups.resolved == 1
+        assert aggregates.status_groups.other == 0
 
     async def test_create_case_with_nonexistent_field(
         self, cases_service: CasesService

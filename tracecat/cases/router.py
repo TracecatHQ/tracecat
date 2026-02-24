@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypedDict
 
 from asyncpg import DuplicateColumnError
 from fastapi import APIRouter, HTTPException, Query
@@ -37,6 +37,7 @@ from tracecat.cases.schemas import (
     CaseFieldUpdate,
     CaseRead,
     CaseReadMinimal,
+    CaseSearchAggregateRead,
     CaseTaskCreate,
     CaseTaskRead,
     CaseTaskUpdate,
@@ -73,6 +74,96 @@ WorkspaceUser = Annotated[
         require_workspace="yes",
     ),
 ]
+
+
+class ParsedAssigneeFilter(TypedDict):
+    assignee_ids: list[uuid.UUID] | None
+    include_unassigned: bool
+
+
+class ParsedCaseSearchFilters(TypedDict):
+    assignee_ids: list[uuid.UUID] | None
+    include_unassigned: bool
+    tag_ids: list[uuid.UUID] | None
+    dropdown_filters: dict[str, list[str]] | None
+
+
+def _parse_assignee_filter(assignee_id: list[str] | None) -> ParsedAssigneeFilter:
+    parsed_assignee_ids: list[uuid.UUID] = []
+    include_unassigned = False
+    if assignee_id:
+        for identifier in assignee_id:
+            if identifier == "unassigned":
+                include_unassigned = True
+                continue
+            try:
+                parsed_assignee_ids.append(uuid.UUID(identifier))
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid assignee_id: {identifier}",
+                ) from e
+
+    return {
+        "assignee_ids": parsed_assignee_ids or None,
+        "include_unassigned": include_unassigned,
+    }
+
+
+def _parse_dropdown_filter(
+    dropdown: list[str] | None,
+) -> dict[str, list[str]] | None:
+    parsed_dropdown_filters: dict[str, list[str]] | None = None
+    if dropdown:
+        parsed_dropdown_filters = {}
+        for entry in dropdown:
+            if ":" not in entry:
+                raise HTTPException(
+                    status_code=HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid dropdown filter format: {entry!r}. Expected 'definition_ref:option_ref'.",
+                )
+            def_ref, opt_ref = entry.split(":", 1)
+            parsed_dropdown_filters.setdefault(def_ref, []).append(opt_ref)
+    return parsed_dropdown_filters
+
+
+async def _resolve_tag_ids(
+    *,
+    tags: list[str] | None,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+) -> list[uuid.UUID] | None:
+    if not tags:
+        return None
+
+    tag_ids: list[uuid.UUID] = []
+    tags_service = CaseTagsService(session, role)
+    for tag_identifier in tags:
+        try:
+            tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
+            tag_ids.append(tag.id)
+        except NoResultFound:
+            continue
+    return tag_ids or None
+
+
+async def _parse_case_search_filters(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    assignee_id: list[str] | None,
+    tags: list[str] | None,
+    dropdown: list[str] | None,
+) -> ParsedCaseSearchFilters:
+    include_assignees = _parse_assignee_filter(assignee_id)
+
+    return {
+        "assignee_ids": include_assignees["assignee_ids"],
+        "include_unassigned": include_assignees["include_unassigned"],
+        "tag_ids": await _resolve_tag_ids(tags=tags, role=role, session=session),
+        "dropdown_filters": _parse_dropdown_filter(dropdown),
+    }
+
 
 # Case Management
 
@@ -191,52 +282,18 @@ async def search_cases(
     """Search cases with cursor-based pagination, filtering, and sorting."""
     service = CasesService(session, role)
 
-    # Convert tag identifiers to IDs
-    tag_ids = []
-    if tags:
-        tags_service = CaseTagsService(session, role)
-        for tag_identifier in tags:
-            try:
-                tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
-                tag_ids.append(tag.id)
-            except NoResultFound:
-                # Skip tags that do not exist in the workspace
-                continue
-
     pagination_params = CursorPaginationParams(
         limit=limit,
         cursor=cursor,
         reverse=reverse,
     )
-
-    # Parse assignee_id - handle special "unassigned" value
-    parsed_assignee_ids: list[uuid.UUID] = []
-    include_unassigned = False
-    if assignee_id:
-        for identifier in assignee_id:
-            if identifier == "unassigned":
-                include_unassigned = True
-                continue
-            try:
-                parsed_assignee_ids.append(uuid.UUID(identifier))
-            except ValueError as e:
-                raise HTTPException(
-                    status_code=HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid assignee_id: {identifier}",
-                ) from e
-
-    # Parse dropdown filters: "definition_ref:option_ref" -> {def_ref: [opt_refs]}
-    parsed_dropdown_filters: dict[str, list[str]] | None = None
-    if dropdown:
-        parsed_dropdown_filters = {}
-        for entry in dropdown:
-            if ":" not in entry:
-                raise HTTPException(
-                    status_code=HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid dropdown filter format: {entry!r}. Expected 'definition_ref:option_ref'.",
-                )
-            def_ref, opt_ref = entry.split(":", 1)
-            parsed_dropdown_filters.setdefault(def_ref, []).append(opt_ref)
+    parsed_filters = await _parse_case_search_filters(
+        role=role,
+        session=session,
+        assignee_id=assignee_id,
+        tags=tags,
+        dropdown=dropdown,
+    )
 
     try:
         cases = await service.search_cases(
@@ -245,10 +302,10 @@ async def search_cases(
             status=status,
             priority=priority,
             severity=severity,
-            assignee_ids=parsed_assignee_ids or None,
-            include_unassigned=include_unassigned,
-            tag_ids=tag_ids if tag_ids else None,
-            dropdown_filters=parsed_dropdown_filters,
+            assignee_ids=parsed_filters["assignee_ids"],
+            include_unassigned=parsed_filters["include_unassigned"],
+            tag_ids=parsed_filters["tag_ids"],
+            dropdown_filters=parsed_filters["dropdown_filters"],
             start_time=start_time,
             end_time=end_time,
             updated_after=updated_after,
@@ -271,6 +328,87 @@ async def search_cases(
             detail="Failed to retrieve cases",
         ) from e
     return cases
+
+
+@cases_router.get("/search/aggregate")
+@require_scope("case:read")
+async def search_case_aggregates(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    search_term: str | None = Query(
+        None,
+        description="Text to search for in case summary, description, or short ID",
+    ),
+    status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
+    priority: list[CasePriority] | None = Query(
+        None, description="Filter by case priority"
+    ),
+    severity: list[CaseSeverity] | None = Query(
+        None, description="Filter by case severity"
+    ),
+    tags: list[str] | None = Query(
+        None, description="Filter by tag IDs or slugs (AND logic)"
+    ),
+    dropdown: list[str] | None = Query(
+        None,
+        description="Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)",
+    ),
+    start_time: datetime | None = Query(
+        None, description="Return cases created at or after this timestamp"
+    ),
+    end_time: datetime | None = Query(
+        None, description="Return cases created at or before this timestamp"
+    ),
+    updated_after: datetime | None = Query(
+        None, description="Return cases updated at or after this timestamp"
+    ),
+    updated_before: datetime | None = Query(
+        None, description="Return cases updated at or before this timestamp"
+    ),
+    assignee_id: list[str] | None = Query(
+        None, description="Filter by assignee ID or 'unassigned'"
+    ),
+) -> CaseSearchAggregateRead:
+    """Return global case totals and per-stage counts for the current filters."""
+    service = CasesService(session, role)
+    parsed_filters = await _parse_case_search_filters(
+        role=role,
+        session=session,
+        assignee_id=assignee_id,
+        tags=tags,
+        dropdown=dropdown,
+    )
+
+    try:
+        return await service.get_search_case_aggregates(
+            search_term=search_term,
+            status=status,
+            priority=priority,
+            severity=severity,
+            assignee_ids=parsed_filters["assignee_ids"],
+            include_unassigned=parsed_filters["include_unassigned"],
+            tag_ids=parsed_filters["tag_ids"],
+            dropdown_filters=parsed_filters["dropdown_filters"],
+            start_time=start_time,
+            end_time=end_time,
+            updated_after=updated_after,
+            updated_before=updated_before,
+        )
+    except ValueError as e:
+        logger.warning(f"Invalid request for case aggregate counts: {e}")
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch case aggregate counts: {e}")
+        raise HTTPException(
+            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve case aggregate counts",
+        ) from e
 
 
 @cases_router.get("/{case_id}")
