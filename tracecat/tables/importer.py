@@ -56,9 +56,13 @@ class CSVImporter:
     ) -> dict[str, Any]:
         """Map a single CSV row to table columns with type conversion."""
         mapped_row: dict[str, Any] = {}
-        normalized_row = {
-            normalize_csv_header(key): value for key, value in csv_row.items()
-        }
+        normalized_row: dict[str, str | None] = {}
+        for key, value in csv_row.items():
+            # DictReader stores overflow columns under None when rows contain
+            # more values than headers (e.g. malformed CSV rows).
+            if key is None:
+                continue
+            normalized_row[normalize_csv_header(key)] = value
 
         for csv_col, table_col in column_mapping.items():
             if not table_col or table_col == "skip":

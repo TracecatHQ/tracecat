@@ -63,4 +63,16 @@ describe("CSV auto column mapping", () => {
     expect(mapping.customer_name).toBe("skip")
     expect(mapping.freshservice_id).toBe("freshservice_id")
   })
+
+  it("drops duplicate headers and keeps the first mapping", () => {
+    const mapping = buildAutoColumnMapping(
+      ["customer_name", "customer_name", "customer_id"],
+      ["customer_name", "customer_id", "customer_name_backup"]
+    )
+
+    expect(mapping).toEqual({
+      customer_name: "customer_name",
+      customer_id: "customer_id",
+    })
+  })
 })

@@ -1,5 +1,7 @@
 """Unit tests for the CSVImporter class."""
 
+from collections.abc import Mapping
+from typing import cast
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
@@ -255,6 +257,26 @@ class TestCSVImporter:
             match="Invalid null byte in column 'name' at CSV row 2",
         ):
             csv_importer.map_row(csv_row, column_mapping, row_number=2)
+
+    def test_map_row_ignores_none_restkey(self, csv_importer: CSVImporter) -> None:
+        """Test malformed rows with DictReader restkey entries do not crash mapping."""
+        raw_row: dict[str | None, str | list[str]] = {
+            "csv_name": "John Doe",
+            "csv_age": "30",
+            None: ["extra", "values"],
+        }
+        csv_row = cast(Mapping[str, str | None], raw_row)
+        column_mapping = {
+            "csv_name": "name",
+            "csv_age": "age",
+        }
+
+        mapped_row = csv_importer.map_row(csv_row, column_mapping, row_number=2)
+
+        assert mapped_row == {
+            "name": "John Doe",
+            "age": 30,
+        }
 
     @pytest.mark.anyio
     async def test_process_chunk(self, csv_importer: CSVImporter) -> None:

@@ -67,7 +67,10 @@ const csvImportSchema = z.object({
   columnMapping: z
     .record(z.string(), z.string())
     .refine(
-      (mapping) => Object.keys(mapping).length > 0,
+      (mapping) =>
+        Object.values(mapping).some(
+          (value) => typeof value === "string" && value !== "skip"
+        ),
       "Please map at least one column"
     ),
 })
@@ -170,6 +173,16 @@ export function TableImportCsvDialog({
         table.columns.map((column) => column.name),
         columnMapping
       )
+      const hasMappedColumns = Object.values(finalColumnMapping).some(
+        (value) => value !== "skip"
+      )
+      if (!hasMappedColumns) {
+        form.setError("root", {
+          type: "manual",
+          message: "Please map at least one column before importing.",
+        })
+        return
+      }
       const response = await importCsv({
         formData: {
           file,
@@ -290,7 +303,9 @@ export function TableImportCsvDialog({
                   type="submit"
                   disabled={
                     importCsvIsPending ||
-                    Object.keys(columnMapping).length === 0
+                    !Object.values(columnMapping).some(
+                      (value) => value !== "skip"
+                    )
                   }
                 >
                   {importCsvIsPending ? (

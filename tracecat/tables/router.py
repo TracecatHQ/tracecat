@@ -1,5 +1,4 @@
 import csv
-from collections import Counter
 from io import StringIO
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -736,20 +735,38 @@ async def import_csv(
         if not csv_headers:
             raise TracecatImportError("CSV file must include a header row")
 
-        normalized_headers = [normalize_csv_header(header) for header in csv_headers]
-        duplicate_headers = [
-            header if header else "<empty>"
-            for header, count in Counter(normalized_headers).items()
-            if count > 1
+        normalized_headers = [
+            normalize_csv_header(header or "") for header in csv_headers
         ]
-        if duplicate_headers:
-            duplicates_display = ", ".join(sorted(duplicate_headers))
-            raise TracecatImportError(
-                f"CSV headers must be unique. Duplicate columns: {duplicates_display}"
+        seen_normalized_headers: set[str] = set()
+        canonical_headers: list[str] = []
+        normalized_reader_headers: list[str] = []
+        duplicate_header_count = 0
+
+        for index, (header, normalized) in enumerate(
+            zip(csv_headers, normalized_headers, strict=False)
+        ):
+            header_value = header or ""
+            if normalized in seen_normalized_headers:
+                duplicate_header_count += 1
+                # Keep column positions stable while dropping duplicate names
+                # from mapping by assigning hidden synthetic keys.
+                normalized_reader_headers.append(f"__tracecat_duplicate_{index}")
+                continue
+            seen_normalized_headers.add(normalized)
+            canonical_headers.append(header_value)
+            normalized_reader_headers.append(header_value)
+
+        if duplicate_header_count:
+            logger.info(
+                "CSV contains duplicate headers; keeping first occurrence",
+                duplicate_header_count=duplicate_header_count,
             )
 
-        header_set = set(csv_headers)
-        normalized_header_set = set(normalized_headers)
+        csv_reader.fieldnames = normalized_reader_headers
+
+        header_set = set(canonical_headers)
+        normalized_header_set = seen_normalized_headers
         missing_mapped_headers = [
             csv_col
             for csv_col, table_col in column_mapping.items()

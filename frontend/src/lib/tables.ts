@@ -64,9 +64,16 @@ export function buildAutoColumnMapping(
     search: toFuzzySearchText(name),
   }))
   const usedColumnNames = new Set<string>()
+  const seenHeaders = new Set<string>()
   const mapping: Record<string, string> = {}
 
   for (const header of csvHeaders) {
+    const dedupeKey = header.replace(/^\uFEFF/, "")
+    if (seenHeaders.has(dedupeKey)) {
+      continue
+    }
+    seenHeaders.add(dedupeKey)
+
     let matchedName: string | null = null
     const canonicalHeader = canonicalizeColumnName(header)
 
@@ -141,9 +148,16 @@ export function resolveColumnMapping(
 ): Record<string, string> {
   const validTargets = new Set<string>([...tableColumnNames, "skip"])
   const suggestedMapping = buildAutoColumnMapping(csvHeaders, tableColumnNames)
+  const seenHeaders = new Set<string>()
   const resolved: Record<string, string> = {}
 
   for (const header of csvHeaders) {
+    const dedupeKey = header.replace(/^\uFEFF/, "")
+    if (seenHeaders.has(dedupeKey)) {
+      continue
+    }
+    seenHeaders.add(dedupeKey)
+
     const existing = currentMapping[header]
     if (typeof existing === "string" && validTargets.has(existing)) {
       resolved[header] = existing
