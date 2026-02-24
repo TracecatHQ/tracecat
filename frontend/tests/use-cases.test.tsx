@@ -3,9 +3,10 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type {
   CaseReadMinimal,
+  CaseStatus,
   CasesSearchCaseAggregatesResponse,
   CasesSearchCasesResponse,
 } from "@/client"
@@ -58,6 +59,45 @@ function HookProbe() {
       <span data-testid="rows">{cases.length}</span>
       <span data-testid="total">{totalFilteredCaseEstimate ?? -1}</span>
       <span data-testid="new-count">{stageCounts?.new ?? -1}</span>
+    </div>
+  )
+}
+
+const ALL_STATUSES: CaseStatus[] = [
+  "unknown",
+  "new",
+  "in_progress",
+  "on_hold",
+  "resolved",
+  "closed",
+  "other",
+]
+
+function ImpossibleFilterProbe() {
+  const {
+    cases,
+    totalFilteredCaseEstimate,
+    stageCounts,
+    setStatusFilter,
+    setStatusMode,
+  } = useCases({
+    autoRefresh: false,
+  })
+
+  return (
+    <div>
+      <span data-testid="rows">{cases.length}</span>
+      <span data-testid="total">{totalFilteredCaseEstimate ?? -1}</span>
+      <span data-testid="new-count">{stageCounts?.new ?? -1}</span>
+      <button
+        onClick={() => {
+          setStatusMode("exclude")
+          setStatusFilter(ALL_STATUSES)
+        }}
+        type="button"
+      >
+        impossible-filter
+      </button>
     </div>
   )
 }
@@ -127,5 +167,59 @@ describe("useCases", () => {
         workspaceId: "workspace-1",
       })
     )
+  })
+
+  it("clears rows when enum exclude filters match no records", async () => {
+    const firstPage: CasesSearchCasesResponse = {
+      items: [createCase(1)],
+      next_cursor: null,
+      prev_cursor: null,
+      has_more: false,
+      has_previous: false,
+      total_estimate: 1,
+    }
+
+    const aggregate: CasesSearchCaseAggregatesResponse = {
+      total: 1,
+      status_groups: {
+        new: 1,
+        in_progress: 0,
+        on_hold: 0,
+        resolved: 0,
+        other: 0,
+      },
+    }
+
+    mockSearchCases.mockResolvedValue(firstPage)
+    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ImpossibleFilterProbe />
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rows")).toHaveTextContent("1")
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "impossible-filter" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rows")).toHaveTextContent("0")
+    })
+
+    expect(screen.getByTestId("total")).toHaveTextContent("0")
+    expect(screen.getByTestId("new-count")).toHaveTextContent("0")
+    expect(mockSearchCases).toHaveBeenCalledTimes(1)
+    expect(mockSearchCaseAggregates).toHaveBeenCalledTimes(1)
   })
 })

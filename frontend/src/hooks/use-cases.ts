@@ -367,8 +367,12 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   }, [prioritySortDirection, severitySortDirection])
 
   const filtersKey = useMemo(
-    () => JSON.stringify(apiQueryParams),
-    [apiQueryParams]
+    () =>
+      JSON.stringify({
+        apiQueryParams,
+        hasImpossibleEnumFilter,
+      }),
+    [apiQueryParams, hasImpossibleEnumFilter]
   )
 
   const rowsKey = useMemo(
@@ -490,6 +494,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     return flattenedCases
   }, [flattenedCases, assigneeSortDirection, tagSortDirection])
 
+  const cases = hasImpossibleEnumFilter ? [] : sortedCases
+
   const totalFilteredCaseEstimate = hasImpossibleEnumFilter
     ? 0
     : (aggregateData?.total ?? rowsData?.pages[0]?.total_estimate ?? null)
@@ -507,7 +513,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   }, [fetchNextPage, hasNextPage, isFetchingNextPage])
 
   return {
-    cases: sortedCases,
+    cases,
     isLoading,
     error: error ?? null,
     refetch,
@@ -558,7 +564,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     isCountsLoading: hasImpossibleEnumFilter ? false : isCountsLoading,
     isCountsFetching: hasImpossibleEnumFilter ? false : isCountsFetching,
     hasNextPage: hasImpossibleEnumFilter ? false : Boolean(hasNextPage),
-    isFetchingNextPage,
+    isFetchingNextPage: hasImpossibleEnumFilter ? false : isFetchingNextPage,
     fetchNextPage: handleFetchNextPage,
   }
 }

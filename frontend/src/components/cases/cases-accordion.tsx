@@ -12,7 +12,7 @@ import {
   TrafficConeIcon,
 } from "lucide-react"
 import type { ComponentType } from "react"
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
   CaseReadMinimal,
@@ -125,11 +125,74 @@ function VirtualizedGroupRows({
   members,
   dropdownDefinitions,
 }: VirtualizedGroupRowsProps) {
+  const groupContainerRef = useRef<HTMLDivElement | null>(null)
+  const [scrollMargin, setScrollMargin] = useState(0)
+
+  useLayoutEffect(() => {
+    const scrollElement = scrollContainerRef.current
+    const groupElement = groupContainerRef.current
+    if (!scrollElement || !groupElement) {
+      return
+    }
+
+    let frameId = 0
+
+    const updateScrollMargin = () => {
+      const currentScrollElement = scrollContainerRef.current
+      const currentGroupElement = groupContainerRef.current
+      if (!currentScrollElement || !currentGroupElement) {
+        return
+      }
+
+      const nextMargin =
+        currentGroupElement.getBoundingClientRect().top -
+        currentScrollElement.getBoundingClientRect().top +
+        currentScrollElement.scrollTop
+
+      setScrollMargin((prev) =>
+        Math.abs(prev - nextMargin) < 0.5 ? prev : nextMargin
+      )
+    }
+
+    const scheduleUpdate = () => {
+      if (frameId) {
+        return
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = 0
+        updateScrollMargin()
+      })
+    }
+
+    updateScrollMargin()
+
+    const resizeObserver = new ResizeObserver(scheduleUpdate)
+    resizeObserver.observe(groupElement)
+    const accordionRoot = scrollElement.firstElementChild
+    if (accordionRoot instanceof HTMLElement) {
+      resizeObserver.observe(accordionRoot)
+    }
+
+    scrollElement.addEventListener("scroll", scheduleUpdate, { passive: true })
+    window.addEventListener("resize", scheduleUpdate)
+
+    return () => {
+      resizeObserver.disconnect()
+      scrollElement.removeEventListener("scroll", scheduleUpdate)
+      window.removeEventListener("resize", scheduleUpdate)
+      if (frameId) {
+        window.cancelAnimationFrame(frameId)
+      }
+    }
+  }, [groupCases.length, scrollContainerRef])
+
   const rowVirtualizer = useVirtualizer({
     count: groupCases.length,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => 44,
     overscan: 8,
+    scrollMargin,
     getItemKey: (index) => groupCases[index]?.id ?? index,
   })
 
@@ -139,6 +202,7 @@ function VirtualizedGroupRows({
 
   return (
     <div
+      ref={groupContainerRef}
       className="relative w-full"
       style={{
         height: `${rowVirtualizer.getTotalSize()}px`,
@@ -154,7 +218,9 @@ function VirtualizedGroupRows({
           <div
             key={virtualItem.key}
             className="absolute left-0 top-0 w-full"
-            style={{ transform: `translateY(${virtualItem.start}px)` }}
+            style={{
+              transform: `translateY(${virtualItem.start - scrollMargin}px)`,
+            }}
           >
             <CaseItem
               caseData={caseData}
