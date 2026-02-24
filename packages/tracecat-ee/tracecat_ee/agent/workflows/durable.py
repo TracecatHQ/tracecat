@@ -15,16 +15,17 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import config
     from tracecat.agent.common.stream_types import HarnessType
+    from tracecat.agent.common.types import MCPHttpServerConfig, MCPServerConfig
     from tracecat.agent.executor.activity import (
         AgentExecutorInput,
         ApprovedToolCall,
         DeniedToolCall,
+        ExecuteApprovedToolsInput,
+        execute_approved_tools_activity,
         run_agent_activity,
     )
     from tracecat.agent.mcp.executor import (
-        AGENT_TOOL_PRIORITY,
         build_run_input,
-        build_tracecat_mcp_role,
     )
     from tracecat.agent.mcp.utils import normalize_mcp_tool_name
     from tracecat.agent.parsers import try_parse_json
@@ -36,11 +37,8 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.session.activities import (
         CreateSessionInput,
         LoadSessionInput,
-        PendingToolResult,
-        ReconcileToolResultsInput,
         create_session_activity,
         load_session_activity,
-        reconcile_tool_results_activity,
     )
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.tokens import (
@@ -53,7 +51,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.auth.types import Role
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import RETRY_POLICIES
-    from tracecat.executor.activities import ExecutorActivities
     from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
     from tracecat.workflow.executions.correlation import (
@@ -522,10 +519,43 @@ class DurableAgentWorkflow:
 
                 tool_results = None
                 if approved_tools or denied_tools:
-                    tool_results = await self._execute_and_reconcile_approved_tools(
-                        approved_tools=approved_tools,
-                        denied_tools=denied_tools,
+                    if self._registry_lock is None:
+                        raise ApplicationError(
+                            "Registry lock not initialized",
+                            non_retryable=True,
+                        )
+                    # Convert user MCP claims to configs for tool execution
+                    user_mcp_configs: list[MCPServerConfig] | None = (
+                        [
+                            MCPHttpServerConfig(
+                                name=claim.name,
+                                url=claim.url,
+                                transport=claim.transport,
+                                headers=claim.headers,
+                            )
+                            for claim in user_mcp_claims
+                        ]
+                        if user_mcp_claims
+                        else None
                     )
+
+                    tool_exec_result = await workflow.execute_activity(
+                        execute_approved_tools_activity,
+                        ExecuteApprovedToolsInput(
+                            session_id=self.session_id,
+                            workspace_id=self.workspace_id,
+                            role=self.role,
+                            approved_tools=approved_tools,
+                            denied_tools=denied_tools,
+                            allowed_actions=list(allowed_actions.keys()),
+                            registry_lock=self._registry_lock,
+                            user_mcp_configs=user_mcp_configs,
+                        ),
+                        start_to_close_timeout=timedelta(seconds=300),
+                        heartbeat_timeout=timedelta(seconds=60),
+                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                    )
+                    tool_results = tool_exec_result.results
                     logger.info(
                         "Tool execution completed",
                         result_count=len(tool_results),
@@ -651,84 +681,3 @@ class DurableAgentWorkflow:
         )
 
         return approved, denied
-
-    async def _execute_and_reconcile_approved_tools(
-        self,
-        *,
-        approved_tools: list[ApprovedToolCall],
-        denied_tools: list[DeniedToolCall],
-    ) -> list:
-        if self._registry_lock is None:
-            raise ApplicationError(
-                "Registry lock not initialized",
-                non_retryable=True,
-            )
-
-        logical_time = workflow.now()
-        service_role = build_tracecat_mcp_role(
-            workspace_id=self.role.workspace_id,
-            organization_id=self.role.organization_id,
-            user_id=self.role.user_id,
-        )
-        pending_results: list[PendingToolResult] = []
-        for tool_call in approved_tools:
-            try:
-                stored = await workflow.execute_activity(
-                    ExecutorActivities.execute_action_activity,
-                    args=[
-                        _build_approved_tool_run_input(
-                            tool_call=tool_call,
-                            registry_lock=self._registry_lock,
-                            workflow_id=workflow.uuid4(),
-                            run_id=workflow.uuid4(),
-                            execution_id=workflow.uuid4(),
-                            logical_time=logical_time,
-                        ),
-                        service_role,
-                    ],
-                    task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-                    start_to_close_timeout=timedelta(
-                        seconds=int(config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT)
-                    ),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                    priority=AGENT_TOOL_PRIORITY,
-                )
-                pending_results.append(
-                    PendingToolResult(
-                        tool_call_id=tool_call.tool_call_id,
-                        tool_name=tool_call.tool_name,
-                        stored_result=stored,
-                    )
-                )
-            except ActivityError as e:
-                pending_results.append(
-                    PendingToolResult(
-                        tool_call_id=tool_call.tool_call_id,
-                        tool_name=tool_call.tool_name,
-                        raw_result=f"Tool execution failed: {_activity_error_message(e)}",
-                        is_error=True,
-                    )
-                )
-
-        for denied_tool in denied_tools:
-            pending_results.append(
-                PendingToolResult(
-                    tool_call_id=denied_tool.tool_call_id,
-                    tool_name=denied_tool.tool_name,
-                    raw_result=f"Tool denied by user: {denied_tool.reason}",
-                    is_error=True,
-                )
-            )
-
-        reconcile = await workflow.execute_activity(
-            reconcile_tool_results_activity,
-            ReconcileToolResultsInput(
-                session_id=self.session_id,
-                workspace_id=self.workspace_id,
-                role=self.role,
-                pending_results=pending_results,
-            ),
-            start_to_close_timeout=timedelta(seconds=300),
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-        )
-        return reconcile.results

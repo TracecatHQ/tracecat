@@ -8,9 +8,22 @@ The fetch_tool_definitions() function requires DB access and uses lazy imports.
 
 from __future__ import annotations
 
-from tracecat.agent.common.types import MCPToolDefinition
+from typing import TYPE_CHECKING, TypeGuard
+
+from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
+
+if TYPE_CHECKING:
+    from tracecat.agent.common.types import MCPServerConfig
 
 REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
+
+
+def is_http_server(config: MCPServerConfig) -> TypeGuard[MCPHttpServerConfig]:
+    """Return True if the MCP server config is an HTTP/SSE server.
+
+    Legacy HTTP configs may omit "type"; treat missing as HTTP for compatibility.
+    """
+    return config.get("type", "http") == "http"
 LEGACY_REGISTRY_MCP_SERVER_NAME = "tracecat_registry"
 
 
@@ -110,6 +123,27 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
 
     # Other tool names returned as-is
     return mcp_tool_name
+
+
+def mcp_tool_name_to_canonical(discovered_name: str) -> str:
+    """Convert discovered MCP tool name to canonical dot format.
+
+    Discovered names follow the pattern ``mcp__{server}__{tool}``.
+    The canonical format is ``mcp.{server}.{tool}``.
+
+    This must produce the same result as :func:`normalize_mcp_tool_name`
+    when given the runtime-wrapped version
+    ``mcp__tracecat-registry__mcp__{server}__{tool}``.
+
+    Examples:
+        mcp__Linear__list_issues  -> mcp.Linear.list_issues
+        mcp__Sentry__get_issue    -> mcp.Sentry.get_issue
+    """
+    if discovered_name.startswith("mcp__"):
+        parts = discovered_name.split("__", 2)
+        if len(parts) >= 3:
+            return f"mcp.{parts[1]}.{parts[2]}"
+    return discovered_name
 
 
 async def fetch_tool_definitions(

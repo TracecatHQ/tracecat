@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
-from typing import Any, TypeGuard
+from typing import Any
 
 from pydantic import (
     UUID4,
@@ -11,7 +11,6 @@ from pydantic import (
 from temporalio import activity
 
 from tracecat.agent.common.types import (
-    MCPHttpServerConfig,
     MCPServerConfig,
     MCPToolDefinition,
 )
@@ -20,6 +19,7 @@ from tracecat.agent.mcp.internal_tools import (
     BUILDER_INTERNAL_TOOL_NAMES,
     get_builder_internal_tool_definitions,
 )
+from tracecat.agent.mcp.utils import is_http_server
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.tokens import InternalToolContext, UserMCPServerClaim
 from tracecat.agent.tools import build_agent_tools
@@ -81,10 +81,6 @@ class ApplyApprovalResultsActivityInputs(BaseModel):
 
 class AgentActivities:
     """Activities for agent execution."""
-
-    @staticmethod
-    def _is_http_server(config: MCPServerConfig) -> TypeGuard[MCPHttpServerConfig]:
-        return config.get("type", "http") == "http"
 
     def get_activities(self) -> list[Callable[..., Any]]:
         return all_activities(self)
@@ -158,7 +154,7 @@ class AgentActivities:
             from tracecat.agent.mcp.user_client import discover_user_mcp_tools
 
             http_servers = [
-                cfg for cfg in args.mcp_servers if self._is_http_server(cfg)
+                cfg for cfg in args.mcp_servers if is_http_server(cfg)
             ]
             if not http_servers:
                 logger.info("No HTTP MCP servers configured for discovery")

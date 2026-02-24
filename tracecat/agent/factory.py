@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import Any, TypeGuard
+from typing import Any
 
 from pydantic_ai import Agent, ModelSettings
 from pydantic_ai.agent import AbstractAgent
@@ -9,24 +9,28 @@ from pydantic_ai.mcp import MCPServerStreamableHTTP
 from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai.tools import Tool as PATool
 
-from tracecat.agent.common.types import MCPHttpServerConfig, MCPServerConfig
+from tracecat.agent.mcp.utils import is_http_server
 from tracecat.agent.parsers import parse_output_type
 from tracecat.agent.prompts import ToolCallPrompt, VerbosityPrompt
 from tracecat.agent.providers import get_model
 from tracecat.agent.runtime.pydantic_ai.adapter import to_pydantic_ai_tools
 from tracecat.agent.tools import build_agent_tools
 from tracecat.agent.types import AgentConfig
+from tracecat.logger import logger
 
 type AgentFactory = Callable[[AgentConfig], Awaitable[AbstractAgent[Any, Any]]]
 
 
-def _is_http_server(config: MCPServerConfig) -> TypeGuard[MCPHttpServerConfig]:
-    # Legacy HTTP configs may omit "type"; treat missing as HTTP for compatibility.
-    return config.get("type", "http") == "http"
-
-
 async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
     """The default factory for building an agent."""
+
+    if config.tool_approvals and any(
+        k.startswith("mcp.") for k in config.tool_approvals
+    ):
+        logger.warning(
+            "MCP tool approvals are only supported in Claude Code runtime; "
+            "approvals for MCP tools will be ignored in PydanticAI runtime"
+        )
 
     agent_tools: list[PATool] = []
     tool_prompt_tools: list[PATool] = []
@@ -63,7 +67,7 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
     toolsets = None
     if config.mcp_servers:
         http_servers = [
-            server for server in config.mcp_servers if _is_http_server(server)
+            server for server in config.mcp_servers if is_http_server(server)
         ]
         toolsets = []
         for server in http_servers:
