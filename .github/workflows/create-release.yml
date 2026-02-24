@@ -36,10 +36,14 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Sync with latest main
+        id: sync
         run: |
           git fetch origin main --tags
           git checkout main
           git reset --hard origin/main
+
+          BASE_SHA=$(git rev-parse HEAD)
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Bump version
         run: just update version
@@ -53,6 +57,27 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure version has not already been published
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = '${{ steps.version.outputs.version }}'
+            const { data: releases } = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            })
+
+            const publishedRelease = releases.find(
+              (release) => !release.draft && release.tag_name === version,
+            )
+            if (publishedRelease) {
+              core.setFailed(
+                `Release ${version} is already published (release id ${publishedRelease.id}). Bump version before running create-release.`,
+              )
+              return
+            }
 
       - name: Commit version bump and push
         id: commit
@@ -71,7 +96,9 @@ jobs:
 
           git add -A
           git commit -m "release: ${VERSION}"
-          git push origin HEAD:main
+          git push \
+            --force-with-lease=main:${{ steps.sync.outputs.base_sha }} \
+            origin HEAD:main
 
           SHA=$(git rev-parse HEAD)
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
