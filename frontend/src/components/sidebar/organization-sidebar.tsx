@@ -7,7 +7,6 @@ import {
   GitBranchIcon,
   GlobeIcon,
   KeyRoundIcon,
-  LinkIcon,
   LockIcon,
   LogInIcon,
   LogsIcon,
@@ -106,12 +105,13 @@ export function OrganizationSidebar({
       visible: canViewSettings === true,
       locked: !gitSyncEnabled,
     },
-    {
-      title: "MCP",
-      url: "/organization/settings/mcp",
-      icon: LinkIcon,
-      isActive: pathname?.includes("/organization/settings/mcp"),
-    },
+    // MCP settings page not yet implemented — hidden until route exists
+    // {
+    //   title: "MCP",
+    //   url: "/organization/settings/mcp",
+    //   icon: LinkIcon,
+    //   isActive: pathname?.includes("/organization/settings/mcp"),
+    // },
   ]
 
   const navSecrets = [

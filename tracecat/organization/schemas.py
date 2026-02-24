@@ -53,20 +53,6 @@ class OrgRead(BaseModel):
     name: str
 
 
-class OrgMCPClientSnippets(BaseModel):
-    codex: str
-    claude_code: str
-    cursor: str
-
-
-class OrgMCPConnectRead(BaseModel):
-    organization_id: OrganizationID
-    server_url: str
-    scoped_server_url: str
-    scope_expires_at: datetime
-    snippets: OrgMCPClientSnippets
-
-
 class OrgDomainRead(BaseModel):
     id: UUID
     organization_id: OrganizationID

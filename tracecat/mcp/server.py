@@ -51,7 +51,6 @@ from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.logger import logger
 from tracecat.mcp.auth import (
     create_mcp_auth,
-    list_organizations_for_request,
     list_workspaces_for_request,
     resolve_role_for_request,
 )
@@ -1220,22 +1219,6 @@ async def list_workspaces() -> str:
         raise ToolError(f"Failed to list workspaces: {e}") from None
 
 
-@mcp.tool()
-async def list_organizations() -> str:
-    """List all organizations the authenticated user belongs to.
-
-    Returns a JSON array of organization objects with id, name, and role.
-    """
-    try:
-        orgs = await list_organizations_for_request()
-        return _json(orgs)
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to list organizations", error=str(e))
-        raise ToolError(f"Failed to list organizations: {e}") from None
-
-
 # ---------------------------------------------------------------------------
 # Workflow CRUD tools
 # ---------------------------------------------------------------------------
@@ -1289,8 +1272,9 @@ async def create_workflow(
             if "description" not in defn and description:
                 defn["description"] = description
 
-            # Auto-generate layout if not provided
-            if "layout" not in external_defn_data:
+            # Auto-generate layout if not provided or empty
+            layout_data = external_defn_data.get("layout")
+            if not layout_data:
                 actions = defn.get("actions", [])
                 if actions:
                     external_defn_data["layout"] = _auto_generate_layout(actions)
@@ -1313,6 +1297,8 @@ async def create_workflow(
                     workflow = wf
                     _apply_layout_to_workflow(workflow=workflow, layout=layout)
                     svc.session.add(workflow)
+                    for action in workflow.actions:
+                        svc.session.add(action)
                     await svc.session.commit()
                     await svc.session.refresh(workflow)
                     layout_applied = True
@@ -1524,11 +1510,11 @@ async def update_workflow(
                 else None
             )
 
-            # Auto-generate layout when definition is provided but layout is not
+            # Auto-generate layout when definition is provided but layout is missing/empty
             if (
                 yaml_payload is not None
                 and yaml_payload.definition is not None
-                and yaml_payload.layout is None
+                and (yaml_payload.layout is None or not yaml_payload.layout.actions)
             ):
                 raw = yaml.safe_load(definition_yaml) if definition_yaml else {}
                 defn_raw = raw.get("definition", raw) if isinstance(raw, dict) else {}
@@ -1548,6 +1534,8 @@ async def update_workflow(
             if yaml_payload is not None and yaml_payload.layout is not None:
                 await svc.session.refresh(workflow, ["actions"])
                 _apply_layout_to_workflow(workflow=workflow, layout=yaml_payload.layout)
+                for action in workflow.actions:
+                    svc.session.add(action)
 
             offline_schedule_ids: list[uuid.UUID] = []
             if yaml_payload is not None and yaml_payload.schedules is not None:
@@ -1602,15 +1590,16 @@ async def list_workflows(
     search: str | None = None,
 ) -> str:
     """List workflows in a workspace."""
+    from tracecat.pagination import CursorPaginationParams
     from tracecat.workflow.management.management import WorkflowsManagementService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         limit = max(1, min(limit, 200))
         async with WorkflowsManagementService.with_session(role=role) as svc:
-            results = await svc.list_workflows()
+            page = await svc.list_workflows(CursorPaginationParams(limit=limit))
             workflows: list[dict[str, Any]] = []
-            for workflow, latest_defn in results:
+            for workflow, latest_defn in page.items:
                 if status and workflow.status != status:
                     continue
                 if search:
@@ -3379,16 +3368,15 @@ async def search_table_rows(
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         limit = max(1, min(limit, 1000))
-        offset = max(0, offset)
+        _ = max(0, offset)  # offset reserved for future cursor support
         async with TablesService.with_session(role=role) as svc:
             table = await svc.get_table(uuid.UUID(table_id))
-            rows = await svc.search_rows(
+            page = await svc.search_rows(
                 table,
                 search_term=search_term,
                 limit=limit,
-                offset=offset,
             )
-            return _json(rows)
+            return _json(page.items)
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -3457,17 +3445,18 @@ async def list_cases(
     """List cases."""
     from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
     from tracecat.cases.service import CasesService
+    from tracecat.pagination import CursorPaginationParams
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         limit = max(1, min(limit, 200))
         async with CasesService.with_session(role=role) as svc:
-            cases = await svc.search_cases(
+            page = await svc.search_cases(
+                params=CursorPaginationParams(limit=limit),
                 search_term=search,
                 status=CaseStatus(status) if status else None,
                 priority=CasePriority(priority) if priority else None,
                 severity=CaseSeverity(severity) if severity else None,
-                limit=limit,
             )
             return _json(
                 [
@@ -3479,7 +3468,7 @@ async def list_cases(
                         "priority": case.priority,
                         "severity": case.severity,
                     }
-                    for case in cases
+                    for case in page.items
                 ]
             )
     except ValueError as e:

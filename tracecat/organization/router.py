@@ -1,4 +1,3 @@
-import json
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
@@ -31,19 +30,12 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.mcp.auth import (
-    build_scoped_mcp_server_url,
-    get_mcp_server_url,
-    mint_mcp_connection_scope_token,
-)
 from tracecat.organization.schemas import (
     OrgDomainRead,
     OrgInvitationAccept,
     OrgInvitationCreate,
     OrgInvitationRead,
     OrgInvitationReadMinimal,
-    OrgMCPClientSnippets,
-    OrgMCPConnectRead,
     OrgMemberDetail,
     OrgMemberRead,
     OrgMemberStatus,
@@ -71,32 +63,6 @@ def _get_user_display_name_and_email(
         name = user.email
 
     return name, user.email
-
-
-def _build_mcp_client_snippets(scoped_url: str) -> OrgMCPClientSnippets:
-    codex_config = {
-        "mcpServers": {
-            "tracecat": {
-                "url": scoped_url,
-            }
-        }
-    }
-    claude_code_config = {
-        "mcpServers": {
-            "tracecat": {
-                "transport": {
-                    "type": "streamable-http",
-                    "url": scoped_url,
-                }
-            }
-        }
-    }
-    cursor_config = codex_config
-    return OrgMCPClientSnippets(
-        codex=json.dumps(codex_config, indent=2),
-        claude_code=json.dumps(claude_code_config, indent=2),
-        cursor=json.dumps(cursor_config, indent=2),
-    )
 
 
 @router.get("", response_model=OrgRead)
@@ -128,46 +94,6 @@ async def get_organization(
         )
 
     return OrgRead(id=org.id, name=org.name)
-
-
-@router.get("/mcp/connect", response_model=OrgMCPConnectRead)
-async def get_org_mcp_connect(
-    *,
-    role: OrgUserRole,
-    current_user: User = Depends(current_active_user),
-) -> OrgMCPConnectRead:
-    """Get organization-scoped MCP connect URLs for IDE clients."""
-    if role.organization_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No organization context",
-        )
-    if not current_user.email:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Authenticated user is missing an email",
-        )
-
-    try:
-        scope_token, scope_expires_at = mint_mcp_connection_scope_token(
-            organization_id=role.organization_id,
-            email=current_user.email,
-        )
-        server_url = get_mcp_server_url()
-        scoped_server_url = build_scoped_mcp_server_url(scope_token)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="MCP connect is temporarily unavailable",
-        ) from exc
-
-    return OrgMCPConnectRead(
-        organization_id=role.organization_id,
-        server_url=server_url,
-        scoped_server_url=scoped_server_url,
-        scope_expires_at=scope_expires_at,
-        snippets=_build_mcp_client_snippets(scoped_server_url),
-    )
 
 
 @router.get("/domains", response_model=list[OrgDomainRead])

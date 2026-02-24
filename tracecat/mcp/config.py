@@ -76,3 +76,43 @@ Required for oauth_client_credentials_jwt and oauth_client_credentials_introspec
 auth modes. Used to advertise the authorization server in RFC 9728 protected resource
 metadata so MCP clients know where to obtain tokens.
 """
+
+TRACECAT_MCP__JWT_PUBLIC_KEY: str | None = os.environ.get(
+    "TRACECAT_MCP__JWT_PUBLIC_KEY"
+)
+"""PEM-encoded public key for JWT verification (asymmetric algorithms).
+
+Required when TRACECAT_MCP__AUTH_MODE=oauth_client_credentials_jwt and
+TRACECAT_MCP__JWT_JWKS_URI is not set.
+"""
+
+TRACECAT_MCP__JWT_JWKS_URI: str | None = os.environ.get("TRACECAT_MCP__JWT_JWKS_URI")
+"""URI to fetch a JSON Web Key Set for JWT verification.
+
+Required when TRACECAT_MCP__AUTH_MODE=oauth_client_credentials_jwt and
+TRACECAT_MCP__JWT_PUBLIC_KEY is not set.
+"""
+
+TRACECAT_MCP__JWT_ISSUER: str | None = os.environ.get("TRACECAT_MCP__JWT_ISSUER")
+"""Expected JWT issuer claim (optional)."""
+
+TRACECAT_MCP__JWT_AUDIENCE: str | None = os.environ.get("TRACECAT_MCP__JWT_AUDIENCE")
+"""Expected JWT audience claim (optional)."""
+
+TRACECAT_MCP__INTROSPECTION_URL: str = os.environ.get(
+    "TRACECAT_MCP__INTROSPECTION_URL", ""
+)
+"""URL of the OAuth 2.0 token introspection endpoint (RFC 7662).
+
+Required when TRACECAT_MCP__AUTH_MODE=oauth_client_credentials_introspection.
+"""
+
+TRACECAT_MCP__INTROSPECTION_CLIENT_ID: str = os.environ.get(
+    "TRACECAT_MCP__INTROSPECTION_CLIENT_ID", ""
+)
+"""OAuth client ID for authenticating to the introspection endpoint."""
+
+TRACECAT_MCP__INTROSPECTION_CLIENT_SECRET: str = os.environ.get(
+    "TRACECAT_MCP__INTROSPECTION_CLIENT_SECRET", ""
+)
+"""OAuth client secret for authenticating to the introspection endpoint."""

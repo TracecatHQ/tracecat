@@ -5,24 +5,20 @@ from __future__ import annotations
 import html
 import re
 import uuid
-from datetime import UTC, datetime, timedelta
-from urllib.parse import quote
 
-import jwt
 from fastmcp.server.auth import AuthProvider, RemoteAuthProvider, TokenVerifier
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.auth.providers.introspection import (
     IntrospectionTokenVerifier,
 )
 from fastmcp.server.auth.providers.jwt import JWTVerifier
-from fastmcp.server.dependencies import get_access_token, get_http_request
-from jwt import PyJWTError
-from pydantic import AnyHttpUrl, BaseModel, Field, ValidationError
-from sqlalchemy import cast, literal, select, union
+from fastmcp.server.dependencies import get_access_token
+from pydantic import AnyHttpUrl, BaseModel, Field
+from sqlalchemy import select
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
 
-from tracecat import config as app_config
+from tracecat.auth.credentials import compute_effective_scopes
 from tracecat.auth.oidc import get_platform_oidc_config
 from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole, WorkspaceRole
@@ -30,7 +26,6 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
     Membership,
-    Organization,
     OrganizationMembership,
     User,
     Workspace,
@@ -40,29 +35,15 @@ from tracecat.mcp.config import (
     TRACECAT_MCP__AUTH_MODE,
     TRACECAT_MCP__AUTHORIZATION_SERVER_URL,
     TRACECAT_MCP__BASE_URL,
+    TRACECAT_MCP__INTROSPECTION_CLIENT_ID,
+    TRACECAT_MCP__INTROSPECTION_CLIENT_SECRET,
+    TRACECAT_MCP__INTROSPECTION_URL,
+    TRACECAT_MCP__JWT_AUDIENCE,
+    TRACECAT_MCP__JWT_ISSUER,
+    TRACECAT_MCP__JWT_JWKS_URI,
+    TRACECAT_MCP__JWT_PUBLIC_KEY,
     MCPAuthMode,
 )
-
-MCP_SCOPE_TOKEN_ISSUER = "tracecat-mcp-connect"
-MCP_SCOPE_TOKEN_AUDIENCE = "tracecat-mcp-org-scope"
-MCP_SCOPE_TOKEN_SUBJECT = "tracecat-mcp-client"
-MCP_SCOPE_TOKEN_TTL_SECONDS = 86400
-MCP_SCOPE_REQUIRED_CLAIMS = (
-    "iss",
-    "aud",
-    "sub",
-    "iat",
-    "exp",
-    "organization_id",
-    "email",
-)
-
-
-class MCPConnectionScopeClaims(BaseModel):
-    """Claims extracted from an organization-scoped MCP connection token."""
-
-    organization_id: uuid.UUID
-    email: str
 
 
 class MCPTokenIdentity(BaseModel):
@@ -174,121 +155,6 @@ def get_token_identity() -> MCPTokenIdentity:
         organization_ids=frozenset(organization_ids),
         workspace_ids=frozenset(workspace_ids),
     )
-
-
-def get_mcp_server_url() -> str:
-    """Return the MCP streamable-http endpoint URL."""
-    base_url = TRACECAT_MCP__BASE_URL.strip().rstrip("/")
-    if not base_url:
-        raise ValueError(
-            "TRACECAT_MCP__BASE_URL must be configured for the MCP server. "
-            "Set it to the public URL where the MCP server is accessible."
-        )
-    if base_url.endswith("/mcp"):
-        return base_url
-    return f"{base_url}/mcp"
-
-
-def mint_mcp_connection_scope_token(
-    *,
-    organization_id: OrganizationID,
-    email: str,
-    ttl_seconds: int | None = None,
-) -> tuple[str, datetime]:
-    """Mint an organization-scoped token for external MCP client connections."""
-    if not app_config.TRACECAT__SERVICE_KEY:
-        raise ValueError("TRACECAT__SERVICE_KEY is not set")
-
-    now = datetime.now(UTC)
-    ttl = ttl_seconds or MCP_SCOPE_TOKEN_TTL_SECONDS
-    expires_at = now + timedelta(seconds=ttl)
-
-    payload = {
-        "iss": MCP_SCOPE_TOKEN_ISSUER,
-        "aud": MCP_SCOPE_TOKEN_AUDIENCE,
-        "sub": MCP_SCOPE_TOKEN_SUBJECT,
-        "iat": int(now.timestamp()),
-        "exp": int(expires_at.timestamp()),
-        "organization_id": str(organization_id),
-        "email": email,
-    }
-    token = jwt.encode(payload, app_config.TRACECAT__SERVICE_KEY, algorithm="HS256")
-    return token, expires_at
-
-
-def verify_mcp_connection_scope_token(
-    token: str,
-    *,
-    expected_email: str,
-) -> MCPConnectionScopeClaims:
-    """Verify an organization-scoped MCP connection token."""
-    if not app_config.TRACECAT__SERVICE_KEY:
-        raise ValueError("TRACECAT__SERVICE_KEY is not set")
-
-    try:
-        payload = jwt.decode(
-            token,
-            app_config.TRACECAT__SERVICE_KEY,
-            algorithms=["HS256"],
-            audience=MCP_SCOPE_TOKEN_AUDIENCE,
-            issuer=MCP_SCOPE_TOKEN_ISSUER,
-            options={"require": list(MCP_SCOPE_REQUIRED_CLAIMS)},
-        )
-    except PyJWTError as exc:
-        raise ValueError("Invalid MCP scope token") from exc
-
-    if payload.get("sub") != MCP_SCOPE_TOKEN_SUBJECT:
-        raise ValueError("Invalid MCP scope token subject")
-
-    try:
-        claims = MCPConnectionScopeClaims.model_validate(payload)
-    except ValidationError as exc:
-        raise ValueError("Invalid MCP scope token claims") from exc
-
-    if claims.email.casefold() != expected_email.casefold():
-        raise ValueError("MCP scope token does not belong to the authenticated user")
-
-    return claims
-
-
-def build_scoped_mcp_server_url(scope_token: str) -> str:
-    """Return the external MCP endpoint with scope token attached."""
-    endpoint = get_mcp_server_url()
-    separator = "&" if "?" in endpoint else "?"
-    return f"{endpoint}{separator}scope={quote(scope_token, safe='')}"
-
-
-def get_scope_token_from_request() -> str | None:
-    """Extract scope token from current MCP HTTP request query params."""
-
-    try:
-        request = get_http_request()
-    except Exception:
-        return None
-
-    token = request.query_params.get("scope")
-    return token.strip() if token else None
-
-
-def get_scoped_organization_id_for_request(
-    *, email: str | None = None
-) -> OrganizationID | None:
-    """Get and verify request-level org scope from query token."""
-    token = get_scope_token_from_request()
-    if token is None:
-        if TRACECAT_MCP__AUTH_MODE == MCPAuthMode.OIDC_INTERACTIVE:
-            raise ValueError(
-                "This MCP connection is missing organization scope. "
-                "Reconnect from Tracecat using a scoped connection link."
-            )
-        return None
-    if email is None:
-        raise ValueError(
-            "Scoped MCP connection token cannot be validated without a caller email"
-        )
-
-    claims = verify_mcp_connection_scope_token(token, expected_email=email)
-    return claims.organization_id
 
 
 def _get_tracecat_logo_markup(fill_color: str = "#1C1C1C") -> str:
@@ -581,21 +447,33 @@ def create_mcp_auth() -> AuthProvider:
 
     if TRACECAT_MCP__AUTH_MODE == MCPAuthMode.OAUTH_CLIENT_CREDENTIALS_JWT:
         try:
-            verifier = JWTVerifier(base_url=base_url)
+            verifier = JWTVerifier(
+                public_key=TRACECAT_MCP__JWT_PUBLIC_KEY,
+                jwks_uri=TRACECAT_MCP__JWT_JWKS_URI,
+                issuer=TRACECAT_MCP__JWT_ISSUER,
+                audience=TRACECAT_MCP__JWT_AUDIENCE,
+                base_url=base_url,
+            )
         except ValueError as exc:
             raise ValueError(
-                "JWT auth mode requires FastMCP JWT verifier settings "
-                "(FASTMCP_SERVER_AUTH_JWT_*), for example jwks_uri or public_key."
+                "JWT auth mode requires either TRACECAT_MCP__JWT_PUBLIC_KEY or "
+                "TRACECAT_MCP__JWT_JWKS_URI to be set."
             ) from exc
         return _wrap_with_remote_auth(verifier, base_url)
 
     if TRACECAT_MCP__AUTH_MODE == MCPAuthMode.OAUTH_CLIENT_CREDENTIALS_INTROSPECTION:
         try:
-            verifier = IntrospectionTokenVerifier(base_url=base_url)
+            verifier = IntrospectionTokenVerifier(
+                introspection_url=TRACECAT_MCP__INTROSPECTION_URL,
+                client_id=TRACECAT_MCP__INTROSPECTION_CLIENT_ID,
+                client_secret=TRACECAT_MCP__INTROSPECTION_CLIENT_SECRET,
+                base_url=base_url,
+            )
         except ValueError as exc:
             raise ValueError(
-                "Introspection auth mode requires FastMCP introspection settings "
-                "(FASTMCP_SERVER_AUTH_INTROSPECTION_*)."
+                "Introspection auth mode requires TRACECAT_MCP__INTROSPECTION_URL, "
+                "TRACECAT_MCP__INTROSPECTION_CLIENT_ID, and "
+                "TRACECAT_MCP__INTROSPECTION_CLIENT_SECRET to be set."
             ) from exc
         return _wrap_with_remote_auth(verifier, base_url)
 
@@ -618,14 +496,17 @@ async def resolve_org_membership(
     user_id: UserID,
     organization_id: OrganizationID,
 ) -> OrgRole:
-    """Get the user's role in a specific organization.
+    """Check the user belongs to a specific organization.
+
+    The OrganizationMembership model is a simple link table without a role
+    column. Membership presence means the user is at least a member.
 
     Args:
         user_id: The user to look up.
         organization_id: The organization to check membership in.
 
     Returns:
-        The user's OrgRole in the specified organization.
+        OrgRole.MEMBER — the presence of a membership row confirms access.
 
     Raises:
         ValueError: If the user has no membership in the organization.
@@ -642,7 +523,7 @@ async def resolve_org_membership(
             raise ValueError(
                 f"User {user_id} has no membership in organization {organization_id}"
             )
-        return membership.role
+        return OrgRole.MEMBER
 
 
 async def resolve_workspace_org(workspace_id: WorkspaceID) -> OrganizationID:
@@ -665,7 +546,11 @@ async def resolve_workspace_membership(
     user_id: UserID,
     workspace_id: WorkspaceID,
 ) -> WorkspaceRole:
-    """Verify user has access to workspace and return their role."""
+    """Verify user has access to workspace.
+
+    The Membership model is a simple link table without a role column.
+    Membership presence grants editor-level access.
+    """
     async with get_async_session_context_manager() as session:
         result = await session.execute(
             select(Membership).where(
@@ -678,13 +563,13 @@ async def resolve_workspace_membership(
             raise ValueError(
                 f"User {user_id} does not have access to workspace {workspace_id}"
             )
-        return membership.role
+        return WorkspaceRole.EDITOR
 
 
 async def resolve_role(email: str, workspace_id: WorkspaceID) -> Role:
     """Resolve a user's Role for a given workspace from their OAuth email.
 
-    Pipeline: email → User → Workspace.organization_id → OrganizationMembership → Membership → Role
+    Pipeline: email -> User -> Workspace.organization_id -> OrganizationMembership -> Membership -> Role
 
     The workspace's owning organization is resolved first, then the user's
     membership in *that* organization is checked. This prevents an admin in
@@ -692,23 +577,21 @@ async def resolve_role(email: str, workspace_id: WorkspaceID) -> Role:
     """
     user = await resolve_user_by_email(email)
     org_id = await resolve_workspace_org(workspace_id)
-    org_role = await resolve_org_membership(user.id, org_id)
-
-    # Org admins/owners can access all workspaces in their org without explicit membership
-    if org_role in (OrgRole.OWNER, OrgRole.ADMIN):
-        workspace_role = WorkspaceRole.ADMIN
-    else:
-        workspace_role = await resolve_workspace_membership(user.id, workspace_id)
+    # Validate the user belongs to the organization (raises on missing membership)
+    await resolve_org_membership(user.id, org_id)
+    # Validate workspace-level access
+    await resolve_workspace_membership(user.id, workspace_id)
 
     role = Role(
         type="user",
         user_id=user.id,
         workspace_id=workspace_id,
         organization_id=org_id,
-        workspace_role=workspace_role,
-        org_role=org_role,
         service_id="tracecat-mcp",
+        is_platform_superuser=user.is_superuser,
     )
+    scopes = await compute_effective_scopes(role)
+    role = role.model_copy(update={"scopes": scopes})
     # Set context variable so downstream services that rely on ctx_role
     # (e.g. SecretsService.with_session()) can resolve the role automatically.
     ctx_role.set(role)
@@ -719,97 +602,46 @@ async def list_user_workspaces(
     email: str,
     organization_id: OrganizationID | None = None,
 ) -> list[dict[str, str]]:
-    """List all workspaces accessible to a user.
+    """List workspaces the user has explicit Membership rows for.
 
-    Includes:
-    - Workspaces with explicit Membership rows.
-    - All workspaces in orgs where the user is an owner or admin (implicit access).
+    Only returns workspaces where the user is a direct member.
     """
     user = await resolve_user_by_email(email)
     async with get_async_session_context_manager() as session:
-        # Explicit workspace memberships
-        explicit_q = (
-            select(
-                Workspace.id,
-                Workspace.name,
-                Membership.role.label("role"),
-            )
+        stmt = (
+            select(Workspace.id, Workspace.name)
             .join(Membership, Membership.workspace_id == Workspace.id)
             .where(Membership.user_id == user.id)
+            .order_by(Workspace.name.asc(), Workspace.id.asc())
         )
         if organization_id is not None:
-            explicit_q = explicit_q.where(Workspace.organization_id == organization_id)
+            stmt = stmt.where(Workspace.organization_id == organization_id)
 
-        # Implicit access: org admins/owners see all workspaces in their orgs
-        # Cast the literal to the workspacerole enum so the UNION types match.
-        implicit_q = (
-            select(
-                Workspace.id,
-                Workspace.name,
-                cast(
-                    literal(WorkspaceRole.ADMIN.name),
-                    Membership.role.type,
-                ).label("role"),
-            )
-            .join(
-                OrganizationMembership,
-                OrganizationMembership.organization_id == Workspace.organization_id,
-            )
-            .where(
-                OrganizationMembership.user_id == user.id,
-                OrganizationMembership.role.in_([OrgRole.OWNER, OrgRole.ADMIN]),
-            )
-        )
-        if organization_id is not None:
-            implicit_q = implicit_q.where(Workspace.organization_id == organization_id)
-
-        combined = union(explicit_q, implicit_q).subquery()
-        result = await session.execute(select(combined))
-        return [
-            {"id": str(row.id), "name": row.name, "role": row.role}
-            for row in result.all()
-        ]
-
-
-async def list_user_organizations(
-    email: str,
-) -> list[dict[str, str]]:
-    """List all organizations a user belongs to."""
-    user = await resolve_user_by_email(email)
-    async with get_async_session_context_manager() as session:
-        result = await session.execute(
-            select(Organization, OrganizationMembership.role)
-            .join(
-                OrganizationMembership,
-                OrganizationMembership.organization_id == Organization.id,
-            )
-            .where(OrganizationMembership.user_id == user.id)
-        )
-        return [
-            {"id": str(org.id), "name": org.name, "role": role.value}
-            for org, role in result.all()
-        ]
+        result = await session.execute(stmt)
+        return [{"id": str(row.id), "name": row.name} for row in result.all()]
 
 
 async def resolve_role_for_request(workspace_id: WorkspaceID) -> Role:
-    """Resolve caller role for a workspace across all MCP auth modes."""
+    """Resolve caller role for a workspace across all MCP auth modes.
+
+    All paths resolve a real user and compute their RBAC scopes from
+    role/group assignments. An email claim is always required so that
+    tool-call authorization reflects the individual user's permissions.
+    """
     if TRACECAT_MCP__AUTH_MODE == MCPAuthMode.OIDC_INTERACTIVE:
         email = get_email_from_token()
-        scoped_org_id = get_scoped_organization_id_for_request(email=email)
-        role = await resolve_role(email, workspace_id)
-        if scoped_org_id is not None and role.organization_id != scoped_org_id:
-            raise ValueError(
-                "Workspace is outside the organization scope for this MCP connection"
-            )
-        return role
+        return await resolve_role(email, workspace_id)
 
     identity = get_token_identity()
+
+    # Validate token carries workspace/org scope restrictions
     if not identity.organization_ids and not identity.workspace_ids:
         raise ValueError(
             "Client-credentials tokens must include workspace_id(s) or "
             "organization_id(s) claims (or matching scopes) for Tracecat access"
         )
 
+    # Enforce token scope boundaries
     workspace_org_id = await resolve_workspace_org(workspace_id)
     if identity.organization_ids and workspace_org_id not in identity.organization_ids:
         raise ValueError(
@@ -818,86 +650,53 @@ async def resolve_role_for_request(workspace_id: WorkspaceID) -> Role:
     if identity.workspace_ids and workspace_id not in identity.workspace_ids:
         raise ValueError("Workspace is outside the workspace scope for this MCP token")
 
-    role = Role(
-        type="service",
-        service_id="tracecat-mcp",
-        workspace_id=workspace_id,
-        organization_id=workspace_org_id,
-        workspace_role=WorkspaceRole.ADMIN,
-        org_role=OrgRole.ADMIN,
-        user_id=None,
-    )
-    ctx_role.set(role)
-    return role
+    # Require a user identity to resolve RBAC scopes
+    if not identity.email:
+        raise ValueError(
+            "MCP access requires a user identity. The token must include an "
+            "email claim to resolve the user's RBAC scopes."
+        )
+
+    return await resolve_role(identity.email, workspace_id)
 
 
 async def list_workspaces_for_request() -> list[dict[str, str]]:
-    """List workspaces accessible to the current MCP caller."""
+    """List workspaces accessible to the current MCP caller.
+
+    For client-credentials tokens, the result is further filtered by the
+    token's organization_id / workspace_id scope claims so a narrowly
+    scoped token cannot enumerate workspaces outside its grant.
+    """
     if TRACECAT_MCP__AUTH_MODE == MCPAuthMode.OIDC_INTERACTIVE:
         email = get_email_from_token()
-        scoped_org_id = get_scoped_organization_id_for_request(email=email)
-        return await list_user_workspaces(email, organization_id=scoped_org_id)
+        return await list_user_workspaces(email)
 
     identity = get_token_identity()
-    if not identity.organization_ids and not identity.workspace_ids:
+    if not identity.email:
         raise ValueError(
-            "Client-credentials tokens must include workspace_id(s) or "
-            "organization_id(s) claims (or matching scopes) for Tracecat access"
+            "MCP access requires a user identity. The token must include an "
+            "email claim to resolve the user's workspaces."
         )
 
-    async with get_async_session_context_manager() as session:
-        stmt = select(Workspace.id, Workspace.name, Workspace.organization_id)
-        if identity.workspace_ids:
-            stmt = stmt.where(Workspace.id.in_(tuple(identity.workspace_ids)))
-        if identity.organization_ids:
-            stmt = stmt.where(
-                Workspace.organization_id.in_(tuple(identity.organization_ids))
-            )
-        stmt = stmt.order_by(Workspace.name.asc(), Workspace.id.asc())
-        result = await session.execute(stmt)
-        return [
-            {"id": str(row.id), "name": row.name, "role": WorkspaceRole.ADMIN.value}
-            for row in result.all()
-        ]
+    workspaces = await list_user_workspaces(identity.email)
 
+    # Narrow results to the token's scope boundaries
+    if identity.workspace_ids:
+        allowed = {str(wid) for wid in identity.workspace_ids}
+        workspaces = [w for w in workspaces if w["id"] in allowed]
+    if identity.organization_ids:
+        # Resolve each workspace's org to check membership
+        filtered: list[dict[str, str]] = []
+        for ws in workspaces:
+            try:
+                org_id = await resolve_workspace_org(uuid.UUID(ws["id"]))
+                if org_id in identity.organization_ids:
+                    filtered.append(ws)
+            except ValueError:
+                continue
+        workspaces = filtered
 
-async def list_organizations_for_request() -> list[dict[str, str]]:
-    """List organizations accessible to the current MCP caller."""
-    if TRACECAT_MCP__AUTH_MODE == MCPAuthMode.OIDC_INTERACTIVE:
-        email = get_email_from_token()
-        scoped_org_id = get_scoped_organization_id_for_request(email=email)
-        organizations = await list_user_organizations(email)
-        if scoped_org_id is not None:
-            return [org for org in organizations if org["id"] == str(scoped_org_id)]
-        return organizations
-
-    identity = get_token_identity()
-    org_ids = set(identity.organization_ids)
-    if not org_ids and identity.workspace_ids:
-        async with get_async_session_context_manager() as session:
-            result = await session.execute(
-                select(Workspace.organization_id).where(
-                    Workspace.id.in_(tuple(identity.workspace_ids))
-                )
-            )
-            org_ids = set(result.scalars().all())
-
-    if not org_ids:
-        raise ValueError(
-            "Client-credentials tokens must include organization_id(s) or "
-            "workspace_id(s) claims (or matching scopes) for Tracecat access"
-        )
-
-    async with get_async_session_context_manager() as session:
-        result = await session.execute(
-            select(Organization.id, Organization.name)
-            .where(Organization.id.in_(tuple(org_ids)))
-            .order_by(Organization.name.asc(), Organization.id.asc())
-        )
-        return [
-            {"id": str(row.id), "name": row.name, "role": OrgRole.ADMIN.value}
-            for row in result.all()
-        ]
+    return workspaces
 
 
 def get_email_from_token() -> str:
