@@ -223,14 +223,14 @@ export function CollectionObjectResult({
                     <div className="rounded-sm border border-dashed p-2">
                       <JsonViewWithControls
                         src={item.stored.data}
-                        defaultExpanded={false}
+                        defaultExpanded={true}
                       />
                     </div>
                   ) : (
                     <div className="rounded-sm border border-dashed p-2">
                       <JsonViewWithControls
                         src={item.stored}
-                        defaultExpanded={false}
+                        defaultExpanded={true}
                       />
                     </div>
                   )

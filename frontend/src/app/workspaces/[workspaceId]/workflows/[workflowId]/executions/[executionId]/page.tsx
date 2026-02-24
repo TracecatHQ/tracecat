@@ -60,12 +60,12 @@ export default function ExecutionPage() {
     >
       {/* Panel 2: Events */}
       <ResizablePanel defaultSize={defaultLayout[1]} minSize={18}>
-        <div className="flex h-full flex-col overflow-hidden">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">
           <SectionHead
             text="Events"
             icon={<CalendarSearchIcon className="size-4" strokeWidth={2} />}
           />
-          <div className="flex-1 overflow-auto">
+          <div className="min-h-0 flex-1 overflow-auto">
             {fullExecutionId ? (
               <WorkflowExecutionEventHistory
                 executionId={fullExecutionId}
@@ -87,8 +87,8 @@ export default function ExecutionPage() {
         minSize={25}
         className="grow"
       >
-        <div className="flex h-full flex-col overflow-hidden">
-          <div className="flex-1 overflow-auto">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-auto">
             {selectedEvent ? (
               <WorkflowExecutionEventDetailView
                 event={selectedEvent}

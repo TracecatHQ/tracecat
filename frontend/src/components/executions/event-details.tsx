@@ -56,8 +56,8 @@ export function WorkflowExecutionEventDetailView({
   }, [event.source_event_id, initialTab])
 
   return (
-    <div className="size-full overflow-hidden">
-      <div className="flex h-full flex-col">
+    <div className="size-full min-h-0 overflow-hidden">
+      <div className="flex h-full min-h-0 flex-col">
         {hasFailure && (
           <div className="border-b">
             <div className="flex h-8 items-center border-b px-3 text-[11px] font-semibold text-muted-foreground">
@@ -100,12 +100,18 @@ export function WorkflowExecutionEventDetailView({
               </TabsList>
             </div>
             {hasInput && (
-              <TabsContent value="input" className="m-0 flex-1 overflow-auto">
+              <TabsContent
+                value="input"
+                className="m-0 flex-1 overflow-auto data-[state=active]:overflow-auto"
+              >
                 <JsonViewContent src={event.action_input} />
               </TabsContent>
             )}
             {hasResult && (
-              <TabsContent value="result" className="m-0 flex-1 overflow-auto">
+              <TabsContent
+                value="result"
+                className="m-0 flex-1 overflow-auto data-[state=active]:overflow-auto"
+              >
                 {isExternalStoredObject(event.action_result) ? (
                   <ExternalObjectResult
                     executionId={executionId}
@@ -141,7 +147,7 @@ export function WorkflowExecutionEventDetailView({
 function JsonViewContent({ src }: { src: unknown }): JSX.Element {
   return (
     <div className="p-3">
-      <JsonViewWithControls src={src} defaultExpanded={false} />
+      <JsonViewWithControls src={src} defaultExpanded={true} />
     </div>
   )
 }
