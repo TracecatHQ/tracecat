@@ -423,19 +423,7 @@ variable "ui_memory_request_mib" {
   default     = 512
 }
 
-# Plan-time rollout guardrails (capacity model inputs)
-variable "node_schedulable_cpu_millicores_per_node" {
-  description = "Schedulable CPU per worker node in millicores used for rollout capacity guardrails"
-  type        = number
-  default     = 8000
-}
-
-variable "node_schedulable_memory_mib_per_node" {
-  description = "Schedulable memory per worker node in MiB used for rollout capacity guardrails"
-  type        = number
-  default     = 32768
-}
-
+# Plan-time rollout guardrails (capacity policy)
 variable "pod_eni_capacity_per_node" {
   description = "Estimated pod-eni budget per node used for rollout guardrails"
   type        = number
@@ -448,19 +436,18 @@ variable "rollout_surge_percent" {
   default     = 25
 }
 
-variable "capacity_reserved_cpu_millicores" {
-  description = "Reserved CPU headroom in millicores for system and auxiliary workloads in guardrails"
+variable "capacity_headroom_percent" {
+  description = "Additional CPU and memory headroom percentage applied to rollout peak requirements"
   type        = number
-  default     = 3000
+  default     = 20
+
+  validation {
+    condition     = var.capacity_headroom_percent >= 0 && var.capacity_headroom_percent <= 100
+    error_message = "capacity_headroom_percent must be between 0 and 100."
+  }
 }
 
-variable "capacity_reserved_memory_mib" {
-  description = "Reserved memory headroom in MiB for system and auxiliary workloads in guardrails"
-  type        = number
-  default     = 8192
-}
-
-variable "capacity_reserved_pod_eni" {
+variable "pod_eni_capacity_reserved" {
   description = "Reserved pod-eni headroom for system and auxiliary workloads in guardrails"
   type        = number
   default     = 8

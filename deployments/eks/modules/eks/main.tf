@@ -101,43 +101,78 @@ locals {
     local.ui_rollout_replicas
   )
 
-  desired_node_count = var.node_desired_size + (var.spot_node_group_enabled ? var.spot_node_desired_size : 0)
+  capacity_headroom_multiplier = 1 + (var.capacity_headroom_percent / 100)
 
-  desired_cpu_capacity_millicores = local.desired_node_count * var.node_schedulable_cpu_millicores_per_node
-  desired_memory_capacity_mib     = local.desired_node_count * var.node_schedulable_memory_mib_per_node
-  desired_pod_eni_capacity        = local.desired_node_count * var.pod_eni_capacity_per_node
+  # Use the smallest configured instance shape per node group for conservative capacity.
+  on_demand_node_cpu_millicores = min([
+    for instance_type in var.node_instance_types :
+    data.aws_ec2_instance_type.node_group[instance_type].default_vcpus * 1000
+  ]...)
+  on_demand_node_memory_mib = min([
+    for instance_type in var.node_instance_types :
+    data.aws_ec2_instance_type.node_group[instance_type].memory_size
+  ]...)
 
-  required_cpu_with_reserve_millicores = local.tracecat_rollout_peak_cpu_millicores + var.capacity_reserved_cpu_millicores
-  required_memory_with_reserve_mib     = local.tracecat_rollout_peak_memory_mib + var.capacity_reserved_memory_mib
-  required_pod_eni_with_reserve        = local.tracecat_rollout_peak_pods + var.capacity_reserved_pod_eni
+  spot_node_cpu_millicores = var.spot_node_group_enabled ? min([
+    for instance_type in var.spot_node_instance_types :
+    data.aws_ec2_instance_type.node_group[instance_type].default_vcpus * 1000
+  ]...) : 0
+  spot_node_memory_mib = var.spot_node_group_enabled ? min([
+    for instance_type in var.spot_node_instance_types :
+    data.aws_ec2_instance_type.node_group[instance_type].memory_size
+  ]...) : 0
+
+  desired_on_demand_node_count = var.node_desired_size
+  desired_spot_node_count      = var.spot_node_group_enabled ? var.spot_node_desired_size : 0
+  desired_node_count           = local.desired_on_demand_node_count + local.desired_spot_node_count
+
+  desired_cpu_capacity_millicores = (
+    local.desired_on_demand_node_count * local.on_demand_node_cpu_millicores +
+    local.desired_spot_node_count * local.spot_node_cpu_millicores
+  )
+  desired_memory_capacity_mib = (
+    local.desired_on_demand_node_count * local.on_demand_node_memory_mib +
+    local.desired_spot_node_count * local.spot_node_memory_mib
+  )
+  desired_pod_eni_capacity = (
+    local.desired_node_count * var.pod_eni_capacity_per_node
+  )
+
+  required_cpu_with_headroom_millicores = ceil(local.tracecat_rollout_peak_cpu_millicores * local.capacity_headroom_multiplier)
+  required_memory_with_headroom_mib     = ceil(local.tracecat_rollout_peak_memory_mib * local.capacity_headroom_multiplier)
+  required_pod_eni_with_reserve         = local.tracecat_rollout_peak_pods + var.pod_eni_capacity_reserved
 }
 
 check "tracecat_rollout_cpu_capacity" {
   assert {
-    condition = local.required_cpu_with_reserve_millicores <= local.desired_cpu_capacity_millicores
+    condition = local.required_cpu_with_headroom_millicores <= local.desired_cpu_capacity_millicores
     error_message = format(
-      "Insufficient rollout CPU capacity: required %dm (%dm workload + %dm reserve), available %dm (%d nodes x %dm). Increase node_desired_size/spot_node_desired_size or lower CPU requests.",
-      local.required_cpu_with_reserve_millicores,
+      "Insufficient rollout CPU capacity: required %dm (%dm workload with %d%% headroom), available %dm (%d on-demand nodes x %dm + %d spot nodes x %dm). Increase node_desired_size/spot_node_desired_size or lower CPU requests.",
+      local.required_cpu_with_headroom_millicores,
       local.tracecat_rollout_peak_cpu_millicores,
-      var.capacity_reserved_cpu_millicores,
+      var.capacity_headroom_percent,
       local.desired_cpu_capacity_millicores,
-      local.desired_node_count,
-      var.node_schedulable_cpu_millicores_per_node
+      local.desired_on_demand_node_count,
+      local.on_demand_node_cpu_millicores,
+      local.desired_spot_node_count,
+      local.spot_node_cpu_millicores
     )
   }
 }
 
 check "tracecat_rollout_memory_capacity" {
   assert {
-    condition = local.required_memory_with_reserve_mib <= local.desired_memory_capacity_mib
+    condition = local.required_memory_with_headroom_mib <= local.desired_memory_capacity_mib
     error_message = format(
-      "Insufficient rollout memory capacity: required %dMi (%dMi workload + %dMi reserve), available %dMi (%d nodes x %dMi). Increase node_desired_size/spot_node_desired_size or lower memory requests.",
-      local.required_memory_with_reserve_mib,
+      "Insufficient rollout memory capacity: required %dMi (%dMi workload with %d%% headroom), available %dMi (%d on-demand nodes x %dMi + %d spot nodes x %dMi). Increase node_desired_size/spot_node_desired_size or lower memory requests.",
+      local.required_memory_with_headroom_mib,
       local.tracecat_rollout_peak_memory_mib,
-      var.capacity_reserved_memory_mib,
+      var.capacity_headroom_percent,
       local.desired_memory_capacity_mib,
-      local.desired_node_count,
-      var.node_schedulable_memory_mib_per_node
+      local.desired_on_demand_node_count,
+      local.on_demand_node_memory_mib,
+      local.desired_spot_node_count,
+      local.spot_node_memory_mib
     )
   }
 }
@@ -149,7 +184,7 @@ check "tracecat_rollout_pod_eni_capacity" {
       "Insufficient pod-eni budget: required %d pods (%d workload + %d reserve), available %d (%d nodes x %d). Increase node_desired_size/spot_node_desired_size or pod_eni_capacity_per_node.",
       local.required_pod_eni_with_reserve,
       local.tracecat_rollout_peak_pods,
-      var.capacity_reserved_pod_eni,
+      var.pod_eni_capacity_reserved,
       local.desired_pod_eni_capacity,
       local.desired_node_count,
       var.pod_eni_capacity_per_node

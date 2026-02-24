@@ -67,6 +67,10 @@ resource "kubernetes_manifest" "external_secrets_cluster_store" {
 
 # ExternalSecret for PostgreSQL credentials (needed before Helm installs).
 resource "kubernetes_manifest" "postgres_credentials_external_secret" {
+  field_manager {
+    force_conflicts = true
+  }
+
   manifest = {
     apiVersion = "external-secrets.io/v1"
     kind       = "ExternalSecret"

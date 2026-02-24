@@ -28,16 +28,17 @@ Network hardening:
 ## Default deployment profile (~100 concurrent users)
 
 - Nodes: `10 x m7g.2xlarge` (`8` on-demand + `2` spot by default)
-- Guardrail requirement (rollout peak + reserved headroom): `46.5 vCPU`, `95.5 GiB RAM`
+- Guardrail requirement (rollout peak + `20%` headroom): `52.2 vCPU`, `90.6 GiB RAM`
 - Scheduled capacity (on-demand only): `64 vCPU`, `256 GiB RAM`
 - Scheduled capacity (on-demand + spot): `80 vCPU`, `320 GiB RAM`
-- Percent headroom (on-demand only): `~27% CPU`, `~63% RAM` (`17.5 vCPU`, `160.5 GiB RAM`)
+- Percent headroom (on-demand + spot): `~53% CPU`, `~253% RAM` (`27.8 vCPU`, `229.4 GiB RAM`)
 - Estimated cost: `$4500/month`
 
 Definitions used above:
 - `guardrail model`: The plan-time capacity checks in `deployments/eks/modules/eks/main.tf` that compare required capacity vs configured node capacity.
 - `rollout peak`: Replica requests with rollout surge applied (`rollout_surge_percent`, default `25`), across API/worker/executor/agentExecutor/UI.
-- `reserved headroom`: Extra fixed capacity reserved for system/auxiliary workloads (`capacity_reserved_cpu_millicores`, `capacity_reserved_memory_mib`, `capacity_reserved_pod_eni`).
+- `capacity headroom`: CPU and memory requirements are scaled by `capacity_headroom_percent` (default `20`).
+- `pod reserve`: Extra pod-eni headroom reserved for system/auxiliary workloads (`pod_eni_capacity_reserved`).
 
 ```bash
 # Replica counts
@@ -55,7 +56,7 @@ worker_memory_request_mib=2048
 executor_cpu_request_millicores=4000
 executor_memory_request_mib=8192
 agent_executor_cpu_request_millicores=2000
-agent_executor_memory_request_mib=8192
+agent_executor_memory_request_mib=4096
 ui_cpu_request_millicores=500
 ui_memory_request_mib=512
 
@@ -73,13 +74,10 @@ spot_node_desired_size=2
 spot_node_max_size=4
 
 # Capacity guardrail inputs
-node_schedulable_cpu_millicores_per_node=8000
-node_schedulable_memory_mib_per_node=32768
-pod_eni_capacity_per_node=16
 rollout_surge_percent=25
-capacity_reserved_cpu_millicores=3000
-capacity_reserved_memory_mib=8192
-capacity_reserved_pod_eni=8
+capacity_headroom_percent=20
+pod_eni_capacity_per_node=16
+pod_eni_capacity_reserved=8
 
 # Persistence services and Temporal mode
 rds_instance_class="db.t4g.xlarge"
@@ -103,7 +101,7 @@ When the spot node group is enabled, Terraform injects scheduling defaults into 
 
 You can disable spot by setting `spot_node_group_enabled=false` or change the mix by adjusting the on-demand and spot sizes.
 
-Terraform includes plan-time capacity guardrails that verify the desired node count can support the configured replicas and resource requests at rollout peak (with a 25% surge). If capacity is insufficient, `terraform plan` will emit a warning. See `modules/eks/main.tf` for the check blocks.
+Terraform includes plan-time capacity guardrails that verify the desired node count can support the configured replicas and resource requests at rollout peak (with a `25%` surge and `20%` CPU/memory headroom). If capacity is insufficient, `terraform plan` will emit a warning. See `modules/eks/main.tf` for the check blocks.
 
 ### Architecture requirement
 
@@ -119,9 +117,9 @@ and use AMD64-compatible instance types for both `node_instance_types` and `spot
 ## Light deployment profile
 
 - Nodes: `3 x m7g.xlarge`
-- Guardrail requirement (rollout peak + reserved headroom): `9.75 vCPU`, `23 GiB RAM`
+- Guardrail requirement (rollout peak + `20%` headroom): `8.1 vCPU`, `18 GiB RAM`
 - Scheduled capacity (on-demand only): `12 vCPU`, `48 GiB RAM`
-- Percent headroom (on-demand only): `~19% CPU`, `~52% RAM` (`2.25 vCPU`, `25 GiB RAM`)
+- Percent headroom (on-demand only): `~48% CPU`, `~167% RAM` (`3.9 vCPU`, `30 GiB RAM`)
 - Cost estimate: `$1000/month`
 
 Set these Terraform variables:
@@ -156,10 +154,10 @@ node_max_size=4
 spot_node_group_enabled=false
 
 # Capacity guardrail inputs
-node_schedulable_cpu_millicores_per_node=4000
-node_schedulable_memory_mib_per_node=16384
-capacity_reserved_cpu_millicores=3000
-capacity_reserved_memory_mib=8192
+rollout_surge_percent=25
+capacity_headroom_percent=20
+pod_eni_capacity_per_node=16
+pod_eni_capacity_reserved=8
 
 # Persistence services
 rds_instance_class="db.m7g.large"
