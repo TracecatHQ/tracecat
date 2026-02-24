@@ -15,12 +15,21 @@ from tracecat.agent.providers import get_model
 from tracecat.agent.runtime.pydantic_ai.adapter import to_pydantic_ai_tools
 from tracecat.agent.tools import build_agent_tools
 from tracecat.agent.types import AgentConfig
+from tracecat.logger import logger
 
 type AgentFactory = Callable[[AgentConfig], Awaitable[AbstractAgent[Any, Any]]]
 
 
 async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
     """The default factory for building an agent."""
+
+    if config.tool_approvals and any(
+        k.startswith("mcp.") for k in config.tool_approvals
+    ):
+        logger.warning(
+            "MCP tool approvals are only supported in Claude Code runtime; "
+            "approvals for MCP tools will be ignored in PydanticAI runtime"
+        )
 
     agent_tools: list[PATool] = []
     tool_prompt_tools: list[PATool] = []

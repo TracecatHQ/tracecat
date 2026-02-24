@@ -96,6 +96,26 @@ class AgentPresetRead(AgentPresetBase):
         )
 
 
+class DiscoverMCPToolsRequest(BaseModel):
+    """Request body for discovering MCP tools from integrations."""
+
+    mcp_integration_ids: list[str] = Field(
+        ...,
+        min_length=1,
+        description="List of MCP integration IDs to discover tools from",
+    )
+
+
+class DiscoveredMCPTool(BaseModel):
+    """A discovered MCP tool with its canonical name."""
+
+    name: str = Field(
+        ..., description="Canonical tool name (e.g. mcp.Linear.list_issues)"
+    )
+    description: str = Field(..., description="Tool description")
+    server_name: str = Field(..., description="MCP server name")
+
+
 class AgentPresetWithConfig(AgentPresetRead):
     """Agent preset with the resolved configuration attached."""
 

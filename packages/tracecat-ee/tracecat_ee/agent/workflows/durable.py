@@ -13,6 +13,7 @@ with workflow.unsafe.imports_passed_through():
     from pydantic_ai.tools import ToolApproved, ToolDenied
 
     from tracecat.agent.common.stream_types import HarnessType
+    from tracecat.agent.common.types import MCPServerConfig
     from tracecat.agent.executor.activity import (
         AgentExecutorInput,
         ApprovedToolCall,
@@ -379,6 +380,21 @@ class DurableAgentWorkflow:
                             "Registry lock not initialized",
                             non_retryable=True,
                         )
+                    # Convert user MCP claims to configs for tool execution
+                    user_mcp_configs: list[MCPServerConfig] | None = (
+                        [
+                            MCPServerConfig(
+                                name=claim.name,
+                                url=claim.url,
+                                transport=claim.transport,
+                                headers=claim.headers,
+                            )
+                            for claim in user_mcp_claims
+                        ]
+                        if user_mcp_claims
+                        else None
+                    )
+
                     tool_exec_result = await workflow.execute_activity(
                         execute_approved_tools_activity,
                         ExecuteApprovedToolsInput(
@@ -389,6 +405,7 @@ class DurableAgentWorkflow:
                             denied_tools=denied_tools,
                             allowed_actions=list(allowed_actions.keys()),
                             registry_lock=self._registry_lock,
+                            user_mcp_configs=user_mcp_configs,
                         ),
                         start_to_close_timeout=timedelta(seconds=300),
                         heartbeat_timeout=timedelta(seconds=60),

@@ -7123,6 +7123,48 @@ export const $DataUIPart = {
   description: "A custom data part, where type matches 'data-...'.",
 } as const
 
+export const $DiscoverMCPToolsRequest = {
+  properties: {
+    mcp_integration_ids: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      minItems: 1,
+      title: "Mcp Integration Ids",
+      description: "List of MCP integration IDs to discover tools from",
+    },
+  },
+  type: "object",
+  required: ["mcp_integration_ids"],
+  title: "DiscoverMCPToolsRequest",
+  description: "Request body for discovering MCP tools from integrations.",
+} as const
+
+export const $DiscoveredMCPTool = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+      description: "Canonical tool name (e.g. mcp.Linear.list_issues)",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+      description: "Tool description",
+    },
+    server_name: {
+      type: "string",
+      title: "Server Name",
+      description: "MCP server name",
+    },
+  },
+  type: "object",
+  required: ["name", "description", "server_name"],
+  title: "DiscoveredMCPTool",
+  description: "A discovered MCP tool with its canonical name.",
+} as const
+
 export const $DocumentUrl = {
   properties: {
     url: {
@@ -15334,6 +15376,11 @@ export const $SecretReadMinimal = {
     environment: {
       type: "string",
       title: "Environment",
+    },
+    is_corrupted: {
+      type: "boolean",
+      title: "Is Corrupted",
+      default: false,
     },
   },
   type: "object",

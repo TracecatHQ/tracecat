@@ -39,12 +39,13 @@ from tracecat.agent.common.config import (
 )
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
 from tracecat.agent.common.stream_types import ToolCallContent, UnifiedStreamEvent
-from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.common.types import MCPServerConfig, MCPToolDefinition
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
 )
 from tracecat.agent.mcp.executor import ActionExecutionError, execute_action
+from tracecat.agent.mcp.user_client import UserMCPClient, call_user_mcp_tool
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
 from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime
@@ -590,6 +591,8 @@ class ExecuteApprovedToolsInput(BaseModel):
     allowed_actions: list[str]
     # Registry lock for action resolution
     registry_lock: RegistryLock
+    # User MCP server configs for executing approved MCP tools
+    user_mcp_configs: list[MCPServerConfig] | None = None
 
 
 class ExecuteApprovedToolsResult(BaseModel):
@@ -727,21 +730,35 @@ async def execute_approved_tools_activity(
             # Normalize tool name (MCP format -> action name)
             action_name = normalize_mcp_tool_name(tool_call.tool_name)
 
+            # Check if this is a user MCP tool (not a registry action)
+            parsed_mcp = UserMCPClient.parse_user_mcp_tool_name(tool_call.tool_name)
+
             logger.info(
                 "Executing approved tool",
                 tool_call_id=tool_call.tool_call_id,
                 tool_name=tool_call.tool_name,
                 action_name=action_name,
+                is_mcp_tool=parsed_mcp is not None,
             )
 
-            # Execute the action via MCP executor with heartbeating
-            result = await _execute_action_with_heartbeat(
-                action_name=action_name,
-                args=tool_call.args,
-                claims=claims,
-                registry_lock=input.registry_lock,
-                tool_name=tool_call.tool_name,
-            )
+            if parsed_mcp and input.user_mcp_configs:
+                # Route to user MCP server
+                server_name, original_tool_name = parsed_mcp
+                result = await call_user_mcp_tool(
+                    configs=input.user_mcp_configs,
+                    server_name=server_name,
+                    tool_name=original_tool_name,
+                    args=tool_call.args,
+                )
+            else:
+                # Execute the action via MCP executor with heartbeating
+                result = await _execute_action_with_heartbeat(
+                    action_name=action_name,
+                    args=tool_call.args,
+                    claims=claims,
+                    registry_lock=input.registry_lock,
+                    tool_name=tool_call.tool_name,
+                )
 
             tool_result = ToolExecutionResult(
                 tool_call_id=tool_call.tool_call_id,

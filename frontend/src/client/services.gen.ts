@@ -98,6 +98,8 @@ import type {
   AgentPresetsCreateAgentPresetResponse,
   AgentPresetsDeleteAgentPresetData,
   AgentPresetsDeleteAgentPresetResponse,
+  AgentPresetsDiscoverMcpToolsData,
+  AgentPresetsDiscoverMcpToolsResponse,
   AgentPresetsGetAgentPresetBySlugData,
   AgentPresetsGetAgentPresetBySlugResponse,
   AgentPresetsGetAgentPresetData,
@@ -3800,6 +3802,32 @@ export const agentPresetsCreateAgentPreset = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/agent/presets",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Discover Mcp Tools
+ * Discover tools from MCP integrations for the approval selector.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns DiscoveredMCPTool Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsDiscoverMcpTools = (
+  data: AgentPresetsDiscoverMcpToolsData
+): CancelablePromise<AgentPresetsDiscoverMcpToolsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/presets/discover-mcp-tools",
     query: {
       workspace_id: data.workspaceId,
     },
