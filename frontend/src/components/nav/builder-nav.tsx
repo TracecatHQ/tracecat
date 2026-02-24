@@ -751,7 +751,7 @@ function WorkflowSaveActions({
                   className="flex flex-col"
                 >
                   <span className="mb-2 text-xs text-muted-foreground">
-                    Commit workflow
+                    Version control
                   </span>
                   <FormField
                     control={publishForm.control}
