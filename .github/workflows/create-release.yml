@@ -105,37 +105,13 @@ jobs:
             origin HEAD:main
 
           SHA=$(git rev-parse HEAD)
-          PUSHED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "pushed_at=$PUSHED_AT" >> "$GITHUB_OUTPUT"
 
       - name: Create and push tag
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           git tag -a "${VERSION}" -m "Release ${VERSION}"
           git push origin "${VERSION}"
-
-      - name: Wait for release drafter on release commit
-        run: |
-          sha="${{ steps.commit.outputs.sha }}"
-          pushed_at="${{ steps.commit.outputs.pushed_at }}"
-
-          for _ in $(seq 1 30); do
-            run_id=$(gh run list \
-              --workflow release-drafter.yml \
-              --json databaseId,headSha,event,createdAt \
-              --jq "map(select(.headSha == \"$sha\" and .event == \"push\" and .createdAt >= \"$pushed_at\")) | sort_by(.databaseId) | reverse | .[0].databaseId")
-
-            if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
-              gh run watch "$run_id" --exit-status
-              exit 0
-            fi
-
-            sleep 10
-          done
-
-          echo "Timed out waiting for release-drafter run for $sha after push time $pushed_at" >&2
-          exit 1
 
       - name: Wait for publish images and retry up to 3 times
         run: |
@@ -178,25 +154,25 @@ jobs:
             attempt=$((attempt + 1))
           done
 
-      - name: Publish release drafter draft release
+      - name: Publish latest release drafter draft release
         uses: actions/github-script@v7
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_SHA: ${{ steps.commit.outputs.sha }}
         with:
           script: |
             const version = process.env.VERSION
+            const releaseSha = process.env.RELEASE_SHA
             const { data: releases } = await github.rest.repos.listReleases({
               owner: context.repo.owner,
               repo: context.repo.repo,
               per_page: 100,
             })
 
-            const draft = releases.find(
-              (release) => release.draft && release.tag_name === version,
-            )
+            const draft = releases.find((release) => release.draft)
 
             if (!draft) {
-              core.setFailed(`No draft release found for tag ${version}`)
+              core.setFailed('No draft release found to publish')
               return
             }
 
@@ -205,4 +181,7 @@ jobs:
               repo: context.repo.repo,
               release_id: draft.id,
               draft: false,
+              tag_name: version,
+              target_commitish: releaseSha,
+              name: `Tracecat ${version}`,
             })
