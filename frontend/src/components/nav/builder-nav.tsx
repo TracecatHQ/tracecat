@@ -880,8 +880,7 @@ function WorkflowSaveActions({
                   />
                   {isDefaultBranchSelected && !createPrEnabled && (
                     <p className="mt-2 text-[11px] text-amber-700">
-                      Publishing to the default branch will create a direct
-                      commit.
+                      Pushing to the default branch will create a direct commit.
                     </p>
                   )}
                   <Button
@@ -892,12 +891,12 @@ function WorkflowSaveActions({
                     {isPublishing ? (
                       <>
                         <Spinner className="size-3" />
-                        Publishing changes...
+                        Pushing changes...
                       </>
                     ) : (
                       <>
                         <GitBranchIcon className="size-3" />
-                        Publish changes
+                        Push changes
                       </>
                     )}
                   </Button>
