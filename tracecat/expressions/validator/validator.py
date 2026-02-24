@@ -6,7 +6,6 @@ from typing import Any, Literal, Self, TypeVar, override
 from lark import Token, Tree
 from pydantic import BaseModel, Field
 
-from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.dsl.schemas import TaskResult
 from tracecat.expressions.common import MAX_VARS_PATH_DEPTH, ExprContext, ExprType
@@ -45,7 +44,6 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
         self,
         validation_context: ExprValidationContext,
         keep_success: bool = False,
-        role: Role | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -53,7 +51,6 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
         self._task_group = GatheringTaskGroup()
         self._validation_details: list[ValidationDetail] = []
         self._keep_success = keep_success
-        self._role = role
 
     async def __aenter__(self) -> Self:
         """Initialize the validator with a task group."""
@@ -73,7 +70,7 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
         self, *, name: str, key: str, loc: tuple[str | int, ...], environment: str
     ) -> None:
         # (1) Check if the secret is defined
-        async with SecretsService.with_session(role=self._role) as service:
+        async with SecretsService.with_session() as service:
             defined_secret = await service.search_secrets(
                 SecretSearch(names={name}, environment=environment)
             )
@@ -118,7 +115,7 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
         loc: tuple[str | int, ...],
         environment: str,
     ) -> None:
-        async with VariablesService.with_session(role=self._role) as service:
+        async with VariablesService.with_session() as service:
             defined_variables = await service.search_variables(
                 VariableSearch(names={name}, environment=environment)
             )
@@ -197,7 +194,7 @@ class ExprValidator(BaseExprValidator[ValidationDetail]):
     ) -> None:
         provider_key = ProviderKey(id=provider, grant_type=grant_type)
         try:
-            async with IntegrationService.with_session(role=self._role) as service:
+            async with IntegrationService.with_session() as service:
                 integration = await service.get_integration(provider_key=provider_key)
         except Exception as exc:
             self.logger.warning(
