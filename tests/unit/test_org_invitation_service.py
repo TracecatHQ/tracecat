@@ -29,7 +29,7 @@ from tracecat.exceptions import (
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.invitations.service import (
     InvitationService,
-    accept_org_invitation_for_user,
+    accept_invitation_for_user,
 )
 
 
@@ -601,7 +601,7 @@ class TestOrgInvitationService:
         user_in_org2: User,
         org1_member_role: DBRole,
     ):
-        """Test accept_org_invitation_for_user creates membership."""
+        """Test accept_invitation_for_user creates membership."""
         # Create invitation as admin
         admin_role = create_admin_role(org1.id, admin_in_org1.id)
         service = InvitationService(session, role=admin_role)
@@ -611,11 +611,12 @@ class TestOrgInvitationService:
         )
 
         # Accept as user_in_org2
-        membership = await accept_org_invitation_for_user(
+        membership = await accept_invitation_for_user(
             session, user_id=user_in_org2.id, token=invitation.token
         )
 
         assert membership.user_id == user_in_org2.id
+        assert isinstance(membership, OrganizationMembership)
         assert membership.organization_id == org1.id
 
         # Verify invitation is marked as accepted
@@ -642,13 +643,13 @@ class TestOrgInvitationService:
             role_id=org1_member_role.id,
         )
 
-        await accept_org_invitation_for_user(
+        await accept_invitation_for_user(
             session, user_id=user_in_org2.id, token=invitation.token
         )
 
         # Try to accept again with the same user
         with pytest.raises(TracecatAuthorizationError, match="already been accepted"):
-            await accept_org_invitation_for_user(
+            await accept_invitation_for_user(
                 session, user_id=user_in_org2.id, token=invitation.token
             )
 
@@ -689,7 +690,7 @@ class TestOrgInvitationService:
             TracecatAuthorizationError,
             match="invitation was sent to a different email address",
         ):
-            await accept_org_invitation_for_user(
+            await accept_invitation_for_user(
                 session, user_id=different_user.id, token=invitation.token
             )
 
@@ -715,6 +716,6 @@ class TestOrgInvitationService:
 
         # Try to accept
         with pytest.raises(TracecatAuthorizationError, match="has been revoked"):
-            await accept_org_invitation_for_user(
+            await accept_invitation_for_user(
                 session, user_id=user_in_org2.id, token=invitation.token
             )

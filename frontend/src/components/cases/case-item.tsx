@@ -536,35 +536,33 @@ export function CaseItem({
                 <UserIcon className="mr-2 size-3.5 text-muted-foreground" />
                 Unassigned
               </ContextMenuRadioItem>
-              {members
-                ?.filter((m) => m.user_id)
-                .map((member) => {
-                  const displayName = getDisplayName({
-                    first_name: member.first_name,
-                    last_name: member.last_name,
-                    email: member.email,
-                  })
-                  const initials = member.first_name
-                    ? member.first_name[0].toUpperCase()
-                    : member.email[0].toUpperCase()
-                  return (
-                    <ContextMenuRadioItem
-                      key={member.user_id}
-                      value={member.user_id as string}
-                      className="text-xs"
-                      onClick={() =>
-                        handleAssigneeChange(member.user_id as string)
-                      }
-                    >
-                      <Avatar className="mr-2 size-4">
-                        <AvatarFallback className="text-[8px] font-medium">
-                          {initials}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="truncate">{displayName}</span>
-                    </ContextMenuRadioItem>
-                  )
-                })}
+              {members?.map((member) => {
+                if (!member.user_id) return null
+                const userId = member.user_id
+                const displayName = getDisplayName({
+                  first_name: member.first_name,
+                  last_name: member.last_name,
+                  email: member.email,
+                })
+                const initials = member.first_name
+                  ? member.first_name[0].toUpperCase()
+                  : member.email[0].toUpperCase()
+                return (
+                  <ContextMenuRadioItem
+                    key={userId}
+                    value={userId}
+                    className="text-xs"
+                    onClick={() => handleAssigneeChange(userId)}
+                  >
+                    <Avatar className="mr-2 size-4">
+                      <AvatarFallback className="text-[8px] font-medium">
+                        {initials}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="truncate">{displayName}</span>
+                  </ContextMenuRadioItem>
+                )
+              })}
             </ContextMenuRadioGroup>
           </ContextMenuSubContent>
         </ContextMenuSub>

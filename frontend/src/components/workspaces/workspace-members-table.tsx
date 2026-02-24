@@ -47,8 +47,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { useWorkspaceInvitations } from "@/hooks/use-invitations"
 import {
-  useWorkspaceInvitations,
   useWorkspaceMembers,
   useWorkspaceMutations,
 } from "@/hooks/use-workspace"
@@ -86,7 +86,7 @@ export function WorkspaceMembersTable({
   const [copied, setCopied] = useState<string | null>(null)
 
   async function handleCopyInviteLink(token: string) {
-    const link = `${window.location.origin}/invitations/workspace/accept?token=${token}`
+    const link = `${window.location.origin}/invitations/accept?token=${token}`
     await navigator.clipboard.writeText(link)
     setCopied(token)
     setTimeout(() => setCopied(null), 2000)

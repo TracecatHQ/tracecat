@@ -3299,6 +3299,34 @@ export type InteractionStatus =
 export type InteractionType = "approval" | "response"
 
 /**
+ * Request body for accepting any invitation (org or workspace) via token.
+ */
+export type InvitationAccept = {
+  token: string
+}
+
+/**
+ * Public token-lookup response for both org and workspace invitations.
+ *
+ * The frontend uses this to render the accept page. When `workspace_id` is
+ * present the invitation is workspace-scoped; otherwise it is org-scoped.
+ */
+export type InvitationReadMinimal = {
+  invitation_id: string
+  organization_id: string
+  organization_name: string
+  workspace_id?: string | null
+  workspace_name?: string | null
+  inviter_name?: string | null
+  inviter_email?: string | null
+  role_name: string
+  role_slug?: string | null
+  status: InvitationStatus
+  expires_at: string
+  email_matches?: boolean | null
+}
+
+/**
  * Invitation lifecycle status.
  */
 export type InvitationStatus = "pending" | "accepted" | "revoked"
@@ -3508,13 +3536,6 @@ export type OrgDomainUpdate = {
 }
 
 /**
- * Request body for accepting an organization invitation via token.
- */
-export type OrgInvitationAccept = {
-  token: string
-}
-
-/**
  * Request body for creating an organization invitation.
  */
 export type OrgInvitationCreate = {
@@ -3538,24 +3559,6 @@ export type OrgInvitationRead = {
   expires_at: string
   created_at: string
   accepted_at: string | null
-}
-
-/**
- * Minimal response for public token-based invitation lookup.
- *
- * Excludes sensitive fields like email, invited_by ID, and timestamps
- * to reduce information disclosure when querying by token.
- */
-export type OrgInvitationReadMinimal = {
-  organization_id: string
-  organization_name: string
-  inviter_name: string | null
-  inviter_email: string | null
-  role_name: string
-  role_slug?: string | null
-  status: InvitationStatus
-  expires_at: string
-  email_matches?: boolean | null
 }
 
 /**
@@ -6899,13 +6902,6 @@ export type WorkspaceCreate = {
 }
 
 /**
- * Request body for accepting a workspace invitation via token.
- */
-export type WorkspaceInvitationAccept = {
-  token: string
-}
-
-/**
  * Request schema for creating a workspace invitation.
  */
 export type WorkspaceInvitationCreate = {
@@ -6929,21 +6925,6 @@ export type WorkspaceInvitationRead = {
   accepted_at: string | null
   created_at: string
   token?: string | null
-}
-
-/**
- * Public token lookup response for workspace invitation acceptance page.
- */
-export type WorkspaceInvitationReadMinimal = {
-  workspace_id: string
-  workspace_name: string
-  organization_name: string
-  inviter_name?: string | null
-  inviter_email?: string | null
-  role_name: string
-  status: InvitationStatus
-  expires_at: string
-  email_matches?: boolean | null
 }
 
 export type WorkspaceMember = {
@@ -7228,21 +7209,6 @@ export type WorkspacesSearchWorkspacesData = {
 
 export type WorkspacesSearchWorkspacesResponse = Array<WorkspaceReadMinimal>
 
-export type WorkspacesGetWorkspaceInvitationByTokenData = {
-  token: string
-}
-
-export type WorkspacesGetWorkspaceInvitationByTokenResponse =
-  WorkspaceInvitationReadMinimal
-
-export type WorkspacesAcceptWorkspaceInvitationData = {
-  requestBody: WorkspaceInvitationAccept
-}
-
-export type WorkspacesAcceptWorkspaceInvitationResponse = {
-  [key: string]: string
-}
-
 export type WorkspacesGetWorkspaceData = {
   workspaceId: string
 }
@@ -7318,22 +7284,6 @@ export type WorkspacesListWorkspaceInvitationsData = {
 
 export type WorkspacesListWorkspaceInvitationsResponse =
   Array<WorkspaceInvitationRead>
-
-export type WorkspacesGetWorkspaceInvitationTokenData = {
-  invitationId: string
-  workspaceId: string
-}
-
-export type WorkspacesGetWorkspaceInvitationTokenResponse = {
-  [key: string]: string
-}
-
-export type WorkspacesRevokeWorkspaceInvitationData = {
-  invitationId: string
-  workspaceId: string
-}
-
-export type WorkspacesRevokeWorkspaceInvitationResponse = void
 
 export type WorkflowsListWorkflowsData = {
   cursor?: string | null
@@ -7983,36 +7933,36 @@ export type OrganizationListInvitationsData = {
 
 export type OrganizationListInvitationsResponse = Array<OrgInvitationRead>
 
-export type OrganizationRevokeInvitationData = {
-  invitationId: string
-}
-
-export type OrganizationRevokeInvitationResponse = void
-
-export type OrganizationGetInvitationTokenData = {
-  invitationId: string
-}
-
-export type OrganizationGetInvitationTokenResponse = {
-  [key: string]: string
-}
-
-export type OrganizationAcceptInvitationData = {
-  requestBody: OrgInvitationAccept
-}
-
-export type OrganizationAcceptInvitationResponse = {
-  [key: string]: string
-}
-
 export type OrganizationListMyPendingInvitationsResponse =
   Array<OrgPendingInvitationRead>
 
-export type OrganizationGetInvitationByTokenData = {
+export type InvitationsGetInvitationByTokenData = {
   token: string
 }
 
-export type OrganizationGetInvitationByTokenResponse = OrgInvitationReadMinimal
+export type InvitationsGetInvitationByTokenResponse = InvitationReadMinimal
+
+export type InvitationsAcceptInvitationData = {
+  requestBody: InvitationAccept
+}
+
+export type InvitationsAcceptInvitationResponse = {
+  [key: string]: string
+}
+
+export type InvitationsRevokeInvitationData = {
+  invitationId: string
+}
+
+export type InvitationsRevokeInvitationResponse = void
+
+export type InvitationsGetInvitationTokenData = {
+  invitationId: string
+}
+
+export type InvitationsGetInvitationTokenResponse = {
+  [key: string]: string
+}
 
 export type AgentListModelsResponse = {
   [key: string]: ModelConfig
@@ -9997,38 +9947,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workspaces/invitations/token/{token}": {
-    get: {
-      req: WorkspacesGetWorkspaceInvitationByTokenData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: WorkspaceInvitationReadMinimal
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/invitations/accept": {
-    post: {
-      req: WorkspacesAcceptWorkspaceInvitationData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: {
-          [key: string]: string
-        }
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/workspaces/{workspace_id}": {
     get: {
       req: WorkspacesGetWorkspaceData
@@ -10175,38 +10093,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<WorkspaceInvitationRead>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/invitations/{invitation_id}/token": {
-    get: {
-      req: WorkspacesGetWorkspaceInvitationTokenData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: {
-          [key: string]: string
-        }
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/invitations/{invitation_id}": {
-    delete: {
-      req: WorkspacesRevokeWorkspaceInvitationData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
         /**
          * Validation Error
          */
@@ -11388,9 +11274,51 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/organization/invitations/{invitation_id}": {
+  "/organization/invitations/pending/me": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<OrgPendingInvitationRead>
+      }
+    }
+  }
+  "/invitations/token/{token}": {
+    get: {
+      req: InvitationsGetInvitationByTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: InvitationReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/invitations/accept": {
+    post: {
+      req: InvitationsAcceptInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/invitations/{invitation_id}": {
     delete: {
-      req: OrganizationRevokeInvitationData
+      req: InvitationsRevokeInvitationData
       res: {
         /**
          * Successful Response
@@ -11403,9 +11331,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/organization/invitations/{invitation_id}/token": {
+  "/invitations/{invitation_id}/token": {
     get: {
-      req: OrganizationGetInvitationTokenData
+      req: InvitationsGetInvitationTokenData
       res: {
         /**
          * Successful Response
@@ -11413,48 +11341,6 @@ export type $OpenApiTs = {
         200: {
           [key: string]: string
         }
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/organization/invitations/accept": {
-    post: {
-      req: OrganizationAcceptInvitationData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: {
-          [key: string]: string
-        }
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/organization/invitations/pending/me": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<OrgPendingInvitationRead>
-      }
-    }
-  }
-  "/organization/invitations/token/{token}": {
-    get: {
-      req: OrganizationGetInvitationByTokenData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: OrgInvitationReadMinimal
         /**
          * Validation Error
          */
