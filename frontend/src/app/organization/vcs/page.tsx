@@ -1,30 +1,18 @@
 "use client"
 
-import { useRouter } from "next/navigation"
-import { useEffect } from "react"
+import { ArrowUpRight } from "lucide-react"
 
+import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { OrgVCSSettings } from "@/components/organization/org-vcs-settings"
+import { Button } from "@/components/ui/button"
 import { useEntitlements } from "@/hooks/use-entitlements"
 
 export default function VCSSettingsPage() {
-  const router = useRouter()
   const { hasEntitlement, isLoading } = useEntitlements()
-
-  useEffect(() => {
-    if (!isLoading && !hasEntitlement("git_sync")) {
-      // Use replace to avoid adding a history entry and prevent back navigation to this page
-      router.replace("/not-found")
-    }
-  }, [isLoading, hasEntitlement, router])
 
   // Show loading while feature flags are being fetched
   if (isLoading) {
-    return <CenteredSpinner />
-  }
-
-  // Don't render content if feature is disabled (redirect is happening in useEffect)
-  if (!hasEntitlement("git_sync")) {
     return <CenteredSpinner />
   }
 
@@ -42,7 +30,31 @@ export default function VCSSettingsPage() {
           </div>
         </div>
 
-        <OrgVCSSettings />
+        {hasEntitlement("git_sync") ? (
+          <OrgVCSSettings />
+        ) : (
+          <div className="flex flex-1 items-center justify-center pb-8">
+            <EntitlementRequiredEmptyState
+              title="Upgrade required"
+              description="Workflow sync is unavailable on your current plan."
+            >
+              <Button
+                variant="link"
+                asChild
+                className="text-muted-foreground"
+                size="sm"
+              >
+                <a
+                  href="https://tracecat.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Learn more <ArrowUpRight className="size-4" />
+                </a>
+              </Button>
+            </EntitlementRequiredEmptyState>
+          </div>
+        )}
       </div>
     </div>
   )

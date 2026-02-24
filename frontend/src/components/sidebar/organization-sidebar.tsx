@@ -39,6 +39,7 @@ export function OrganizationSidebar({
   const pathname = usePathname()
   const { hasEntitlement } = useEntitlements()
   const customRegistryEnabled = hasEntitlement("custom_registry")
+  const gitSyncEnabled = hasEntitlement("git_sync")
 
   // Fetch workspaces for the sidebar
   const { workspaces } = useWorkspaceManager()
@@ -96,18 +97,14 @@ export function OrganizationSidebar({
       visible: canViewSettings === true,
       locked: false,
     },
-    ...(hasEntitlement("git_sync")
-      ? [
-          {
-            title: "Workflow sync",
-            url: "/organization/vcs",
-            icon: GitBranchIcon,
-            isActive: pathname?.includes("/organization/vcs"),
-            visible: canViewSettings === true,
-            locked: false,
-          },
-        ]
-      : []),
+    {
+      title: "Workflow sync",
+      url: "/organization/vcs",
+      icon: GitBranchIcon,
+      isActive: pathname?.includes("/organization/vcs"),
+      visible: canViewSettings === true,
+      locked: !gitSyncEnabled,
+    },
   ]
 
   const navSecrets = [
