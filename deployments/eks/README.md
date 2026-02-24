@@ -501,13 +501,49 @@ export TF_VAR_temporal_secret_arn="arn:aws:secretsmanager:us-east-1:123456789012
 The stack includes an optional observability pipeline that deploys:
 
 1. **Grafana K8s Monitoring Helm chart** (Alloy-based) for in-cluster metrics and logs
-2. **CloudWatch Metric Streams + Kinesis Firehose** for AWS service metrics (RDS, ElastiCache, ALB, WAF, S3)
+2. **CloudWatch Metric Streams + Kinesis Firehose** for AWS service and capacity metrics (Auto Scaling, EC2, EKS, RDS, ElastiCache, ALB, WAF, S3)
 3. **ESO ExternalSecret** for syncing Grafana Cloud credentials into the cluster
 4. **IAM roles** with confused-deputy protections for CloudWatch and Firehose
 
 All observability resources are gated by `enable_observability` (default `false`).
 
 When observability and KEDA are both enabled (module defaults for KEDA), KEDA operator and metrics-apiserver Prometheus metrics are collected automatically through annotation autodiscovery.
+
+### Node group and capacity visibility setup
+
+To track instance utilization and capacity behavior over time (including spot capacity), the observability setup combines:
+
+1. **In-cluster metrics** from `node-exporter`, `kubelet`, `cadvisor`, and `kube-state-metrics` for per-node CPU/memory utilization and pod scheduling pressure.
+   - kube-state-metrics node label allowlist includes node group, instance-type, and capacity-type labels so you can segment spot vs on-demand utilization in Prometheus/Grafana.
+2. **CloudWatch infrastructure metrics** streamed to Grafana Cloud for:
+   - `AWS/AutoScaling` (ASG/node-group desired, in-service, pending, terminating capacity)
+   - `AWS/EC2` (instance-level compute and status metrics)
+   - `AWS/EKS` (control plane and cluster service metrics)
+3. Existing service namespaces (`AWS/RDS`, `AWS/ElastiCache`, `AWS/ApplicationELB`, `AWS/WAFV2`, `AWS/S3`) so app and infra metrics remain in one pipeline.
+
+Terraform enables Auto Scaling group metrics collection at 1-minute granularity for both EKS managed node-group backing ASGs (on-demand and spot when enabled). This is required for `AWS/AutoScaling` metrics to be emitted and streamed.
+
+`AWS/EC2` and `AWS/EKS` metrics do not require extra per-resource Terraform toggles for baseline CloudWatch emission. The stream filters collect them as soon as they are available in CloudWatch.
+
+This lets you analyze:
+- on-demand vs spot utilization over time using node labels in Kubernetes metrics
+- node group scaling dynamics from Auto Scaling metrics
+- cluster health alongside workload utilization in a single Grafana workspace
+
+Requirements for `terraform apply` when observability is enabled:
+- Terraform runner has `aws` CLI installed (used to enable ASG metrics on EKS-managed backing ASGs).
+- Caller credentials include `autoscaling:EnableMetricsCollection` on the node-group backing ASGs.
+
+Why this uses Terraform `local-exec` instead of Helm:
+- This setting is an AWS Auto Scaling API setting, not a Kubernetes/Helm setting.
+- We manage node capacity with `aws_eks_node_group`, and EKS creates/owns the backing ASGs.
+- Terraform can set ASG metrics declaratively only on `aws_autoscaling_group` resources it manages directly.
+- For EKS-managed backing ASGs, enabling metrics requires calling `EnableMetricsCollection` after node groups exist.
+
+Implementation options for EKS managed node groups:
+1. Terraform `local-exec` API call (current setup): simple and keeps behavior in infra code.
+2. EventBridge + Lambda reconciler: automatically re-enables metrics if EKS rotates/replaces backing ASGs.
+3. Manual CLI/console enablement: possible, but not recommended because it is not IaC-managed.
 
 ### 1. Create a Grafana Cloud credentials secret
 

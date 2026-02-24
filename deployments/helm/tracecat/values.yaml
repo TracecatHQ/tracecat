@@ -248,13 +248,37 @@ metricsServer:
 
 keda:
   enabled: false
-  # KEDA Prometheus metrics exposure. With ServiceMonitor/PodMonitor left disabled,
-  # the KEDA chart adds prometheus.io annotations for annotation-based scrapers.
+  # Install KEDA CRDs with the dependency when KEDA is enabled.
+  crds:
+    install: true
+  # Keep cert-manager integration disabled by default (no extra CRD dependency).
+  certificates:
+    certManager:
+      enabled: false
+  # KEDA Prometheus metrics exposure.
+  # Keep ServiceMonitor/PodMonitor/PrometheusRule disabled by default to avoid
+  # requiring Prometheus Operator CRDs and to stay GitOps-safe out of the box.
   prometheus:
     operator:
       enabled: true
+      serviceMonitor:
+        enabled: false
+      podMonitor:
+        enabled: false
+      prometheusRules:
+        enabled: false
     metricServer:
       enabled: true
+      serviceMonitor:
+        enabled: false
+      podMonitor:
+        enabled: false
+    webhooks:
+      enabled: false
+      serviceMonitor:
+        enabled: false
+      prometheusRules:
+        enabled: false
 
 ui:
   replicas: 1

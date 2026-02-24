@@ -264,7 +264,134 @@ urls:
 
 Each service also supports `resources.requests.cpu`, `resources.requests.memory`, `resources.limits.cpu`, and `resources.limits.memory`. See `values.yaml` for defaults.
 
-### Autoscaling (HPA)
+### Autoscaling
+
+All autoscaling is disabled by default for backwards compatibility with existing Helm users:
+
+- `metricsServer.enabled=false`
+- `keda.enabled=false`
+- `api.autoscaling.enabled=false`
+- `ui.autoscaling.enabled=false`
+- `worker.autoscaling.enabled=false`
+- `executor.autoscaling.enabled=false`
+- `agentExecutor.autoscaling.enabled=false`
+
+#### Cluster autoscaling toggle guide
+
+Use one of these modes depending on your cluster:
+
+| Mode | Required values |
+|------|------------------|
+| Disable all autoscaling (default) | Keep all autoscaling toggles above `false` |
+| Enable API/UI HPA only | `api.autoscaling.enabled=true`, `ui.autoscaling.enabled=true`, plus a `metrics.k8s.io` provider (`metricsServer.enabled=true` or platform-managed metrics-server) |
+| Enable Temporal KEDA only | `keda.enabled=true` and one or more of `worker/executor/agentExecutor.autoscaling.enabled=true` |
+| Enable both HPA + KEDA | Combine both sets above |
+
+Disable all autoscaling:
+
+```yaml
+metricsServer:
+  enabled: false
+
+keda:
+  enabled: false
+
+api:
+  autoscaling:
+    enabled: false
+ui:
+  autoscaling:
+    enabled: false
+worker:
+  autoscaling:
+    enabled: false
+executor:
+  autoscaling:
+    enabled: false
+agentExecutor:
+  autoscaling:
+    enabled: false
+```
+
+Enable only API/UI HPA:
+
+```yaml
+metricsServer:
+  enabled: true # Or keep false when your cluster already provides metrics-server.
+
+api:
+  autoscaling:
+    enabled: true
+ui:
+  autoscaling:
+    enabled: true
+
+keda:
+  enabled: false
+worker:
+  autoscaling:
+    enabled: false
+executor:
+  autoscaling:
+    enabled: false
+agentExecutor:
+  autoscaling:
+    enabled: false
+```
+
+Enable only Temporal KEDA autoscaling:
+
+```yaml
+keda:
+  enabled: true
+
+worker:
+  autoscaling:
+    enabled: true
+executor:
+  autoscaling:
+    enabled: true
+agentExecutor:
+  autoscaling:
+    enabled: true
+
+api:
+  autoscaling:
+    enabled: false
+ui:
+  autoscaling:
+    enabled: false
+metricsServer:
+  enabled: false
+```
+
+Enable both HPA + KEDA:
+
+```yaml
+metricsServer:
+  enabled: true # Optional when metrics-server already exists in-cluster.
+
+api:
+  autoscaling:
+    enabled: true
+ui:
+  autoscaling:
+    enabled: true
+
+keda:
+  enabled: true
+worker:
+  autoscaling:
+    enabled: true
+executor:
+  autoscaling:
+    enabled: true
+agentExecutor:
+  autoscaling:
+    enabled: true
+```
+
+### API/UI autoscaling (HPA)
 
 Tracecat supports `autoscaling/v2` HPAs for API and UI:
 
@@ -281,7 +408,7 @@ Tracecat supports `autoscaling/v2` HPAs for API and UI:
 | `ui.autoscaling.targetCPUUtilizationPercentage` | `70` | UI CPU target |
 | `ui.autoscaling.targetMemoryUtilizationPercentage` | `80` | UI memory target |
 
-When autoscaling is enabled, a metrics provider is required (`metrics.k8s.io` APIService). The chart does not perform cluster-time API discovery checks during render, so shared-cluster installs with externally managed metrics providers are supported.
+When HPA is enabled, a metrics provider is required (`metrics.k8s.io` APIService). The chart does not perform cluster-time API discovery checks during render, so shared-cluster installs with externally managed metrics providers are supported.
 
 ### Bundled metrics-server (optional)
 
@@ -296,21 +423,6 @@ For one-command installs on dedicated clusters, you can enable the bundled `metr
 | `metricsServer.resources.requests.memory` | `200Mi` | Metrics-server memory request |
 | `metricsServer.args` | `[]` | Optional extra args (for example `--kubelet-insecure-tls`) |
 
-Example (OCI Helm-only, single release):
-
-```yaml
-metricsServer:
-  enabled: true
-
-api:
-  autoscaling:
-    enabled: true
-
-ui:
-  autoscaling:
-    enabled: true
-```
-
 For shared clusters where platform teams already manage metrics-server, keep `metricsServer.enabled=false` and only enable HPAs.
 
 For EKS Terraform deployment (`deployments/eks`), API and UI HPAs are always enabled by module defaults; tune `*_autoscaling_*` min/max/target variables to adjust behavior.
@@ -322,17 +434,6 @@ Temporal queue autoscaling is available for:
 - `worker`
 - `executor`
 - `agentExecutor`
-
-Helm users can keep this optional per install:
-
-- `keda.enabled`
-- `worker.autoscaling.enabled`
-- `executor.autoscaling.enabled`
-- `agentExecutor.autoscaling.enabled`
-
-When KEDA is enabled, Prometheus metrics for the KEDA operator and metrics-apiserver are exposed by default (`keda.prometheus.operator.enabled=true`, `keda.prometheus.metricServer.enabled=true`). This aligns with annotation-based scrapers (for example Grafana k8s-monitoring `annotationAutodiscovery`) without requiring ServiceMonitor CRDs.
-
-For EKS Terraform deployments (`deployments/eks`), these Temporal autoscaling toggles are required and are always set to `true` by the module.
 
 When component autoscaling is enabled, both Temporal deployment modes are supported:
 
@@ -355,11 +456,60 @@ Validation enforces:
 - external/cloud autoscaling requires a Temporal auth source
 - `executor` and `agentExecutor` autoscaling requires at least one resource metric target (CPU and/or memory utilization)
 
+For EKS Terraform deployments (`deployments/eks`), Temporal autoscaling toggles are required and are always set to `true` by the module.
+
+#### KEDA metrics and Prometheus
+
+When KEDA is enabled, Prometheus metrics for the KEDA operator and metrics-apiserver are exposed by default:
+
+- `keda.prometheus.operator.enabled=true`
+- `keda.prometheus.metricServer.enabled=true`
+
+To keep Helm installs ArgoCD-safe and avoid extra CRD dependencies, monitor/rule CRDs are disabled by default:
+
+- `keda.prometheus.operator.serviceMonitor.enabled=false`
+- `keda.prometheus.operator.podMonitor.enabled=false`
+- `keda.prometheus.operator.prometheusRules.enabled=false`
+- `keda.prometheus.metricServer.serviceMonitor.enabled=false`
+- `keda.prometheus.metricServer.podMonitor.enabled=false`
+- `keda.prometheus.webhooks.serviceMonitor.enabled=false`
+- `keda.prometheus.webhooks.prometheusRules.enabled=false`
+
+This default is compatible with annotation-based scraping (for example Grafana k8s-monitoring annotation autodiscovery) and does not require Prometheus Operator CRDs.
+
+If you use Prometheus Operator, enable the monitor/rule toggles explicitly and ensure the matching CRDs already exist in the cluster before sync.
+
+For GitOps controllers like ArgoCD, KEDA TLS CA bundles on `APIService` and `ValidatingWebhookConfiguration` can be injected/rotated at runtime. If your project enforces strict diff checks, add ignore rules for those fields:
+
+```yaml
+spec:
+  ignoreDifferences:
+    - group: apiregistration.k8s.io
+      kind: APIService
+      name: v1beta1.external.metrics.k8s.io
+      jsonPointers:
+        - /spec/caBundle
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      name: keda-admission
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
+```
+
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `keda.enabled` | `false` | Install KEDA as a chart dependency |
+| `keda.crds.install` | `true` | Install KEDA CRDs with the KEDA chart |
+| `keda.certificates.certManager.enabled` | `false` | Use cert-manager for KEDA TLS certs |
 | `keda.prometheus.operator.enabled` | `true` | Expose KEDA operator Prometheus metrics |
+| `keda.prometheus.operator.serviceMonitor.enabled` | `false` | Create Prometheus Operator `ServiceMonitor` for KEDA operator |
+| `keda.prometheus.operator.podMonitor.enabled` | `false` | Create Prometheus Operator `PodMonitor` for KEDA operator |
+| `keda.prometheus.operator.prometheusRules.enabled` | `false` | Create Prometheus Operator `PrometheusRule` for KEDA operator |
 | `keda.prometheus.metricServer.enabled` | `true` | Expose KEDA metrics-apiserver Prometheus metrics |
+| `keda.prometheus.metricServer.serviceMonitor.enabled` | `false` | Create Prometheus Operator `ServiceMonitor` for KEDA metrics-apiserver |
+| `keda.prometheus.metricServer.podMonitor.enabled` | `false` | Create Prometheus Operator `PodMonitor` for KEDA metrics-apiserver |
+| `keda.prometheus.webhooks.serviceMonitor.enabled` | `false` | Create Prometheus Operator `ServiceMonitor` for KEDA webhooks |
+| `keda.prometheus.webhooks.prometheusRules.enabled` | `false` | Create Prometheus Operator `PrometheusRule` for KEDA webhooks |
 | `worker.autoscaling.enabled` | `false` | Enable KEDA Temporal queue autoscaling for worker |
 | `worker.autoscaling.minReplicas` | `1` | Worker min replicas |
 | `worker.autoscaling.maxReplicas` | `8` | Worker max replicas |

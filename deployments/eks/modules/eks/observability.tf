@@ -131,6 +131,11 @@ resource "helm_release" "grafana_k8s_monitoring" {
       }
       kube-state-metrics = {
         enabled = true
+        # Preserve default useful node labels and include EKS/Tracecat capacity labels
+        # for spot vs on-demand utilization breakdowns.
+        metricLabelsAllowlist = [
+          "nodes=[agentpool,alpha.eksctl.io/cluster-name,alpha.eksctl.io/nodegroup-name,beta.kubernetes.io/instance-type,cloud.google.com/gke-nodepool,cluster_name,ec2_amazonaws_com_Name,ec2_amazonaws_com_aws_autoscaling_groupName,ec2_amazonaws_com_aws_autoscaling_group_name,ec2_amazonaws_com_name,eks_amazonaws_com_nodegroup,eks_amazonaws_com_capacityType,k8s_io_cloud_provider_aws,karpenter.sh/nodepool,kubernetes.azure.com/cluster,kubernetes.io/arch,kubernetes.io/hostname,kubernetes.io/os,node.kubernetes.io/instance-type,topology.kubernetes.io/region,topology.kubernetes.io/zone,tracecat_com_capacity]",
+        ]
       }
       kubelet = {
         enabled = true
@@ -303,6 +308,19 @@ resource "aws_cloudwatch_metric_stream" "grafana" {
   output_format = "opentelemetry1.0"
   depends_on    = [aws_iam_role_policy.cw_metric_stream]
 
+  # Core capacity and node-group scaling metrics.
+  include_filter {
+    namespace = "AWS/AutoScaling"
+  }
+
+  include_filter {
+    namespace = "AWS/EC2"
+  }
+
+  include_filter {
+    namespace = "AWS/EKS"
+  }
+
   include_filter {
     namespace = "AWS/RDS"
   }
@@ -324,6 +342,57 @@ resource "aws_cloudwatch_metric_stream" "grafana" {
   }
 
   tags = var.tags
+}
+
+# EKS managed node groups create backing Auto Scaling Groups outside Terraform.
+# Enable 1-minute ASG metrics collection imperatively so AWS/AutoScaling
+# namespace data is emitted and can be forwarded by Metric Streams.
+resource "terraform_data" "enable_on_demand_asg_metrics" {
+  count = local.observability_enabled ? 1 : 0
+
+  triggers_replace = {
+    autoscaling_group_name = local.tracecat_on_demand_asg_name
+    region                 = local.aws_region
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      command -v aws >/dev/null 2>&1 || { echo "aws CLI is required to enable Auto Scaling metrics collection." >&2; exit 1; }
+
+      aws autoscaling enable-metrics-collection \
+        --auto-scaling-group-name "${self.triggers_replace.autoscaling_group_name}" \
+        --granularity "1Minute" \
+        --region "${self.triggers_replace.region}"
+    EOT
+  }
+
+  depends_on = [aws_eks_node_group.tracecat]
+}
+
+resource "terraform_data" "enable_spot_asg_metrics" {
+  count = local.observability_enabled && var.spot_node_group_enabled ? 1 : 0
+
+  triggers_replace = {
+    autoscaling_group_name = local.tracecat_spot_asg_name
+    region                 = local.aws_region
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      command -v aws >/dev/null 2>&1 || { echo "aws CLI is required to enable Auto Scaling metrics collection." >&2; exit 1; }
+
+      aws autoscaling enable-metrics-collection \
+        --auto-scaling-group-name "${self.triggers_replace.autoscaling_group_name}" \
+        --granularity "1Minute" \
+        --region "${self.triggers_replace.region}"
+    EOT
+  }
+
+  depends_on = [aws_eks_node_group.tracecat_spot]
 }
 
 # -----------------------------------------------------------------------------
