@@ -44,6 +44,7 @@ with workflow.unsafe.imports_passed_through():
         ActionStatement,
         ExecutionContext,
         GatherArgs,
+        LoopEndArgs,
         RunContext,
         ScatterArgs,
         StreamID,
@@ -99,6 +100,16 @@ class DSLEdge:
 
     def __repr__(self) -> str:
         return f"{self.src}-[{self.type.value}]->{self.dst} ({self.stream_id})"
+
+
+@dataclass(frozen=True, slots=True)
+class LoopRegion:
+    """Resolved metadata for one do-while loop region."""
+
+    start_ref: str
+    end_ref: str
+    scope_ref: str
+    members: frozenset[str]
 
 
 class DSLScheduler:
@@ -159,6 +170,18 @@ class DSLScheduler:
         }
         """Adjacency list of task dependencies (sorted for determinism)"""
 
+        control_adj = dsl._to_adjacency()
+        (
+            self.action_scopes,
+            self.scope_hierarchy,
+            _scope_openers,
+        ) = dsl._assign_action_scopes(control_adj)
+        self.loop_regions = self._build_loop_regions()
+        self.loop_regions_by_end = {
+            region.end_ref: region for region in self.loop_regions.values()
+        }
+        self.loop_indices: dict[tuple[str, StreamID], int] = {}
+
         # Scope management
         self._root_context = context
         """Points to the worklfow roots stream context"""
@@ -183,6 +206,178 @@ class DSLScheduler:
     def _adj_sort_key(adj: AdjDst) -> tuple[str, str]:
         dst_ref, edge_type = adj
         return dst_ref, edge_type.value
+
+    def _scope_is_descendant(self, scope: str, ancestor_scope: str) -> bool:
+        curr_scope = scope
+        while curr_scope is not None:
+            if curr_scope == ancestor_scope:
+                return True
+            curr_scope = self.scope_hierarchy.get(curr_scope)
+        return False
+
+    def _build_loop_regions(self) -> dict[str, LoopRegion]:
+        regions: dict[str, LoopRegion] = {}
+        for stmt in self.dsl.actions:
+            if stmt.action != PlatformAction.LOOP_END:
+                continue
+            if not stmt.depends_on:
+                raise RuntimeError(
+                    f"Loop end action {stmt.ref!r} must depend on loop body actions"
+                )
+
+            dep_scopes = {
+                self.action_scopes[edge_components_from_dep(dep_ref)[0]]
+                for dep_ref in stmt.depends_on
+            }
+            if len(dep_scopes) != 1:
+                raise RuntimeError(
+                    f"Loop end action {stmt.ref!r} must close exactly one loop scope"
+                )
+            loop_scope = next(iter(dep_scopes))
+            loop_start_stmt = self.tasks.get(loop_scope)
+            if (
+                loop_start_stmt is None
+                or loop_start_stmt.action != PlatformAction.LOOP_START
+            ):
+                raise RuntimeError(
+                    f"Loop end action {stmt.ref!r} does not match a loop start action"
+                )
+            if loop_scope in regions:
+                raise RuntimeError(
+                    f"Loop start action {loop_scope!r} has multiple loop end actions"
+                )
+
+            members = frozenset(
+                ref
+                for ref, scope in self.action_scopes.items()
+                if self._scope_is_descendant(scope, loop_scope)
+            )
+            regions[loop_scope] = LoopRegion(
+                start_ref=loop_scope,
+                end_ref=stmt.ref,
+                scope_ref=loop_scope,
+                members=members | {stmt.ref},
+            )
+        return regions
+
+    @staticmethod
+    def _stream_within(stream_id: StreamID, base_stream_id: StreamID) -> bool:
+        return stream_id == base_stream_id or str(stream_id).startswith(
+            f"{base_stream_id}/"
+        )
+
+    def _cleanup_loop_descendant_streams(
+        self, region: LoopRegion, stream_id: StreamID
+    ) -> None:
+        streams_to_remove: set[StreamID] = set()
+        for task_key, scoped_streams in self.task_streams.items():
+            if (
+                task_key.ref not in region.members
+                or not self._stream_within(task_key.stream_id, stream_id)
+            ):
+                continue
+            streams_to_remove.update(scoped_streams)
+
+        if not streams_to_remove:
+            return
+
+        # Include recursively nested streams created under loop-internal scatters.
+        changed = True
+        while changed:
+            changed = False
+            for candidate, parent in self.stream_hierarchy.items():
+                if parent in streams_to_remove and candidate not in streams_to_remove:
+                    streams_to_remove.add(candidate)
+                    changed = True
+
+        for stream in streams_to_remove:
+            self.streams.pop(stream, None)
+            self.stream_hierarchy.pop(stream, None)
+            self.stream_exceptions.pop(stream, None)
+
+        self.completed_tasks = {
+            task for task in self.completed_tasks if task.stream_id not in streams_to_remove
+        }
+        self.indegrees = {
+            task: indegree
+            for task, indegree in self.indegrees.items()
+            if task.stream_id not in streams_to_remove
+        }
+        self.edges = defaultdict(
+            lambda: EdgeMarker.PENDING,
+            {
+                edge: marker
+                for edge, marker in self.edges.items()
+                if edge.stream_id not in streams_to_remove
+            },
+        )
+        self.task_streams = defaultdict(
+            list,
+            {
+                task: streams
+                for task, streams in self.task_streams.items()
+                if task.stream_id not in streams_to_remove
+            },
+        )
+        self.open_streams = {
+            task: n_open
+            for task, n_open in self.open_streams.items()
+            if task.stream_id not in streams_to_remove
+        }
+
+    def _reset_loop_iteration_state(self, region: LoopRegion, stream_id: StreamID) -> None:
+        # NOTE(loop semantics):
+        # We only reset scheduler bookkeeping (edges/indegrees/completions/streams) to
+        # allow another pass through the loop region. We intentionally DO NOT clear the
+        # loop-region action context. Results are overwritten when an action runs again;
+        # if an action is skipped this iteration, its prior value is retained.
+        self._cleanup_loop_descendant_streams(region, stream_id)
+
+        for task_key in list(self.task_streams.keys()):
+            if (
+                task_key.ref in region.members
+                and task_key.stream_id == stream_id
+            ):
+                self.task_streams.pop(task_key, None)
+        for task_key in list(self.open_streams.keys()):
+            if (
+                task_key.ref in region.members
+                and task_key.stream_id == stream_id
+            ):
+                self.open_streams.pop(task_key, None)
+
+        # Reset edge markers within the loop region for this stream.
+        for edge in list(self.edges.keys()):
+            if (
+                edge.stream_id == stream_id
+                and edge.src in region.members
+                and edge.dst in region.members
+            ):
+                self.edges[edge] = EdgeMarker.PENDING
+
+        # Reset indegrees for loop tasks so they can be scheduled again.
+        for ref in region.members:
+            task_key = Task(ref=ref, stream_id=stream_id)
+            self.completed_tasks.discard(task_key)
+            stmt = self.tasks.get(ref)
+            if stmt is None:
+                continue
+
+            internal_deps = 0
+            for dep_ref in stmt.depends_on:
+                source_ref, _ = self._get_edge_components(dep_ref)
+                if source_ref in region.members:
+                    internal_deps += 1
+            self.indegrees[task_key] = internal_deps
+
+        # Reset nested loop indices within this loop scope.
+        for loop_key in list(self.loop_indices.keys()):
+            loop_start_ref, loop_stream = loop_key
+            if (
+                loop_start_ref in region.members
+                and self._stream_within(loop_stream, stream_id)
+            ):
+                self.loop_indices.pop(loop_key, None)
 
     @property
     def workspace_id(self) -> str:
@@ -369,6 +564,12 @@ class DSLScheduler:
         ref = task.ref
         self.logger.debug("Handling skip path")
 
+        if stmt.action == PlatformAction.LOOP_START:
+            return await self._handle_loop_start(task, stmt, is_skipping=True)
+
+        if stmt.action == PlatformAction.LOOP_END:
+            return await self._handle_loop_end(task, stmt, is_skipping=True)
+
         if stmt.action == PlatformAction.TRANSFORM_SCATTER:
             return await self._handle_scatter(task, stmt, is_skipping=True)
 
@@ -487,6 +688,10 @@ class DSLScheduler:
 
             # -- If this is a control flow action (scatter), we need to
             # handle it differently.
+            if stmt.action == PlatformAction.LOOP_START:
+                return await self._handle_loop_start(task, stmt)
+            if stmt.action == PlatformAction.LOOP_END:
+                return await self._handle_loop_end(task, stmt)
             if stmt.action == PlatformAction.TRANSFORM_SCATTER:
                 return await self._handle_scatter(task, stmt)
             # 0) Always handle gather first - its a synchronization barrier that needs
@@ -722,6 +927,74 @@ class DSLScheduler:
         self.logger.debug("Queueing skip stream", skip_task=skip_task)
         # Acknowledge the new scope
         return await self._queue_tasks(skip_task, unreachable=all_next)
+
+    async def _handle_loop_start(
+        self, task: Task, stmt: ActionStatement, *, is_skipping: bool = False
+    ) -> None:
+        self.logger.debug("Handling loop start", task=task, is_skipping=is_skipping)
+        if is_skipping:
+            unreachable = {
+                DSLEdge(src=task.ref, dst=dst, type=edge_type, stream_id=task.stream_id)
+                for dst, edge_type in self.adj[task.ref]
+            }
+            await self._queue_tasks(task, unreachable=unreachable)
+            return
+
+        loop_key = (task.ref, task.stream_id)
+        index = self.loop_indices.get(loop_key, 0)
+        action_context = self._get_action_context(task.stream_id)
+        action_context[task.ref] = TaskResult.from_result({"iteration": index})
+        await self._execute(task, stmt)
+        await self._handle_success_path(task)
+
+    async def _handle_loop_end(
+        self, task: Task, stmt: ActionStatement, *, is_skipping: bool = False
+    ) -> None:
+        self.logger.debug("Handling loop end", task=task, is_skipping=is_skipping)
+        if task.ref not in self.loop_regions_by_end:
+            raise RuntimeError(f"Unknown loop end action: {task.ref!r}")
+
+        region = self.loop_regions_by_end[task.ref]
+        args = LoopEndArgs(**stmt.args)
+        loop_key = (region.start_ref, task.stream_id)
+        current_index = self.loop_indices.get(loop_key, 0)
+
+        if is_skipping:
+            should_continue = False
+        else:
+            context = self.build_stream_aware_context(stmt, task.stream_id)
+            try:
+                expr_result = await self.resolve_expression(args.condition, context)
+            except Exception as e:
+                raise ApplicationError(
+                    f"Error evaluating `condition` in `core.loop.end`: {e}",
+                    non_retryable=True,
+                ) from e
+            should_continue = bool(expr_result)
+
+        action_context = self._get_action_context(task.stream_id)
+        action_context[task.ref] = TaskResult.from_result({"continue": should_continue})
+
+        if not is_skipping:
+            await self._execute(task, stmt)
+
+        if should_continue:
+            next_index = current_index + 1
+            if next_index >= args.max_iterations:
+                raise ApplicationError(
+                    (
+                        f"Loop '{task.ref}' exceeded max_iterations={args.max_iterations}. "
+                        "Update `condition` or increase `max_iterations`."
+                    ),
+                    non_retryable=True,
+                )
+            self._reset_loop_iteration_state(region, task.stream_id)
+            self.loop_indices[loop_key] = next_index
+            await self.queue.put(Task(ref=region.start_ref, stream_id=task.stream_id))
+            return
+
+        self.loop_indices.pop(loop_key, None)
+        await self._handle_success_path(task)
 
     async def _handle_scatter(
         self, task: Task, stmt: ActionStatement, *, is_skipping: bool = False

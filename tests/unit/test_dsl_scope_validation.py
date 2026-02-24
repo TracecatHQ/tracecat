@@ -393,3 +393,271 @@ class TestScopeValidation:
                     ),
                 ],
             )
+
+    def test_valid_loop_scope(self):
+        """Test a valid do-while scope passes validation."""
+        dsl = DSLInput(
+            title="Valid loop scope",
+            description="A workflow with core.loop.start/core.loop.end scope",
+            entrypoint=DSLEntrypoint(),
+            actions=[
+                ActionStatement(
+                    ref="seed",
+                    action="core.transform.reshape",
+                    args={"value": 1},
+                ),
+                ActionStatement(
+                    ref="loop_start",
+                    action="core.loop.start",
+                    depends_on=["seed"],
+                ),
+                ActionStatement(
+                    ref="step",
+                    action="core.transform.reshape",
+                    depends_on=["loop_start"],
+                    args={"value": "${{ ACTIONS.loop_start.result.iteration }}"},
+                ),
+                ActionStatement(
+                    ref="loop_end",
+                    action="core.loop.end",
+                    depends_on=["step"],
+                    args={
+                        "condition": "${{ ACTIONS.loop_start.result.iteration < 1 }}",
+                        "max_iterations": 5,
+                    },
+                ),
+            ],
+        )
+
+        assert dsl is not None
+
+    def test_outer_scope_can_reference_loop_descendant_expression(self):
+        """Test parent scope can reference loop-body expression after loop closes."""
+        dsl = DSLInput(
+            title="Loop descendant reference",
+            description="Root action references final loop-body result",
+            entrypoint=DSLEntrypoint(),
+            actions=[
+                ActionStatement(
+                    ref="seed",
+                    action="core.transform.reshape",
+                    args={"value": 1},
+                ),
+                ActionStatement(
+                    ref="loop_start",
+                    action="core.loop.start",
+                    depends_on=["seed"],
+                ),
+                ActionStatement(
+                    ref="body",
+                    action="core.transform.reshape",
+                    depends_on=["loop_start"],
+                    args={"value": "${{ ACTIONS.loop_start.result.iteration }}"},
+                ),
+                ActionStatement(
+                    ref="loop_end",
+                    action="core.loop.end",
+                    depends_on=["body"],
+                    args={"condition": "${{ ACTIONS.loop_start.result.iteration < 1 }}"},
+                ),
+                ActionStatement(
+                    ref="after",
+                    action="core.transform.reshape",
+                    depends_on=["loop_end"],
+                    args={"value": "${{ ACTIONS.body.result }}"},
+                ),
+            ],
+        )
+
+        assert dsl is not None
+
+    def test_outer_scope_cannot_reference_scatter_descendant_expression(self):
+        """Test parent scope still cannot reference scatter descendant expression."""
+        with pytest.raises(
+            TracecatDSLError,
+            match=(
+                "Action 'after' has an expression in field 'inputs' "
+                "that references 'step' which cannot be referenced from this scope"
+            ),
+        ):
+            DSLInput(
+                title="Scatter descendant reference invalid",
+                description="Root action cannot reference action nested under scatter scope",
+                entrypoint=DSLEntrypoint(),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args={"collection": "${{ [1, 2] }}"},
+                    ),
+                    ActionStatement(
+                        ref="loop_start",
+                        action="core.loop.start",
+                        depends_on=["scatter"],
+                    ),
+                    ActionStatement(
+                        ref="step",
+                        action="core.transform.reshape",
+                        depends_on=["loop_start"],
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="loop_end",
+                        action="core.loop.end",
+                        depends_on=["step"],
+                        args={"condition": "${{ False }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["loop_end"],
+                        args={"items": "${{ ACTIONS.loop_end.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="after",
+                        action="core.transform.reshape",
+                        depends_on=["gather"],
+                        args={"value": "${{ ACTIONS.step.result }}"},
+                    ),
+                ],
+            )
+
+    def test_loop_end_without_loop_start(self):
+        """Test that loop.end without loop.start raises an error."""
+        with pytest.raises(
+            TracecatDSLError,
+            match="Loop scopes must be balanced:",
+        ):
+            DSLInput(
+                title="Loop end without start",
+                description="Invalid loop closer without opener",
+                entrypoint=DSLEntrypoint(),
+                actions=[
+                    ActionStatement(
+                        ref="step",
+                        action="core.transform.reshape",
+                        args={"value": 1},
+                    ),
+                    ActionStatement(
+                        ref="loop_end",
+                        action="core.loop.end",
+                        depends_on=["step"],
+                        args={"condition": "${{ False }}"},
+                    ),
+                ],
+            )
+
+    def test_loop_start_without_loop_end(self):
+        """Test that loop.start without loop.end raises an error."""
+        with pytest.raises(
+            TracecatDSLError,
+            match="Loop scopes must be balanced:",
+        ):
+            DSLInput(
+                title="Loop start without end",
+                description="Invalid loop opener without closer",
+                entrypoint=DSLEntrypoint(),
+                actions=[
+                    ActionStatement(
+                        ref="seed",
+                        action="core.transform.reshape",
+                        args={"value": 1},
+                    ),
+                    ActionStatement(
+                        ref="loop_start",
+                        action="core.loop.start",
+                        depends_on=["seed"],
+                    ),
+                    ActionStatement(
+                        ref="step",
+                        action="core.transform.reshape",
+                        depends_on=["loop_start"],
+                        args={"value": "${{ ACTIONS.loop_start.result.iteration }}"},
+                    ),
+                ],
+            )
+
+    def test_edge_crossing_from_loop_scope_to_root_is_invalid(self):
+        """Test that root action cannot depend on both loop-inner and root actions."""
+        with pytest.raises(
+            TracecatDSLError,
+            match=(
+                "Action 'after' has an edge from 'body', "
+                "which is in a different scatter-gather scope"
+            ),
+        ):
+            DSLInput(
+                title="Cross-scope loop edge invalid",
+                description="Root action edge cannot cross loop boundary",
+                entrypoint=DSLEntrypoint(),
+                actions=[
+                    ActionStatement(
+                        ref="seed",
+                        action="core.transform.reshape",
+                        args={"value": 1},
+                    ),
+                    ActionStatement(
+                        ref="loop_start",
+                        action="core.loop.start",
+                        depends_on=["seed"],
+                    ),
+                    ActionStatement(
+                        ref="body",
+                        action="core.transform.reshape",
+                        depends_on=["loop_start"],
+                        args={"value": "${{ ACTIONS.loop_start.result.iteration }}"},
+                    ),
+                    ActionStatement(
+                        ref="loop_end",
+                        action="core.loop.end",
+                        depends_on=["body"],
+                        args={"condition": "${{ False }}"},
+                    ),
+                    ActionStatement(
+                        ref="after",
+                        action="core.transform.reshape",
+                        depends_on=["loop_end", "body"],
+                        args={"value": "${{ ACTIONS.loop_end.result.continue }}"},
+                    ),
+                ],
+            )
+
+    def test_valid_nested_loop_inside_scatter(self):
+        """Test loop nested inside scatter scope."""
+        dsl = DSLInput(
+            title="Loop in scatter",
+            description="Nested loop scope inside scatter scope",
+            entrypoint=DSLEntrypoint(),
+            actions=[
+                ActionStatement(
+                    ref="scatter",
+                    action="core.transform.scatter",
+                    args={"collection": "${{ [1, 2] }}"},
+                ),
+                ActionStatement(
+                    ref="loop_start",
+                    action="core.loop.start",
+                    depends_on=["scatter"],
+                ),
+                ActionStatement(
+                    ref="step",
+                    action="core.transform.reshape",
+                    depends_on=["loop_start"],
+                    args={"value": "${{ ACTIONS.scatter.result }}"},
+                ),
+                ActionStatement(
+                    ref="loop_end",
+                    action="core.loop.end",
+                    depends_on=["step"],
+                    args={"condition": "${{ False }}"},
+                ),
+                ActionStatement(
+                    ref="gather",
+                    action="core.transform.gather",
+                    depends_on=["loop_end"],
+                    args={"items": "${{ ACTIONS.loop_end.result }}"},
+                ),
+            ],
+        )
+
+        assert dsl is not None

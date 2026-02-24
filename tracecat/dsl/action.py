@@ -361,6 +361,18 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
+    def noop_loop_start_activity(input: RunActionInput, role: Role) -> Any:
+        """No-op activity for loop start interface actions."""
+        return input.exec_context.get("ACTIONS", {}).get(input.task.ref)
+
+    @staticmethod
+    @activity.defn
+    def noop_loop_end_activity(input: RunActionInput, role: Role) -> Any:
+        """No-op activity for loop end interface actions."""
+        return input.exec_context.get("ACTIONS", {}).get(input.task.ref)
+
+    @staticmethod
+    @activity.defn
     def parse_wait_until_activity(
         wait_until: str,
     ) -> str | None:
