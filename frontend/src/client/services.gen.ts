@@ -302,10 +302,15 @@ import type {
   IntegrationsUpdateIntegrationResponse,
   InvitationsAcceptInvitationData,
   InvitationsAcceptInvitationResponse,
+  InvitationsCreateInvitationData,
+  InvitationsCreateInvitationResponse,
   InvitationsGetInvitationByTokenData,
   InvitationsGetInvitationByTokenResponse,
   InvitationsGetInvitationTokenData,
   InvitationsGetInvitationTokenResponse,
+  InvitationsListInvitationsData,
+  InvitationsListInvitationsResponse,
+  InvitationsListMyPendingInvitationsResponse,
   InvitationsRevokeInvitationData,
   InvitationsRevokeInvitationResponse,
   McpIntegrationsCreateMcpIntegrationData,
@@ -318,8 +323,6 @@ import type {
   McpIntegrationsListMcpIntegrationsResponse,
   McpIntegrationsUpdateMcpIntegrationData,
   McpIntegrationsUpdateMcpIntegrationResponse,
-  OrganizationCreateInvitationData,
-  OrganizationCreateInvitationResponse,
   OrganizationDeleteOrganizationData,
   OrganizationDeleteOrganizationResponse,
   OrganizationDeleteOrgMemberData,
@@ -329,11 +332,8 @@ import type {
   OrganizationGetCurrentOrgMemberResponse,
   OrganizationGetOrganizationEntitlementsResponse,
   OrganizationGetOrganizationResponse,
-  OrganizationListInvitationsData,
-  OrganizationListInvitationsResponse,
   OrganizationListMemberWorkspaceMembershipsData,
   OrganizationListMemberWorkspaceMembershipsResponse,
-  OrganizationListMyPendingInvitationsResponse,
   OrganizationListOrganizationDomainsResponse,
   OrganizationListOrgMembersResponse,
   OrganizationListSessionsResponse,
@@ -646,11 +646,7 @@ import type {
   WorkflowsUpdateWorkflowResponse,
   WorkflowsValidateWorkflowEntrypointData,
   WorkflowsValidateWorkflowEntrypointResponse,
-  WorkspacesAddWorkspaceMemberData,
-  WorkspacesAddWorkspaceMemberResponse,
   WorkspacesCreateWorkspaceData,
-  WorkspacesCreateWorkspaceInvitationData,
-  WorkspacesCreateWorkspaceInvitationResponse,
   WorkspacesCreateWorkspaceMembershipData,
   WorkspacesCreateWorkspaceMembershipResponse,
   WorkspacesCreateWorkspaceResponse,
@@ -662,8 +658,6 @@ import type {
   WorkspacesGetWorkspaceMembershipData,
   WorkspacesGetWorkspaceMembershipResponse,
   WorkspacesGetWorkspaceResponse,
-  WorkspacesListWorkspaceInvitationsData,
-  WorkspacesListWorkspaceInvitationsResponse,
   WorkspacesListWorkspaceMembersData,
   WorkspacesListWorkspaceMembershipsData,
   WorkspacesListWorkspaceMembershipsResponse,
@@ -1004,35 +998,6 @@ export const workspacesDeleteWorkspace = (
 }
 
 /**
- * Add Workspace Member
- * Add a member to a workspace.
- *
- * If the email belongs to an existing org member, creates a direct
- * membership.  Otherwise, creates a token-based invitation.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.requestBody
- * @returns WorkspaceAddMemberResponse Successful Response
- * @throws ApiError
- */
-export const workspacesAddWorkspaceMember = (
-  data: WorkspacesAddWorkspaceMemberData
-): CancelablePromise<WorkspacesAddWorkspaceMemberResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/workspaces/{workspace_id}/members",
-    path: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
  * List Workspace Members
  * List members of a workspace, including pending invitations.
  * @param data The data for the request.
@@ -1147,67 +1112,6 @@ export const workspacesDeleteWorkspaceMembership = (
     path: {
       workspace_id: data.workspaceId,
       user_id: data.userId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Create Workspace Invitation
- * Create a workspace invitation.
- *
- * Authorization
- * -------------
- * - Workspace Admin: Can create invitations for their workspace.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.requestBody
- * @returns WorkspaceInvitationRead Successful Response
- * @throws ApiError
- */
-export const workspacesCreateWorkspaceInvitation = (
-  data: WorkspacesCreateWorkspaceInvitationData
-): CancelablePromise<WorkspacesCreateWorkspaceInvitationResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/workspaces/{workspace_id}/invitations",
-    path: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Workspace Invitations
- * List workspace invitations.
- *
- * Authorization
- * -------------
- * - Workspace Admin: Can list invitations for their workspace.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.status
- * @returns WorkspaceInvitationRead Successful Response
- * @throws ApiError
- */
-export const workspacesListWorkspaceInvitations = (
-  data: WorkspacesListWorkspaceInvitationsData
-): CancelablePromise<WorkspacesListWorkspaceInvitationsResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/workspaces/{workspace_id}/invitations",
-    path: {
-      workspace_id: data.workspaceId,
-    },
-    query: {
-      status: data.status,
     },
     errors: {
       422: "Validation Error",
@@ -3420,18 +3324,23 @@ export const organizationDeleteSession = (
 
 /**
  * Create Invitation
- * Create an invitation to join the organization.
+ * Create an invitation (org or workspace, based on workspace_id in body).
+ *
+ * When ``workspace_id`` is set, creates a workspace invitation (smart: direct
+ * membership if user is an org member, else invitation).  Returns ``null``
+ * when the user was added directly as a member (no invitation needed).
+ * When ``workspace_id`` is None, creates an org-level invitation.
  * @param data The data for the request.
  * @param data.requestBody
- * @returns OrgInvitationRead Successful Response
+ * @returns unknown Successful Response
  * @throws ApiError
  */
-export const organizationCreateInvitation = (
-  data: OrganizationCreateInvitationData
-): CancelablePromise<OrganizationCreateInvitationResponse> => {
+export const invitationsCreateInvitation = (
+  data: InvitationsCreateInvitationData
+): CancelablePromise<InvitationsCreateInvitationResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/organization/invitations",
+    url: "/invitations",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
@@ -3442,19 +3351,21 @@ export const organizationCreateInvitation = (
 
 /**
  * List Invitations
- * List invitations for the organization.
+ * List invitations (org or workspace, based on workspace_id query param).
  * @param data The data for the request.
+ * @param data.workspaceId
  * @param data.status
- * @returns OrgInvitationRead Successful Response
+ * @returns InvitationRead Successful Response
  * @throws ApiError
  */
-export const organizationListInvitations = (
-  data: OrganizationListInvitationsData = {}
-): CancelablePromise<OrganizationListInvitationsResponse> => {
+export const invitationsListInvitations = (
+  data: InvitationsListInvitationsData = {}
+): CancelablePromise<InvitationsListInvitationsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/organization/invitations",
+    url: "/invitations",
     query: {
+      workspace_id: data.workspaceId,
       status: data.status,
     },
     errors: {
@@ -3466,14 +3377,16 @@ export const organizationListInvitations = (
 /**
  * List My Pending Invitations
  * List pending, unexpired invitations for the authenticated user.
- * @returns OrgPendingInvitationRead Successful Response
+ *
+ * Returns both org-level and workspace-level invitations.
+ * @returns PendingInvitationRead Successful Response
  * @throws ApiError
  */
-export const organizationListMyPendingInvitations =
-  (): CancelablePromise<OrganizationListMyPendingInvitationsResponse> => {
+export const invitationsListMyPendingInvitations =
+  (): CancelablePromise<InvitationsListMyPendingInvitationsResponse> => {
     return __request(OpenAPI, {
       method: "GET",
-      url: "/organization/invitations/pending/me",
+      url: "/invitations/pending/me",
     })
   }
 

@@ -2,13 +2,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type ApiError,
-  type WorkspaceAddMemberResponse,
   type WorkspaceMember,
   type WorkspaceRead,
-  type WorkspacesAddWorkspaceMemberData,
   type WorkspacesCreateWorkspaceMembershipData,
   type WorkspacesCreateWorkspaceMembershipResponse,
-  workspacesAddWorkspaceMember,
   workspacesCreateWorkspaceMembership,
   workspacesDeleteWorkspaceMembership,
   workspacesGetWorkspace,
@@ -84,30 +81,6 @@ export function useWorkspaceMutations() {
     removeMember,
     removePending,
   }
-}
-
-export function useAddWorkspaceMember(workspaceId: string) {
-  const qc = useQueryClient()
-
-  const { mutateAsync: addMember, isPending: addPending } = useMutation<
-    WorkspaceAddMemberResponse,
-    ApiError,
-    WorkspacesAddWorkspaceMemberData
-  >({
-    mutationFn: workspacesAddWorkspaceMember,
-    onSuccess: async () => {
-      await Promise.all([
-        qc.invalidateQueries({
-          queryKey: ["workspace", workspaceId, "members"],
-        }),
-        qc.invalidateQueries({
-          queryKey: ["workspace", workspaceId, "invitations"],
-        }),
-      ])
-    },
-  })
-
-  return { addMember, addPending }
 }
 
 export function useWorkspaceMembers(workspaceId: string) {

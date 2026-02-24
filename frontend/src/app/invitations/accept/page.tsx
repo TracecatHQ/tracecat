@@ -103,7 +103,7 @@ function AcceptInvitationContent() {
             : `You've joined ${organizationName}`,
         })
         if (isWorkspace && invitation.workspace_id) {
-          router.push(`/${invitation.workspace_id}`)
+          router.push(`/workspaces/${invitation.workspace_id}`)
         } else {
           router.push("/workspaces")
         }

@@ -10151,6 +10151,169 @@ export const $InvitationAccept = {
     "Request body for accepting any invitation (org or workspace) via token.",
 } as const
 
+export const $InvitationCreate = {
+  properties: {
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    workspace_assignments: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/WorkspaceAssignment",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Assignments",
+    },
+  },
+  type: "object",
+  required: ["email", "role_id"],
+  title: "InvitationCreate",
+  description: `Unified request body for creating an invitation (org or workspace).
+
+When \`\`workspace_id\`\` is set the invitation targets a workspace and may
+resolve to a direct membership (if the user is already an org member).
+When \`\`workspace_id\`\` is \`\`None\`\` the invitation is org-level and may
+optionally include \`\`workspace_assignments\`\` for pre-assigning workspaces.`,
+} as const
+
+export const $InvitationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    role_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Slug",
+    },
+    status: {
+      $ref: "#/components/schemas/InvitationStatus",
+    },
+    invited_by: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Invited By",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    accepted_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Accepted At",
+    },
+    token: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "email",
+    "role_id",
+    "role_name",
+    "status",
+    "expires_at",
+    "created_at",
+  ],
+  title: "InvitationRead",
+  description: "Unified response model for both org and workspace invitations.",
+} as const
+
 export const $InvitationReadMinimal = {
   properties: {
     invitation_id: {
@@ -10795,125 +10958,6 @@ export const $OrgDomainUpdate = {
   description: "Update organization domain request.",
 } as const
 
-export const $OrgInvitationCreate = {
-  properties: {
-    email: {
-      type: "string",
-      format: "email",
-      title: "Email",
-    },
-    role_id: {
-      type: "string",
-      format: "uuid",
-      title: "Role Id",
-    },
-    workspace_assignments: {
-      items: {
-        $ref: "#/components/schemas/WorkspaceAssignment",
-      },
-      type: "array",
-      title: "Workspace Assignments",
-      default: [],
-    },
-  },
-  type: "object",
-  required: ["email", "role_id"],
-  title: "OrgInvitationCreate",
-  description: "Request body for creating an organization invitation.",
-} as const
-
-export const $OrgInvitationRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    organization_id: {
-      type: "string",
-      format: "uuid",
-      title: "Organization Id",
-    },
-    email: {
-      type: "string",
-      format: "email",
-      title: "Email",
-    },
-    role_id: {
-      type: "string",
-      format: "uuid",
-      title: "Role Id",
-    },
-    role_name: {
-      type: "string",
-      title: "Role Name",
-    },
-    role_slug: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Role Slug",
-    },
-    status: {
-      $ref: "#/components/schemas/InvitationStatus",
-    },
-    invited_by: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Invited By",
-    },
-    expires_at: {
-      type: "string",
-      format: "date-time",
-      title: "Expires At",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    accepted_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Accepted At",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "organization_id",
-    "email",
-    "role_id",
-    "role_name",
-    "status",
-    "invited_by",
-    "expires_at",
-    "created_at",
-    "accepted_at",
-  ],
-  title: "OrgInvitationRead",
-  description: "Response model for organization invitation.",
-} as const
-
 export const $OrgMemberDetail = {
   properties: {
     user_id: {
@@ -11118,78 +11162,6 @@ export const $OrgMemberStatus = {
   type: "string",
   enum: ["active", "inactive", "invited"],
   title: "OrgMemberStatus",
-} as const
-
-export const $OrgPendingInvitationRead = {
-  properties: {
-    token: {
-      type: "string",
-      title: "Token",
-    },
-    organization_id: {
-      type: "string",
-      format: "uuid",
-      title: "Organization Id",
-    },
-    organization_name: {
-      type: "string",
-      title: "Organization Name",
-    },
-    inviter_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Inviter Name",
-    },
-    inviter_email: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Inviter Email",
-    },
-    role_name: {
-      type: "string",
-      title: "Role Name",
-    },
-    role_slug: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Role Slug",
-    },
-    expires_at: {
-      type: "string",
-      format: "date-time",
-      title: "Expires At",
-    },
-  },
-  type: "object",
-  required: [
-    "token",
-    "organization_id",
-    "organization_name",
-    "inviter_name",
-    "inviter_email",
-    "role_name",
-    "expires_at",
-  ],
-  title: "OrgPendingInvitationRead",
-  description: "Pending invitation visible to the invited authenticated user.",
 } as const
 
 export const $OrgRegistryRepositoryRead = {
@@ -11910,6 +11882,99 @@ export const $PayloadChangedEventRead = {
   required: ["created_at"],
   title: "PayloadChangedEventRead",
   description: "Event for when a case payload is changed.",
+} as const
+
+export const $PendingInvitationRead = {
+  properties: {
+    token: {
+      type: "string",
+      title: "Token",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Name",
+    },
+    inviter_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Name",
+    },
+    inviter_email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Email",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    role_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Slug",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+  },
+  type: "object",
+  required: [
+    "token",
+    "organization_id",
+    "organization_name",
+    "role_name",
+    "expires_at",
+  ],
+  title: "PendingInvitationRead",
+  description: "Pending invitation visible to the invited authenticated user.",
 } as const
 
 export const $PlatformRegistrySettingsRead = {
@@ -15380,6 +15445,11 @@ export const $SecretReadMinimal = {
     environment: {
       type: "string",
       title: "Environment",
+    },
+    is_corrupted: {
+      type: "boolean",
+      title: "Is Corrupted",
+      default: false,
     },
   },
   type: "object",
@@ -21881,51 +21951,6 @@ export const $WorkflowUpdate = {
   title: "WorkflowUpdate",
 } as const
 
-export const $WorkspaceAddMemberRequest = {
-  properties: {
-    email: {
-      type: "string",
-      format: "email",
-      title: "Email",
-    },
-    role_id: {
-      type: "string",
-      title: "Role Id",
-    },
-  },
-  type: "object",
-  required: ["email", "role_id"],
-  title: "WorkspaceAddMemberRequest",
-  description: `Request schema for adding a member to a workspace.
-
-The backend resolves whether to create a direct membership
-(if the email belongs to an existing org member) or an invitation.`,
-} as const
-
-export const $WorkspaceAddMemberResponse = {
-  properties: {
-    outcome: {
-      type: "string",
-      enum: ["membership_created", "invitation_created"],
-      title: "Outcome",
-    },
-    invitation: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/WorkspaceInvitationRead",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-  },
-  type: "object",
-  required: ["outcome"],
-  title: "WorkspaceAddMemberResponse",
-  description: "Response schema indicating which path was taken.",
-} as const
-
 export const $WorkspaceAssignment = {
   properties: {
     workspace_id: {
@@ -21980,126 +22005,6 @@ export const $WorkspaceCreate = {
   type: "object",
   required: ["name"],
   title: "WorkspaceCreate",
-} as const
-
-export const $WorkspaceInvitationCreate = {
-  properties: {
-    email: {
-      type: "string",
-      format: "email",
-      title: "Email",
-    },
-    role_id: {
-      type: "string",
-      title: "Role Id",
-    },
-  },
-  type: "object",
-  required: ["email", "role_id"],
-  title: "WorkspaceInvitationCreate",
-  description: "Request schema for creating a workspace invitation.",
-} as const
-
-export const $WorkspaceInvitationRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    workspace_id: {
-      type: "string",
-      format: "uuid",
-      title: "Workspace Id",
-    },
-    email: {
-      type: "string",
-      format: "email",
-      title: "Email",
-    },
-    role_id: {
-      type: "string",
-      title: "Role Id",
-    },
-    role_name: {
-      type: "string",
-      title: "Role Name",
-    },
-    role_slug: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Role Slug",
-    },
-    status: {
-      $ref: "#/components/schemas/InvitationStatus",
-    },
-    invited_by: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Invited By",
-    },
-    expires_at: {
-      type: "string",
-      format: "date-time",
-      title: "Expires At",
-    },
-    accepted_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Accepted At",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    token: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Token",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "workspace_id",
-    "email",
-    "role_id",
-    "role_name",
-    "status",
-    "invited_by",
-    "expires_at",
-    "accepted_at",
-    "created_at",
-  ],
-  title: "WorkspaceInvitationRead",
-  description: "Response schema for a workspace invitation.",
 } as const
 
 export const $WorkspaceMember = {
@@ -22221,6 +22126,7 @@ export const $WorkspaceMembershipCreate = {
       anyOf: [
         {
           type: "string",
+          format: "uuid",
         },
         {
           type: "null",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal, NotRequired, TypedDict
+from typing import NotRequired, TypedDict
 from uuid import UUID
 
 from pydantic import EmailStr, Field, computed_field, field_validator
@@ -10,8 +10,7 @@ from pydantic import EmailStr, Field, computed_field, field_validator
 from tracecat import config
 from tracecat.core.schemas import Schema
 from tracecat.git.constants import GIT_SSH_URL_REGEX
-from tracecat.identifiers import InvitationID, OrganizationID, UserID, WorkspaceID
-from tracecat.invitations.enums import InvitationStatus
+from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 
 # === Workspace === #
 
@@ -146,81 +145,9 @@ WorkspaceSettingsUpdate.model_rebuild()
 # === Membership === #
 class WorkspaceMembershipCreate(Schema):
     user_id: UserID
-    role_id: str | None = (
-        None  # UUID as string; defaults to workspace-editor if not provided
-    )
+    role_id: UUID | None = None  # defaults to workspace-editor if not provided
 
 
 class WorkspaceMembershipRead(Schema):
     user_id: UserID
     workspace_id: WorkspaceID
-
-
-# === Invitation === #
-class WorkspaceInvitationCreate(Schema):
-    """Request schema for creating a workspace invitation."""
-
-    email: EmailStr
-    role_id: str  # UUID as string for API compatibility
-
-
-class WorkspaceInvitationRead(Schema):
-    """Response schema for a workspace invitation."""
-
-    id: InvitationID
-    workspace_id: WorkspaceID
-    email: EmailStr
-    role_id: str
-    role_name: str
-    role_slug: str | None = None
-    status: InvitationStatus
-    invited_by: UserID | None
-    expires_at: datetime
-    accepted_at: datetime | None
-    created_at: datetime
-    token: str | None = None
-
-
-class WorkspaceInvitationList(Schema):
-    """Query params for listing workspace invitations."""
-
-    status: InvitationStatus | None = None
-
-
-class WorkspaceInvitationReadMinimal(Schema):
-    """Public token lookup response for workspace invitation acceptance page."""
-
-    workspace_id: WorkspaceID
-    workspace_name: str
-    organization_name: str
-    inviter_name: str | None = None
-    inviter_email: str | None = None
-    role_name: str
-    status: InvitationStatus
-    expires_at: datetime
-    email_matches: bool | None = None
-
-
-class WorkspaceInvitationAccept(Schema):
-    """Request body for accepting a workspace invitation via token."""
-
-    token: str
-
-
-# === Unified Add Member === #
-class WorkspaceAddMemberRequest(Schema):
-    """Request schema for adding a member to a workspace.
-
-    The backend resolves whether to create a direct membership
-    (if the email belongs to an existing org member) or an invitation.
-    """
-
-    email: EmailStr
-    role_id: str  # UUID as string
-
-
-class WorkspaceAddMemberResponse(Schema):
-    """Response schema indicating which path was taken."""
-
-    outcome: Literal["membership_created", "invitation_created"]
-    invitation: WorkspaceInvitationRead | None = None
