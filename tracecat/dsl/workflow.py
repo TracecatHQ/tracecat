@@ -745,7 +745,9 @@ class DSLWorkflow:
         2. Decide whether we're running a child workflow or not
         """
         stream_id = ctx_stream_id.get()
-        self.logger.debug("Begin task execution", task_ref=task.ref, stream_id=stream_id)
+        self.logger.debug(
+            "Begin task execution", task_ref=task.ref, stream_id=stream_id
+        )
         task_result = TaskResult.from_result(None)
 
         try:
@@ -1885,7 +1887,9 @@ class DSLWorkflow:
         url = None
         if match := re.match(identifiers.workflow.WF_EXEC_ID_PATTERN, orig_wf_exec_id):
             if self.role.workspace_id is None:
-                self.logger.warning("Workspace ID is required to create error handler URL")
+                self.logger.warning(
+                    "Workspace ID is required to create error handler URL"
+                )
             else:
                 try:
                     workflow_id = identifiers.workflow.WorkflowUUID.new(

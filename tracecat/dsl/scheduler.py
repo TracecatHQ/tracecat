@@ -461,7 +461,9 @@ class DSLScheduler:
         try:
             # 1) Skip propagation (force-skip) takes highest precedence over everything else
             if self._skip_should_propagate(task, stmt):
-                self.logger.debug("Task should be force-skipped, propagating", task=task)
+                self.logger.debug(
+                    "Task should be force-skipped, propagating", task=task
+                )
                 return await self._handle_skip_path(task, stmt)
 
             # 2) Then we check if the task is reachable
