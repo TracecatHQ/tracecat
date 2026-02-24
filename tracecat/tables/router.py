@@ -1,4 +1,5 @@
 import csv
+from collections import Counter
 from io import StringIO
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -27,7 +28,7 @@ from tracecat.identifiers import TableColumnID, TableID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tables.enums import SqlType
-from tracecat.tables.importer import CSVImporter
+from tracecat.tables.importer import CSVImporter, normalize_csv_header
 from tracecat.tables.schemas import (
     InferredColumn,
     TableColumnCreate,
@@ -729,14 +730,46 @@ async def import_csv(
         contents = await _read_csv_upload_with_limit(
             file, max_size=config.TRACECAT__MAX_TABLE_IMPORT_SIZE_BYTES
         )
-        csv_file = StringIO(contents.decode())
+        csv_file = StringIO(contents.decode("utf-8-sig"))
         csv_reader = csv.DictReader(csv_file)
+        csv_headers = csv_reader.fieldnames or []
+        if not csv_headers:
+            raise TracecatImportError("CSV file must include a header row")
+
+        normalized_headers = [normalize_csv_header(header) for header in csv_headers]
+        duplicate_headers = [
+            header if header else "<empty>"
+            for header, count in Counter(normalized_headers).items()
+            if count > 1
+        ]
+        if duplicate_headers:
+            duplicates_display = ", ".join(sorted(duplicate_headers))
+            raise TracecatImportError(
+                f"CSV headers must be unique. Duplicate columns: {duplicates_display}"
+            )
+
+        header_set = set(csv_headers)
+        normalized_header_set = set(normalized_headers)
+        missing_mapped_headers = [
+            csv_col
+            for csv_col, table_col in column_mapping.items()
+            if table_col
+            and table_col != "skip"
+            and csv_col not in header_set
+            and normalize_csv_header(csv_col) not in normalized_header_set
+        ]
+        if missing_mapped_headers:
+            missing_headers_display = ", ".join(sorted(set(missing_mapped_headers)))
+            raise TracecatImportError(
+                "Mapped CSV columns not found in file headers: "
+                f"{missing_headers_display}"
+            )
 
         current_chunk: list[dict[str, Any]] = []
 
         # Process rows in chunks
-        for row in csv_reader:
-            mapped_row = importer.map_row(row, column_mapping)
+        for row_number, row in enumerate(csv_reader, start=2):
+            mapped_row = importer.map_row(row, column_mapping, row_number=row_number)
             current_chunk.append(mapped_row)
 
             if len(current_chunk) >= importer.chunk_size:

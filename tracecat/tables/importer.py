@@ -1,5 +1,5 @@
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Self
 from uuid import UUID
@@ -32,30 +32,71 @@ class CSVImporter:
         self.chunk_size = chunk_size
         self.total_rows_inserted = 0
 
-    def convert_value(self, value: str, col_type: SqlType) -> Any:
+    def convert_value(self, value: str | None, col_type: SqlType) -> Any:
         """Convert string value to appropriate Python type based on column type."""
-        if not value:  # Skip empty values
-            return value
-        return convert_value(value, col_type)
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return convert_value(str(value), col_type)
+
+        if value.strip() == "":
+            if col_type is SqlType.TEXT:
+                return ""
+            return None
+
+        normalized = value if col_type is SqlType.TEXT else value.strip()
+        return convert_value(normalized, col_type)
 
     def map_row(
-        self, csv_row: dict[str, str], column_mapping: dict[str, str]
+        self,
+        csv_row: Mapping[str, str | None],
+        column_mapping: Mapping[str, str],
+        *,
+        row_number: int | None = None,
     ) -> dict[str, Any]:
         """Map a single CSV row to table columns with type conversion."""
         mapped_row: dict[str, Any] = {}
+        normalized_row = {
+            normalize_csv_header(key): value for key, value in csv_row.items()
+        }
 
         for csv_col, table_col in column_mapping.items():
             if not table_col or table_col == "skip":
                 continue
 
             if col_info := self.columns.get(table_col):
-                value = csv_row[csv_col]
+                if csv_col in csv_row:
+                    value = csv_row[csv_col]
+                else:
+                    normalized_col = normalize_csv_header(csv_col)
+                    if normalized_col in normalized_row:
+                        value = normalized_row[normalized_col]
+                    else:
+                        row_suffix = (
+                            f" at CSV row {row_number}"
+                            if row_number is not None
+                            else ""
+                        )
+                        raise TracecatImportError(
+                            f"Mapped CSV column {csv_col!r} was not found"
+                            f" in file headers{row_suffix}"
+                        )
+                if isinstance(value, str) and "\x00" in value:
+                    row_suffix = (
+                        f" at CSV row {row_number}" if row_number is not None else ""
+                    )
+                    raise TracecatImportError(
+                        f"Invalid null byte in column {table_col!r}{row_suffix}"
+                    )
                 try:
                     mapped_row[table_col] = self.convert_value(value, col_info.type)
                 except TypeError as e:
+                    row_suffix = (
+                        f" at CSV row {row_number}" if row_number is not None else ""
+                    )
                     raise TracecatImportError(
                         f"Cannot convert value {value!r} in column {table_col!r}"
-                        f" to SQL type {col_info.type}"
+                        f" to SQL type {col_info.type}{row_suffix}"
                     ) from e
 
         return mapped_row
@@ -105,6 +146,11 @@ def generate_table_name(raw_name: str | None) -> str:
 def _looks_like_json(value: str) -> bool:
     stripped = value.lstrip()
     return stripped.startswith("{") or stripped.startswith("[")
+
+
+def normalize_csv_header(header: str) -> str:
+    """Normalize CSV headers for robust matching across parsers."""
+    return header.lstrip("\ufeff")
 
 
 @dataclass(slots=True)

@@ -1540,7 +1540,7 @@ class TablesService(BaseTablesService):
     ) -> tuple[Table, int, list[InferredCSVColumn]]:
         """Create a new table by inferring schema and rows from a CSV file."""
         try:
-            csv_text = contents.decode()
+            csv_text = contents.decode("utf-8-sig")
         except UnicodeDecodeError as exc:
             raise TracecatImportError(
                 "CSV import requires UTF-8 encoded files"
