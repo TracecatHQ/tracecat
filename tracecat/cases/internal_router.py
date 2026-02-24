@@ -710,7 +710,7 @@ async def get_case_metrics(
 
     cases = []
     case_context: dict[
-        str, tuple[list[CaseFieldRead], list[CaseTagRead], list[CaseDropdownValueRead]]
+        str, tuple[list[dict[str, Any]], list[CaseTagRead], list[CaseDropdownValueRead]]
     ] = {}
     for case_id in params.case_ids:
         case = await cases_service.get_case(case_id)
@@ -734,6 +734,7 @@ async def get_case_metrics(
             )
             for f in field_templates
         ]
+        field_dicts = [field.model_dump() for field in field_reads]
         tag_reads = [
             CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
         ]
@@ -741,7 +742,7 @@ async def get_case_metrics(
             session=session, role=role, case_id=case.id
         )
 
-        case_context[str(case.id)] = (field_reads, tag_reads, dropdown_reads)
+        case_context[str(case.id)] = (field_dicts, tag_reads, dropdown_reads)
         cases.append(case)
 
     metrics = await duration_service.compute_time_series(cases)
