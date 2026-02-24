@@ -207,6 +207,7 @@ tracecat:
 
   mcp:
     authMode: oidc_interactive
+    authorizationServerUrl: ""
     jwt:
       publicKey: ""
       jwksUri: ""

@@ -792,6 +792,10 @@ Merges: common + temporal + postgres + mcp-specific
   value: {{ include "tracecat.publicMcpUrl" . | quote }}
 - name: TRACECAT_MCP__AUTH_MODE
   value: {{ .Values.tracecat.mcp.authMode | quote }}
+{{- if .Values.tracecat.mcp.authorizationServerUrl }}
+- name: TRACECAT_MCP__AUTHORIZATION_SERVER_URL
+  value: {{ .Values.tracecat.mcp.authorizationServerUrl | quote }}
+{{- end }}
 {{- if .Values.tracecat.mcp.jwt.publicKey }}
 - name: TRACECAT_MCP__JWT_PUBLIC_KEY
   value: {{ .Values.tracecat.mcp.jwt.publicKey | quote }}

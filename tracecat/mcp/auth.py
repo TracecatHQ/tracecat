@@ -703,6 +703,8 @@ async def resolve_role_for_request(workspace_id: WorkspaceID) -> Role:
         organization_id=workspace_org_id,
         service_id="tracecat-mcp",
     )
+    scopes = await compute_effective_scopes(role)
+    role = role.model_copy(update={"scopes": scopes})
     ctx_role.set(role)
     return role
 
@@ -755,16 +757,20 @@ async def list_workspaces_for_request() -> list[dict[str, str]]:
         allowed = {str(wid) for wid in identity.workspace_ids}
         workspaces = [w for w in workspaces if w["id"] in allowed]
     if identity.organization_ids:
-        # Resolve each workspace's org to check membership
-        filtered: list[dict[str, str]] = []
-        for ws in workspaces:
-            try:
-                org_id = await resolve_workspace_org(uuid.UUID(ws["id"]))
-                if org_id in identity.organization_ids:
-                    filtered.append(ws)
-            except ValueError:
-                continue
-        workspaces = filtered
+        # Batch-resolve workspace→org mappings to avoid N+1 queries
+        ws_ids = [uuid.UUID(ws["id"]) for ws in workspaces]
+        async with get_async_session_context_manager() as session:
+            result = await session.execute(
+                select(Workspace.id, Workspace.organization_id).where(
+                    Workspace.id.in_(ws_ids)
+                )
+            )
+            ws_org_map = {row[0]: row[1] for row in result.all()}
+        workspaces = [
+            ws
+            for ws in workspaces
+            if ws_org_map.get(uuid.UUID(ws["id"])) in identity.organization_ids
+        ]
 
     return workspaces
 
