@@ -331,6 +331,7 @@ kubectl get hpa -n tracecat
 kubectl describe hpa -n tracecat "$(kubectl get hpa -n tracecat -o name | sed -n '1p' | cut -d/ -f2)"
 kubectl get triggerauthentication.keda.sh -n tracecat
 kubectl get scaledobject.keda.sh -n tracecat
+kubectl get svc -n tracecat keda-operator keda-operator-metrics-apiserver -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.prometheus\.io/scrape}{"\t"}{.metadata.annotations.prometheus\.io/port}{"\n"}{end}'
 ```
 
 Expected outcomes:
@@ -341,6 +342,7 @@ Expected outcomes:
 - KEDA `ScaledObject`s are present for `worker`, `executor`, and `agent-executor` in both `temporal_mode=self-hosted` and `temporal_mode=cloud`.
 - In `temporal_mode=self-hosted` with no Temporal auth source, no KEDA `TriggerAuthentication` is rendered and `ScaledObject`s omit `authenticationRef`.
 - In `temporal_mode=cloud`, Temporal auth is required for autoscaling and KEDA `TriggerAuthentication` is rendered from the configured auth source.
+- KEDA services (`keda-operator`, `keda-operator-metrics-apiserver`) have Prometheus scrape annotations so observability annotation autodiscovery can collect KEDA metrics.
 
 Note: these settings are EKS/Kubernetes-specific. The Terraform Fargate deployment in `deployments/fargate/` remains unchanged.
 
@@ -503,6 +505,8 @@ The stack includes an optional observability pipeline that deploys:
 4. **IAM roles** with confused-deputy protections for CloudWatch and Firehose
 
 All observability resources are gated by `enable_observability` (default `false`).
+
+When observability and KEDA are both enabled (module defaults for KEDA), KEDA operator and metrics-apiserver Prometheus metrics are collected automatically through annotation autodiscovery.
 
 ### 1. Create a Grafana Cloud credentials secret
 

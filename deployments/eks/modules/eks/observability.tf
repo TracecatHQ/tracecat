@@ -140,8 +140,8 @@ resource "helm_release" "grafana_k8s_monitoring" {
       }
     }
 
-    # Annotation autodiscovery for Tracecat Temporal SDK metrics
-    # Discovers pods with prometheus.io/scrape=true annotations
+    # Annotation autodiscovery for Tracecat and KEDA Prometheus endpoints.
+    # Discovers pods/services with prometheus.io/scrape=true annotations.
     annotationAutodiscovery = {
       enabled = true
       annotations = {

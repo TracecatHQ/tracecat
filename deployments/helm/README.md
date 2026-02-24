@@ -330,6 +330,8 @@ Helm users can keep this optional per install:
 - `executor.autoscaling.enabled`
 - `agentExecutor.autoscaling.enabled`
 
+When KEDA is enabled, Prometheus metrics for the KEDA operator and metrics-apiserver are exposed by default (`keda.prometheus.operator.enabled=true`, `keda.prometheus.metricServer.enabled=true`). This aligns with annotation-based scrapers (for example Grafana k8s-monitoring `annotationAutodiscovery`) without requiring ServiceMonitor CRDs.
+
 For EKS Terraform deployments (`deployments/eks`), these Temporal autoscaling toggles are required and are always set to `true` by the module.
 
 When component autoscaling is enabled, both Temporal deployment modes are supported:
@@ -353,6 +355,8 @@ Validation enforces:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `keda.enabled` | `false` | Install KEDA as a chart dependency |
+| `keda.prometheus.operator.enabled` | `true` | Expose KEDA operator Prometheus metrics |
+| `keda.prometheus.metricServer.enabled` | `true` | Expose KEDA metrics-apiserver Prometheus metrics |
 | `worker.autoscaling.enabled` | `false` | Enable KEDA Temporal queue autoscaling for worker |
 | `worker.autoscaling.minReplicas` | `1` | Worker min replicas |
 | `worker.autoscaling.maxReplicas` | `8` | Worker max replicas |

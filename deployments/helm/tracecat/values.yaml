@@ -248,6 +248,13 @@ metricsServer:
 
 keda:
   enabled: false
+  # KEDA Prometheus metrics exposure. With ServiceMonitor/PodMonitor left disabled,
+  # the KEDA chart adds prometheus.io annotations for annotation-based scrapers.
+  prometheus:
+    operator:
+      enabled: true
+    metricServer:
+      enabled: true
 
 ui:
   replicas: 1

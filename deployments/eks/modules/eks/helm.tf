@@ -244,6 +244,16 @@ resource "helm_release" "tracecat" {
   }
 
   set {
+    name  = "keda.prometheus.operator.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "keda.prometheus.metricServer.enabled"
+    value = "true"
+  }
+
+  set {
     name  = "api.autoscaling.enabled"
     value = "true"
   }
