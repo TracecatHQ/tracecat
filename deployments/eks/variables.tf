@@ -408,12 +408,6 @@ variable "ui_replicas" {
   default     = 2
 }
 
-variable "api_autoscaling_enabled" {
-  description = "Enable HPA for the Tracecat API deployment."
-  type        = bool
-  default     = true
-}
-
 variable "api_autoscaling_min_replicas" {
   description = "Minimum HPA replicas for the Tracecat API deployment."
   type        = number
@@ -446,12 +440,6 @@ variable "api_autoscaling_target_memory_utilization_percentage" {
   description = "Target average memory utilization percentage for API HPA."
   type        = number
   default     = 80
-}
-
-variable "ui_autoscaling_enabled" {
-  description = "Enable HPA for the Tracecat UI deployment."
-  type        = bool
-  default     = true
 }
 
 variable "ui_autoscaling_min_replicas" {

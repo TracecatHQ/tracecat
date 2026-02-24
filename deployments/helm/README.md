@@ -256,13 +256,64 @@ urls:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `api.replicas` | `1` | API service replicas |
-| `worker.replicas` | `1` | Temporal worker replicas |
-| `executor.replicas` | `1` | Action executor replicas |
-| `agentExecutor.replicas` | `1` | Agent executor replicas |
+| `api.replicas` | `2` | API service replicas (used when `api.autoscaling.enabled=false`) |
+| `worker.replicas` | `4` | Temporal worker replicas |
+| `executor.replicas` | `4` | Action executor replicas |
+| `agentExecutor.replicas` | `2` | Agent executor replicas |
 | `ui.replicas` | `1` | UI service replicas |
 
 Each service also supports `resources.requests.cpu`, `resources.requests.memory`, `resources.limits.cpu`, and `resources.limits.memory`. See `values.yaml` for defaults.
+
+### Autoscaling (HPA)
+
+Tracecat supports `autoscaling/v2` HPAs for API and UI:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `api.autoscaling.enabled` | `false` | Enable API HPA |
+| `api.autoscaling.minReplicas` | `2` | API minimum replicas (enforced `>=2`) |
+| `api.autoscaling.maxReplicas` | `10` | API maximum replicas |
+| `api.autoscaling.targetCPUUtilizationPercentage` | `70` | API CPU target |
+| `api.autoscaling.targetMemoryUtilizationPercentage` | `80` | API memory target |
+| `ui.autoscaling.enabled` | `false` | Enable UI HPA |
+| `ui.autoscaling.minReplicas` | `2` | UI minimum replicas |
+| `ui.autoscaling.maxReplicas` | `6` | UI maximum replicas |
+| `ui.autoscaling.targetCPUUtilizationPercentage` | `70` | UI CPU target |
+| `ui.autoscaling.targetMemoryUtilizationPercentage` | `80` | UI memory target |
+
+When autoscaling is enabled, a metrics provider is required (`metrics.k8s.io` APIService). The chart does not perform cluster-time API discovery checks during render, so shared-cluster installs with externally managed metrics providers are supported.
+
+### Bundled metrics-server (optional)
+
+For one-command installs on dedicated clusters, you can enable the bundled `metrics-server` dependency:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `metricsServer.enabled` | `false` | Install metrics-server as a chart dependency |
+| `metricsServer.replicas` | `2` | Metrics-server replica count |
+| `metricsServer.podDisruptionBudget.enabled` | `true` | Enable metrics-server PDB |
+| `metricsServer.resources.requests.cpu` | `100m` | Metrics-server CPU request |
+| `metricsServer.resources.requests.memory` | `200Mi` | Metrics-server memory request |
+| `metricsServer.args` | `[]` | Optional extra args (for example `--kubelet-insecure-tls`) |
+
+Example (OCI Helm-only, single release):
+
+```yaml
+metricsServer:
+  enabled: true
+
+api:
+  autoscaling:
+    enabled: true
+
+ui:
+  autoscaling:
+    enabled: true
+```
+
+For shared clusters where platform teams already manage metrics-server, keep `metricsServer.enabled=false` and only enable HPAs.
+
+For EKS Terraform deployment (`deployments/eks`), API and UI HPAs are always enabled by module defaults; tune `*_autoscaling_*` min/max/target variables to adjust behavior.
 
 ### Sandbox (nsjail)
 

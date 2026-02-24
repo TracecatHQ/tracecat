@@ -938,6 +938,31 @@ Validate infrastructure dependencies
 {{- end -}}
 
 {{/*
+Validate autoscaling configuration.
+*/}}
+{{- define "tracecat.validateAutoscaling" -}}
+{{- $apiAutoscaling := default (dict) .Values.api.autoscaling -}}
+{{- $uiAutoscaling := default (dict) .Values.ui.autoscaling -}}
+{{- $apiAutoscalingEnabled := default false $apiAutoscaling.enabled -}}
+{{- $uiAutoscalingEnabled := default false $uiAutoscaling.enabled -}}
+{{- if and $apiAutoscalingEnabled (lt (int (default 0 $apiAutoscaling.minReplicas)) 2) -}}
+{{- fail "api.autoscaling.minReplicas must be >= 2 to preserve mission-critical API availability" -}}
+{{- end -}}
+{{- if and $apiAutoscalingEnabled (lt (int (default 0 $apiAutoscaling.maxReplicas)) (int (default 0 $apiAutoscaling.minReplicas))) -}}
+{{- fail "api.autoscaling.maxReplicas must be >= api.autoscaling.minReplicas" -}}
+{{- end -}}
+{{- if and $uiAutoscalingEnabled (lt (int (default 0 $uiAutoscaling.maxReplicas)) (int (default 0 $uiAutoscaling.minReplicas))) -}}
+{{- fail "ui.autoscaling.maxReplicas must be >= ui.autoscaling.minReplicas" -}}
+{{- end -}}
+{{- if and $apiAutoscalingEnabled (not (or $apiAutoscaling.targetCPUUtilizationPercentage $apiAutoscaling.targetMemoryUtilizationPercentage)) -}}
+{{- fail "api.autoscaling requires at least one target metric (CPU and/or memory utilization)" -}}
+{{- end -}}
+{{- if and $uiAutoscalingEnabled (not (or $uiAutoscaling.targetCPUUtilizationPercentage $uiAutoscaling.targetMemoryUtilizationPercentage)) -}}
+{{- fail "ui.autoscaling requires at least one target metric (CPU and/or memory utilization)" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 =============================================================================
 Secret Environment Variable Helpers
 =============================================================================

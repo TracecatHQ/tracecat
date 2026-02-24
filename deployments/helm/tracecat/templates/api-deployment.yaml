@@ -1,6 +1,7 @@
 {{- include "tracecat.validateRequiredSecrets" . -}}
 {{- include "tracecat.validateAuthConfig" . -}}
 {{- include "tracecat.validateInfrastructure" . -}}
+{{- include "tracecat.validateAutoscaling" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,7 +10,9 @@ metadata:
     {{- include "tracecat.labels" . | nindent 4 }}
     app.kubernetes.io/component: api
 spec:
+  {{- if not (default false .Values.api.autoscaling.enabled) }}
   replicas: {{ .Values.api.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "tracecat.selectorLabels" . | nindent 6 }}

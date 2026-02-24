@@ -26,20 +26,23 @@ module "eks" {
   acm_certificate_arn = module.network.acm_certificate_arn
 
   # Node Group Configuration
-  node_instance_types              = var.node_instance_types
-  node_architecture                = var.node_architecture
-  node_ami_type                    = var.node_ami_type
-  node_desired_size                = var.node_desired_size
-  node_min_size                    = var.node_min_size
-  node_max_size                    = var.node_max_size
-  node_disk_size                   = var.node_disk_size
-  spot_node_group_enabled          = var.spot_node_group_enabled
-  spot_node_instance_types         = var.spot_node_instance_types
-  spot_node_desired_size           = var.spot_node_desired_size
-  spot_node_min_size               = var.spot_node_min_size
-  spot_node_max_size               = var.spot_node_max_size
-  cluster_autoscaler_enabled       = var.cluster_autoscaler_enabled
-  cluster_autoscaler_chart_version = var.cluster_autoscaler_chart_version
+  node_instance_types                 = var.node_instance_types
+  node_architecture                   = var.node_architecture
+  node_ami_type                       = var.node_ami_type
+  node_desired_size                   = var.node_desired_size
+  node_min_size                       = var.node_min_size
+  node_max_size                       = var.node_max_size
+  node_disk_size                      = var.node_disk_size
+  spot_node_group_enabled             = var.spot_node_group_enabled
+  spot_node_instance_types            = var.spot_node_instance_types
+  spot_node_desired_size              = var.spot_node_desired_size
+  spot_node_min_size                  = var.spot_node_min_size
+  spot_node_max_size                  = var.spot_node_max_size
+  cluster_autoscaler_enabled          = var.cluster_autoscaler_enabled
+  cluster_autoscaler_chart_version    = var.cluster_autoscaler_chart_version
+  metrics_server_enabled              = var.metrics_server_enabled
+  metrics_server_replicas             = var.metrics_server_replicas
+  metrics_server_kubelet_insecure_tls = var.metrics_server_kubelet_insecure_tls
 
   # Tracecat Configuration
   domain_name            = var.domain_name
@@ -75,32 +78,40 @@ module "eks" {
   external_dns_service_account_name     = var.external_dns_service_account_name
 
   # Replica Counts
-  api_replicas                          = var.api_replicas
-  worker_replicas                       = var.worker_replicas
-  executor_replicas                     = var.executor_replicas
-  executor_queue                        = var.executor_queue
-  executor_backend                      = var.executor_backend
-  agent_executor_replicas               = var.agent_executor_replicas
-  agent_executor_queue                  = var.agent_executor_queue
-  agent_executor_backend                = var.agent_executor_backend
-  ui_replicas                           = var.ui_replicas
-  api_cpu_request_millicores            = var.api_cpu_request_millicores
-  api_memory_request_mib                = var.api_memory_request_mib
-  worker_cpu_request_millicores         = var.worker_cpu_request_millicores
-  worker_memory_request_mib             = var.worker_memory_request_mib
-  executor_cpu_request_millicores       = var.executor_cpu_request_millicores
-  executor_memory_request_mib           = var.executor_memory_request_mib
-  agent_executor_cpu_request_millicores = var.agent_executor_cpu_request_millicores
-  agent_executor_memory_request_mib     = var.agent_executor_memory_request_mib
-  ui_cpu_request_millicores             = var.ui_cpu_request_millicores
-  ui_memory_request_mib                 = var.ui_memory_request_mib
-  pod_eni_capacity_per_node             = var.pod_eni_capacity_per_node
-  rollout_surge_percent                 = var.rollout_surge_percent
-  capacity_headroom_percent             = var.capacity_headroom_percent
-  pod_eni_capacity_reserved             = var.pod_eni_capacity_reserved
-  temporal_guardrail_cpu_millicores     = var.temporal_guardrail_cpu_millicores
-  temporal_guardrail_memory_mib         = var.temporal_guardrail_memory_mib
-  temporal_guardrail_pod_count          = var.temporal_guardrail_pod_count
+  api_replicas                                         = var.api_replicas
+  worker_replicas                                      = var.worker_replicas
+  executor_replicas                                    = var.executor_replicas
+  executor_queue                                       = var.executor_queue
+  executor_backend                                     = var.executor_backend
+  agent_executor_replicas                              = var.agent_executor_replicas
+  agent_executor_queue                                 = var.agent_executor_queue
+  agent_executor_backend                               = var.agent_executor_backend
+  ui_replicas                                          = var.ui_replicas
+  api_autoscaling_min_replicas                         = var.api_autoscaling_min_replicas
+  api_autoscaling_max_replicas                         = var.api_autoscaling_max_replicas
+  api_autoscaling_target_cpu_utilization_percentage    = var.api_autoscaling_target_cpu_utilization_percentage
+  api_autoscaling_target_memory_utilization_percentage = var.api_autoscaling_target_memory_utilization_percentage
+  ui_autoscaling_min_replicas                          = var.ui_autoscaling_min_replicas
+  ui_autoscaling_max_replicas                          = var.ui_autoscaling_max_replicas
+  ui_autoscaling_target_cpu_utilization_percentage     = var.ui_autoscaling_target_cpu_utilization_percentage
+  ui_autoscaling_target_memory_utilization_percentage  = var.ui_autoscaling_target_memory_utilization_percentage
+  api_cpu_request_millicores                           = var.api_cpu_request_millicores
+  api_memory_request_mib                               = var.api_memory_request_mib
+  worker_cpu_request_millicores                        = var.worker_cpu_request_millicores
+  worker_memory_request_mib                            = var.worker_memory_request_mib
+  executor_cpu_request_millicores                      = var.executor_cpu_request_millicores
+  executor_memory_request_mib                          = var.executor_memory_request_mib
+  agent_executor_cpu_request_millicores                = var.agent_executor_cpu_request_millicores
+  agent_executor_memory_request_mib                    = var.agent_executor_memory_request_mib
+  ui_cpu_request_millicores                            = var.ui_cpu_request_millicores
+  ui_memory_request_mib                                = var.ui_memory_request_mib
+  pod_eni_capacity_per_node                            = var.pod_eni_capacity_per_node
+  rollout_surge_percent                                = var.rollout_surge_percent
+  capacity_headroom_percent                            = var.capacity_headroom_percent
+  pod_eni_capacity_reserved                            = var.pod_eni_capacity_reserved
+  temporal_guardrail_cpu_millicores                    = var.temporal_guardrail_cpu_millicores
+  temporal_guardrail_memory_mib                        = var.temporal_guardrail_memory_mib
+  temporal_guardrail_pod_count                         = var.temporal_guardrail_pod_count
 
   # WAF Configuration
   enable_waf     = var.enable_waf

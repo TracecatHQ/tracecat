@@ -230,8 +230,51 @@ enterprise:
   # Enable enterprise multi-tenant mode.
   multiTenant: false
 
+metricsServer:
+  # Cluster metrics provider used by HPA resource metrics.
+  # Set true for one-command installs in dedicated clusters.
+  enabled: false
+  fullnameOverride: "metrics-server"
+  replicas: 2
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "200Mi"
+  # Optional extra args for metrics-server (for example --kubelet-insecure-tls).
+  args: []
+
 ui:
   replicas: 1
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        selectPolicy: Max
+        policies:
+          - type: Percent
+            value: 100
+            periodSeconds: 60
+          - type: Pods
+            value: 2
+            periodSeconds: 60
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        selectPolicy: Min
+        policies:
+          - type: Percent
+            value: 20
+            periodSeconds: 60
+          - type: Pods
+            value: 1
+            periodSeconds: 60
   resources:
     requests:
       cpu: "500m"
@@ -242,6 +285,33 @@ ui:
 
 api:
   replicas: 2
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        selectPolicy: Max
+        policies:
+          - type: Percent
+            value: 100
+            periodSeconds: 60
+          - type: Pods
+            value: 4
+            periodSeconds: 60
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        selectPolicy: Min
+        policies:
+          - type: Percent
+            value: 20
+            periodSeconds: 60
+          - type: Pods
+            value: 1
+            periodSeconds: 60
   resources:
     requests:
       cpu: "2000m"

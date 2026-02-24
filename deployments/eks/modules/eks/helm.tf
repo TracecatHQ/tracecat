@@ -218,6 +218,76 @@ resource "helm_release" "tracecat" {
     value = var.superadmin_email
   }
 
+  # Cluster metrics provider and HPA configuration.
+  # EKS Terraform keeps API/UI HPA enabled and only exposes tuning knobs.
+  set {
+    name  = "metricsServer.enabled"
+    value = var.metrics_server_enabled ? "true" : "false"
+  }
+
+  set {
+    name  = "metricsServer.replicas"
+    value = var.metrics_server_replicas
+  }
+
+  dynamic "set" {
+    for_each = var.metrics_server_kubelet_insecure_tls ? [1] : []
+    content {
+      name  = "metricsServer.args[0]"
+      value = "--kubelet-insecure-tls"
+    }
+  }
+
+  set {
+    name  = "api.autoscaling.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "api.autoscaling.minReplicas"
+    value = var.api_autoscaling_min_replicas
+  }
+
+  set {
+    name  = "api.autoscaling.maxReplicas"
+    value = var.api_autoscaling_max_replicas
+  }
+
+  set {
+    name  = "api.autoscaling.targetCPUUtilizationPercentage"
+    value = var.api_autoscaling_target_cpu_utilization_percentage
+  }
+
+  set {
+    name  = "api.autoscaling.targetMemoryUtilizationPercentage"
+    value = var.api_autoscaling_target_memory_utilization_percentage
+  }
+
+  set {
+    name  = "ui.autoscaling.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "ui.autoscaling.minReplicas"
+    value = var.ui_autoscaling_min_replicas
+  }
+
+  set {
+    name  = "ui.autoscaling.maxReplicas"
+    value = var.ui_autoscaling_max_replicas
+  }
+
+  set {
+    name  = "ui.autoscaling.targetCPUUtilizationPercentage"
+    value = var.ui_autoscaling_target_cpu_utilization_percentage
+  }
+
+  set {
+    name  = "ui.autoscaling.targetMemoryUtilizationPercentage"
+    value = var.ui_autoscaling_target_memory_utilization_percentage
+  }
+
   # Replica counts
   set {
     name  = "api.replicas"

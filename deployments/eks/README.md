@@ -87,12 +87,11 @@ metrics_server_replicas=2
 metrics_server_kubelet_insecure_tls=false
 
 # HPA defaults (balanced profile)
-api_autoscaling_enabled=true
+# EKS Terraform always enables API/UI HPA; tune bounds/targets only.
 api_autoscaling_min_replicas=2
 api_autoscaling_max_replicas=10
 api_autoscaling_target_cpu_utilization_percentage=70
 api_autoscaling_target_memory_utilization_percentage=80
-ui_autoscaling_enabled=true
 ui_autoscaling_min_replicas=2
 ui_autoscaling_max_replicas=6
 ui_autoscaling_target_cpu_utilization_percentage=70
@@ -183,14 +182,13 @@ agent_executor_replicas=1
 ui_replicas=1
 
 # Metrics + HPA tuning for light profile
+# EKS Terraform always enables API/UI HPA; tune bounds/targets only.
 metrics_server_enabled=true
 metrics_server_replicas=2
-api_autoscaling_enabled=true
 api_autoscaling_min_replicas=2
 api_autoscaling_max_replicas=4
 api_autoscaling_target_cpu_utilization_percentage=70
 api_autoscaling_target_memory_utilization_percentage=80
-ui_autoscaling_enabled=true
 ui_autoscaling_min_replicas=1
 ui_autoscaling_max_replicas=2
 ui_autoscaling_target_cpu_utilization_percentage=70
