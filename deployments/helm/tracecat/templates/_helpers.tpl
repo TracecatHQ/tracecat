@@ -112,9 +112,18 @@ topologySpreadConstraints:
 {{- $component := .component -}}
 {{- $scheduling := $root.Values.scheduling -}}
 {{- if $scheduling }}
+{{- $nodeSelector := dict -}}
 {{- with $scheduling.nodeSelector }}
+{{- range $key, $value := . }}
+{{- $_ := set $nodeSelector $key $value -}}
+{{- end }}
+{{- end }}
+{{- if and $scheduling.architecture (not (hasKey $nodeSelector "kubernetes.io/arch")) }}
+{{- $_ := set $nodeSelector "kubernetes.io/arch" $scheduling.architecture -}}
+{{- end }}
+{{- if $nodeSelector }}
 nodeSelector:
-{{ toYaml . | nindent 2 }}
+{{ toYaml $nodeSelector | nindent 2 }}
 {{- end }}
 {{- with $scheduling.affinity }}
 affinity:

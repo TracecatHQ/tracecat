@@ -31,6 +31,7 @@ spec:
       securityContext:
         {{- toYaml .Values.securityContext | nindent 8 }}
       serviceAccountName: {{ include "tracecat.fullname" . }}-migrations
+      {{- include "tracecat.podScheduling" (dict "root" . "component" "migrations") | nindent 6 }}
       initContainers:
         - name: wait-for-postgres
           image: busybox:1.36

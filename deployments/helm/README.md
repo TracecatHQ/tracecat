@@ -280,10 +280,18 @@ Global scheduling defaults applied to all Tracecat workloads:
 
 ```yaml
 scheduling:
+  architecture: arm64
   nodeSelector: {}
   affinity: {}
   topologySpreadConstraints: []
   tolerations: []
+```
+
+Tracecat defaults to `arm64` scheduling. If your cluster is x86_64/AMD64, set `scheduling.architecture=amd64`:
+
+```yaml
+scheduling:
+  architecture: amd64
 ```
 
 ### PostgreSQL

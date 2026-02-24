@@ -5,6 +5,16 @@ data "aws_vpc" "selected" {
   id = var.vpc_id
 }
 
+# Validate instance type architecture compatibility for all node groups.
+data "aws_ec2_instance_type" "node_group" {
+  for_each = toset(concat(
+    var.node_instance_types,
+    var.spot_node_group_enabled ? var.spot_node_instance_types : []
+  ))
+
+  instance_type = each.value
+}
+
 # Fetch AWS RDS CA certificate bundle for TLS verification
 # https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html
 data "http" "rds_ca_bundle" {
@@ -14,6 +24,17 @@ data "http" "rds_ca_bundle" {
 locals {
   aws_region     = data.aws_region.current.region
   aws_account_id = data.aws_caller_identity.current.account_id
+
+  # aws_ec2_instance_type uses x86_64 while Kubernetes uses amd64.
+  expected_node_architecture = var.node_architecture == "amd64" ? "x86_64" : "arm64"
+  on_demand_arch_mismatches = [
+    for instance_type in var.node_instance_types : instance_type
+    if !contains(data.aws_ec2_instance_type.node_group[instance_type].supported_architectures, local.expected_node_architecture)
+  ]
+  spot_arch_mismatches = var.spot_node_group_enabled ? [
+    for instance_type in var.spot_node_instance_types : instance_type
+    if !contains(data.aws_ec2_instance_type.node_group[instance_type].supported_architectures, local.expected_node_architecture)
+  ] : []
 
   # RDS identifier suffix to avoid clashes during snapshot restore
   rds_suffix = random_id.rds_suffix.hex
@@ -132,6 +153,21 @@ check "tracecat_rollout_pod_eni_capacity" {
       local.desired_pod_eni_capacity,
       local.desired_node_count,
       var.pod_eni_capacity_per_node
+    )
+  }
+}
+
+check "node_group_architecture_consistency" {
+  assert {
+    condition = (
+      length(local.on_demand_arch_mismatches) == 0 &&
+      (!var.spot_node_group_enabled || length(local.spot_arch_mismatches) == 0)
+    )
+    error_message = format(
+      "All node groups must use instance types matching node_architecture=%s. Incompatible on-demand types: %s. Incompatible spot types: %s.",
+      var.node_architecture,
+      length(local.on_demand_arch_mismatches) > 0 ? join(", ", local.on_demand_arch_mismatches) : "(none)",
+      var.spot_node_group_enabled && length(local.spot_arch_mismatches) > 0 ? join(", ", local.spot_arch_mismatches) : "(none)"
     )
   }
 }

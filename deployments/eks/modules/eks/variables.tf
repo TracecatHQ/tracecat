@@ -39,10 +39,37 @@ variable "node_instance_types" {
   default     = ["m7g.2xlarge"]
 }
 
+variable "node_architecture" {
+  description = "Target CPU architecture for all EKS node groups and Tracecat workloads (arm64 or amd64)"
+  type        = string
+  default     = "arm64"
+
+  validation {
+    condition     = contains(["arm64", "amd64"], var.node_architecture)
+    error_message = "node_architecture must be either 'arm64' or 'amd64'."
+  }
+}
+
 variable "node_ami_type" {
-  description = "AMI type for the EKS node group (AL2023_ARM_64_STANDARD or AL2023_x86_64_STANDARD)"
+  description = "AMI type for the EKS node groups; must match node_architecture"
   type        = string
   default     = "AL2023_ARM_64_STANDARD"
+
+  validation {
+    condition = contains([
+      "AL2023_ARM_64_STANDARD",
+      "AL2023_x86_64_STANDARD",
+    ], var.node_ami_type)
+    error_message = "node_ami_type must be AL2023_ARM_64_STANDARD or AL2023_x86_64_STANDARD."
+  }
+
+  validation {
+    condition = (
+      (var.node_architecture == "arm64" && var.node_ami_type == "AL2023_ARM_64_STANDARD") ||
+      (var.node_architecture == "amd64" && var.node_ami_type == "AL2023_x86_64_STANDARD")
+    )
+    error_message = "node_ami_type must match node_architecture (arm64 -> AL2023_ARM_64_STANDARD, amd64 -> AL2023_x86_64_STANDARD)."
+  }
 }
 
 variable "node_desired_size" {

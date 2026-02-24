@@ -26,6 +26,19 @@ locals {
       }
     ]
   }
+  tracecat_scheduling = {
+    architecture = var.node_architecture
+    affinity = (
+      var.spot_node_group_enabled
+      ? local.tracecat_spot_scheduling.affinity
+      : null
+    )
+    topologySpreadConstraints = (
+      var.spot_node_group_enabled
+      ? local.tracecat_spot_scheduling.topologySpreadConstraints
+      : []
+    )
+  }
 
   alb_group_name_raw = replace(lower(var.cluster_name), "/[^a-z0-9-]/", "-")
   alb_group_name_compact = trim(
@@ -109,6 +122,7 @@ resource "helm_release" "tracecat" {
         publicApp = "https://${var.domain_name}"
         publicApi = "https://${var.domain_name}/api"
       }
+      scheduling = local.tracecat_scheduling
       tracecat = {
         auth = {
           types = var.auth_types
@@ -130,9 +144,6 @@ resource "helm_release" "tracecat" {
         }
       }
     },
-    var.spot_node_group_enabled ? {
-      scheduling = local.tracecat_spot_scheduling
-    } : {},
     var.feature_flags != "" ? {
       enterprise = {
         featureFlags = var.feature_flags
