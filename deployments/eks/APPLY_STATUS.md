@@ -4,10 +4,13 @@
 Fixing drift between Terraform state and deployed EKS cluster in us-west-2.
 Original plan: **17 to add, 9 to change, 6 to destroy**.
 
-## Current Status
-- **Terraform apply running** — Helm upgrade in progress (~20s in), deploying `1.0.0-beta.17`
+## Current Status: COMPLETE
+- **Terraform apply succeeded** — All resources applied, zero errors
+- **Helm revision 34**: `deployed`, chart `tracecat-0.3.25`, app `1.0.0-beta.17`
 - **All app pods healthy** — API (2), Worker (4), Executor (4), Agent Executor (2), UI (2), Temporal (all)
-- **Postgres secret stable** — Helm annotations stripped, `deletionPolicy: Retain` in place
+- **All ExternalSecrets synced** — core-secrets, postgres-secrets, redis-secrets all `SecretSynced` / `Ready`
+- **Postgres secret stable** — `deletionPolicy: Retain` in Helm chart, Secret exists and syncing
+- **Temporal schema job 34**: Completed successfully (RDS access via SecurityGroupPolicy label)
 
 ## What's Been Completed
 
@@ -25,7 +28,7 @@ Original plan: **17 to add, 9 to change, 6 to destroy**.
 - **RDS Password Rotation**: Created (365 day schedule)
 - **null_resources**: 5 destroyed (replaced by kubernetes_manifest and kubernetes_job resources)
 - **ClusterSecretStore**: Imported + updated
-- **Postgres ExternalSecret**: Created via Terraform with `deletionPolicy: Retain`
+- **Postgres ExternalSecret**: Migrated from Terraform to Helm chart with `deletionPolicy: Retain`
 - **Temporal DB Job**: kubernetes_job_v1.create_temporal_databases created
 - **RDS**: Updated (apply_immediately — modifications accepted and applied)
 - **Image tag**: Updated to `1.0.0-beta.17`
@@ -33,8 +36,8 @@ Original plan: **17 to add, 9 to change, 6 to destroy**.
 ### Code Fixes Applied
 1. **`modules/eks/cluster.tf:37`**: `authentication_mode = "API_AND_CONFIG_MAP"` (intermediate; AWS blocks CONFIG_MAP → API directly)
 2. **`modules/eks/main.tf:107-123`**: Fixed `min([...])` → `min([...]...)` — spread operator for variadic `min()`
-3. **`modules/eks/external-secrets.tf:69`**: Added `field_manager { force_conflicts = true }` to postgres ExternalSecret
-4. **`modules/eks/external-secrets.tf:91`**: Added `deletionPolicy = "Retain"` — Secret survives ExternalSecret deletion
+3. **`modules/eks/external-secrets.tf`**: Removed Terraform-managed postgres ExternalSecret — migrated to Helm chart ownership
+4. **`deployments/helm/tracecat/templates/external-secrets.yaml`**: Added `deletionPolicy: Retain` to postgres ExternalSecret target
 5. **`modules/eks/helm.tf:82-83`**: `atomic = false`, `cleanup_on_fail = false` — prevents rollback doom loop
 6. **`modules/eks/helm.tf:435-438`**: Added `temporal.schema.podLabels.tracecat.com/access-postgres = "true"` with `type = "string"` — schema job gets RDS security group
 7. **`modules/eks/helm.tf:429-432`**: Added `type = "string"` to existing server podLabels — consistency fix
@@ -46,20 +49,13 @@ Original plan: **17 to add, 9 to change, 6 to destroy**.
 - Multiple Helm rollbacks via `helm rollback --no-hooks` to clear `pending-upgrade` states
 - Deleted stale Helm release secrets to recover from killed applies
 
-## What Remains After Helm Completes
-
-### If Helm succeeds:
+## What Remains
 1. **Flip auth mode to `API`**: Change `modules/eks/cluster.tf:37` from `"API_AND_CONFIG_MAP"` to `"API"`:
    ```bash
    env -u AWS_SESSION_TOKEN -u AWS_SECURITY_TOKEN terraform apply -auto-approve
    ```
 2. **Verify zero drift**: `terraform plan -detailed-exitcode` should exit 0
-3. **Clean up old schema jobs**: `kubectl delete job -n tracecat tracecat-temporal-schema-18 tracecat-temporal-schema-31`
-
-### If Helm fails:
-- Check `helm list -n tracecat -a`
-- If `pending-upgrade`: `helm rollback tracecat <prev> -n tracecat --no-hooks`
-- Then re-run terraform apply
+3. **Clean up stale schema job**: `kubectl delete job -n tracecat tracecat-temporal-schema-31`
 
 ## Important Notes
 - **AWS credentials**: Must use `env -u AWS_SESSION_TOKEN -u AWS_SECURITY_TOKEN` prefix — stale session token in shell
@@ -79,17 +75,14 @@ Original plan: **17 to add, 9 to change, 6 to destroy**.
 5. Pods referencing the Secret fail immediately
 6. With `atomic = true`, Helm rolls back → but rollback also fails → doom loop
 
-**Fixes**:
-- `deletionPolicy: Retain` on ExternalSecret
-- `atomic = false` on Helm release
-- Strip Helm annotations (`meta.helm.sh/release-name`, `meta.helm.sh/release-namespace`) from ExternalSecret
-- Create Secret directly via kubectl as immediate unblock
+**Final fix**: Keep postgres ExternalSecret in Helm (don't migrate to Terraform). Add `deletionPolicy: Retain` in the chart template so the Secret survives even if the ExternalSecret is deleted. Stripping Helm annotations alone does NOT work — Helm tracks resources internally in release secrets.
 
-**Prevention**: When migrating a resource from Helm to Terraform:
-1. Always set `deletionPolicy: Retain` on ExternalSecrets
-2. Strip Helm annotations BEFORE upgrade
-3. Use `atomic = false` during migration
-4. Ensure Secret exists BEFORE Helm upgrade starts
+**Interim fixes** (to break the doom loop while diagnosing):
+- `atomic = false` on Helm release to prevent rollback cascade
+- Create Secret directly via kubectl as immediate unblock
+- Strip Helm annotations from ExternalSecret (insufficient alone)
+
+**Prevention**: Don't split ExternalSecret ownership between Helm and Terraform. If Helm ever managed a resource, either keep it in Helm or ensure `deletionPolicy: Retain` is set BEFORE migration.
 
 ### 2. Temporal Schema Job SecurityGroupPolicy
 **Problem**: Schema setup jobs couldn't reach RDS — connection timeout.
