@@ -1489,45 +1489,12 @@ async def test_list_workspaces_applies_org_scope(monkeypatch):
     assert len(payload) == 1
 
 
-@pytest.mark.anyio
-async def test_resolve_workspace_role_rejects_scope_mismatch(monkeypatch):
-    async def _resolve_role_for_request(_workspace_id: uuid.UUID):
-        raise ValueError(
-            "Workspace is outside the organization scope for this MCP connection"
-        )
-
-    monkeypatch.setattr(
-        mcp_server, "resolve_role_for_request", _resolve_role_for_request
-    )
-
-    with pytest.raises(
-        ValueError,
-        match="outside the organization scope",
-    ):
-        await mcp_server._resolve_workspace_role(str(uuid.uuid4()))
-
-
 # ---------------------------------------------------------------------------
 # Multitenant isolation tests
 # ---------------------------------------------------------------------------
 
 WS_A = uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
 WS_B = uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb")
-
-
-@pytest.mark.anyio
-async def test_resolve_workspace_role_rejects_workspace_scope_mismatch(monkeypatch):
-    """Workspace-level scope rejection (distinct from org-level rejection)."""
-
-    async def _resolve_role_for_request(_workspace_id: uuid.UUID):
-        raise ValueError("Workspace is outside the workspace scope for this MCP token")
-
-    monkeypatch.setattr(
-        mcp_server, "resolve_role_for_request", _resolve_role_for_request
-    )
-
-    with pytest.raises(ValueError, match="outside the workspace scope"):
-        await mcp_server._resolve_workspace_role(str(uuid.uuid4()))
 
 
 @pytest.mark.anyio

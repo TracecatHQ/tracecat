@@ -2194,15 +2194,19 @@ export const $AgentSettingsRead = {
     agent_case_chat_prompt: {
       type: "string",
       title: "Agent Case Chat Prompt",
-      default: "",
     },
     agent_case_chat_inject_content: {
       type: "boolean",
       title: "Agent Case Chat Inject Content",
-      default: false,
     },
   },
   type: "object",
+  required: [
+    "agent_default_model",
+    "agent_fixed_args",
+    "agent_case_chat_prompt",
+    "agent_case_chat_inject_content",
+  ],
   title: "AgentSettingsRead",
 } as const
 
@@ -2259,40 +2263,42 @@ export const $AppSettingsRead = {
     app_registry_validation_enabled: {
       type: "boolean",
       title: "App Registry Validation Enabled",
-      default: false,
     },
     app_executions_query_limit: {
       type: "integer",
       title: "App Executions Query Limit",
-      default: 100,
     },
     app_interactions_enabled: {
       type: "boolean",
       title: "App Interactions Enabled",
-      default: false,
     },
     app_workflow_export_enabled: {
       type: "boolean",
       title: "App Workflow Export Enabled",
-      default: true,
     },
     app_create_workspace_on_register: {
       type: "boolean",
       title: "App Create Workspace On Register",
-      default: false,
     },
     app_editor_pill_decorations_enabled: {
       type: "boolean",
       title: "App Editor Pill Decorations Enabled",
-      default: false,
     },
     app_action_form_mode_enabled: {
       type: "boolean",
       title: "App Action Form Mode Enabled",
-      default: true,
     },
   },
   type: "object",
+  required: [
+    "app_registry_validation_enabled",
+    "app_executions_query_limit",
+    "app_interactions_enabled",
+    "app_workflow_export_enabled",
+    "app_create_workspace_on_register",
+    "app_editor_pill_decorations_enabled",
+    "app_action_form_mode_enabled",
+  ],
   title: "AppSettingsRead",
   description: "Settings for the app.",
 } as const
@@ -2979,6 +2985,7 @@ export const $AuditSettingsRead = {
     },
   },
   type: "object",
+  required: ["audit_webhook_url"],
   title: "AuditSettingsRead",
   description: "Settings for audit logging.",
 } as const
@@ -8768,6 +8775,7 @@ export const $GitSettingsRead = {
     },
   },
   type: "object",
+  required: ["git_allowed_domains"],
   title: "GitSettingsRead",
 } as const
 
@@ -14458,12 +14466,10 @@ export const $SAMLSettingsRead = {
     saml_enabled: {
       type: "boolean",
       title: "Saml Enabled",
-      default: false,
     },
     saml_enforced: {
       type: "boolean",
       title: "Saml Enforced",
-      default: false,
     },
     saml_idp_metadata_url: {
       anyOf: [
@@ -14491,7 +14497,7 @@ export const $SAMLSettingsRead = {
     },
   },
   type: "object",
-  required: ["saml_sp_acs_url"],
+  required: ["saml_enabled", "saml_enforced", "saml_sp_acs_url"],
   title: "SAMLSettingsRead",
 } as const
 

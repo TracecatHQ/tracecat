@@ -35,6 +35,22 @@ class WebhookRead(Schema):
     url: str
     api_key: WebhookApiKeyRead | None = None
 
+    @field_validator("allowlisted_cidrs", "methods", mode="before")
+    @classmethod
+    def _coerce_none_to_empty_list(cls, v: Any) -> Any:
+        """DB columns may store NULL; coerce to empty list for validation."""
+        if v is None:
+            return []
+        return v
+
+    @field_validator("filters", mode="before")
+    @classmethod
+    def _coerce_none_to_empty_dict(cls, v: Any) -> Any:
+        """DB columns may store NULL; coerce to empty dict for validation."""
+        if v is None:
+            return {}
+        return v
+
 
 class WebhookCreate(BaseModel):
     status: WebhookStatus = "offline"

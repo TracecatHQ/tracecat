@@ -660,7 +660,7 @@ async def create_workflow_execution(
         ) from e
     dsl_input = DSLInput(**defn.content)
     try:
-        response = await service.create_workflow_execution_wait_for_start(
+        response = service.create_workflow_execution_nowait(
             dsl=dsl_input,
             wf_id=wf_id,
             payload=params.inputs,
@@ -729,7 +729,7 @@ async def create_draft_workflow_execution(
             ) from e
 
     try:
-        response = await service.create_draft_workflow_execution_wait_for_start(
+        response = service.create_draft_workflow_execution_nowait(
             dsl=dsl_input,
             wf_id=wf_id,
             payload=params.inputs,

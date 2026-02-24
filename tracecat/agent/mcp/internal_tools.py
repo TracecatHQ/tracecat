@@ -72,10 +72,8 @@ class AgentToolSummary(TypedDict):
     action_id: str
     description: str
     configured: bool
-    is_configured: bool
     missing_requirements: list[str]
     already_in_preset: bool
-    is_already_in_preset: bool
 
 
 class InternalToolError(Exception):
@@ -261,10 +259,8 @@ async def list_available_tools(
                     action_id=action_name,
                     description=entry.description,
                     configured=configured,
-                    is_configured=configured,
                     missing_requirements=missing_requirements,
                     already_in_preset=action_name in preset_action_set,
-                    is_already_in_preset=action_name in preset_action_set,
                 )
             )
         return {"tools": tools}
