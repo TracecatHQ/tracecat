@@ -1,6 +1,6 @@
 import csv
 from io import StringIO
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 import orjson
@@ -740,22 +740,20 @@ async def import_csv(
         ]
         seen_normalized_headers: set[str] = set()
         canonical_headers: list[str] = []
-        normalized_reader_headers: list[str] = []
+        reader_fieldnames: list[str | None] = []
         duplicate_header_count = 0
 
-        for index, (header, normalized) in enumerate(
-            zip(csv_headers, normalized_headers, strict=False)
-        ):
+        for header, normalized in zip(csv_headers, normalized_headers, strict=False):
             header_value = header or ""
             if normalized in seen_normalized_headers:
                 duplicate_header_count += 1
-                # Keep column positions stable while dropping duplicate names
-                # from mapping by assigning hidden synthetic keys.
-                normalized_reader_headers.append(f"__tracecat_duplicate_{index}")
+                # Preserve column positions while dropping duplicate headers:
+                # DictReader will map these duplicate cells under key None.
+                reader_fieldnames.append(None)
                 continue
             seen_normalized_headers.add(normalized)
             canonical_headers.append(header_value)
-            normalized_reader_headers.append(header_value)
+            reader_fieldnames.append(header_value)
 
         if duplicate_header_count:
             logger.info(
@@ -763,7 +761,7 @@ async def import_csv(
                 duplicate_header_count=duplicate_header_count,
             )
 
-        csv_reader.fieldnames = normalized_reader_headers
+        csv_reader.fieldnames = cast(list[str], reader_fieldnames)
 
         header_set = set(canonical_headers)
         normalized_header_set = seen_normalized_headers
