@@ -195,7 +195,7 @@ export function TableInsertRowDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>Add new row</DialogTitle>
           <DialogDescription>
@@ -203,27 +203,34 @@ export function TableInsertRowDialog({
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            {table.columns.map((column) => (
-              <FormField
-                key={column.name}
-                control={form.control}
-                name={column.name}
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="flex items-center gap-2">
-                      <span>{column.name}</span>
-                      <SqlTypeBadge type={column.type as SqlType} />
-                    </FormLabel>
-                    <FormControl>
-                      <DynamicInput column={column} field={field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            ))}
-            <DialogFooter>
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          >
+            <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
+              <div className="space-y-4 pr-1">
+                {table.columns.map((column) => (
+                  <FormField
+                    key={column.name}
+                    control={form.control}
+                    name={column.name}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2">
+                          <span>{column.name}</span>
+                          <SqlTypeBadge type={column.type as SqlType} />
+                        </FormLabel>
+                        <FormControl>
+                          <DynamicInput column={column} field={field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ))}
+              </div>
+            </div>
+            <DialogFooter className="pt-4">
               <Button type="submit" disabled={insertRowIsPending}>
                 Add row
               </Button>

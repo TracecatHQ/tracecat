@@ -1,6 +1,6 @@
 import csv
 from io import StringIO
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 import orjson
@@ -27,7 +27,7 @@ from tracecat.identifiers import TableColumnID, TableID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tables.enums import SqlType
-from tracecat.tables.importer import CSVImporter
+from tracecat.tables.importer import CSVImporter, normalize_csv_header
 from tracecat.tables.schemas import (
     InferredColumn,
     TableColumnCreate,
@@ -729,14 +729,62 @@ async def import_csv(
         contents = await _read_csv_upload_with_limit(
             file, max_size=config.TRACECAT__MAX_TABLE_IMPORT_SIZE_BYTES
         )
-        csv_file = StringIO(contents.decode())
+        csv_file = StringIO(contents.decode("utf-8-sig"))
         csv_reader = csv.DictReader(csv_file)
+        csv_headers = csv_reader.fieldnames or []
+        if not csv_headers:
+            raise TracecatImportError("CSV file must include a header row")
+
+        normalized_headers = [
+            normalize_csv_header(header or "") for header in csv_headers
+        ]
+        seen_normalized_headers: set[str] = set()
+        canonical_headers: list[str] = []
+        reader_fieldnames: list[str | None] = []
+        duplicate_header_count = 0
+
+        for header, normalized in zip(csv_headers, normalized_headers, strict=False):
+            header_value = header or ""
+            if normalized in seen_normalized_headers:
+                duplicate_header_count += 1
+                # Preserve column positions while dropping duplicate headers:
+                # DictReader will map these duplicate cells under key None.
+                reader_fieldnames.append(None)
+                continue
+            seen_normalized_headers.add(normalized)
+            canonical_headers.append(header_value)
+            reader_fieldnames.append(header_value)
+
+        if duplicate_header_count:
+            logger.info(
+                "CSV contains duplicate headers; keeping first occurrence",
+                duplicate_header_count=duplicate_header_count,
+            )
+
+        csv_reader.fieldnames = cast(list[str], reader_fieldnames)
+
+        header_set = set(canonical_headers)
+        normalized_header_set = seen_normalized_headers
+        missing_mapped_headers = [
+            csv_col
+            for csv_col, table_col in column_mapping.items()
+            if table_col
+            and table_col != "skip"
+            and csv_col not in header_set
+            and normalize_csv_header(csv_col) not in normalized_header_set
+        ]
+        if missing_mapped_headers:
+            missing_headers_display = ", ".join(sorted(set(missing_mapped_headers)))
+            raise TracecatImportError(
+                "Mapped CSV columns not found in file headers: "
+                f"{missing_headers_display}"
+            )
 
         current_chunk: list[dict[str, Any]] = []
 
         # Process rows in chunks
-        for row in csv_reader:
-            mapped_row = importer.map_row(row, column_mapping)
+        for row_number, row in enumerate(csv_reader, start=2):
+            mapped_row = importer.map_row(row, column_mapping, row_number=row_number)
             current_chunk.append(mapped_row)
 
             if len(current_chunk) >= importer.chunk_size:

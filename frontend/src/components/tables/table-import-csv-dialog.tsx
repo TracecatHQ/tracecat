@@ -39,7 +39,11 @@ import { toast } from "@/components/ui/use-toast"
 import type { SqlType } from "@/lib/data-type"
 import type { TracecatApiError } from "@/lib/errors"
 import { useGetTable, useImportCsv } from "@/lib/hooks"
-import { type CsvPreviewData, getCsvPreview } from "@/lib/tables"
+import {
+  type CsvPreviewData,
+  getCsvPreview,
+  resolveColumnMapping,
+} from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const BYTES_PER_MB = 1024 * 1024
@@ -63,7 +67,10 @@ const csvImportSchema = z.object({
   columnMapping: z
     .record(z.string(), z.string())
     .refine(
-      (mapping) => Object.keys(mapping).length > 0,
+      (mapping) =>
+        Object.values(mapping).some(
+          (value) => typeof value === "string" && value !== "skip"
+        ),
       "Please map at least one column"
     ),
 })
@@ -90,6 +97,7 @@ export function TableImportCsvDialog({
 
   const [isUploading, setIsUploading] = useState(false)
   const [csvPreview, setCsvPreview] = useState<CsvPreviewData | null>(null)
+  const [columnMapping, setColumnMapping] = useState<Record<string, string>>({})
 
   const form = useForm<CsvImportFormValues>({
     resolver: zodResolver(csvImportSchema),
@@ -98,10 +106,41 @@ export function TableImportCsvDialog({
     },
   })
 
+  useEffect(() => {
+    if (!csvPreview || !table) {
+      return
+    }
+
+    const currentMapping = columnMapping
+    const nextMapping = resolveColumnMapping(
+      csvPreview.headers,
+      table.columns.map((column) => column.name),
+      currentMapping
+    )
+
+    const needsUpdate =
+      csvPreview.headers.some(
+        (header) => currentMapping[header] !== nextMapping[header]
+      ) ||
+      Object.keys(currentMapping).some(
+        (header) => !csvPreview.headers.includes(header)
+      )
+    if (!needsUpdate) {
+      return
+    }
+
+    setColumnMapping(nextMapping)
+    form.setValue("columnMapping", nextMapping, {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+  }, [columnMapping, csvPreview, form, table])
+
   // Reset state when dialog closes
   useEffect(() => {
     if (!open) {
       setCsvPreview(null)
+      setColumnMapping({})
       form.reset()
     }
   }, [open, form])
@@ -110,6 +149,8 @@ export function TableImportCsvDialog({
     const { file } = form.getValues()
     try {
       setIsUploading(true)
+      setColumnMapping({})
+      form.setValue("columnMapping", {})
       const parsedData = await getCsvPreview(file)
       setCsvPreview(parsedData)
     } catch (error) {
@@ -123,14 +164,29 @@ export function TableImportCsvDialog({
     }
   }, [form])
 
-  const onSubmit = async ({ file, columnMapping }: CsvImportFormValues) => {
+  const onSubmit = async ({ file }: CsvImportFormValues) => {
     if (!csvPreview || !table) return
 
     try {
+      const finalColumnMapping = resolveColumnMapping(
+        csvPreview.headers,
+        table.columns.map((column) => column.name),
+        columnMapping
+      )
+      const hasMappedColumns = Object.values(finalColumnMapping).some(
+        (value) => value !== "skip"
+      )
+      if (!hasMappedColumns) {
+        form.setError("root", {
+          type: "manual",
+          message: "Please map at least one column before importing.",
+        })
+        return
+      }
       const response = await importCsv({
         formData: {
           file,
-          column_mapping: JSON.stringify(columnMapping),
+          column_mapping: JSON.stringify(finalColumnMapping),
         },
         tableId: tableId ?? "",
         workspaceId,
@@ -203,7 +259,22 @@ export function TableImportCsvDialog({
                   <>
                     <CsvPreview csvData={csvPreview} />
                     {table && (
-                      <ColumnMapping csvData={csvPreview} table={table} />
+                      <ColumnMapping
+                        csvData={csvPreview}
+                        table={table}
+                        columnMapping={columnMapping}
+                        onChange={(header, value) => {
+                          const nextMapping = {
+                            ...columnMapping,
+                            [header]: value,
+                          }
+                          setColumnMapping(nextMapping)
+                          form.setValue("columnMapping", nextMapping, {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          })
+                        }}
+                      />
                     )}
                   </>
                 )}
@@ -222,6 +293,7 @@ export function TableImportCsvDialog({
                   variant="outline"
                   onClick={() => {
                     setCsvPreview(null)
+                    setColumnMapping({})
                     form.reset({ columnMapping: {} })
                   }}
                 >
@@ -231,7 +303,9 @@ export function TableImportCsvDialog({
                   type="submit"
                   disabled={
                     importCsvIsPending ||
-                    Object.keys(form.watch("columnMapping")).length === 0
+                    !Object.values(columnMapping).some(
+                      (value) => value !== "skip"
+                    )
                   }
                 >
                   {importCsvIsPending ? (
@@ -381,9 +455,16 @@ export function CsvPreview({ csvData }: CsvPreviewProps) {
 interface ColumnMappingProps {
   csvData: CsvPreviewData
   table: TableRead
+  columnMapping: Record<string, string>
+  onChange: (header: string, value: string) => void
 }
 
-function ColumnMapping({ csvData, table }: ColumnMappingProps) {
+function ColumnMapping({
+  csvData,
+  table,
+  columnMapping,
+  onChange,
+}: ColumnMappingProps) {
   const form = useFormContext<CsvImportFormValues>()
 
   return (
@@ -401,10 +482,8 @@ function ColumnMapping({ csvData, table }: ColumnMappingProps) {
                 <div key={header} className="flex items-center gap-2">
                   <FormLabel className="w-1/3 text-sm">{header}</FormLabel>
                   <Select
-                    value={form.watch(`columnMapping.${header}`)}
-                    onValueChange={(value) =>
-                      form.setValue(`columnMapping.${header}`, value)
-                    }
+                    value={columnMapping[header] ?? ""}
+                    onValueChange={(value) => onChange(header, value)}
                   >
                     <SelectTrigger className="w-2/3">
                       <SelectValue placeholder="Select a column" />
