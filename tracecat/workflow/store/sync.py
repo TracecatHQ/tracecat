@@ -330,7 +330,7 @@ class WorkflowSyncService(BaseWorkspaceService):
         try:
             repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
 
-            if options.branch:
+            if options.branch is not None:
                 return await self._push_to_target_branch(
                     repo=repo,
                     url=url,
@@ -406,7 +406,7 @@ class WorkflowSyncService(BaseWorkspaceService):
             existing_content = base64.b64decode(contents.content).decode("utf-8")
             if existing_content == yaml_content:
                 if options.create_pr:
-                    pr_url, pr_number, pr_reused = await self._upsert_pull_request(
+                    pr_url, pr_number, pr_reused = await self._upsert_pull_request_safe(
                         repo=repo,
                         url=url,
                         obj=obj,
@@ -458,7 +458,7 @@ class WorkflowSyncService(BaseWorkspaceService):
         commit_sha = branch.commit.sha
 
         if options.create_pr:
-            pr_url, pr_number, pr_reused = await self._upsert_pull_request(
+            pr_url, pr_number, pr_reused = await self._upsert_pull_request_safe(
                 repo=repo,
                 url=url,
                 obj=obj,
@@ -634,6 +634,36 @@ class WorkflowSyncService(BaseWorkspaceService):
             branch_name=branch_name,
             base_branch_name=base_branch_name,
         )
+
+    async def _upsert_pull_request_safe(
+        self,
+        *,
+        repo: Any,
+        url: GitUrl,
+        obj: PushObject[RemoteWorkflowDefinition],
+        options: PushOptions,
+        branch_name: str,
+        base_branch_name: str,
+    ) -> tuple[str | None, int | None, bool]:
+        try:
+            return await self._upsert_pull_request(
+                repo=repo,
+                url=url,
+                obj=obj,
+                options=options,
+                branch_name=branch_name,
+                base_branch_name=base_branch_name,
+            )
+        except GithubException as e:
+            logger.error(
+                "Failed to create or reuse pull request via GitHub API",
+                status=e.status,
+                data=e.data,
+                branch=branch_name,
+                base_branch=base_branch_name,
+                repo=f"{url.org}/{url.repo}",
+            )
+            return None, None, False
 
     async def _create_pull_request(
         self,

@@ -202,6 +202,7 @@ class TestWorkflowPublishBranchValidation:
     @pytest.mark.parametrize(
         ("branch_name"),
         [
+            "",
             "refs/heads/main",
             "feature//broken",
             "feature..broken",

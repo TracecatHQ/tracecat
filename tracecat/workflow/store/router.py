@@ -165,8 +165,10 @@ async def list_workflow_commits(
             detail=f"Unable to access repository: {str(e)}",
         ) from e
     except Exception as e:
-        logger.exception(
-            f"Error fetching commits from repository: {repository_url}", exc_info=True
+        logger.error(
+            "Error fetching commits from repository",
+            repository_url=repository_url,
+            error=str(e),
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -233,9 +235,10 @@ async def list_workflow_branches(
             detail=f"Unable to access repository: {str(e)}",
         ) from e
     except Exception as e:
-        logger.exception(
-            f"Error fetching branches from repository: {repository_url}",
-            exc_info=True,
+        logger.error(
+            "Error fetching branches from repository",
+            repository_url=repository_url,
+            error=str(e),
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

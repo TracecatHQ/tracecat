@@ -24,6 +24,8 @@ _INVALID_GIT_REF_CHARS_RE = re.compile(r"[\x00-\x20\x7f~^:?*\[\\]")
 
 def validate_short_branch_name(value: str, *, field_name: str) -> str:
     """Validate Git-safe short branch names."""
+    if value == "":
+        raise ValueError(f"{field_name} cannot be empty")
     if value.startswith("refs/"):
         raise ValueError(
             f"{field_name} must be a short branch name, not a full ref (refs/...)"
