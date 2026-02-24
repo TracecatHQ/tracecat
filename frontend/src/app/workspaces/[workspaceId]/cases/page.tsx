@@ -37,13 +37,7 @@ export default function CasesPage() {
     setDropdownSortDirection,
     setUpdatedAfter,
     setCreatedAfter,
-    setUpdatedAtSort,
-    setLimit,
-    goToNextPage,
-    goToPreviousPage,
-    hasNextPage,
-    hasPreviousPage,
-    currentPage,
+    totalFilteredCaseEstimate,
   } = useCases()
 
   const { members } = useWorkspaceMembers(workspaceId)
@@ -87,19 +81,13 @@ export default function CasesPage() {
         onTagSortDirectionChange={setTagSortDirection}
         onUpdatedAfterChange={setUpdatedAfter}
         onCreatedAfterChange={setCreatedAfter}
-        onUpdatedAtSortChange={setUpdatedAtSort}
-        onLimitChange={setLimit}
         dropdownDefinitions={
           caseAddonsEnabled ? dropdownDefinitions : undefined
         }
         onDropdownFilterChange={setDropdownFilter}
         onDropdownModeChange={setDropdownMode}
         onDropdownSortDirectionChange={setDropdownSortDirection}
-        onNextPage={goToNextPage}
-        onPreviousPage={goToPreviousPage}
-        hasNextPage={hasNextPage}
-        hasPreviousPage={hasPreviousPage}
-        currentPage={currentPage}
+        totalFilteredCaseEstimate={totalFilteredCaseEstimate}
         refetch={refetch}
       />
     </div>

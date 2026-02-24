@@ -18,9 +18,8 @@ import type {
   WorkspaceMember,
 } from "@/client"
 import { CaseItem } from "@/components/cases/case-item"
-import type { SortDirection } from "@/components/cases/cases-header"
+import type { FilterMode, SortDirection } from "@/components/cases/cases-header"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import type { CasesRecencySort } from "@/hooks/use-cases"
 import { cn } from "@/lib/utils"
 
 // Define the status groups we want to display
@@ -90,7 +89,9 @@ interface CasesAccordionProps {
   severitySortDirection?: SortDirection
   assigneeSortDirection?: SortDirection
   tagSortDirection?: SortDirection
-  updatedAtSort?: CasesRecencySort
+  statusFilter?: CaseStatus[]
+  statusMode?: FilterMode
+  totalFilteredCaseEstimate?: number | null
 }
 
 export function CasesAccordion({
@@ -107,15 +108,16 @@ export function CasesAccordion({
   severitySortDirection,
   assigneeSortDirection,
   tagSortDirection,
-  updatedAtSort = "desc",
+  statusFilter = [],
+  statusMode = "include",
+  totalFilteredCaseEstimate = null,
 }: CasesAccordionProps) {
   // Check if any explicit sort is active (from the header)
   const hasExplicitSort =
     prioritySortDirection ||
     severitySortDirection ||
     assigneeSortDirection ||
-    tagSortDirection ||
-    updatedAtSort === "asc"
+    tagSortDirection
 
   // Group cases by status category
   const groupedCases = useMemo(() => {
@@ -161,6 +163,20 @@ export function CasesAccordion({
     return GROUP_ORDER.filter((group) => groupedCases[group].length > 0)
   }, [groupedCases])
 
+  const singleFilteredGroup = useMemo<StatusGroup | null>(() => {
+    if (statusMode !== "include" || statusFilter.length === 0) {
+      return null
+    }
+
+    const matchingGroups = GROUP_ORDER.filter((group) =>
+      statusFilter.every((status) =>
+        STATUS_GROUPS[group].statuses.includes(status)
+      )
+    )
+
+    return matchingGroups.length === 1 ? matchingGroups[0] : null
+  }, [statusFilter, statusMode])
+
   return (
     <ScrollArea className="h-full">
       <AccordionPrimitive.Root
@@ -172,6 +188,11 @@ export function CasesAccordion({
           const config = STATUS_GROUPS[groupKey]
           const groupCases = groupedCases[groupKey]
           const StatusIcon = config.icon
+          const groupCount =
+            singleFilteredGroup === groupKey &&
+            typeof totalFilteredCaseEstimate === "number"
+              ? totalFilteredCaseEstimate
+              : groupCases.length
 
           return (
             <AccordionPrimitive.Item
@@ -211,7 +232,7 @@ export function CasesAccordion({
                     />
                     <span className="text-xs font-medium">{config.label}</span>
                     <span className="text-xs text-muted-foreground">
-                      {groupCases.length}
+                      {groupCount}
                     </span>
                   </div>
                 </AccordionPrimitive.Trigger>

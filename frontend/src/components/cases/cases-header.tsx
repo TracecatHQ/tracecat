@@ -8,8 +8,6 @@ import {
   CalendarIcon,
   Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   CircleIcon,
   ClockIcon,
   ListIcon,
@@ -61,19 +59,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import type {
   CaseDateFilterValue,
   CaseDatePreset,
-  CasesRecencySort,
   DropdownFilterState,
 } from "@/hooks/use-cases"
+import { DEFAULT_CREATED_PRESET } from "@/hooks/use-cases"
 import { getDisplayName } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
@@ -91,16 +82,6 @@ const DATE_PRESET_OPTIONS: Array<{
   { value: "1w", label: "1 week ago" },
   { value: "1m", label: "1 month ago" },
 ]
-
-const RECENCY_SORT_OPTIONS: Array<{
-  value: CasesRecencySort
-  label: string
-}> = [
-  { value: "desc", label: "Most recent" },
-  { value: "asc", label: "Least recent" },
-]
-
-const LIMIT_OPTIONS = [50, 100, 150, 200] as const
 
 function getDateFilterLabel(filter: CaseDateFilterValue): string | null {
   if (filter.type === "preset") {
@@ -549,10 +530,6 @@ interface CasesHeaderProps {
   onUpdatedAfterChange: (value: CaseDateFilterValue) => void
   createdAfter: CaseDateFilterValue
   onCreatedAfterChange: (value: CaseDateFilterValue) => void
-  updatedAtSort: CasesRecencySort
-  onUpdatedAtSortChange: (value: CasesRecencySort) => void
-  limit: number
-  onLimitChange: (limit: number) => void
   members?: WorkspaceMember[]
   tags?: CaseTagRead[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
@@ -560,11 +537,6 @@ interface CasesHeaderProps {
   onDropdownFilterChange: (ref: string, values: string[]) => void
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
-  onNextPage: () => void
-  onPreviousPage: () => void
-  hasNextPage: boolean
-  hasPreviousPage: boolean
-  currentPage: number
   // Selection props
   totalCaseCount?: number
   selectedCount?: number
@@ -607,10 +579,6 @@ export function CasesHeader({
   onUpdatedAfterChange,
   createdAfter,
   onCreatedAfterChange,
-  updatedAtSort,
-  onUpdatedAtSortChange,
-  limit,
-  onLimitChange,
   members,
   tags,
   dropdownDefinitions,
@@ -618,11 +586,6 @@ export function CasesHeader({
   onDropdownFilterChange,
   onDropdownModeChange,
   onDropdownSortDirectionChange,
-  onNextPage,
-  onPreviousPage,
-  hasNextPage,
-  hasPreviousPage,
-  currentPage,
   totalCaseCount = 0,
   selectedCount = 0,
   onSelectAll,
@@ -711,6 +674,9 @@ export function CasesHeader({
   const hasDropdownFilters = Object.values(dropdownFilters).some(
     (s) => s.values.length > 0
   )
+  const hasDefaultCreatedAfter =
+    createdAfter.type === "preset" &&
+    createdAfter.value === DEFAULT_CREATED_PRESET
 
   const hasFilters =
     searchQuery.trim().length > 0 ||
@@ -721,7 +687,7 @@ export function CasesHeader({
     tagFilter.length > 0 ||
     hasDropdownFilters ||
     isDateFilterActive(updatedAfter) ||
-    isDateFilterActive(createdAfter)
+    (isDateFilterActive(createdAfter) && !hasDefaultCreatedAfter)
 
   const handleReset = () => {
     onSearchChange("")
@@ -745,7 +711,10 @@ export function CasesHeader({
       onDropdownSortDirectionChange(ref, null)
     }
     onUpdatedAfterChange({ type: "preset", value: null })
-    onCreatedAfterChange({ type: "preset", value: null })
+    onCreatedAfterChange({
+      type: "preset",
+      value: DEFAULT_CREATED_PRESET,
+    })
   }
 
   return (
@@ -771,75 +740,13 @@ export function CasesHeader({
           />
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          <Select
-            value={updatedAtSort}
-            onValueChange={(value) =>
-              onUpdatedAtSortChange(value as CasesRecencySort)
-            }
-          >
-            <SelectTrigger className="h-6 w-[130px] px-2 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {RECENCY_SORT_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={`${limit}`}
-            onValueChange={(value) => onLimitChange(Number(value))}
-          >
-            <SelectTrigger className="h-6 w-[72px] px-2 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {LIMIT_OPTIONS.map((option) => (
-                <SelectItem key={option} value={`${option}`}>
-                  {option}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <span className="text-xs text-muted-foreground">
-            Page {currentPage + 1}
-          </span>
-
-          <button
-            type="button"
-            onClick={onPreviousPage}
-            disabled={!hasPreviousPage}
-            className={cn(
-              "flex h-6 items-center gap-1 rounded-md border border-input px-2 text-xs transition-colors",
-              hasPreviousPage
-                ? "hover:bg-muted/50"
-                : "cursor-not-allowed opacity-50"
-            )}
-          >
-            <ChevronLeft className="size-3.5" />
-            Prev
-          </button>
-
-          <button
-            type="button"
-            onClick={onNextPage}
-            disabled={!hasNextPage}
-            className={cn(
-              "flex h-6 items-center gap-1 rounded-md border border-input px-2 text-xs transition-colors",
-              hasNextPage
-                ? "hover:bg-muted/50"
-                : "cursor-not-allowed opacity-50"
-            )}
-          >
-            Next
-            <ChevronRight className="size-3.5" />
-          </button>
-        </div>
+        {totalCaseCount > 0 && (
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              {totalCaseCount} cases
+            </span>
+          </div>
+        )}
       </header>
 
       {/* Row 2: Filter dropdowns */}

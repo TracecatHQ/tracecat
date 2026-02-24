@@ -1,7 +1,7 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import type { DateRange } from "react-day-picker"
 import {
   type CasePriority,
@@ -29,8 +29,6 @@ export interface DropdownFilterState {
   sortDirection: SortDirection
 }
 
-export type CasesRecencySort = "asc" | "desc"
-
 export interface UseCasesFilters {
   searchQuery: string
   statusFilter: CaseStatus[]
@@ -50,8 +48,6 @@ export interface UseCasesFilters {
   dropdownFilters: Record<string, DropdownFilterState>
   updatedAfter: CaseDateFilterValue
   createdAfter: CaseDateFilterValue
-  updatedAtSort: CasesRecencySort
-  limit: number
 }
 
 export interface UseCasesOptions {
@@ -85,13 +81,7 @@ export interface UseCasesResult {
   setDropdownSortDirection: (ref: string, direction: SortDirection) => void
   setUpdatedAfter: (value: CaseDateFilterValue) => void
   setCreatedAfter: (value: CaseDateFilterValue) => void
-  setUpdatedAtSort: (value: CasesRecencySort) => void
-  setLimit: (limit: number) => void
-  goToNextPage: () => void
-  goToPreviousPage: () => void
-  hasNextPage: boolean
-  hasPreviousPage: boolean
-  currentPage: number
+  totalFilteredCaseEstimate: number | null
 }
 
 // Helper to get Date from preset filter value
@@ -139,6 +129,13 @@ export const DEFAULT_DATE_FILTER: CaseDateFilterValue = {
   value: null,
 }
 
+export const DEFAULT_CREATED_PRESET: CaseDatePreset = "1m"
+
+export const DEFAULT_CREATED_FILTER: CaseDateFilterValue = {
+  type: "preset",
+  value: DEFAULT_CREATED_PRESET,
+}
+
 // Priority order mapping (higher value = higher priority)
 const PRIORITY_ORDER: Record<CasePriority, number> = {
   unknown: 0,
@@ -160,6 +157,8 @@ const SEVERITY_ORDER: Record<CaseSeverity, number> = {
   fatal: 6,
   other: 0,
 }
+
+const CASES_FETCH_BATCH_SIZE = 200
 
 export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const { enabled = true, autoRefresh = true } = options
@@ -228,13 +227,9 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   )
   const [updatedAfter, setUpdatedAfter] =
     useState<CaseDateFilterValue>(DEFAULT_DATE_FILTER)
-  const [createdAfter, setCreatedAfter] =
-    useState<CaseDateFilterValue>(DEFAULT_DATE_FILTER)
-  const [updatedAtSort, setUpdatedAtSort] = useState<CasesRecencySort>("desc")
-  const [limit, setLimit] = useState(50)
-  const [currentCursor, setCurrentCursor] = useState<string | null>(null)
-  const [cursorStack, setCursorStack] = useState<string[]>([])
-  const [currentPage, setCurrentPage] = useState(0)
+  const [createdAfter, setCreatedAfter] = useState<CaseDateFilterValue>(
+    DEFAULT_CREATED_FILTER
+  )
 
   // Compute query parameters for API (include mode only for now)
   // Exclude filtering is done client-side
@@ -282,10 +277,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       updatedBefore: updatedBounds.end
         ? toEndOfDay(updatedBounds.end).toISOString()
         : undefined,
-      limit,
-      cursor: currentCursor,
-      orderBy: "updated_at" as const,
-      sort: updatedAtSort,
+      orderBy: "created_at" as const,
+      sort: "desc" as const,
     }
   }, [
     searchQuery,
@@ -302,9 +295,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     dropdownFilters,
     updatedAfter,
     createdAfter,
-    limit,
-    currentCursor,
-    updatedAtSort,
   ])
 
   const serverQueryKey = useMemo(
@@ -321,8 +311,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         endTime: queryParams.endTime ?? null,
         updatedAfter: queryParams.updatedAfter ?? null,
         updatedBefore: queryParams.updatedBefore ?? null,
-        limit: queryParams.limit,
-        sort: queryParams.sort,
       }),
     [
       queryParams.searchTerm,
@@ -336,16 +324,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       queryParams.endTime,
       queryParams.updatedAfter,
       queryParams.updatedBefore,
-      queryParams.limit,
-      queryParams.sort,
     ]
   )
-
-  useEffect(() => {
-    setCurrentCursor(null)
-    setCursorStack([])
-    setCurrentPage(0)
-  }, [serverQueryKey])
 
   // Compute refetch interval
   const computeRefetchInterval = useCallback(() => {
@@ -360,8 +340,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       return false
     }
 
-    // Refresh every 30 seconds for cases
-    return 30000
+    // Full-list fetches are heavier than single-page fetches.
+    return 120000
   }, [autoRefresh])
 
   // Fetch cases
@@ -371,44 +351,74 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     error,
     refetch,
   } = useQuery<CasesSearchCasesResponse, TracecatApiError>({
-    queryKey: ["cases", workspaceId, serverQueryKey, currentCursor],
-    queryFn: () =>
-      casesSearchCases({
-        workspaceId,
-        ...queryParams,
-      }),
+    queryKey: ["cases", workspaceId, serverQueryKey],
+    queryFn: async () => {
+      let cursor: string | null = null
+      let totalEstimate: number | null = null
+      const allItems: CaseReadMinimal[] = []
+      const seenCaseIds = new Set<string>()
+      const seenCursors = new Set<string>()
+
+      while (true) {
+        const response = await casesSearchCases({
+          workspaceId,
+          ...queryParams,
+          cursor,
+          limit: CASES_FETCH_BATCH_SIZE,
+        })
+
+        if (totalEstimate === null) {
+          totalEstimate = response.total_estimate ?? null
+        }
+
+        for (const caseData of response.items) {
+          if (seenCaseIds.has(caseData.id)) {
+            continue
+          }
+          seenCaseIds.add(caseData.id)
+          allItems.push(caseData)
+        }
+
+        const nextCursor = response.next_cursor ?? null
+        if (!response.has_more || !nextCursor || seenCursors.has(nextCursor)) {
+          break
+        }
+
+        seenCursors.add(nextCursor)
+        cursor = nextCursor
+      }
+
+      return {
+        items: allItems,
+        next_cursor: null,
+        prev_cursor: null,
+        has_more: false,
+        has_previous: false,
+        total_estimate: totalEstimate ?? allItems.length,
+      }
+    },
     enabled: enabled && Boolean(workspaceId),
     retry: retryHandler,
     refetchInterval: computeRefetchInterval(),
+    refetchOnWindowFocus: false,
+    staleTime: 60000,
   })
 
   const cases = casesResponse?.items ?? []
 
-  const goToNextPage = useCallback(() => {
-    const nextCursor = casesResponse?.next_cursor
-    if (!nextCursor) return
-
-    setCursorStack((prev) =>
-      currentCursor ? [...prev, currentCursor] : [...prev]
+  const hasClientSideExcludeFilters =
+    (statusMode === "exclude" && statusFilter.length > 0) ||
+    (priorityMode === "exclude" && priorityFilter.length > 0) ||
+    (severityMode === "exclude" && severityFilter.length > 0) ||
+    (assigneeMode === "exclude" && assigneeFilter.length > 0) ||
+    (tagMode === "exclude" && tagFilter.length > 0) ||
+    Object.values(dropdownFilters).some(
+      (filter) => filter.mode === "exclude" && filter.values.length > 0
     )
-    setCurrentCursor(nextCursor)
-    setCurrentPage((prev) => prev + 1)
-  }, [casesResponse?.next_cursor, currentCursor])
 
-  const goToPreviousPage = useCallback(() => {
-    if (currentPage === 0) return
-
-    const nextStack = [...cursorStack]
-    const previousCursor = nextStack.pop() ?? null
-    setCursorStack(nextStack)
-    setCurrentCursor(previousCursor)
-    setCurrentPage((prev) => Math.max(prev - 1, 0))
-  }, [cursorStack, currentPage])
-
-  const hasNextPage = Boolean(
-    casesResponse?.has_more && casesResponse?.next_cursor
-  )
-  const hasPreviousPage = currentPage > 0
+  const totalFilteredCaseEstimate = hasClientSideExcludeFilters
+    ? null
+    : (casesResponse?.total_estimate ?? null)
 
   // Apply client-side filtering (exclude mode filters only).
   const filteredCases = useMemo(() => {
@@ -529,8 +539,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       dropdownFilters,
       updatedAfter,
       createdAfter,
-      updatedAtSort,
-      limit,
     },
     setSearchQuery,
     setStatusFilter,
@@ -552,12 +560,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     setDropdownSortDirection,
     setUpdatedAfter,
     setCreatedAfter,
-    setUpdatedAtSort,
-    setLimit,
-    goToNextPage,
-    goToPreviousPage,
-    hasNextPage,
-    hasPreviousPage,
-    currentPage,
+    totalFilteredCaseEstimate,
   }
 }
