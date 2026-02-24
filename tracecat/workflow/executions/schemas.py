@@ -488,7 +488,7 @@ class EventFailure(BaseModel):
             case _:
                 raise ValueError("Event type not supported for failure extraction.")
 
-        cause = MessageToDict(failure.cause) if failure.cause is not None else None
+        cause = MessageToDict(failure.cause) if failure.HasField("cause") else None
         return EventFailure(
             message=failure.message,
             cause=cause,
