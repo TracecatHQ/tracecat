@@ -103,8 +103,22 @@ class SecretsService(BaseOrgService):
                 "CA certificate secrets must be created with their key values. Delete and recreate the secret instead."
             )
         set_fields = params.model_dump(exclude_unset=True)
+        keys = set_fields.pop("keys", None)
+
+        if keys is None:
+            try:
+                self.decrypt_keys(secret.encrypted_keys)
+            except (InvalidToken, ValidationError, ValueError) as e:
+                if existing_type == SecretType.SSH_KEY:
+                    raise ValueError(
+                        "Stored SSH key value cannot be decrypted. Delete and recreate this secret to recover it."
+                    ) from e
+                raise ValueError(
+                    "Stored secret values cannot be decrypted. Re-enter all key names and values to recover this secret."
+                ) from e
+
         # Handle keys separately
-        if keys := set_fields.pop("keys", None):
+        if keys:
             existing_keys: dict[str, SecretStr] = {}
             try:
                 # Decrypt existing keys to a dictionary for easy lookup.

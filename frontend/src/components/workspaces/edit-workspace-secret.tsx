@@ -69,6 +69,9 @@ function getEditableSecretKeys(secret: WorkspaceSecretListItem) {
   if (secret.type === "ssh-key") {
     return []
   }
+  if (secret.is_corrupted && secret.type === "custom") {
+    return [{ key: "", value: "" }]
+  }
   const keyNames =
     secret.keys.length > 0
       ? secret.keys
@@ -120,6 +123,23 @@ export function EditCredentialsDialog({
       // Remove unset values from the params object
       // We consider empty strings as unset values
       const submittedKeys = values.keys ?? []
+      if (
+        selectedSecret.is_corrupted &&
+        !isSshKey &&
+        submittedKeys.length === 0
+      ) {
+        methods.setError("keys", {
+          type: "manual",
+          message: "Add all key names and values to recover this secret.",
+        })
+        toast({
+          title: "Recovery requires all keys",
+          description:
+            "This secret is corrupted. Re-enter all key names and values before saving.",
+          variant: "destructive",
+        })
+        return
+      }
       const params = {
         name: values.name || undefined,
         description: values.description || undefined,

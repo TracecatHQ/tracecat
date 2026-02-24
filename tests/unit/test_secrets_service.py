@@ -377,6 +377,32 @@ class TestSecretsService:
                 ),
             )
 
+    async def test_update_secret_corrupted_encrypted_keys_require_keys_payload(
+        self, service: SecretsService
+    ) -> None:
+        """Test that corrupted secrets reject updates that omit keys entirely."""
+        create_params = SecretCreate(
+            name="test-corrupted-secret-missing-keys",
+            type=SecretType.CUSTOM,
+            description="Initial description",
+            keys=[SecretKeyValue(key="token", value=SecretStr("old-token"))],
+        )
+        await service.create_secret(create_params)
+        secret = await service.get_secret_by_name(create_params.name)
+
+        secret.encrypted_keys = b"not-a-valid-fernet-token"
+        service.session.add(secret)
+        await service.session.commit()
+
+        with pytest.raises(
+            ValueError,
+            match="Re-enter all key names and values",
+        ):
+            await service.update_secret(
+                secret,
+                SecretUpdate(description="Updated description"),
+            )
+
     async def test_update_mtls_secret_preserves_empty_values(
         self,
         service: SecretsService,
