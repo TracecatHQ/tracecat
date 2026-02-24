@@ -181,6 +181,101 @@ export function groupEventsByActionRef(
   )
 }
 
+function unwrapLoopActionResult(actionResult: unknown): unknown {
+  let value = actionResult
+
+  // Loop action results can appear in multiple envelope shapes depending on
+  // source (raw materialized value vs TaskResult/StoredObject wrappers).
+  for (let i = 0; i < 4; i++) {
+    if (typeof value !== "object" || value === null) {
+      return value
+    }
+
+    const candidate = value as Record<string, unknown>
+    if ("result" in candidate) {
+      value = candidate.result
+      continue
+    }
+    if ("data" in candidate) {
+      value = candidate.data
+      continue
+    }
+    return value
+  }
+
+  return value
+}
+
+export function getLoopEventMeta(
+  event?: WorkflowExecutionEventCompact
+): string | undefined {
+  if (!event) {
+    return undefined
+  }
+
+  const compactLoop = event as {
+    while_iteration?: unknown
+    while_continue?: unknown
+  }
+
+  if (event.action_name === "core.loop.start") {
+    if (typeof compactLoop.while_iteration === "number") {
+      return `${compactLoop.while_iteration}`
+    }
+  }
+
+  if (event.action_name === "core.loop.end") {
+    if (typeof compactLoop.while_continue === "boolean") {
+      return compactLoop.while_continue ? "continue" : "exit"
+    }
+  }
+
+  const payload = unwrapLoopActionResult(event.action_result)
+  if (typeof payload !== "object" || payload === null) {
+    return undefined
+  }
+
+  if (event.action_name === "core.loop.start") {
+    const iteration = (payload as { iteration?: unknown }).iteration
+    if (typeof iteration === "number") {
+      return `${iteration}`
+    }
+    return "?"
+  }
+
+  if (event.action_name === "core.loop.end") {
+    const shouldContinue = (payload as { continue?: unknown }).continue
+    if (typeof shouldContinue === "boolean") {
+      return shouldContinue ? "continue" : "exit"
+    }
+    return "exit"
+  }
+
+  return undefined
+}
+
+function getCompactEventTimestamp(
+  event: WorkflowExecutionEventCompact
+): number {
+  const time = event.close_time || event.start_time || event.schedule_time
+  return new Date(time).getTime()
+}
+
+export function getLatestLoopEventMeta(
+  events: WorkflowExecutionEventCompact[]
+): string | undefined {
+  const sorted = [...events].sort(
+    (a, b) => getCompactEventTimestamp(b) - getCompactEventTimestamp(a)
+  )
+  for (const event of sorted) {
+    const meta = getLoopEventMeta(event)
+    if (meta) {
+      return meta
+    }
+  }
+  return undefined
+}
+
 export function parseStreamId(streamId: string): {
   scope: string
   index: string

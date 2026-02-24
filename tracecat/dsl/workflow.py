@@ -1759,6 +1759,14 @@ class DSLWorkflow:
             "Noop loop action", action_ref=task.ref, stream_id=stream_id
         )
         new_context = self._build_action_context(task, stream_id)
+        # build_stream_aware_context is sparse and only includes referenced ACTIONS.
+        # Loop control actions store scheduler metadata on their own ref
+        # (iteration/continue), so we must explicitly include that self result.
+        own_result = self.scheduler.get_stream_aware_action_result(task.ref, stream_id)
+        if own_result is not None:
+            actions = dict(new_context.get("ACTIONS", {}))
+            actions[task.ref] = own_result
+            new_context["ACTIONS"] = actions
 
         arg = RunActionInput(
             task=task,

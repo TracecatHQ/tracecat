@@ -29,6 +29,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.models import Interaction
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES, DSLInput, DSLRunArgs
+from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import TriggerInputs
 from tracecat.dsl.types import Task
 from tracecat.dsl.workflow import DSLWorkflow
@@ -85,6 +86,39 @@ from tracecat.workspaces.service import WorkspaceService
 
 class WorkflowExecutionResultNotFoundError(ValueError):
     """Raised when no matching completed event exists for a given event ID."""
+
+
+def _unwrap_loop_control_result(value: Any) -> Any:
+    """Unwrap loop control result payloads across known envelope shapes."""
+    curr = value
+    for _ in range(4):
+        if not isinstance(curr, dict):
+            return curr
+        if "result" in curr:
+            curr = curr["result"]
+            continue
+        if "data" in curr:
+            curr = curr["data"]
+            continue
+        return curr
+    return curr
+
+
+def _extract_while_metadata(
+    action_name: str, action_result: Any
+) -> tuple[int | None, bool | None]:
+    """Extract do-while metadata while keeping `loop_index` semantics separate."""
+    payload = _unwrap_loop_control_result(action_result)
+    if not isinstance(payload, dict):
+        return None, None
+
+    if action_name == PlatformAction.LOOP_START.value:
+        iteration = payload.get("iteration")
+        return (iteration if isinstance(iteration, int) else None), None
+    if action_name == PlatformAction.LOOP_END.value:
+        should_continue = payload.get("continue")
+        return None, (should_continue if isinstance(should_continue, bool) else None)
+    return None, None
 
 
 class WorkflowExecutionsService:
@@ -382,6 +416,10 @@ class WorkflowExecutionsService:
                 if is_close_event(event):
                     source.close_time = event.event_time.ToDatetime(datetime.UTC)
                     source.action_result = await get_result(event)
+                    (
+                        source.while_iteration,
+                        source.while_continue,
+                    ) = _extract_while_metadata(source.action_name, source.action_result)
                 if is_error_event(event):
                     source.action_error = EventFailure.from_history_event(event)
 
@@ -422,24 +460,34 @@ class WorkflowExecutionsService:
             task = Task(ref=event.action_ref, stream_id=event.stream_id)
             if task in task2events:
                 group_event = task2events[task]
-                group_event.child_wf_count += 1
-                # Take the min start time
-                if group_event.start_time and event.start_time:
-                    group_event.start_time = min(
-                        group_event.start_time, event.start_time
-                    )
-                if group_event.schedule_time and event.schedule_time:
-                    group_event.schedule_time = min(
-                        group_event.schedule_time, event.schedule_time
-                    )
-                if group_event.close_time and event.close_time:
-                    group_event.close_time = max(
-                        group_event.close_time, event.close_time
-                    )
-                if group_event.action_result and isinstance(
-                    group_event.action_result, list
-                ):
-                    group_event.action_result.append(event.action_result)
+                # Compact history is an effective-state projection:
+                # - For regular action reruns (e.g. do-while), latest source_event_id
+                #   wins for a given (action_ref, stream_id).
+                # - For looped child workflows (loop_index != None), preserve fan-in
+                #   aggregation behavior and keep a list of per-index results.
+                if group_event.loop_index is not None or event.loop_index is not None:
+                    group_event.child_wf_count += 1
+                    if group_event.start_time and event.start_time:
+                        group_event.start_time = min(
+                            group_event.start_time, event.start_time
+                        )
+                    if group_event.schedule_time and event.schedule_time:
+                        group_event.schedule_time = min(
+                            group_event.schedule_time, event.schedule_time
+                        )
+                    if group_event.close_time and event.close_time:
+                        group_event.close_time = max(
+                            group_event.close_time, event.close_time
+                        )
+                    result_list: list[Any]
+                    if isinstance(group_event.action_result, list):
+                        result_list = group_event.action_result
+                    else:
+                        result_list = [group_event.action_result]
+                        group_event.action_result = result_list
+                    result_list.append(event.action_result)
+                elif event.source_event_id >= group_event.source_event_id:
+                    task2events[task] = event
             else:
                 task2events[task] = event
                 # There's an edge case where a direct child wf invocation and a single looped child wf invocation

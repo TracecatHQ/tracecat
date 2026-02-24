@@ -1,5 +1,6 @@
 "use client"
 
+import { Repeat2Icon } from "lucide-react"
 import type { WorkflowExecutionEventStatus } from "@/client"
 import {
   getAggregateWorkflowEventStatus,
@@ -13,6 +14,13 @@ import { CenteredSpinner, Spinner } from "@/components/loading/spinner"
 import NoContent from "@/components/no-content"
 import { AlertNotification } from "@/components/notifications"
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
+  getLatestLoopEventMeta,
+  getLoopEventMeta,
   groupEventsByActionRef,
   executionId as parseWorkflowExecutionId,
   refToLabel,
@@ -114,16 +122,52 @@ export function WorkflowExecutionEventHistory({
       latestEvent,
       latestEventTime,
       childWorkflowRunLink,
-    }) => ({
-      key: actionRef,
-      label: refToLabel(actionRef),
-      time: latestEventTime,
-      icon: getWorkflowEventIcon(aggregateStatus),
-      selected: selectedEvent?.action_ref === actionRef,
-      count: relatedEvents.length,
-      subflowLink: childWorkflowRunLink,
-      onSelect: latestEvent ? () => setSelectedEvent(latestEvent) : undefined,
-    })
+    }) => {
+      const isLoopAction =
+        latestEvent?.action_name === "core.loop.start" ||
+        latestEvent?.action_name === "core.loop.end"
+      const loopMeta =
+        getLoopEventMeta(latestEvent) ?? getLatestLoopEventMeta(relatedEvents)
+      const loopBadge =
+        latestEvent?.action_name === "core.loop.start" ? loopMeta : undefined
+      const loopTooltip =
+        latestEvent?.action_name === "core.loop.start" && loopMeta
+          ? `Iteration ${loopMeta}`
+          : loopMeta
+
+      return {
+        key: actionRef,
+        label: refToLabel(actionRef),
+        meta: loopBadge,
+        time: latestEventTime,
+        icon: isLoopAction ? (
+          loopTooltip ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="relative flex size-5 items-center justify-center">
+                  {getWorkflowEventIcon(aggregateStatus)}
+                  <Repeat2Icon className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-sm bg-orange-100 text-orange-700 ring-1 ring-orange-200" />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                <span>{loopTooltip}</span>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <div className="relative flex size-5 items-center justify-center">
+              {getWorkflowEventIcon(aggregateStatus)}
+              <Repeat2Icon className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-sm bg-orange-100 text-orange-700 ring-1 ring-orange-200" />
+            </div>
+          )
+        ) : (
+          getWorkflowEventIcon(aggregateStatus)
+        ),
+        selected: selectedEvent?.action_ref === actionRef,
+        count: relatedEvents.length,
+        subflowLink: childWorkflowRunLink,
+        onSelect: latestEvent ? () => setSelectedEvent(latestEvent) : undefined,
+      }
+    }
   )
 
   return (
