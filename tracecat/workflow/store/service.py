@@ -10,7 +10,7 @@ from tracecat.git.utils import parse_git_url
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
-from tracecat.sync import Author, PushObject, PushOptions
+from tracecat.sync import Author, PushObject, PushOptions, PushStatus
 from tracecat.workflow.store.schemas import (
     RemoteCaseTrigger,
     RemoteWebhook,
@@ -19,6 +19,8 @@ from tracecat.workflow.store.schemas import (
     RemoteWorkflowTag,
     Status,
     WorkflowDslPublish,
+    WorkflowDslPublishResult,
+    validate_short_branch_name,
 )
 from tracecat.workflow.store.sync import WorkflowSyncService
 from tracecat.workspaces.service import WorkspaceService
@@ -35,7 +37,7 @@ class WorkflowStoreService(BaseWorkspaceService):
         dsl: DSLInput,
         params: WorkflowDslPublish,
         workflow: Workflow,
-    ) -> None:
+    ) -> WorkflowDslPublishResult:
         """Take the latest version of the workflow definition and publish it to the store."""
         # Validate that workflow_id matches the provided workflow object
         if workflow.id != workflow_id:
@@ -130,11 +132,43 @@ class WorkflowStoreService(BaseWorkspaceService):
         push_obj = PushObject(data=defn, path=stable_path)
 
         author = Author(name="Tracecat", email="noreply@tracecat.com")
-        push_options = PushOptions(
-            message=params.message or f"Publish workflow: {dsl.title}",
-            author=author,
-            create_pr=True,  # Create PR for review
-        )
+        publish_message = params.message or f"Publish workflow: {dsl.title}"
+        validated_branch: str | None = None
+        validated_pr_base_branch: str | None = None
+
+        if params.branch is not None:
+            try:
+                validated_branch = validate_short_branch_name(
+                    params.branch,
+                    field_name="branch",
+                )
+                if params.pr_base_branch is not None:
+                    validated_pr_base_branch = validate_short_branch_name(
+                        params.pr_base_branch,
+                        field_name="pr_base_branch",
+                    )
+            except ValueError as e:
+                raise TracecatValidationError(str(e)) from e
+
+        if params.branch is None:
+            logger.warning(
+                "workflow_publish_legacy_mode_used",
+                workflow_id=str(workflow_id),
+                workspace_id=str(self.workspace_id),
+            )
+            push_options = PushOptions(
+                message=publish_message,
+                author=author,
+                create_pr=True,
+            )
+        else:
+            push_options = PushOptions(
+                message=publish_message,
+                author=author,
+                create_pr=params.create_pr,
+                branch=validated_branch,
+                pr_base_branch=validated_pr_base_branch,
+            )
 
         # Use WorkflowSyncService to push the workflow with stable path
         sync_service = WorkflowSyncService(session=self.session, role=self.role)
@@ -144,11 +178,35 @@ class WorkflowStoreService(BaseWorkspaceService):
             options=push_options,
         )
 
+        if validated_branch is not None and commit_info.status in {
+            PushStatus.COMMITTED,
+            PushStatus.NO_OP,
+        }:
+            workflow.git_sync_branch = validated_branch
+            self.session.add(workflow)
+            await self.session.commit()
+
         logger.info(
             "Successfully published workflow",
             workflow_title=dsl.title,
+            status=commit_info.status.value,
             commit_sha=commit_info.sha,
             ref=commit_info.ref,
+            base_ref=commit_info.base_ref,
+            pr_url=commit_info.pr_url,
+            pr_number=commit_info.pr_number,
+            pr_reused=commit_info.pr_reused,
+        )
+
+        return WorkflowDslPublishResult(
+            status=commit_info.status.value,
+            commit_sha=commit_info.sha,
+            branch=commit_info.ref,
+            base_branch=commit_info.base_ref,
+            pr_url=commit_info.pr_url,
+            pr_number=commit_info.pr_number,
+            pr_reused=commit_info.pr_reused,
+            message=commit_info.message,
         )
 
 

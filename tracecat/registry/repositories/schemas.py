@@ -122,6 +122,21 @@ class GitCommitInfo(BaseModel):
     )
 
 
+class GitBranchInfo(BaseModel):
+    """Git branch information for repository management."""
+
+    name: str = Field(
+        ...,
+        description="Branch name",
+        min_length=1,
+        max_length=255,
+    )
+    is_default: bool = Field(
+        default=False,
+        description="Whether this branch is the repository default branch",
+    )
+
+
 class RegistryRepositorySync(BaseModel):
     """Parameters for syncing a repository to a specific commit."""
 

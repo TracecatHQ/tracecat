@@ -1,6 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import { useQuery } from "@tanstack/react-query"
 import {
   AlertTriangleIcon,
   ChevronDownIcon,
@@ -21,10 +22,12 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type {
   DSLValidationResult,
+  GitBranchInfo,
   ValidationDetail,
   ValidationResult,
+  WorkflowDslPublish,
 } from "@/client"
-import { ApiError } from "@/client"
+import { ApiError, workflowsListWorkflowBranches } from "@/client"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import { Spinner } from "@/components/loading/spinner"
@@ -60,6 +63,7 @@ import {
   FormControl,
   FormField,
   FormItem,
+  FormLabel,
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
@@ -69,6 +73,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Tooltip,
@@ -171,6 +185,7 @@ export function BuilderNav() {
         {/* Save button */}
         <WorkflowSaveActions
           workflow={workflow}
+          workspaceId={workspaceId}
           validationErrors={validationErrors}
           onSave={handleCommit}
           onPublish={publishWorkflow}
@@ -358,8 +373,11 @@ type TWorkflowControlsForm = z.infer<typeof workflowControlsFormSchema>
 
 const publishFormSchema = z.object({
   message: z.string().optional(),
+  branch: z.string().trim().min(1, "Target branch is required"),
+  createPr: z.boolean().default(false),
 })
 type TPublishForm = z.infer<typeof publishFormSchema>
+const CREATE_NEW_BRANCH_VALUE = "__create_new_branch__"
 
 function WorkflowManualTrigger({
   disabled = true,
@@ -570,38 +588,118 @@ function WorkflowManualTrigger({
 
 function WorkflowSaveActions({
   workflow,
+  workspaceId,
   validationErrors,
   onSave,
   onPublish,
 }: {
-  workflow: { version?: number | null }
+  workflow: { version?: number | null; git_sync_branch?: string | null }
+  workspaceId: string
   validationErrors: ValidationResult[] | null
   onSave: () => Promise<void>
-  onPublish: (params: { message?: string }) => Promise<void>
+  onPublish: (params: WorkflowDslPublish) => Promise<unknown>
 }) {
   const { hasEntitlement } = useEntitlements()
+  const isGitSyncEnabled = hasEntitlement("git_sync")
   const [publishOpen, setPublishOpen] = React.useState(false)
   const [isPublishing, setIsPublishing] = React.useState(false)
+  const [isCreatingBranch, setIsCreatingBranch] = React.useState(false)
+  const { data: repoBranches, isLoading: branchesLoading } = useQuery<
+    Array<GitBranchInfo>,
+    ApiError
+  >({
+    queryKey: ["workflow-sync-branches", workspaceId],
+    queryFn: async () =>
+      await workflowsListWorkflowBranches({
+        workspaceId,
+        limit: 200,
+      }),
+    enabled: isGitSyncEnabled && publishOpen,
+  })
+  const hasBranches = (repoBranches?.length ?? 0) > 0
 
   const publishForm = useForm<TPublishForm>({
     resolver: zodResolver(publishFormSchema),
     defaultValues: {
       message: "",
+      branch: workflow.git_sync_branch ?? "",
+      createPr: false,
     },
   })
+
+  React.useEffect(() => {
+    if (!publishOpen) {
+      return
+    }
+    setIsCreatingBranch(false)
+    publishForm.reset({
+      message: "",
+      branch: workflow.git_sync_branch ?? "",
+      createPr: false,
+    })
+  }, [publishOpen, publishForm, workflow.git_sync_branch])
+
+  React.useEffect(() => {
+    if (
+      !publishOpen ||
+      !repoBranches ||
+      repoBranches.length === 0 ||
+      isCreatingBranch
+    ) {
+      return
+    }
+
+    const branchNames = new Set(repoBranches.map((branch) => branch.name))
+    const currentBranch = publishForm.getValues("branch")
+    if (currentBranch && branchNames.has(currentBranch)) {
+      return
+    }
+
+    const preferredBranch = workflow.git_sync_branch
+    const defaultBranch =
+      (preferredBranch && branchNames.has(preferredBranch)
+        ? preferredBranch
+        : undefined) ??
+      repoBranches.find((branch) => branch.is_default)?.name ??
+      repoBranches[0]?.name
+
+    if (defaultBranch) {
+      publishForm.setValue("branch", defaultBranch, { shouldValidate: true })
+    }
+  }, [
+    isCreatingBranch,
+    publishForm,
+    publishOpen,
+    repoBranches,
+    workflow.git_sync_branch,
+  ])
+
+  const selectedBranch = publishForm.watch("branch")
+  const createPrEnabled = publishForm.watch("createPr")
+  const selectedBranchInfo = repoBranches?.find(
+    (branch) => branch.name === selectedBranch
+  )
+  const isDefaultBranchSelected = selectedBranchInfo?.is_default ?? false
 
   const handlePublish = async (data: TPublishForm) => {
     setIsPublishing(true)
     try {
-      await onPublish({ message: data.message || undefined })
+      await onPublish({
+        message: data.message || undefined,
+        branch: data.branch,
+        create_pr: data.createPr,
+      })
     } finally {
       setIsPublishing(false)
       setPublishOpen(false)
-      publishForm.reset()
+      setIsCreatingBranch(false)
+      publishForm.reset({
+        message: "",
+        branch: workflow.git_sync_branch ?? "",
+        createPr: false,
+      })
     }
   }
-
-  const isGitSyncEnabled = hasEntitlement("git_sync")
 
   return (
     <div className="flex items-center space-x-2">
@@ -657,9 +755,97 @@ function WorkflowSaveActions({
                   </span>
                   <FormField
                     control={publishForm.control}
-                    name="message"
+                    name="branch"
                     render={({ field }) => (
                       <FormItem>
+                        <FormLabel className="text-xs text-muted-foreground">
+                          Target branch
+                        </FormLabel>
+                        <Select
+                          value={
+                            isCreatingBranch ||
+                            !repoBranches?.some(
+                              (branch) => branch.name === field.value
+                            )
+                              ? CREATE_NEW_BRANCH_VALUE
+                              : field.value
+                          }
+                          onValueChange={(value) => {
+                            if (value === CREATE_NEW_BRANCH_VALUE) {
+                              setIsCreatingBranch(true)
+                              field.onChange("")
+                              return
+                            }
+                            setIsCreatingBranch(false)
+                            field.onChange(value)
+                          }}
+                          disabled={branchesLoading || !hasBranches}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="h-7 px-3 text-xs">
+                              {branchesLoading ? (
+                                <Skeleton className="h-3.5 w-full rounded-sm" />
+                              ) : (
+                                <SelectValue placeholder="Select branch" />
+                              )}
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {hasBranches ? (
+                              <>
+                                <SelectItem value={CREATE_NEW_BRANCH_VALUE}>
+                                  Create new branch...
+                                </SelectItem>
+                                <SelectSeparator />
+                                {(repoBranches ?? []).map((branch) => (
+                                  <SelectItem
+                                    key={branch.name}
+                                    value={branch.name}
+                                  >
+                                    {branch.name}
+                                    {branch.is_default ? " (default)" : ""}
+                                  </SelectItem>
+                                ))}
+                              </>
+                            ) : (
+                              <SelectItem value="__no_branches" disabled>
+                                No branches found
+                              </SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+                        {isCreatingBranch && (
+                          <div className="mt-2">
+                            <Input
+                              value={field.value}
+                              onChange={field.onChange}
+                              placeholder="feature/my-workflow"
+                              className="h-7 px-3 text-xs"
+                            />
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              The branch will be created from the repository
+                              default branch if it does not exist.
+                            </p>
+                          </div>
+                        )}
+                        {!branchesLoading && !hasBranches && (
+                          <p className="text-[11px] text-muted-foreground">
+                            No branches available from the configured
+                            repository.
+                          </p>
+                        )}
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={publishForm.control}
+                    name="message"
+                    render={({ field }) => (
+                      <FormItem className="mt-2">
+                        <FormLabel className="text-xs text-muted-foreground">
+                          Commit message
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -671,9 +857,36 @@ function WorkflowSaveActions({
                       </FormItem>
                     )}
                   />
+                  <FormField
+                    control={publishForm.control}
+                    name="createPr"
+                    render={({ field }) => (
+                      <FormItem className="mt-2 flex items-center justify-between rounded-md border px-3 py-2">
+                        <div className="space-y-0.5">
+                          <p className="text-xs">Create pull request</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Reuse an open PR for this branch when available.
+                          </p>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            size="sm"
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  {isDefaultBranchSelected && !createPrEnabled && (
+                    <p className="mt-2 text-[11px] text-amber-700">
+                      Publishing to the default branch will create a direct
+                      commit.
+                    </p>
+                  )}
                   <Button
                     type="submit"
-                    disabled={isPublishing}
+                    disabled={isPublishing || branchesLoading || !hasBranches}
                     className="mt-2 flex h-7 w-full items-center justify-center gap-2 bg-primary px-3 py-0 text-xs text-white hover:bg-primary/80"
                   >
                     {isPublishing ? (

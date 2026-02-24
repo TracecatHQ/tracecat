@@ -41,6 +41,7 @@ class WorkflowRead(Schema):
     returns: Any
     config: DSLConfig | None
     alias: str | None = None
+    git_sync_branch: str | None = None
     error_handler: str | None = None
     trigger_position_x: float = 0.0
     trigger_position_y: float = 0.0

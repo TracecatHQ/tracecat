@@ -19,6 +19,7 @@ import {
   type ValidationResult,
   type WorkflowCommitResponse,
   type WorkflowDslPublish,
+  type WorkflowDslPublishResult,
   type WorkflowRead,
   type WorkflowUpdate,
   workflowsCommitWorkflow,
@@ -26,6 +27,7 @@ import {
   workflowsPublishWorkflow,
   workflowsUpdateWorkflow,
 } from "@/client"
+import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
 import type { TracecatApiError } from "@/lib/errors"
 
@@ -41,7 +43,12 @@ type WorkflowContextType = {
     void,
     unknown
   >
-  publishWorkflow: MutateFunction<void, ApiError, WorkflowDslPublish, unknown>
+  publishWorkflow: MutateFunction<
+    WorkflowDslPublishResult,
+    ApiError,
+    WorkflowDslPublish,
+    unknown
+  >
   updateWorkflow: MutateFunction<void, ApiError, WorkflowUpdate, unknown>
   validationErrors: ValidationResult[] | null
   setValidationErrors: React.Dispatch<SetStateAction<ValidationResult[] | null>>
@@ -130,12 +137,41 @@ export function WorkflowProvider({
         workflowId,
         requestBody: params,
       }),
-    onSuccess: () => {
+    onSuccess: (response) => {
+      let title = "Workflow committed"
+      if (response.status === "no_op") {
+        if (response.pr_url && response.pr_reused) {
+          title = "No changes (PR reused)"
+        } else if (response.pr_url) {
+          title = "No changes (PR created)"
+        } else {
+          title = "No changes to publish"
+        }
+      } else if (response.pr_url && response.pr_reused) {
+        title = "Workflow committed (PR reused)"
+      } else if (response.pr_url) {
+        title = "Workflow committed (PR created)"
+      }
+
       toast({
-        title: "Workflow published successfully",
-        description:
-          "Workflow has been published to the configured repository.",
+        title,
+        description: response.message,
+        action: response.pr_url ? (
+          <ToastAction
+            altText="Open pull request"
+            onClick={() =>
+              window.open(
+                response.pr_url ?? "",
+                "_blank",
+                "noopener,noreferrer"
+              )
+            }
+          >
+            View PR
+          </ToastAction>
+        ) : undefined,
       })
+      queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
     },
     onError: (error: ApiError) => {
       console.warn("Failed to publish workflow:", error)
