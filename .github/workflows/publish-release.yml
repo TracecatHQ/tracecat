@@ -12,17 +12,17 @@ jobs:
   publish-release:
     if: >-
       github.event.pull_request.merged == true &&
-      startsWith(github.event.pull_request.title, 'release:')
+      startsWith(github.event.pull_request.head.ref, 'release/')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - name: Extract version from PR title
+      - name: Extract version from branch name
         id: version
         env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          VERSION=$(echo "$PR_TITLE" | sed -E 's/^release:[[:space:]]*//')
-          if [ -z "$VERSION" ]; then
-            echo "Failed to extract version from PR title: $PR_TITLE" >&2
+          VERSION="${HEAD_REF#release/}"
+          if [ -z "$VERSION" ] || [ "$VERSION" = "$HEAD_REF" ]; then
+            echo "Branch '$HEAD_REF' does not follow the release/<version> pattern." >&2
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"

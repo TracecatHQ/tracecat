@@ -112,8 +112,28 @@ jobs:
       - name: Create and push tag
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          git tag -a "${VERSION}" -m "Release ${VERSION}"
-          git push origin "${VERSION}"
+          CURRENT_SHA=$(git rev-parse HEAD)
+
+          # Check if the tag already exists on the remote
+          REMOTE_SHA=$(git ls-remote --tags origin "refs/tags/${VERSION}" | awk '{print $1}')
+
+          if [ -n "$REMOTE_SHA" ]; then
+            # Tag exists on remote — resolve annotated tags to their commit
+            # Fetch the tag so we can dereference it locally
+            git fetch origin "refs/tags/${VERSION}:refs/tags/${VERSION}" 2>/dev/null || true
+            TAG_COMMIT=$(git rev-list -n 1 "${VERSION}" 2>/dev/null || echo "$REMOTE_SHA")
+
+            if [ "$TAG_COMMIT" = "$CURRENT_SHA" ]; then
+              echo "Tag ${VERSION} already exists and points to current commit ${CURRENT_SHA}. Skipping."
+            else
+              echo "Tag ${VERSION} already exists but points to ${TAG_COMMIT}, not ${CURRENT_SHA}." >&2
+              echo "Delete the remote tag and retry, or use a different version." >&2
+              exit 1
+            fi
+          else
+            git tag -a "${VERSION}" -m "Release ${VERSION}"
+            git push origin "${VERSION}"
+          fi
 
       - name: Wait for publish images and retry up to 3 times
         run: |
