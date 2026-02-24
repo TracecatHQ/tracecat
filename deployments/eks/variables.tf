@@ -62,7 +62,7 @@ variable "cluster_version" {
 variable "node_instance_types" {
   description = "Instance types for the EKS node group"
   type        = list(string)
-  default     = ["t4g.2xlarge"]
+  default     = ["c7g.2xlarge"]
 }
 
 variable "node_architecture" {
@@ -139,7 +139,7 @@ variable "spot_node_group_enabled" {
 variable "spot_node_instance_types" {
   description = "Instance types for the spot managed node group."
   type        = list(string)
-  default     = ["t4g.2xlarge"]
+  default     = ["c7g.2xlarge", "m7g.2xlarge"]
 }
 
 variable "spot_node_desired_size" {
@@ -178,6 +178,24 @@ variable "cluster_autoscaler_chart_version" {
   description = "Cluster Autoscaler Helm chart version."
   type        = string
   default     = "9.53.0"
+}
+
+variable "metrics_server_enabled" {
+  description = "Enable bundled metrics-server chart via Tracecat Helm dependency."
+  type        = bool
+  default     = true
+}
+
+variable "metrics_server_replicas" {
+  description = "Replica count for metrics-server when enabled."
+  type        = number
+  default     = 2
+}
+
+variable "metrics_server_kubelet_insecure_tls" {
+  description = "Set metrics-server --kubelet-insecure-tls for clusters with kubelet TLS issues."
+  type        = bool
+  default     = false
 }
 
 # Tracecat Configuration
@@ -388,6 +406,81 @@ variable "ui_replicas" {
   description = "Number of UI replicas"
   type        = number
   default     = 2
+}
+
+variable "api_autoscaling_enabled" {
+  description = "Enable HPA for the Tracecat API deployment."
+  type        = bool
+  default     = true
+}
+
+variable "api_autoscaling_min_replicas" {
+  description = "Minimum HPA replicas for the Tracecat API deployment."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.api_autoscaling_min_replicas >= 2
+    error_message = "api_autoscaling_min_replicas must be >= 2."
+  }
+}
+
+variable "api_autoscaling_max_replicas" {
+  description = "Maximum HPA replicas for the Tracecat API deployment."
+  type        = number
+  default     = 10
+
+  validation {
+    condition     = var.api_autoscaling_max_replicas >= var.api_autoscaling_min_replicas
+    error_message = "api_autoscaling_max_replicas must be >= api_autoscaling_min_replicas."
+  }
+}
+
+variable "api_autoscaling_target_cpu_utilization_percentage" {
+  description = "Target average CPU utilization percentage for API HPA."
+  type        = number
+  default     = 70
+}
+
+variable "api_autoscaling_target_memory_utilization_percentage" {
+  description = "Target average memory utilization percentage for API HPA."
+  type        = number
+  default     = 80
+}
+
+variable "ui_autoscaling_enabled" {
+  description = "Enable HPA for the Tracecat UI deployment."
+  type        = bool
+  default     = true
+}
+
+variable "ui_autoscaling_min_replicas" {
+  description = "Minimum HPA replicas for the Tracecat UI deployment."
+  type        = number
+  default     = 2
+}
+
+variable "ui_autoscaling_max_replicas" {
+  description = "Maximum HPA replicas for the Tracecat UI deployment."
+  type        = number
+  default     = 6
+
+  validation {
+    condition     = var.ui_autoscaling_max_replicas >= var.ui_autoscaling_min_replicas
+    error_message = "ui_autoscaling_max_replicas must be >= ui_autoscaling_min_replicas."
+  }
+}
+
+variable "ui_autoscaling_target_cpu_utilization_percentage" {
+  description = "Target average CPU utilization percentage for UI HPA."
+  type        = number
+  default     = 70
+}
+
+variable "ui_autoscaling_target_memory_utilization_percentage" {
+  description = "Target average memory utilization percentage for UI HPA."
+  type        = number
+  default     = 80
 }
 
 # Tracecat resource requests (also applied as limits)
