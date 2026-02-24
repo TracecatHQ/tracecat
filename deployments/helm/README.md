@@ -287,24 +287,11 @@ scheduling:
   tolerations: []
 ```
 
-Tracecat defaults to `arm64` scheduling. Keep all Tracecat and Temporal pods on one CPU architecture.
-
-If your cluster is x86_64/AMD64, set `scheduling.architecture=amd64` and align Temporal subchart node selectors:
+Tracecat defaults to `arm64` scheduling. If your cluster is x86_64/AMD64, set `scheduling.architecture=amd64`:
 
 ```yaml
 scheduling:
   architecture: amd64
-
-temporal:
-  admintools:
-    nodeSelector:
-      kubernetes.io/arch: amd64
-  web:
-    nodeSelector:
-      kubernetes.io/arch: amd64
-  server:
-    nodeSelector:
-      kubernetes.io/arch: amd64
 ```
 
 ### PostgreSQL

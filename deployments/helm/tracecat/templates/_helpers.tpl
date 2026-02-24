@@ -110,10 +110,6 @@ topologySpreadConstraints:
 {{- define "tracecat.podScheduling" -}}
 {{- $root := .root -}}
 {{- $component := .component -}}
-{{- $applyArchitectureDefault := true -}}
-{{- if hasKey . "applyArchitectureDefault" -}}
-{{- $applyArchitectureDefault = .applyArchitectureDefault -}}
-{{- end -}}
 {{- $scheduling := $root.Values.scheduling -}}
 {{- if $scheduling }}
 {{- $nodeSelector := dict -}}
@@ -122,7 +118,7 @@ topologySpreadConstraints:
 {{- $_ := set $nodeSelector $key $value -}}
 {{- end }}
 {{- end }}
-{{- if and $applyArchitectureDefault $scheduling.architecture (not (hasKey $nodeSelector "kubernetes.io/arch")) }}
+{{- if and $scheduling.architecture (not (hasKey $nodeSelector "kubernetes.io/arch")) }}
 {{- $_ := set $nodeSelector "kubernetes.io/arch" $scheduling.architecture -}}
 {{- end }}
 {{- if $nodeSelector }}

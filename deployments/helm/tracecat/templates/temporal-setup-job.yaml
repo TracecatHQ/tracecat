@@ -5,7 +5,6 @@ metadata:
   name: {{ include "tracecat.fullname" . }}-temporal-setup
   labels:
     {{- include "tracecat.labels" . | nindent 4 }}
-    app.kubernetes.io/component: temporal-setup
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "0"
@@ -15,9 +14,6 @@ spec:
   activeDeadlineSeconds: 600
   template:
     metadata:
-      labels:
-        {{- include "tracecat.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: temporal-setup
       {{- with .Values.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
@@ -25,7 +21,6 @@ spec:
     spec:
       restartPolicy: OnFailure
       serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
-      {{- include "tracecat.podScheduling" (dict "root" . "component" "temporal-setup" "applyArchitectureDefault" false) | nindent 6 }}
       containers:
         - name: temporal-setup
           image: temporalio/admin-tools:1.29.1-tctl-1.18.4-cli-1.5.0

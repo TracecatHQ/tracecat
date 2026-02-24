@@ -1,8 +1,4 @@
 locals {
-  tracecat_node_arch_selector = {
-    "kubernetes.io/arch" = var.node_architecture
-  }
-
   tracecat_spot_scheduling = {
     affinity = {
       nodeAffinity = {
@@ -127,17 +123,6 @@ resource "helm_release" "tracecat" {
         publicApi = "https://${var.domain_name}/api"
       }
       scheduling = local.tracecat_scheduling
-      temporal = {
-        admintools = {
-          nodeSelector = local.tracecat_node_arch_selector
-        }
-        web = {
-          nodeSelector = local.tracecat_node_arch_selector
-        }
-        server = {
-          nodeSelector = local.tracecat_node_arch_selector
-        }
-      }
       tracecat = {
         auth = {
           types = var.auth_types
