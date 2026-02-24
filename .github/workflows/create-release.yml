@@ -134,8 +134,9 @@ jobs:
             exit 1
           fi
 
-          max_attempts=3
+          max_retries=3
           attempt=1
+          max_attempts=$((max_retries + 1))
 
           while [ "$attempt" -le "$max_attempts" ]; do
             echo "Watching publish-images run $run_id (attempt $attempt/$max_attempts)"
@@ -145,7 +146,7 @@ jobs:
             fi
 
             if [ "$attempt" -eq "$max_attempts" ]; then
-              echo "publish-images failed after $max_attempts attempts" >&2
+              echo "publish-images failed after $attempt attempts ($max_retries retries)" >&2
               exit 1
             fi
 
