@@ -26,18 +26,20 @@ module "eks" {
   acm_certificate_arn = module.network.acm_certificate_arn
 
   # Node Group Configuration
-  node_instance_types      = var.node_instance_types
-  node_architecture        = var.node_architecture
-  node_ami_type            = var.node_ami_type
-  node_desired_size        = var.node_desired_size
-  node_min_size            = var.node_min_size
-  node_max_size            = var.node_max_size
-  node_disk_size           = var.node_disk_size
-  spot_node_group_enabled  = var.spot_node_group_enabled
-  spot_node_instance_types = var.spot_node_instance_types
-  spot_node_desired_size   = var.spot_node_desired_size
-  spot_node_min_size       = var.spot_node_min_size
-  spot_node_max_size       = var.spot_node_max_size
+  node_instance_types              = var.node_instance_types
+  node_architecture                = var.node_architecture
+  node_ami_type                    = var.node_ami_type
+  node_desired_size                = var.node_desired_size
+  node_min_size                    = var.node_min_size
+  node_max_size                    = var.node_max_size
+  node_disk_size                   = var.node_disk_size
+  spot_node_group_enabled          = var.spot_node_group_enabled
+  spot_node_instance_types         = var.spot_node_instance_types
+  spot_node_desired_size           = var.spot_node_desired_size
+  spot_node_min_size               = var.spot_node_min_size
+  spot_node_max_size               = var.spot_node_max_size
+  cluster_autoscaler_enabled       = var.cluster_autoscaler_enabled
+  cluster_autoscaler_chart_version = var.cluster_autoscaler_chart_version
 
   # Tracecat Configuration
   domain_name            = var.domain_name
@@ -96,6 +98,9 @@ module "eks" {
   rollout_surge_percent                 = var.rollout_surge_percent
   capacity_headroom_percent             = var.capacity_headroom_percent
   pod_eni_capacity_reserved             = var.pod_eni_capacity_reserved
+  temporal_guardrail_cpu_millicores     = var.temporal_guardrail_cpu_millicores
+  temporal_guardrail_memory_mib         = var.temporal_guardrail_memory_mib
+  temporal_guardrail_pod_count          = var.temporal_guardrail_pod_count
 
   # WAF Configuration
   enable_waf     = var.enable_waf

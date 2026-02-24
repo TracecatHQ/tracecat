@@ -124,6 +124,30 @@ resource "aws_eks_addon" "kube_proxy" {
   tags = var.tags
 }
 
+locals {
+  # EKS managed node group tags do not propagate to backing ASGs.
+  # Apply autoscaler discovery/node-template tags directly to ASGs instead.
+  tracecat_on_demand_asg_name = one(
+    aws_eks_node_group.tracecat.resources[0].autoscaling_groups[*].name
+  )
+  tracecat_spot_asg_name = var.spot_node_group_enabled ? one(
+    aws_eks_node_group.tracecat_spot[0].resources[0].autoscaling_groups[*].name
+  ) : null
+
+  tracecat_on_demand_autoscaler_tags = {
+    "k8s.io/cluster-autoscaler/enabled"                                   = "true"
+    "k8s.io/cluster-autoscaler/${var.cluster_name}"                       = "owned"
+    "k8s.io/cluster-autoscaler/node-template/label/tracecat.com/purpose"  = "tracecat"
+    "k8s.io/cluster-autoscaler/node-template/label/tracecat.com/capacity" = "on-demand"
+  }
+  tracecat_spot_autoscaler_tags = {
+    "k8s.io/cluster-autoscaler/enabled"                                   = "true"
+    "k8s.io/cluster-autoscaler/${var.cluster_name}"                       = "owned"
+    "k8s.io/cluster-autoscaler/node-template/label/tracecat.com/purpose"  = "tracecat"
+    "k8s.io/cluster-autoscaler/node-template/label/tracecat.com/capacity" = "spot"
+  }
+}
+
 # EKS Managed Node Group
 resource "aws_eks_node_group" "tracecat" {
   cluster_name    = aws_eks_cluster.tracecat.name
@@ -155,6 +179,12 @@ resource "aws_eks_node_group" "tracecat" {
   }
 
   tags = var.tags
+
+  lifecycle {
+    ignore_changes = [
+      scaling_config[0].desired_size
+    ]
+  }
 
   depends_on = [
     aws_iam_role_policy_attachment.eks_worker_node_policy,
@@ -194,11 +224,49 @@ resource "aws_eks_node_group" "tracecat_spot" {
 
   tags = var.tags
 
+  lifecycle {
+    ignore_changes = [
+      scaling_config[0].desired_size
+    ]
+  }
+
   depends_on = [
     aws_iam_role_policy_attachment.eks_worker_node_policy,
     aws_iam_role_policy_attachment.eks_cni_policy,
     aws_iam_role_policy_attachment.eks_container_registry_read
   ]
+}
+
+resource "aws_autoscaling_group_tag" "tracecat_on_demand_cluster_autoscaler" {
+  for_each = var.cluster_autoscaler_enabled ? local.tracecat_on_demand_autoscaler_tags : {}
+
+  autoscaling_group_name = local.tracecat_on_demand_asg_name
+
+  tag {
+    key                 = each.key
+    value               = each.value
+    propagate_at_launch = false
+  }
+
+  depends_on = [aws_eks_node_group.tracecat]
+}
+
+resource "aws_autoscaling_group_tag" "tracecat_spot_cluster_autoscaler" {
+  for_each = (
+    var.cluster_autoscaler_enabled && var.spot_node_group_enabled
+    ? local.tracecat_spot_autoscaler_tags
+    : {}
+  )
+
+  autoscaling_group_name = local.tracecat_spot_asg_name
+
+  tag {
+    key                 = each.key
+    value               = each.value
+    propagate_at_launch = false
+  }
+
+  depends_on = [aws_eks_node_group.tracecat_spot]
 }
 
 # Kubernetes and Helm Provider Configuration

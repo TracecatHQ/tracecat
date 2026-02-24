@@ -28,16 +28,16 @@ Network hardening:
 ## Default deployment profile (~100 concurrent users)
 
 - Node type defaults: `t4g.2xlarge` for both on-demand and spot node groups.
-- Default node profile: on-demand `min/desired/max = 7/8/20`, spot `min/desired/max = 0/0/40`.
+- Default node profile: on-demand `min/desired/max = 8/8/20`, spot `min/desired/max = 0/0/40`.
 - Cluster Autoscaler defaults: enabled with spot-first scaling and on-demand fallback.
-- Baseline cost behavior: runs at `8` on-demand nodes by default and keeps spot at `0` until burst demand arrives.
+- Baseline cost behavior: runs at `8` on-demand nodes and keeps spot at `0` until burst demand arrives.
 
 Capacity summary (guardrail model):
 
 | Mode | Guardrail node basis | Required CPU | Available CPU | Required memory | Available memory |
 | --- | --- | --- | --- | --- | --- |
-| `temporal_mode=cloud` | On-demand `node_min_size` (`7`) | `52.2 vCPU` | `56 vCPU` | `90.6 GiB` | `224 GiB` |
-| `temporal_mode=self-hosted` | On-demand `node_desired_size` (`8`) | `60.2 vCPU` (`52.2` Tracecat + `8.0` Temporal reservation) | `64 vCPU` | `98.6 GiB` (`90.6` Tracecat + `8.0` Temporal reservation) | `256 GiB` |
+| `temporal_mode=cloud` | On-demand `node_min_size` (`8`) | `52.2 vCPU` | `64 vCPU` | `90.6 GiB` | `256 GiB` |
+| `temporal_mode=self-hosted` | On-demand `node_min_size` (`8`) | `60.2 vCPU` (`52.2` Tracecat + `8.0` Temporal reservation) | `64 vCPU` | `98.6 GiB` (`90.6` Tracecat + `8.0` Temporal reservation) | `256 GiB` |
 
 Burst ceiling (autoscaler max): on-demand `20` + spot `40` = `60 x t4g.2xlarge` (`480 vCPU`, `1920 GiB RAM`).
 
@@ -68,11 +68,11 @@ agent_executor_memory_request_mib=4096
 ui_cpu_request_millicores=500
 ui_memory_request_mib=512
 
-# Node groups: on-demand 7/8/12, spot 0/0/8, all t4g.2xlarge
+# Node groups: on-demand 8/8/20, spot 0/0/40, all t4g.2xlarge
 node_instance_types='["t4g.2xlarge"]'
 node_architecture="arm64"
 node_ami_type="AL2023_ARM_64_STANDARD"
-node_min_size=7
+node_min_size=8
 node_desired_size=8
 node_max_size=20
 spot_node_group_enabled=true
@@ -123,7 +123,7 @@ You can disable spot by setting `spot_node_group_enabled=false`, disable autosca
 Terraform includes plan-time capacity guardrails that verify rollout requirements at plan time:
 
 - `temporal_mode=cloud`: guardrails use on-demand `node_min_size` and Tracecat workload requirements only.
-- `temporal_mode=self-hosted`: guardrails use on-demand `node_desired_size` and include Tracecat workload requirements plus Temporal reservation variables.
+- `temporal_mode=self-hosted`: guardrails use on-demand `node_min_size` when autoscaler is enabled, otherwise `node_desired_size`; both include Tracecat workload requirements plus Temporal reservation variables.
 - Spot capacity is intentionally excluded from guardrail pass/fail to keep checks deterministic even when spot is unavailable.
 
 ### Temporal guardrail policy (Temporal unbounded)

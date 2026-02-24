@@ -58,11 +58,11 @@ locals {
   tracecat_service_account_name = "tracecat-app"
 
   # S3 bucket names (using random suffix instead of account ID for security)
-  s3_suffix             = random_id.s3_suffix.hex
-  s3_attachments_bucket = "tracecat-attachments-${local.s3_suffix}"
-  s3_registry_bucket    = "tracecat-registry-${local.s3_suffix}"
-  s3_workflow_bucket            = "tracecat-workflow-${local.s3_suffix}"
-  s3_temporal_archival_bucket   = "tracecat-temporal-archival-${local.s3_suffix}"
+  s3_suffix                   = random_id.s3_suffix.hex
+  s3_attachments_bucket       = "tracecat-attachments-${local.s3_suffix}"
+  s3_registry_bucket          = "tracecat-registry-${local.s3_suffix}"
+  s3_workflow_bucket          = "tracecat-workflow-${local.s3_suffix}"
+  s3_temporal_archival_bucket = "tracecat-temporal-archival-${local.s3_suffix}"
 
   # Common labels for Kubernetes resources
   common_labels = {
@@ -114,81 +114,110 @@ locals {
     data.aws_ec2_instance_type.node_group[instance_type].memory_size
   ]...)
 
-  spot_node_cpu_millicores = var.spot_node_group_enabled ? min([
-    for instance_type in var.spot_node_instance_types :
-    data.aws_ec2_instance_type.node_group[instance_type].default_vcpus * 1000
-  ]...) : 0
-  spot_node_memory_mib = var.spot_node_group_enabled ? min([
-    for instance_type in var.spot_node_instance_types :
-    data.aws_ec2_instance_type.node_group[instance_type].memory_size
-  ]...) : 0
-
-  desired_on_demand_node_count = var.node_desired_size
-  desired_spot_node_count      = var.spot_node_group_enabled ? var.spot_node_desired_size : 0
-  desired_node_count           = local.desired_on_demand_node_count + local.desired_spot_node_count
-
-  desired_cpu_capacity_millicores = (
-    local.desired_on_demand_node_count * local.on_demand_node_cpu_millicores +
-    local.desired_spot_node_count * local.spot_node_cpu_millicores
+  guardrail_node_basis = (
+    var.cluster_autoscaler_enabled || var.temporal_mode == "cloud"
+    ? "node_min_size"
+    : "node_desired_size"
   )
-  desired_memory_capacity_mib = (
-    local.desired_on_demand_node_count * local.on_demand_node_memory_mib +
-    local.desired_spot_node_count * local.spot_node_memory_mib
+  guardrail_on_demand_node_count = (
+    var.cluster_autoscaler_enabled || var.temporal_mode == "cloud"
+    ? var.node_min_size
+    : var.node_desired_size
   )
-  desired_pod_eni_capacity = (
-    local.desired_node_count * var.pod_eni_capacity_per_node
+  guardrail_temporal_cpu_millicores = (
+    var.temporal_mode == "self-hosted"
+    ? var.temporal_guardrail_cpu_millicores
+    : 0
+  )
+  guardrail_temporal_memory_mib = (
+    var.temporal_mode == "self-hosted"
+    ? var.temporal_guardrail_memory_mib
+    : 0
+  )
+  guardrail_temporal_pod_count = (
+    var.temporal_mode == "self-hosted"
+    ? var.temporal_guardrail_pod_count
+    : 0
   )
 
-  required_cpu_with_headroom_millicores = ceil(local.tracecat_rollout_peak_cpu_millicores * local.capacity_headroom_multiplier)
-  required_memory_with_headroom_mib     = ceil(local.tracecat_rollout_peak_memory_mib * local.capacity_headroom_multiplier)
-  required_pod_eni_with_reserve         = local.tracecat_rollout_peak_pods + var.pod_eni_capacity_reserved
+  guardrail_cpu_capacity_millicores = (
+    local.guardrail_on_demand_node_count * local.on_demand_node_cpu_millicores
+  )
+  guardrail_memory_capacity_mib = (
+    local.guardrail_on_demand_node_count * local.on_demand_node_memory_mib
+  )
+  guardrail_pod_eni_capacity = (
+    local.guardrail_on_demand_node_count * var.pod_eni_capacity_per_node
+  )
+
+  tracecat_required_cpu_with_headroom_millicores = ceil(local.tracecat_rollout_peak_cpu_millicores * local.capacity_headroom_multiplier)
+  tracecat_required_memory_with_headroom_mib     = ceil(local.tracecat_rollout_peak_memory_mib * local.capacity_headroom_multiplier)
+  tracecat_required_pod_eni_with_reserve         = local.tracecat_rollout_peak_pods + var.pod_eni_capacity_reserved
+
+  required_cpu_with_headroom_millicores = (
+    local.tracecat_required_cpu_with_headroom_millicores +
+    local.guardrail_temporal_cpu_millicores
+  )
+  required_memory_with_headroom_mib = (
+    local.tracecat_required_memory_with_headroom_mib +
+    local.guardrail_temporal_memory_mib
+  )
+  required_pod_eni_with_reserve = (
+    local.tracecat_required_pod_eni_with_reserve +
+    local.guardrail_temporal_pod_count
+  )
 }
 
 check "tracecat_rollout_cpu_capacity" {
   assert {
-    condition = local.required_cpu_with_headroom_millicores <= local.desired_cpu_capacity_millicores
+    condition = local.required_cpu_with_headroom_millicores <= local.guardrail_cpu_capacity_millicores
     error_message = format(
-      "Insufficient rollout CPU capacity: required %dm (%dm workload with %d%% headroom), available %dm (%d on-demand nodes x %dm + %d spot nodes x %dm). Increase node_desired_size/spot_node_desired_size or lower CPU requests.",
+      "Insufficient rollout CPU capacity for temporal_mode=%s: required %dm (%dm Tracecat workload with %d%% headroom%s), available %dm (%d on-demand nodes x %dm, using %s). Increase on-demand capacity or lower requests/reservations.",
+      var.temporal_mode,
       local.required_cpu_with_headroom_millicores,
       local.tracecat_rollout_peak_cpu_millicores,
       var.capacity_headroom_percent,
-      local.desired_cpu_capacity_millicores,
-      local.desired_on_demand_node_count,
+      local.guardrail_temporal_cpu_millicores > 0 ? format(" + %dm Temporal reservation", local.guardrail_temporal_cpu_millicores) : "",
+      local.guardrail_cpu_capacity_millicores,
+      local.guardrail_on_demand_node_count,
       local.on_demand_node_cpu_millicores,
-      local.desired_spot_node_count,
-      local.spot_node_cpu_millicores
+      local.guardrail_node_basis
     )
   }
 }
 
 check "tracecat_rollout_memory_capacity" {
   assert {
-    condition = local.required_memory_with_headroom_mib <= local.desired_memory_capacity_mib
+    condition = local.required_memory_with_headroom_mib <= local.guardrail_memory_capacity_mib
     error_message = format(
-      "Insufficient rollout memory capacity: required %dMi (%dMi workload with %d%% headroom), available %dMi (%d on-demand nodes x %dMi + %d spot nodes x %dMi). Increase node_desired_size/spot_node_desired_size or lower memory requests.",
+      "Insufficient rollout memory capacity for temporal_mode=%s: required %dMi (%dMi Tracecat workload with %d%% headroom%s), available %dMi (%d on-demand nodes x %dMi, using %s). Increase on-demand capacity or lower requests/reservations.",
+      var.temporal_mode,
       local.required_memory_with_headroom_mib,
       local.tracecat_rollout_peak_memory_mib,
       var.capacity_headroom_percent,
-      local.desired_memory_capacity_mib,
-      local.desired_on_demand_node_count,
+      local.guardrail_temporal_memory_mib > 0 ? format(" + %dMi Temporal reservation", local.guardrail_temporal_memory_mib) : "",
+      local.guardrail_memory_capacity_mib,
+      local.guardrail_on_demand_node_count,
       local.on_demand_node_memory_mib,
-      local.desired_spot_node_count,
-      local.spot_node_memory_mib
+      local.guardrail_node_basis
     )
   }
 }
 
 check "tracecat_rollout_pod_eni_capacity" {
   assert {
-    condition = local.required_pod_eni_with_reserve <= local.desired_pod_eni_capacity
+    condition = local.required_pod_eni_with_reserve <= local.guardrail_pod_eni_capacity
     error_message = format(
-      "Insufficient pod-eni budget: required %d pods (%d workload + %d reserve), available %d (%d nodes x %d). Increase node_desired_size/spot_node_desired_size or pod_eni_capacity_per_node.",
+      "Insufficient pod-eni budget for temporal_mode=%s: required %d pods (%d Tracecat workload + %d reserve%s), available %d (%d on-demand nodes x %d, using %s). Increase on-demand capacity or pod_eni_capacity_per_node.",
+      var.temporal_mode,
       local.required_pod_eni_with_reserve,
       local.tracecat_rollout_peak_pods,
       var.pod_eni_capacity_reserved,
-      local.desired_pod_eni_capacity,
-      local.desired_node_count,
-      var.pod_eni_capacity_per_node
+      local.guardrail_temporal_pod_count > 0 ? format(" + %d Temporal reservation", local.guardrail_temporal_pod_count) : "",
+      local.guardrail_pod_eni_capacity,
+      local.guardrail_on_demand_node_count,
+      var.pod_eni_capacity_per_node,
+      local.guardrail_node_basis
     )
   }
 }

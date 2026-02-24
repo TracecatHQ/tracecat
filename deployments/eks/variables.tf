@@ -62,7 +62,7 @@ variable "cluster_version" {
 variable "node_instance_types" {
   description = "Instance types for the EKS node group"
   type        = list(string)
-  default     = ["m7g.2xlarge"]
+  default     = ["t4g.2xlarge"]
 }
 
 variable "node_architecture" {
@@ -102,6 +102,14 @@ variable "node_desired_size" {
   description = "Desired number of nodes in the node group"
   type        = number
   default     = 8
+
+  validation {
+    condition = (
+      var.node_min_size <= var.node_desired_size &&
+      var.node_desired_size <= var.node_max_size
+    )
+    error_message = "node_min_size must be <= node_desired_size and node_desired_size must be <= node_max_size."
+  }
 }
 
 variable "node_min_size" {
@@ -113,7 +121,7 @@ variable "node_min_size" {
 variable "node_max_size" {
   description = "Maximum number of nodes in the node group"
   type        = number
-  default     = 12
+  default     = 20
 }
 
 variable "node_disk_size" {
@@ -131,25 +139,45 @@ variable "spot_node_group_enabled" {
 variable "spot_node_instance_types" {
   description = "Instance types for the spot managed node group."
   type        = list(string)
-  default     = ["m7g.2xlarge"]
+  default     = ["t4g.2xlarge"]
 }
 
 variable "spot_node_desired_size" {
   description = "Desired number of nodes in the spot managed node group."
   type        = number
-  default     = 2
+  default     = 0
+
+  validation {
+    condition = (
+      var.spot_node_min_size <= var.spot_node_desired_size &&
+      var.spot_node_desired_size <= var.spot_node_max_size
+    )
+    error_message = "spot_node_min_size must be <= spot_node_desired_size and spot_node_desired_size must be <= spot_node_max_size."
+  }
 }
 
 variable "spot_node_min_size" {
   description = "Minimum number of nodes in the spot managed node group."
   type        = number
-  default     = 2
+  default     = 0
 }
 
 variable "spot_node_max_size" {
   description = "Maximum number of nodes in the spot managed node group."
   type        = number
-  default     = 4
+  default     = 40
+}
+
+variable "cluster_autoscaler_enabled" {
+  description = "Enable Cluster Autoscaler for managed node groups."
+  type        = bool
+  default     = true
+}
+
+variable "cluster_autoscaler_chart_version" {
+  description = "Cluster Autoscaler Helm chart version."
+  type        = string
+  default     = "9.53.0"
 }
 
 # Tracecat Configuration
@@ -451,6 +479,24 @@ variable "pod_eni_capacity_reserved" {
   description = "Reserved pod-eni headroom for system and auxiliary workloads in guardrails"
   type        = number
   default     = 8
+}
+
+variable "temporal_guardrail_cpu_millicores" {
+  description = "Terraform-only Temporal CPU reservation used in self-hosted capacity guardrails."
+  type        = number
+  default     = 8000
+}
+
+variable "temporal_guardrail_memory_mib" {
+  description = "Terraform-only Temporal memory reservation used in self-hosted capacity guardrails."
+  type        = number
+  default     = 8192
+}
+
+variable "temporal_guardrail_pod_count" {
+  description = "Terraform-only Temporal pod reservation used in self-hosted pod-eni guardrails."
+  type        = number
+  default     = 6
 }
 
 # WAF Configuration

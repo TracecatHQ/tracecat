@@ -428,6 +428,9 @@ resource "helm_release" "tracecat" {
     value = var.temporal_mode == "self-hosted" ? "true" : "false"
   }
 
+  # Temporal remains unbounded: Terraform does not set Temporal pod resources.
+  # Capacity guardrails reserve Temporal capacity via temporal_guardrail_* variables.
+
   # Self-hosted Temporal with RDS
   set {
     name  = "temporal.server.podLabels.tracecat\\.com/access-postgres"
