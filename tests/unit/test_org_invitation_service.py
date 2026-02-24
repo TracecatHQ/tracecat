@@ -5,8 +5,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.schemas import UserRole
@@ -415,7 +413,7 @@ class TestOrgInvitationService:
         revoked_inv = await service.create_org_invitation(
             email="revoked@example.com", role_id=org1_member_role.id
         )
-        await service.revoke_org_invitation(revoked_inv.id)
+        await service.revoke_invitation(revoked_inv.id)
 
         # List only pending invitations
         pending_invitations = await service.list_org_invitations(
@@ -432,14 +430,14 @@ class TestOrgInvitationService:
         assert revoked_invitations[0].id == revoked_inv.id
 
     @pytest.mark.anyio
-    async def test_get_invitation_by_token(
+    async def test_get_invitation_by_id(
         self,
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
         org1_member_role: DBRole,
     ):
-        """Test get_org_invitation_by_token retrieves invitation."""
+        """Test get_invitation retrieves invitation by ID."""
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = InvitationService(session, role=role)
 
@@ -447,68 +445,24 @@ class TestOrgInvitationService:
             email="test@example.com", role_id=org1_member_role.id
         )
 
-        retrieved = await service.get_org_invitation_by_token(invitation.token)
+        retrieved = await service.get_invitation(invitation.id)
 
         assert retrieved.id == invitation.id
         assert retrieved.email == invitation.email
 
     @pytest.mark.anyio
-    async def test_get_invitation_by_token_returns_org_and_inviter_info(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-        org1_member_role: DBRole,
-    ):
-        """Test get_org_invitation_by_token returns org name and inviter info."""
-        # Set inviter's name for test
-        admin_in_org1.first_name = "John"
-        admin_in_org1.last_name = "Doe"
-        await session.commit()
-
-        role = create_admin_role(org1.id, admin_in_org1.id)
-        service = InvitationService(session, role=role)
-
-        invitation = await service.create_org_invitation(
-            email="test@example.com", role_id=org1_member_role.id
-        )
-
-        # Get invitation by token
-        retrieved = await service.get_org_invitation_by_token(invitation.token)
-
-        # Verify organization info is available
-        assert retrieved.organization_id == org1.id
-
-        # Fetch org to verify name can be resolved
-        result = await session.execute(
-            select(Organization).where(Organization.id == retrieved.organization_id)
-        )
-        org = result.scalar_one()
-        assert org.name == "Test Organization 1"
-
-        # Verify inviter info is available
-        assert retrieved.invited_by == admin_in_org1.id
-        result = await session.execute(
-            select(User).where(User.id == retrieved.invited_by)  # pyright: ignore[reportArgumentType]
-        )
-        inviter = result.scalar_one()
-        assert inviter.first_name == "John"
-        assert inviter.last_name == "Doe"
-        assert inviter.email == admin_in_org1.email
-
-    @pytest.mark.anyio
-    async def test_get_invitation_by_token_not_found(
+    async def test_get_invitation_not_found(
         self,
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
     ):
-        """Test get_org_invitation_by_token raises error for invalid token."""
+        """Test get_invitation raises error for non-existent ID."""
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = InvitationService(session, role=role)
 
         with pytest.raises(TracecatNotFoundError, match="Invitation not found"):
-            await service.get_org_invitation_by_token("invalid-token")
+            await service.get_invitation(uuid.uuid4())
 
     @pytest.mark.anyio
     async def test_revoke_invitation(
@@ -518,7 +472,7 @@ class TestOrgInvitationService:
         admin_in_org1: User,
         org1_member_role: DBRole,
     ):
-        """Test revoke_org_invitation marks invitation as revoked."""
+        """Test revoke_invitation marks invitation as revoked."""
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = InvitationService(session, role=role)
 
@@ -527,7 +481,7 @@ class TestOrgInvitationService:
         )
         assert invitation.status == InvitationStatus.PENDING
 
-        revoked = await service.revoke_org_invitation(invitation.id)
+        revoked = await service.revoke_invitation(invitation.id)
 
         assert revoked.status == InvitationStatus.REVOKED
 
@@ -539,19 +493,17 @@ class TestOrgInvitationService:
         admin_in_org1: User,
         org1_member_role: DBRole,
     ):
-        """Test revoke_org_invitation raises error for already revoked invitation."""
+        """Test revoke_invitation raises error for already revoked invitation."""
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = InvitationService(session, role=role)
 
         invitation = await service.create_org_invitation(
             email="test@example.com", role_id=org1_member_role.id
         )
-        await service.revoke_org_invitation(invitation.id)
+        await service.revoke_invitation(invitation.id)
 
-        with pytest.raises(
-            TracecatAuthorizationError, match="Cannot revoke invitation"
-        ):
-            await service.revoke_org_invitation(invitation.id)
+        with pytest.raises(TracecatValidationError, match="Cannot revoke invitation"):
+            await service.revoke_invitation(invitation.id)
 
     @pytest.mark.anyio
     async def test_revoke_invitation_from_different_org_raises(
@@ -561,7 +513,7 @@ class TestOrgInvitationService:
         org2: Organization,
         admin_in_org1: User,
     ):
-        """Test revoke_org_invitation raises error for invitation in different org."""
+        """Test revoke_invitation raises error for invitation in different org."""
         # Create invitation in org2 directly (need a role for org2)
         org2_role = DBRole(
             id=uuid.uuid4(),
@@ -588,8 +540,8 @@ class TestOrgInvitationService:
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = InvitationService(session, role=role)
 
-        with pytest.raises(NoResultFound):
-            await service.revoke_org_invitation(org2_invitation.id)
+        with pytest.raises(TracecatNotFoundError):
+            await service.revoke_invitation(org2_invitation.id)
 
     @pytest.mark.anyio
     async def test_accept_invitation(
@@ -712,7 +664,7 @@ class TestOrgInvitationService:
             email=user_in_org2.email,
             role_id=org1_member_role.id,
         )
-        await service.revoke_org_invitation(invitation.id)
+        await service.revoke_invitation(invitation.id)
 
         # Try to accept
         with pytest.raises(TracecatAuthorizationError, match="has been revoked"):

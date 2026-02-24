@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid as _uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -154,13 +153,9 @@ class MembershipService(BaseService):
 
         if params.role_id is not None:
             # Caller-specified role — validate it belongs to this org.
-            try:
-                parsed_role_id = _uuid.UUID(params.role_id)
-            except ValueError as e:
-                raise TracecatValidationError("Invalid role ID format") from e
             role_check = await self.session.execute(
                 select(DBRole.id).where(
-                    DBRole.id == parsed_role_id,
+                    DBRole.id == params.role_id,
                     DBRole.organization_id == organization_id,
                 )
             )

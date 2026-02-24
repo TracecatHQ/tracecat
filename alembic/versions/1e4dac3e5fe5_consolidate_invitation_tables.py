@@ -1,7 +1,7 @@
 """consolidate invitation tables
 
 Revision ID: 1e4dac3e5fe5
-Revises: 2410092f4ce4
+Revises: 672fecea1d32
 Create Date: 2026-02-23 14:05:32.219708
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "1e4dac3e5fe5"
-down_revision: str | None = "2410092f4ce4"
+down_revision: str | None = "672fecea1d32"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

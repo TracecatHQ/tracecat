@@ -37,11 +37,7 @@ from tracecat.service import BaseOrgService
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from tracecat.workspaces.schemas import (
-        WorkspaceAddMemberRequest,
-        WorkspaceAddMemberResponse,
-        WorkspaceInvitationCreate,
-    )
+    from tracecat.invitations.schemas import InvitationCreate
 
 
 def _generate_invitation_token() -> str:
@@ -407,56 +403,6 @@ class InvitationService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
-    async def get_org_invitation(self, invitation_id: uuid.UUID) -> Invitation:
-        """Get an org-level invitation by ID (must belong to this organization).
-
-        Raises:
-            NoResultFound: If the invitation doesn't exist or belongs to another org.
-        """
-        from sqlalchemy import and_
-
-        statement = select(Invitation).where(
-            and_(
-                Invitation.id == invitation_id,
-                Invitation.organization_id == self.organization_id,
-                Invitation.workspace_id.is_(None),
-            )
-        )
-        result = await self.session.execute(statement)
-        return result.scalar_one()
-
-    async def get_org_invitation_by_token(self, token: str) -> Invitation:
-        """Get an org-level invitation by its unique token.
-
-        Raises:
-            TracecatNotFoundError: If no invitation with the token exists.
-        """
-        statement = select(Invitation).where(
-            Invitation.token == token,
-            Invitation.workspace_id.is_(None),
-        )
-        result = await self.session.execute(statement)
-        invitation = result.scalar_one_or_none()
-        if invitation is None:
-            raise TracecatNotFoundError("Invitation not found")
-        return invitation
-
-    @require_scope("org:member:invite")
-    @audit_log(resource_type="organization_invitation", action="revoke")
-    async def revoke_org_invitation(self, invitation_id: uuid.UUID) -> Invitation:
-        """Revoke a pending org-level invitation."""
-        invitation = await self.get_org_invitation(invitation_id)
-
-        if invitation.status != InvitationStatus.PENDING:
-            raise TracecatAuthorizationError(
-                f"Cannot revoke invitation with status '{invitation.status}'"
-            )
-
-        invitation.status = InvitationStatus.REVOKED
-        await self.session.commit()
-        await self.session.refresh(invitation)
-        return invitation
-
     # === Unified invitation operations (type-agnostic) ===
 
     async def get_invitation(self, invitation_id: InvitationID) -> Invitation:
@@ -496,25 +442,22 @@ class InvitationService(BaseOrgService):
 
     # === Workspace-level invitations ===
 
-    @require_scope("workspace:member:invite")
     @audit_log(resource_type="workspace_invitation", action="create")
     async def create_workspace_invitation(
         self,
         workspace_id: WorkspaceID,
-        params: WorkspaceAddMemberRequest,
-    ) -> WorkspaceAddMemberResponse:
+        params: InvitationCreate,
+    ) -> Invitation | None:
         """Create a workspace invitation (or direct membership).
 
         If the email belongs to an existing org member, creates a direct
-        membership.  Otherwise, creates a token-based invitation.
+        membership and returns ``None``.  Otherwise, creates a token-based
+        invitation and returns the ``Invitation`` record.
+
+        No @require_scope — the caller (router) checks scopes via _check_scope.
         """
         from tracecat.authz.service import MembershipService
-        from tracecat.workspaces.schemas import (
-            WorkspaceAddMemberResponse,
-            WorkspaceInvitationCreate,
-            WorkspaceInvitationRead,
-            WorkspaceMembershipCreate,
-        )
+        from tracecat.workspaces.schemas import WorkspaceMembershipCreate
 
         email = params.email.lower()
 
@@ -550,46 +493,24 @@ class InvitationService(BaseOrgService):
                     role_id=params.role_id,
                 ),
             )
-            return WorkspaceAddMemberResponse(outcome="membership_created")
+            return None
 
         # External user — create email invitation
-        invitation = await self.create_email_invitation(
+        return await self._create_email_invitation(
             workspace_id,
-            params=WorkspaceInvitationCreate(
-                email=params.email,
-                role_id=params.role_id,
-            ),
-        )
-        return WorkspaceAddMemberResponse(
-            outcome="invitation_created",
-            invitation=WorkspaceInvitationRead(
-                id=invitation.id,
-                workspace_id=workspace_id,
-                email=invitation.email,
-                role_id=str(invitation.role_id),
-                role_name=invitation.role_obj.name,
-                role_slug=invitation.role_obj.slug,
-                status=invitation.status,
-                invited_by=invitation.invited_by,
-                expires_at=invitation.expires_at,
-                accepted_at=invitation.accepted_at,
-                created_at=invitation.created_at,
-                token=invitation.token,
-            ),
+            email=params.email,
+            role_id=params.role_id,
         )
 
-    async def create_email_invitation(
+    async def _create_email_invitation(
         self,
         workspace_id: WorkspaceID,
-        params: WorkspaceInvitationCreate,
+        *,
+        email: str,
+        role_id: uuid.UUID,
     ) -> Invitation:
-        """Create a new workspace invitation."""
-        email = params.email.lower()
-
-        try:
-            role_id = uuid.UUID(params.role_id)
-        except ValueError as e:
-            raise TracecatValidationError("Invalid role ID format") from e
+        """Create a new workspace invitation (internal helper)."""
+        email = email.lower()
 
         # Validate role_id exists and belongs to this organization
         role_result = await self.session.execute(
@@ -645,7 +566,7 @@ class InvitationService(BaseOrgService):
             if "uq_invitation_workspace_email" in str(e):
                 existing_stmt = select(Invitation).where(
                     Invitation.workspace_id == workspace_id,
-                    Invitation.email == params.email,
+                    Invitation.email == email,
                 )
                 result = await self.session.execute(existing_stmt)
                 existing_invitation = result.scalar_one_or_none()
@@ -653,7 +574,9 @@ class InvitationService(BaseOrgService):
                 if existing_invitation and existing_invitation.expires_at < now:
                     await self.session.delete(existing_invitation)
                     await self.session.commit()
-                    return await self.create_email_invitation(workspace_id, params)
+                    return await self._create_email_invitation(
+                        workspace_id, email=email, role_id=role_id
+                    )
 
                 raise TracecatValidationError(
                     f"An invitation already exists for {email} in this workspace"
@@ -682,59 +605,3 @@ class InvitationService(BaseOrgService):
         )
         result = await self.session.execute(statement)
         return result.scalars().all()
-
-    async def get_workspace_invitation_by_token(self, token: str) -> Invitation | None:
-        """Retrieve a workspace invitation by its unique token."""
-        statement = (
-            select(Invitation)
-            .where(
-                Invitation.token == token,
-                Invitation.workspace_id.is_not(None),
-            )
-            .options(
-                selectinload(Invitation.workspace),
-                selectinload(Invitation.inviter),
-                selectinload(Invitation.role_obj),
-            )
-        )
-        result = await self.session.execute(statement)
-        return result.scalar_one_or_none()
-
-    async def get_workspace_invitation(
-        self,
-        workspace_id: WorkspaceID,
-        invitation_id: InvitationID,
-    ) -> Invitation | None:
-        """Fetch a single invitation by ID within a workspace."""
-        statement = select(Invitation).where(
-            Invitation.id == invitation_id,
-            Invitation.workspace_id == workspace_id,
-        )
-        result = await self.session.execute(statement)
-        return result.scalar_one_or_none()
-
-    @require_scope("workspace:member:remove")
-    @audit_log(resource_type="workspace_invitation", action="revoke")
-    async def revoke_workspace_invitation(
-        self,
-        workspace_id: WorkspaceID,
-        invitation_id: InvitationID,
-    ) -> None:
-        """Revoke a pending workspace invitation."""
-        statement = select(Invitation).where(
-            Invitation.id == invitation_id,
-            Invitation.workspace_id == workspace_id,
-        )
-        result = await self.session.execute(statement)
-        invitation = result.scalar_one_or_none()
-
-        if invitation is None:
-            raise TracecatNotFoundError("Invitation not found")
-
-        if invitation.status != InvitationStatus.PENDING:
-            raise TracecatValidationError(
-                f"Cannot revoke invitation with status '{invitation.status}'"
-            )
-
-        invitation.status = InvitationStatus.REVOKED
-        await self.session.commit()

@@ -1,18 +1,14 @@
 from datetime import UTC, datetime
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, func, select
+from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
-from tracecat.auth.credentials import AuthenticatedUserOnly
 from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.schemas import SessionRead, UserUpdate
-from tracecat.auth.users import current_active_user
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import (
-    Invitation,
     Organization,
     OrganizationDomain,
     OrganizationMembership,
@@ -32,12 +28,9 @@ from tracecat.invitations.enums import InvitationStatus
 from tracecat.invitations.service import InvitationService
 from tracecat.organization.schemas import (
     OrgDomainRead,
-    OrgInvitationCreate,
-    OrgInvitationRead,
     OrgMemberDetail,
     OrgMemberRead,
     OrgMemberStatus,
-    OrgPendingInvitationRead,
     OrgRead,
     UserWorkspaceMembership,
 )
@@ -46,22 +39,6 @@ from tracecat.tiers.schemas import EffectiveEntitlements
 from tracecat.tiers.service import TierService
 
 router = APIRouter(prefix="/organization", tags=["organization"])
-
-
-def _get_user_display_name_and_email(
-    user: User | None,
-) -> tuple[str | None, str | None]:
-    """Build display name/email pair for inviter fields."""
-    if user is None:
-        return None, None
-
-    if user.first_name or user.last_name:
-        name_parts = [user.first_name, user.last_name]
-        name = " ".join(part for part in name_parts if part)
-    else:
-        name = user.email
-
-    return name, user.email
 
 
 @router.get("", response_model=OrgRead)
@@ -464,143 +441,3 @@ async def delete_session(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
         ) from e
-
-
-# === Invitations ===
-
-
-@router.post(
-    "/invitations",
-    response_model=OrgInvitationRead,
-    status_code=status.HTTP_201_CREATED,
-)
-@require_scope("org:member:invite")
-async def create_invitation(
-    *,
-    role: OrgUserRole,
-    session: AsyncDBSession,
-    params: OrgInvitationCreate,
-) -> OrgInvitationRead:
-    """Create an invitation to join the organization."""
-    service = InvitationService(session, role=role)
-    try:
-        workspace_assignments = (
-            [(wa.workspace_id, wa.role_id) for wa in params.workspace_assignments]
-            if params.workspace_assignments
-            else None
-        )
-        invitation = await service.create_org_invitation(
-            email=params.email,
-            role_id=params.role_id,
-            workspace_assignments=workspace_assignments,
-        )
-    except TracecatAuthorizationError as e:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
-    except TracecatValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        ) from e
-    except IntegrityError as e:
-        # Race condition: another request created invitation for same email
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="An invitation already exists for this email",
-        ) from e
-
-    return OrgInvitationRead(
-        id=invitation.id,
-        organization_id=invitation.organization_id,
-        email=invitation.email,
-        role_id=invitation.role_id,
-        role_name=invitation.role_obj.name,
-        role_slug=invitation.role_obj.slug,
-        status=invitation.status,
-        invited_by=invitation.invited_by,
-        expires_at=invitation.expires_at,
-        created_at=invitation.created_at,
-        accepted_at=invitation.accepted_at,
-    )
-
-
-@router.get("/invitations", response_model=list[OrgInvitationRead])
-@require_scope("org:member:read")
-async def list_invitations(
-    *,
-    role: OrgUserRole,
-    session: AsyncDBSession,
-    invitation_status: InvitationStatus | None = Query(None, alias="status"),
-) -> list[OrgInvitationRead]:
-    """List invitations for the organization."""
-    service = InvitationService(session, role=role)
-    invitations = await service.list_org_invitations(status=invitation_status)
-    return [
-        OrgInvitationRead(
-            id=inv.id,
-            organization_id=inv.organization_id,
-            email=inv.email,
-            role_id=inv.role_id,
-            role_name=inv.role_obj.name,
-            role_slug=inv.role_obj.slug,
-            status=inv.status,
-            invited_by=inv.invited_by,
-            expires_at=inv.expires_at,
-            created_at=inv.created_at,
-            accepted_at=inv.accepted_at,
-        )
-        for inv in invitations
-    ]
-
-
-@router.get("/invitations/pending/me", response_model=list[OrgPendingInvitationRead])
-async def list_my_pending_invitations(
-    *,
-    role: AuthenticatedUserOnly,
-    session: AsyncDBSession,
-    user: Annotated[User, Depends(current_active_user)],
-) -> list[OrgPendingInvitationRead]:
-    """List pending, unexpired invitations for the authenticated user."""
-    assert role.user_id is not None
-
-    now = datetime.now(UTC)
-    statement = (
-        select(Invitation, Organization, User, DBRole)
-        .join(
-            Organization,
-            Organization.id == Invitation.organization_id,  # pyright: ignore[reportArgumentType]
-        )
-        .join(
-            DBRole,
-            DBRole.id == Invitation.role_id,  # pyright: ignore[reportArgumentType]
-        )
-        .outerjoin(
-            User,
-            User.id == Invitation.invited_by,  # pyright: ignore[reportArgumentType]
-        )
-        .where(
-            Invitation.workspace_id.is_(None),
-            func.lower(Invitation.email) == user.email.lower(),
-            Invitation.status == InvitationStatus.PENDING,
-            Invitation.expires_at > now,
-        )
-        .order_by(Invitation.created_at.desc())
-    )
-    result = await session.execute(statement)
-    rows = result.tuples().all()
-
-    pending_invitations: list[OrgPendingInvitationRead] = []
-    for invitation, organization, inviter, role_obj in rows:
-        inviter_name, inviter_email = _get_user_display_name_and_email(inviter)
-
-        pending_invitations.append(
-            OrgPendingInvitationRead(
-                token=invitation.token,
-                organization_id=invitation.organization_id,
-                organization_name=organization.name,
-                inviter_name=inviter_name,
-                inviter_email=inviter_email,
-                role_name=role_obj.name,
-                role_slug=role_obj.slug,
-                expires_at=invitation.expires_at,
-            )
-        )
-    return pending_invitations

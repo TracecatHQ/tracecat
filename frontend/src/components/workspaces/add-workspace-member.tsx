@@ -35,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useAddWorkspaceMember } from "@/hooks/use-workspace"
+import { useInvitations } from "@/hooks/use-invitations"
 import { useRbacRoles } from "@/lib/hooks"
 
 const inviteSchema = z.object({
@@ -51,7 +51,7 @@ export function AddWorkspaceMember({
   className,
 }: { workspace: WorkspaceRead } & React.HTMLAttributes<HTMLButtonElement>) {
   const canInviteMembers = useScopeCheck("workspace:member:invite")
-  const { addMember } = useAddWorkspaceMember(workspace.id)
+  const { createInvitation } = useInvitations({ workspaceId: workspace.id })
   const [showDialog, setShowDialog] = useState(false)
   const [dialogState, setDialogState] = useState<DialogState>("form")
   const [inviteLink, setInviteLink] = useState("")
@@ -88,24 +88,25 @@ export function AddWorkspaceMember({
 
   async function onSubmit(values: InviteForm) {
     try {
-      const result = await addMember({
-        workspaceId: workspace.id,
+      const result = await createInvitation({
         requestBody: {
           email: values.email,
           role_id: values.role_id,
+          workspace_id: workspace.id,
         },
       })
 
       setAddedEmail(values.email)
 
-      if (result.outcome === "membership_created") {
+      if (result === null) {
+        // Direct membership — user was already an org member
         setDialogState("success_membership")
       } else {
-        // invitation_created — build the invite link
-        let token = result.invitation?.token
-        if (!token && result.invitation) {
+        // Invitation created — build the invite link
+        let token = result.token
+        if (!token) {
           const tokenResponse = await invitationsGetInvitationToken({
-            invitationId: result.invitation.id,
+            invitationId: result.id,
           })
           token = tokenResponse.token
         }

@@ -2,45 +2,50 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type {
   ApiError,
-  WorkspaceInvitationRead,
-  WorkspacesCreateWorkspaceInvitationData,
+  InvitationRead,
+  InvitationsCreateInvitationData,
+  InvitationsListInvitationsData,
 } from "@/client"
 import {
   invitationsAcceptInvitation,
+  invitationsCreateInvitation,
   invitationsGetInvitationByToken,
+  invitationsListInvitations,
   invitationsRevokeInvitation,
-  workspacesCreateWorkspaceInvitation,
-  workspacesListWorkspaceInvitations,
 } from "@/client"
 
-/* ── Workspace invitation list / create / revoke ──────────────────────── */
+/* ── Invitation list / create / revoke ──────────────────────────────── */
 
-export function useWorkspaceInvitations(workspaceId: string) {
+export function useInvitations(params?: InvitationsListInvitationsData) {
   const qc = useQueryClient()
+  const workspaceId = params?.workspaceId
 
   const {
     data: invitations,
     isLoading: invitationsLoading,
     error: invitationsError,
-  } = useQuery<WorkspaceInvitationRead[], ApiError>({
-    queryKey: ["workspace", workspaceId, "invitations"],
-    queryFn: () => workspacesListWorkspaceInvitations({ workspaceId }),
+  } = useQuery<InvitationRead[], ApiError>({
+    queryKey: ["invitations", { workspaceId, status: params?.status }],
+    queryFn: () => invitationsListInvitations(params ?? {}),
   })
 
   const { mutateAsync: createInvitation, isPending: createPending } =
     useMutation<
-      WorkspaceInvitationRead,
+      InvitationRead | null,
       ApiError,
-      WorkspacesCreateWorkspaceInvitationData
+      InvitationsCreateInvitationData
     >({
-      mutationFn: workspacesCreateWorkspaceInvitation,
+      mutationFn: invitationsCreateInvitation,
       onSuccess: () => {
         qc.invalidateQueries({
-          queryKey: ["workspace", workspaceId, "invitations"],
+          queryKey: ["invitations"],
         })
-        qc.invalidateQueries({
-          queryKey: ["workspace", workspaceId, "members"],
-        })
+        if (workspaceId) {
+          qc.invalidateQueries({
+            queryKey: ["workspace", workspaceId, "members"],
+          })
+        }
+        qc.invalidateQueries({ queryKey: ["org-members"] })
       },
     })
 
@@ -50,11 +55,14 @@ export function useWorkspaceInvitations(workspaceId: string) {
         invitationsRevokeInvitation({ invitationId }),
       onSuccess: () => {
         qc.invalidateQueries({
-          queryKey: ["workspace", workspaceId, "invitations"],
+          queryKey: ["invitations"],
         })
-        qc.invalidateQueries({
-          queryKey: ["workspace", workspaceId, "members"],
-        })
+        if (workspaceId) {
+          qc.invalidateQueries({
+            queryKey: ["workspace", workspaceId, "members"],
+          })
+        }
+        qc.invalidateQueries({ queryKey: ["org-members"] })
       },
     })
 
@@ -67,6 +75,11 @@ export function useWorkspaceInvitations(workspaceId: string) {
     revokeInvitation,
     revokePending,
   }
+}
+
+/** @deprecated Use `useInvitations({ workspaceId })` instead. */
+export function useWorkspaceInvitations(workspaceId: string) {
+  return useInvitations({ workspaceId })
 }
 
 /* ── Token lookup (used by the unified accept page) ───────────────────── */
