@@ -27,18 +27,26 @@ Network hardening:
 
 ## Default deployment profile (~100 concurrent users)
 
-- Nodes: `10 x m7g.2xlarge` (`8` on-demand + `2` spot by default)
-- Guardrail requirement (rollout peak + `20%` headroom): `52.2 vCPU`, `90.6 GiB RAM`
-- Scheduled capacity (on-demand only): `64 vCPU`, `256 GiB RAM`
-- Scheduled capacity (on-demand + spot): `80 vCPU`, `320 GiB RAM`
-- Percent headroom (on-demand + spot): `~53% CPU`, `~253% RAM` (`27.8 vCPU`, `229.4 GiB RAM`)
-- Estimated cost: `$4500/month`
+- Node type defaults: `t4g.2xlarge` for both on-demand and spot node groups.
+- Default node profile: on-demand `min/desired/max = 7/8/20`, spot `min/desired/max = 0/0/40`.
+- Cluster Autoscaler defaults: enabled with spot-first scaling and on-demand fallback.
+- Baseline cost behavior: runs at `8` on-demand nodes by default and keeps spot at `0` until burst demand arrives.
+
+Capacity summary (guardrail model):
+
+| Mode | Guardrail node basis | Required CPU | Available CPU | Required memory | Available memory |
+| --- | --- | --- | --- | --- | --- |
+| `temporal_mode=cloud` | On-demand `node_min_size` (`7`) | `52.2 vCPU` | `56 vCPU` | `90.6 GiB` | `224 GiB` |
+| `temporal_mode=self-hosted` | On-demand `node_desired_size` (`8`) | `60.2 vCPU` (`52.2` Tracecat + `8.0` Temporal reservation) | `64 vCPU` | `98.6 GiB` (`90.6` Tracecat + `8.0` Temporal reservation) | `256 GiB` |
+
+Burst ceiling (autoscaler max): on-demand `20` + spot `40` = `60 x t4g.2xlarge` (`480 vCPU`, `1920 GiB RAM`).
 
 Definitions used above:
 - `guardrail model`: The plan-time capacity checks in `deployments/eks/modules/eks/main.tf` that compare required capacity vs configured node capacity.
 - `rollout peak`: Replica requests with rollout surge applied (`rollout_surge_percent`, default `25`), across API/worker/executor/agentExecutor/UI.
 - `capacity headroom`: CPU and memory requirements are scaled by `capacity_headroom_percent` (default `20`).
 - `pod reserve`: Extra pod-eni headroom reserved for system/auxiliary workloads (`pod_eni_capacity_reserved`).
+- `Temporal guardrail reservation`: Terraform-only reservation variables used only for self-hosted Temporal capacity checks (`temporal_guardrail_cpu_millicores`, `temporal_guardrail_memory_mib`, `temporal_guardrail_pod_count`).
 
 ```bash
 # Replica counts
@@ -60,18 +68,25 @@ agent_executor_memory_request_mib=4096
 ui_cpu_request_millicores=500
 ui_memory_request_mib=512
 
-# Node groups: 8 on-demand + 2 spot, all m7g.2xlarge
-node_instance_types='["m7g.2xlarge"]'
+# Node groups: on-demand 7/8/12, spot 0/0/8, all t4g.2xlarge
+node_instance_types='["t4g.2xlarge"]'
 node_architecture="arm64"
 node_ami_type="AL2023_ARM_64_STANDARD"
-node_min_size=8
+node_min_size=7
 node_desired_size=8
-node_max_size=12
+node_max_size=20
 spot_node_group_enabled=true
-spot_node_instance_types='["m7g.2xlarge"]'
-spot_node_min_size=2
-spot_node_desired_size=2
-spot_node_max_size=4
+spot_node_instance_types='["t4g.2xlarge"]'
+spot_node_min_size=0
+spot_node_desired_size=0
+spot_node_max_size=40
+cluster_autoscaler_enabled=true
+cluster_autoscaler_chart_version="9.53.0"
+
+# Temporal guardrail reservations (capacity-model only, no pod resource enforcement)
+temporal_guardrail_cpu_millicores=8000
+temporal_guardrail_memory_mib=8192
+temporal_guardrail_pod_count=6
 
 # Persistence services and Temporal mode
 rds_instance_class="db.t4g.xlarge"
@@ -93,9 +108,35 @@ When the spot node group is enabled, Terraform injects scheduling defaults into 
 - **Preferred node affinity** for `tracecat.com/capacity=spot` (soft preference).
 - **Topology spread** across `tracecat.com/capacity` with `whenUnsatisfiable=ScheduleAnyway` to balance across on-demand and spot when both are available.
 
-You can disable spot by setting `spot_node_group_enabled=false` or change the mix by adjusting the on-demand and spot sizes.
+Cluster Autoscaler is enabled by default and discovers both managed node groups using tags. It is configured with:
 
-Terraform includes plan-time capacity guardrails that verify the desired node count can support the configured replicas and resource requests at rollout peak (with a `25%` surge and `20%` CPU/memory headroom). If capacity is insufficient, `terraform plan` will emit a warning. See `modules/eks/main.tf` for the check blocks.
+- `expander=priority,least-waste`
+- `balance-similar-node-groups=true`
+- `skip-nodes-with-system-pods=false`
+- `max-node-provision-time=5m`
+- Priority expander rules that prefer `*-spot-node-group` first, then `*-node-group` as fallback.
+
+`desired_size` for both managed node groups is ignored in Terraform state to let Cluster Autoscaler control live desired counts without Terraform drift.
+
+You can disable spot by setting `spot_node_group_enabled=false`, disable autoscaler by setting `cluster_autoscaler_enabled=false`, or change scaling envelopes with the `*_min_size`, `*_desired_size`, and `*_max_size` variables.
+
+Terraform includes plan-time capacity guardrails that verify rollout requirements at plan time:
+
+- `temporal_mode=cloud`: guardrails use on-demand `node_min_size` and Tracecat workload requirements only.
+- `temporal_mode=self-hosted`: guardrails use on-demand `node_desired_size` and include Tracecat workload requirements plus Temporal reservation variables.
+- Spot capacity is intentionally excluded from guardrail pass/fail to keep checks deterministic even when spot is unavailable.
+
+### Temporal guardrail policy (Temporal unbounded)
+
+Temporal remains unbounded in Kubernetes: Terraform does not set Temporal pod resource requests/limits in Helm values.
+
+Terraform still models Temporal capacity in self-hosted mode through reservation-only guardrail inputs:
+
+- `temporal_guardrail_cpu_millicores` (default `8000`)
+- `temporal_guardrail_memory_mib` (default `8192`)
+- `temporal_guardrail_pod_count` (default `6`)
+
+These inputs are used for capacity planning checks only and do not enforce Temporal pod resources.
 
 ### Architecture requirement
 
@@ -250,6 +291,61 @@ terraform apply \
 # and deploys the Tracecat Helm release.
 terraform apply
 ```
+
+## Scale staging to zero
+
+Use a temporary override file for staging so you can scale down and restore with predictable values.
+
+Important behavior:
+- This scales worker-node compute to zero by setting both node groups to `min=0` and `desired=0`.
+- RDS, ElastiCache, NAT, ALB, and the EKS control plane still incur cost.
+- With zero nodes, Cluster Autoscaler is not running, so scale-up must be done via Terraform.
+
+### 1. Create a scale-to-zero override file
+
+```bash
+cat > scale-to-zero.tfvars <<'EOF'
+# App workloads
+api_replicas=0
+worker_replicas=0
+executor_replicas=0
+agent_executor_replicas=0
+ui_replicas=0
+
+# On-demand node group
+node_min_size=0
+node_desired_size=0
+
+# Spot node group
+spot_node_min_size=0
+spot_node_desired_size=0
+
+# Guardrail inputs (required for plan-time checks when node count is 0)
+pod_eni_capacity_reserved=0
+temporal_guardrail_cpu_millicores=0
+temporal_guardrail_memory_mib=0
+temporal_guardrail_pod_count=0
+EOF
+```
+
+### 2. Apply the scale-down
+
+```bash
+terraform plan -var-file=terraform.tfvars -var-file=scale-to-zero.tfvars
+terraform apply -var-file=terraform.tfvars -var-file=scale-to-zero.tfvars
+```
+
+### 3. Restore staging capacity
+
+Delete the override and apply the normal staging config:
+
+```bash
+rm -f scale-to-zero.tfvars
+terraform plan -var-file=terraform.tfvars
+terraform apply -var-file=terraform.tfvars
+```
+
+If you prefer to keep the file for reuse, keep it on disk and simply omit it from `plan/apply` when scaling back up.
 
 ## Outbound allowlisting (Elastic, etc.)
 
