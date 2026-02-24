@@ -444,6 +444,33 @@ class EventGroup[T: EventInput](BaseModel):
 class EventFailure(BaseModel):
     message: str
     cause: dict[str, Any] | None = None
+    root_cause_message: str | None = None
+
+    @staticmethod
+    def extract_root_cause_message(cause: dict[str, Any] | None) -> str | None:
+        """Extract the deepest non-empty message from nested Temporal failure causes."""
+        if not cause:
+            return None
+
+        root_message: str | None = None
+        current: dict[str, Any] | None = cause
+        seen: set[int] = set()
+        while current is not None:
+            current_id = id(current)
+            if current_id in seen:
+                break
+            seen.add(current_id)
+
+            message = current.get("message")
+            if isinstance(message, str) and message.strip():
+                root_message = message
+
+            nested_cause = current.get("cause")
+            if not isinstance(nested_cause, dict):
+                break
+            current = nested_cause
+
+        return root_message
 
     @staticmethod
     def from_history_event(
@@ -461,9 +488,11 @@ class EventFailure(BaseModel):
             case _:
                 raise ValueError("Event type not supported for failure extraction.")
 
+        cause = MessageToDict(failure.cause) if failure.cause is not None else None
         return EventFailure(
             message=failure.message,
-            cause=MessageToDict(failure.cause) if failure.cause is not None else None,
+            cause=cause,
+            root_cause_message=EventFailure.extract_root_cause_message(cause),
         )
 
 

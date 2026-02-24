@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy import and_, select
 from sqlalchemy.orm import selectinload
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
@@ -900,7 +901,9 @@ class WorkflowsManagementService(BaseWorkspaceService):
                     id_or_alias, use_committed=use_committed
                 )
             if not handler_wf_id:
-                raise RuntimeError(
-                    f"Couldn't find matching workflow for alias {id_or_alias!r}"
+                raise ApplicationError(
+                    f"Couldn't find matching workflow for alias {id_or_alias!r}",
+                    non_retryable=True,
+                    type="WorkflowAliasResolutionError",
                 )
         return handler_wf_id

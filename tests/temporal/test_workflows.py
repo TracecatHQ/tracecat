@@ -3250,7 +3250,7 @@ async def test_workflow_error_handler_success(
         ),
         pytest.param(
             "invalid_error_handler",
-            "RuntimeError: Couldn't find matching workflow for alias 'invalid_error_handler'",
+            "WorkflowAliasResolutionError: Couldn't find matching workflow for alias 'invalid_error_handler'",
             id="alias-no-match",
         ),
     ],
@@ -3297,6 +3297,10 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
     cause1 = cause0.cause
     assert isinstance(cause1, ApplicationError)
     assert str(cause1) == expected_err_msg
+    if id_or_alias == "invalid_error_handler":
+        err = str(cause1)
+        assert "Activity task failed" not in err
+        assert "timed out" not in err.lower()
 
 
 @pytest.mark.anyio
