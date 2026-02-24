@@ -37,8 +37,11 @@ from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 from tracecat.agent.tools import create_tool_from_registry
+from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.schemas import CaseCreate, CaseUpdate
+from tracecat.cases.service import CasesService
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import Action, WorkflowDefinition
+from tracecat.db.models import Action, Webhook, WorkflowDefinition
 from tracecat.dsl.common import (
     DSLInput,
     get_execution_type_from_search_attr,
@@ -48,7 +51,7 @@ from tracecat.dsl.validation import (
     format_input_schema_validation_error,
     normalize_trigger_inputs,
 )
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import (
     WorkflowUUID,
     exec_id_to_parts,
@@ -69,10 +72,20 @@ from tracecat.mcp.middleware import (
     MCPTimeoutMiddleware,
     get_mcp_client_id,
 )
+from tracecat.pagination import CursorPaginationParams
+from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+from tracecat.secrets.service import SecretsService
+from tracecat.tables.enums import SqlType
+from tracecat.tables.schemas import TableCreate, TableRowInsert, TableUpdate
 from tracecat.tables.service import TablesService
 from tracecat.validation.schemas import ValidationDetail
+from tracecat.validation.service import validate_dsl
+from tracecat.variables.service import VariablesService
+from tracecat.webhooks import service as webhook_service
+from tracecat.webhooks.schemas import WebhookRead, WebhookUpdate
 from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerConfig,
     CaseTriggerCreate,
@@ -81,8 +94,9 @@ from tracecat.workflow.case_triggers.schemas import (
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.management.schemas import WorkflowUpdate
+from tracecat.workflow.management.schemas import WorkflowCreate, WorkflowUpdate
 from tracecat.workflow.schedules.schemas import (
     ScheduleCreate,
     ScheduleRead,
@@ -238,7 +252,6 @@ async def _load_secret_inventory(
     role: Any,
 ) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
     """Load workspace and organization secret key inventories for default environment."""
-    from tracecat.secrets.service import SecretsService
 
     async with SecretsService.with_session(role=role) as svc:
         workspace_inventory: dict[str, set[str]] = {}
@@ -1147,7 +1160,6 @@ def get_domain_reference() -> str:
 
 async def _build_action_catalog(workspace_id: str) -> str:
     """Build the action catalog JSON for a workspace."""
-    from tracecat.registry.actions.service import RegistryActionsService
 
     _, role = await _resolve_workspace_role(workspace_id)
     workspace_inventory, org_inventory = await _load_secret_inventory(role)
@@ -1176,7 +1188,7 @@ async def _build_action_catalog(workspace_id: str) -> str:
             namespaces[ns_key]["action_count"] += 1
 
         # Evaluate secret configuration per namespace
-        for _ns_key, ns_data in namespaces.items():
+        for ns_data in namespaces.values():
             ns_missing: list[str] = []
             ns_configured = True
             for action_info in ns_data["actions"]:
@@ -1380,8 +1392,6 @@ async def create_workflow(
 
     Returns JSON with the new workflow's id, title, description, and status.
     """
-    from tracecat.workflow.management.management import WorkflowsManagementService
-    from tracecat.workflow.management.schemas import WorkflowCreate
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -1482,6 +1492,7 @@ async def get_workflow(
     format (definition, layout, schedules, and case_trigger). The YAML can be
     modified and used with update_workflow's definition_yaml parameter.
     """
+
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
@@ -1619,6 +1630,7 @@ async def update_workflow(
 
     Returns a confirmation message.
     """
+
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
@@ -1736,8 +1748,6 @@ async def list_workflows(
     search: str | None = None,
 ) -> str:
     """List workflows in a workspace."""
-    from tracecat.pagination import CursorPaginationParams
-    from tracecat.workflow.management.management import WorkflowsManagementService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -1781,7 +1791,6 @@ async def list_workflows(
 @mcp.tool()
 async def delete_workflow(workspace_id: str, workflow_id: str) -> str:
     """Delete a workflow in a workspace."""
-    from tracecat.workflow.management.management import WorkflowsManagementService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -1886,7 +1895,6 @@ async def list_actions(
     - configured: Whether required secrets are present in the workspace
     - missing_requirements: List of missing secret names/keys (if any)
     """
-    from tracecat.registry.actions.service import RegistryActionsService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -1952,7 +1960,6 @@ async def get_action_context(workspace_id: str, action_name: str) -> str:
     - missing_requirements: List of missing secret names/keys
     - examples: Example args payload based on the schema
     """
-    from tracecat.registry.actions.service import RegistryActionsService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -2016,8 +2023,6 @@ async def get_workflow_authoring_context(
     - secret_hints: Available secrets ({name, keys, environment, scope})
     - notes: Additional context about the response
     """
-    from tracecat.registry.actions.service import RegistryActionsService
-    from tracecat.variables.service import VariablesService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -2137,9 +2142,6 @@ async def validate_workflow(
 
     Returns JSON with valid (bool) and any errors.
     """
-    from tracecat.exceptions import TracecatValidationError
-    from tracecat.validation.service import validate_dsl
-    from tracecat.workflow.management.management import WorkflowsManagementService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -2211,11 +2213,6 @@ async def publish_workflow(
 
     Returns JSON with workflow_id, status, message, version, and any errors.
     """
-    from tracecat.exceptions import TracecatValidationError
-    from tracecat.registry.lock.service import RegistryLockService
-    from tracecat.validation.service import validate_dsl
-    from tracecat.workflow.management.definitions import WorkflowDefinitionsService
-    from tracecat.workflow.management.management import WorkflowsManagementService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -2345,10 +2342,6 @@ async def run_draft_workflow(
 
     Returns JSON with workflow_id, execution_id, and a message.
     """
-    from tracecat.exceptions import TracecatValidationError
-    from tracecat.workflow.executions.service import WorkflowExecutionsService
-    from tracecat.workflow.management.management import WorkflowsManagementService
-    from tracecat.workflow.management.schemas import WorkflowUpdate
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -2417,12 +2410,6 @@ async def run_published_workflow(
 
     Returns JSON with workflow_id, execution_id, and a message.
     """
-    from sqlalchemy import select
-
-    from tracecat.db.engine import get_async_session_context_manager
-    from tracecat.db.models import WorkflowDefinition
-    from tracecat.registry.lock.types import RegistryLock
-    from tracecat.workflow.executions.service import WorkflowExecutionsService
 
     try:
         ws_id, role = await _resolve_workspace_role(workspace_id)
@@ -2500,6 +2487,7 @@ async def run_workflow_and_wait(
 
     Returns JSON with workflow_id, execution_id, status, and result/error details.
     """
+
     try:
         ws_id, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
@@ -2630,6 +2618,7 @@ async def list_workflow_executions(
     Returns JSON array of execution objects with id, run_id, status,
     start_time, close_time, trigger_type, and execution_type.
     """
+
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
@@ -2691,6 +2680,7 @@ async def get_workflow_execution(
     close_time) and an events array with per-action status, timing, inputs,
     results, and errors.
     """
+
     try:
         _, role = await _resolve_workspace_role(workspace_id)
 
@@ -2798,8 +2788,6 @@ async def list_workflow_schedules(
 
     Returns a JSON array of schedule objects.
     """
-    from tracecat.workflow.schedules.schemas import ScheduleRead
-    from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -2846,10 +2834,6 @@ async def create_schedule(
 
     Returns JSON with the created schedule details.
     """
-
-    from tracecat.workflow.management.management import WorkflowsManagementService
-    from tracecat.workflow.schedules.schemas import ScheduleCreate, ScheduleRead
-    from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -2922,8 +2906,6 @@ async def update_schedule(
 
     Returns JSON with the updated schedule details.
     """
-    from tracecat.workflow.schedules.schemas import ScheduleRead, ScheduleUpdate
-    from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -2969,7 +2951,6 @@ async def delete_schedule(
 
     Returns a confirmation message.
     """
-    from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3004,8 +2985,6 @@ async def get_webhook(
     Returns JSON with the webhook configuration (id, secret, status, methods,
     url, entrypoint_ref, allowlisted_cidrs, filters, api_key).
     """
-    from tracecat.webhooks import service as webhook_service
-    from tracecat.webhooks.schemas import WebhookRead
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3049,8 +3028,6 @@ async def create_webhook(
 
     Returns JSON with the created webhook details.
     """
-    from tracecat.db.models import Webhook
-    from tracecat.webhooks.schemas import WebhookRead
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3102,8 +3079,6 @@ async def update_webhook(
 
     Returns a confirmation message.
     """
-    from tracecat.webhooks import service as webhook_service
-    from tracecat.webhooks.schemas import WebhookUpdate
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3158,7 +3133,6 @@ async def delete_webhook(
 
     Returns a confirmation message.
     """
-    from tracecat.webhooks import service as webhook_service
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3204,6 +3178,7 @@ async def get_case_trigger(
     Returns JSON with the case trigger (id, workflow_id, status, event_types,
     tag_filters).
     """
+
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
@@ -3247,6 +3222,7 @@ async def create_case_trigger(
 
     Returns JSON with the case trigger details.
     """
+
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
@@ -3339,7 +3315,6 @@ async def update_case_trigger(
 @mcp.tool()
 async def list_tables(workspace_id: str) -> str:
     """List workspace tables."""
-    from tracecat.tables.service import TablesService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3375,8 +3350,6 @@ async def create_table(
 
     Returns JSON with the new table's id and name.
     """
-    from tracecat.tables.schemas import TableCreate
-    from tracecat.tables.service import TablesService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3397,8 +3370,6 @@ async def create_table(
 @mcp.tool()
 async def get_table(workspace_id: str, table_id: str) -> str:
     """Get table definition and index metadata."""
-    from tracecat.tables.enums import SqlType
-    from tracecat.tables.service import TablesService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3437,8 +3408,6 @@ async def update_table(
     name: str | None = None,
 ) -> str:
     """Update table metadata."""
-    from tracecat.tables.schemas import TableUpdate
-    from tracecat.tables.service import TablesService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3456,7 +3425,6 @@ async def update_table(
 @mcp.tool()
 async def delete_table(workspace_id: str, table_id: str) -> str:
     """Delete a table."""
-    from tracecat.tables.service import TablesService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3479,8 +3447,6 @@ async def insert_table_row(
     upsert: bool = False,
 ) -> str:
     """Insert a table row."""
-    from tracecat.tables.schemas import TableRowInsert
-    from tracecat.tables.service import TablesService
 
     try:
         row_data = _parse_json_arg(row_json, "row_json")
@@ -3510,7 +3476,6 @@ async def update_table_row(
     row_json: str,
 ) -> str:
     """Update a table row."""
-    from tracecat.tables.service import TablesService
 
     try:
         row_data = _parse_json_arg(row_json, "row_json")
@@ -3537,7 +3502,6 @@ async def delete_table_row(
     row_id: str,
 ) -> str:
     """Delete a table row."""
-    from tracecat.tables.service import TablesService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3561,7 +3525,6 @@ async def search_table_rows(
     offset: int = 0,
 ) -> str:
     """Search rows in a table."""
-    from tracecat.tables.service import TablesService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3598,6 +3561,7 @@ async def import_csv(
     Returns JSON with table id, name, rows_inserted, and column_mapping
     (original header name -> normalized column name).
     """
+
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         async with TablesService.with_session(role=role) as svc:
@@ -3637,6 +3601,7 @@ async def export_csv(
     Returns the CSV text as a string. System columns (id, created_at,
     updated_at) are excluded from the export.
     """
+
     SYSTEM_COLUMNS = {"id", "created_at", "updated_at"}
 
     try:
@@ -3681,9 +3646,6 @@ async def create_case(
     payload_json: str | None = None,
 ) -> str:
     """Create a case."""
-    from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-    from tracecat.cases.schemas import CaseCreate
-    from tracecat.cases.service import CasesService
 
     try:
         fields = _parse_json_arg(fields_json, "fields_json")
@@ -3728,9 +3690,6 @@ async def list_cases(
     search: str | None = None,
 ) -> str:
     """List cases."""
-    from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-    from tracecat.cases.service import CasesService
-    from tracecat.pagination import CursorPaginationParams
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3766,7 +3725,6 @@ async def list_cases(
 @mcp.tool()
 async def get_case(workspace_id: str, case_id: str) -> str:
     """Get case details."""
-    from tracecat.cases.service import CasesService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3808,9 +3766,6 @@ async def update_case(
     payload_json: str | None = None,
 ) -> str:
     """Update a case."""
-    from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-    from tracecat.cases.schemas import CaseUpdate
-    from tracecat.cases.service import CasesService
 
     try:
         fields = _parse_json_arg(fields_json, "fields_json")
@@ -3861,7 +3816,6 @@ async def update_case(
 @mcp.tool()
 async def delete_case(workspace_id: str, case_id: str) -> str:
     """Delete a case."""
-    from tracecat.cases.service import CasesService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3886,7 +3840,6 @@ async def list_variables(
     environment: str = DEFAULT_SECRETS_ENVIRONMENT,
 ) -> str:
     """List workspace variables."""
-    from tracecat.variables.service import VariablesService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3918,7 +3871,6 @@ async def get_variable(
     environment: str = DEFAULT_SECRETS_ENVIRONMENT,
 ) -> str:
     """Get a workspace variable."""
-    from tracecat.variables.service import VariablesService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -3949,7 +3901,6 @@ async def list_secrets_metadata(
     scope: str = "both",
 ) -> str:
     """List secret metadata without secret values."""
-    from tracecat.secrets.service import SecretsService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -4009,8 +3960,6 @@ async def get_secret_metadata(
     scope: str = "both",
 ) -> str:
     """Get secret metadata by name without secret values."""
-    from tracecat.exceptions import TracecatNotFoundError
-    from tracecat.secrets.service import SecretsService
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)

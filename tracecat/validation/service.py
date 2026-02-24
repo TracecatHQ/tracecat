@@ -297,21 +297,6 @@ async def validate_registry_action_args(
         try:
             if action_name == PlatformAction.CHILD_WORKFLOW_EXECUTE:
                 validated = ExecuteSubflowArgs.model_validate(args)
-            elif (
-                PlatformAction.is_interface(action_name)
-                and action_name != PlatformAction.RUN_PYTHON
-            ):
-                # Other interface/platform actions (ai.action, ai.agent,
-                # scatter, gather, etc.) are handled by the workflow
-                # engine and don't have registry manifests. Skip
-                # deep validation — just pass args through.
-                return ActionValidationResult(
-                    status="success",
-                    msg="Arguments are valid.",
-                    validated_args=dict(args),
-                    ref=action_ref,
-                    action_type=action_name,
-                )
             else:
                 service = RegistryActionsService(session, role=role)
                 action_data = await service.get_action_from_index(action_name)

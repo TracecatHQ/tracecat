@@ -17,8 +17,8 @@ from temporalio.client import WorkflowFailureError
 from tracecat_registry import RegistrySecret
 
 import tracecat.mcp.auth as mcp_auth
-import tracecat.validation.service as validation_service
 from tracecat.expressions.common import ExprType
+from tracecat.tables.service import TablesService
 from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
@@ -189,7 +189,7 @@ async def test_validate_workflow_returns_expression_details(monkeypatch):
         "tracecat.workflow.management.management.WorkflowsManagementService.with_session",
         _with_session,
     )
-    monkeypatch.setattr(validation_service, "validate_dsl", _validate_dsl)
+    monkeypatch.setattr(mcp_server, "validate_dsl", _validate_dsl)
 
     result = await _tool(mcp_server.validate_workflow)(
         workspace_id=str(uuid.uuid4()), workflow_id=str(uuid.uuid4())
@@ -493,7 +493,10 @@ async def test_get_action_context_includes_configuration(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
 
-    indexed_action = SimpleNamespace(manifest=SimpleNamespace())
+    indexed_action = SimpleNamespace(
+        manifest=SimpleNamespace(),
+        index_entry=SimpleNamespace(options=None),
+    )
     registry_service = SimpleNamespace(
         aggregate_secrets_from_manifest=lambda _manifest, _action_name: [
             RegistrySecret(name="slack", keys=["SLACK_BOT_TOKEN"])
@@ -816,7 +819,7 @@ async def test_create_webhook(monkeypatch):
         "get_async_session_context_manager",
         lambda: _AsyncContext(FakeSession()),
     )
-    monkeypatch.setattr("tracecat.db.models.Webhook", FakeWebhook)
+    monkeypatch.setattr(mcp_server, "Webhook", FakeWebhook)
 
     result = await _tool(mcp_server.create_webhook)(
         workspace_id=str(uuid.uuid4()),
@@ -1343,7 +1346,10 @@ async def test_action_catalog_resource(monkeypatch):
         (_IndexEntry("tools.slack", "list_channels", "List channels"), "platform"),
     ]
 
-    indexed_action = SimpleNamespace(manifest=SimpleNamespace())
+    indexed_action = SimpleNamespace(
+        manifest=SimpleNamespace(),
+        index_entry=SimpleNamespace(options=None),
+    )
 
     class _RegistryService:
         async def list_actions_from_index(self, **_kwargs):
@@ -1399,7 +1405,10 @@ async def test_list_actions_browse_without_query(monkeypatch):
         (_IndexEntry("core", "http_request", "Make an HTTP request"), "platform"),
         (_IndexEntry("tools.slack", "post_message", "Post a message"), "platform"),
     ]
-    indexed_action = SimpleNamespace(manifest=SimpleNamespace())
+    indexed_action = SimpleNamespace(
+        manifest=SimpleNamespace(),
+        index_entry=SimpleNamespace(options=None),
+    )
 
     class _RegistryService:
         async def list_actions_from_index(self, **_kwargs):
@@ -1446,7 +1455,10 @@ async def test_list_actions_browse_with_namespace(monkeypatch):
     entries = [
         (_IndexEntry("tools.slack", "post_message", "Post a message"), "platform"),
     ]
-    indexed_action = SimpleNamespace(manifest=SimpleNamespace())
+    indexed_action = SimpleNamespace(
+        manifest=SimpleNamespace(),
+        index_entry=SimpleNamespace(options=None),
+    )
 
     captured_kwargs = {}
 
@@ -1743,7 +1755,7 @@ async def test_import_csv(monkeypatch):
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
-        mcp_server.TablesService,
+        TablesService,
         "with_session",
         lambda role: _AsyncContext(svc),
     )
@@ -1802,7 +1814,7 @@ async def test_export_csv(monkeypatch):
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
-        mcp_server.TablesService,
+        TablesService,
         "with_session",
         lambda role: _AsyncContext(_TablesService()),
     )
@@ -1830,7 +1842,7 @@ async def test_import_csv_empty_raises(monkeypatch):
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
-        mcp_server.TablesService,
+        TablesService,
         "with_session",
         lambda role: _AsyncContext(_TablesService()),
     )
