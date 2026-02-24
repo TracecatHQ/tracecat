@@ -775,7 +775,9 @@ function ActionSessionShell({
 function ErrorEvent({ failure }: { failure: EventFailure }) {
   return (
     <div className="flex flex-col space-y-8 text-xs">
-      <CodeBlock title="Error Message">{failure.message}</CodeBlock>
+      <CodeBlock title="Error Message">
+        {failure.root_cause_message ?? failure.message}
+      </CodeBlock>
     </div>
   )
 }
