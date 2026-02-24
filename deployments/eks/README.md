@@ -509,6 +509,18 @@ All observability resources are gated by `enable_observability` (default `false`
 
 When observability and KEDA are both enabled (module defaults for KEDA), KEDA operator and metrics-apiserver Prometheus metrics are collected automatically through annotation autodiscovery.
 
+Warning:
+
+- This module expects KEDA service annotation scraping (via Grafana
+  `annotationAutodiscovery`) as the default KEDA metrics collection path.
+- If you override Helm values to enable KEDA `ServiceMonitor`/`PodMonitor`
+  resources (`keda.prometheus.operator.*` or `keda.prometheus.metricServer.*`),
+  KEDA service `prometheus.io/*` annotations are no longer emitted for those
+  components.
+- If you enable those CRD-based monitors, configure a matching scrape path
+  (for example Prometheus Operator object scraping) so KEDA metrics are still
+  collected.
+
 ### Node group and capacity visibility setup
 
 To track instance utilization and capacity behavior over time (including spot capacity), the observability setup combines:

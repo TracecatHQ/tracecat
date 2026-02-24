@@ -256,8 +256,14 @@ keda:
     certManager:
       enabled: false
   # KEDA Prometheus metrics exposure.
-  # Keep ServiceMonitor/PodMonitor/PrometheusRule disabled by default to avoid
-  # requiring Prometheus Operator CRDs and to stay GitOps-safe out of the box.
+  # Preferred collection path is annotation-based scraping (for example
+  # Grafana Alloy via k8s-monitoring annotation autodiscovery).
+  # Keep ServiceMonitor/PodMonitor/PrometheusRule disabled by default and only
+  # enable them if your cluster already runs Prometheus Operator CRDs.
+  # Warning: in the upstream KEDA chart, turning on ServiceMonitor/PodMonitor
+  # for operator/metricServer disables prometheus.io/* Service annotations for
+  # those KEDA Services. If you rely on annotation autodiscovery, keep
+  # ServiceMonitor/PodMonitor disabled (or add an alternate scrape path).
   prometheus:
     operator:
       enabled: true

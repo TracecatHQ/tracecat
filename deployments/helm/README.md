@@ -435,17 +435,9 @@ Temporal queue autoscaling is available for:
 - `executor`
 - `agentExecutor`
 
-When component autoscaling is enabled, both Temporal deployment modes are supported:
+For self-hosted Temporal (`temporal.enabled=true`), component autoscaling works without a Temporal auth source. The chart renders valid `ScaledObject`s without `TriggerAuthentication`/`authenticationRef`.
 
-- Self-hosted Temporal (`temporal.enabled=true`): Temporal API key auth is optional.
-- External/cloud Temporal (`externalTemporal.enabled=true`): Temporal auth is required.
-
-Temporal auth modes for external/cloud KEDA scaler authentication:
-
-1. Preferred: Kubernetes secret (`externalTemporal.auth.existingSecret` or ESO-synced `externalSecrets.temporal`)
-2. Fallback: AWS Secrets Manager (`externalTemporal.auth.secretArn`) via TriggerAuthentication `awsSecretManager`
-
-When both are configured, the chart uses Kubernetes secret auth first. In self-hosted mode without an auth source, the chart renders valid `ScaledObject`s without `TriggerAuthentication`/`authenticationRef`.
+For external/cloud Temporal auth configuration, see [Temporal configuration](#temporal-configuration).
 
 For `executor` and `agentExecutor`, autoscaling also includes CPU and memory resource triggers (via KEDA-generated HPA metrics), similar to API/UI resource-based autoscaling.
 
@@ -453,7 +445,6 @@ Validation enforces:
 
 - `keda.enabled=true` when `worker`/`executor`/`agentExecutor` autoscaling is enabled
 - `maxReplicas >= minReplicas` for `worker`, `executor`, and `agentExecutor`
-- external/cloud autoscaling requires a Temporal auth source
 - `executor` and `agentExecutor` autoscaling requires at least one resource metric target (CPU and/or memory utilization)
 
 For EKS Terraform deployments (`deployments/eks`), Temporal autoscaling toggles are required and are always set to `true` by the module.
@@ -465,36 +456,23 @@ When KEDA is enabled, Prometheus metrics for the KEDA operator and metrics-apise
 - `keda.prometheus.operator.enabled=true`
 - `keda.prometheus.metricServer.enabled=true`
 
-To keep Helm installs ArgoCD-safe and avoid extra CRD dependencies, monitor/rule CRDs are disabled by default:
+The default metrics collection path uses annotation-based scraping with Grafana Alloy
+(for example Grafana `k8s-monitoring` `annotationAutodiscovery`) and does not
+require Prometheus Operator resources.
 
-- `keda.prometheus.operator.serviceMonitor.enabled=false`
-- `keda.prometheus.operator.podMonitor.enabled=false`
-- `keda.prometheus.operator.prometheusRules.enabled=false`
-- `keda.prometheus.metricServer.serviceMonitor.enabled=false`
-- `keda.prometheus.metricServer.podMonitor.enabled=false`
-- `keda.prometheus.webhooks.serviceMonitor.enabled=false`
-- `keda.prometheus.webhooks.prometheusRules.enabled=false`
+Warning:
 
-This default is compatible with annotation-based scraping (for example Grafana k8s-monitoring annotation autodiscovery) and does not require Prometheus Operator CRDs.
-
-If you use Prometheus Operator, enable the monitor/rule toggles explicitly and ensure the matching CRDs already exist in the cluster before sync.
-
-For GitOps controllers like ArgoCD, KEDA TLS CA bundles on `APIService` and `ValidatingWebhookConfiguration` can be injected/rotated at runtime. If your project enforces strict diff checks, add ignore rules for those fields:
-
-```yaml
-spec:
-  ignoreDifferences:
-    - group: apiregistration.k8s.io
-      kind: APIService
-      name: v1beta1.external.metrics.k8s.io
-      jsonPointers:
-        - /spec/caBundle
-    - group: admissionregistration.k8s.io
-      kind: ValidatingWebhookConfiguration
-      name: keda-admission
-      jqPathExpressions:
-        - .webhooks[]?.clientConfig.caBundle
-```
+- The KEDA chart only adds `prometheus.io/*` annotations on KEDA Services when
+  `serviceMonitor.enabled=false` and `podMonitor.enabled=false` for the same
+  component.
+- If you enable `keda.prometheus.operator.serviceMonitor` or
+  `keda.prometheus.operator.podMonitor`, annotation-based scraping for
+  `keda-operator` will no longer be emitted by the chart.
+- If you enable `keda.prometheus.metricServer.serviceMonitor` or
+  `keda.prometheus.metricServer.podMonitor`, annotation-based scraping for
+  `keda-operator-metrics-apiserver` will no longer be emitted by the chart.
+- If you turn those on, make sure you also collect via Prometheus Operator
+  objects or another explicit scrape configuration.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -502,14 +480,7 @@ spec:
 | `keda.crds.install` | `true` | Install KEDA CRDs with the KEDA chart |
 | `keda.certificates.certManager.enabled` | `false` | Use cert-manager for KEDA TLS certs |
 | `keda.prometheus.operator.enabled` | `true` | Expose KEDA operator Prometheus metrics |
-| `keda.prometheus.operator.serviceMonitor.enabled` | `false` | Create Prometheus Operator `ServiceMonitor` for KEDA operator |
-| `keda.prometheus.operator.podMonitor.enabled` | `false` | Create Prometheus Operator `PodMonitor` for KEDA operator |
-| `keda.prometheus.operator.prometheusRules.enabled` | `false` | Create Prometheus Operator `PrometheusRule` for KEDA operator |
 | `keda.prometheus.metricServer.enabled` | `true` | Expose KEDA metrics-apiserver Prometheus metrics |
-| `keda.prometheus.metricServer.serviceMonitor.enabled` | `false` | Create Prometheus Operator `ServiceMonitor` for KEDA metrics-apiserver |
-| `keda.prometheus.metricServer.podMonitor.enabled` | `false` | Create Prometheus Operator `PodMonitor` for KEDA metrics-apiserver |
-| `keda.prometheus.webhooks.serviceMonitor.enabled` | `false` | Create Prometheus Operator `ServiceMonitor` for KEDA webhooks |
-| `keda.prometheus.webhooks.prometheusRules.enabled` | `false` | Create Prometheus Operator `PrometheusRule` for KEDA webhooks |
 | `worker.autoscaling.enabled` | `false` | Enable KEDA Temporal queue autoscaling for worker |
 | `worker.autoscaling.minReplicas` | `1` | Worker min replicas |
 | `worker.autoscaling.maxReplicas` | `8` | Worker max replicas |
