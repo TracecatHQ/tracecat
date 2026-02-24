@@ -25,8 +25,12 @@ from tracecat.validation.schemas import (
     ValidationResultType,
 )
 
-mcp_auth.create_mcp_auth = lambda: None
-from tracecat.mcp import server as mcp_server  # noqa: E402
+_original_create_mcp_auth = mcp_auth.create_mcp_auth
+try:
+    mcp_auth.create_mcp_auth = lambda: None
+    from tracecat.mcp import server as mcp_server  # noqa: E402
+finally:
+    mcp_auth.create_mcp_auth = _original_create_mcp_auth
 
 
 def _tool(fn: Any) -> Callable[..., Coroutine[Any, Any, Any]]:
@@ -1710,3 +1714,129 @@ async def test_concurrent_workspace_calls_do_not_cross(monkeypatch):
     assert len(results) == 2
     assert resolved[str(WS_A)] == WS_A
     assert resolved[str(WS_B)] == WS_B
+
+
+@pytest.mark.anyio
+async def test_import_csv(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    table_id = uuid.uuid4()
+
+    class _FakeColumn:
+        def __init__(self, original_name, name):
+            self.original_name = original_name
+            self.name = name
+
+    class _TablesService:
+        async def import_table_from_csv(self, *, contents, table_name, **kwargs):
+            self._contents = contents
+            self._table_name = table_name
+            table = SimpleNamespace(id=table_id, name="test_table")
+            columns = [
+                _FakeColumn("Name", "name"),
+                _FakeColumn("Age", "age"),
+            ]
+            return table, 3, columns
+
+    svc = _TablesService()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.TablesService,
+        "with_session",
+        lambda role: _AsyncContext(svc),
+    )
+
+    csv_text = "Name,Age\nAlice,30\nBob,25\nCharlie,35"
+    result = await _tool(mcp_server.import_csv)(
+        workspace_id=str(uuid.uuid4()),
+        csv_content=csv_text,
+        table_name="test_table",
+    )
+    payload = json.loads(result)
+    assert payload["id"] == str(table_id)
+    assert payload["name"] == "test_table"
+    assert payload["rows_inserted"] == 3
+    assert payload["column_mapping"] == {"Name": "name", "Age": "age"}
+    assert svc._contents == csv_text.encode()
+    assert svc._table_name == "test_table"
+
+
+@pytest.mark.anyio
+async def test_export_csv(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    table_id = uuid.uuid4()
+
+    class _FakeColumn:
+        def __init__(self, name):
+            self.name = name
+
+    fake_table = SimpleNamespace(
+        id=table_id,
+        name="test_table",
+        columns=[
+            _FakeColumn("id"),
+            _FakeColumn("created_at"),
+            _FakeColumn("updated_at"),
+            _FakeColumn("city"),
+            _FakeColumn("age"),
+        ],
+    )
+
+    class _TablesService:
+        async def get_table(self, _table_id):
+            return fake_table
+
+        async def search_rows(self, _table, *, limit=1000, cursor=None):
+            return SimpleNamespace(
+                items=[
+                    {"city": "NYC", "age": 30, "id": "1"},
+                    {"city": "LA", "age": 25, "id": "2"},
+                ],
+                has_more=False,
+                next_cursor=None,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.TablesService,
+        "with_session",
+        lambda role: _AsyncContext(_TablesService()),
+    )
+
+    result = await _tool(mcp_server.export_csv)(
+        workspace_id=str(uuid.uuid4()),
+        table_id=str(table_id),
+    )
+    lines = result.strip().splitlines()
+    assert lines[0] == "city,age"  # preserves table column order, system cols excluded
+    assert lines[1] == "NYC,30"
+    assert lines[2] == "LA,25"
+
+
+@pytest.mark.anyio
+async def test_import_csv_empty_raises(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    class _TablesService:
+        async def import_table_from_csv(self, *, contents, table_name, **kwargs):
+            from tracecat.exceptions import TracecatImportError
+
+            raise TracecatImportError("CSV file does not contain any columns")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.TablesService,
+        "with_session",
+        lambda role: _AsyncContext(_TablesService()),
+    )
+
+    with pytest.raises(ToolError, match="CSV file does not contain any columns"):
+        await _tool(mcp_server.import_csv)(
+            workspace_id=str(uuid.uuid4()),
+            csv_content="",
+        )

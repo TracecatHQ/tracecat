@@ -7,11 +7,13 @@ Users authenticate via their existing Tracecat OIDC login.
 from __future__ import annotations
 
 import asyncio
+import csv
 import json
 import re
 import uuid
 from collections import deque
 from datetime import datetime, timedelta
+from io import StringIO
 from typing import Any, Literal
 
 import yaml
@@ -69,6 +71,7 @@ from tracecat.mcp.middleware import (
 )
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+from tracecat.tables.service import TablesService
 from tracecat.validation.schemas import ValidationDetail
 from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerConfig,
@@ -3577,6 +3580,93 @@ async def search_table_rows(
     except Exception as e:
         logger.error("Failed to search table rows", error=str(e))
         raise ToolError(f"Failed to search table rows: {e}") from None
+
+
+@mcp.tool()
+async def import_csv(
+    workspace_id: str,
+    csv_content: str,
+    table_name: str | None = None,
+) -> str:
+    """Create a new table from CSV text with auto-inferred schema.
+
+    Args:
+        workspace_id: The workspace ID.
+        csv_content: Raw CSV text (with header row).
+        table_name: Optional table name (auto-generated if omitted).
+
+    Returns JSON with table id, name, rows_inserted, and column_mapping
+    (original header name -> normalized column name).
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with TablesService.with_session(role=role) as svc:
+            table, rows_inserted, inferred_columns = await svc.import_table_from_csv(
+                contents=csv_content.encode(),
+                table_name=table_name,
+            )
+            column_mapping = {col.original_name: col.name for col in inferred_columns}
+            return _json(
+                {
+                    "id": str(table.id),
+                    "name": table.name,
+                    "rows_inserted": rows_inserted,
+                    "column_mapping": column_mapping,
+                }
+            )
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to import CSV", error=str(e))
+        raise ToolError(f"Failed to import CSV: {e}") from None
+
+
+@mcp.tool()
+async def export_csv(
+    workspace_id: str,
+    table_id: str,
+    include_header: bool = True,
+) -> str:
+    """Export table data as CSV text.
+
+    Args:
+        workspace_id: The workspace ID.
+        table_id: The table ID.
+        include_header: Whether to include a header row (default True).
+
+    Returns the CSV text as a string. System columns (id, created_at,
+    updated_at) are excluded from the export.
+    """
+    SYSTEM_COLUMNS = {"id", "created_at", "updated_at"}
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with TablesService.with_session(role=role) as svc:
+            table = await svc.get_table(uuid.UUID(table_id))
+            columns = [c.name for c in table.columns if c.name not in SYSTEM_COLUMNS]
+            if not columns:
+                return ""
+
+            output = StringIO()
+            writer = csv.DictWriter(output, fieldnames=columns, extrasaction="ignore")
+            if include_header:
+                writer.writeheader()
+
+            cursor: str | None = None
+            while True:
+                page = await svc.search_rows(table, limit=1000, cursor=cursor)
+                for row in page.items:
+                    writer.writerow(row)
+                if not page.has_more or page.next_cursor is None:
+                    break
+                cursor = page.next_cursor
+
+            return output.getvalue()
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to export CSV", error=str(e))
+        raise ToolError(f"Failed to export CSV: {e}") from None
 
 
 @mcp.tool()
