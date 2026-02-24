@@ -73,12 +73,6 @@ spot_node_min_size=2
 spot_node_desired_size=2
 spot_node_max_size=4
 
-# Capacity guardrail inputs
-rollout_surge_percent=25
-capacity_headroom_percent=20
-pod_eni_capacity_per_node=16
-pod_eni_capacity_reserved=8
-
 # Persistence services and Temporal mode
 rds_instance_class="db.t4g.xlarge"
 rds_allocated_storage=50
@@ -152,12 +146,6 @@ node_min_size=3
 node_desired_size=3
 node_max_size=4
 spot_node_group_enabled=false
-
-# Capacity guardrail inputs
-rollout_surge_percent=25
-capacity_headroom_percent=20
-pod_eni_capacity_per_node=16
-pod_eni_capacity_reserved=8
 
 # Persistence services
 rds_instance_class="db.m7g.large"
