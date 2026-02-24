@@ -802,8 +802,17 @@ function WorkflowSaveActions({
                                     key={branch.name}
                                     value={branch.name}
                                   >
-                                    {branch.name}
-                                    {branch.is_default ? " (default)" : ""}
+                                    <div className="flex items-center gap-2">
+                                      <span>{branch.name}</span>
+                                      {branch.is_default && (
+                                        <Badge
+                                          variant="secondary"
+                                          className="h-4 rounded-sm px-1 text-[10px] font-normal"
+                                        >
+                                          default
+                                        </Badge>
+                                      )}
+                                    </div>
                                   </SelectItem>
                                 ))}
                               </>
