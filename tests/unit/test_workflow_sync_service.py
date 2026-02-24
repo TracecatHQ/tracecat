@@ -576,6 +576,73 @@ class TestWorkflowSyncService:
             )
 
     @pytest.mark.anyio
+    async def test_push_target_branch_defaults_base_to_url_ref(
+        self, workflow_sync_service, sample_remote_workflow
+    ):
+        """Test branch-target mode uses URL ref as base when pr_base_branch is unset."""
+        push_obj = PushObject(
+            data=sample_remote_workflow, path="workflows/test-workflow.yml"
+        )
+        author = Author(name="Test User", email="test@example.com")
+        options = PushOptions(
+            message="Update workflows",
+            author=author,
+            create_pr=False,
+            branch="feature/new-workflow",
+        )
+        git_url = GitUrl(host="github.com", org="test-org", repo="test-repo", ref="release")
+
+        mock_repo = Mock()
+        release_branch = Mock()
+        release_branch.commit.sha = "release123"
+        target_branch = Mock()
+        target_branch.commit.sha = "target123"
+        mock_repo.default_branch = "main"
+
+        def get_branch(name: str):
+            if name == "release":
+                return release_branch
+            if name == "feature/new-workflow":
+                return target_branch
+            raise AssertionError(f"Unexpected branch lookup: {name}")
+
+        mock_repo.get_branch.side_effect = get_branch
+        mock_repo.get_contents.side_effect = GithubException(
+            404, {"message": "Not Found"}, {}
+        )
+        mock_repo.create_file = Mock()
+        mock_repo.create_git_ref = Mock()
+
+        mock_github_client = Mock()
+        mock_github_client.get_repo.return_value = mock_repo
+        mock_github_client.close = Mock()
+
+        with (
+            patch(
+                "tracecat.workflow.store.sync.GitHubAppService"
+            ) as mock_gh_service_class,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
+            mock_gh_service = AsyncMock()
+            mock_gh_service.get_github_client_for_repo = AsyncMock(
+                return_value=mock_github_client
+            )
+            mock_gh_service_class.return_value = mock_gh_service
+
+            async def mock_to_thread_impl(func, *args, **kwargs):
+                return func(*args, **kwargs)
+
+            mock_to_thread.side_effect = mock_to_thread_impl
+
+            result = await workflow_sync_service.push(
+                objects=[push_obj], url=git_url, options=options
+            )
+
+            assert result.status == PushStatus.COMMITTED
+            assert result.base_ref == "release"
+            mock_repo.create_git_ref.assert_not_called()
+
+    @pytest.mark.anyio
     async def test_push_target_branch_noop_returns_no_op(
         self, workflow_sync_service, git_url, sample_remote_workflow
     ):

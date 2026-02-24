@@ -38,8 +38,10 @@ def validate_short_branch_name(value: str, *, field_name: str) -> str:
         raise ValueError(f"{field_name} cannot start with '-'")
     if value.endswith("."):
         raise ValueError(f"{field_name} cannot end with '.'")
-    if value.endswith(".lock"):
-        raise ValueError(f"{field_name} cannot end with '.lock'")
+    if any(part.endswith(".lock") for part in value.split("/")):
+        raise ValueError(
+            f"{field_name} cannot contain path segments ending with '.lock'"
+        )
     if ".." in value:
         raise ValueError(f"{field_name} cannot contain '..'")
     if "//" in value:

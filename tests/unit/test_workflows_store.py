@@ -212,6 +212,7 @@ class TestWorkflowPublishBranchValidation:
             "feature/contains space",
             "feature/has@{token}",
             "feature/ends.lock",
+            "feature/foo.lock/bar",
         ],
     )
     def test_validate_short_branch_name_rejects_invalid_names(

@@ -367,7 +367,7 @@ class WorkflowSyncService(BaseWorkspaceService):
         branch_name = options.branch
         if branch_name is None:
             raise ValueError("branch is required for target-branch push mode")
-        base_branch_name = options.pr_base_branch or repo.default_branch
+        base_branch_name = options.pr_base_branch or url.ref or repo.default_branch
         base_branch = await asyncio.to_thread(repo.get_branch, base_branch_name)
 
         try:
