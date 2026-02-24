@@ -84,10 +84,11 @@ def test_log_uses_process_logger_outside_workflow_context(
 
     process_logger.opt.assert_called_once_with(lazy=True)
     process_logger.log.assert_called_once()
-    [level, fmt, message, suffix], _ = process_logger.log.call_args
+    [level, fmt, message_factory, suffix], _ = process_logger.log.call_args
     assert level == "INFO"
     assert fmt == "{}{}"
-    assert message == "Hello"
+    assert callable(message_factory)
+    assert message_factory() == "Hello"
     assert callable(suffix)
     formatted_suffix = suffix()
     assert isinstance(formatted_suffix, str)

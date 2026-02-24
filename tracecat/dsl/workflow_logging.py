@@ -112,7 +112,7 @@ class WorkflowRuntimeLogger:
         process_logger.opt(lazy=True).log(
             _LOGURU_LEVEL_BY_NAME[level],
             "{}{}",
-            message,
+            lambda: message,
             lambda: _format_fields({**bound_fields, **dynamic_fields}),
         )
 
