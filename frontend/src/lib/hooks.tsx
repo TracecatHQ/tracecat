@@ -374,6 +374,10 @@ interface AppInfo {
   ee_multi_tenant: boolean
 }
 
+export type WorkspaceSecretListItem = SecretReadMinimal & {
+  is_corrupted?: boolean
+}
+
 export function useAppInfo() {
   const {
     data: appInfo,
@@ -1312,7 +1316,7 @@ export function useWorkspaceSecrets(workspaceId: string) {
     data: secrets,
     isLoading: secretsIsLoading,
     error: secretsError,
-  } = useQuery<SecretReadMinimal[], ApiError>({
+  } = useQuery<WorkspaceSecretListItem[], ApiError>({
     queryKey: ["workspace-secrets", workspaceId],
     queryFn: async () =>
       await secretsListSecrets({
@@ -1404,7 +1408,7 @@ export function useWorkspaceSecrets(workspaceId: string) {
 
   // Delete secret
   const { mutateAsync: deleteSecretById } = useMutation({
-    mutationFn: async (secret: SecretReadMinimal) =>
+    mutationFn: async (secret: WorkspaceSecretListItem) =>
       await secretsDeleteSecretById({ workspaceId, secretId: secret.id }),
     onSuccess: () => {
       queryClient.invalidateQueries({

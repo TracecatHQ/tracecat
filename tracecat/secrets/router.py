@@ -1,6 +1,8 @@
 from typing import Annotated, Any
 
+from cryptography.fernet import InvalidToken
 from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.credentials import RoleACL
@@ -36,6 +38,36 @@ WorkspaceUser = Annotated[
         require_workspace="yes",
     ),
 ]
+
+
+def _serialize_secret_read_minimal(
+    *,
+    service: SecretsService,
+    secret: Any,
+) -> SecretReadMinimal:
+    try:
+        keys = [kv.key for kv in service.decrypt_keys(secret.encrypted_keys)]
+        is_corrupted = False
+    except (InvalidToken, ValidationError, ValueError) as e:
+        keys = []
+        is_corrupted = True
+        logger.warning(
+            "Failed to decrypt secret keys; returning secret without keys",
+            secret_id=str(secret.id),
+            secret_name=secret.name,
+            secret_type=secret.type,
+            error=str(e),
+        )
+
+    return SecretReadMinimal(
+        id=secret.id,
+        type=SecretType(secret.type),
+        name=secret.name,
+        description=secret.description,
+        keys=keys,
+        environment=secret.environment,
+        is_corrupted=is_corrupted,
+    )
 
 
 @router.get("/search", response_model=list[SecretRead])
@@ -85,14 +117,7 @@ async def list_secrets(
     service = SecretsService(session, role=role)
     secrets = await service.list_secrets(types=types)
     return [
-        SecretReadMinimal(
-            id=secret.id,
-            type=SecretType(secret.type),
-            name=secret.name,
-            description=secret.description,
-            keys=[kv.key for kv in service.decrypt_keys(secret.encrypted_keys)],
-            environment=secret.environment,
-        )
+        _serialize_secret_read_minimal(service=service, secret=secret)
         for secret in secrets
     ]
 
@@ -217,14 +242,7 @@ async def list_org_secrets(
     service = SecretsService(session, role=role)
     secrets = await service.list_org_secrets(types=types)
     return [
-        SecretReadMinimal(
-            id=secret.id,
-            type=SecretType(secret.type),
-            name=secret.name,
-            description=secret.description,
-            keys=[kv.key for kv in service.decrypt_keys(secret.encrypted_keys)],
-            environment=secret.environment,
-        )
+        _serialize_secret_read_minimal(service=service, secret=secret)
         for secret in secrets
     ]
 

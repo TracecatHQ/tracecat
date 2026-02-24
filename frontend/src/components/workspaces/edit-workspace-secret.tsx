@@ -2,11 +2,17 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import type { DialogProps } from "@radix-ui/react-dialog"
-import { PlusCircle, SaveIcon, Trash2Icon } from "lucide-react"
+import {
+  AlertTriangleIcon,
+  PlusCircle,
+  SaveIcon,
+  Trash2Icon,
+} from "lucide-react"
 import React, { type PropsWithChildren, useCallback } from "react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
-import type { SecretReadMinimal, SecretUpdate } from "@/client"
+import type { SecretUpdate } from "@/client"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -29,15 +35,15 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
-import { useWorkspaceSecrets } from "@/lib/hooks"
+import { useWorkspaceSecrets, type WorkspaceSecretListItem } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface EditCredentialsDialogProps
   extends PropsWithChildren<
     DialogProps & React.HTMLAttributes<HTMLDivElement>
   > {
-  selectedSecret: SecretReadMinimal | null
-  setSelectedSecret: (selectedSecret: SecretReadMinimal | null) => void
+  selectedSecret: WorkspaceSecretListItem | null
+  setSelectedSecret: (selectedSecret: WorkspaceSecretListItem | null) => void
 }
 
 const updateSecretSchema = z.object({
@@ -51,6 +57,27 @@ const updateSecretSchema = z.object({
     })
   ),
 })
+
+const fixedSecretTypeKeyNames: Partial<
+  Record<WorkspaceSecretListItem["type"], string[]>
+> = {
+  mtls: ["TLS_CERTIFICATE", "TLS_PRIVATE_KEY"],
+  "ca-cert": ["CA_CERTIFICATE"],
+}
+
+function getEditableSecretKeys(secret: WorkspaceSecretListItem) {
+  if (secret.type === "ssh-key") {
+    return []
+  }
+  if (secret.is_corrupted && secret.type === "custom") {
+    return [{ key: "", value: "" }]
+  }
+  const keyNames =
+    secret.keys.length > 0
+      ? secret.keys
+      : (fixedSecretTypeKeyNames[secret.type] ?? [])
+  return keyNames.map((keyName) => ({ key: keyName, value: "" }))
+}
 
 export function EditCredentialsDialog({
   selectedSecret,
@@ -78,18 +105,11 @@ export function EditCredentialsDialog({
 
   React.useEffect(() => {
     if (selectedSecret) {
-      const secretKeys =
-        selectedSecret.type === "ssh-key"
-          ? []
-          : selectedSecret.keys.map((keyName) => ({
-              key: keyName,
-              value: "",
-            }))
       reset({
         name: "",
         description: "",
         environment: "",
-        keys: secretKeys,
+        keys: getEditableSecretKeys(selectedSecret),
       })
     }
   }, [selectedSecret, reset])
@@ -102,11 +122,30 @@ export function EditCredentialsDialog({
       }
       // Remove unset values from the params object
       // We consider empty strings as unset values
+      const submittedKeys = values.keys ?? []
+      if (
+        selectedSecret.is_corrupted &&
+        !isSshKey &&
+        submittedKeys.length === 0
+      ) {
+        methods.setError("keys", {
+          type: "manual",
+          message: "Add all key names and values to recover this secret.",
+        })
+        toast({
+          title: "Recovery requires all keys",
+          description:
+            "This secret is corrupted. Re-enter all key names and values before saving.",
+          variant: "destructive",
+        })
+        return
+      }
       const params = {
         name: values.name || undefined,
         description: values.description || undefined,
         environment: values.environment || undefined,
-        keys: isSshKey ? undefined : values.keys,
+        keys:
+          isSshKey || submittedKeys.length === 0 ? undefined : submittedKeys,
       }
       console.log("Submitting edit secret", params)
       try {
@@ -120,7 +159,7 @@ export function EditCredentialsDialog({
       methods.reset()
       setSelectedSecret(null) // Only unset the selected secret after the form has been submitted
     },
-    [selectedSecret, setSelectedSecret]
+    [isSshKey, methods, selectedSecret, setSelectedSecret, updateSecretById]
   )
 
   const onValidationFailed = (errors: unknown) => {
@@ -164,6 +203,17 @@ export function EditCredentialsDialog({
         <Form {...methods}>
           <form onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}>
             <div className="space-y-4">
+              {selectedSecret?.is_corrupted && (
+                <Alert>
+                  <AlertTriangleIcon className="size-4 !text-amber-600" />
+                  <AlertTitle>Unable to decrypt current key data</AlertTitle>
+                  <AlertDescription>
+                    {isSshKey
+                      ? "This SSH key secret cannot be edited. Delete and recreate it with a new key."
+                      : "Stored key names and values could not be decrypted. Re-enter all key names and values before saving."}
+                  </AlertDescription>
+                </Alert>
+              )}
               <FormField
                 key="name"
                 control={control}

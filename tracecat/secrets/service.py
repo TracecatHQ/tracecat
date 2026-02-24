@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from pydantic import SecretStr
+from cryptography.fernet import InvalidToken
+from pydantic import SecretStr, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,12 +103,41 @@ class SecretsService(BaseOrgService):
                 "CA certificate secrets must be created with their key values. Delete and recreate the secret instead."
             )
         set_fields = params.model_dump(exclude_unset=True)
+        keys = set_fields.pop("keys", None)
+
+        if keys is None:
+            try:
+                self.decrypt_keys(secret.encrypted_keys)
+            except (InvalidToken, ValidationError, ValueError) as e:
+                if existing_type == SecretType.SSH_KEY:
+                    raise ValueError(
+                        "Stored SSH key value cannot be decrypted. Delete and recreate this secret to recover it."
+                    ) from e
+                raise ValueError(
+                    "Stored secret values cannot be decrypted. Re-enter all key names and values to recover this secret."
+                ) from e
+
         # Handle keys separately
-        if keys := set_fields.pop("keys", None):
-            # Decrypt existing keys to a dictionary for easy lookup
-            existing_keys = {
-                kv.key: kv.value for kv in self.decrypt_keys(secret.encrypted_keys)
-            }
+        if keys:
+            existing_keys: dict[str, SecretStr] = {}
+            try:
+                # Decrypt existing keys to a dictionary for easy lookup.
+                existing_keys = {
+                    kv.key: kv.value for kv in self.decrypt_keys(secret.encrypted_keys)
+                }
+            except (InvalidToken, ValidationError, ValueError) as e:
+                # Allow recovery from a corrupted encryption key by requiring callers
+                # to provide all key values, rather than preserving blanks.
+                if any(not kv["value"] for kv in keys):
+                    raise ValueError(
+                        "Stored secret values cannot be decrypted. Re-enter all key values to recover this secret."
+                    ) from e
+                self.logger.warning(
+                    "Failed to decrypt existing secret keys during update; proceeding with full key replacement",
+                    secret_id=str(secret.id),
+                    secret_name=secret.name,
+                    error=str(e),
+                )
 
             # Create new key-value pairs, preserving existing values when the new value is empty
             merged_keyvalues = []
