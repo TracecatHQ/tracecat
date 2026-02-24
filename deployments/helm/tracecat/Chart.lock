@@ -5,5 +5,8 @@ dependencies:
 - name: metrics-server
   repository: https://kubernetes-sigs.github.io/metrics-server/
   version: 3.13.0
-digest: sha256:ce48e441e04d230ff1caf31b0aa847af408b997baf17a09013f8903ae1d1d5e8
-generated: "2026-02-24T01:39:05.952669-05:00"
+- name: keda
+  repository: https://kedacore.github.io/charts
+  version: 2.19.0
+digest: sha256:69c78d5a5226c8d6944c47b6078d4f630dd5cfcad24f8d7b8e1376a2e07fd676
+generated: "2026-02-24T02:47:09.967921-05:00"

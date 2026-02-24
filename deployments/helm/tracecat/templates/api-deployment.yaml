@@ -2,6 +2,7 @@
 {{- include "tracecat.validateAuthConfig" . -}}
 {{- include "tracecat.validateInfrastructure" . -}}
 {{- include "tracecat.validateAutoscaling" . -}}
+{{- include "tracecat.validateTemporalAutoscaling" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

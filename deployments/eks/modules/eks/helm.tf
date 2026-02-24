@@ -239,6 +239,11 @@ resource "helm_release" "tracecat" {
   }
 
   set {
+    name  = "keda.enabled"
+    value = "true"
+  }
+
+  set {
     name  = "api.autoscaling.enabled"
     value = "true"
   }
@@ -286,6 +291,21 @@ resource "helm_release" "tracecat" {
   set {
     name  = "ui.autoscaling.targetMemoryUtilizationPercentage"
     value = var.ui_autoscaling_target_memory_utilization_percentage
+  }
+
+  set {
+    name  = "worker.autoscaling.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "executor.autoscaling.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "agentExecutor.autoscaling.enabled"
+    value = "true"
   }
 
   # Replica counts
@@ -884,8 +904,40 @@ resource "helm_release" "tracecat" {
   dynamic "set" {
     for_each = var.temporal_mode == "cloud" && var.temporal_secret_arn != "" ? [1] : []
     content {
+      name  = "externalTemporal.auth.secretArn"
+      value = var.temporal_secret_arn
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "cloud" && var.temporal_secret_arn != "" ? [1] : []
+    content {
       name  = "externalTemporal.auth.existingSecret"
       value = "tracecat-temporal-credentials"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "cloud" ? [1] : []
+    content {
+      name  = "externalTemporal.auth.kedaAwsSecretManager.region"
+      value = local.aws_region
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "cloud" && var.temporal_secret_arn != "" ? [1] : []
+    content {
+      name  = "keda.podIdentity.aws.irsa.enabled"
+      value = "true"
+    }
+  }
+
+  dynamic "set" {
+    for_each = var.temporal_mode == "cloud" && var.temporal_secret_arn != "" ? [1] : []
+    content {
+      name  = "keda.podIdentity.aws.irsa.roleArn"
+      value = aws_iam_role.keda_operator_temporal_secret[0].arn
     }
   }
 
@@ -932,6 +984,7 @@ resource "helm_release" "tracecat" {
     aws_eks_node_group.tracecat,
     aws_eks_node_group.tracecat_spot,
     helm_release.aws_load_balancer_controller,
+    kubernetes_manifest.keda_crds,
     kubernetes_manifest.external_secrets_cluster_store,
     aws_secretsmanager_secret_version.redis_url,
     kubernetes_job_v1.create_temporal_databases

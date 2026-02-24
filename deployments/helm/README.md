@@ -315,6 +315,72 @@ For shared clusters where platform teams already manage metrics-server, keep `me
 
 For EKS Terraform deployment (`deployments/eks`), API and UI HPAs are always enabled by module defaults; tune `*_autoscaling_*` min/max/target variables to adjust behavior.
 
+### Temporal autoscaling (KEDA)
+
+Temporal queue autoscaling is available for:
+
+- `worker`
+- `executor`
+- `agentExecutor`
+
+Helm users can keep this optional per install:
+
+- `keda.enabled`
+- `worker.autoscaling.enabled`
+- `executor.autoscaling.enabled`
+- `agentExecutor.autoscaling.enabled`
+
+For EKS Terraform deployments (`deployments/eks`), these Temporal autoscaling toggles are required and are always set to `true` by the module.
+
+When component autoscaling is enabled, both Temporal deployment modes are supported:
+
+- Self-hosted Temporal (`temporal.enabled=true`): Temporal API key auth is optional.
+- External/cloud Temporal (`externalTemporal.enabled=true`): Temporal auth is required.
+
+Temporal auth modes for external/cloud KEDA scaler authentication:
+
+1. Preferred: Kubernetes secret (`externalTemporal.auth.existingSecret` or ESO-synced `externalSecrets.temporal`)
+2. Fallback: AWS Secrets Manager (`externalTemporal.auth.secretArn`) via TriggerAuthentication `awsSecretManager`
+
+When both are configured, the chart uses Kubernetes secret auth first. In self-hosted mode without an auth source, the chart renders valid `ScaledObject`s without `TriggerAuthentication`/`authenticationRef`.
+
+Validation enforces:
+
+- `keda.enabled=true` when `worker`/`executor`/`agentExecutor` autoscaling is enabled
+- `maxReplicas >= minReplicas` for `worker`, `executor`, and `agentExecutor`
+- external/cloud autoscaling requires a Temporal auth source
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `keda.enabled` | `false` | Install KEDA as a chart dependency |
+| `worker.autoscaling.enabled` | `false` | Enable KEDA Temporal queue autoscaling for worker |
+| `worker.autoscaling.minReplicas` | `1` | Worker min replicas |
+| `worker.autoscaling.maxReplicas` | `8` | Worker max replicas |
+| `worker.autoscaling.pollingInterval` | `10` | Worker scaler poll interval (seconds) |
+| `worker.autoscaling.cooldownPeriod` | `120` | Worker scaler cooldown (seconds) |
+| `worker.autoscaling.targetQueueSize` | `5` | Worker target Temporal queue size |
+| `worker.autoscaling.activationTargetQueueSize` | `0` | Worker activation threshold |
+| `worker.autoscaling.queueTypes` | `workflow,activity` | Worker queue types passed to Temporal scaler |
+| `executor.autoscaling.enabled` | `false` | Enable KEDA Temporal queue autoscaling for executor |
+| `executor.autoscaling.minReplicas` | `1` | Executor min replicas |
+| `executor.autoscaling.maxReplicas` | `8` | Executor max replicas |
+| `executor.autoscaling.pollingInterval` | `10` | Executor scaler poll interval (seconds) |
+| `executor.autoscaling.cooldownPeriod` | `120` | Executor scaler cooldown (seconds) |
+| `executor.autoscaling.targetQueueSize` | `5` | Executor target Temporal queue size |
+| `executor.autoscaling.activationTargetQueueSize` | `0` | Executor activation threshold |
+| `executor.autoscaling.queueTypes` | `workflow,activity` | Executor queue types passed to Temporal scaler |
+| `agentExecutor.autoscaling.enabled` | `false` | Enable KEDA Temporal queue autoscaling for agent-executor |
+| `agentExecutor.autoscaling.minReplicas` | `1` | Agent executor min replicas |
+| `agentExecutor.autoscaling.maxReplicas` | `8` | Agent executor max replicas |
+| `agentExecutor.autoscaling.pollingInterval` | `10` | Agent executor scaler poll interval (seconds) |
+| `agentExecutor.autoscaling.cooldownPeriod` | `120` | Agent executor scaler cooldown (seconds) |
+| `agentExecutor.autoscaling.targetQueueSize` | `5` | Agent executor target Temporal queue size |
+| `agentExecutor.autoscaling.activationTargetQueueSize` | `0` | Agent executor activation threshold |
+| `agentExecutor.autoscaling.queueTypes` | `workflow,activity` | Agent executor queue types passed to Temporal scaler |
+| `externalTemporal.auth.kedaAwsSecretManager.region` | `""` | AWS region for KEDA `awsSecretManager` auth |
+| `externalTemporal.auth.kedaAwsSecretManager.secretKey` | `""` | JSON key in the AWS secret (`secretString`) |
+| `externalTemporal.auth.kedaAwsSecretManager.version` | `""` | AWS Secrets Manager version stage (for example `AWSCURRENT`) |
+
 ### Sandbox (nsjail)
 
 By default the executor runs with nsjail enabled, which requires privileged pods, `SYS_ADMIN`, and an unconfined seccomp profile. If your cluster disallows this (or for local development), disable nsjail:
@@ -502,6 +568,11 @@ Set `temporal.enabled=false` and configure `externalTemporal`:
 | `externalTemporal.clusterQueue` | Temporal task queue for Tracecat workers |
 | `externalTemporal.auth.existingSecret` | K8s secret with `apiKey` key |
 | `externalTemporal.auth.secretArn` | AWS Secrets Manager ARN with API key |
+| `externalTemporal.auth.kedaAwsSecretManager.region` | Optional AWS region for KEDA `awsSecretManager` auth |
+| `externalTemporal.auth.kedaAwsSecretManager.secretKey` | Optional JSON key in AWS secret |
+| `externalTemporal.auth.kedaAwsSecretManager.version` | Optional AWS secret version stage |
+
+When `externalTemporal.enabled=true` and worker/executor/agentExecutor autoscaling is enabled, set Temporal auth via `externalTemporal.auth.existingSecret` (or `externalSecrets.temporal`) or `externalTemporal.auth.secretArn`.
 
 When using an external cluster, you must create the namespace and search attributes yourself.
 

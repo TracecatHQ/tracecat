@@ -319,7 +319,7 @@ terraform apply \
 terraform apply
 ```
 
-### Metrics and HPA validation
+### Metrics and autoscaling validation
 
 After deploy, validate cluster metrics and autoscaling:
 
@@ -329,13 +329,18 @@ kubectl top nodes
 kubectl top pods -n tracecat
 kubectl get hpa -n tracecat
 kubectl describe hpa -n tracecat "$(kubectl get hpa -n tracecat -o name | sed -n '1p' | cut -d/ -f2)"
+kubectl get triggerauthentication.keda.sh -n tracecat
+kubectl get scaledobject.keda.sh -n tracecat
 ```
 
 Expected outcomes:
 
 - `v1beta1.metrics.k8s.io` is `Available=True`.
-- `api` and `ui` HPAs are present when autoscaling variables are enabled.
+- `api` and `ui` HPAs are present (enabled by EKS module defaults).
 - API HPA minimum replicas is `2` or greater.
+- KEDA `ScaledObject`s are present for `worker`, `executor`, and `agent-executor` in both `temporal_mode=self-hosted` and `temporal_mode=cloud`.
+- In `temporal_mode=self-hosted` with no Temporal auth source, no KEDA `TriggerAuthentication` is rendered and `ScaledObject`s omit `authenticationRef`.
+- In `temporal_mode=cloud`, Temporal auth is required for autoscaling and KEDA `TriggerAuthentication` is rendered from the configured auth source.
 
 Note: these settings are EKS/Kubernetes-specific. The Terraform Fargate deployment in `deployments/fargate/` remains unchanged.
 
@@ -471,6 +476,8 @@ export TF_VAR_elasticache_node_type="cache.r7g.xlarge"
 
 To connect to an external Temporal cluster (cloud or self-hosted), set `temporal_mode` to `cloud`.
 Then configure the Temporal cluster URL, namespace, and API key (if required).
+
+The EKS module always enables KEDA autoscaling for `worker`, `executor`, and `agent-executor` (`keda.enabled=true` and component autoscaling toggles enabled). In `temporal_mode=self-hosted`, Temporal autoscaling works without API-key auth. In `temporal_mode=cloud`, Temporal auth remains required; the chart prefers ESO/Kubernetes secret auth and keeps an IRSA-backed AWS Secrets Manager fallback path for KEDA TriggerAuthentication.
 
 Create an API key (if required) and store it in AWS Secrets Manager.
 ```bash

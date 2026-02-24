@@ -246,6 +246,9 @@ metricsServer:
   # Optional extra args for metrics-server (for example --kubelet-insecure-tls).
   args: []
 
+keda:
+  enabled: false
+
 ui:
   replicas: 1
   autoscaling:
@@ -322,6 +325,15 @@ api:
 
 worker:
   replicas: 4
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 8
+    pollingInterval: 10
+    cooldownPeriod: 120
+    targetQueueSize: 5
+    activationTargetQueueSize: 0
+    queueTypes: "workflow,activity"
   resources:
     requests:
       cpu: "2000m"
@@ -335,6 +347,15 @@ worker:
 
 executor:
   replicas: 4
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 8
+    pollingInterval: 10
+    cooldownPeriod: 120
+    targetQueueSize: 5
+    activationTargetQueueSize: 0
+    queueTypes: "workflow,activity"
   # Executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default)
   backend: "ephemeral"
   resources:
@@ -352,6 +373,15 @@ executor:
 
 agentExecutor:
   replicas: 2
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 8
+    pollingInterval: 10
+    cooldownPeriod: 120
+    targetQueueSize: 5
+    activationTargetQueueSize: 0
+    queueTypes: "workflow,activity"
   backend: "ephemeral"
   resources:
     requests:
@@ -494,6 +524,10 @@ externalTemporal:
     existingSecret: null  # Contains `apiKey` (raw string)
     # SecretString should be the raw API key.
     secretArn: null
+    kedaAwsSecretManager:
+      region: ""
+      secretKey: ""
+      version: ""
 
 # Stakater Reloader annotations for automatic pod restart on secret changes.
 # When enabled, pods automatically restart when their referenced secrets are updated.

@@ -29,3 +29,7 @@ dependencies:
     repository: https://kubernetes-sigs.github.io/metrics-server/
     alias: metricsServer
     condition: metricsServer.enabled
+  - name: keda
+    version: "2.19.0"
+    repository: https://kedacore.github.io/charts
+    condition: keda.enabled

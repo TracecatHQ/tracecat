@@ -605,6 +605,55 @@ resource "aws_iam_role_policy" "temporal_s3" {
   })
 }
 
+# KEDA operator IAM role (IRSA) for Temporal API key fallback auth
+resource "aws_iam_role" "keda_operator_temporal_secret" {
+  count = var.temporal_mode == "cloud" && var.temporal_secret_arn != "" ? 1 : 0
+  name  = "${var.cluster_name}-keda-operator-temporal-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Federated = aws_iam_openid_connect_provider.eks.arn
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = "system:serviceaccount:${kubernetes_namespace.tracecat.metadata[0].name}:keda-operator"
+            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" = "sts.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy" "keda_operator_temporal_secret" {
+  count = var.temporal_mode == "cloud" && var.temporal_secret_arn != "" ? 1 : 0
+  name  = "${var.cluster_name}-keda-operator-temporal-policy"
+  role  = aws_iam_role.keda_operator_temporal_secret[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret"
+        ]
+        Resource = [
+          var.temporal_secret_arn
+        ]
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role_policy" "tracecat_s3" {
   name = "${var.cluster_name}-tracecat-s3-policy"
   role = aws_iam_role.tracecat_s3.id

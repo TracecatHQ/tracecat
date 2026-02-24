@@ -1,0 +1,36 @@
+{{- if eq (include "tracecat.temporalAutoscalingEnabled" . | trim) "true" }}
+{{- include "tracecat.validateTemporalAutoscaling" . -}}
+{{- $temporalKedaHasAuthSource := eq (include "tracecat.temporalKedaHasAuthSource" . | trim) "true" -}}
+{{- if $temporalKedaHasAuthSource }}
+{{- $temporalSecretName := include "tracecat.secrets.temporalName" . | trim -}}
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "tracecat.temporalKedaTriggerAuthName" . }}
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+spec:
+  {{- if $temporalSecretName }}
+  secretTargetRef:
+    - parameter: apiKey
+      name: {{ $temporalSecretName }}
+      key: apiKey
+  {{- else }}
+  podIdentity:
+    provider: aws
+  awsSecretManager:
+    {{- if .Values.externalTemporal.auth.kedaAwsSecretManager.region }}
+    region: {{ .Values.externalTemporal.auth.kedaAwsSecretManager.region | quote }}
+    {{- end }}
+    secrets:
+      - parameter: apiKey
+        name: {{ .Values.externalTemporal.auth.secretArn | quote }}
+        {{- if .Values.externalTemporal.auth.kedaAwsSecretManager.secretKey }}
+        secretKey: {{ .Values.externalTemporal.auth.kedaAwsSecretManager.secretKey | quote }}
+        {{- end }}
+        {{- if .Values.externalTemporal.auth.kedaAwsSecretManager.version }}
+        versionStage: {{ .Values.externalTemporal.auth.kedaAwsSecretManager.version | quote }}
+        {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}
