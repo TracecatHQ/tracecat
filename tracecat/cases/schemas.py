@@ -47,6 +47,19 @@ class CaseReadMinimal(Schema):
     num_tasks_total: int = Field(default=0)
 
 
+class CaseStatusGroupCounts(Schema):
+    new: int = 0
+    in_progress: int = 0
+    on_hold: int = 0
+    resolved: int = 0
+    other: int = 0
+
+
+class CaseSearchAggregateRead(Schema):
+    total: int
+    status_groups: CaseStatusGroupCounts
+
+
 class CaseRead(Schema):
     id: uuid.UUID
     short_id: str

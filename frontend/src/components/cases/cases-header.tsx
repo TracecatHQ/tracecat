@@ -296,6 +296,7 @@ interface FilterMultiSelectProps<T extends string> {
   sortDirection?: SortDirection
   /** Callback when sort direction changes */
   onSortDirectionChange?: (direction: SortDirection) => void
+  allowExclude?: boolean
 }
 
 function FilterMultiSelect<T extends string>({
@@ -312,6 +313,7 @@ function FilterMultiSelect<T extends string>({
   showSort = false,
   sortDirection = null,
   onSortDirectionChange,
+  allowExclude = true,
 }: FilterMultiSelectProps<T>) {
   const [open, setOpen] = useState(false)
   const valueSet = useMemo(() => new Set(value), [value])
@@ -367,7 +369,10 @@ function FilterMultiSelect<T extends string>({
             {mode === "exclude" ? "Excluding" : "Including"}
           </span>
           <div className="flex items-center gap-0.5">
-            {(["include", "exclude"] as FilterMode[]).map((option) => (
+            {(allowExclude
+              ? (["include", "exclude"] as FilterMode[])
+              : (["include"] as FilterMode[])
+            ).map((option) => (
               <button
                 key={option}
                 type="button"
@@ -539,6 +544,7 @@ interface CasesHeaderProps {
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
   // Selection props
   totalCaseCount?: number
+  displayCaseCount?: number | null
   selectedCount?: number
   onSelectAll?: () => void
   onDeselectAll?: () => void
@@ -587,6 +593,7 @@ export function CasesHeader({
   onDropdownModeChange,
   onDropdownSortDirectionChange,
   totalCaseCount = 0,
+  displayCaseCount = null,
   selectedCount = 0,
   onSelectAll,
   onDeselectAll,
@@ -740,10 +747,10 @@ export function CasesHeader({
           />
         </div>
 
-        {totalCaseCount > 0 && (
+        {(displayCaseCount ?? totalCaseCount) > 0 && (
           <div className="ml-auto flex items-center gap-2">
             <span className="text-xs text-muted-foreground">
-              {totalCaseCount} cases
+              {displayCaseCount ?? totalCaseCount} cases
             </span>
           </div>
         )}
@@ -825,6 +832,7 @@ export function CasesHeader({
           options={assigneeOptions}
           mode={assigneeMode}
           onModeChange={onAssigneeModeChange}
+          allowExclude={false}
           showSort
           sortDirection={assigneeSortDirection}
           onSortDirectionChange={onAssigneeSortDirectionChange}
@@ -843,6 +851,7 @@ export function CasesHeader({
           options={tagOptions}
           mode={tagMode}
           onModeChange={onTagModeChange}
+          allowExclude={false}
           showSort
           sortDirection={tagSortDirection}
           onSortDirectionChange={onTagSortDirectionChange}
@@ -911,6 +920,7 @@ export function CasesHeader({
               options={options}
               mode={state.mode}
               onModeChange={(mode) => onDropdownModeChange(def.ref, mode)}
+              allowExclude={false}
               showSort={def.is_ordered}
               sortDirection={state.sortDirection}
               onSortDirectionChange={(dir) =>

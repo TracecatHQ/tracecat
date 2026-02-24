@@ -38,6 +38,12 @@ export default function CasesPage() {
     setUpdatedAfter,
     setCreatedAfter,
     totalFilteredCaseEstimate,
+    stageCounts,
+    isCountsLoading,
+    isCountsFetching,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
   } = useCases()
 
   const { members } = useWorkspaceMembers(workspaceId)
@@ -88,6 +94,12 @@ export default function CasesPage() {
         onDropdownModeChange={setDropdownMode}
         onDropdownSortDirectionChange={setDropdownSortDirection}
         totalFilteredCaseEstimate={totalFilteredCaseEstimate}
+        stageCounts={stageCounts}
+        isCountsLoading={isCountsLoading}
+        isCountsFetching={isCountsFetching}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        onLoadMore={fetchNextPage}
         refetch={refetch}
       />
     </div>

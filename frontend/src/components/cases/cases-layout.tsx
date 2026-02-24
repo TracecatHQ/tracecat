@@ -6,6 +6,7 @@ import {
   type CaseDropdownDefinitionRead,
   type CasePriority,
   type CaseReadMinimal,
+  type CaseSearchAggregateRead,
   type CaseSeverity,
   type CaseStatus,
   type CaseTagRead,
@@ -56,6 +57,12 @@ interface CasesLayoutProps {
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
   totalFilteredCaseEstimate: number | null
+  stageCounts: CaseSearchAggregateRead["status_groups"] | null
+  isCountsLoading: boolean
+  isCountsFetching: boolean
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
+  onLoadMore: () => void
   refetch?: () => void
 }
 
@@ -88,6 +95,12 @@ export function CasesLayout({
   onDropdownModeChange,
   onDropdownSortDirectionChange,
   totalFilteredCaseEstimate,
+  stageCounts,
+  isCountsLoading,
+  isCountsFetching,
+  hasNextPage,
+  isFetchingNextPage,
+  onLoadMore,
   refetch,
 }: CasesLayoutProps) {
   const workspaceId = useWorkspaceId()
@@ -287,6 +300,7 @@ export function CasesLayout({
     onDropdownModeChange,
     onDropdownSortDirectionChange,
     totalCaseCount: cases.length,
+    displayCaseCount: totalFilteredCaseEstimate,
     selectedCount: selectedCaseIds.size,
     onSelectAll: handleSelectAll,
     onDeselectAll: handleDeselectAll,
@@ -351,6 +365,12 @@ export function CasesLayout({
             statusFilter={filters.statusFilter}
             statusMode={filters.statusMode}
             totalFilteredCaseEstimate={totalFilteredCaseEstimate}
+            stageCounts={stageCounts}
+            isCountsLoading={isCountsLoading}
+            isCountsFetching={isCountsFetching}
+            hasNextPage={hasNextPage}
+            isFetchingNextPage={isFetchingNextPage}
+            onLoadMore={onLoadMore}
           />
         </div>
       </div>
