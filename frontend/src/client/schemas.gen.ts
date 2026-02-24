@@ -10137,6 +10137,132 @@ export const $InteractionType = {
   title: "InteractionType",
 } as const
 
+export const $InvitationAccept = {
+  properties: {
+    token: {
+      type: "string",
+      title: "Token",
+    },
+  },
+  type: "object",
+  required: ["token"],
+  title: "InvitationAccept",
+  description:
+    "Request body for accepting any invitation (org or workspace) via token.",
+} as const
+
+export const $InvitationReadMinimal = {
+  properties: {
+    invitation_id: {
+      type: "string",
+      format: "uuid",
+      title: "Invitation Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    organization_name: {
+      type: "string",
+      title: "Organization Name",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Name",
+    },
+    inviter_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Name",
+    },
+    inviter_email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inviter Email",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    role_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Slug",
+    },
+    status: {
+      $ref: "#/components/schemas/InvitationStatus",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+    email_matches: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Email Matches",
+    },
+  },
+  type: "object",
+  required: [
+    "invitation_id",
+    "organization_id",
+    "organization_name",
+    "role_name",
+    "status",
+    "expires_at",
+  ],
+  title: "InvitationReadMinimal",
+  description: `Public token-lookup response for both org and workspace invitations.
+
+The frontend uses this to render the accept page. When \`workspace_id\` is
+present the invitation is workspace-scoped; otherwise it is org-scoped.`,
+} as const
+
 export const $InvitationStatus = {
   type: "string",
   enum: ["pending", "accepted", "revoked"],
@@ -10669,20 +10795,6 @@ export const $OrgDomainUpdate = {
   description: "Update organization domain request.",
 } as const
 
-export const $OrgInvitationAccept = {
-  properties: {
-    token: {
-      type: "string",
-      title: "Token",
-    },
-  },
-  type: "object",
-  required: ["token"],
-  title: "OrgInvitationAccept",
-  description:
-    "Request body for accepting an organization invitation via token.",
-} as const
-
 export const $OrgInvitationCreate = {
   properties: {
     email: {
@@ -10800,91 +10912,6 @@ export const $OrgInvitationRead = {
   ],
   title: "OrgInvitationRead",
   description: "Response model for organization invitation.",
-} as const
-
-export const $OrgInvitationReadMinimal = {
-  properties: {
-    organization_id: {
-      type: "string",
-      format: "uuid",
-      title: "Organization Id",
-    },
-    organization_name: {
-      type: "string",
-      title: "Organization Name",
-    },
-    inviter_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Inviter Name",
-    },
-    inviter_email: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Inviter Email",
-    },
-    role_name: {
-      type: "string",
-      title: "Role Name",
-    },
-    role_slug: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Role Slug",
-    },
-    status: {
-      $ref: "#/components/schemas/InvitationStatus",
-    },
-    expires_at: {
-      type: "string",
-      format: "date-time",
-      title: "Expires At",
-    },
-    email_matches: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Email Matches",
-    },
-  },
-  type: "object",
-  required: [
-    "organization_id",
-    "organization_name",
-    "inviter_name",
-    "inviter_email",
-    "role_name",
-    "status",
-    "expires_at",
-  ],
-  title: "OrgInvitationReadMinimal",
-  description: `Minimal response for public token-based invitation lookup.
-
-Excludes sensitive fields like email, invited_by ID, and timestamps
-to reduce information disclosure when querying by token.`,
 } as const
 
 export const $OrgMemberDetail = {
@@ -21955,19 +21982,6 @@ export const $WorkspaceCreate = {
   title: "WorkspaceCreate",
 } as const
 
-export const $WorkspaceInvitationAccept = {
-  properties: {
-    token: {
-      type: "string",
-      title: "Token",
-    },
-  },
-  type: "object",
-  required: ["token"],
-  title: "WorkspaceInvitationAccept",
-  description: "Request body for accepting a workspace invitation via token.",
-} as const
-
 export const $WorkspaceInvitationCreate = {
   properties: {
     email: {
@@ -22086,81 +22100,6 @@ export const $WorkspaceInvitationRead = {
   ],
   title: "WorkspaceInvitationRead",
   description: "Response schema for a workspace invitation.",
-} as const
-
-export const $WorkspaceInvitationReadMinimal = {
-  properties: {
-    workspace_id: {
-      type: "string",
-      format: "uuid",
-      title: "Workspace Id",
-    },
-    workspace_name: {
-      type: "string",
-      title: "Workspace Name",
-    },
-    organization_name: {
-      type: "string",
-      title: "Organization Name",
-    },
-    inviter_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Inviter Name",
-    },
-    inviter_email: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Inviter Email",
-    },
-    role_name: {
-      type: "string",
-      title: "Role Name",
-    },
-    status: {
-      $ref: "#/components/schemas/InvitationStatus",
-    },
-    expires_at: {
-      type: "string",
-      format: "date-time",
-      title: "Expires At",
-    },
-    email_matches: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Email Matches",
-    },
-  },
-  type: "object",
-  required: [
-    "workspace_id",
-    "workspace_name",
-    "organization_name",
-    "role_name",
-    "status",
-    "expires_at",
-  ],
-  title: "WorkspaceInvitationReadMinimal",
-  description:
-    "Public token lookup response for workspace invitation acceptance page.",
 } as const
 
 export const $WorkspaceMember = {

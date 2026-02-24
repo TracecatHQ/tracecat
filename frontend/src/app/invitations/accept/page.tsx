@@ -1,16 +1,11 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertCircle, CheckCircle2, Clock, UserPlus, UserX } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import { Suspense } from "react"
-import {
-  organizationAcceptInvitation,
-  organizationGetInvitationByToken,
-} from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
@@ -23,58 +18,25 @@ import {
 } from "@/components/ui/card"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
+import {
+  useAcceptInvitation,
+  useInvitationByToken,
+} from "@/hooks/use-invitations"
 
 function AcceptInvitationContent() {
   const searchParams = useSearchParams()
   const token = searchParams?.get("token") ?? null
   const router = useRouter()
-  const queryClient = useQueryClient()
   const { user, userIsLoading } = useAuth()
   const { logout } = useAuthActions()
 
-  // Fetch invitation details
+  const acceptInvitation = useAcceptInvitation()
+
   const {
     data: invitation,
     isLoading: invitationIsLoading,
     error: invitationError,
-  } = useQuery({
-    queryKey: ["invitation", token],
-    queryFn: async () => {
-      if (!token) {
-        throw new Error("No invitation token provided")
-      }
-      return await organizationGetInvitationByToken({ token })
-    },
-    enabled: !!token,
-    retry: false,
-  })
-
-  // Accept invitation mutation
-  const acceptMutation = useMutation({
-    mutationFn: async () => {
-      if (!token) {
-        throw new Error("No invitation token")
-      }
-      return await organizationAcceptInvitation({
-        requestBody: { token },
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["auth"] })
-      toast({
-        title: "Invitation accepted",
-        description: `You've joined ${invitation?.organization_name}`,
-      })
-      router.push("/workspaces")
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Failed to accept invitation",
-        description: error.message,
-        variant: "destructive",
-      })
-    },
-  })
+  } = useInvitationByToken(token)
 
   // No token provided
   if (!token) {
@@ -110,8 +72,8 @@ function AcceptInvitationContent() {
           <AlertCircle className="mb-4 size-12 text-destructive" />
           <CardTitle>Invitation not found</CardTitle>
           <CardDescription>
-            This invitation may have expired or been revoked. Please contact the
-            organization administrator for a new invitation.
+            This invitation may have expired or been revoked. Please contact
+            your administrator for a new invitation.
           </CardDescription>
         </CardHeader>
         <CardFooter className="justify-center">
@@ -122,6 +84,41 @@ function AcceptInvitationContent() {
       </Card>
     )
   }
+
+  const isWorkspace = invitation.workspace_id != null
+  const organizationName = invitation.organization_name
+  const workspaceName = invitation.workspace_name
+  const targetLabel = isWorkspace
+    ? `the ${workspaceName} workspace`
+    : organizationName
+  const adminLabel = isWorkspace ? "workspace" : "organization"
+
+  const handleAccept = () => {
+    acceptInvitation.mutate(token, {
+      onSuccess: () => {
+        toast({
+          title: "Invitation accepted",
+          description: isWorkspace
+            ? `You've joined the ${workspaceName} workspace`
+            : `You've joined ${organizationName}`,
+        })
+        if (isWorkspace && invitation.workspace_id) {
+          router.push(`/${invitation.workspace_id}`)
+        } else {
+          router.push("/workspaces")
+        }
+      },
+      onError: (error: Error) => {
+        toast({
+          title: "Failed to accept invitation",
+          description: error.message,
+          variant: "destructive",
+        })
+      },
+    })
+  }
+
+  const isPending = acceptInvitation.isPending
 
   // Invitation already accepted
   if (invitation.status === "accepted") {
@@ -151,7 +148,7 @@ function AcceptInvitationContent() {
           <AlertCircle className="mb-4 size-12 text-destructive" />
           <CardTitle>Invitation revoked</CardTitle>
           <CardDescription>
-            This invitation has been revoked. Please contact the organization
+            This invitation has been revoked. Please contact the {adminLabel}{" "}
             administrator for a new invitation.
           </CardDescription>
         </CardHeader>
@@ -176,7 +173,7 @@ function AcceptInvitationContent() {
           <CardTitle>Invitation expired</CardTitle>
           <CardDescription>
             This invitation expired on {expiresAt.toLocaleDateString()}. Please
-            contact the organization administrator for a new invitation.
+            contact the {adminLabel} administrator for a new invitation.
           </CardDescription>
         </CardHeader>
         <CardFooter className="justify-center">
@@ -200,14 +197,27 @@ function AcceptInvitationContent() {
             {invitation.inviter_name ? (
               <>
                 <strong>{invitation.inviter_name}</strong> has invited you to
-                join <strong>{invitation.organization_name}</strong> as a{" "}
-                <strong>{invitation.role_name}</strong>.
+                join {isWorkspace ? "the " : ""}
+                <strong>{targetLabel}</strong>
+                {isWorkspace && (
+                  <>
+                    {" "}
+                    in <strong>{organizationName}</strong>
+                  </>
+                )}{" "}
+                as a <strong>{invitation.role_name}</strong>.
               </>
             ) : (
               <>
-                You&apos;ve been invited to join{" "}
-                <strong>{invitation.organization_name}</strong> as a{" "}
-                <strong>{invitation.role_name}</strong>.
+                You&apos;ve been invited to join {isWorkspace ? "the " : ""}
+                <strong>{targetLabel}</strong>
+                {isWorkspace && (
+                  <>
+                    {" "}
+                    in <strong>{organizationName}</strong>
+                  </>
+                )}{" "}
+                as a <strong>{invitation.role_name}</strong>.
               </>
             )}
           </CardDescription>
@@ -217,10 +227,14 @@ function AcceptInvitationContent() {
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Organization</span>
-                <span className="font-medium">
-                  {invitation.organization_name}
-                </span>
+                <span className="font-medium">{organizationName}</span>
               </div>
+              {workspaceName && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Workspace</span>
+                  <span className="font-medium">{workspaceName}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Role</span>
                 <span className="font-medium capitalize">
@@ -279,12 +293,18 @@ function AcceptInvitationContent() {
         <CardContent className="space-y-4">
           <div className="rounded-lg border bg-muted/50 p-4">
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Organization</span>
-                <span className="font-medium">
-                  {invitation.organization_name}
-                </span>
-              </div>
+              {workspaceName && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Workspace</span>
+                  <span className="font-medium">{workspaceName}</span>
+                </div>
+              )}
+              {!isWorkspace && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Organization</span>
+                  <span className="font-medium">{organizationName}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Signed in as</span>
                 <span className="font-medium">{user.email}</span>
@@ -315,16 +335,18 @@ function AcceptInvitationContent() {
     <Card className="w-full max-w-md">
       <CardHeader className="items-center text-center">
         <UserPlus className="mb-4 size-12 text-primary" />
-        <CardTitle>Join {invitation.organization_name}</CardTitle>
+        <CardTitle>Join {targetLabel}</CardTitle>
         <CardDescription>
           {invitation.inviter_name ? (
             <>
               <strong>{invitation.inviter_name}</strong> has invited you to join
-              this organization as a <strong>{invitation.role_name}</strong>.
+              {isWorkspace ? " this workspace" : " this organization"} as a{" "}
+              <strong>{invitation.role_name}</strong>.
             </>
           ) : (
             <>
-              You&apos;ve been invited to join this organization as a{" "}
+              You&apos;ve been invited to join
+              {isWorkspace ? " this workspace" : " this organization"} as a{" "}
               <strong>{invitation.role_name}</strong>.
             </>
           )}
@@ -335,10 +357,14 @@ function AcceptInvitationContent() {
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Organization</span>
-              <span className="font-medium">
-                {invitation.organization_name}
-              </span>
+              <span className="font-medium">{organizationName}</span>
             </div>
+            {workspaceName && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Workspace</span>
+                <span className="font-medium">{workspaceName}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-muted-foreground">Role</span>
               <span className="font-medium capitalize">
@@ -361,12 +387,8 @@ function AcceptInvitationContent() {
         </div>
       </CardContent>
       <CardFooter className="flex-col gap-3">
-        <Button
-          className="w-full"
-          onClick={() => acceptMutation.mutate()}
-          disabled={acceptMutation.isPending}
-        >
-          {acceptMutation.isPending ? "Accepting..." : "Accept invitation"}
+        <Button className="w-full" onClick={handleAccept} disabled={isPending}>
+          {isPending ? "Accepting..." : "Accept invitation"}
         </Button>
         <Button asChild variant="ghost" className="w-full">
           <Link href="/workspaces">Decline</Link>

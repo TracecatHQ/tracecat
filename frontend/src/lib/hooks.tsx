@@ -130,6 +130,7 @@ import {
   integrationsListIntegrations,
   integrationsTestConnection,
   integrationsUpdateIntegration,
+  invitationsRevokeInvitation,
   type MCPIntegrationCreate,
   type MCPIntegrationRead,
   type MCPIntegrationUpdate,
@@ -151,7 +152,6 @@ import {
   organizationDeleteSession,
   organizationListOrgMembers,
   organizationListSessions,
-  organizationRevokeInvitation,
   organizationSecretsCreateOrgSecret,
   organizationSecretsDeleteOrgSecretById,
   organizationSecretsListOrgSecrets,
@@ -2204,7 +2204,7 @@ export function useOrgMembers() {
 
   const { mutateAsync: revokeInvitation } = useMutation({
     mutationFn: async (invitationId: string) =>
-      await organizationRevokeInvitation({ invitationId }),
+      await invitationsRevokeInvitation({ invitationId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
       toast({

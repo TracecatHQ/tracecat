@@ -5,8 +5,8 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   ApiError,
+  invitationsGetInvitationToken,
   type WorkspaceRead,
-  workspacesGetWorkspaceInvitationToken,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
@@ -104,15 +104,14 @@ export function AddWorkspaceMember({
         // invitation_created — build the invite link
         let token = result.invitation?.token
         if (!token && result.invitation) {
-          const tokenResponse = await workspacesGetWorkspaceInvitationToken({
-            workspaceId: workspace.id,
+          const tokenResponse = await invitationsGetInvitationToken({
             invitationId: result.invitation.id,
           })
           token = tokenResponse.token
         }
         if (token) {
           setInviteLink(
-            `${window.location.origin}/invitations/workspace/accept?token=${token}`
+            `${window.location.origin}/invitations/accept?token=${token}`
           )
         }
         setDialogState("success_invitation")

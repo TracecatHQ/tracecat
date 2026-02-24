@@ -10,7 +10,6 @@ from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.inbox import router as inbox_router
 from tracecat.integrations import router as integrations_router
-from tracecat.organization import router as organization_router
 from tracecat.registry.repositories import router as registry_repos_router
 from tracecat.tables import router as tables_router
 from tracecat.vcs import router as vcs_router
@@ -103,19 +102,6 @@ async def test_table_update_row_requires_table_update_scope() -> None:
     ],
 )
 async def test_inbox_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:
-    await _assert_endpoint_requires_scope(endpoint, required_scope)
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("endpoint", "required_scope"),
-    [
-        (organization_router.revoke_invitation, "org:member:invite"),
-    ],
-)
-async def test_organization_invitation_scope_guards(
-    endpoint: AsyncEndpoint, required_scope: str
-) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
 
 

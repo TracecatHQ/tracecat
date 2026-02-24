@@ -54,6 +54,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import OrganizationID
+from tracecat.invitations.service import accept_invitation_for_user
 from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
 from tracecat.settings.service import get_setting
@@ -344,9 +345,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         Errors during invitation acceptance are logged but do NOT fail registration.
         This ensures users can still register even if the invitation is invalid/expired.
         """
-        # Import here to avoid circular import
-        from tracecat.invitations.service import accept_org_invitation_for_user
-
         token = self._pending_invitation_token
         self._pending_invitation_token = None  # Clear to prevent reuse
 
@@ -355,14 +353,11 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
         try:
             async with get_async_session_context_manager() as session:
-                membership = await accept_org_invitation_for_user(
-                    session, user_id=user.id, token=token
-                )
+                await accept_invitation_for_user(session, user_id=user.id, token=token)
                 self.logger.info(
                     "Invitation accepted during registration",
                     user_id=str(user.id),
                     email=user.email,
-                    org_id=str(membership.organization_id),
                 )
         except TracecatNotFoundError:
             self.logger.warning(
