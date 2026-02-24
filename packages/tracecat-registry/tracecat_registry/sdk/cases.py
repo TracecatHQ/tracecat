@@ -18,7 +18,6 @@ from tracecat_registry.sdk.types import (
 
 if TYPE_CHECKING:
     from tracecat_registry.sdk.client import TracecatClient
-    from tracecat_ee.cases.types import CaseDurationMetric
 
 
 class CasesClient:
@@ -794,7 +793,7 @@ class CasesClient:
     async def get_case_metrics(
         self,
         case_ids: list[str],
-    ) -> list["CaseDurationMetric"]:
+    ) -> list[types.CaseDurationMetric]:
         """Get case metrics as time-series for the provided case IDs.
 
         Args:

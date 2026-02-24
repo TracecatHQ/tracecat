@@ -9,7 +9,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.enums import CaseEventType
+from tracecat.cases.tags.schemas import CaseTagRead
 
 
 class CaseDurationAnchorSelection(StrEnum):
@@ -191,3 +193,17 @@ class CaseDurationMetric(BaseModel):
     # Case identifiers (high cardinality - for drill-down/lookups)
     case_id: str = Field(..., description="Case UUID for lookups")
     case_short_id: str = Field(..., description="Human-readable case identifier")
+
+    # Case details
+    fields: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Case custom fields and their values.",
+    )
+    tags: list[CaseTagRead] = Field(
+        default_factory=list,
+        description="Case tags.",
+    )
+    dropdown_values: list[CaseDropdownValueRead] = Field(
+        default_factory=list,
+        description="Case dropdown selections with definition and option info.",
+    )

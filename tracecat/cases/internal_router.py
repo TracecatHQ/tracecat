@@ -20,6 +20,8 @@ from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.users import search_users
 from tracecat.authz.controls import require_scope
+from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
+from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.durations.schemas import CaseDurationMetric
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
@@ -56,6 +58,7 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
+from tracecat.tiers.enums import Entitlement
 
 router = APIRouter(
     prefix="/internal/cases", tags=["internal-cases"], include_in_schema=False
@@ -64,6 +67,18 @@ router = APIRouter(
 # Sub-routers for feature-gated routes (service-layer entitlement checks)
 task_router = APIRouter()
 duration_router = APIRouter()
+
+
+async def _list_case_dropdown_values(
+    *,
+    session: AsyncDBSession,
+    role: ExecutorWorkspaceRole,
+    case_id: uuid.UUID,
+) -> list[CaseDropdownValueRead]:
+    dropdown_service = CaseDropdownValuesService(session, role)
+    if not await dropdown_service.has_entitlement(Entitlement.CASE_ADDONS):
+        return []
+    return await dropdown_service.list_values_for_case(case_id)
 
 
 @router.get("")
@@ -291,6 +306,9 @@ async def get_case(
     tag_reads = [
         CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
     ]
+    dropdown_reads = await _list_case_dropdown_values(
+        session=session, role=role, case_id=case.id
+    )
 
     return CaseRead(
         id=case.id,
@@ -308,6 +326,7 @@ async def get_case(
         fields=final_fields,
         payload=case.payload,
         tags=tag_reads,
+        dropdown_values=dropdown_reads,
     )
 
 
@@ -350,6 +369,9 @@ async def create_case(
     tag_reads = [
         CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
     ]
+    dropdown_reads = await _list_case_dropdown_values(
+        session=session, role=role, case_id=case.id
+    )
 
     return CaseRead(
         id=case.id,
@@ -367,6 +389,7 @@ async def create_case(
         fields=final_fields,
         payload=case.payload,
         tags=tag_reads,
+        dropdown_values=dropdown_reads,
     )
 
 
@@ -423,6 +446,9 @@ async def update_case(
         CaseTagRead.model_validate(tag, from_attributes=True)
         for tag in updated_case.tags
     ]
+    dropdown_reads = await _list_case_dropdown_values(
+        session=session, role=role, case_id=updated_case.id
+    )
 
     return CaseRead(
         id=updated_case.id,
@@ -440,6 +466,7 @@ async def update_case(
         fields=final_fields,
         payload=updated_case.payload,
         tags=tag_reads,
+        dropdown_values=dropdown_reads,
     )
 
 
@@ -674,7 +701,17 @@ async def get_case_metrics(
     cases_service = CasesService(session, role)
     duration_service = CaseDurationService(session, role)
 
+    field_definitions = await cases_service.fields.list_fields()
+    field_schema = await cases_service.fields.get_field_schema()
+    field_templates = [
+        CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
+        for defn in field_definitions
+    ]
+
     cases = []
+    case_context: dict[
+        str, tuple[list[dict[str, Any]], list[CaseTagRead], list[CaseDropdownValueRead]]
+    ] = {}
     for case_id in params.case_ids:
         case = await cases_service.get_case(case_id)
         if case is None:
@@ -682,9 +719,51 @@ async def get_case_metrics(
                 status_code=HTTP_404_NOT_FOUND,
                 detail=f"Case with ID {case_id} not found",
             )
+
+        fields = await cases_service.fields.get_fields(case) or {}
+        field_reads = [
+            CaseFieldRead(
+                id=f.id,
+                type=f.type,
+                description=f.description,
+                nullable=f.nullable,
+                default=f.default,
+                reserved=f.reserved,
+                options=f.options,
+                value=fields.get(f.id),
+            )
+            for f in field_templates
+        ]
+        field_dicts = [field.model_dump() for field in field_reads]
+        tag_reads = [
+            CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
+        ]
+        dropdown_reads = await _list_case_dropdown_values(
+            session=session, role=role, case_id=case.id
+        )
+
+        case_context[str(case.id)] = (field_dicts, tag_reads, dropdown_reads)
         cases.append(case)
 
-    return await duration_service.compute_time_series(cases)
+    metrics = await duration_service.compute_time_series(cases)
+    enriched_metrics: list[CaseDurationMetric] = []
+    for metric in metrics:
+        context = case_context.get(metric.case_id)
+        if context is None:
+            enriched_metrics.append(metric)
+            continue
+        fields, tags, dropdown_values = context
+        enriched_metrics.append(
+            metric.model_copy(
+                update={
+                    "fields": fields,
+                    "tags": tags,
+                    "dropdown_values": dropdown_values,
+                }
+            )
+        )
+
+    return enriched_metrics
 
 
 @task_router.get("/{case_id}/tasks", status_code=HTTP_200_OK)

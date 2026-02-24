@@ -42,7 +42,7 @@ class CaseReadMinimal(Schema):
     severity: CaseSeverity
     assignee: UserRead | None = None
     tags: list[CaseTagRead] = Field(default_factory=list)
-    dropdown_values: list[CaseDropdownValueRead] = Field(default_factory=list)
+    dropdown_values: list[CaseDropdownValueRead]
     num_tasks_completed: int = Field(default=0)
     num_tasks_total: int = Field(default=0)
 
@@ -61,7 +61,7 @@ class CaseRead(Schema):
     assignee: UserRead | None = None
     payload: dict[str, Any] | None
     tags: list[CaseTagRead] = Field(default_factory=list)
-    dropdown_values: list[CaseDropdownValueRead] = Field(default_factory=list)
+    dropdown_values: list[CaseDropdownValueRead]
 
 
 class CaseCreate(Schema):
