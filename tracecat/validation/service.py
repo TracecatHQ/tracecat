@@ -297,7 +297,10 @@ async def validate_registry_action_args(
         try:
             if action_name == PlatformAction.CHILD_WORKFLOW_EXECUTE:
                 validated = ExecuteSubflowArgs.model_validate(args)
-            elif PlatformAction.is_interface(action_name):
+            elif (
+                PlatformAction.is_interface(action_name)
+                and action_name != PlatformAction.RUN_PYTHON
+            ):
                 # Other interface/platform actions (ai.action, ai.agent,
                 # scatter, gather, etc.) are handled by the workflow
                 # engine and don't have registry manifests. Skip

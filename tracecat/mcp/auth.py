@@ -6,6 +6,7 @@ import html
 import re
 import uuid
 
+import sqlalchemy
 from fastmcp.server.auth import AuthProvider, RemoteAuthProvider, TokenVerifier
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.auth.providers.introspection import (
@@ -14,6 +15,7 @@ from fastmcp.server.auth.providers.introspection import (
 from fastmcp.server.auth.providers.jwt import JWTVerifier
 from fastmcp.server.dependencies import get_access_token
 from pydantic import AnyHttpUrl, BaseModel, Field
+from sqlalchemy import or_ as sa_or
 from sqlalchemy import select
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
@@ -650,14 +652,45 @@ async def resolve_role_for_request(workspace_id: WorkspaceID) -> Role:
     if identity.workspace_ids and workspace_id not in identity.workspace_ids:
         raise ValueError("Workspace is outside the workspace scope for this MCP token")
 
-    # Require a user identity to resolve RBAC scopes
-    if not identity.email:
-        raise ValueError(
-            "MCP access requires a user identity. The token must include an "
-            "email claim to resolve the user's RBAC scopes."
-        )
+    # If the token carries an email, resolve per-user RBAC scopes.
+    # Otherwise (service principal), build a service role from the token's
+    # org/workspace claims — this is common for client-credentials flows
+    # where the token represents a machine identity without an email.
+    if identity.email:
+        return await resolve_role(identity.email, workspace_id)
 
-    return await resolve_role(identity.email, workspace_id)
+    role = Role(
+        type="service",
+        user_id=None,
+        workspace_id=workspace_id,
+        organization_id=workspace_org_id,
+        service_id="tracecat-mcp",
+    )
+    ctx_role.set(role)
+    return role
+
+
+async def _list_workspaces_by_scope(
+    identity: MCPTokenIdentity,
+) -> list[dict[str, str]]:
+    """List workspaces reachable via the token's org/workspace scope claims.
+
+    Used for service-principal tokens that don't carry an email claim.
+    """
+    async with get_async_session_context_manager() as session:
+        stmt = select(Workspace.id, Workspace.name).order_by(
+            Workspace.name.asc(), Workspace.id.asc()
+        )
+        conditions: list[sqlalchemy.ColumnElement[bool]] = []
+        if identity.workspace_ids:
+            conditions.append(Workspace.id.in_(identity.workspace_ids))
+        if identity.organization_ids:
+            conditions.append(Workspace.organization_id.in_(identity.organization_ids))
+        if not conditions:
+            return []
+        stmt = stmt.where(sa_or(*conditions))
+        result = await session.execute(stmt)
+        return [{"id": str(row.id), "name": row.name} for row in result.all()]
 
 
 async def list_workspaces_for_request() -> list[dict[str, str]]:
@@ -672,13 +705,13 @@ async def list_workspaces_for_request() -> list[dict[str, str]]:
         return await list_user_workspaces(email)
 
     identity = get_token_identity()
-    if not identity.email:
-        raise ValueError(
-            "MCP access requires a user identity. The token must include an "
-            "email claim to resolve the user's workspaces."
-        )
 
-    workspaces = await list_user_workspaces(identity.email)
+    if identity.email:
+        workspaces = await list_user_workspaces(identity.email)
+    else:
+        # Service principal without email — resolve workspaces from
+        # the token's scope claims directly.
+        workspaces = await _list_workspaces_by_scope(identity)
 
     # Narrow results to the token's scope boundaries
     if identity.workspace_ids:

@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from collections.abc import Callable, Coroutine
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import pytest
+import yaml
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.middleware import MiddlewareContext
 from fastmcp.tools.tool import ToolResult
@@ -27,6 +29,15 @@ mcp_auth.create_mcp_auth = lambda: None
 from tracecat.mcp import server as mcp_server  # noqa: E402
 
 
+def _tool(fn: Any) -> Callable[..., Coroutine[Any, Any, Any]]:
+    """Cast a FastMCP-decorated tool back to a callable for test invocation.
+
+    ``@mcp.tool()`` is typed as returning ``FunctionTool`` (not callable),
+    but at runtime it returns the original async function.
+    """
+    return cast(Callable[..., Coroutine[Any, Any, Any]], fn)
+
+
 class _AsyncContext:
     def __init__(self, value):
         self._value = value
@@ -44,7 +55,7 @@ async def test_validate_workflow_definition_yaml_valid(monkeypatch):
         return uuid.uuid4(), SimpleNamespace()
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    result = await mcp_server.validate_workflow_definition_yaml.fn(
+    result = await _tool(mcp_server.validate_workflow_definition_yaml)(
         workspace_id=str(uuid.uuid4()),
         definition_yaml="""
 definition:
@@ -69,7 +80,7 @@ async def test_validate_workflow_definition_yaml_extended_payload(monkeypatch):
         return uuid.uuid4(), SimpleNamespace()
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    result = await mcp_server.validate_workflow_definition_yaml.fn(
+    result = await _tool(mcp_server.validate_workflow_definition_yaml)(
         workspace_id=str(uuid.uuid4()),
         definition_yaml="""
 definition:
@@ -109,7 +120,7 @@ async def test_validate_workflow_definition_yaml_case_trigger_mode(monkeypatch):
         return uuid.uuid4(), SimpleNamespace()
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    result_patch = await mcp_server.validate_workflow_definition_yaml.fn(
+    result_patch = await _tool(mcp_server.validate_workflow_definition_yaml)(
         workspace_id=str(uuid.uuid4()),
         definition_yaml="""
 case_trigger:
@@ -117,7 +128,7 @@ case_trigger:
         """,
         update_mode="patch",
     )
-    result_replace = await mcp_server.validate_workflow_definition_yaml.fn(
+    result_replace = await _tool(mcp_server.validate_workflow_definition_yaml)(
         workspace_id=str(uuid.uuid4()),
         definition_yaml="""
 case_trigger:
@@ -135,9 +146,6 @@ case_trigger:
 
 @pytest.mark.anyio
 async def test_validate_workflow_returns_expression_details(monkeypatch):
-    async def _resolve_role(_email, _ws_id):
-        return SimpleNamespace()
-
     class _WorkflowService:
         def __init__(self) -> None:
             self.session = object()
@@ -169,15 +177,17 @@ async def test_validate_workflow_returns_expression_details(monkeypatch):
     def _with_session(*_args, **_kwargs):
         return _AsyncContext(_WorkflowService())
 
-    monkeypatch.setattr(mcp_server, "get_email_from_token", lambda: "alice@example.com")
-    monkeypatch.setattr(mcp_server, "resolve_role", _resolve_role)
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
         "tracecat.workflow.management.management.WorkflowsManagementService.with_session",
         _with_session,
     )
     monkeypatch.setattr(validation_service, "validate_dsl", _validate_dsl)
 
-    result = await mcp_server.validate_workflow.fn(
+    result = await _tool(mcp_server.validate_workflow)(
         workspace_id=str(uuid.uuid4()), workflow_id=str(uuid.uuid4())
     )
     payload = json.loads(result)
@@ -224,6 +234,205 @@ def test_auto_generate_layout_handles_cycles():
     assert len(layout["actions"]) == 3
 
 
+def test_extract_layout_positions_full():
+    layout_data = {
+        "trigger": {"x": 10, "y": 20},
+        "viewport": {"x": 30, "y": 40, "zoom": 1.5},
+        "actions": [
+            {"ref": "step1", "x": 100, "y": 200},
+            {"ref": "step2", "x": 300, "y": 400},
+        ],
+    }
+    trigger, viewport, actions = mcp_server._extract_layout_positions(layout_data)
+    assert trigger == (10, 20)
+    assert viewport == (30, 40, 1.5)
+    assert actions == {"step1": (100, 200), "step2": (300, 400)}
+
+
+def test_extract_layout_positions_none():
+    trigger, viewport, actions = mcp_server._extract_layout_positions(None)
+    assert trigger is None
+    assert viewport is None
+    assert actions is None
+
+
+def test_extract_layout_positions_partial():
+    layout_data = {
+        "trigger": {"x": 5},
+        "actions": [{"ref": "a", "y": 99}],
+    }
+    trigger, viewport, actions = mcp_server._extract_layout_positions(layout_data)
+    assert trigger == (5, 0.0)
+    assert viewport is None
+    assert actions == {"a": (0.0, 99)}
+
+
+def test_extract_layout_positions_nested_position_shape():
+    layout_data = {
+        "trigger": {"position": {"x": 10, "y": 20}},
+        "actions": [{"ref": "a", "position": {"x": 30, "y": 40}}],
+    }
+    trigger, viewport, actions = mcp_server._extract_layout_positions(layout_data)
+    assert trigger == (10, 20)
+    assert viewport is None
+    assert actions == {"a": (30, 40)}
+
+
+def test_auto_generate_layout_round_trips_through_extract():
+    """Auto-generated layout can be extracted into position tuples."""
+    actions = [
+        {"ref": "step1", "depends_on": []},
+        {"ref": "step2", "depends_on": ["step1"]},
+    ]
+    layout_data = mcp_server._auto_generate_layout(actions)
+    trigger, viewport, action_positions = mcp_server._extract_layout_positions(
+        layout_data
+    )
+    assert trigger == (0, 0)
+    assert viewport is None
+    assert action_positions is not None
+    assert "step1" in action_positions
+    assert "step2" in action_positions
+    # step1 at depth 0 → y=150, step2 at depth 1 → y=300
+    assert action_positions["step1"][1] == 150
+    assert action_positions["step2"][1] == 300
+
+
+@pytest.mark.anyio
+async def test_update_workflow_layout_only_does_not_null_metadata(monkeypatch):
+    """A layout-only update must not overwrite title/status with NULL."""
+
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    wf_id = uuid.uuid4()
+
+    # Track which attributes are set on the workflow object
+    setattr_calls: dict[str, object] = {}
+
+    class FakeWorkflow:
+        id = wf_id
+        title = "Original title"
+        description = "Original desc"
+        status = "online"
+        actions = [SimpleNamespace(ref="step_a", position_x=0.0, position_y=0.0)]
+
+        def __setattr__(self, name, value):
+            setattr_calls[name] = value
+            object.__setattr__(self, name, value)
+
+    fake_workflow = FakeWorkflow()
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = _FakeSession()
+
+        async def get_workflow(self, _wf_id):
+            return fake_workflow
+
+    class _FakeSession:
+        def add(self, obj):
+            pass
+
+        async def commit(self):
+            pass
+
+        async def refresh(self, obj, attrs=None):
+            pass
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    layout_yaml = """\
+layout:
+  trigger:
+    x: 10.0
+    y: 20.0
+  actions:
+    - ref: step_a
+      x: 100.0
+      y: 200.0
+"""
+
+    result = await _tool(mcp_server.update_workflow)(
+        workspace_id=str(uuid.uuid4()),
+        workflow_id=str(wf_id),
+        definition_yaml=layout_yaml,
+    )
+    payload = json.loads(result)
+    assert "updated successfully" in payload["message"]
+
+    # The metadata fields must NOT have been set via setattr
+    assert "title" not in setattr_calls
+    assert "description" not in setattr_calls
+    assert "status" not in setattr_calls
+
+
+@pytest.mark.anyio
+async def test_get_workflow_includes_layout_when_definition_build_fails(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = SimpleNamespace(
+        id=workflow_id,
+        title="Example workflow",
+        description="Example description",
+        status="offline",
+        version=None,
+        alias=None,
+        entrypoint=None,
+        trigger_position_x=12.0,
+        trigger_position_y=24.0,
+        viewport_x=3.0,
+        viewport_y=6.0,
+        viewport_zoom=0.5,
+        actions=[SimpleNamespace(ref="step_a", position_x=100.0, position_y=200.0)],
+        schedules=[],
+    )
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id):
+            return workflow
+
+        async def build_dsl_from_workflow(self, _workflow):
+            raise RuntimeError("dsl failed")
+
+    class _CaseTriggerService:
+        def __init__(self, _session, *, role):
+            self.role = role
+
+        async def get_case_trigger(self, _wf_id):
+            raise mcp_server.TracecatNotFoundError("not found")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+    monkeypatch.setattr(mcp_server, "CaseTriggersService", _CaseTriggerService)
+
+    result = await _tool(mcp_server.get_workflow)(
+        workspace_id=str(uuid.uuid4()),
+        workflow_id=str(workflow_id),
+    )
+
+    payload = json.loads(result)
+    assert payload["definition_yaml"] != ""
+    exported = yaml.safe_load(payload["definition_yaml"])
+    assert exported["definition_error"] == "dsl failed"
+    assert exported["layout"]["trigger"] == {"x": 12.0, "y": 24.0}
+    assert exported["layout"]["actions"] == [{"ref": "step_a", "x": 100.0, "y": 200.0}]
+
+
 def test_evaluate_configuration_prefers_workspace_secret_even_when_empty():
     requirements = [
         {
@@ -264,7 +473,7 @@ async def test_create_table_parses_columns_json(monkeypatch):
         lambda role: _AsyncContext(table_service),
     )
 
-    result = await mcp_server.create_table.fn(
+    result = await _tool(mcp_server.create_table)(
         workspace_id=str(uuid.uuid4()),
         name="ioc_table",
         columns_json='[{"name":"ioc","type":"TEXT","nullable":false}]',
@@ -318,7 +527,7 @@ async def test_get_action_context_includes_configuration(monkeypatch):
     )
     monkeypatch.setattr(mcp_server, "create_tool_from_registry", _create_tool)
 
-    result = await mcp_server.get_action_context.fn(
+    result = await _tool(mcp_server.get_action_context)(
         workspace_id=str(uuid.uuid4()),
         action_name="tools.slack.post_message",
     )
@@ -371,7 +580,7 @@ async def test_list_secrets_metadata_returns_keys_not_values(monkeypatch):
         lambda role: _AsyncContext(secret_service),
     )
 
-    result = await mcp_server.list_secrets_metadata.fn(
+    result = await _tool(mcp_server.list_secrets_metadata)(
         workspace_id=str(uuid.uuid4()),
         scope="both",
     )
@@ -404,7 +613,7 @@ async def test_create_case_parses_fields_and_payload_json(monkeypatch):
         lambda role: _AsyncContext(case_service),
     )
 
-    result = await mcp_server.create_case.fn(
+    result = await _tool(mcp_server.create_case)(
         workspace_id=str(uuid.uuid4()),
         summary="Suspicious login",
         description="Investigate user login anomaly",
@@ -454,7 +663,7 @@ async def test_update_schedule(monkeypatch):
         lambda role: _AsyncContext(schedule_service),
     )
 
-    result = await mcp_server.update_schedule.fn(
+    result = await _tool(mcp_server.update_schedule)(
         workspace_id=str(uuid.uuid4()),
         schedule_id=str(schedule_id),
         cron="0 12 * * *",
@@ -484,7 +693,7 @@ async def test_delete_schedule(monkeypatch):
         lambda role: _AsyncContext(schedule_service),
     )
 
-    result = await mcp_server.delete_schedule.fn(
+    result = await _tool(mcp_server.delete_schedule)(
         workspace_id=str(uuid.uuid4()),
         schedule_id=str(deleted_id),
     )
@@ -532,7 +741,7 @@ async def test_get_webhook(monkeypatch):
         lambda: _AsyncContext(SimpleNamespace()),
     )
 
-    result = await mcp_server.get_webhook.fn(
+    result = await _tool(mcp_server.get_webhook)(
         workspace_id=str(uuid.uuid4()),
         workflow_id=str(uuid.uuid4()),
     )
@@ -561,7 +770,7 @@ async def test_get_webhook_not_found(monkeypatch):
     )
 
     with pytest.raises(ToolError, match="Webhook not found"):
-        await mcp_server.get_webhook.fn(
+        await _tool(mcp_server.get_webhook)(
             workspace_id=str(uuid.uuid4()),
             workflow_id=str(uuid.uuid4()),
         )
@@ -605,7 +814,7 @@ async def test_create_webhook(monkeypatch):
     )
     monkeypatch.setattr("tracecat.db.models.Webhook", FakeWebhook)
 
-    result = await mcp_server.create_webhook.fn(
+    result = await _tool(mcp_server.create_webhook)(
         workspace_id=str(uuid.uuid4()),
         workflow_id=str(wf_id),
         status="offline",
@@ -650,7 +859,7 @@ async def test_update_webhook(monkeypatch):
         lambda: _AsyncContext(FakeSession()),
     )
 
-    result = await mcp_server.update_webhook.fn(
+    result = await _tool(mcp_server.update_webhook)(
         workspace_id=str(uuid.uuid4()),
         workflow_id=str(uuid.uuid4()),
         status="online",
@@ -658,6 +867,73 @@ async def test_update_webhook(monkeypatch):
     payload = json.loads(result)
     assert "updated successfully" in payload["message"]
     assert fake_webhook.status == "online"
+
+
+@pytest.mark.anyio
+async def test_delete_webhook(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace(workspace_id=uuid.uuid4())
+
+    deleted = []
+    fake_webhook = SimpleNamespace(id=uuid.uuid4())
+
+    async def _get_webhook(session, workspace_id, workflow_id):
+        return fake_webhook
+
+    class FakeSession:
+        async def delete(self, obj):
+            deleted.append(obj)
+
+        async def commit(self):
+            pass
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        "tracecat.webhooks.service.get_webhook",
+        _get_webhook,
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "get_async_session_context_manager",
+        lambda: _AsyncContext(FakeSession()),
+    )
+
+    result = await _tool(mcp_server.delete_webhook)(
+        workspace_id=str(uuid.uuid4()),
+        workflow_id=str(uuid.uuid4()),
+    )
+    payload = json.loads(result)
+    assert "deleted successfully" in payload["message"]
+    assert deleted == [fake_webhook]
+
+
+@pytest.mark.anyio
+async def test_delete_webhook_not_found(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace(workspace_id=uuid.uuid4())
+
+    async def _get_webhook(session, workspace_id, workflow_id):
+        return None
+
+    class FakeSession:
+        pass
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        "tracecat.webhooks.service.get_webhook",
+        _get_webhook,
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "get_async_session_context_manager",
+        lambda: _AsyncContext(FakeSession()),
+    )
+
+    with pytest.raises(ToolError, match="Webhook not found"):
+        await _tool(mcp_server.delete_webhook)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(uuid.uuid4()),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -690,7 +966,7 @@ async def test_get_case_trigger(monkeypatch):
         lambda role: _AsyncContext(ct_service),
     )
 
-    result = await mcp_server.get_case_trigger.fn(
+    result = await _tool(mcp_server.get_case_trigger)(
         workspace_id=str(uuid.uuid4()),
         workflow_id=str(uuid.uuid4()),
     )
@@ -719,7 +995,7 @@ async def test_get_case_trigger_not_found(monkeypatch):
     )
 
     with pytest.raises(ToolError, match="not found"):
-        await mcp_server.get_case_trigger.fn(
+        await _tool(mcp_server.get_case_trigger)(
             workspace_id=str(uuid.uuid4()),
             workflow_id=str(uuid.uuid4()),
         )
@@ -752,7 +1028,7 @@ async def test_create_case_trigger(monkeypatch):
         lambda role: _AsyncContext(ct_service),
     )
 
-    result = await mcp_server.create_case_trigger.fn(
+    result = await _tool(mcp_server.create_case_trigger)(
         workspace_id=str(uuid.uuid4()),
         workflow_id=str(uuid.uuid4()),
         status="offline",
@@ -781,7 +1057,7 @@ async def test_update_case_trigger(monkeypatch):
         lambda role: _AsyncContext(ct_service),
     )
 
-    result = await mcp_server.update_case_trigger.fn(
+    result = await _tool(mcp_server.update_case_trigger)(
         workspace_id=str(uuid.uuid4()),
         workflow_id=str(uuid.uuid4()),
         status="online",
@@ -1008,6 +1284,38 @@ def test_dsl_reference_contains_all_fn_categories():
         assert category in text, f"FN function {category!r} missing from DSL reference"
 
 
+def test_domain_reference_resource_registered():
+    """The domain reference constant contains expected enum values."""
+    text = mcp_server._DOMAIN_REFERENCE_TEXT
+    assert isinstance(text, str)
+    assert "Domain Reference" in text
+    # Case management enums
+    for term in ["Priority", "Severity", "Status", "Task Status", "Case Event Types"]:
+        assert term in text, f"Section {term!r} missing from domain reference"
+    # Specific enum values
+    for value in [
+        "critical",
+        "informational",
+        "in_progress",
+        "case_created",
+        "dropdown_value_changed",
+    ]:
+        assert value in text, f"Enum value {value!r} missing from domain reference"
+    # Table column types
+    for col_type in ["TEXT", "INTEGER", "JSONB", "MULTI_SELECT"]:
+        assert col_type in text, (
+            f"Column type {col_type!r} missing from domain reference"
+        )
+    # Workflow control flow
+    for term in ["join_strategy", "loop_strategy", "fail_strategy", "edge_type"]:
+        assert term.replace("_", " ").title().replace(" ", " ") in text or any(
+            kw in text.lower() for kw in [term]
+        ), f"Control flow {term!r} missing from domain reference"
+    # Workflow execution
+    for value in ["manual", "scheduled", "webhook", "draft", "published"]:
+        assert value in text, f"Execution value {value!r} missing from domain reference"
+
+
 @pytest.mark.anyio
 async def test_action_catalog_resource(monkeypatch):
     """The action catalog resource returns actions grouped by namespace."""
@@ -1106,7 +1414,7 @@ async def test_list_actions_browse_without_query(monkeypatch):
         lambda role: _AsyncContext(_RegistryService()),
     )
 
-    result = await mcp_server.list_actions.fn(
+    result = await _tool(mcp_server.list_actions)(
         workspace_id=str(uuid.uuid4()),
     )
     payload = json.loads(result)
@@ -1156,7 +1464,7 @@ async def test_list_actions_browse_with_namespace(monkeypatch):
         lambda role: _AsyncContext(_RegistryService()),
     )
 
-    result = await mcp_server.list_actions.fn(
+    result = await _tool(mcp_server.list_actions)(
         workspace_id=str(uuid.uuid4()),
         namespace="tools.slack",
     )
@@ -1175,7 +1483,7 @@ async def test_list_workspaces_applies_org_scope(monkeypatch):
         "list_workspaces_for_request",
         _list_workspaces_for_request,
     )
-    result = await mcp_server.list_workspaces.fn()
+    result = await _tool(mcp_server.list_workspaces)()
     payload = json.loads(result)
 
     assert len(payload) == 1
@@ -1197,3 +1505,241 @@ async def test_resolve_workspace_role_rejects_scope_mismatch(monkeypatch):
         match="outside the organization scope",
     ):
         await mcp_server._resolve_workspace_role(str(uuid.uuid4()))
+
+
+# ---------------------------------------------------------------------------
+# Multitenant isolation tests
+# ---------------------------------------------------------------------------
+
+WS_A = uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
+WS_B = uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb")
+
+
+@pytest.mark.anyio
+async def test_resolve_workspace_role_rejects_workspace_scope_mismatch(monkeypatch):
+    """Workspace-level scope rejection (distinct from org-level rejection)."""
+
+    async def _resolve_role_for_request(_workspace_id: uuid.UUID):
+        raise ValueError("Workspace is outside the workspace scope for this MCP token")
+
+    monkeypatch.setattr(
+        mcp_server, "resolve_role_for_request", _resolve_role_for_request
+    )
+
+    with pytest.raises(ValueError, match="outside the workspace scope"):
+        await mcp_server._resolve_workspace_role(str(uuid.uuid4()))
+
+
+@pytest.mark.anyio
+async def test_list_workspaces_returns_multi_org_workspaces(monkeypatch):
+    """list_workspaces faithfully returns workspaces spanning multiple orgs."""
+    ws_list = [
+        {"id": str(WS_A), "name": "SOC", "role": "admin"},
+        {"id": str(WS_B), "name": "Engineering", "role": "member"},
+    ]
+
+    async def _list_workspaces_for_request() -> list[dict[str, str]]:
+        return ws_list
+
+    monkeypatch.setattr(
+        mcp_server, "list_workspaces_for_request", _list_workspaces_for_request
+    )
+    result = await _tool(mcp_server.list_workspaces)()
+    payload = json.loads(result)
+
+    assert len(payload) == 2
+    returned_ids = {w["id"] for w in payload}
+    assert str(WS_A) in returned_ids
+    assert str(WS_B) in returned_ids
+
+
+@pytest.mark.anyio
+async def test_create_case_routes_to_correct_workspace(monkeypatch):
+    """create_case passes the resolved workspace role to CasesService."""
+    role_a = SimpleNamespace(workspace_id=WS_A)
+    role_b = SimpleNamespace(workspace_id=WS_B)
+    captured_roles: list[SimpleNamespace] = []
+
+    async def _resolve(workspace_id: str):
+        ws = uuid.UUID(workspace_id)
+        role = role_a if ws == WS_A else role_b
+        return ws, role
+
+    async def _create_case(params):
+        return SimpleNamespace(
+            id=uuid.uuid4(),
+            short_id="CASE-0001",
+            summary=params.summary,
+            description=params.description,
+            priority=params.priority,
+            severity=params.severity,
+            status=params.status,
+            fields=None,
+            payload=None,
+            created_at="2025-01-01T00:00:00Z",
+        )
+
+    class _FakeCasesService:
+        def __init__(self, role):
+            captured_roles.append(role)
+
+        async def create_case(self, params):
+            return await _create_case(params)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        "tracecat.cases.service.CasesService.with_session",
+        lambda role: _AsyncContext(_FakeCasesService(role)),
+    )
+
+    await _tool(mcp_server.create_case)(
+        workspace_id=str(WS_A),
+        summary="Alert in SOC",
+        description="Suspicious login",
+    )
+    await _tool(mcp_server.create_case)(
+        workspace_id=str(WS_B),
+        summary="Build failure",
+        description="CI pipeline broke",
+    )
+
+    assert len(captured_roles) == 2
+    assert captured_roles[0].workspace_id == WS_A
+    assert captured_roles[1].workspace_id == WS_B
+
+
+@pytest.mark.anyio
+async def test_create_table_routes_to_correct_workspace(monkeypatch):
+    """create_table passes the resolved workspace role to TablesService."""
+    role_a = SimpleNamespace(workspace_id=WS_A)
+    role_b = SimpleNamespace(workspace_id=WS_B)
+    captured_roles: list[SimpleNamespace] = []
+
+    async def _resolve(workspace_id: str):
+        ws = uuid.UUID(workspace_id)
+        role = role_a if ws == WS_A else role_b
+        return ws, role
+
+    async def _create_table(params):
+        return SimpleNamespace(id=uuid.uuid4(), name=params.name)
+
+    class _FakeTablesService:
+        def __init__(self, role):
+            captured_roles.append(role)
+
+        async def create_table(self, params):
+            return await _create_table(params)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        "tracecat.tables.service.TablesService.with_session",
+        lambda role: _AsyncContext(_FakeTablesService(role)),
+    )
+
+    await _tool(mcp_server.create_table)(workspace_id=str(WS_A), name="iocs_soc")
+    await _tool(mcp_server.create_table)(workspace_id=str(WS_B), name="iocs_eng")
+
+    assert len(captured_roles) == 2
+    assert captured_roles[0].workspace_id == WS_A
+    assert captured_roles[1].workspace_id == WS_B
+
+
+@pytest.mark.anyio
+async def test_list_cases_isolated_per_workspace(monkeypatch):
+    """list_cases returns different results per workspace."""
+    cases_by_ws: dict[uuid.UUID, list] = {
+        WS_A: [
+            SimpleNamespace(
+                id=uuid.uuid4(),
+                short_id="CASE-A1",
+                summary="SOC alert",
+                priority="high",
+                severity="critical",
+                status="new",
+                created_at="2025-01-01T00:00:00Z",
+                assignee=None,
+                tags=[],
+            )
+        ],
+        WS_B: [],
+    }
+
+    async def _resolve(workspace_id: str):
+        ws = uuid.UUID(workspace_id)
+        return ws, SimpleNamespace(workspace_id=ws)
+
+    class _FakeCasesService:
+        def __init__(self, role):
+            self._ws = role.workspace_id
+
+        async def search_cases(self, **_kwargs):
+            return SimpleNamespace(items=cases_by_ws.get(self._ws, []))
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        "tracecat.cases.service.CasesService.with_session",
+        lambda role: _AsyncContext(_FakeCasesService(role)),
+    )
+
+    result_a = json.loads(await _tool(mcp_server.list_cases)(workspace_id=str(WS_A)))
+    result_b = json.loads(await _tool(mcp_server.list_cases)(workspace_id=str(WS_B)))
+
+    assert len(result_a) == 1
+    assert result_a[0]["short_id"] == "CASE-A1"
+    assert len(result_b) == 0
+
+
+@pytest.mark.anyio
+async def test_concurrent_workspace_calls_do_not_cross(monkeypatch):
+    """Concurrent tool calls for different workspaces resolve independently."""
+    resolved: dict[str, uuid.UUID] = {}
+
+    async def _resolve(workspace_id: str):
+        ws = uuid.UUID(workspace_id)
+        await asyncio.sleep(0)
+        resolved[workspace_id] = ws
+        return ws, SimpleNamespace(workspace_id=ws)
+
+    async def _create_case(params):
+        return SimpleNamespace(
+            id=uuid.uuid4(),
+            short_id="CASE-0001",
+            summary=params.summary,
+            description=params.description,
+            priority=params.priority,
+            severity=params.severity,
+            status=params.status,
+            fields=None,
+            payload=None,
+            created_at="2025-01-01T00:00:00Z",
+        )
+
+    class _FakeCasesService:
+        def __init__(self, _role):
+            pass
+
+        async def create_case(self, params):
+            return await _create_case(params)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        "tracecat.cases.service.CasesService.with_session",
+        lambda role: _AsyncContext(_FakeCasesService(role)),
+    )
+
+    results = await asyncio.gather(
+        _tool(mcp_server.create_case)(
+            workspace_id=str(WS_A),
+            summary="Alert A",
+            description="desc A",
+        ),
+        _tool(mcp_server.create_case)(
+            workspace_id=str(WS_B),
+            summary="Alert B",
+            description="desc B",
+        ),
+    )
+
+    assert len(results) == 2
+    assert resolved[str(WS_A)] == WS_A
+    assert resolved[str(WS_B)] == WS_B

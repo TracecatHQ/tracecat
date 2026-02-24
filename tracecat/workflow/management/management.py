@@ -633,7 +633,13 @@ class WorkflowsManagementService(BaseWorkspaceService):
 
     @require_scope("workflow:create")
     async def create_workflow_from_external_definition(
-        self, import_data: dict[str, Any], *, use_workflow_id: bool = False
+        self,
+        import_data: dict[str, Any],
+        *,
+        use_workflow_id: bool = False,
+        trigger_position: tuple[float, float] | None = None,
+        viewport: tuple[float, float, float] | None = None,
+        action_positions: dict[str, tuple[float, float]] | None = None,
     ) -> Workflow:
         """Import an external workflow definition into the current workspace.
 
@@ -655,6 +661,9 @@ class WorkflowsManagementService(BaseWorkspaceService):
             workflow_id=external_defn.workflow_id if use_workflow_id else None,
             created_at=external_defn.created_at,
             updated_at=external_defn.updated_at,
+            trigger_position=trigger_position,
+            viewport=viewport,
+            action_positions=action_positions,
         )
         if external_defn.case_trigger is not None:
             from tracecat.workflow.case_triggers.service import CaseTriggersService
@@ -678,6 +687,9 @@ class WorkflowsManagementService(BaseWorkspaceService):
         workflow_alias: str | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
+        trigger_position: tuple[float, float] | None = None,
+        viewport: tuple[float, float, float] | None = None,
+        action_positions: dict[str, tuple[float, float]] | None = None,
         commit: bool = True,
     ) -> Workflow:
         """Create a new workflow and associated actions in the database from a DSLInput."""
@@ -707,6 +719,13 @@ class WorkflowsManagementService(BaseWorkspaceService):
             workflow_kwargs["updated_at"] = updated_at
         if workflow_alias:
             workflow_kwargs["alias"] = workflow_alias
+        if trigger_position is not None:
+            workflow_kwargs["trigger_position_x"] = trigger_position[0]
+            workflow_kwargs["trigger_position_y"] = trigger_position[1]
+        if viewport is not None:
+            workflow_kwargs["viewport_x"] = viewport[0]
+            workflow_kwargs["viewport_y"] = viewport[1]
+            workflow_kwargs["viewport_zoom"] = viewport[2]
         workflow = Workflow(**workflow_kwargs)
 
         # Add the Workflow to the session first and flush to ensure ID is persisted
@@ -733,7 +752,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         workflow.case_trigger = case_trigger
 
         # Create actions from DSL (actions have workflow_id set, relationship managed by FK)
-        await self.create_actions_from_dsl(dsl, workflow.id)
+        await self.create_actions_from_dsl(dsl, workflow.id, action_positions)
 
         # Commit the transaction
         if commit:
@@ -742,7 +761,10 @@ class WorkflowsManagementService(BaseWorkspaceService):
         return workflow
 
     async def create_actions_from_dsl(
-        self, dsl: DSLInput, workflow_id: uuid.UUID
+        self,
+        dsl: DSLInput,
+        workflow_id: uuid.UUID,
+        action_positions: dict[str, tuple[float, float]] | None = None,
     ) -> list[Action]:
         """Create Action entities from DSL and add to session.
 
@@ -761,6 +783,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 wait_until=act_stmt.wait_until,
                 join_strategy=act_stmt.join_strategy,
             )
+            pos = (action_positions or {}).get(act_stmt.ref)
             new_action = Action(
                 id=uuid.uuid4(),
                 workspace_id=self.workspace_id,
@@ -770,6 +793,8 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 title=act_stmt.title,
                 description=act_stmt.description,
                 control_flow=control_flow.model_dump(),
+                position_x=pos[0] if pos else 0.0,
+                position_y=pos[1] if pos else 0.0,
             )
             actions.append(new_action)
             ref_to_action[act_stmt.ref] = new_action

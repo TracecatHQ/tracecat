@@ -47,7 +47,11 @@ from tracecat.dsl.validation import (
     normalize_trigger_inputs,
 )
 from tracecat.exceptions import TracecatNotFoundError
-from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
+from tracecat.identifiers.workflow import (
+    WorkflowUUID,
+    exec_id_to_parts,
+    generate_exec_id,
+)
 from tracecat.logger import logger
 from tracecat.mcp.auth import (
     create_mcp_auth,
@@ -286,6 +290,16 @@ _WORKFLOW_YAML_TOP_LEVEL_KEYS = frozenset(
 class MCPLayoutPosition(BaseModel):
     x: float | None = None
     y: float | None = None
+    position: dict[str, float] | None = None
+
+    @model_validator(mode="after")
+    def apply_nested_position(self) -> MCPLayoutPosition:
+        if self.position is not None:
+            if self.x is None:
+                self.x = self.position.get("x")
+            if self.y is None:
+                self.y = self.position.get("y")
+        return self
 
 
 class MCPLayoutViewport(BaseModel):
@@ -298,6 +312,16 @@ class MCPLayoutActionPosition(BaseModel):
     ref: str
     x: float | None = None
     y: float | None = None
+    position: dict[str, float] | None = None
+
+    @model_validator(mode="after")
+    def apply_nested_position(self) -> MCPLayoutActionPosition:
+        if self.position is not None:
+            if self.x is None:
+                self.x = self.position.get("x")
+            if self.y is None:
+                self.y = self.position.get("y")
+        return self
 
 
 class MCPWorkflowLayout(BaseModel):
@@ -448,6 +472,7 @@ async def _replace_workflow_definition_from_dsl(
     service: WorkflowsManagementService,
     workflow_id: WorkflowUUID,
     dsl: DSLInput,
+    action_positions: dict[str, tuple[float, float]] | None = None,
 ) -> None:
     """Replace draft workflow definition from DSL (actions + metadata)."""
     workflow = await service.get_workflow(workflow_id)
@@ -470,9 +495,48 @@ async def _replace_workflow_definition_from_dsl(
             Action.workflow_id == workflow.id,
         )
     )
-    await service.create_actions_from_dsl(dsl, workflow.id)
+    await service.create_actions_from_dsl(dsl, workflow.id, action_positions)
     await service.session.flush()
     await service.session.refresh(workflow, ["actions"])
+
+
+def _extract_layout_positions(
+    layout_data: dict[str, Any] | None,
+) -> tuple[
+    tuple[float, float] | None,
+    tuple[float, float, float] | None,
+    dict[str, tuple[float, float]] | None,
+]:
+    """Extract layout data into position tuples for workflow/action creation.
+
+    Returns (trigger_position, viewport, action_positions).
+    """
+    if not layout_data:
+        return None, None, None
+    layout = MCPWorkflowLayout.model_validate(layout_data)
+    trigger_position: tuple[float, float] | None = None
+    if layout.trigger is not None:
+        trigger_position = (
+            layout.trigger.x if layout.trigger.x is not None else 0.0,
+            layout.trigger.y if layout.trigger.y is not None else 0.0,
+        )
+    viewport: tuple[float, float, float] | None = None
+    if layout.viewport is not None:
+        viewport = (
+            layout.viewport.x if layout.viewport.x is not None else 0.0,
+            layout.viewport.y if layout.viewport.y is not None else 0.0,
+            layout.viewport.zoom if layout.viewport.zoom is not None else 1.0,
+        )
+    action_positions: dict[str, tuple[float, float]] | None = None
+    if layout.actions:
+        action_positions = {
+            ap.ref: (
+                ap.x if ap.x is not None else 0.0,
+                ap.y if ap.y is not None else 0.0,
+            )
+            for ap in layout.actions
+        }
+    return trigger_position, viewport, action_positions
 
 
 def _apply_layout_to_workflow(
@@ -1013,6 +1077,71 @@ def get_dsl_reference() -> str:
     return _DSL_REFERENCE_TEXT
 
 
+_DOMAIN_REFERENCE_TEXT = """\
+# Tracecat Domain Reference
+
+Valid enum values for cases, tables, workflows, and triggers.
+
+## Case Management
+
+### Priority
+unknown, low, medium, high, critical, other
+
+### Severity
+unknown, informational, low, medium, high, critical, fatal, other
+
+### Status
+unknown, new, in_progress, on_hold, resolved, closed, other
+
+### Task Status
+todo, in_progress, completed, blocked
+
+### Case Event Types (for case triggers)
+case_created, case_updated, case_closed, case_reopened, case_viewed, \
+priority_changed, severity_changed, status_changed, fields_changed, \
+assignee_changed, attachment_created, attachment_deleted, tag_added, \
+tag_removed, payload_changed, task_created, task_deleted, \
+task_status_changed, task_priority_changed, task_workflow_changed, \
+task_assignee_changed, dropdown_value_changed
+
+## Table Column Types
+TEXT, INTEGER, NUMERIC, DATE, BOOLEAN, TIMESTAMP, TIMESTAMPTZ, JSONB, UUID, SELECT, MULTI_SELECT
+
+## Workflow Control Flow
+
+### Join Strategy
+all, any
+
+### Loop Strategy (for_each)
+parallel, batch, sequential
+
+### Fail Strategy
+isolated, all
+
+### Edge Type
+success, error
+
+## Workflow Execution
+
+### Trigger Type
+manual, scheduled, webhook, case
+
+### Execution Type
+draft, published
+"""
+
+
+@mcp.resource(
+    "tracecat://platform/domain-reference",
+    name="Domain Reference",
+    description="Valid enum values for cases, tables, workflows, and triggers.",
+    mime_type="text/plain",
+)
+def get_domain_reference() -> str:
+    """Return valid domain enum values for cases, tables, workflows, and triggers."""
+    return _DOMAIN_REFERENCE_TEXT
+
+
 async def _build_action_catalog(workspace_id: str) -> str:
     """Build the action catalog JSON for a workspace."""
     from tracecat.registry.actions.service import RegistryActionsService
@@ -1277,31 +1406,21 @@ async def create_workflow(
             if not layout_data:
                 actions = defn.get("actions", [])
                 if actions:
-                    external_defn_data["layout"] = _auto_generate_layout(actions)
+                    layout_data = _auto_generate_layout(actions)
+                    external_defn_data["layout"] = layout_data
+
+            # Extract layout into position params for atomic creation
+            trigger_position, viewport, action_positions = _extract_layout_positions(
+                layout_data
+            )
 
             async with WorkflowsManagementService.with_session(role=role) as svc:
                 workflow = await svc.create_workflow_from_external_definition(
-                    external_defn_data
+                    external_defn_data,
+                    trigger_position=trigger_position,
+                    viewport=viewport,
+                    action_positions=action_positions,
                 )
-
-                # Apply layout positioning if present in the YAML
-                layout_data = external_defn_data.get("layout")
-                layout_applied = False
-                if layout_data is not None:
-                    layout = MCPWorkflowLayout.model_validate(layout_data)
-                    wf_id = WorkflowUUID.new(workflow.id)
-                    # Re-fetch to eagerly load actions relationship
-                    wf = await svc.get_workflow(wf_id)
-                    if wf is None:
-                        raise ToolError(f"Workflow {wf_id} not found after creation")
-                    workflow = wf
-                    _apply_layout_to_workflow(workflow=workflow, layout=layout)
-                    svc.session.add(workflow)
-                    for action in workflow.actions:
-                        svc.session.add(action)
-                    await svc.session.commit()
-                    await svc.session.refresh(workflow)
-                    layout_applied = True
 
                 return TextContent(
                     type="text",
@@ -1317,7 +1436,8 @@ async def create_workflow(
                         {
                             "audience": ["user", "assistant"],
                             "priority": 0.7,
-                            "layout_applied": layout_applied,
+                            "layout_applied": trigger_position is not None
+                            or bool(action_positions),
                         }
                     ),
                 )
@@ -1368,71 +1488,80 @@ async def get_workflow(
             if not workflow:
                 raise ToolError(f"Workflow {workflow_id} not found")
 
-            # Build the DSL from current workflow state
-            definition_yaml = ""
-            try:
-                dsl = await svc.build_dsl_from_workflow(workflow)
-                payload: dict[str, Any] = {
-                    "definition": dsl.model_dump(mode="json", exclude_none=True),
-                    "layout": {
-                        "trigger": {
-                            "x": workflow.trigger_position_x,
-                            "y": workflow.trigger_position_y,
-                        },
-                        "viewport": {
-                            "x": workflow.viewport_x,
-                            "y": workflow.viewport_y,
-                            "zoom": workflow.viewport_zoom,
-                        },
-                        "actions": [
-                            {
-                                "ref": action.ref,
-                                "x": action.position_x,
-                                "y": action.position_y,
-                            }
-                            for action in sorted(
-                                workflow.actions, key=lambda action: action.ref
-                            )
-                        ],
+            payload: dict[str, Any] = {
+                "layout": {
+                    "trigger": {
+                        "x": workflow.trigger_position_x,
+                        "y": workflow.trigger_position_y,
                     },
-                    "schedules": [
-                        schedule.model_dump(
-                            mode="json",
-                            exclude={
-                                "id",
-                                "workspace_id",
-                                "workflow_id",
-                                "created_at",
-                                "updated_at",
-                            },
-                        )
-                        for schedule in ScheduleRead.list_adapter().validate_python(
-                            workflow.schedules
+                    "viewport": {
+                        "x": workflow.viewport_x,
+                        "y": workflow.viewport_y,
+                        "zoom": workflow.viewport_zoom,
+                    },
+                    "actions": [
+                        {
+                            "ref": action.ref,
+                            "x": action.position_x,
+                            "y": action.position_y,
+                        }
+                        for action in sorted(
+                            workflow.actions, key=lambda action: action.ref
                         )
                     ],
+                },
+                "schedules": [
+                    schedule.model_dump(
+                        mode="json",
+                        exclude={
+                            "id",
+                            "workspace_id",
+                            "workflow_id",
+                            "created_at",
+                            "updated_at",
+                        },
+                    )
+                    for schedule in ScheduleRead.list_adapter().validate_python(
+                        workflow.schedules
+                    )
+                ],
+            }
+
+            try:
+                case_trigger = await CaseTriggersService(
+                    svc.session, role=role
+                ).get_case_trigger(wf_id)
+                payload["case_trigger"] = {
+                    "status": case_trigger.status,
+                    "event_types": case_trigger.event_types,
+                    "tag_filters": case_trigger.tag_filters,
                 }
-                try:
-                    case_trigger = await CaseTriggersService(
-                        svc.session, role=role
-                    ).get_case_trigger(wf_id)
-                    payload["case_trigger"] = {
-                        "status": case_trigger.status,
-                        "event_types": case_trigger.event_types,
-                        "tag_filters": case_trigger.tag_filters,
-                    }
-                except TracecatNotFoundError:
-                    payload["case_trigger"] = None
-                definition_yaml = yaml.dump(
-                    payload,
-                    indent=2,
-                    sort_keys=False,
+            except TracecatNotFoundError:
+                payload["case_trigger"] = None
+            except Exception as e:
+                logger.warning(
+                    "Could not load case trigger for workflow",
+                    workflow_id=workflow_id,
+                    error=str(e),
                 )
-            except (ValidationError, Exception) as e:
+                payload["case_trigger"] = None
+
+            try:
+                dsl = await svc.build_dsl_from_workflow(workflow)
+                payload["definition"] = dsl.model_dump(mode="json", exclude_none=True)
+            except Exception as e:
                 logger.warning(
                     "Could not build DSL for workflow",
                     workflow_id=workflow_id,
                     error=str(e),
                 )
+                payload["definition_error"] = str(e)
+
+            definition_yaml = yaml.dump(
+                payload,
+                indent=2,
+                sort_keys=False,
+            )
 
             return _json(
                 {
@@ -1491,13 +1620,18 @@ async def update_workflow(
         _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
 
-        update_params = WorkflowUpdate(
-            title=title,
-            description=description,
-            status=status,  # pyright: ignore[reportArgumentType]
-            alias=alias,
-            error_handler=error_handler,
-        )
+        update_kwargs: dict[str, Any] = {}
+        if title is not None:
+            update_kwargs["title"] = title
+        if description is not None:
+            update_kwargs["description"] = description
+        if status is not None:
+            update_kwargs["status"] = status
+        if alias is not None:
+            update_kwargs["alias"] = alias
+        if error_handler is not None:
+            update_kwargs["error_handler"] = error_handler
+        update_params = WorkflowUpdate(**update_kwargs)
 
         async with WorkflowsManagementService.with_session(role=role) as svc:
             workflow = await svc.get_workflow(wf_id)
@@ -1523,11 +1657,19 @@ async def update_workflow(
                     auto_layout = _auto_generate_layout(actions_raw)
                     yaml_payload.layout = MCPWorkflowLayout.model_validate(auto_layout)
 
+            # Extract action positions from layout for use during action creation
+            _update_action_positions: dict[str, tuple[float, float]] | None = None
+            if yaml_payload is not None and yaml_payload.layout is not None:
+                _, _, _update_action_positions = _extract_layout_positions(
+                    yaml_payload.layout.model_dump()
+                )
+
             if yaml_payload is not None and yaml_payload.definition is not None:
                 await _replace_workflow_definition_from_dsl(
                     service=svc,
                     workflow_id=wf_id,
                     dsl=yaml_payload.definition,
+                    action_positions=_update_action_positions,
                 )
                 await svc.session.refresh(workflow, ["actions"])
 
@@ -1555,8 +1697,9 @@ async def update_workflow(
                     update_mode=update_mode,
                 )
 
-            for key, value in update_params.model_dump(exclude_unset=True).items():
-                setattr(workflow, key, value)
+            if update_kwargs:
+                for key, value in update_params.model_dump(exclude_unset=True).items():
+                    setattr(workflow, key, value)
             svc.session.add(workflow)
             await svc.session.commit()
             await svc.session.refresh(workflow)
@@ -2547,8 +2690,20 @@ async def get_workflow_execution(
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        exec_service = await WorkflowExecutionsService.connect(role=role)
 
+        # Verify the execution's workflow belongs to this workspace
+        try:
+            wf_id, _ = exec_id_to_parts(execution_id)
+        except ValueError as e:
+            raise ToolError(f"Invalid execution ID: {e}") from e
+        async with WorkflowsManagementService.with_session(role=role) as mgmt_svc:
+            workflow = await mgmt_svc.get_workflow(wf_id)
+        if workflow is None:
+            raise ToolError(
+                f"Execution {execution_id} not found in workspace {workspace_id}"
+            )
+
+        exec_service = await WorkflowExecutionsService.connect(role=role)
         execution = await exec_service.get_execution(execution_id)
         if execution is None:
             raise ToolError(f"Execution {execution_id} not found")
@@ -2985,6 +3140,46 @@ async def update_webhook(
     except Exception as e:
         logger.error("Failed to update webhook", error=str(e))
         raise ToolError(f"Failed to update webhook: {e}") from None
+
+
+@mcp.tool()
+async def delete_webhook(
+    workspace_id: str,
+    workflow_id: str,
+) -> str:
+    """Delete a webhook for a workflow.
+
+    Args:
+        workspace_id: The workspace ID.
+        workflow_id: The workflow ID.
+
+    Returns a confirmation message.
+    """
+    from tracecat.webhooks import service as webhook_service
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        wf_id = WorkflowUUID.new(workflow_id)
+
+        async with get_async_session_context_manager() as session:
+            webhook = await webhook_service.get_webhook(
+                session=session,
+                workspace_id=role.workspace_id,
+                workflow_id=wf_id,
+            )
+            if webhook is None:
+                raise ToolError(f"Webhook not found for workflow {workflow_id}")
+
+            await session.delete(webhook)
+            await session.commit()
+        return _json(
+            {"message": f"Webhook for workflow {workflow_id} deleted successfully"}
+        )
+    except ToolError:
+        raise
+    except Exception as e:
+        logger.error("Failed to delete webhook", error=str(e))
+        raise ToolError(f"Failed to delete webhook: {e}") from None
 
 
 # ---------------------------------------------------------------------------
@@ -3535,17 +3730,24 @@ async def update_case(
             case = await svc.get_case(uuid.UUID(case_id), track_view=False)
             if case is None:
                 raise ToolError(f"Case {case_id} not found")
+            update_kwargs: dict[str, Any] = {}
+            if summary is not None:
+                update_kwargs["summary"] = summary
+            if description is not None:
+                update_kwargs["description"] = description
+            if priority is not None:
+                update_kwargs["priority"] = CasePriority(priority)
+            if severity is not None:
+                update_kwargs["severity"] = CaseSeverity(severity)
+            if status is not None:
+                update_kwargs["status"] = CaseStatus(status)
+            if fields is not None:
+                update_kwargs["fields"] = fields
+            if payload is not None:
+                update_kwargs["payload"] = payload
             updated = await svc.update_case(
                 case,
-                CaseUpdate(
-                    summary=summary,
-                    description=description,
-                    priority=CasePriority(priority) if priority else None,
-                    severity=CaseSeverity(severity) if severity else None,
-                    status=CaseStatus(status) if status else None,
-                    fields=fields,
-                    payload=payload,
-                ),
+                CaseUpdate(**update_kwargs),
             )
             return _json(
                 {

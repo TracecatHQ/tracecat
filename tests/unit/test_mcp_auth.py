@@ -41,8 +41,9 @@ def test_create_mcp_auth_uses_jwt_mode(
         "TRACECAT_MCP__AUTHORIZATION_SERVER_URL",
         "https://issuer.example.com",
     )
-    monkeypatch.setenv(
-        "FASTMCP_SERVER_AUTH_JWT_JWKS_URI",
+    monkeypatch.setattr(
+        mcp_auth,
+        "TRACECAT_MCP__JWT_JWKS_URI",
         "https://issuer.example.com/.well-known/jwks.json",
     )
 
@@ -67,12 +68,21 @@ def test_create_mcp_auth_uses_introspection_mode(
         "TRACECAT_MCP__AUTHORIZATION_SERVER_URL",
         "https://issuer.example.com",
     )
-    monkeypatch.setenv(
-        "FASTMCP_SERVER_AUTH_INTROSPECTION_INTROSPECTION_URL",
+    monkeypatch.setattr(
+        mcp_auth,
+        "TRACECAT_MCP__INTROSPECTION_URL",
         "https://issuer.example.com/oauth/introspect",
     )
-    monkeypatch.setenv("FASTMCP_SERVER_AUTH_INTROSPECTION_CLIENT_ID", "tracecat-mcp")
-    monkeypatch.setenv("FASTMCP_SERVER_AUTH_INTROSPECTION_CLIENT_SECRET", "secret")
+    monkeypatch.setattr(
+        mcp_auth,
+        "TRACECAT_MCP__INTROSPECTION_CLIENT_ID",
+        "tracecat-mcp",
+    )
+    monkeypatch.setattr(
+        mcp_auth,
+        "TRACECAT_MCP__INTROSPECTION_CLIENT_SECRET",
+        "secret",
+    )
 
     auth = mcp_auth.create_mcp_auth()
 

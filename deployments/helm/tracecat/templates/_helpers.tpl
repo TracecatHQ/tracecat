@@ -793,47 +793,47 @@ Merges: common + temporal + postgres + mcp-specific
 - name: TRACECAT_MCP__AUTH_MODE
   value: {{ .Values.tracecat.mcp.authMode | quote }}
 {{- if .Values.tracecat.mcp.jwt.publicKey }}
-- name: FASTMCP_SERVER_AUTH_JWT_PUBLIC_KEY
+- name: TRACECAT_MCP__JWT_PUBLIC_KEY
   value: {{ .Values.tracecat.mcp.jwt.publicKey | quote }}
 {{- end }}
 {{- if .Values.tracecat.mcp.jwt.jwksUri }}
-- name: FASTMCP_SERVER_AUTH_JWT_JWKS_URI
+- name: TRACECAT_MCP__JWT_JWKS_URI
   value: {{ .Values.tracecat.mcp.jwt.jwksUri | quote }}
 {{- end }}
 {{- if .Values.tracecat.mcp.jwt.issuer }}
-- name: FASTMCP_SERVER_AUTH_JWT_ISSUER
+- name: TRACECAT_MCP__JWT_ISSUER
   value: {{ .Values.tracecat.mcp.jwt.issuer | quote }}
 {{- end }}
 {{- if .Values.tracecat.mcp.jwt.audience }}
-- name: FASTMCP_SERVER_AUTH_JWT_AUDIENCE
+- name: TRACECAT_MCP__JWT_AUDIENCE
   value: {{ .Values.tracecat.mcp.jwt.audience | quote }}
 {{- end }}
 {{- if .Values.tracecat.mcp.jwt.algorithm }}
-- name: FASTMCP_SERVER_AUTH_JWT_ALGORITHM
+- name: TRACECAT_MCP__JWT_ALGORITHM
   value: {{ .Values.tracecat.mcp.jwt.algorithm | quote }}
 {{- end }}
 {{- if .Values.tracecat.mcp.jwt.requiredScopes }}
-- name: FASTMCP_SERVER_AUTH_JWT_REQUIRED_SCOPES
+- name: TRACECAT_MCP__JWT_REQUIRED_SCOPES
   value: {{ .Values.tracecat.mcp.jwt.requiredScopes | quote }}
 {{- end }}
 {{- if .Values.tracecat.mcp.introspection.url }}
-- name: FASTMCP_SERVER_AUTH_INTROSPECTION_INTROSPECTION_URL
+- name: TRACECAT_MCP__INTROSPECTION_URL
   value: {{ .Values.tracecat.mcp.introspection.url | quote }}
 {{- end }}
 {{- if .Values.tracecat.mcp.introspection.clientId }}
-- name: FASTMCP_SERVER_AUTH_INTROSPECTION_CLIENT_ID
+- name: TRACECAT_MCP__INTROSPECTION_CLIENT_ID
   value: {{ .Values.tracecat.mcp.introspection.clientId | quote }}
 {{- end }}
 {{- if .Values.tracecat.mcp.introspection.clientSecret }}
-- name: FASTMCP_SERVER_AUTH_INTROSPECTION_CLIENT_SECRET
+- name: TRACECAT_MCP__INTROSPECTION_CLIENT_SECRET
   value: {{ .Values.tracecat.mcp.introspection.clientSecret | quote }}
 {{- end }}
 {{- if .Values.tracecat.mcp.introspection.timeoutSeconds }}
-- name: FASTMCP_SERVER_AUTH_INTROSPECTION_TIMEOUT_SECONDS
+- name: TRACECAT_MCP__INTROSPECTION_TIMEOUT_SECONDS
   value: {{ .Values.tracecat.mcp.introspection.timeoutSeconds | quote }}
 {{- end }}
 {{- if .Values.tracecat.mcp.introspection.requiredScopes }}
-- name: FASTMCP_SERVER_AUTH_INTROSPECTION_REQUIRED_SCOPES
+- name: TRACECAT_MCP__INTROSPECTION_REQUIRED_SCOPES
   value: {{ .Values.tracecat.mcp.introspection.requiredScopes | quote }}
 {{- end }}
 - name: TRACECAT_MCP__RATE_LIMIT_RPS
