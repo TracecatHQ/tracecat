@@ -105,7 +105,9 @@ jobs:
             origin HEAD:main
 
           SHA=$(git rev-parse HEAD)
+          PUSHED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "pushed_at=$PUSHED_AT" >> "$GITHUB_OUTPUT"
 
       - name: Create and push tag
         run: |
@@ -116,12 +118,13 @@ jobs:
       - name: Wait for release drafter on release commit
         run: |
           sha="${{ steps.commit.outputs.sha }}"
+          pushed_at="${{ steps.commit.outputs.pushed_at }}"
 
           for _ in $(seq 1 30); do
             run_id=$(gh run list \
               --workflow release-drafter.yml \
-              --json databaseId,headSha,event \
-              --jq "map(select(.headSha == \"$sha\" and .event == \"push\")) | sort_by(.databaseId) | reverse | .[0].databaseId")
+              --json databaseId,headSha,event,createdAt \
+              --jq "map(select(.headSha == \"$sha\" and .event == \"push\" and .createdAt >= \"$pushed_at\")) | sort_by(.databaseId) | reverse | .[0].databaseId")
 
             if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
               gh run watch "$run_id" --exit-status
@@ -131,7 +134,7 @@ jobs:
             sleep 10
           done
 
-          echo "Timed out waiting for release-drafter run for $sha" >&2
+          echo "Timed out waiting for release-drafter run for $sha after push time $pushed_at" >&2
           exit 1
 
       - name: Wait for publish images and retry up to 3 times
