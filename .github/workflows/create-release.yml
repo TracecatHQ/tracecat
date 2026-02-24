@@ -120,7 +120,7 @@ jobs:
           if [ -n "$REMOTE_SHA" ]; then
             # Tag exists on remote — resolve annotated tags to their commit
             # Fetch the tag so we can dereference it locally
-            git fetch origin "refs/tags/${VERSION}:refs/tags/${VERSION}" 2>/dev/null || true
+            git fetch --force origin "refs/tags/${VERSION}:refs/tags/${VERSION}" 2>/dev/null || true
             TAG_COMMIT=$(git rev-list -n 1 "${VERSION}" 2>/dev/null || echo "$REMOTE_SHA")
 
             if [ "$TAG_COMMIT" = "$CURRENT_SHA" ]; then
