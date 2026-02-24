@@ -75,24 +75,33 @@ def test_log_uses_process_logger_outside_workflow_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     process_logger = MagicMock()
+    process_logger.opt.return_value = process_logger
     monkeypatch.setattr(workflow_logging, "_in_workflow_context", lambda: False)
     monkeypatch.setattr(workflow_logging, "process_logger", process_logger)
 
     logger = workflow_logging.get_workflow_logger(service="dsl")
     logger.info("Hello", run_id="abc")
 
-    process_logger.info.assert_called_once()
-    [message], _ = process_logger.info.call_args
-    assert message.startswith("Hello | ")
+    process_logger.opt.assert_called_once_with(lazy=True)
+    process_logger.log.assert_called_once()
+    [level, fmt, message, suffix], _ = process_logger.log.call_args
+    assert level == "INFO"
+    assert fmt == "{}{}"
+    assert message == "Hello"
+    assert callable(suffix)
+    formatted_suffix = suffix()
+    assert isinstance(formatted_suffix, str)
+    assert formatted_suffix.startswith(" | ")
     # Keys are sorted for deterministic output.
-    assert "run_id='abc'" in message
-    assert "service='dsl'" in message
+    assert "run_id='abc'" in formatted_suffix
+    assert "service='dsl'" in formatted_suffix
 
 
 def test_log_uses_temporal_logger_in_workflow_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     temporal_logger = MagicMock()
+    temporal_logger.isEnabledFor.return_value = True
     monkeypatch.setattr(workflow_logging, "_in_workflow_context", lambda: True)
     monkeypatch.setattr(workflow_logging.workflow, "logger", temporal_logger)
 
@@ -108,6 +117,7 @@ def test_log_uses_temporal_logger_in_workflow_context(
 
 def test_trace_maps_to_temporal_debug(monkeypatch: pytest.MonkeyPatch) -> None:
     temporal_logger = MagicMock()
+    temporal_logger.isEnabledFor.return_value = True
     monkeypatch.setattr(workflow_logging, "_in_workflow_context", lambda: True)
     monkeypatch.setattr(workflow_logging.workflow, "logger", temporal_logger)
 
@@ -115,6 +125,24 @@ def test_trace_maps_to_temporal_debug(monkeypatch: pytest.MonkeyPatch) -> None:
     logger.trace("Trace message")
 
     temporal_logger.debug.assert_called_once_with("Trace message")
+
+
+def test_workflow_path_skips_formatting_when_level_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    temporal_logger = MagicMock()
+    temporal_logger.isEnabledFor.return_value = False
+    monkeypatch.setattr(workflow_logging, "_in_workflow_context", lambda: True)
+    monkeypatch.setattr(workflow_logging.workflow, "logger", temporal_logger)
+
+    def _raise(_fields: dict[str, object]) -> str:
+        raise AssertionError("fields should not be formatted when log level is disabled")
+
+    monkeypatch.setattr(workflow_logging, "_format_fields", _raise)
+
+    logger = workflow_logging.get_workflow_logger()
+    logger.debug("Suppressed message", huge_payload={"x": [1, 2, 3]})
+    temporal_logger.debug.assert_not_called()
 
 
 def test_safe_repr_handles_broken_repr() -> None:

@@ -71,6 +71,16 @@ class _BlockFirstSink:
         time.sleep(self._block_seconds)
 
 
+def _install_blocking_sink(block_seconds: float) -> int:
+    """Install a one-shot blocking sink and return its sink id."""
+    return process_logger.add(
+        _BlockFirstSink(block_seconds=block_seconds, max_blocks=1),
+        level="INFO",
+        format="{message}",
+        colorize=False,
+    )
+
+
 async def _execute(
     env: WorkflowEnvironment,
     *,
@@ -104,17 +114,10 @@ async def _execute(
 
 
 async def run_repro(mode: Mode, block_seconds: float) -> int:
-    # Install a blocking sink to emulate logger contention in workflow threads.
-    blocking_sink = _BlockFirstSink(block_seconds=block_seconds, max_blocks=1)
-    sink_id = process_logger.add(
-        blocking_sink,
-        level="INFO",
-        format="{message}",
-        colorize=False,
-    )
-    try:
-        async with await WorkflowEnvironment.start_time_skipping() as env:
-            if mode in (Mode.LEGACY, Mode.BOTH):
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        if mode in (Mode.LEGACY, Mode.BOTH):
+            sink_id = _install_blocking_sink(block_seconds)
+            try:
                 try:
                     result, had_deadlock = await _execute(
                         env,
@@ -132,8 +135,12 @@ async def run_repro(mode: Mode, block_seconds: float) -> int:
                     "LEGACY: completed and reproduced TMPRL1101 in task history",
                     f"(result={result!r})",
                 )
+            finally:
+                process_logger.remove(sink_id)
 
-            if mode in (Mode.SAFE, Mode.BOTH):
+        if mode in (Mode.SAFE, Mode.BOTH):
+            sink_id = _install_blocking_sink(block_seconds)
+            try:
                 try:
                     result, had_deadlock = await _execute(
                         env,
@@ -147,9 +154,12 @@ async def run_repro(mode: Mode, block_seconds: float) -> int:
                 if had_deadlock:
                     print("SAFE: workflow completed, but TMPRL1101 was still observed")
                     return 1
-                print("SAFE: completed successfully with no TMPRL1101", f"(result={result!r})")
-    finally:
-        process_logger.remove(sink_id)
+                print(
+                    "SAFE: completed successfully with no TMPRL1101",
+                    f"(result={result!r})",
+                )
+            finally:
+                process_logger.remove(sink_id)
 
     print("Repro complete.")
     return 0

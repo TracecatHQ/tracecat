@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,6 +41,32 @@ def _format_fields(fields: dict[str, Any]) -> str:
     return f" | {serialized}"
 
 
+_STD_LEVEL_BY_NAME = {
+    "trace": logging.DEBUG,
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "warning": logging.WARNING,
+    "error": logging.ERROR,
+}
+
+_LOGURU_LEVEL_BY_NAME = {
+    "trace": "TRACE",
+    "debug": "DEBUG",
+    "info": "INFO",
+    "warning": "WARNING",
+    "error": "ERROR",
+}
+
+
+def _workflow_level_enabled(level: str) -> bool:
+    """Return whether a workflow log level is currently enabled."""
+    try:
+        return workflow.logger.isEnabledFor(_STD_LEVEL_BY_NAME[level])
+    except Exception:
+        # Be conservative and emit logs if level checks are unavailable.
+        return True
+
+
 @dataclass(frozen=True, slots=True)
 class WorkflowRuntimeLogger:
     """Logger adapter for workflow code paths.
@@ -70,15 +97,24 @@ class WorkflowRuntimeLogger:
         self._log("error", message, **fields)
 
     def _log(self, level: str, message: str, **fields: Any) -> None:
-        merged_fields = {**self._bound_fields, **fields}
-        formatted_message = f"{message}{_format_fields(merged_fields)}"
-
         if _in_workflow_context():
             temporal_level = "debug" if level == "trace" else level
+            if not _workflow_level_enabled(temporal_level):
+                return
+            merged_fields = {**self._bound_fields, **fields}
+            formatted_message = f"{message}{_format_fields(merged_fields)}"
             getattr(workflow.logger, temporal_level)(formatted_message)
             return
 
-        getattr(process_logger, level)(formatted_message)
+        bound_fields = self._bound_fields
+        dynamic_fields = fields
+
+        process_logger.opt(lazy=True).log(
+            _LOGURU_LEVEL_BY_NAME[level],
+            "{}{}",
+            message,
+            lambda: _format_fields({**bound_fields, **dynamic_fields}),
+        )
 
 
 workflow_logger = WorkflowRuntimeLogger()
