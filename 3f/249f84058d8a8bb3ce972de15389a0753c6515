@@ -1,0 +1,25 @@
+frontend/src/app/organization/vcs/page.tsx
+  a97f58061c607f21 3,5,8,33,35-57
+frontend/src/components/sidebar/organization-sidebar.tsx
+  a97f58061c607f21 42,106-107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.4",
+  "base_commit_sha": "3f249f84058d8a8bb3ce972de15389a0753c6515",
+  "prompts": {
+    "a97f58061c607f21": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c8ce0-63c4-7213-a3c1-8a34aacd9177",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 37,
+      "total_deletions": 28,
+      "accepted_lines": 30,
+      "overriden_lines": 0
+    }
+  }
+}
