@@ -128,6 +128,8 @@ ingress:
     annotations: {}
   api:
     annotations: {}
+  mcp:
+    annotations: {}
 
 # Istio VirtualService configuration (alternative to ingress).
 # Disable ingress when enabling VirtualServices.
@@ -158,6 +160,9 @@ virtualService:
 urls:
   publicApp: ""
   publicApi: ""
+  # Public URL for the MCP server (used for OIDC callbacks and MCP connect links).
+  # Defaults to https://<ingress.host>/mcp when empty.
+  publicMcp: ""
   # Only used to rewrite presigned URLs for S3-compatible storage.
   publicS3: ""
 
@@ -316,6 +321,18 @@ agentExecutor:
   contextCompression:
     enabled: false
     thresholdKb: 16
+
+mcp:
+  enabled: false
+  replicas: 1
+  port: 8099
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "512Mi"
 
 temporal:
   enabled: true

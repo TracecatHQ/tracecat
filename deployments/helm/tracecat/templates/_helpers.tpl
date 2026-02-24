@@ -266,7 +266,7 @@ Public MCP URL - used by MCP server for OIDC auth callbacks and connect links
 {{- if .Values.urls.publicMcp }}
 {{- .Values.urls.publicMcp }}
 {{- else }}
-{{- printf "%s://%s" (include "tracecat.urlScheme" .) .Values.ingress.host }}
+{{- printf "%s://%s/mcp" (include "tracecat.urlScheme" .) .Values.ingress.host }}
 {{- end }}
 {{- end }}
 

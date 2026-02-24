@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -41,13 +42,10 @@ def test_create_mcp_auth_uses_jwt_mode(
         "TRACECAT_MCP__AUTHORIZATION_SERVER_URL",
         "https://issuer.example.com",
     )
-    monkeypatch.setattr(
-        mcp_auth,
-        "TRACECAT_MCP__JWT_JWKS_URI",
-        "https://issuer.example.com/.well-known/jwks.json",
-    )
 
-    auth = mcp_auth.create_mcp_auth()
+    mock_verifier = MagicMock()
+    with patch("tracecat.mcp.auth.JWTVerifier", return_value=mock_verifier):
+        auth = mcp_auth.create_mcp_auth()
 
     assert isinstance(auth, RemoteAuthProvider)
 
@@ -68,23 +66,13 @@ def test_create_mcp_auth_uses_introspection_mode(
         "TRACECAT_MCP__AUTHORIZATION_SERVER_URL",
         "https://issuer.example.com",
     )
-    monkeypatch.setattr(
-        mcp_auth,
-        "TRACECAT_MCP__INTROSPECTION_URL",
-        "https://issuer.example.com/oauth/introspect",
-    )
-    monkeypatch.setattr(
-        mcp_auth,
-        "TRACECAT_MCP__INTROSPECTION_CLIENT_ID",
-        "tracecat-mcp",
-    )
-    monkeypatch.setattr(
-        mcp_auth,
-        "TRACECAT_MCP__INTROSPECTION_CLIENT_SECRET",
-        "secret",
-    )
 
-    auth = mcp_auth.create_mcp_auth()
+    mock_verifier = MagicMock()
+    with patch(
+        "tracecat.mcp.auth.IntrospectionTokenVerifier",
+        return_value=mock_verifier,
+    ):
+        auth = mcp_auth.create_mcp_auth()
 
     assert isinstance(auth, RemoteAuthProvider)
 
