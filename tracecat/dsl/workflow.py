@@ -41,7 +41,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.concurrency import cooperative
     from tracecat.contexts import (
         ctx_interaction,
-        ctx_logger,
         ctx_logical_time,
         ctx_role,
         ctx_run,
@@ -96,6 +95,7 @@ with workflow.unsafe.imports_passed_through():
         format_input_schema_validation_error,
         resolve_time_anchor_activity,
     )
+    from tracecat.dsl.workflow_logging import get_workflow_logger
     from tracecat.ee.interactions.decorators import maybe_interactive
     from tracecat.ee.interactions.schemas import InteractionInput, InteractionResult
     from tracecat.ee.interactions.service import InteractionManager
@@ -111,7 +111,6 @@ with workflow.unsafe.imports_passed_through():
         WorkflowID,
         exec_id_to_parts,
     )
-    from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
     from tracecat.storage.object import (
         CollectionObject,
@@ -212,7 +211,7 @@ class DSLWorkflow:
         self.wf_exec_id = wf_info.workflow_id
         # Tracecat wf run id == Temporal wf run id
         self.wf_run_id = wf_info.run_id
-        self.logger = logger.bind(
+        self.logger = get_workflow_logger(
             wf_id=args.wf_id,
             wf_exec_id=self.wf_exec_id,
             wf_run_id=self.wf_run_id,
@@ -221,7 +220,6 @@ class DSLWorkflow:
         )
         # Set runtime args
         ctx_role.set(self.role)
-        ctx_logger.set(self.logger)
 
         self.logger.debug(
             "DSL workflow started", args=args, execution_type=self.execution_type
@@ -294,7 +292,6 @@ class DSLWorkflow:
         self.role = self.role.model_copy(update={"organization_id": organization_id})
         self.logger = self.logger.bind(role=self.role)
         ctx_role.set(self.role)
-        ctx_logger.set(self.logger)
         self.logger.info(
             "Auto-healed role organization_id",
             organization_id=organization_id,
@@ -387,7 +384,7 @@ class DSLWorkflow:
                 err_info_map = e.details[0]
                 self.logger.info("Raising error info", err_info_data=err_info_map)
                 if not isinstance(err_info_map, dict):
-                    logger.error(
+                    self.logger.error(
                         "Unexpected error info object",
                         err_info_map=err_info_map,
                         type=type(err_info_map).__name__,
@@ -455,7 +452,7 @@ class DSLWorkflow:
             # 1. runtime_config.environment (override by caller)
             # 2. dsl.config.environment (set in wf defn)
 
-            logger.debug(
+            self.logger.debug(
                 "Runtime config was set",
                 args_config=args.runtime_config,
                 dsl_config=self.dsl.config,
@@ -464,12 +461,12 @@ class DSLWorkflow:
             self.runtime_config = self.dsl.config.model_copy(update=set_fields)
         else:
             # Otherwise default to the DSL config
-            logger.debug(
+            self.logger.debug(
                 "Runtime config was not set, using DSL config",
                 dsl_config=self.dsl.config,
             )
             self.runtime_config = self.dsl.config
-        logger.debug("Runtime config after", runtime_config=self.runtime_config)
+        self.logger.debug("Runtime config after", runtime_config=self.runtime_config)
 
         # Consolidate trigger inputs
         if args.schedule_id:
@@ -509,7 +506,7 @@ class DSLWorkflow:
                     case ApplicationError(type=t, details=details) if (
                         t == ValidationError.__name__
                     ):
-                        logger.info(
+                        self.logger.warning(
                             "Validation error when normalizing trigger inputs",
                             error=e,
                             details=details,
@@ -523,7 +520,7 @@ class DSLWorkflow:
                             type=ValidationError.__name__,
                         ) from cause
                     case _:
-                        logger.warning(
+                        self.logger.warning(
                             "Unexpected error cause when normalizing trigger inputs",
                             error=e,
                         )
@@ -599,6 +596,7 @@ class DSLWorkflow:
             context=self.context,
             role=self.role,
             run_context=self.run_context,
+            logger=self.logger.bind(unit="dsl-scheduler"),
         )
         try:
             task_exceptions = await self.scheduler.start()
@@ -652,7 +650,7 @@ class DSLWorkflow:
         # If we have a retry_until, we need to run wait_until inside.
         # If we have a wait_until, we need to create a durable timer
         if task.wait_until:
-            self.logger.info("Creating wait until timer", wait_until=task.wait_until)
+            self.logger.debug("Creating wait until timer", wait_until=task.wait_until)
 
             # Parse the delay until date
             wait_until = await workflow.execute_activity(
@@ -660,7 +658,7 @@ class DSLWorkflow:
                 task.wait_until,
                 start_to_close_timeout=timedelta(seconds=10),
             )
-            self.logger.info("Parsed wait until date", wait_until=wait_until)
+            self.logger.debug("Parsed wait until date", wait_until=wait_until)
             if wait_until is None:
                 # Unreachable as this should have been validated at the API level
                 raise ApplicationError(
@@ -669,11 +667,11 @@ class DSLWorkflow:
                 )
 
             current_time = datetime.now(UTC)
-            logger.info("Current time", current_time=current_time)
+            self.logger.debug("Current time", current_time=current_time)
             wait_until_dt = datetime.fromisoformat(wait_until)
             if wait_until_dt > current_time:
                 duration = wait_until_dt - current_time
-                self.logger.info(
+                self.logger.debug(
                     "Waiting until", wait_until=wait_until, duration=duration
                 )
                 await asyncio.sleep(duration.total_seconds())
@@ -685,7 +683,7 @@ class DSLWorkflow:
                 )
         # Create a durable timer if we have a start_delay
         elif task.start_delay > 0:
-            logger.info("Starting action with delay", delay=task.start_delay)
+            self.logger.debug("Starting action with delay", delay=task.start_delay)
             # In Temporal 1.9.0+, we can use workflow.sleep() as well
             await asyncio.sleep(task.start_delay)
 
@@ -747,7 +745,7 @@ class DSLWorkflow:
         2. Decide whether we're running a child workflow or not
         """
         stream_id = ctx_stream_id.get()
-        logger.info("Begin task execution", task_ref=task.ref, stream_id=stream_id)
+        self.logger.debug("Begin task execution", task_ref=task.ref, stream_id=stream_id)
         task_result = TaskResult.from_result(None)
 
         try:
@@ -759,7 +757,7 @@ class DSLWorkflow:
                 case PlatformAction.CHILD_WORKFLOW_EXECUTE:
                     # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
                     # Single activity prepares everything: alias resolution, definition fetch, loop iteration data
-                    logger.trace("Preparing child workflow")
+                    self.logger.trace("Preparing child workflow")
                     use_committed = self.execution_type != ExecutionType.DRAFT
                     prepared = await workflow.execute_activity(
                         DSLActivities.prepare_subflow_activity,
@@ -778,7 +776,7 @@ class DSLWorkflow:
                         start_to_close_timeout=timedelta(seconds=120),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     )
-                    logger.trace("Child workflow prepared", prepared=prepared)
+                    self.logger.trace("Child workflow prepared", prepared=prepared)
                     # Execute child workflow (handles both single and looped)
                     stored_result = await self._execute_child_workflow_prepared(
                         task=task, prepared=prepared
@@ -796,14 +794,14 @@ class DSLWorkflow:
                         result=stored_result,
                         result_typename=result_typename,
                     )
-                    logger.trace(
+                    self.logger.trace(
                         "Child workflow completed successfully",
                         stored_result=stored_result,
                     )
                     # action_result handled - skip with_result below
                     action_result = None
                 case PlatformAction.AI_AGENT:
-                    logger.info("Executing agent", task=task)
+                    self.logger.debug("Executing agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
                     self._set_logical_time_context()
                     action_args = await workflow.execute_activity(
@@ -860,7 +858,7 @@ class DSLWorkflow:
                         ).model_dump(),
                     )
                 case PlatformAction.AI_ACTION:
-                    logger.info("Executing AI action", task=task)
+                    self.logger.debug("Executing AI action", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
                     self._set_logical_time_context()
                     action_args = await workflow.execute_activity(
@@ -919,7 +917,7 @@ class DSLWorkflow:
                         ).model_dump(),
                     )
                 case PlatformAction.AI_PRESET_AGENT:
-                    logger.info("Executing preset agent", task=task)
+                    self.logger.debug("Executing preset agent", task=task)
                     agent_operand = self._build_action_context(task, stream_id)
                     self._set_logical_time_context()
                     preset_action_args = await workflow.execute_activity(
@@ -981,7 +979,7 @@ class DSLWorkflow:
                     )
                 case _:
                     # Below this point, we're executing the task
-                    logger.trace(
+                    self.logger.trace(
                         "Running action",
                         task_ref=task.ref,
                         runtime_config=self.runtime_config,
@@ -1000,13 +998,13 @@ class DSLWorkflow:
                         result=stored_result,
                         result_typename=result_typename,
                     )
-                    logger.trace(
+                    self.logger.trace(
                         "Action completed successfully", stored_result=stored_result
                     )
                     # action_result handled - skip with_result below
                     action_result = None
             if action_result is not None:
-                logger.trace(
+                self.logger.trace(
                     "Action completed successfully", action_result=action_result
                 )
                 task_result = task_result.with_result(action_result)
@@ -1037,13 +1035,13 @@ class DSLWorkflow:
             raise ApplicationError(detail, non_retryable=True, type=err_type) from e
 
         except ValidationError as e:
-            logger.warning("Runtime validation error", error=e.errors())
+            self.logger.warning("Runtime validation error", error=e.errors())
             task_result = task_result.with_error(e.errors(), ValidationError.__name__)
             raise e
         except Exception as e:
             err_type = e.__class__.__name__
             msg = f"Task execution failed with unexpected error: {e}"
-            logger.error(
+            self.logger.error(
                 "Activity execution failed with unexpected error",
                 error=msg,
                 type=err_type,
@@ -1051,7 +1049,7 @@ class DSLWorkflow:
             task_result = task_result.with_error(msg, err_type)
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
         finally:
-            logger.trace("Setting action result", task_result=task_result)
+            self.logger.trace("Setting action result", task_result=task_result)
             context = self.get_context(stream_id)
             context["ACTIONS"][task.ref] = task_result
         return task_result
@@ -1501,7 +1499,7 @@ class DSLWorkflow:
             iter_run_args(),
             delay=0.1,
         ):
-            logger.trace(
+            self.logger.trace(
                 "Run child workflow batch",
                 loop_index=loop_index,
                 fail_strategy=fail_strategy,
@@ -1797,7 +1795,7 @@ class DSLWorkflow:
             wait_strategy=args.wait_strategy,
             stream_id=stream_id,
         ).model_dump()
-        self.logger.info(
+        self.logger.debug(
             "Running child workflow",
             wait_strategy=args.wait_strategy,
             memo=memo,
@@ -1887,7 +1885,7 @@ class DSLWorkflow:
         url = None
         if match := re.match(identifiers.workflow.WF_EXEC_ID_PATTERN, orig_wf_exec_id):
             if self.role.workspace_id is None:
-                logger.warning("Workspace ID is required to create error handler URL")
+                self.logger.warning("Workspace ID is required to create error handler URL")
             else:
                 try:
                     workflow_id = identifiers.workflow.WorkflowUUID.new(
@@ -1899,7 +1897,7 @@ class DSLWorkflow:
                         f"/workflows/{workflow_id}/executions/{exec_id}"
                     )
                 except Exception as e:
-                    logger.error("Error parsing workflow execution ID", error=e)
+                    self.logger.error("Error parsing workflow execution ID", error=e)
 
         return DSLRunArgs(
             role=self.role,

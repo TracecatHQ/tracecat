@@ -55,10 +55,10 @@ with workflow.unsafe.imports_passed_through():
         Task,
         TaskExceptionInfo,
     )
+    from tracecat.dsl.workflow_logging import WorkflowRuntimeLogger, workflow_logger
     from tracecat.exceptions import TaskUnreachable
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.core import extract_expressions
-    from tracecat.logger import logger
     from tracecat.storage.object import (
         CollectionObject,
         InlineObject,
@@ -113,6 +113,7 @@ class DSLScheduler:
         context: ExecutionContext,
         role: Role,
         run_context: RunContext,
+        logger: WorkflowRuntimeLogger | None = None,
     ):
         # Static
         self.dsl = dsl
@@ -120,8 +121,8 @@ class DSLScheduler:
         self.skip_strategy = skip_strategy
         self.role = role
         self.run_context = run_context
-        # self.logger = ctx_logger.get(logger).bind(unit="dsl-scheduler")
-        self.logger = logger
+        # Workflow-safe logger by default; callers can inject a pre-bound instance.
+        self.logger = logger or workflow_logger
         self.tasks: dict[str, ActionStatement] = {}
         """Task definitions"""
 
@@ -460,24 +461,24 @@ class DSLScheduler:
         try:
             # 1) Skip propagation (force-skip) takes highest precedence over everything else
             if self._skip_should_propagate(task, stmt):
-                self.logger.info("Task should be force-skipped, propagating", task=task)
+                self.logger.debug("Task should be force-skipped, propagating", task=task)
                 return await self._handle_skip_path(task, stmt)
 
             # 2) Then we check if the task is reachable
             if not self._is_reachable(task, stmt):
-                self.logger.info("Task cannot proceed, unreachable", task=task)
+                self.logger.debug("Task cannot proceed, unreachable", task=task)
                 raise TaskUnreachable(f"Task {task} is unreachable")
 
             # 3) Check if the task should self-skip based on its `run_if` condition
             if await self._task_should_skip(task, stmt):
-                self.logger.info("Task should self-skip", task=task)
+                self.logger.debug("Task should self-skip", task=task)
                 return await self._handle_skip_path(task, stmt)
 
             # 4) If we made it here, the task is reachable and not force-skipped.
 
             # Respect the task delay if it exists. We need this to stagger tasks for scatter.
             if original_delay > 0:
-                self.logger.info(
+                self.logger.debug(
                     "Task has delay, sleeping", task=task, delay=original_delay
                 )
                 await asyncio.sleep(original_delay)
@@ -507,7 +508,7 @@ class DSLScheduler:
             await self._handle_error_path(task, e)
         finally:
             # 5) Regardless of the outcome, the task is now complete
-            self.logger.info("Task completed", task=task)
+            self.logger.debug("Task completed", task=task)
             self.completed_tasks.add(task)
 
     async def start(self) -> dict[str, TaskExceptionInfo] | None:
@@ -583,13 +584,13 @@ class DSLScheduler:
             ValueError: If the join strategy is invalid
         """
 
-        logger.debug("Check task reachability", task=task, marked_edges=self.edges)
+        self.logger.debug("Check task reachability", task=task, marked_edges=self.edges)
         n_deps = len(stmt.depends_on)
         if n_deps == 0:
             # Root nodes are always reachable
             return True
         elif n_deps == 1:
-            logger.debug("Task has only 1 dependency", task=task)
+            self.logger.debug("Task has only 1 dependency", task=task)
             # If there's only 1 dependency, the node is reachable only if the
             # dependency was successful ignoring the join strategy.
             dep_ref = stmt.depends_on[0]
@@ -642,7 +643,7 @@ class DSLScheduler:
         )
 
     def _mark_edge(self, edge: DSLEdge, marker: EdgeMarker) -> None:
-        logger.debug("Marking edge", edge=edge, marker=marker)
+        self.logger.debug("Marking edge", edge=edge, marker=marker)
         self.edges[edge] = marker
 
     def _skip_should_propagate(self, task: Task, stmt: ActionStatement) -> bool:
@@ -684,7 +685,7 @@ class DSLScheduler:
                 ) from e
 
             if not bool(expr_result):
-                self.logger.info("Task `run_if` condition was not met, skipped")
+                self.logger.debug("Task `run_if` condition was not met, skipped")
                 return True
         return False
 
@@ -881,7 +882,7 @@ class DSLScheduler:
                 gather_ref,
             )
         else:
-            self.logger.info(
+            self.logger.debug(
                 "The execution stream is complete but the gather isn't.",
                 task=task,
                 remaining_open_streams=self.open_streams[parent_scatter],
@@ -1010,7 +1011,7 @@ class DSLScheduler:
                 self.logger.debug("Default gather path", stream_id=stream_id)
                 parent_stream_id = self._get_parent_stream_id_safe(task, stream_id)
             case _:
-                self.logger.info("Invalid gather state", task=task)
+                self.logger.warning("Invalid gather state", task=task)
                 raise ApplicationError("Invalid gather state")
         # =============
         # We only reach this point if we are in an execution stream.
