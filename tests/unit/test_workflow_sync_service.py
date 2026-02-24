@@ -590,7 +590,9 @@ class TestWorkflowSyncService:
             create_pr=False,
             branch="feature/new-workflow",
         )
-        git_url = GitUrl(host="github.com", org="test-org", repo="test-repo", ref="release")
+        git_url = GitUrl(
+            host="github.com", org="test-org", repo="test-repo", ref="release"
+        )
 
         mock_repo = Mock()
         release_branch = Mock()
