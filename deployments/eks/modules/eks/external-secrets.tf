@@ -88,6 +88,7 @@ resource "kubernetes_manifest" "postgres_credentials_external_secret" {
       target = {
         name           = "tracecat-postgres-credentials"
         creationPolicy = "Owner"
+        deletionPolicy = "Retain"
       }
       data = [
         {

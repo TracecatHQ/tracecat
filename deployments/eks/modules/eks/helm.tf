@@ -79,8 +79,8 @@ resource "helm_release" "tracecat" {
 
   wait            = true
   wait_for_jobs   = true
-  atomic          = true
-  cleanup_on_fail = true
+  atomic          = false
+  cleanup_on_fail = false
   upgrade_install = true
   timeout         = 1500
 
