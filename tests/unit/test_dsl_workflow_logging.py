@@ -137,7 +137,9 @@ def test_workflow_path_skips_formatting_when_level_disabled(
     monkeypatch.setattr(workflow_logging.workflow, "logger", temporal_logger)
 
     def _raise(_fields: dict[str, object]) -> str:
-        raise AssertionError("fields should not be formatted when log level is disabled")
+        raise AssertionError(
+            "fields should not be formatted when log level is disabled"
+        )
 
     monkeypatch.setattr(workflow_logging, "_format_fields", _raise)
 
