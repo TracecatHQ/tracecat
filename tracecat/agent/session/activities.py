@@ -100,7 +100,9 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 service.session.add(agent_session)
                 await service.session.commit()
 
-            if input.initial_user_prompt is not None:
+            # Avoid duplicate title generation when run_turn already attempted
+            # first-prompt auto-title before spawning this workflow.
+            if created and input.initial_user_prompt is not None:
                 await service.auto_title_session_on_first_prompt(
                     agent_session,
                     input.initial_user_prompt,

@@ -65,22 +65,22 @@ async def generate_session_title(
     if not prompt:
         return None
 
+    model = get_model(model_name, model_provider)
+    agent = Agent(
+        model=model,
+        instructions=_TITLE_INSTRUCTIONS,
+        output_type=str,
+        retries=0,
+        instrument=False,
+    )
+    usage_limits = UsageLimits(request_limit=1, tool_calls_limit=0)
     try:
-        model = get_model(model_name, model_provider)
-        agent = Agent(
-            model=model,
-            instructions=_TITLE_INSTRUCTIONS,
-            output_type=str,
-            retries=0,
-            instrument=False,
-        )
-        usage_limits = UsageLimits(request_limit=1, tool_calls_limit=0)
         async with asyncio.timeout(timeout_seconds):
             result = await agent.run(
                 _build_title_prompt(prompt),
                 usage_limits=usage_limits,
             )
-    except Exception:
+    except TimeoutError:
         return None
 
     return sanitize_session_title(result.output)

@@ -55,17 +55,17 @@ async def test_generate_session_title_returns_sanitized_output() -> None:
 
 
 @pytest.mark.anyio
-async def test_generate_session_title_returns_none_on_model_error() -> None:
+async def test_generate_session_title_raises_on_model_error() -> None:
     with patch(
         "tracecat.agent.session.title_generator.get_model",
         side_effect=RuntimeError("bad model"),
     ):
-        title = await generate_session_title(
-            user_prompt="Find root cause",
-            model_name="bad-model",
-            model_provider="openai",
-        )
-    assert title is None
+        with pytest.raises(RuntimeError, match="bad model"):
+            await generate_session_title(
+                user_prompt="Find root cause",
+                model_name="bad-model",
+                model_provider="openai",
+            )
 
 
 @pytest.mark.anyio

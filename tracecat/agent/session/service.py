@@ -10,12 +10,15 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import orjson
+from pydantic_ai.exceptions import AgentRunError, UserError
 from pydantic_ai.messages import (
     ModelRequest,
     UserPromptPart,
 )
 from pydantic_ai.tools import ToolApproved, ToolDenied
 from sqlalchemy import delete, select, update
+from sqlalchemy.exc import SQLAlchemyError
+from tracecat_registry._internal.exceptions import SecretNotFoundError
 
 import tracecat.agent.adapter.vercel
 from tracecat import config
@@ -520,7 +523,13 @@ class AgentSessionService(BaseWorkspaceService):
                     model_name=model_config.name,
                     model_provider=model_config.provider,
                 )
-        except Exception as e:
+        except (
+            AgentRunError,
+            SecretNotFoundError,
+            TracecatNotFoundError,
+            UserError,
+            ValueError,
+        ) as e:
             logger.warning(
                 "session_auto_title_failure",
                 session_id=str(agent_session.id),
@@ -579,7 +588,7 @@ class AgentSessionService(BaseWorkspaceService):
                 .returning(AgentSession.id)
             )
             await self.session.commit()
-        except Exception as e:
+        except SQLAlchemyError as e:
             await self.session.rollback()
             logger.warning(
                 "session_auto_title_failure",

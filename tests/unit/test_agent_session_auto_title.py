@@ -10,6 +10,7 @@ import pytest
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession
+from tracecat.exceptions import TracecatNotFoundError
 
 
 @pytest.fixture
@@ -90,7 +91,9 @@ async def test_auto_title_skips_when_not_first_prompt(role: Role) -> None:
 
 
 @pytest.mark.anyio
-async def test_auto_title_does_not_raise_on_generation_error(role: Role) -> None:
+async def test_auto_title_does_not_raise_on_expected_generation_error(
+    role: Role,
+) -> None:
     session = AsyncMock()
     service = AgentSessionService(session, role)
     agent_session = AgentSession(
@@ -103,14 +106,54 @@ async def test_auto_title_does_not_raise_on_generation_error(role: Role) -> None
 
     service._is_first_prompt_for_session = AsyncMock(return_value=True)
 
-    with patch(
-        "tracecat.agent.session.service.AgentManagementService.with_model_config",
-        side_effect=RuntimeError("provider down"),
+    with (
+        patch(
+            "tracecat.agent.session.service.AgentManagementService",
+            _DummyAgentManagementService,
+        ),
+        patch(
+            "tracecat.agent.session.service.generate_session_title",
+            AsyncMock(side_effect=TracecatNotFoundError("model missing")),
+        ),
     ):
-        await service.auto_title_session_on_first_prompt(agent_session, "Find issue")
+        await service.auto_title_session_on_first_prompt(
+            agent_session,
+            "Find issue",
+        )
 
     session.execute.assert_not_awaited()
     session.commit.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_auto_title_raises_on_unexpected_generation_error(role: Role) -> None:
+    session = AsyncMock()
+    service = AgentSessionService(session, role)
+    agent_session = AgentSession(
+        workspace_id=role.workspace_id,
+        title="New Chat",
+        entity_type="workflow",
+        entity_id=uuid.uuid4(),
+    )
+    agent_session.id = uuid.uuid4()
+
+    service._is_first_prompt_for_session = AsyncMock(return_value=True)
+
+    with (
+        patch(
+            "tracecat.agent.session.service.AgentManagementService",
+            _DummyAgentManagementService,
+        ),
+        patch(
+            "tracecat.agent.session.service.generate_session_title",
+            AsyncMock(side_effect=RuntimeError("provider down")),
+        ),
+        pytest.raises(RuntimeError, match="provider down"),
+    ):
+        await service.auto_title_session_on_first_prompt(
+            agent_session,
+            "Find issue",
+        )
 
 
 @pytest.mark.anyio

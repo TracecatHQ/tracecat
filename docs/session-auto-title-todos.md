@@ -40,3 +40,11 @@ Last updated: 2026-02-25
 - [x] Ruff checks passing.
 - [x] Basedpyright passing.
 - [x] Docker compose runtime verification: new user prompt produces `session_auto_title_success`.
+
+## Review follow-ups (2026-02-25)
+
+- [x] Narrow `title_generator` exception handling to expected timeout-only fallback.
+- [x] Narrow `auto_title_session_on_first_prompt` generation error handling to expected/domain failures.
+- [x] Narrow DB write error handling in `auto_title_session_on_first_prompt` to SQLAlchemy errors.
+- [x] Prevent duplicate first-prompt auto-title calls in `create_session_activity` when session already exists.
+- [x] Add regression tests for unexpected-error propagation and duplicate-call guard.

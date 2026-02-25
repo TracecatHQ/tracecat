@@ -205,6 +205,34 @@ class TestCreateSessionActivity:
             "Investigate login failures",
         )
 
+    @pytest.mark.anyio
+    @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    async def test_skips_auto_title_for_existing_session(
+        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    ):
+        """Test initial prompt does not retrigger auto-title for existing sessions."""
+        input = CreateSessionInput(
+            role=mock_role,
+            session_id=mock_session_id,
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+            initial_user_prompt="Investigate repeated login failures",
+        )
+
+        mock_agent_session = MagicMock()
+        mock_service = AsyncMock()
+        mock_service.get_or_create_session.return_value = (mock_agent_session, False)
+        mock_service.auto_title_session_on_first_prompt = AsyncMock()
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await create_session_activity(input)
+
+        assert result.success is True
+        mock_service.auto_title_session_on_first_prompt.assert_not_awaited()
+
 
 class TestLoadSessionActivity:
     """Tests for load_session_activity."""
