@@ -458,7 +458,9 @@ class TestScopeValidation:
                     ref="loop_end",
                     action="core.loop.end",
                     depends_on=["body"],
-                    args={"condition": "${{ ACTIONS.loop_start.result.iteration < 1 }}"},
+                    args={
+                        "condition": "${{ ACTIONS.loop_start.result.iteration < 1 }}"
+                    },
                 ),
                 ActionStatement(
                     ref="after",

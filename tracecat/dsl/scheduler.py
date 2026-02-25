@@ -271,9 +271,8 @@ class DSLScheduler:
     ) -> None:
         streams_to_remove: set[StreamID] = set()
         for task_key, scoped_streams in self.task_streams.items():
-            if (
-                task_key.ref not in region.members
-                or not self._stream_within(task_key.stream_id, stream_id)
+            if task_key.ref not in region.members or not self._stream_within(
+                task_key.stream_id, stream_id
             ):
                 continue
             streams_to_remove.update(scoped_streams)
@@ -296,7 +295,9 @@ class DSLScheduler:
             self.stream_exceptions.pop(stream, None)
 
         self.completed_tasks = {
-            task for task in self.completed_tasks if task.stream_id not in streams_to_remove
+            task
+            for task in self.completed_tasks
+            if task.stream_id not in streams_to_remove
         }
         self.indegrees = {
             task: indegree
@@ -325,7 +326,9 @@ class DSLScheduler:
             if task.stream_id not in streams_to_remove
         }
 
-    def _reset_loop_iteration_state(self, region: LoopRegion, stream_id: StreamID) -> None:
+    def _reset_loop_iteration_state(
+        self, region: LoopRegion, stream_id: StreamID
+    ) -> None:
         # NOTE(loop semantics):
         # We only reset scheduler bookkeeping (edges/indegrees/completions/streams) to
         # allow another pass through the loop region. We intentionally DO NOT clear the
@@ -334,16 +337,10 @@ class DSLScheduler:
         self._cleanup_loop_descendant_streams(region, stream_id)
 
         for task_key in list(self.task_streams.keys()):
-            if (
-                task_key.ref in region.members
-                and task_key.stream_id == stream_id
-            ):
+            if task_key.ref in region.members and task_key.stream_id == stream_id:
                 self.task_streams.pop(task_key, None)
         for task_key in list(self.open_streams.keys()):
-            if (
-                task_key.ref in region.members
-                and task_key.stream_id == stream_id
-            ):
+            if task_key.ref in region.members and task_key.stream_id == stream_id:
                 self.open_streams.pop(task_key, None)
 
         # Reset edge markers within the loop region for this stream.
@@ -373,9 +370,8 @@ class DSLScheduler:
         # Reset nested loop indices within this loop scope.
         for loop_key in list(self.loop_indices.keys()):
             loop_start_ref, loop_stream = loop_key
-            if (
-                loop_start_ref in region.members
-                and self._stream_within(loop_stream, stream_id)
+            if loop_start_ref in region.members and self._stream_within(
+                loop_stream, stream_id
             ):
                 self.loop_indices.pop(loop_key, None)
 

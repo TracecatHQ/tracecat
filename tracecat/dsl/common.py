@@ -375,13 +375,11 @@ class DSLInput(BaseModel):
                             action_scope=action_scope,
                             scope_hierarchy=scope_hierarchy,
                         )
-                        is_loop_descendant = (
-                            self._is_loop_descendant_scope(
-                                dep_scope=dep_scope,
-                                action_scope=action_scope,
-                                scope_hierarchy=scope_hierarchy,
-                                scope_openers=scope_openers,
-                            )
+                        is_loop_descendant = self._is_loop_descendant_scope(
+                            dep_scope=dep_scope,
+                            action_scope=action_scope,
+                            scope_hierarchy=scope_hierarchy,
+                            scope_openers=scope_openers,
                         )
                         if not is_ancestor and not is_loop_descendant:
                             raise TracecatDSLError(
@@ -481,7 +479,11 @@ class DSLInput(BaseModel):
                 # Closer actions close the current scope
                 next_scope = scope_hierarchy.get(curr_scope)
                 if next_scope is None:
-                    action_name = "gather" if stmt.action == PlatformAction.TRANSFORM_GATHER else "loop.end"
+                    action_name = (
+                        "gather"
+                        if stmt.action == PlatformAction.TRANSFORM_GATHER
+                        else "loop.end"
+                    )
                     raise TracecatDSLError(
                         f"You cannot use a {action_name} action {ref!r} in the root scope"
                     )

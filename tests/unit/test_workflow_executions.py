@@ -868,7 +868,9 @@ class TestWorkflowExecutionEvents:
                 assert event.source_event_id == 2
                 assert event.action_result == 1
                 assert event.status == WorkflowExecutionEventStatus.COMPLETED
-                assert event.curr_event_type == WorkflowEventType.ACTIVITY_TASK_COMPLETED
+                assert (
+                    event.curr_event_type == WorkflowEventType.ACTIVITY_TASK_COMPLETED
+                )
 
     async def test_compact_duplicate_actions_latest_failure_wins(
         self,
@@ -962,8 +964,7 @@ class TestWorkflowExecutionEvents:
                     assert event.status == WorkflowExecutionEventStatus.FAILED
                     assert event.action_error is not None
                     assert (
-                        event.action_error.message
-                        == "Body failed on latest iteration"
+                        event.action_error.message == "Body failed on latest iteration"
                     )
 
     async def test_compact_duplicate_actions_in_different_streams_are_distinct(
@@ -1046,7 +1047,9 @@ class TestWorkflowExecutionEvents:
                 )
 
                 assert len(events) == 2
-                stream2result = {event.stream_id: event.action_result for event in events}
+                stream2result = {
+                    event.stream_id: event.action_result for event in events
+                }
                 assert stream2result[root_stream] == 10
                 assert stream2result[scatter_stream] == 20
 

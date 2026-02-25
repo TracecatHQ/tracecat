@@ -27,7 +27,9 @@ def start() -> Any:
 def end(
     condition: Annotated[
         str,
-        Doc("Expression evaluated after the loop body; truthy values continue looping."),
+        Doc(
+            "Expression evaluated after the loop body; truthy values continue looping."
+        ),
     ],
     max_iterations: Annotated[
         int,

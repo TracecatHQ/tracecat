@@ -528,9 +528,7 @@ async def test_skip_inside_loop_does_not_bypass_loop_when_other_dependency_succe
     test_worker_factory: Callable[[Client], Worker],
     test_executor_worker_factory: Callable[[Client], Worker],
 ) -> None:
-    test_name = (
-        f"{test_skip_inside_loop_does_not_bypass_loop_when_other_dependency_succeeds.__name__}"
-    )
+    test_name = f"{test_skip_inside_loop_does_not_bypass_loop_when_other_dependency_succeeds.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)
 
     dsl = DSLInput(

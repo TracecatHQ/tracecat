@@ -1755,9 +1755,7 @@ class DSLWorkflow:
     async def _noop_loop_action(self, task: ActionStatement) -> Any:
         """Record a no-op activity for loop start/end interface actions."""
         stream_id = ctx_stream_id.get()
-        self.logger.debug(
-            "Noop loop action", action_ref=task.ref, stream_id=stream_id
-        )
+        self.logger.debug("Noop loop action", action_ref=task.ref, stream_id=stream_id)
         new_context = self._build_action_context(task, stream_id)
         # build_stream_aware_context is sparse and only includes referenced ACTIONS.
         # Loop control actions store scheduler metadata on their own ref

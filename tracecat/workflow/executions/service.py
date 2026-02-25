@@ -419,7 +419,9 @@ class WorkflowExecutionsService:
                     (
                         source.while_iteration,
                         source.while_continue,
-                    ) = _extract_while_metadata(source.action_name, source.action_result)
+                    ) = _extract_while_metadata(
+                        source.action_name, source.action_result
+                    )
                 if is_error_event(event):
                     source.action_error = EventFailure.from_history_event(event)
 
