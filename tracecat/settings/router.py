@@ -68,7 +68,7 @@ async def _organization_has_active_domain(
 
 
 async def check_saml_domain_prerequisites(
-    *, session: AsyncSession, role: OrgAdminUser, params: SAMLSettingsUpdate
+    *, session: AsyncSession, role: OrgUserRole, params: SAMLSettingsUpdate
 ) -> None:
     """Enforce domain guardrails for multi-tenant SAML enablement.
 
@@ -112,7 +112,7 @@ async def check_saml_domain_prerequisites(
 @require_scope("org:settings:read")
 async def get_git_settings(
     *,
-    role: OrgAdminUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
 ) -> GitSettingsRead:
     await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
@@ -127,7 +127,7 @@ async def get_git_settings(
 @require_scope("org:settings:update")
 async def update_git_settings(
     *,
-    role: OrgAdminUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
     params: GitSettingsUpdate,
 ) -> None:
@@ -140,7 +140,7 @@ async def update_git_settings(
 @require_scope("org:settings:read")
 async def get_saml_settings(
     *,
-    role: OrgAdminUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
 ) -> SAMLSettingsRead:
     service = SettingsService(session, role)
@@ -164,7 +164,7 @@ async def get_saml_settings(
 @require_scope("org:settings:update")
 async def update_saml_settings(
     *,
-    role: OrgAdminUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
     params: SAMLSettingsUpdate,
 ) -> None:
@@ -193,7 +193,7 @@ async def get_app_settings(
 @require_scope("org:settings:update")
 async def update_app_settings(
     *,
-    role: OrgAdminUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
     params: AppSettingsUpdate,
 ) -> None:
@@ -205,7 +205,7 @@ async def update_app_settings(
 @require_scope("org:settings:read")
 async def get_audit_settings(
     *,
-    role: OrgAdminUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
 ) -> AuditSettingsRead:
     service = SettingsService(session, role)
@@ -223,7 +223,7 @@ async def get_audit_settings(
 @require_scope("org:settings:update")
 async def update_audit_settings(
     *,
-    role: OrgAdminUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
     params: AuditSettingsUpdate,
 ) -> None:
@@ -235,7 +235,7 @@ async def update_audit_settings(
 @require_scope("org:settings:read")
 async def get_agent_settings(
     *,
-    role: OrgAdminUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
 ) -> AgentSettingsRead:
     service = SettingsService(session, role)
@@ -249,7 +249,7 @@ async def get_agent_settings(
 @require_scope("org:settings:update")
 async def update_agent_settings(
     *,
-    role: OrgAdminUser,
+    role: OrgUserRole,
     session: AsyncDBSession,
     params: AgentSettingsUpdate,
 ) -> None:
