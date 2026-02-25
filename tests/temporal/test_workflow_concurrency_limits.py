@@ -208,7 +208,9 @@ async def _start_batch(
         handle = await env.client.start_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=role, wf_id=TEST_WF_ID),
-            id=generate_test_exec_id(f"{workflow_name_prefix}_{i}_{uuid.uuid4().hex[:6]}"),
+            id=generate_test_exec_id(
+                f"{workflow_name_prefix}_{i}_{uuid.uuid4().hex[:6]}"
+            ),
             task_queue=config.TEMPORAL__CLUSTER_QUEUE,
         )
         handles.append(handle)

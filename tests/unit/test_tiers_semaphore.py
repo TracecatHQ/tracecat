@@ -49,9 +49,7 @@ class _FakeRedisClient:
         self.acquire_calls.append((keys, args))
         return self._acquire_result
 
-    async def _heartbeat_script(
-        self, *, keys: list[str], args: list[str | int]
-    ) -> int:
+    async def _heartbeat_script(self, *, keys: list[str], args: list[str | int]) -> int:
         self.heartbeat_calls.append((keys, args))
         return self._heartbeat_result
 

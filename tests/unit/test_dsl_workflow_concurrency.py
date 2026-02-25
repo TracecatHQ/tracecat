@@ -59,7 +59,9 @@ def _build_workflow(*, limits: EffectiveLimits | None = None) -> DSLWorkflow:
 
 @pytest.mark.anyio
 async def test_retry_until_counts_action_execution_limit_per_iteration() -> None:
-    workflow = _build_workflow(limits=_effective_limits(max_action_executions_per_workflow=3))
+    workflow = _build_workflow(
+        limits=_effective_limits(max_action_executions_per_workflow=3)
+    )
     task = ActionStatement(
         ref="retry_action",
         action="core.transform.reshape",
@@ -89,7 +91,9 @@ async def test_retry_until_counts_action_execution_limit_per_iteration() -> None
 
 @pytest.mark.anyio
 async def test_retry_until_enforces_action_execution_limit() -> None:
-    workflow = _build_workflow(limits=_effective_limits(max_action_executions_per_workflow=2))
+    workflow = _build_workflow(
+        limits=_effective_limits(max_action_executions_per_workflow=2)
+    )
     task = ActionStatement(
         ref="retry_action",
         action="core.transform.reshape",
@@ -151,7 +155,9 @@ async def test_execute_task_handles_timers_before_action_permit_acquisition() ->
             "_run_action",
             new=AsyncMock(return_value=InlineObject(data={"ok": True})),
         ),
-        patch.object(workflow, "_release_action_permit", new=AsyncMock(return_value=None)),
+        patch.object(
+            workflow, "_release_action_permit", new=AsyncMock(return_value=None)
+        ),
     ):
         result = await workflow._execute_task(task)
 
