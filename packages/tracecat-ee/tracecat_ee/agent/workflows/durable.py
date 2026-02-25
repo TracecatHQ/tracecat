@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import TypedSearchAttributes
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from pydantic_ai.messages import ToolCallPart
@@ -24,10 +24,6 @@ with workflow.unsafe.imports_passed_through():
         execute_approved_tools_activity,
         run_agent_activity,
     )
-    from tracecat.agent.mcp.executor import (
-        build_run_input,
-    )
-    from tracecat.agent.mcp.utils import normalize_mcp_tool_name
     from tracecat.agent.parsers import try_parse_json
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetConfigActivityInput,
@@ -69,33 +65,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat_ee.agent.context import AgentContext
     from tracecat_ee.agent.types import AgentWorkflowID
 
-
-def _activity_error_message(error: ActivityError) -> str:
-    cause = error.cause
-    if cause is not None:
-        return str(cause)
-    return str(error)
-
-
-def _build_approved_tool_run_input(
-    *,
-    tool_call: ApprovedToolCall,
-    registry_lock: RegistryLock,
-    workflow_id: uuid.UUID,
-    run_id: uuid.UUID,
-    execution_id: uuid.UUID,
-    logical_time: datetime,
-):
-    action_name = normalize_mcp_tool_name(tool_call.tool_name)
-    return build_run_input(
-        action_name=action_name,
-        args=tool_call.args,
-        registry_lock=registry_lock,
-        workflow_id=workflow_id,
-        run_id=run_id,
-        execution_id=execution_id,
-        logical_time=logical_time,
-    )
 
 
 class AgentWorkflowArgs(BaseModel):
