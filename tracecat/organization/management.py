@@ -183,6 +183,8 @@ async def delete_organization_with_cleanup(
             service_id="tracecat-service",
             organization_id=organization.id,
             workspace_id=workspace.id,
+            is_platform_superuser=True,
+            scopes=frozenset({"*"}),
         )
         schedule_service = WorkflowSchedulesService(
             session=session, role=bootstrap_role

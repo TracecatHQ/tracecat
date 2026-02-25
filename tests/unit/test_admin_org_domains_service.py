@@ -11,7 +11,7 @@ from tracecat_ee.admin.organizations.schemas import OrgDomainCreate, OrgDomainUp
 from tracecat_ee.admin.organizations.service import AdminOrgService
 
 from tracecat.auth.types import PlatformRole
-from tracecat.db.models import Organization, OrganizationSecret, Workspace
+from tracecat.db.models import Organization, OrganizationSecret, Schedule, Workspace
 from tracecat.exceptions import TracecatValidationError
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -185,7 +185,15 @@ async def test_delete_organization_cleans_restrict_children(
         encrypted_keys=b"encrypted",
         environment="default",
     )
+    schedule = Schedule(
+        id=uuid.uuid4(),
+        workspace_id=workspace.id,
+        status="online",
+    )
     session.add_all([workspace, org_secret])
+    await session.commit()
+
+    session.add(schedule)
     await session.commit()
 
     service = AdminOrgService(session, role=platform_role)
@@ -200,6 +208,10 @@ async def test_delete_organization_cleans_restrict_children(
     secret_result = await session.execute(
         select(OrganizationSecret).where(OrganizationSecret.organization_id == org_a.id)
     )
+    schedule_result = await session.execute(
+        select(Schedule).where(Schedule.workspace_id == workspace.id)
+    )
     assert org_result.scalar_one_or_none() is None
     assert workspace_result.scalars().all() == []
     assert secret_result.scalars().all() == []
+    assert schedule_result.scalars().all() == []
