@@ -21,7 +21,6 @@ import React from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type {
-  DSLValidationResult,
   GitBranchInfo,
   ValidationDetail,
   ValidationResult,
@@ -379,6 +378,100 @@ const publishFormSchema = z.object({
 type TPublishForm = z.infer<typeof publishFormSchema>
 const CREATE_NEW_BRANCH_VALUE = "__create_new_branch__"
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function isValidationDetail(value: unknown): value is ValidationDetail {
+  if (!isRecord(value)) {
+    return false
+  }
+  if (typeof value.type !== "string" || typeof value.msg !== "string") {
+    return false
+  }
+  if ("loc" in value && value.loc !== null && !Array.isArray(value.loc)) {
+    return false
+  }
+  return true
+}
+
+function isValidationResult(value: unknown): value is ValidationResult {
+  if (!isRecord(value)) {
+    return false
+  }
+  if (value.status !== "success" && value.status !== "error") {
+    return false
+  }
+  return typeof value.type === "string"
+}
+
+function toDslApiErrorResult(message: string): ValidationResult {
+  return {
+    type: "dsl",
+    status: "error",
+    msg: message,
+    ref: null,
+    detail: [{ type: "api_error", msg: message }],
+  }
+}
+
+function normalizeRunValidationErrors(
+  detail: unknown
+): ValidationResult[] | null {
+  if (Array.isArray(detail) && detail.every(isValidationResult)) {
+    return detail
+  }
+  if (Array.isArray(detail) && detail.every(isValidationDetail)) {
+    return [
+      {
+        type: "dsl",
+        status: "error",
+        msg: "Workflow validation failed",
+        ref: null,
+        detail,
+      },
+    ]
+  }
+
+  let message: string | undefined
+  let nestedDetail: unknown
+
+  if (typeof detail === "string") {
+    message = detail
+  } else if (isRecord(detail)) {
+    if (typeof detail.message === "string") {
+      message = detail.message
+    }
+    nestedDetail = detail.detail
+  } else if (detail) {
+    try {
+      message = JSON.stringify(detail)
+    } catch {
+      message = undefined
+    }
+  }
+
+  if (Array.isArray(nestedDetail) && nestedDetail.every(isValidationResult)) {
+    return nestedDetail
+  }
+  if (Array.isArray(nestedDetail) && nestedDetail.every(isValidationDetail)) {
+    return [
+      {
+        type: "dsl",
+        status: "error",
+        msg: message || "Workflow validation failed",
+        ref: null,
+        detail: nestedDetail,
+      },
+    ]
+  }
+
+  if (!message) {
+    return null
+  }
+  return [toDslApiErrorResult(message)]
+}
+
 function WorkflowManualTrigger({
   disabled = true,
   workflowId,
@@ -434,39 +527,16 @@ function WorkflowManualTrigger({
           detail?: unknown
         }>
         console.error("Error details", tracecatError.body)
-        const detail = tracecatError.body.detail
-        let detailMessage: string | undefined
-        if (typeof detail === "string") {
-          detailMessage = detail
-        } else if (
-          detail &&
-          typeof detail === "object" &&
-          "message" in detail &&
-          typeof (detail as { message?: unknown }).message === "string"
-        ) {
-          detailMessage = (detail as { message?: string }).message
-        } else if (detail) {
-          try {
-            detailMessage = JSON.stringify(detail)
-          } catch {
-            detailMessage = undefined
-          }
+        const validationErrors = normalizeRunValidationErrors(
+          tracecatError.body.detail
+        )
+        if (validationErrors) {
+          setManualTriggerErrors(validationErrors)
+        } else {
+          setManualTriggerErrors([
+            toDslApiErrorResult("Failed to start workflow"),
+          ])
         }
-        const details =
-          Array.isArray(detail) && detail.every((d) => "msg" in (d as object))
-            ? (detail as ValidationDetail[])
-            : detailMessage
-              ? [{ type: "api_error", msg: detailMessage }]
-              : null
-        // Convert API error to ValidationResult format for consistent display
-        const validationError: DSLValidationResult = {
-          type: "dsl",
-          status: "error",
-          msg: detailMessage || "Failed to start workflow",
-          ref: null,
-          detail: details,
-        }
-        setManualTriggerErrors([validationError])
       }
     }
   }
