@@ -32,8 +32,16 @@ def upgrade() -> None:
             FROM scope AS custom_scope
             JOIN scope AS platform_scope
                 ON platform_scope.name = custom_scope.name
+               AND platform_scope.source_ref = custom_scope.source_ref
             WHERE custom_scope.organization_id IS NOT NULL
+              AND custom_scope.source = 'CUSTOM'
+              AND custom_scope.resource = 'action'
+              AND custom_scope.action = 'execute'
+              AND custom_scope.source_ref IS NOT NULL
               AND platform_scope.organization_id IS NULL
+              AND platform_scope.source = 'PLATFORM'
+              AND platform_scope.resource = 'action'
+              AND platform_scope.action = 'execute'
         )
         INSERT INTO role_scope (role_id, scope_id)
         SELECT role_scope.role_id, duplicate_scope_pairs.platform_scope_id
@@ -52,8 +60,16 @@ def upgrade() -> None:
             FROM scope AS custom_scope
             JOIN scope AS platform_scope
                 ON platform_scope.name = custom_scope.name
+               AND platform_scope.source_ref = custom_scope.source_ref
             WHERE custom_scope.organization_id IS NOT NULL
+              AND custom_scope.source = 'CUSTOM'
+              AND custom_scope.resource = 'action'
+              AND custom_scope.action = 'execute'
+              AND custom_scope.source_ref IS NOT NULL
               AND platform_scope.organization_id IS NULL
+              AND platform_scope.source = 'PLATFORM'
+              AND platform_scope.resource = 'action'
+              AND platform_scope.action = 'execute'
         )
         DELETE FROM role_scope
         USING duplicate_scope_pairs
@@ -69,7 +85,15 @@ def upgrade() -> None:
         DELETE FROM scope
         USING scope AS platform_scope
         WHERE scope.organization_id IS NOT NULL
+          AND scope.source = 'CUSTOM'
+          AND scope.resource = 'action'
+          AND scope.action = 'execute'
+          AND scope.source_ref IS NOT NULL
           AND platform_scope.organization_id IS NULL
+          AND platform_scope.source = 'PLATFORM'
+          AND platform_scope.resource = 'action'
+          AND platform_scope.action = 'execute'
+          AND platform_scope.source_ref = scope.source_ref
           AND platform_scope.name = scope.name
         """
     )
