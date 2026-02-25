@@ -9,7 +9,7 @@ from typing import Any, cast
 
 import pytest
 import yaml
-from fastmcp.exceptions import AuthorizationError, ToolError
+from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.middleware import MiddlewareContext
 from fastmcp.tools.tool import ToolResult
 from mcp.types import CallToolRequestParams
@@ -67,7 +67,7 @@ class _AsyncContext:
 
 @pytest.mark.anyio
 async def test_resolve_workspace_role_rejects_invalid_workspace_id():
-    with pytest.raises(AuthorizationError, match="Invalid workspace ID"):
+    with pytest.raises(ToolError, match="Invalid workspace ID"):
         await mcp_server._resolve_workspace_role("not-a-uuid")
 
 
@@ -82,7 +82,7 @@ async def test_resolve_workspace_role_surfaces_auth_errors(monkeypatch):
         _resolve_role_for_request,
     )
 
-    with pytest.raises(AuthorizationError, match="Workspace access denied"):
+    with pytest.raises(ToolError, match="Workspace access denied"):
         await mcp_server._resolve_workspace_role(str(uuid.uuid4()))
 
 
@@ -628,6 +628,68 @@ async def test_update_webhook(monkeypatch):
     payload = _payload(result)
     assert "updated successfully" in payload["message"]
     assert fake_webhook.status == "online"
+
+
+@pytest.mark.anyio
+async def test_update_webhook_omits_unset_fields(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace(workspace_id=uuid.uuid4())
+
+    setattr_calls: dict[str, object] = {}
+
+    class FakeWebhook(SimpleNamespace):
+        def __setattr__(self, name, value):
+            setattr_calls[name] = value
+            super().__setattr__(name, value)
+
+    fake_webhook = FakeWebhook(
+        id=uuid.uuid4(),
+        secret="whsec_test",
+        status="offline",
+        methods=["POST"],
+        entrypoint_ref=None,
+        allowlisted_cidrs=[],
+        filters={},
+        workflow_id=uuid.uuid4(),
+        url="https://example.com/webhook",
+        api_key=None,
+    )
+    setattr_calls.clear()
+
+    async def _get_webhook(session, workspace_id, workflow_id):
+        return fake_webhook
+
+    class FakeSession:
+        def add(self, obj):
+            pass
+
+        async def commit(self):
+            pass
+
+        async def refresh(self, _obj):
+            pass
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        "tracecat.webhooks.service.get_webhook",
+        _get_webhook,
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "get_async_session_context_manager",
+        lambda: _AsyncContext(FakeSession()),
+    )
+
+    result = await _tool(mcp_server.update_webhook)(
+        workspace_id=str(uuid.uuid4()),
+        workflow_id=str(uuid.uuid4()),
+    )
+    payload = _payload(result)
+    assert "updated successfully" in payload["message"]
+    assert fake_webhook.status == "offline"
+    assert "status" not in setattr_calls
+    assert "methods" not in setattr_calls
+    assert "allowlisted_cidrs" not in setattr_calls
 
 
 # ---------------------------------------------------------------------------
@@ -1353,11 +1415,14 @@ async def test_export_csv(monkeypatch):
         ],
     )
 
+    limits: list[int] = []
+
     class _TablesService:
         async def get_table(self, _table_id):
             return fake_table
 
         async def search_rows(self, _table, *, limit=1000, cursor=None):
+            limits.append(limit)
             return SimpleNamespace(
                 items=[
                     {"city": "NYC", "age": 30, "id": "1"},
@@ -1382,6 +1447,7 @@ async def test_export_csv(monkeypatch):
     assert lines[0] == "city,age"  # preserves table column order, system cols excluded
     assert lines[1] == "NYC,30"
     assert lines[2] == "LA,25"
+    assert limits == [mcp_server.config.TRACECAT__LIMIT_CURSOR_MAX]
 
 
 @pytest.mark.anyio

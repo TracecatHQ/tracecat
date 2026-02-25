@@ -17,7 +17,7 @@ from typing import Any, Literal
 
 import yaml
 from fastmcp import FastMCP
-from fastmcp.exceptions import AuthorizationError, ToolError
+from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
 from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
@@ -35,6 +35,7 @@ from sqlalchemy import delete, select
 from temporalio.client import WorkflowExecutionStatus
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
+from tracecat import config
 from tracecat.agent.tools import create_tool_from_registry
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Action, WorkflowDefinition
@@ -190,11 +191,11 @@ async def _resolve_workspace_role(workspace_id: str) -> tuple[uuid.UUID, Any]:
     try:
         ws_id = uuid.UUID(workspace_id)
     except ValueError as exc:
-        raise AuthorizationError("Invalid workspace ID") from exc
+        raise ToolError("Invalid workspace ID") from exc
     try:
         role = await resolve_role_for_request(ws_id)
     except ValueError as exc:
-        raise AuthorizationError(str(exc)) from exc
+        raise ToolError(str(exc)) from exc
     return ws_id, role
 
 
@@ -1332,8 +1333,6 @@ async def list_workspaces() -> str:
         return _json(workspaces)
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to list workspaces", error=str(e))
         raise ToolError(f"Failed to list workspaces: {e}") from None
@@ -1447,8 +1446,6 @@ async def create_workflow(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to create workflow", error=str(e))
         raise ToolError(f"Failed to create workflow: {e}") from None
@@ -1530,8 +1527,6 @@ async def get_workflow(
                 }
             except TracecatNotFoundError:
                 payload["case_trigger"] = None
-            except AuthorizationError:
-                raise
             except Exception as e:
                 logger.warning(
                     "Could not load case trigger for workflow",
@@ -1543,8 +1538,6 @@ async def get_workflow(
             try:
                 dsl = await svc.build_dsl_from_workflow(workflow)
                 payload["definition"] = dsl.model_dump(mode="json", exclude_none=True)
-            except AuthorizationError:
-                raise
             except Exception as e:
                 logger.warning(
                     "Could not build DSL for workflow",
@@ -1577,8 +1570,6 @@ async def get_workflow(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to get workflow", error=str(e))
         raise ToolError(f"Failed to get workflow: {e}") from None
@@ -1721,8 +1712,6 @@ async def update_workflow(
             )
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to update workflow", error=str(e))
         raise ToolError(f"Failed to update workflow: {e}") from None
@@ -1771,8 +1760,6 @@ async def list_workflows(
             return _json(workflows)
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to list workflows", error=str(e))
         raise ToolError(f"Failed to list workflows: {e}") from None
@@ -1844,8 +1831,6 @@ async def list_actions(
             return _json(items[:limit])
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to list actions", error=str(e))
         raise ToolError(f"Failed to list actions: {e}") from None
@@ -1905,8 +1890,6 @@ async def get_action_context(workspace_id: str, action_name: str) -> str:
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to get action context", error=str(e))
         raise ToolError(f"Failed to get action context: {e}") from None
@@ -2024,8 +2007,6 @@ async def get_workflow_authoring_context(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to build workflow authoring context", error=str(e))
         raise ToolError(f"Failed to build workflow authoring context: {e}") from None
@@ -2432,8 +2413,6 @@ async def list_workflow_executions(
         return _json(items)
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to list workflow executions", error=str(e))
         raise ToolError(f"Failed to list workflow executions: {e}") from None
@@ -2544,8 +2523,6 @@ async def get_workflow_execution(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to get workflow execution", error=str(e))
         raise ToolError(f"Failed to get workflow execution: {e}") from None
@@ -2589,8 +2566,6 @@ async def get_webhook(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to get webhook", error=str(e))
         raise ToolError(f"Failed to get webhook: {e}") from None
@@ -2622,15 +2597,19 @@ async def update_webhook(
         _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
 
-        parsed_methods = _parse_json_arg(methods, "methods")
-        parsed_cidrs = _parse_json_arg(allowlisted_cidrs, "allowlisted_cidrs")
+        update_kwargs: dict[str, Any] = {}
+        if status is not None:
+            update_kwargs["status"] = status
+        if methods is not None:
+            update_kwargs["methods"] = _parse_json_arg(methods, "methods")
+        if entrypoint_ref is not None:
+            update_kwargs["entrypoint_ref"] = entrypoint_ref
+        if allowlisted_cidrs is not None:
+            update_kwargs["allowlisted_cidrs"] = _parse_json_arg(
+                allowlisted_cidrs, "allowlisted_cidrs"
+            )
 
-        update_params = WebhookUpdate(
-            status=status,  # pyright: ignore[reportArgumentType]
-            methods=parsed_methods,
-            entrypoint_ref=entrypoint_ref,
-            allowlisted_cidrs=parsed_cidrs,
-        )
+        update_params = WebhookUpdate(**update_kwargs)
 
         async with get_async_session_context_manager() as session:
             webhook = await webhook_service.get_webhook(
@@ -2653,8 +2632,6 @@ async def update_webhook(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to update webhook", error=str(e))
         raise ToolError(f"Failed to update webhook: {e}") from None
@@ -2692,8 +2669,6 @@ async def get_case_trigger(
         raise ToolError(str(e)) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to get case trigger", error=str(e))
         raise ToolError(f"Failed to get case trigger: {e}") from None
@@ -2750,8 +2725,6 @@ async def update_case_trigger(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to update case trigger", error=str(e))
         raise ToolError(f"Failed to update case trigger: {e}") from None
@@ -2775,8 +2748,6 @@ async def list_tables(workspace_id: str) -> str:
             )
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to list tables", error=str(e))
         raise ToolError(f"Failed to list tables: {e}") from None
@@ -2814,8 +2785,6 @@ async def create_table(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to create table", error=str(e))
         raise ToolError(f"Failed to create table: {e}") from None
@@ -2850,8 +2819,6 @@ async def get_table(workspace_id: str, table_id: str) -> str:
             )
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to get table", error=str(e))
         raise ToolError(f"Failed to get table: {e}") from None
@@ -2873,8 +2840,6 @@ async def update_table(
             return _json({"id": str(updated.id), "name": updated.name})
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to update table", error=str(e))
         raise ToolError(f"Failed to update table: {e}") from None
@@ -2904,8 +2869,6 @@ async def insert_table_row(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to insert table row", error=str(e))
         raise ToolError(f"Failed to insert table row: {e}") from None
@@ -2933,8 +2896,6 @@ async def update_table_row(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to update table row", error=str(e))
         raise ToolError(f"Failed to update table row: {e}") from None
@@ -2964,8 +2925,6 @@ async def search_table_rows(
             return _json(page.items)
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to search table rows", error=str(e))
         raise ToolError(f"Failed to search table rows: {e}") from None
@@ -3006,8 +2965,6 @@ async def import_csv(
             )
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to import CSV", error=str(e))
         raise ToolError(f"Failed to import CSV: {e}") from None
@@ -3047,7 +3004,11 @@ async def export_csv(
 
             cursor: str | None = None
             while True:
-                page = await svc.search_rows(table, limit=1000, cursor=cursor)
+                page = await svc.search_rows(
+                    table,
+                    limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+                    cursor=cursor,
+                )
                 for row in page.items:
                     writer.writerow(row)
                 if not page.has_more or page.next_cursor is None:
@@ -3057,8 +3018,6 @@ async def export_csv(
             return output.getvalue()
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to export CSV", error=str(e))
         raise ToolError(f"Failed to export CSV: {e}") from None
@@ -3089,8 +3048,6 @@ async def list_variables(
             )
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to list variables", error=str(e))
         raise ToolError(f"Failed to list variables: {e}") from None
@@ -3121,8 +3078,6 @@ async def get_variable(
             )
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to get variable", error=str(e))
         raise ToolError(f"Failed to get variable: {e}") from None
@@ -3159,8 +3114,6 @@ async def list_secrets_metadata(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to list secrets metadata", error=str(e))
         raise ToolError(f"Failed to list secrets metadata: {e}") from None
@@ -3197,8 +3150,6 @@ async def get_secret_metadata(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
-    except AuthorizationError:
-        raise
     except Exception as e:
         logger.error("Failed to get secret metadata", error=str(e))
         raise ToolError(f"Failed to get secret metadata: {e}") from None
