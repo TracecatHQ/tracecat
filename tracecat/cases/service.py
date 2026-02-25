@@ -664,7 +664,9 @@ class CasesService(BaseWorkspaceService):
         elif agg is CaseSearchAggregate.VALUE_COUNTS:
             selected_field = None
         else:
-            selected_field = agg_field or group_by
+            if agg_field is None:
+                raise ValueError(f"{agg.value} aggregation requires agg_field")
+            selected_field = agg_field
         selected_col: ColumnElement[Any] | None = (
             CASE_SEARCH_AGG_FIELDS[selected_field]
             if selected_field is not None and selected_field in CASE_SEARCH_AGG_FIELDS
@@ -693,7 +695,7 @@ class CasesService(BaseWorkspaceService):
             }
             and selected_col is None
         ):
-            raise ValueError(f"{agg.value} aggregation requires agg_field or group_by")
+            raise ValueError(f"{agg.value} aggregation requires agg_field")
 
         if agg is CaseSearchAggregate.SUM:
             if (

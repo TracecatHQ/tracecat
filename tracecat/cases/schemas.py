@@ -187,6 +187,14 @@ class CaseSearchRequest(Schema):
             and not has_group_by
         ):
             raise ValueError("value_counts aggregation requires group_by")
+        if (
+            has_agg
+            and self.agg
+            not in {CaseSearchAggregate.SUM, CaseSearchAggregate.VALUE_COUNTS}
+            and not has_agg_field
+        ):
+            assert self.agg is not None
+            raise ValueError(f"{self.agg.value} aggregation requires agg_field")
 
         return self
 

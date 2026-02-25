@@ -690,3 +690,24 @@ async def test_search_cases_returns_aggregation_payload(
         assert data["aggregation"]["buckets"][0]["group"] == "new"
         assert data["aggregation"]["buckets"][0]["value"] == 10
         mock_svc.search_cases.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_search_cases_rejects_non_count_aggregation_without_agg_field(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test POST /cases/search rejects n_unique without agg_field."""
+    response = client.post(
+        "/cases/search",
+        params={
+            "workspace_id": str(test_admin_role.workspace_id),
+        },
+        json={
+            "group_by": "status",
+            "agg": "n_unique",
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert "n_unique aggregation requires agg_field" in response.text

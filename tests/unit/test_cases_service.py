@@ -758,6 +758,17 @@ class TestCasesService:
         assert bucket_map["in_progress"] == 1
         assert bucket_map["resolved"] == 1
 
+    async def test_search_cases_aggregation_requires_agg_field_for_n_unique(
+        self, cases_service: CasesService
+    ) -> None:
+        """n_unique with group_by but no agg_field should be rejected."""
+        with pytest.raises(ValueError, match="n_unique aggregation requires agg_field"):
+            await cases_service.search_cases(
+                params=CursorPaginationParams(limit=10, cursor=None, reverse=False),
+                group_by="status",
+                agg=CaseSearchAggregate.N_UNIQUE,
+            )
+
     async def test_create_case_with_nonexistent_field(
         self, cases_service: CasesService
     ) -> None:
