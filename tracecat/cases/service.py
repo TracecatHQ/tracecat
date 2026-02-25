@@ -334,6 +334,8 @@ class CasesService(BaseWorkspaceService):
             assignee_ids=assignee_ids,
             include_unassigned=include_unassigned,
             tag_ids=tag_ids,
+            # Search uses parsed filter expressions keyed by dropdown definition ref
+            # (converted from `dropdown=definition_ref:option_ref` query params).
             dropdown_filters=dropdown_filters,
             start_time=start_time,
             end_time=end_time,
@@ -784,6 +786,8 @@ class CasesService(BaseWorkspaceService):
             )
 
             if params.dropdown_values is not None:
+                # Write paths use `dropdown_values` because they persist per-case
+                # selections (definition_id -> option_id) on the case record.
                 await self.dropdowns.apply_values(
                     case.id,
                     params.dropdown_values,
@@ -893,6 +897,8 @@ class CasesService(BaseWorkspaceService):
             )
 
         if dropdown_values is not None:
+            # Update paths keep the same persisted payload shape as create:
+            # `dropdown_values` contains concrete selections to set/clear.
             normalized_dropdown_values = [
                 CaseDropdownValueInput.model_validate(value)
                 for value in dropdown_values

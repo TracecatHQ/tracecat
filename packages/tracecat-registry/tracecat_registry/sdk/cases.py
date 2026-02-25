@@ -91,6 +91,8 @@ class CasesClient:
         if is_set(fields):
             data["fields"] = fields
         if is_set(dropdown_values):
+            # Write payloads use `dropdown_values` because they represent persisted
+            # per-case selections (definition/option IDs).
             data["dropdown_values"] = self._serialize_dropdown_values(dropdown_values)
 
         return await self._client.post("/cases", json=data)
@@ -159,6 +161,8 @@ class CasesClient:
         if is_set(tags):
             data["tags"] = tags
         if is_set(dropdown_values):
+            # Keep write/update naming aligned with API body schemas:
+            # `CaseCreate.dropdown_values` and `CaseUpdate.dropdown_values`.
             data["dropdown_values"] = self._serialize_dropdown_values(dropdown_values)
 
         return await self._client.patch(f"/cases/{case_id}", json=data)
@@ -243,6 +247,8 @@ class CasesClient:
         if is_set(tags):
             params["tags"] = tags
         if is_set(dropdown):
+            # Search uses query param `dropdown` (not `dropdown_values`) because this
+            # is a filter expression list like "definition_ref:option_ref".
             params["dropdown"] = dropdown
         if is_set(order_by):
             params["order_by"] = order_by
@@ -634,6 +640,8 @@ class CasesClient:
         if is_set(fields):
             data["fields"] = fields
         if is_set(dropdown_values):
+            # Write payloads use `dropdown_values` because they represent persisted
+            # per-case selections (definition/option IDs).
             data["dropdown_values"] = self._serialize_dropdown_values(dropdown_values)
 
         return await self._client.post("/cases/simple", json=data)
@@ -695,6 +703,8 @@ class CasesClient:
         if is_set(tags):
             data["tags"] = tags
         if is_set(dropdown_values):
+            # Keep write/update naming aligned with API body schemas:
+            # `CaseCreate.dropdown_values` and `CaseUpdate.dropdown_values`.
             data["dropdown_values"] = self._serialize_dropdown_values(dropdown_values)
         if append_description:
             data["append_description"] = append_description

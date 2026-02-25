@@ -87,6 +87,8 @@ class CaseCreate(Schema):
     priority: CasePriority
     severity: CaseSeverity
     fields: dict[str, Any] | None = None
+    # Write payload field for persisted per-case dropdown selections.
+    # Search filters use the `dropdown` query parameter in routes.
     dropdown_values: list[CaseDropdownValueInput] | None = None
     assignee_id: uuid.UUID | None = None
     payload: dict[str, Any] | None = None
@@ -99,6 +101,8 @@ class CaseUpdate(Schema):
     priority: CasePriority | None = None
     severity: CaseSeverity | None = None
     fields: dict[str, Any] | None = None
+    # Same persisted write payload shape as create; values here set/clear
+    # dropdown selections for this case.
     dropdown_values: list[CaseDropdownValueInput] | None = None
     assignee_id: uuid.UUID | None = None
     payload: dict[str, Any] | None = None
