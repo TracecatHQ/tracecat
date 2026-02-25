@@ -1013,6 +1013,7 @@ export type CaseCreate = {
   fields?: {
     [key: string]: unknown
   } | null
+  dropdown_values?: Array<CaseDropdownValueInput> | null
   assignee_id?: string | null
   payload?: {
     [key: string]: unknown
@@ -1087,6 +1088,28 @@ export type CaseDropdownOptionUpdate = {
   icon_name?: string | null
   color?: string | null
   position?: number | null
+}
+
+/**
+ * Dropdown selection payload for case create/update operations.
+ */
+export type CaseDropdownValueInput = {
+  /**
+   * Dropdown definition ID.
+   */
+  definition_id?: string | null
+  /**
+   * Dropdown definition ref.
+   */
+  definition_ref?: string | null
+  /**
+   * Dropdown option ID. Pass null to clear the value.
+   */
+  option_id?: string | null
+  /**
+   * Dropdown option ref. Pass null to clear the value.
+   */
+  option_ref?: string | null
 }
 
 /**
@@ -1603,6 +1626,7 @@ export type CaseUpdate = {
   fields?: {
     [key: string]: unknown
   } | null
+  dropdown_values?: Array<CaseDropdownValueInput> | null
   assignee_id?: string | null
   payload?: {
     [key: string]: unknown

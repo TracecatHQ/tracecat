@@ -3738,6 +3738,20 @@ export const $CaseCreate = {
       ],
       title: "Fields",
     },
+    dropdown_values: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseDropdownValueInput",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Dropdown Values",
+    },
     assignee_id: {
       anyOf: [
         {
@@ -4099,6 +4113,64 @@ export const $CaseDropdownOptionUpdate = {
   type: "object",
   title: "CaseDropdownOptionUpdate",
   description: "Update an existing dropdown option.",
+} as const
+
+export const $CaseDropdownValueInput = {
+  properties: {
+    definition_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Definition Id",
+      description: "Dropdown definition ID.",
+    },
+    definition_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Definition Ref",
+      description: "Dropdown definition ref.",
+    },
+    option_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Option Id",
+      description: "Dropdown option ID. Pass null to clear the value.",
+    },
+    option_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Option Ref",
+      description: "Dropdown option ref. Pass null to clear the value.",
+    },
+  },
+  type: "object",
+  title: "CaseDropdownValueInput",
+  description: "Dropdown selection payload for case create/update operations.",
 } as const
 
 export const $CaseDropdownValueRead = {
@@ -5821,6 +5893,20 @@ export const $CaseUpdate = {
         },
       ],
       title: "Fields",
+    },
+    dropdown_values: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseDropdownValueInput",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Dropdown Values",
     },
     assignee_id: {
       anyOf: [
