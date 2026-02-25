@@ -634,6 +634,8 @@ Merges: common + temporal + postgres + redis + api-specific
 {{- end }}
 - name: TRACECAT__ALLOW_ORIGINS
   value: {{ .Values.tracecat.allowOrigins | quote }}
+- name: TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES
+  value: {{ .Values.tracecat.registrySync.builtinUseInstalledSitePackages | quote }}
 {{- /* Auth settings */}}
 - name: TRACECAT__AUTH_TYPES
   value: {{ .Values.tracecat.auth.types | quote }}

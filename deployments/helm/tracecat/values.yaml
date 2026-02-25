@@ -170,6 +170,9 @@ tracecat:
   sandbox:
     disableNsjail: false
 
+  registrySync:
+    builtinUseInstalledSitePackages: true
+
   blobStorage:
     # Optional override for S3-compatible endpoints (leave empty for AWS S3).
     endpoint: ""
