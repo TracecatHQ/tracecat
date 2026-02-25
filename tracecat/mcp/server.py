@@ -6,7 +6,6 @@ Users authenticate via their existing Tracecat OIDC login.
 
 from __future__ import annotations
 
-import asyncio
 import csv
 import json
 import re
@@ -33,15 +32,12 @@ from pydantic import (
     model_validator,
 )
 from sqlalchemy import delete, select
-from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
+from temporalio.client import WorkflowExecutionStatus
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 from tracecat.agent.tools import create_tool_from_registry
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.schemas import CaseCreate, CaseUpdate
-from tracecat.cases.service import CasesService
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import Action, Webhook, WorkflowDefinition
+from tracecat.db.models import Action, WorkflowDefinition
 from tracecat.dsl.common import (
     DSLInput,
     get_execution_type_from_search_attr,
@@ -55,7 +51,6 @@ from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import (
     WorkflowUUID,
     exec_id_to_parts,
-    generate_exec_id,
 )
 from tracecat.logger import logger
 from tracecat.mcp.auth import (
@@ -88,7 +83,6 @@ from tracecat.webhooks import service as webhook_service
 from tracecat.webhooks.schemas import WebhookRead, WebhookUpdate
 from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerConfig,
-    CaseTriggerCreate,
     CaseTriggerRead,
     CaseTriggerUpdate,
 )
@@ -1327,21 +1321,6 @@ def _serialize_temporal_exception(error: BaseException) -> dict[str, Any]:
     return payload
 
 
-def _serialize_workflow_failure(
-    error: WorkflowFailureError | Exception,
-) -> dict[str, Any]:
-    """Serialize workflow failure details for user-facing MCP output."""
-    cause = getattr(error, "cause", None)
-    if cause is None:
-        return _serialize_temporal_exception(error)
-    payload = {
-        "type": error.__class__.__name__,
-        "message": str(error),
-        "cause": _serialize_temporal_exception(cause),
-    }
-    return payload
-
-
 # ---------------------------------------------------------------------------
 # Discovery tools
 # ---------------------------------------------------------------------------
@@ -1788,83 +1767,6 @@ async def list_workflows(
     except Exception as e:
         logger.error("Failed to list workflows", error=str(e))
         raise ToolError(f"Failed to list workflows: {e}") from None
-
-
-@mcp.tool()
-async def delete_workflow(workspace_id: str, workflow_id: str) -> str:
-    """Delete a workflow in a workspace."""
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        wf_id = WorkflowUUID.new(workflow_id)
-        async with WorkflowsManagementService.with_session(role=role) as svc:
-            await svc.delete_workflow(wf_id)
-        return _json({"message": f"Workflow {workflow_id} deleted successfully"})
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to delete workflow", error=str(e))
-        raise ToolError(f"Failed to delete workflow: {e}") from None
-
-
-@mcp.tool()
-async def validate_workflow_definition_yaml(
-    workspace_id: str,
-    definition_yaml: str,
-    update_mode: Literal["replace", "patch"] = "patch",
-) -> str:
-    """Validate workflow update YAML without persisting it."""
-
-    try:
-        _, _ = await _resolve_workspace_role(workspace_id)
-        try:
-            payload = _parse_workflow_yaml_payload(definition_yaml)
-        except ToolError as e:
-            return _json(
-                {"valid": False, "errors": [{"type": "yaml", "message": str(e)}]}
-            )
-        except ValidationError as e:
-            return _json(
-                {
-                    "valid": False,
-                    "errors": [
-                        {
-                            "type": "schema",
-                            "section": str(err["loc"][0])
-                            if err["loc"]
-                            else "definition",
-                            "message": err["msg"],
-                        }
-                        for err in e.errors()
-                    ],
-                }
-            )
-
-        errors: list[dict[str, Any]] = []
-        if payload.case_trigger is not None:
-            try:
-                if update_mode == "replace":
-                    CaseTriggerConfig.model_validate(payload.case_trigger)
-                else:
-                    CaseTriggerUpdate.model_validate(payload.case_trigger)
-            except ValidationError as e:
-                errors.extend(
-                    {
-                        "type": "schema",
-                        "section": "case_trigger",
-                        "message": err["msg"],
-                    }
-                    for err in e.errors()
-                )
-
-        if errors:
-            return _json({"valid": False, "errors": errors})
-        return _json({"valid": True, "errors": []})
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to validate workflow definition", error=str(e))
-        raise ToolError(f"Failed to validate workflow definition: {e}") from None
 
 
 @mcp.tool()
@@ -2470,137 +2372,6 @@ async def run_published_workflow(
 
 
 @mcp.tool()
-async def run_workflow_and_wait(
-    workspace_id: str,
-    workflow_id: str,
-    inputs: str | None = None,
-    use_published: bool = True,
-    timeout_seconds: int = 120,
-) -> str:
-    """Run a workflow and wait for completion up to timeout_seconds.
-
-    Args:
-        workspace_id: The workspace ID.
-        workflow_id: The workflow ID.
-        inputs: Optional JSON string of workflow trigger inputs.
-        use_published: Run latest published workflow definition if True, else run draft.
-        timeout_seconds: Maximum wait time for completion.
-
-    Returns JSON with workflow_id, execution_id, status, and result/error details.
-    """
-
-    try:
-        ws_id, role = await _resolve_workspace_role(workspace_id)
-        wf_id = WorkflowUUID.new(workflow_id)
-        wait_timeout = max(1, timeout_seconds)
-        exec_service = await WorkflowExecutionsService.connect(role=role)
-        wf_exec_id = generate_exec_id(wf_id)
-        dsl_input: DSLInput | None = None
-        payload: Any | None
-
-        if use_published:
-            async with get_async_session_context_manager() as session:
-                result = await session.execute(
-                    select(WorkflowDefinition)
-                    .where(
-                        WorkflowDefinition.workflow_id == wf_id,
-                        WorkflowDefinition.workspace_id == ws_id,
-                    )
-                    .order_by(WorkflowDefinition.version.desc())
-                )
-                defn = result.scalars().first()
-                if not defn:
-                    raise ToolError(
-                        f"No published definition found for workflow {workflow_id}. "
-                        "Publish the workflow first using publish_workflow."
-                    )
-                dsl_input = DSLInput(**defn.content)
-                registry_lock = (
-                    RegistryLock.model_validate(defn.registry_lock)
-                    if defn.registry_lock
-                    else None
-                )
-
-            payload = _validate_and_parse_trigger_inputs(dsl_input, inputs)
-            await exec_service.create_workflow_execution_wait_for_start(
-                dsl=dsl_input,
-                wf_id=wf_id,
-                payload=payload,
-                wf_exec_id=wf_exec_id,
-                registry_lock=registry_lock,
-            )
-        else:
-            async with WorkflowsManagementService.with_session(role=role) as svc:
-                workflow = await svc.get_workflow(wf_id)
-                if workflow is None:
-                    raise ToolError(f"Workflow {workflow_id} not found")
-                dsl_input = await svc.build_dsl_from_workflow(workflow)
-
-            payload = _validate_and_parse_trigger_inputs(dsl_input, inputs)
-            await exec_service.create_draft_workflow_execution_wait_for_start(
-                dsl=dsl_input,
-                wf_id=wf_id,
-                payload=payload,
-                wf_exec_id=wf_exec_id,
-            )
-
-        try:
-            result = await asyncio.wait_for(
-                exec_service.handle(wf_exec_id).result(),
-                timeout=wait_timeout,
-            )
-            return _json(
-                {
-                    "workflow_id": str(wf_id),
-                    "execution_id": wf_exec_id,
-                    "status": "completed",
-                    "execution_status": "COMPLETED",
-                    "result": result,
-                    "input": payload,
-                }
-            )
-        except TimeoutError:
-            execution = await exec_service.get_execution(wf_exec_id)
-            return _json(
-                {
-                    "workflow_id": str(wf_id),
-                    "execution_id": wf_exec_id,
-                    "status": "running",
-                    "execution_status": _format_temporal_status(
-                        execution.status if execution else None
-                    ),
-                    "message": (
-                        f"Workflow is still running after {wait_timeout} seconds. "
-                        "Use execution_id to fetch status later."
-                    ),
-                    "input": payload,
-                }
-            )
-        except WorkflowFailureError as e:
-            execution = await exec_service.get_execution(wf_exec_id)
-            return _json(
-                {
-                    "workflow_id": str(wf_id),
-                    "execution_id": wf_exec_id,
-                    "status": "failed",
-                    "execution_status": _format_temporal_status(
-                        execution.status if execution else None
-                    ),
-                    "error": _serialize_workflow_failure(e),
-                    "result": None,
-                    "input": payload,
-                }
-            )
-    except ToolError:
-        raise
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to run workflow and wait", error=str(e))
-        raise ToolError(f"Failed to run workflow and wait: {e}") from None
-
-
-@mcp.tool()
 async def list_workflow_executions(
     workspace_id: str,
     workflow_id: str,
@@ -2772,202 +2543,6 @@ async def get_workflow_execution(
 
 
 # ---------------------------------------------------------------------------
-# Schedule tools
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-async def list_workflow_schedules(
-    workspace_id: str,
-    workflow_id: str,
-) -> str:
-    """List all schedules for a workflow.
-
-    Args:
-        workspace_id: The workspace ID.
-        workflow_id: The workflow ID.
-
-    Returns a JSON array of schedule objects.
-    """
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        wf_id = WorkflowUUID.new(workflow_id)
-
-        async with WorkflowSchedulesService.with_session(role=role) as svc:
-            schedules = await svc.list_schedules(workflow_id=wf_id)
-            schedule_reads = ScheduleRead.list_adapter().validate_python(schedules)
-            return _json([s.model_dump(mode="json") for s in schedule_reads])
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to list schedules", error=str(e))
-        raise ToolError(f"Failed to list schedules: {e}") from None
-
-
-@mcp.tool()
-async def create_schedule(
-    workspace_id: str,
-    workflow_id: str,
-    cron: str | None = None,
-    every: str | None = None,
-    offset: str | None = None,
-    start_at: str | None = None,
-    end_at: str | None = None,
-    inputs: str | None = None,
-    schedule_status: str = "online",
-) -> str:
-    """Create a schedule for a workflow.
-
-    The workflow must be published (committed) before creating a schedule.
-    Provide either 'cron' or 'every' (ISO 8601 duration like "PT1H" for hourly).
-
-    Args:
-        workspace_id: The workspace ID.
-        workflow_id: The workflow ID.
-        cron: Cron expression (e.g. "0 9 * * 1-5" for weekdays at 9am).
-        every: ISO 8601 duration (e.g. "PT1H" for every hour, "P1D" for daily).
-        offset: ISO 8601 duration offset for the schedule.
-        start_at: ISO 8601 datetime for when to start the schedule.
-        end_at: ISO 8601 datetime for when to end the schedule.
-        inputs: Optional JSON string of workflow trigger inputs.
-        schedule_status: "online" or "offline" (default "online").
-
-    Returns JSON with the created schedule details.
-    """
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        wf_id = WorkflowUUID.new(workflow_id)
-
-        # Verify workflow exists and is published
-        async with WorkflowsManagementService.with_session(role=role) as svc:
-            workflow = await svc.get_workflow(wf_id)
-            if not workflow:
-                raise ToolError(f"Workflow {workflow_id} not found")
-            if not workflow.version:
-                raise ToolError(
-                    "Workflow must be published before creating a schedule. "
-                    "Use publish_workflow first."
-                )
-
-        # Parse inputs
-        parsed_inputs = json.loads(inputs) if inputs else None
-        parsed_every = _parse_iso8601_duration(every) if every else None
-        parsed_offset = _parse_iso8601_duration(offset) if offset else None
-
-        create_params = ScheduleCreate(
-            workflow_id=workflow_id,
-            cron=cron,
-            every=parsed_every,
-            offset=parsed_offset,
-            start_at=start_at,  # pyright: ignore[reportArgumentType]
-            end_at=end_at,  # pyright: ignore[reportArgumentType]
-            inputs=parsed_inputs,
-            status=schedule_status,  # pyright: ignore[reportArgumentType]
-        )
-
-        async with WorkflowSchedulesService.with_session(role=role) as svc:
-            schedule = await svc.create_schedule(create_params)
-            schedule_read = ScheduleRead.model_validate(schedule)
-            return _json(schedule_read.model_dump(mode="json"))
-    except ToolError:
-        raise
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to create schedule", error=str(e))
-        raise ToolError(f"Failed to create schedule: {e}") from None
-
-
-@mcp.tool()
-async def update_schedule(
-    workspace_id: str,
-    schedule_id: str,
-    cron: str | None = None,
-    every: str | None = None,
-    offset: str | None = None,
-    start_at: str | None = None,
-    end_at: str | None = None,
-    inputs: str | None = None,
-    status: str | None = None,
-) -> str:
-    """Update an existing schedule.
-
-    Args:
-        workspace_id: The workspace ID.
-        schedule_id: The schedule ID to update.
-        cron: New cron expression (e.g. "0 9 * * 1-5").
-        every: New ISO 8601 duration (e.g. "PT1H").
-        offset: New ISO 8601 duration offset.
-        start_at: New ISO 8601 datetime for schedule start.
-        end_at: New ISO 8601 datetime for schedule end.
-        inputs: Optional JSON string of workflow trigger inputs.
-        status: "online" or "offline".
-
-    Returns JSON with the updated schedule details.
-    """
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        sched_id = uuid.UUID(schedule_id)
-
-        parsed_inputs = json.loads(inputs) if inputs else None
-        parsed_every = _parse_iso8601_duration(every) if every else None
-        parsed_offset = _parse_iso8601_duration(offset) if offset else None
-
-        update_params = ScheduleUpdate(
-            cron=cron,
-            every=parsed_every,
-            offset=parsed_offset,
-            start_at=start_at,  # pyright: ignore[reportArgumentType]
-            end_at=end_at,  # pyright: ignore[reportArgumentType]
-            inputs=parsed_inputs,
-            status=status,  # pyright: ignore[reportArgumentType]
-        )
-
-        async with WorkflowSchedulesService.with_session(role=role) as svc:
-            schedule = await svc.update_schedule(sched_id, update_params)
-            schedule_read = ScheduleRead.model_validate(schedule)
-            return _json(schedule_read.model_dump(mode="json"))
-    except ToolError:
-        raise
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to update schedule", error=str(e))
-        raise ToolError(f"Failed to update schedule: {e}") from None
-
-
-@mcp.tool()
-async def delete_schedule(
-    workspace_id: str,
-    schedule_id: str,
-) -> str:
-    """Delete a schedule.
-
-    Args:
-        workspace_id: The workspace ID.
-        schedule_id: The schedule ID to delete.
-
-    Returns a confirmation message.
-    """
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        sched_id = uuid.UUID(schedule_id)
-
-        async with WorkflowSchedulesService.with_session(role=role) as svc:
-            await svc.delete_schedule(sched_id)
-        return _json({"message": f"Schedule {schedule_id} deleted successfully"})
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to delete schedule", error=str(e))
-        raise ToolError(f"Failed to delete schedule: {e}") from None
-
-
-# ---------------------------------------------------------------------------
 # Webhook tools
 # ---------------------------------------------------------------------------
 
@@ -3008,55 +2583,6 @@ async def get_webhook(
     except Exception as e:
         logger.error("Failed to get webhook", error=str(e))
         raise ToolError(f"Failed to get webhook: {e}") from None
-
-
-@mcp.tool()
-async def create_webhook(
-    workspace_id: str,
-    workflow_id: str,
-    status: str = "offline",
-    methods: str | None = None,
-    allowlisted_cidrs: str | None = None,
-) -> str:
-    """Create a webhook for a workflow.
-
-    Args:
-        workspace_id: The workspace ID.
-        workflow_id: The workflow ID.
-        status: "online" or "offline" (default "offline").
-        methods: JSON array of HTTP methods, e.g. '["POST"]' (default ["POST"]).
-        allowlisted_cidrs: Optional JSON array of CIDR strings.
-
-    Returns JSON with the created webhook details.
-    """
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        wf_id = WorkflowUUID.new(workflow_id)
-
-        parsed_methods = _parse_json_arg(methods, "methods") or ["POST"]
-        parsed_cidrs = _parse_json_arg(allowlisted_cidrs, "allowlisted_cidrs") or []
-
-        async with get_async_session_context_manager() as session:
-            webhook = Webhook(
-                workspace_id=role.workspace_id,
-                workflow_id=wf_id,
-                status=status,
-                methods=parsed_methods,
-                allowlisted_cidrs=parsed_cidrs,
-            )
-            session.add(webhook)
-            await session.commit()
-            await session.refresh(webhook)
-            webhook_read = WebhookRead.model_validate(webhook, from_attributes=True)
-            return _json(webhook_read.model_dump(mode="json"))
-    except ToolError:
-        raise
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to create webhook", error=str(e))
-        raise ToolError(f"Failed to create webhook: {e}") from None
 
 
 @mcp.tool()
@@ -3121,45 +2647,6 @@ async def update_webhook(
         raise ToolError(f"Failed to update webhook: {e}") from None
 
 
-@mcp.tool()
-async def delete_webhook(
-    workspace_id: str,
-    workflow_id: str,
-) -> str:
-    """Delete a webhook for a workflow.
-
-    Args:
-        workspace_id: The workspace ID.
-        workflow_id: The workflow ID.
-
-    Returns a confirmation message.
-    """
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        wf_id = WorkflowUUID.new(workflow_id)
-
-        async with get_async_session_context_manager() as session:
-            webhook = await webhook_service.get_webhook(
-                session=session,
-                workspace_id=role.workspace_id,
-                workflow_id=wf_id,
-            )
-            if webhook is None:
-                raise ToolError(f"Webhook not found for workflow {workflow_id}")
-
-            await session.delete(webhook)
-            await session.commit()
-        return _json(
-            {"message": f"Webhook for workflow {workflow_id} deleted successfully"}
-        )
-    except ToolError:
-        raise
-    except Exception as e:
-        logger.error("Failed to delete webhook", error=str(e))
-        raise ToolError(f"Failed to delete webhook: {e}") from None
-
-
 # ---------------------------------------------------------------------------
 # Case trigger tools
 # ---------------------------------------------------------------------------
@@ -3195,61 +2682,6 @@ async def get_case_trigger(
     except Exception as e:
         logger.error("Failed to get case trigger", error=str(e))
         raise ToolError(f"Failed to get case trigger: {e}") from None
-
-
-@mcp.tool()
-async def create_case_trigger(
-    workspace_id: str,
-    workflow_id: str,
-    status: str = "offline",
-    event_types: str | None = None,
-    tag_filters: str | None = None,
-) -> str:
-    """Create or upsert a case trigger for a workflow.
-
-    Args:
-        workspace_id: The workspace ID.
-        workflow_id: The workflow ID.
-        status: "online" or "offline" (default "offline").
-        event_types: JSON array of case event type strings using underscores
-            (e.g. '["case_created", "case_updated"]'). Valid values:
-            case_created, case_updated, case_closed, case_reopened, case_viewed,
-            priority_changed, severity_changed, status_changed, fields_changed,
-            assignee_changed, attachment_created, attachment_deleted, tag_added,
-            tag_removed, payload_changed, task_created, task_deleted,
-            task_status_changed, task_priority_changed, task_workflow_changed,
-            task_assignee_changed, dropdown_value_changed.
-        tag_filters: JSON array of tag filter strings (e.g. '["malware", "phishing"]').
-
-    Returns JSON with the case trigger details.
-    """
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        wf_id = WorkflowUUID.new(workflow_id)
-
-        parsed_event_types = _parse_json_arg(event_types, "event_types") or []
-        parsed_tag_filters = _parse_json_arg(tag_filters, "tag_filters") or []
-
-        config = CaseTriggerCreate(
-            status=status,  # pyright: ignore[reportArgumentType]
-            event_types=parsed_event_types,
-            tag_filters=parsed_tag_filters,
-        )
-
-        async with CaseTriggersService.with_session(role=role) as svc:
-            case_trigger = await svc.upsert_case_trigger(
-                wf_id, config, create_missing_tags=True
-            )
-            ct_read = CaseTriggerRead.model_validate(case_trigger, from_attributes=True)
-            return _json(ct_read.model_dump(mode="json"))
-    except ToolError:
-        raise
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to create case trigger", error=str(e))
-        raise ToolError(f"Failed to create case trigger: {e}") from None
 
 
 @mcp.tool()
@@ -3424,23 +2856,6 @@ async def update_table(
 
 
 @mcp.tool()
-async def delete_table(workspace_id: str, table_id: str) -> str:
-    """Delete a table."""
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        async with TablesService.with_session(role=role) as svc:
-            table = await svc.get_table(uuid.UUID(table_id))
-            await svc.delete_table(table)
-            return _json({"message": f"Table {table_id} deleted successfully"})
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to delete table", error=str(e))
-        raise ToolError(f"Failed to delete table: {e}") from None
-
-
-@mcp.tool()
 async def insert_table_row(
     workspace_id: str,
     table_id: str,
@@ -3494,27 +2909,6 @@ async def update_table_row(
     except Exception as e:
         logger.error("Failed to update table row", error=str(e))
         raise ToolError(f"Failed to update table row: {e}") from None
-
-
-@mcp.tool()
-async def delete_table_row(
-    workspace_id: str,
-    table_id: str,
-    row_id: str,
-) -> str:
-    """Delete a table row."""
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        async with TablesService.with_session(role=role) as svc:
-            table = await svc.get_table(uuid.UUID(table_id))
-            await svc.delete_row(table, uuid.UUID(row_id))
-            return _json({"message": f"Row {row_id} deleted successfully"})
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to delete table row", error=str(e))
-        raise ToolError(f"Failed to delete table row: {e}") from None
 
 
 @mcp.tool()
@@ -3633,206 +3027,6 @@ async def export_csv(
     except Exception as e:
         logger.error("Failed to export CSV", error=str(e))
         raise ToolError(f"Failed to export CSV: {e}") from None
-
-
-@mcp.tool()
-async def create_case(
-    workspace_id: str,
-    summary: str,
-    description: str,
-    priority: str = "unknown",
-    severity: str = "unknown",
-    status: str = "new",
-    fields_json: str | None = None,
-    payload_json: str | None = None,
-) -> str:
-    """Create a case."""
-
-    try:
-        fields = _parse_json_arg(fields_json, "fields_json")
-        payload = _parse_json_arg(payload_json, "payload_json")
-        _, role = await _resolve_workspace_role(workspace_id)
-        async with CasesService.with_session(role=role) as svc:
-            case = await svc.create_case(
-                CaseCreate(
-                    summary=summary,
-                    description=description,
-                    priority=CasePriority(priority),
-                    severity=CaseSeverity(severity),
-                    status=CaseStatus(status),
-                    fields=fields,
-                    payload=payload,
-                )
-            )
-            return _json(
-                {
-                    "id": str(case.id),
-                    "short_id": case.short_id,
-                    "summary": case.summary,
-                    "status": case.status,
-                    "priority": case.priority,
-                    "severity": case.severity,
-                }
-            )
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to create case", error=str(e))
-        raise ToolError(f"Failed to create case: {e}") from None
-
-
-@mcp.tool()
-async def list_cases(
-    workspace_id: str,
-    limit: int = 50,
-    status: str | None = None,
-    priority: str | None = None,
-    severity: str | None = None,
-    search: str | None = None,
-) -> str:
-    """List cases."""
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        limit = max(1, min(limit, 200))
-        async with CasesService.with_session(role=role) as svc:
-            page = await svc.search_cases(
-                params=CursorPaginationParams(limit=limit),
-                search_term=search,
-                status=CaseStatus(status) if status else None,
-                priority=CasePriority(priority) if priority else None,
-                severity=CaseSeverity(severity) if severity else None,
-            )
-            return _json(
-                [
-                    {
-                        "id": str(case.id),
-                        "short_id": case.short_id,
-                        "summary": case.summary,
-                        "status": case.status,
-                        "priority": case.priority,
-                        "severity": case.severity,
-                    }
-                    for case in page.items
-                ]
-            )
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to list cases", error=str(e))
-        raise ToolError(f"Failed to list cases: {e}") from None
-
-
-@mcp.tool()
-async def get_case(workspace_id: str, case_id: str) -> str:
-    """Get case details."""
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        async with CasesService.with_session(role=role) as svc:
-            case = await svc.get_case(uuid.UUID(case_id), track_view=False)
-            if case is None:
-                raise ToolError(f"Case {case_id} not found")
-            return _json(
-                {
-                    "id": str(case.id),
-                    "short_id": case.short_id,
-                    "summary": case.summary,
-                    "description": case.description,
-                    "status": case.status,
-                    "priority": case.priority,
-                    "severity": case.severity,
-                    "payload": case.payload,
-                }
-            )
-    except ToolError:
-        raise
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to get case", error=str(e))
-        raise ToolError(f"Failed to get case: {e}") from None
-
-
-@mcp.tool()
-async def update_case(
-    workspace_id: str,
-    case_id: str,
-    summary: str | None = None,
-    description: str | None = None,
-    priority: str | None = None,
-    severity: str | None = None,
-    status: str | None = None,
-    fields_json: str | None = None,
-    payload_json: str | None = None,
-) -> str:
-    """Update a case."""
-
-    try:
-        fields = _parse_json_arg(fields_json, "fields_json")
-        payload = _parse_json_arg(payload_json, "payload_json")
-        _, role = await _resolve_workspace_role(workspace_id)
-        async with CasesService.with_session(role=role) as svc:
-            case = await svc.get_case(uuid.UUID(case_id), track_view=False)
-            if case is None:
-                raise ToolError(f"Case {case_id} not found")
-            update_kwargs: dict[str, Any] = {}
-            if summary is not None:
-                update_kwargs["summary"] = summary
-            if description is not None:
-                update_kwargs["description"] = description
-            if priority is not None:
-                update_kwargs["priority"] = CasePriority(priority)
-            if severity is not None:
-                update_kwargs["severity"] = CaseSeverity(severity)
-            if status is not None:
-                update_kwargs["status"] = CaseStatus(status)
-            if fields is not None:
-                update_kwargs["fields"] = fields
-            if payload is not None:
-                update_kwargs["payload"] = payload
-            updated = await svc.update_case(
-                case,
-                CaseUpdate(**update_kwargs),
-            )
-            return _json(
-                {
-                    "id": str(updated.id),
-                    "short_id": updated.short_id,
-                    "summary": updated.summary,
-                    "status": updated.status,
-                    "priority": updated.priority,
-                    "severity": updated.severity,
-                }
-            )
-    except ToolError:
-        raise
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to update case", error=str(e))
-        raise ToolError(f"Failed to update case: {e}") from None
-
-
-@mcp.tool()
-async def delete_case(workspace_id: str, case_id: str) -> str:
-    """Delete a case."""
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        async with CasesService.with_session(role=role) as svc:
-            case = await svc.get_case(uuid.UUID(case_id), track_view=False)
-            if case is None:
-                raise ToolError(f"Case {case_id} not found")
-            await svc.delete_case(case)
-            return _json({"message": f"Case {case_id} deleted successfully"})
-    except ToolError:
-        raise
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to delete case", error=str(e))
-        raise ToolError(f"Failed to delete case: {e}") from None
 
 
 @mcp.tool()

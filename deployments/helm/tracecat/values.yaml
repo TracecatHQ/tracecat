@@ -205,31 +205,20 @@ tracecat:
     superadminEmail: ""
 
   oidc:
+    # Shared OIDC config consumed by MCP; API only consumes these when
+    # tracecat.auth.types includes "oidc".
     issuer: ""
     clientId: ""
     clientSecret: ""
     scopes: ""
 
   mcp:
-    authMode: oidc_interactive
-    authorizationServerUrl: ""
-    jwt:
-      publicKey: ""
-      jwksUri: ""
-      issuer: ""
-      audience: ""
-      algorithm: ""
-      requiredScopes: ""
-    introspection:
-      url: ""
-      clientId: ""
-      clientSecret: ""
-      timeoutSeconds: 10
-      requiredScopes: ""
     rateLimitRps: 2.0
     rateLimitBurst: 10
     toolTimeoutSeconds: 120
     maxInputSizeBytes: 524288
+    startupMaxAttempts: 3
+    startupRetryDelaySeconds: 2
 
   temporal:
     # Search attributes to create in Temporal (name: type)

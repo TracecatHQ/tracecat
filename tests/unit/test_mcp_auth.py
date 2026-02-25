@@ -26,55 +26,66 @@ def test_oidc_consent_html_escapes_values() -> None:
     assert 'aria-label="Tracecat"' in page
 
 
-def test_create_mcp_auth_uses_jwt_mode(
+def test_create_mcp_auth_uses_oidc_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from fastmcp.server.auth import RemoteAuthProvider
-
-    monkeypatch.setattr(
-        mcp_auth,
-        "TRACECAT_MCP__AUTH_MODE",
-        mcp_auth.MCPAuthMode.OAUTH_CLIENT_CREDENTIALS_JWT,
-    )
     monkeypatch.setattr(mcp_auth, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com")
-    monkeypatch.setattr(
-        mcp_auth,
-        "TRACECAT_MCP__AUTHORIZATION_SERVER_URL",
-        "https://issuer.example.com",
-    )
-
-    mock_verifier = MagicMock()
-    with patch("tracecat.mcp.auth.JWTVerifier", return_value=mock_verifier):
-        auth = mcp_auth.create_mcp_auth()
-
-    assert isinstance(auth, RemoteAuthProvider)
-
-
-def test_create_mcp_auth_uses_introspection_mode(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from fastmcp.server.auth import RemoteAuthProvider
-
-    monkeypatch.setattr(
-        mcp_auth,
-        "TRACECAT_MCP__AUTH_MODE",
-        mcp_auth.MCPAuthMode.OAUTH_CLIENT_CREDENTIALS_INTROSPECTION,
-    )
-    monkeypatch.setattr(mcp_auth, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com")
-    monkeypatch.setattr(
-        mcp_auth,
-        "TRACECAT_MCP__AUTHORIZATION_SERVER_URL",
-        "https://issuer.example.com",
-    )
-
-    mock_verifier = MagicMock()
-    with patch(
-        "tracecat.mcp.auth.IntrospectionTokenVerifier",
-        return_value=mock_verifier,
+    with (
+        patch(
+            "tracecat.mcp.auth.get_platform_oidc_config",
+            return_value=type(
+                "OIDCConfig",
+                (),
+                {
+                    "issuer": "https://issuer.example.com",
+                    "client_id": "client-id",
+                    "client_secret": "client-secret",
+                },
+            )(),
+        ),
+        patch.object(
+            mcp_auth.OIDCProxy,
+            "get_oidc_configuration",
+            return_value=MagicMock(),
+        ),
     ):
         auth = mcp_auth.create_mcp_auth()
 
-    assert isinstance(auth, RemoteAuthProvider)
+    assert isinstance(auth, mcp_auth.OIDCProxy)
+
+
+def test_create_mcp_auth_raises_when_base_url_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mcp_auth, "TRACECAT_MCP__BASE_URL", "")
+    with pytest.raises(
+        ValueError,
+        match="TRACECAT_MCP__BASE_URL must be configured for the MCP server",
+    ):
+        mcp_auth.create_mcp_auth()
+
+
+def test_create_mcp_auth_raises_when_oidc_issuer_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mcp_auth, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com")
+    with patch(
+        "tracecat.mcp.auth.get_platform_oidc_config",
+        return_value=type(
+            "OIDCConfig",
+            (),
+            {
+                "issuer": "",
+                "client_id": "client-id",
+                "client_secret": "client-secret",
+            },
+        )(),
+    ):
+        with pytest.raises(
+            ValueError,
+            match="OIDC_ISSUER must be configured for the MCP server",
+        ):
+            mcp_auth.create_mcp_auth()
 
 
 def test_get_token_identity_extracts_ids_from_claims_and_scopes(
@@ -106,39 +117,3 @@ def test_get_token_identity_extracts_ids_from_claims_and_scopes(
     assert identity.email is None
     assert identity.organization_ids == frozenset({org_id, extra_org_id})
     assert identity.workspace_ids == frozenset({ws_id, extra_ws_id})
-
-
-@pytest.mark.anyio
-async def test_resolve_role_for_request_client_credentials_without_email(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ws_id = uuid.uuid4()
-    org_id = uuid.uuid4()
-
-    monkeypatch.setattr(
-        mcp_auth,
-        "TRACECAT_MCP__AUTH_MODE",
-        mcp_auth.MCPAuthMode.OAUTH_CLIENT_CREDENTIALS_JWT,
-    )
-
-    async def _resolve_workspace_org(_workspace_id: uuid.UUID) -> uuid.UUID:
-        return org_id
-
-    monkeypatch.setattr(mcp_auth, "resolve_workspace_org", _resolve_workspace_org)
-    monkeypatch.setattr(
-        mcp_auth,
-        "get_token_identity",
-        lambda: mcp_auth.MCPTokenIdentity(
-            client_id="tracecat-client",
-            organization_ids=frozenset({org_id}),
-            workspace_ids=frozenset({ws_id}),
-        ),
-    )
-
-    role = await mcp_auth.resolve_role_for_request(ws_id)
-
-    assert role.type == "service"
-    assert role.service_id == "tracecat-mcp"
-    assert role.user_id is None
-    assert role.workspace_id == ws_id
-    assert role.organization_id == org_id

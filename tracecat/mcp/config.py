@@ -3,34 +3,6 @@
 from __future__ import annotations
 
 import os
-from enum import StrEnum
-
-
-class MCPAuthMode(StrEnum):
-    OIDC_INTERACTIVE = "oidc_interactive"
-    OAUTH_CLIENT_CREDENTIALS_JWT = "oauth_client_credentials_jwt"
-    OAUTH_CLIENT_CREDENTIALS_INTROSPECTION = "oauth_client_credentials_introspection"
-
-
-def _env_mcp_auth_mode(name: str, default: MCPAuthMode) -> MCPAuthMode:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    value = raw.strip()
-    try:
-        return MCPAuthMode(value)
-    except ValueError as exc:
-        allowed_values = ", ".join(mode.value for mode in MCPAuthMode)
-        raise ValueError(
-            f"Invalid value for {name}: {value!r}. Expected one of: {allowed_values}"
-        ) from exc
-
-
-TRACECAT_MCP__AUTH_MODE: MCPAuthMode = _env_mcp_auth_mode(
-    "TRACECAT_MCP__AUTH_MODE",
-    MCPAuthMode.OIDC_INTERACTIVE,
-)
-"""Authentication mode for the external MCP server."""
 
 TRACECAT_MCP__HOST: str = os.environ.get("TRACECAT_MCP__HOST", "127.0.0.1")
 """Host to bind the MCP HTTP server to."""
@@ -67,52 +39,12 @@ TRACECAT_MCP__MAX_INPUT_SIZE_BYTES: int = int(
 )
 """Maximum size in bytes for any single string argument to a tool call (default 512KB)."""
 
-TRACECAT_MCP__AUTHORIZATION_SERVER_URL: str | None = os.environ.get(
-    "TRACECAT_MCP__AUTHORIZATION_SERVER_URL"
+TRACECAT_MCP__STARTUP_MAX_ATTEMPTS: int = int(
+    os.environ.get("TRACECAT_MCP__STARTUP_MAX_ATTEMPTS", "3")
 )
-"""URL of the external OAuth authorization server.
+"""Maximum MCP server startup attempts before failing hard."""
 
-Required for oauth_client_credentials_jwt and oauth_client_credentials_introspection
-auth modes. Used to advertise the authorization server in RFC 9728 protected resource
-metadata so MCP clients know where to obtain tokens.
-"""
-
-TRACECAT_MCP__JWT_PUBLIC_KEY: str | None = os.environ.get(
-    "TRACECAT_MCP__JWT_PUBLIC_KEY"
+TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS: float = float(
+    os.environ.get("TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS", "2")
 )
-"""PEM-encoded public key for JWT verification (asymmetric algorithms).
-
-Required when TRACECAT_MCP__AUTH_MODE=oauth_client_credentials_jwt and
-TRACECAT_MCP__JWT_JWKS_URI is not set.
-"""
-
-TRACECAT_MCP__JWT_JWKS_URI: str | None = os.environ.get("TRACECAT_MCP__JWT_JWKS_URI")
-"""URI to fetch a JSON Web Key Set for JWT verification.
-
-Required when TRACECAT_MCP__AUTH_MODE=oauth_client_credentials_jwt and
-TRACECAT_MCP__JWT_PUBLIC_KEY is not set.
-"""
-
-TRACECAT_MCP__JWT_ISSUER: str | None = os.environ.get("TRACECAT_MCP__JWT_ISSUER")
-"""Expected JWT issuer claim (optional)."""
-
-TRACECAT_MCP__JWT_AUDIENCE: str | None = os.environ.get("TRACECAT_MCP__JWT_AUDIENCE")
-"""Expected JWT audience claim (optional)."""
-
-TRACECAT_MCP__INTROSPECTION_URL: str = os.environ.get(
-    "TRACECAT_MCP__INTROSPECTION_URL", ""
-)
-"""URL of the OAuth 2.0 token introspection endpoint (RFC 7662).
-
-Required when TRACECAT_MCP__AUTH_MODE=oauth_client_credentials_introspection.
-"""
-
-TRACECAT_MCP__INTROSPECTION_CLIENT_ID: str = os.environ.get(
-    "TRACECAT_MCP__INTROSPECTION_CLIENT_ID", ""
-)
-"""OAuth client ID for authenticating to the introspection endpoint."""
-
-TRACECAT_MCP__INTROSPECTION_CLIENT_SECRET: str = os.environ.get(
-    "TRACECAT_MCP__INTROSPECTION_CLIENT_SECRET", ""
-)
-"""OAuth client secret for authenticating to the introspection endpoint."""
+"""Seconds to wait between MCP startup retries."""

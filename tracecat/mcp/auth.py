@@ -9,17 +9,11 @@ import uuid
 from base64 import urlsafe_b64decode
 from typing import Any
 
-import sqlalchemy
-from fastmcp.server.auth import AuthProvider, RemoteAuthProvider, TokenVerifier
+from fastmcp.server.auth import AuthProvider
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
-from fastmcp.server.auth.providers.introspection import (
-    IntrospectionTokenVerifier,
-)
-from fastmcp.server.auth.providers.jwt import JWTVerifier
 from fastmcp.server.dependencies import get_access_token
 from mcp.server.auth.provider import TokenError
-from pydantic import AnyHttpUrl, BaseModel, Field
-from sqlalchemy import or_ as sa_or
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
@@ -39,17 +33,7 @@ from tracecat.db.models import (
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.mcp.config import (
-    TRACECAT_MCP__AUTH_MODE,
-    TRACECAT_MCP__AUTHORIZATION_SERVER_URL,
     TRACECAT_MCP__BASE_URL,
-    TRACECAT_MCP__INTROSPECTION_CLIENT_ID,
-    TRACECAT_MCP__INTROSPECTION_CLIENT_SECRET,
-    TRACECAT_MCP__INTROSPECTION_URL,
-    TRACECAT_MCP__JWT_AUDIENCE,
-    TRACECAT_MCP__JWT_ISSUER,
-    TRACECAT_MCP__JWT_JWKS_URI,
-    TRACECAT_MCP__JWT_PUBLIC_KEY,
-    MCPAuthMode,
 )
 
 
@@ -398,32 +382,8 @@ def _build_oidc_consent_html(
 </html>"""
 
 
-def _wrap_with_remote_auth(
-    verifier: TokenVerifier,
-    base_url: str,
-) -> AuthProvider:
-    """Wrap a token verifier with RemoteAuthProvider for RFC 9728 discovery.
-
-    MCP clients use OAuth protected resource metadata to discover the
-    authorization server.  Without this wrapper, bare TokenVerifier
-    providers return no routes and clients receive 404 on discovery.
-    """
-    if not TRACECAT_MCP__AUTHORIZATION_SERVER_URL:
-        raise ValueError(
-            "TRACECAT_MCP__AUTHORIZATION_SERVER_URL must be set when using "
-            "oauth_client_credentials_jwt or oauth_client_credentials_introspection "
-            "auth modes. Set it to the OAuth authorization server URL."
-        )
-    return RemoteAuthProvider(
-        token_verifier=verifier,
-        authorization_servers=[AnyHttpUrl(TRACECAT_MCP__AUTHORIZATION_SERVER_URL)],
-        base_url=base_url,
-        resource_name="tracecat-mcp",
-    )
-
-
 def create_mcp_auth() -> AuthProvider:
-    """Build auth provider for external MCP based on configured auth mode."""
+    """Build auth provider for external MCP."""
     base_url = TRACECAT_MCP__BASE_URL.strip().rstrip("/")
     if not base_url:
         raise ValueError(
@@ -431,144 +391,106 @@ def create_mcp_auth() -> AuthProvider:
             "Set it to the public URL where the MCP server is accessible."
         )
 
-    if TRACECAT_MCP__AUTH_MODE == MCPAuthMode.OIDC_INTERACTIVE:
-        oidc_config = get_platform_oidc_config()
-        if not oidc_config.issuer:
-            raise ValueError(
-                "OIDC_ISSUER must be configured for the MCP server when "
-                "TRACECAT_MCP__AUTH_MODE=oidc_interactive."
-            )
+    oidc_config = get_platform_oidc_config()
+    if not oidc_config.issuer:
+        raise ValueError("OIDC_ISSUER must be configured for the MCP server.")
 
-        class TracecatOIDCProxy(OIDCProxy):
-            """OIDC proxy with user-existence validation and a custom consent page."""
+    class TracecatOIDCProxy(OIDCProxy):
+        """OIDC proxy with user-existence validation and a custom consent page."""
 
-            async def _extract_upstream_claims(
-                self, idp_tokens: dict[str, Any]
-            ) -> dict[str, Any] | None:
-                """Validate the authenticated user exists in Tracecat before issuing a session token."""
-                id_token = idp_tokens.get("id_token")
-                if not id_token:
-                    raise TokenError(
-                        "invalid_grant",
-                        "OIDC provider did not return an id_token",
-                    )
+        async def _extract_upstream_claims(
+            self, idp_tokens: dict[str, Any]
+        ) -> dict[str, Any] | None:
+            """Validate the authenticated user exists in Tracecat before issuing a session token."""
+            id_token = idp_tokens.get("id_token")
+            if not id_token:
+                raise TokenError(
+                    "invalid_grant",
+                    "OIDC provider did not return an id_token",
+                )
 
-                # Decode the JWT payload without verification (already
-                # validated by the upstream exchange).
-                try:
-                    payload_b64 = id_token.split(".")[1]
-                    # Pad base64
-                    padded = payload_b64 + "=" * (-len(payload_b64) % 4)
-                    claims = json.loads(urlsafe_b64decode(padded))
-                except Exception as exc:
-                    raise TokenError(
-                        "invalid_grant",
-                        "Failed to decode id_token claims",
-                    ) from exc
+            # Decode the JWT payload without verification (already
+            # validated by the upstream exchange).
+            try:
+                payload_b64 = id_token.split(".")[1]
+                # Pad base64
+                padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+                claims = json.loads(urlsafe_b64decode(padded))
+            except Exception as exc:
+                raise TokenError(
+                    "invalid_grant",
+                    "Failed to decode id_token claims",
+                ) from exc
 
-                email = claims.get("email")
-                if not email:
-                    raise TokenError(
-                        "invalid_client",
-                        "No email claim in id_token — cannot resolve Tracecat user",
-                    )
+            email = claims.get("email")
+            if not email:
+                raise TokenError(
+                    "invalid_client",
+                    "No email claim in id_token — cannot resolve Tracecat user",
+                )
 
-                # Check the user exists in the platform DB
-                try:
-                    await resolve_user_by_email(email)
-                except ValueError:
-                    logger.warning(
-                        "MCP auth rejected: no Tracecat user for email",
-                        email=email,
-                    )
-                    raise TokenError(
-                        "invalid_client",
-                        f"No Tracecat account found for {email}. "
-                        "Please sign up or ask an admin to invite you.",
-                    ) from None
+            # Check the user exists in the platform DB
+            try:
+                await resolve_user_by_email(email)
+            except ValueError:
+                logger.warning(
+                    "MCP auth rejected: no Tracecat user for email",
+                    email=email,
+                )
+                raise TokenError(
+                    "invalid_client",
+                    f"No Tracecat account found for {email}. "
+                    "Please sign up or ask an admin to invite you.",
+                ) from None
 
-                return {"email": email}
+            return {"email": email}
 
-            async def _show_consent_page(
-                self, request: Request
-            ) -> HTMLResponse | RedirectResponse:
-                response = await super()._show_consent_page(request)
-                if not isinstance(response, HTMLResponse):
-                    return response
-
-                txn_id = request.query_params.get("txn_id")
-                if txn_id is None:
-                    return response
-
-                txn_model = await self._transaction_store.get(key=txn_id)
-                if txn_model is None:
-                    return response
-
-                txn = txn_model.model_dump()
-                csrf_token = txn.get("csrf_token")
-                client_id = txn.get("client_id")
-                redirect_uri = txn.get("client_redirect_uri")
-                scopes = txn.get("scopes") or []
-
-                if (
-                    not isinstance(csrf_token, str)
-                    or not isinstance(client_id, str)
-                    or not isinstance(redirect_uri, str)
-                    or not isinstance(scopes, list)
-                ):
-                    return response
-
-                response.body = _build_oidc_consent_html(
-                    client_id=client_id,
-                    redirect_uri=redirect_uri,
-                    scopes=[str(scope) for scope in scopes],
-                    txn_id=txn_id,
-                    csrf_token=csrf_token,
-                ).encode("utf-8")
-                response.headers["content-length"] = str(len(response.body))
+        async def _show_consent_page(
+            self, request: Request
+        ) -> HTMLResponse | RedirectResponse:
+            response = await super()._show_consent_page(request)
+            if not isinstance(response, HTMLResponse):
                 return response
 
-        config_url = f"{oidc_config.issuer}/.well-known/openid-configuration"
-        return TracecatOIDCProxy(
-            config_url=config_url,
-            client_id=oidc_config.client_id,
-            client_secret=oidc_config.client_secret,
-            base_url=base_url,
-        )
+            txn_id = request.query_params.get("txn_id")
+            if txn_id is None:
+                return response
 
-    if TRACECAT_MCP__AUTH_MODE == MCPAuthMode.OAUTH_CLIENT_CREDENTIALS_JWT:
-        try:
-            verifier = JWTVerifier(
-                public_key=TRACECAT_MCP__JWT_PUBLIC_KEY,
-                jwks_uri=TRACECAT_MCP__JWT_JWKS_URI,
-                issuer=TRACECAT_MCP__JWT_ISSUER,
-                audience=TRACECAT_MCP__JWT_AUDIENCE,
-                base_url=base_url,
-            )
-        except ValueError as exc:
-            raise ValueError(
-                "JWT auth mode requires either TRACECAT_MCP__JWT_PUBLIC_KEY or "
-                "TRACECAT_MCP__JWT_JWKS_URI to be set."
-            ) from exc
-        return _wrap_with_remote_auth(verifier, base_url)
+            txn_model = await self._transaction_store.get(key=txn_id)
+            if txn_model is None:
+                return response
 
-    if TRACECAT_MCP__AUTH_MODE == MCPAuthMode.OAUTH_CLIENT_CREDENTIALS_INTROSPECTION:
-        try:
-            verifier = IntrospectionTokenVerifier(
-                introspection_url=TRACECAT_MCP__INTROSPECTION_URL,
-                client_id=TRACECAT_MCP__INTROSPECTION_CLIENT_ID,
-                client_secret=TRACECAT_MCP__INTROSPECTION_CLIENT_SECRET,
-                base_url=base_url,
-            )
-        except ValueError as exc:
-            raise ValueError(
-                "Introspection auth mode requires TRACECAT_MCP__INTROSPECTION_URL, "
-                "TRACECAT_MCP__INTROSPECTION_CLIENT_ID, and "
-                "TRACECAT_MCP__INTROSPECTION_CLIENT_SECRET to be set."
-            ) from exc
-        return _wrap_with_remote_auth(verifier, base_url)
+            txn = txn_model.model_dump()
+            csrf_token = txn.get("csrf_token")
+            client_id = txn.get("client_id")
+            redirect_uri = txn.get("client_redirect_uri")
+            scopes = txn.get("scopes") or []
 
-    raise ValueError(f"Unsupported MCP auth mode: {TRACECAT_MCP__AUTH_MODE}")
+            if (
+                not isinstance(csrf_token, str)
+                or not isinstance(client_id, str)
+                or not isinstance(redirect_uri, str)
+                or not isinstance(scopes, list)
+            ):
+                return response
+
+            response.body = _build_oidc_consent_html(
+                client_id=client_id,
+                redirect_uri=redirect_uri,
+                scopes=[str(scope) for scope in scopes],
+                txn_id=txn_id,
+                csrf_token=csrf_token,
+            ).encode("utf-8")
+            response.headers["content-length"] = str(len(response.body))
+            return response
+
+    config_url = f"{oidc_config.issuer}/.well-known/openid-configuration"
+    return TracecatOIDCProxy(
+        config_url=config_url,
+        client_id=oidc_config.client_id,
+        client_secret=oidc_config.client_secret,
+        base_url=base_url,
+    )
 
 
 async def resolve_user_by_email(email: str) -> User:
@@ -713,118 +635,15 @@ async def list_user_workspaces(
 
 
 async def resolve_role_for_request(workspace_id: WorkspaceID) -> Role:
-    """Resolve caller role for a workspace across all MCP auth modes.
-
-    All paths resolve a real user and compute their RBAC scopes from
-    role/group assignments. An email claim is always required so that
-    tool-call authorization reflects the individual user's permissions.
-    """
-    if TRACECAT_MCP__AUTH_MODE == MCPAuthMode.OIDC_INTERACTIVE:
-        email = get_email_from_token()
-        return await resolve_role(email, workspace_id)
-
-    identity = get_token_identity()
-
-    # Validate token carries workspace/org scope restrictions
-    if not identity.organization_ids and not identity.workspace_ids:
-        raise ValueError(
-            "Client-credentials tokens must include workspace_id(s) or "
-            "organization_id(s) claims (or matching scopes) for Tracecat access"
-        )
-
-    # Enforce token scope boundaries
-    workspace_org_id = await resolve_workspace_org(workspace_id)
-    if identity.organization_ids and workspace_org_id not in identity.organization_ids:
-        raise ValueError(
-            "Workspace is outside the organization scope for this MCP connection"
-        )
-    if identity.workspace_ids and workspace_id not in identity.workspace_ids:
-        raise ValueError("Workspace is outside the workspace scope for this MCP token")
-
-    # If the token carries an email, resolve per-user RBAC scopes.
-    # Otherwise (service principal), build a service role from the token's
-    # org/workspace claims — this is common for client-credentials flows
-    # where the token represents a machine identity without an email.
-    if identity.email:
-        return await resolve_role(identity.email, workspace_id)
-
-    role = Role(
-        type="service",
-        user_id=None,
-        workspace_id=workspace_id,
-        organization_id=workspace_org_id,
-        service_id="tracecat-mcp",
-    )
-    scopes = await compute_effective_scopes(role)
-    role = role.model_copy(update={"scopes": scopes})
-    ctx_role.set(role)
-    return role
-
-
-async def _list_workspaces_by_scope(
-    identity: MCPTokenIdentity,
-) -> list[dict[str, str]]:
-    """List workspaces reachable via the token's org/workspace scope claims.
-
-    Used for service-principal tokens that don't carry an email claim.
-    """
-    async with get_async_session_context_manager() as session:
-        stmt = select(Workspace.id, Workspace.name).order_by(
-            Workspace.name.asc(), Workspace.id.asc()
-        )
-        conditions: list[sqlalchemy.ColumnElement[bool]] = []
-        if identity.workspace_ids:
-            conditions.append(Workspace.id.in_(identity.workspace_ids))
-        if identity.organization_ids:
-            conditions.append(Workspace.organization_id.in_(identity.organization_ids))
-        if not conditions:
-            return []
-        stmt = stmt.where(sa_or(*conditions))
-        result = await session.execute(stmt)
-        return [{"id": str(row.id), "name": row.name} for row in result.all()]
+    """Resolve caller role for a workspace."""
+    email = get_email_from_token()
+    return await resolve_role(email, workspace_id)
 
 
 async def list_workspaces_for_request() -> list[dict[str, str]]:
-    """List workspaces accessible to the current MCP caller.
-
-    For client-credentials tokens, the result is further filtered by the
-    token's organization_id / workspace_id scope claims so a narrowly
-    scoped token cannot enumerate workspaces outside its grant.
-    """
-    if TRACECAT_MCP__AUTH_MODE == MCPAuthMode.OIDC_INTERACTIVE:
-        email = get_email_from_token()
-        return await list_user_workspaces(email)
-
-    identity = get_token_identity()
-
-    if identity.email:
-        workspaces = await list_user_workspaces(identity.email)
-    else:
-        # Service principal without email — resolve workspaces from
-        # the token's scope claims directly.
-        workspaces = await _list_workspaces_by_scope(identity)
-
-    # Narrow results to the token's scope boundaries
-    if identity.workspace_ids:
-        allowed = {str(wid) for wid in identity.workspace_ids}
-        workspaces = [w for w in workspaces if w["id"] in allowed]
-    if identity.organization_ids:
-        # Batch-resolve workspace→org mappings to avoid N+1 queries
-        ws_ids = [uuid.UUID(ws["id"]) for ws in workspaces]
-        async with get_async_session_context_manager() as session:
-            result = await session.execute(
-                select(Workspace.id, Workspace.organization_id).where(
-                    Workspace.id.in_(ws_ids)
-                )
-            )
-            ws_org_map = {row[0]: row[1] for row in result.all()}
-        workspaces = [
-            ws
-            for ws in workspaces
-            if ws_org_map.get(uuid.UUID(ws["id"])) in identity.organization_ids
-        ]
-
-    return workspaces
+    """List workspaces accessible to the current MCP caller."""
+    email = get_email_from_token()
+    return await list_user_workspaces(email)
 
 
 def get_email_from_token() -> str:

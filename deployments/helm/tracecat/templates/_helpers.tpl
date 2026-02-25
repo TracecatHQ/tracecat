@@ -661,7 +661,8 @@ Merges: common + temporal + postgres + redis + api-specific
 - name: SAML_ALLOW_UNSOLICITED
   value: {{ .Values.tracecat.saml.allowUnsolicited | quote }}
 {{- end }}
-{{- /* OIDC settings */}}
+{{- /* OIDC settings (API only needs these when oidc auth is enabled) */}}
+{{- if regexMatch "(^|,)\\s*oidc\\s*(,|$)" (.Values.tracecat.auth.types | default "") }}
 {{- if .Values.tracecat.oidc.issuer }}
 - name: OIDC_ISSUER
   value: {{ .Values.tracecat.oidc.issuer | quote }}
@@ -677,6 +678,7 @@ Merges: common + temporal + postgres + redis + api-specific
 {{- if .Values.tracecat.oidc.scopes }}
 - name: OIDC_SCOPES
   value: {{ .Values.tracecat.oidc.scopes | quote }}
+{{- end }}
 {{- end }}
 {{- end }}
 
@@ -790,56 +792,6 @@ Merges: common + temporal + postgres + mcp-specific
   value: {{ .Values.mcp.port | quote }}
 - name: TRACECAT_MCP__BASE_URL
   value: {{ include "tracecat.publicMcpUrl" . | quote }}
-- name: TRACECAT_MCP__AUTH_MODE
-  value: {{ .Values.tracecat.mcp.authMode | quote }}
-{{- if .Values.tracecat.mcp.authorizationServerUrl }}
-- name: TRACECAT_MCP__AUTHORIZATION_SERVER_URL
-  value: {{ .Values.tracecat.mcp.authorizationServerUrl | quote }}
-{{- end }}
-{{- if .Values.tracecat.mcp.jwt.publicKey }}
-- name: TRACECAT_MCP__JWT_PUBLIC_KEY
-  value: {{ .Values.tracecat.mcp.jwt.publicKey | quote }}
-{{- end }}
-{{- if .Values.tracecat.mcp.jwt.jwksUri }}
-- name: TRACECAT_MCP__JWT_JWKS_URI
-  value: {{ .Values.tracecat.mcp.jwt.jwksUri | quote }}
-{{- end }}
-{{- if .Values.tracecat.mcp.jwt.issuer }}
-- name: TRACECAT_MCP__JWT_ISSUER
-  value: {{ .Values.tracecat.mcp.jwt.issuer | quote }}
-{{- end }}
-{{- if .Values.tracecat.mcp.jwt.audience }}
-- name: TRACECAT_MCP__JWT_AUDIENCE
-  value: {{ .Values.tracecat.mcp.jwt.audience | quote }}
-{{- end }}
-{{- if .Values.tracecat.mcp.jwt.algorithm }}
-- name: TRACECAT_MCP__JWT_ALGORITHM
-  value: {{ .Values.tracecat.mcp.jwt.algorithm | quote }}
-{{- end }}
-{{- if .Values.tracecat.mcp.jwt.requiredScopes }}
-- name: TRACECAT_MCP__JWT_REQUIRED_SCOPES
-  value: {{ .Values.tracecat.mcp.jwt.requiredScopes | quote }}
-{{- end }}
-{{- if .Values.tracecat.mcp.introspection.url }}
-- name: TRACECAT_MCP__INTROSPECTION_URL
-  value: {{ .Values.tracecat.mcp.introspection.url | quote }}
-{{- end }}
-{{- if .Values.tracecat.mcp.introspection.clientId }}
-- name: TRACECAT_MCP__INTROSPECTION_CLIENT_ID
-  value: {{ .Values.tracecat.mcp.introspection.clientId | quote }}
-{{- end }}
-{{- if .Values.tracecat.mcp.introspection.clientSecret }}
-- name: TRACECAT_MCP__INTROSPECTION_CLIENT_SECRET
-  value: {{ .Values.tracecat.mcp.introspection.clientSecret | quote }}
-{{- end }}
-{{- if .Values.tracecat.mcp.introspection.timeoutSeconds }}
-- name: TRACECAT_MCP__INTROSPECTION_TIMEOUT_SECONDS
-  value: {{ .Values.tracecat.mcp.introspection.timeoutSeconds | quote }}
-{{- end }}
-{{- if .Values.tracecat.mcp.introspection.requiredScopes }}
-- name: TRACECAT_MCP__INTROSPECTION_REQUIRED_SCOPES
-  value: {{ .Values.tracecat.mcp.introspection.requiredScopes | quote }}
-{{- end }}
 - name: TRACECAT_MCP__RATE_LIMIT_RPS
   value: {{ .Values.tracecat.mcp.rateLimitRps | quote }}
 - name: TRACECAT_MCP__RATE_LIMIT_BURST
@@ -848,6 +800,10 @@ Merges: common + temporal + postgres + mcp-specific
   value: {{ .Values.tracecat.mcp.toolTimeoutSeconds | quote }}
 - name: TRACECAT_MCP__MAX_INPUT_SIZE_BYTES
   value: {{ .Values.tracecat.mcp.maxInputSizeBytes | quote }}
+- name: TRACECAT_MCP__STARTUP_MAX_ATTEMPTS
+  value: {{ .Values.tracecat.mcp.startupMaxAttempts | quote }}
+- name: TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS
+  value: {{ .Values.tracecat.mcp.startupRetryDelaySeconds | quote }}
 {{- /* OIDC settings */}}
 {{- if .Values.tracecat.oidc.issuer }}
 - name: OIDC_ISSUER
@@ -1044,32 +1000,14 @@ Validate MCP configuration
 */}}
 {{- define "tracecat.validateMcpConfig" -}}
 {{- if .Values.mcp.enabled -}}
-{{- if eq .Values.tracecat.mcp.authMode "oidc_interactive" -}}
 {{- if not .Values.tracecat.oidc.issuer -}}
-{{- fail "tracecat.oidc.issuer is required when mcp.enabled=true and tracecat.mcp.authMode=oidc_interactive" -}}
+{{- fail "tracecat.oidc.issuer is required when mcp.enabled=true" -}}
 {{- end -}}
 {{- if not .Values.tracecat.oidc.clientId -}}
-{{- fail "tracecat.oidc.clientId is required when mcp.enabled=true and tracecat.mcp.authMode=oidc_interactive" -}}
+{{- fail "tracecat.oidc.clientId is required when mcp.enabled=true" -}}
 {{- end -}}
 {{- if not .Values.tracecat.oidc.clientSecret -}}
-{{- fail "tracecat.oidc.clientSecret is required when mcp.enabled=true and tracecat.mcp.authMode=oidc_interactive" -}}
-{{- end -}}
-{{- end -}}
-{{- if eq .Values.tracecat.mcp.authMode "oauth_client_credentials_jwt" -}}
-{{- if and (not .Values.tracecat.mcp.jwt.publicKey) (not .Values.tracecat.mcp.jwt.jwksUri) -}}
-{{- fail "Set tracecat.mcp.jwt.publicKey or tracecat.mcp.jwt.jwksUri when tracecat.mcp.authMode=oauth_client_credentials_jwt" -}}
-{{- end -}}
-{{- end -}}
-{{- if eq .Values.tracecat.mcp.authMode "oauth_client_credentials_introspection" -}}
-{{- if not .Values.tracecat.mcp.introspection.url -}}
-{{- fail "tracecat.mcp.introspection.url is required when tracecat.mcp.authMode=oauth_client_credentials_introspection" -}}
-{{- end -}}
-{{- if not .Values.tracecat.mcp.introspection.clientId -}}
-{{- fail "tracecat.mcp.introspection.clientId is required when tracecat.mcp.authMode=oauth_client_credentials_introspection" -}}
-{{- end -}}
-{{- if not .Values.tracecat.mcp.introspection.clientSecret -}}
-{{- fail "tracecat.mcp.introspection.clientSecret is required when tracecat.mcp.authMode=oauth_client_credentials_introspection" -}}
-{{- end -}}
+{{- fail "tracecat.oidc.clientSecret is required when mcp.enabled=true" -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
