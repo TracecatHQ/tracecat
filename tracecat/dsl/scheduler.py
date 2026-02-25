@@ -961,7 +961,9 @@ class DSLScheduler:
         # Skip semantics:
         # - skip reached loop_start => skip the whole loop unit (start->end)
         # - skip originated inside loop body => stop skipping at loop_end
-        skip_propagated_from_loop_start = is_skipping and loop_key in self.loop_start_skips
+        skip_propagated_from_loop_start = (
+            is_skipping and loop_key in self.loop_start_skips
+        )
         if skip_propagated_from_loop_start:
             self.loop_start_skips.discard(loop_key)
 

@@ -530,28 +530,28 @@ async def test_skip_inside_loop_does_not_bypass_loop_when_other_dependency_succe
 ) -> None:
     """Loop DAG.
 
-    [loop region]
-      loop_start
-          |
-          v
-         body
-         |
-         +-----------------+
-         |                 |
-         v                 |
-    maybe_even             |
-  (iteration==0)          |
-         |                 |
-         +-----------------+
-                           |
-                           v
-                       loop_end (ANY)
-                           |
-                           v
-                          after
+      [loop region]
+        loop_start
+            |
+            v
+           body
+           |
+           +-----------------+
+           |                 |
+           v                 |
+      maybe_even             |
+    (iteration==0)          |
+           |                 |
+           +-----------------+
+                             |
+                             v
+                         loop_end (ANY)
+                             |
+                             v
+                            after
 
-    `maybe_even` is skipped when iteration != 0, but `body` still satisfies
-    `loop_end`'s ANY join, so control reaches `loop_end` and then continues to `after`.
+      `maybe_even` is skipped when iteration != 0, but `body` still satisfies
+      `loop_end`'s ANY join, so control reaches `loop_end` and then continues to `after`.
     """
     test_name = f"{test_skip_inside_loop_does_not_bypass_loop_when_other_dependency_succeeds.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)
