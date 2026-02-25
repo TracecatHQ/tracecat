@@ -2065,7 +2065,7 @@ class CaseComment(WorkspaceModel):
         unique=True,
         index=True,
     )
-    content: Mapped[str] = mapped_column(String(5000), nullable=False)
+    content: Mapped[str] = mapped_column(String(25000), nullable=False)
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         nullable=True,

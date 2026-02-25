@@ -173,7 +173,7 @@ const commentFormSchema = z.object({
   content: z
     .string()
     .min(1, { message: "Comment cannot be empty" })
-    .max(5000, { message: "Comment cannot be longer than 5000 characters" }),
+    .max(25000, { message: "Comment cannot be longer than 25000 characters" }),
 })
 type CommentFormSchema = z.infer<typeof commentFormSchema>
 

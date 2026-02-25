@@ -3592,7 +3592,7 @@ export const $CaseCommentCreate = {
   properties: {
     content: {
       type: "string",
-      maxLength: 5000,
+      maxLength: 25000,
       minLength: 1,
       title: "Content",
     },
@@ -3681,7 +3681,7 @@ export const $CaseCommentUpdate = {
       anyOf: [
         {
           type: "string",
-          maxLength: 5000,
+          maxLength: 25000,
           minLength: 1,
         },
         {
