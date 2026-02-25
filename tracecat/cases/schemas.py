@@ -160,12 +160,12 @@ class CaseCommentRead(Schema):
 
 
 class CaseCommentCreate(Schema):
-    content: str = Field(..., min_length=1, max_length=5_000)
+    content: str = Field(..., min_length=1, max_length=25_000)
     parent_id: uuid.UUID | None = Field(default=None)
 
 
 class CaseCommentUpdate(Schema):
-    content: str | None = Field(default=None, min_length=1, max_length=5_000)
+    content: str | None = Field(default=None, min_length=1, max_length=25_000)
     parent_id: uuid.UUID | None = Field(default=None)
 
 
