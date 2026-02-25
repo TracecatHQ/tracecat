@@ -1388,24 +1388,10 @@ class DSLWorkflow:
             LoopStrategy.BATCH: int(task.args.get("batch_size", 32)),
             LoopStrategy.PARALLEL: total_count,
         }[loop_strategy]
-        strategy_batch_size = max(
-            1,
-            min(
-                requested_batch_size,
-                total_count,
-            ),
+        strategy_batch_size, batch_size = self._resolve_child_loop_batch_size(
+            total_count=total_count,
+            requested_batch_size=requested_batch_size,
         )
-        batch_size = min(
-            strategy_batch_size,
-            config.TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT,
-        )
-
-        # Cap batch size based on tier limits for concurrent actions.
-        if (
-            self._tier_limits is not None
-            and self._tier_limits.max_concurrent_actions is not None
-        ):
-            batch_size = min(batch_size, self._tier_limits.max_concurrent_actions)
 
         if batch_size < strategy_batch_size:
             self.logger.info(
@@ -1567,24 +1553,10 @@ class DSLWorkflow:
             LoopStrategy.BATCH: sf_context.batch_size,
             LoopStrategy.PARALLEL: total_count,  # All at once
         }[loop_strategy]
-        strategy_batch_size = max(
-            1,
-            min(
-                requested_batch_size,
-                total_count,
-            ),
+        strategy_batch_size, batch_size = self._resolve_child_loop_batch_size(
+            total_count=total_count,
+            requested_batch_size=requested_batch_size,
         )
-        batch_size = min(
-            strategy_batch_size,
-            config.TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT,
-        )
-
-        # Cap batch size based on tier limits for concurrent actions.
-        if (
-            self._tier_limits is not None
-            and self._tier_limits.max_concurrent_actions is not None
-        ):
-            batch_size = min(batch_size, self._tier_limits.max_concurrent_actions)
 
         self.logger.debug(
             "Loop execution batch plan",
@@ -2199,6 +2171,56 @@ class DSLWorkflow:
             PlatformAction.TRANSFORM_SCATTER,
             PlatformAction.TRANSFORM_GATHER,
         )
+
+    def _resolve_child_loop_batch_size(
+        self,
+        *,
+        total_count: int,
+        requested_batch_size: int,
+    ) -> tuple[int, int]:
+        """Resolve effective child-loop batch size from strategy and caps."""
+        strategy_batch_size = max(1, min(requested_batch_size, total_count))
+        max_in_flight = config.TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT
+        if total_count > 0 and max_in_flight <= 0:
+            raise ApplicationError(
+                (
+                    "Invalid child workflow concurrency cap: "
+                    "TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT must be greater than 0 "
+                    f"(got {max_in_flight})"
+                ),
+                non_retryable=True,
+                type="InvalidChildWorkflowConcurrencyCap",
+            )
+        batch_size = min(strategy_batch_size, max_in_flight)
+
+        tier_cap = (
+            self._tier_limits.max_concurrent_actions
+            if self._tier_limits is not None
+            else None
+        )
+        if tier_cap is not None:
+            if total_count > 0 and tier_cap <= 0:
+                raise ApplicationError(
+                    (
+                        "Invalid organization action concurrency cap: "
+                        "max_concurrent_actions must be greater than 0 "
+                        f"(got {tier_cap})"
+                    ),
+                    non_retryable=True,
+                    type="InvalidOrganizationActionConcurrencyCap",
+                )
+            batch_size = min(batch_size, tier_cap)
+
+        if total_count > 0 and batch_size <= 0:
+            raise ApplicationError(
+                (
+                    "Invalid child workflow batch size resolved from concurrency caps: "
+                    f"batch_size={batch_size}"
+                ),
+                non_retryable=True,
+                type="InvalidChildWorkflowBatchSize",
+            )
+        return strategy_batch_size, batch_size
 
     def _action_permit_id(self, *, task: ActionStatement, stream_id: StreamID) -> str:
         return f"{workflow.info().workflow_id}:{stream_id}:{task.ref}"
