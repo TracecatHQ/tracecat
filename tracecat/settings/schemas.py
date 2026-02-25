@@ -50,7 +50,7 @@ class GitSettingsUpdate(BaseSettingsGroup):
 class SAMLSettingsRead(BaseSettingsGroup):
     saml_enabled: bool
     saml_enforced: bool
-    saml_auto_provisioning: bool
+    saml_auto_provisioning: bool = True
     saml_idp_metadata_url: str | None = Field(default=None)
     saml_sp_acs_url: str  # Read only
     decryption_failed_keys: list[str] = Field(
