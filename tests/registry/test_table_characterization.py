@@ -429,6 +429,7 @@ class TestLookupMany:
             value="active",
         )
 
+        assert isinstance(result, list)
         assert len(result) == 2
         assert all(r["status"] == "active" for r in result)
 

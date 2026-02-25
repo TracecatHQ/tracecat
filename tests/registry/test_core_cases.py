@@ -605,8 +605,11 @@ class TestCoreSearchCases:
             agg="sum",
         )
         assert isinstance(result, dict)
-        assert result["aggregation"]["agg"] == "sum"
-        assert result["aggregation"]["buckets"][0]["group"] == "new"
+        assert "aggregation" in result
+        aggregation = result["aggregation"]
+        assert aggregation is not None
+        assert aggregation["agg"] == "sum"
+        assert aggregation["buckets"][0]["group"] == "new"
 
     async def test_search_cases_with_ordering(
         self, mock_cases_client: AsyncMock, mock_case_dict
