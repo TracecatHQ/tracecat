@@ -273,9 +273,12 @@ def build_query(
     workflow_id: WorkflowID | None = None,
     trigger_types: set[TriggerType] | None = None,
     triggered_by_user_id: UserID | None = None,
+    workspace_id: str | None = None,
     _include_legacy: bool = True,
 ) -> str:
     query = []
+    if workspace_id:
+        query.append(f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{workspace_id}'")
     if workflow_id:
         short_id = workflow_id.short()
         wf_id_query = f"WorkflowId STARTS_WITH '{short_id}'"

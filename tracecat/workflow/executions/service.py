@@ -211,13 +211,46 @@ class WorkflowExecutionsService:
                 break
         return executions
 
+    def _role_workspace_id(self) -> str | None:
+        if self.role is None or self.role.workspace_id is None:
+            return None
+        return str(self.role.workspace_id)
+
+    def _is_execution_visible_in_workspace(self, execution: WorkflowExecution) -> bool:
+        role_workspace_id = self._role_workspace_id()
+        if role_workspace_id is None:
+            return True
+
+        execution_workspace_id = execution.typed_search_attributes.get(
+            TemporalSearchAttr.WORKSPACE_ID.key
+        )
+        if execution_workspace_id is None:
+            self.logger.warning(
+                "Denying access to execution without workspace search attribute",
+                wf_exec_id=execution.id,
+                role_workspace_id=role_workspace_id,
+            )
+            return False
+        if execution_workspace_id != role_workspace_id:
+            self.logger.warning(
+                "Denying cross-workspace execution access",
+                wf_exec_id=execution.id,
+                role_workspace_id=role_workspace_id,
+                execution_workspace_id=execution_workspace_id,
+            )
+            return False
+        return True
+
     async def get_execution(
         self, wf_exec_id: WorkflowExecutionID, _include_legacy: bool = True
     ) -> WorkflowExecution | None:
         self.logger.debug("Getting workflow execution", wf_exec_id=wf_exec_id)
         handle = self.handle(wf_exec_id)
         try:
-            return await handle.describe()
+            execution = await handle.describe()
+            if not self._is_execution_visible_in_workspace(execution):
+                return None
+            return execution
         except RPCError as e:
             if "not found" in str(e).lower():
                 return None
@@ -231,10 +264,12 @@ class WorkflowExecutionsService:
         limit: int | None = None,
     ) -> list[WorkflowExecution]:
         """List all workflow executions."""
+        workspace_id = self._role_workspace_id()
         query = build_query(
             workflow_id=workflow_id,
             trigger_types=trigger_types,
             triggered_by_user_id=triggered_by_user_id,
+            workspace_id=workspace_id,
         )
         return await self.query_executions(query=query, limit=limit)
 
@@ -242,8 +277,8 @@ class WorkflowExecutionsService:
         self, wf_id: WorkflowID
     ) -> list[WorkflowExecution]:
         """List all workflow executions by workflow ID."""
-
-        query = f"WorkflowId STARTS_WITH {wf_id!r}"
+        workspace_id = self._role_workspace_id()
+        query = build_query(workflow_id=wf_id, workspace_id=workspace_id)
         return await self.query_executions(query=query)
 
     async def get_latest_execution_by_workflow_id(

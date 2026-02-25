@@ -366,9 +366,12 @@ class TestSearchAttributeQueries:
             workflow_id=test_workflow_id,
             trigger_types={TriggerType.MANUAL},
             triggered_by_user_id=mock_role_with_workspace.user_id,
+            workspace_id=str(mock_role_with_workspace.workspace_id),
         )
 
-        # Verify query includes trigger type and user ID
+        # Verify query includes workspace, trigger type, and user ID
+        assert TemporalSearchAttr.WORKSPACE_ID.value in query
+        assert str(mock_role_with_workspace.workspace_id) in query
         assert TemporalSearchAttr.TRIGGER_TYPE.value in query
         assert TemporalSearchAttr.TRIGGERED_BY_USER_ID.value in query
         assert str(mock_role_with_workspace.user_id) in query
