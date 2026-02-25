@@ -10,12 +10,15 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import orjson
+from pydantic_ai.exceptions import AgentRunError, UserError
 from pydantic_ai.messages import (
     ModelRequest,
     UserPromptPart,
 )
 from pydantic_ai.tools import ToolApproved, ToolDenied
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
+from sqlalchemy.exc import SQLAlchemyError
+from tracecat_registry._internal.exceptions import SecretNotFoundError
 
 import tracecat.agent.adapter.vercel
 from tracecat import config
@@ -29,9 +32,11 @@ from tracecat.agent.session.schemas import (
     AgentSessionRead,
     AgentSessionUpdate,
 )
+from tracecat.agent.session.title_generator import generate_session_title
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA
 from tracecat.audit.logger import audit_log
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
 from tracecat.chat.enums import MessageKind
@@ -59,6 +64,8 @@ from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 
 if TYPE_CHECKING:
     from tracecat.agent.executor.activity import ToolExecutionResult
+
+AUTO_TITLE_SERVICE_ID = "tracecat-api"
 
 
 @dataclass
@@ -454,6 +461,184 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def _is_first_prompt_for_session(self, session_id: uuid.UUID) -> bool:
+        """Check whether this session has any persisted local history yet."""
+        stmt = (
+            select(AgentSessionHistory.id)
+            .where(
+                AgentSessionHistory.workspace_id == self.workspace_id,
+                AgentSessionHistory.session_id == session_id,
+            )
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none() is None
+
+    async def auto_title_session_on_first_prompt(
+        self,
+        agent_session: AgentSession,
+        user_prompt: str,
+    ) -> None:
+        """Best-effort auto-title on first prompt via direct PydanticAI call."""
+        prompt = user_prompt.strip()
+        entity_type = agent_session.entity_type
+        old_title = agent_session.title
+
+        if not prompt:
+            logger.info(
+                "session_auto_title_skip",
+                session_id=str(agent_session.id),
+                entity_type=entity_type,
+                prompt_length=0,
+                old_title_length=len(old_title),
+                new_title_length=0,
+                reason="empty_prompt",
+            )
+            return
+
+        if not await self._is_first_prompt_for_session(agent_session.id):
+            logger.info(
+                "session_auto_title_skip",
+                session_id=str(agent_session.id),
+                entity_type=entity_type,
+                prompt_length=len(prompt),
+                old_title_length=len(old_title),
+                new_title_length=0,
+                reason="not_first_prompt",
+            )
+            return
+
+        logger.info(
+            "session_auto_title_attempt",
+            session_id=str(agent_session.id),
+            entity_type=entity_type,
+            prompt_length=len(prompt),
+            old_title_length=len(old_title),
+        )
+
+        try:
+            service_role = self.role.model_copy(
+                update={
+                    "type": "service",
+                    "service_id": AUTO_TITLE_SERVICE_ID,
+                    "scopes": SERVICE_PRINCIPAL_SCOPES.get(
+                        AUTO_TITLE_SERVICE_ID,
+                        frozenset(),
+                    ),
+                }
+            )
+            agent_service = AgentManagementService(self.session, service_role)
+            async with agent_service.with_model_config(
+                use_workspace_credentials=False
+            ) as model_config:
+                new_title = await generate_session_title(
+                    user_prompt=prompt,
+                    model_name=model_config.name,
+                    model_provider=model_config.provider,
+                )
+        except (
+            AgentRunError,
+            SecretNotFoundError,
+            TracecatNotFoundError,
+            UserError,
+            ValueError,
+        ) as e:
+            logger.warning(
+                "session_auto_title_failure",
+                session_id=str(agent_session.id),
+                entity_type=entity_type,
+                prompt_length=len(prompt),
+                old_title_length=len(old_title),
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            return
+
+        if not new_title:
+            logger.info(
+                "session_auto_title_skip",
+                session_id=str(agent_session.id),
+                entity_type=entity_type,
+                prompt_length=len(prompt),
+                old_title_length=len(old_title),
+                new_title_length=0,
+                reason="generation_failed_or_empty",
+            )
+            return
+
+        if new_title == old_title:
+            logger.info(
+                "session_auto_title_skip",
+                session_id=str(agent_session.id),
+                entity_type=entity_type,
+                prompt_length=len(prompt),
+                old_title_length=len(old_title),
+                new_title_length=len(new_title),
+                reason="title_unchanged",
+            )
+            return
+
+        history_exists = (
+            select(AgentSessionHistory.id)
+            .where(
+                AgentSessionHistory.workspace_id == self.workspace_id,
+                AgentSessionHistory.session_id == agent_session.id,
+            )
+            .limit(1)
+            .exists()
+        )
+
+        try:
+            result = await self.session.execute(
+                update(AgentSession)
+                .where(
+                    AgentSession.id == agent_session.id,
+                    AgentSession.workspace_id == self.workspace_id,
+                    AgentSession.title == old_title,
+                    ~history_exists,
+                )
+                .values(title=new_title)
+                .returning(AgentSession.id)
+            )
+            await self.session.commit()
+        except SQLAlchemyError as e:
+            await self.session.rollback()
+            logger.warning(
+                "session_auto_title_failure",
+                session_id=str(agent_session.id),
+                entity_type=entity_type,
+                prompt_length=len(prompt),
+                old_title_length=len(old_title),
+                new_title_length=len(new_title),
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            return
+
+        updated_session_id = result.scalar_one_or_none()
+        if updated_session_id is not None:
+            agent_session.title = new_title
+            logger.info(
+                "session_auto_title_success",
+                session_id=str(agent_session.id),
+                entity_type=entity_type,
+                prompt_length=len(prompt),
+                old_title_length=len(old_title),
+                new_title_length=len(new_title),
+            )
+            return
+
+        await self.session.refresh(agent_session)
+        logger.info(
+            "session_auto_title_skip",
+            session_id=str(agent_session.id),
+            entity_type=entity_type,
+            prompt_length=len(prompt),
+            old_title_length=len(old_title),
+            new_title_length=len(agent_session.title),
+            reason="compare_and_set_guard_failed",
+        )
+
     # =========================================================================
     # Chat / Message Turn Operations
     # =========================================================================
@@ -525,6 +710,9 @@ class AgentSessionService(BaseWorkspaceService):
         # Handle continuation (approval submission) vs new turn
         if is_continuation and isinstance(request, ContinueRunRequest):
             return await self._continue_with_approvals(session_id, request)
+
+        if user_prompt is not None:
+            await self.auto_title_session_on_first_prompt(agent_session, user_prompt)
 
         # Build agent config and spawn workflow for new turn
         async with self._build_agent_config(agent_session) as agent_config:

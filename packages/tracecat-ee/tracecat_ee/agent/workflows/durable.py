@@ -225,6 +225,7 @@ class DurableAgentWorkflow:
                 agent_preset_id=args.agent_preset_id,
                 harness_type=HarnessType(self.harness_type),
                 curr_run_id=self.session_id,
+                initial_user_prompt=args.agent_args.user_prompt,
             ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],

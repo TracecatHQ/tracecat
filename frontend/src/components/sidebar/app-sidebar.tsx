@@ -470,10 +470,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                           asChild
                                           isActive={isChatActive}
                                         >
-                                          <Link href={sessionHref}>
+                                          <Link
+                                            href={sessionHref}
+                                            className="flex min-w-0 items-center gap-2"
+                                          >
                                             <span
                                               className={cn(
-                                                "text-xs",
+                                                "min-w-0 flex-1 truncate text-xs",
                                                 "transition-opacity group-hover/menu-item:opacity-0"
                                               )}
                                             >
@@ -502,10 +505,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                       asChild
                                       isActive={isChatActive}
                                     >
-                                      <Link href={sessionHref}>
+                                      <Link
+                                        href={sessionHref}
+                                        className="flex min-w-0 items-center gap-2"
+                                      >
                                         <span
                                           className={cn(
-                                            "text-xs",
+                                            "min-w-0 flex-1 truncate text-xs",
                                             isCaseSession &&
                                               !isDeleteConfirming &&
                                               "transition-opacity group-hover/menu-item:opacity-0"
@@ -566,7 +572,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                         )
                                       }
                                       disabled={deleteChatPending}
-                                      className="absolute right-1 top-1/2 z-10 inline-flex h-5 -translate-y-1/2 items-center justify-center rounded-md border border-transparent bg-transparent px-1.5 text-[10px] font-semibold leading-none text-destructive transition-colors hover:border-destructive focus-visible:border-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive group-data-[collapsible=icon]:hidden"
+                                      className="absolute right-1 top-1/2 z-10 inline-flex h-5 -translate-y-1/2 items-center justify-center rounded-md border border-destructive/60 bg-white px-1.5 text-[10px] font-semibold leading-none text-destructive transition-colors hover:border-destructive focus-visible:border-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive group-data-[collapsible=icon]:hidden"
                                       aria-label={`Confirm deleting session ${chat.title || chat.id}`}
                                     >
                                       Confirm
