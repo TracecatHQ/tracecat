@@ -63,9 +63,8 @@ jobs:
       - name: Check frontend client is up to date
         run: |
           pnpm -C frontend generate-client-ci
-          pnpm -C frontend check
-          uv run ruff check . --fix
-          uv run ruff format .
+          # openapi-ts output style doesn't match repo formatting; normalize generated client only
+          pnpm -C frontend exec biome check --write src/client
           git diff --exit-code frontend/src/client/
 
       - name: Run TypeScript type check
