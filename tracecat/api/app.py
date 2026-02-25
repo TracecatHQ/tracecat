@@ -34,7 +34,6 @@ from tracecat.api.common import (
 from tracecat.auth.credentials import authenticated_user_only
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
-    require_auth_type_enabled,
 )
 from tracecat.auth.discovery import router as auth_discovery_router
 from tracecat.auth.enums import AuthType
@@ -525,10 +524,10 @@ def create_app(**kwargs) -> FastAPI:
                 require_any_auth_type_enabled([AuthType.OIDC, AuthType.GOOGLE_OAUTH])
             ],
         )
-    app.include_router(
-        saml_router,
-        dependencies=[require_auth_type_enabled(AuthType.SAML)],
-    )
+    # Keep SAML auth-type checks on endpoint handlers, not the entire router.
+    # The ACS callback resolves org context from RelayState, so requiring
+    # query/cookie org context at router level can block legitimate IdP callbacks.
+    app.include_router(saml_router)
     app.include_router(auth_discovery_router)
 
     if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
@@ -601,6 +600,7 @@ class AppInfo(BaseModel):
     public_app_url: str
     auth_allowed_types: list[AuthType]
     saml_enabled: bool
+    saml_enforced: bool
     ee_multi_tenant: bool
 
 
@@ -608,9 +608,10 @@ class AppInfo(BaseModel):
 async def info(session: AsyncDBSession) -> AppInfo:
     """Non-sensitive information about the platform, for frontend configuration."""
 
-    keys = {"saml_enabled"}
+    keys = {"saml_enabled", "saml_enforced"}
 
-    # Get the default organization for platform-level settings
+    # Use default organization for platform-level settings.
+    # Org-specific auth routing is handled by the /auth/discover endpoint.
     org_id = await get_default_organization_id(session)
     service = SettingsService(session, role=bootstrap_role(org_id))
     settings = await service.list_org_settings(keys=keys)
@@ -622,6 +623,7 @@ async def info(session: AsyncDBSession) -> AppInfo:
         public_app_url=config.TRACECAT__PUBLIC_APP_URL,
         auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
         saml_enabled=keyvalues["saml_enabled"],
+        saml_enforced=keyvalues["saml_enforced"],
         ee_multi_tenant=config.TRACECAT__EE_MULTI_TENANT,
     )
 

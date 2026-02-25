@@ -22,10 +22,13 @@ import {
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { useOrgDomains } from "@/hooks/use-org-domains"
 import { useAppInfo, useOrgSamlSettings } from "@/lib/hooks"
 
 const ssoFormSchema = z.object({
   saml_enabled: z.boolean(),
+  saml_enforced: z.boolean(),
+  saml_auto_provisioning: z.boolean(),
   saml_idp_metadata_url: z.string().url().nullish(),
   saml_sp_acs_url: z.string().url().nullish(),
 })
@@ -34,6 +37,7 @@ type SsoFormValues = z.infer<typeof ssoFormSchema>
 
 export function OrgSettingsSsoForm() {
   const { appInfo } = useAppInfo()
+  const { domains } = useOrgDomains()
   const {
     samlSettings,
     samlSettingsIsLoading,
@@ -45,16 +49,36 @@ export function OrgSettingsSsoForm() {
     resolver: zodResolver(ssoFormSchema),
     values: {
       saml_enabled: samlSettings?.saml_enabled ?? false,
+      saml_enforced: samlSettings?.saml_enforced ?? false,
+      saml_auto_provisioning: samlSettings?.saml_auto_provisioning ?? true,
       saml_idp_metadata_url: samlSettings?.saml_idp_metadata_url,
       saml_sp_acs_url: samlSettings?.saml_sp_acs_url,
     },
   })
 
   const isSamlAllowed = appInfo?.auth_allowed_types.includes("saml")
+  const requiresDomainGuard = appInfo?.ee_multi_tenant ?? false
+  const hasActiveDomains = Boolean(domains?.some((domain) => domain.is_active))
+  const samlEnabled = methods.watch("saml_enabled")
+
+  const canEnableSaml = !requiresDomainGuard || hasActiveDomains
   const onSubmit = async (data: SsoFormValues) => {
+    if (
+      requiresDomainGuard &&
+      !hasActiveDomains &&
+      (data.saml_enabled || data.saml_auto_provisioning)
+    ) {
+      console.error(
+        "Refusing to enable SAML without at least one active org domain in multi-tenant mode"
+      )
+      return
+    }
     const conditional: Partial<SAMLSettingsUpdate> = {}
     if (isSamlAllowed) {
       conditional.saml_enabled = data.saml_enabled
+      conditional.saml_enforced = data.saml_enabled && data.saml_enforced
+      conditional.saml_auto_provisioning =
+        data.saml_enabled && data.saml_auto_provisioning
     }
     try {
       await updateSamlSettings({
@@ -98,6 +122,18 @@ export function OrgSettingsSsoForm() {
             </AlertDescription>
           </Alert>
         )}
+        {requiresDomainGuard && !hasActiveDomains && (
+          <Alert>
+            <AlertTriangleIcon className="size-4 !text-destructive" />
+            <AlertTitle className="text-destructive">
+              Active domain required
+            </AlertTitle>
+            <AlertDescription>
+              Multi-tenant SAML requires at least one active organization
+              domain. Configure domains first, then enable SAML.
+            </AlertDescription>
+          </Alert>
+        )}
         <FormField
           control={methods.control}
           name="saml_enabled"
@@ -113,6 +149,53 @@ export function OrgSettingsSsoForm() {
                 <Switch
                   checked={field.value}
                   onCheckedChange={field.onChange}
+                  disabled={!canEnableSaml && !field.value}
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={methods.control}
+          name="saml_enforced"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <FormLabel>Enforce SAML SSO</FormLabel>
+                <FormDescription>
+                  When enabled, users in this organization must authenticate via
+                  SAML. Password login will be disabled for matching email
+                  domains.
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  disabled={(!canEnableSaml && !field.value) || !samlEnabled}
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={methods.control}
+          name="saml_auto_provisioning"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <FormLabel>Auto-provisioning</FormLabel>
+                <FormDescription>
+                  Automatically create user accounts and organization
+                  memberships on first SAML login. When disabled, users must be
+                  invited before they can sign in.
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  disabled={(!canEnableSaml && !field.value) || !samlEnabled}
                 />
               </FormControl>
             </FormItem>

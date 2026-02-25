@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator, Iterable, Sequence
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_users import (
     BaseUserManager,
@@ -120,7 +120,9 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 f"Password must be at least {config.TRACECAT__AUTH_MIN_PASSWORD_LENGTH} characters long"
             )
 
-    async def validate_email(self, email: str) -> None:
+    async def validate_email(
+        self, email: str, *, organization_id: uuid.UUID | None = None
+    ) -> None:
         # Check if this is attempting to be the first user (superadmin)
         async with get_async_session_context_manager() as session:
             users = await list_users(session=session)
@@ -241,6 +243,42 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 return True
         return False
 
+    async def _is_saml_enforced_for_oauth(self, email: str) -> bool:
+        """Check if SAML enforcement blocks OAuth for this email.
+
+        Checks both the email-domain-mapped org *and* all orgs the user is a
+        member of, matching the policy applied to local password logins.
+        """
+        if AuthType.SAML not in config.TRACECAT__AUTH_TYPES:
+            return False
+
+        # 1. Domain-based check: the org owning this email domain enforces SAML
+        _, _, email_domain = email.rpartition("@")
+        if email_domain:
+            try:
+                normalized = normalize_domain(email_domain).normalized_domain
+            except ValueError:
+                pass
+            else:
+                statement = select(OrganizationDomain.organization_id).where(
+                    OrganizationDomain.normalized_domain == normalized,
+                    OrganizationDomain.is_active.is_(True),
+                )
+                result = await self._user_db.session.execute(statement)
+                org_id = result.scalar_one_or_none()
+                if org_id is not None and await self._is_org_saml_enforced(org_id):
+                    return True
+
+        # 2. Membership-based check: the user belongs to any enforced org
+        try:
+            user = await self.get_by_email(email)
+        except UserNotExists:
+            return False
+        org_ids = await self._list_user_org_ids(user.id)
+        if not org_ids:
+            return False
+        return await self._any_org_saml_enforced(org_ids)
+
     async def oauth_callback(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         oauth_name: str,
@@ -255,6 +293,16 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         is_verified_by_default: bool = False,
     ) -> User:
         await self.validate_email(account_email)
+        if await self._is_saml_enforced_for_oauth(account_email):
+            self.logger.info(
+                "Blocked OAuth login by SAML enforcement policy",
+                email=account_email,
+                oauth_name=oauth_name,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="SAML authentication is enforced for this organization",
+            )
         return await super().oauth_callback(  # pyright: ignore[reportAttributeAccessIssue]
             oauth_name,
             access_token,
@@ -396,8 +444,10 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self,
         *,
         email: str,
+        organization_id: uuid.UUID | None = None,
         associate_by_email: bool = True,
         is_verified_by_default: bool = True,
+        allow_auto_provisioning: bool = True,
     ) -> User:
         """
         Handle the callback after a successful SAML authentication.
@@ -405,14 +455,25 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         :param email: Email of the user from SAML response.
         :param associate_by_email: If True, associate existing user with the same email. Defaults to True.
         :param is_verified_by_default: If True, set is_verified flag for new users. Defaults to True.
+        :param allow_auto_provisioning: If True, create new user accounts on first SAML login.
+            When False, only existing users can authenticate.
         :return: A user.
         """
-        await self.validate_email(email)
+        await self.validate_email(email, organization_id=organization_id)
         try:
             user = await self.get_by_email(email)
             if not associate_by_email:
                 raise UserAlreadyExists()
-        except UserNotExists:
+        except UserNotExists as e:
+            if not allow_auto_provisioning:
+                self.logger.info(
+                    "SAML login denied: auto-provisioning disabled and user does not exist",
+                    email=email,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Authentication failed",
+                ) from e
             # Create account
             password = self.password_helper.generate()
             user_dict = {

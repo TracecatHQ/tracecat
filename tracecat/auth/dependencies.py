@@ -93,7 +93,7 @@ async def verify_auth_type(auth_type: AuthType) -> None:
             override=override,
         )
         return
-    # NOTE: These settings werek introduced after org settings implemented
+    # NOTE: These settings were introduced after org settings implemented
     # so no defaults required
     setting = await get_setting(key=key, role=bootstrap_role())
     if setting is None or not isinstance(setting, bool):

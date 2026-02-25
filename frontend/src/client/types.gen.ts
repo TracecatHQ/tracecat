@@ -816,6 +816,7 @@ export type AuditSettingsUpdate = {
  */
 export type AuthDiscoverRequest = {
   email: string
+  org?: string | null
 }
 
 /**
@@ -823,6 +824,8 @@ export type AuthDiscoverRequest = {
  */
 export type AuthDiscoverResponse = {
   method: AuthDiscoveryMethod
+  next_url?: string | null
+  organization_slug?: string | null
 }
 
 /**
@@ -4640,6 +4643,7 @@ export type SAMLDatabaseLoginResponse = {
 export type SAMLSettingsRead = {
   saml_enabled: boolean
   saml_enforced: boolean
+  saml_auto_provisioning: boolean
   saml_idp_metadata_url?: string | null
   saml_sp_acs_url: string
   /**
@@ -4657,6 +4661,10 @@ export type SAMLSettingsUpdate = {
    * Whether SAML is enforced. If true, users can only use SAML to authenticate. Requires SAML to be enabled.
    */
   saml_enforced?: boolean
+  /**
+   * Whether to automatically create user accounts and org memberships on first SAML login. When disabled, users must be pre-invited.
+   */
+  saml_auto_provisioning?: boolean
   saml_idp_metadata_url?: string | null
 }
 

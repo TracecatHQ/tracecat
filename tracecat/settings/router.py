@@ -1,4 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.dependencies import OrgUserRole
@@ -6,6 +8,8 @@ from tracecat.auth.enums import AuthType
 from tracecat.authz.controls import require_scope
 from tracecat.config import SAML_PUBLIC_ACS_URL
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import OrganizationDomain
+from tracecat.identifiers import OrganizationID
 from tracecat.settings.schemas import (
     AgentSettingsRead,
     AgentSettingsUpdate,
@@ -46,6 +50,61 @@ async def check_other_auth_enabled(
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail="At least one other auth type must be enabled",
+    )
+
+
+async def _organization_has_active_domain(
+    *, session: AsyncSession, organization_id: OrganizationID
+) -> bool:
+    stmt = (
+        select(OrganizationDomain.id)
+        .where(
+            OrganizationDomain.organization_id == organization_id,
+            OrganizationDomain.is_active.is_(True),
+        )
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalar_one_or_none() is not None
+
+
+async def check_saml_domain_prerequisites(
+    *, session: AsyncSession, role: OrgUserRole, params: SAMLSettingsUpdate
+) -> None:
+    """Enforce domain guardrails for multi-tenant SAML enablement.
+
+    In multi-tenant mode, enabling SAML and enabling SAML auto-provisioning must
+    require at least one active organization domain. This prevents org
+    enrollment on arbitrary email domains when SAML assertions are accepted.
+    """
+    if not config.TRACECAT__EE_MULTI_TENANT:
+        return
+
+    fields_set = params.model_fields_set
+    enabling_saml = "saml_enabled" in fields_set and params.saml_enabled
+    enabling_auto_provisioning = (
+        "saml_auto_provisioning" in fields_set and params.saml_auto_provisioning
+    )
+    if not (enabling_saml or enabling_auto_provisioning):
+        return
+
+    organization_id = role.organization_id
+    if organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No organization context",
+        )
+
+    if await _organization_has_active_domain(
+        session=session, organization_id=organization_id
+    ):
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=(
+            "At least one active organization domain is required before enabling "
+            "SAML or SAML auto-provisioning in multi-tenant mode"
+        ),
     )
 
 
@@ -110,6 +169,7 @@ async def update_saml_settings(
     params: SAMLSettingsUpdate,
 ) -> None:
     service = SettingsService(session, role)
+    await check_saml_domain_prerequisites(session=session, role=role, params=params)
     if not params.saml_enabled:
         await check_other_auth_enabled(service, AuthType.SAML)
     await service.update_saml_settings(params)

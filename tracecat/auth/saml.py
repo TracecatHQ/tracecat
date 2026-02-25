@@ -1,7 +1,46 @@
+"""SAML authentication flow and security gates.
+
+This module implements the two public SAML endpoints:
+- `GET /auth/saml/login`: starts SP-initiated SAML login.
+- `POST /auth/saml/acs`: handles the IdP callback and finalizes login.
+
+Tenant and organization model:
+- Single-tenant: pre-auth SAML flows use the default organization.
+- Multi-tenant: login must resolve an explicit org context before redirecting
+  to the IdP. ACS derives org context from server-issued RelayState.
+
+Configuration source model:
+- SAML metadata URL is resolved per organization from settings.
+- In single-tenant mode, `SAML_IDP_METADATA_URL` from env is intentionally
+  preferred to preserve self-hosted compatibility when org settings are not
+  configured yet.
+
+Security and policy gates:
+- `/login` is gated by auth-type checks, resolves the target org, and stores a
+  one-time SAML request record with expiry.
+- RelayState embeds org ID so ACS can select org-scoped configuration without
+  trusting query/body parameters.
+- `/acs` requires the `tracecat-ui` service role, validates RelayState exists
+  and is not expired, validates `InResponseTo`, and deletes used request rows to
+  prevent replay.
+- Assertion email is selected from known claims and then validated against the
+  org-domain allowlist. In multi-tenant mode, at least one active org domain is
+  required for successful SAML login.
+- Membership enforcement is org-scoped: with auto-provisioning off, only
+  existing org members can complete login; with it on, membership is provisioned
+  just-in-time for the resolved organization.
+
+IDOR hardening note:
+- ACS organization context is derived from server-issued RelayState and matched
+  against stored request data. We do not trust caller-supplied org identifiers
+  at callback time.
+"""
+
 import base64
 import os
 import secrets
 import tempfile
+import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
@@ -17,9 +56,12 @@ from saml2.config import Config as Saml2Config
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.api.common import bootstrap_role
-from tracecat.auth.dependencies import ServiceRole
+from tracecat.api.common import bootstrap_role, get_default_organization_id
+from tracecat.auth.dependencies import ServiceRole, require_auth_type_enabled
+from tracecat.auth.enums import AuthType
+from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
+from tracecat.authz.enums import OrgRole
 from tracecat.config import (
     SAML_ACCEPTED_TIME_DIFF,
     SAML_ALLOW_UNSOLICITED,
@@ -36,8 +78,14 @@ from tracecat.config import (
     XMLSEC_BINARY_PATH,
 )
 from tracecat.db.engine import get_async_session
-from tracecat.db.models import SAMLRequestData
+from tracecat.db.models import (
+    OrganizationDomain,
+    OrganizationMembership,
+    SAMLRequestData,
+)
+from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.organization.domains import normalize_domain
 from tracecat.settings.service import get_setting
 
 router = APIRouter(prefix="/auth/saml", tags=["auth"])
@@ -208,32 +256,127 @@ def metadata_cert_tempfile(metadata_cert_data: bytes):
                 pass
 
 
-async def create_saml_client() -> Saml2Client:
-    role = bootstrap_role()
+def build_relay_state(organization_id: OrganizationID) -> str:
+    """Encode organization context directly into RelayState."""
+    token = secrets.token_urlsafe(32)
+    return f"{organization_id}:{token}"
 
-    # In single-tenant mode, prefer explicit environment configuration over
-    # encrypted DB settings to support self-hosted deployments and safe fallback.
+
+def parse_relay_state_org_id(relay_state: str) -> OrganizationID | None:
+    """Extract org ID from RelayState if present."""
+    prefix, _, _ = relay_state.partition(":")
+    if not prefix:
+        return None
+    try:
+        return uuid.UUID(prefix)
+    except ValueError:
+        return None
+
+
+async def get_org_saml_metadata_url(
+    session: AsyncSession, organization_id: OrganizationID
+) -> str:
+    """Load per-org SAML metadata URL with backward-compatible default.
+
+    In single-tenant mode, prefer explicit environment configuration over
+    encrypted DB settings to support self-hosted deployments and safe fallback.
+    """
+    # Single-tenant self-hosting compatibility:
+    # prefer explicit env config to avoid forcing DB settings during bootstrap.
     if not TRACECAT__EE_MULTI_TENANT and SAML_IDP_METADATA_URL:
-        saml_idp_metadata_url = SAML_IDP_METADATA_URL
-    else:
-        saml_idp_metadata_url = await get_setting(
-            "saml_idp_metadata_url",
-            role=role,
-            default=SAML_IDP_METADATA_URL,
-        )
-    if not saml_idp_metadata_url:
+        return SAML_IDP_METADATA_URL
+
+    # Multi-tenant hardening:
+    # do not inherit global env metadata defaults across organizations.
+    default_metadata_url = None if TRACECAT__EE_MULTI_TENANT else SAML_IDP_METADATA_URL
+    value = await get_setting(
+        "saml_idp_metadata_url",
+        role=bootstrap_role(organization_id),
+        session=session,
+        default=default_metadata_url,
+    )
+    if not value:
         logger.error("SAML SSO metadata URL has not been configured")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Authentication service not configured",
         )
-    if not isinstance(saml_idp_metadata_url, str):
+    if not isinstance(value, str):
         logger.error("SAML SSO metadata URL is not a string")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid configuration",
         )
+    return value
 
+
+async def should_allow_email_for_org(
+    session: AsyncSession, organization_id: OrganizationID, email: str
+) -> bool:
+    """Apply org-domain allowlist with multi-tenant safety defaults."""
+    if "@" not in email:
+        return False
+    raw_domain = email.split("@", 1)[1].strip().lower()
+    try:
+        normalized_domain = normalize_domain(raw_domain).normalized_domain
+    except ValueError:
+        return False
+
+    domains_stmt = select(OrganizationDomain.normalized_domain).where(
+        OrganizationDomain.organization_id == organization_id,
+        OrganizationDomain.is_active.is_(True),
+    )
+    active_domains = set((await session.execute(domains_stmt)).scalars().all())
+    # Single-tenant compatibility: no domains means allow any domain.
+    # Multi-tenant hardening: require at least one active domain to avoid
+    # admitting identities from arbitrary domains into the selected org.
+    if not active_domains:
+        return not TRACECAT__EE_MULTI_TENANT
+    return normalized_domain in active_domains
+
+
+def _extract_candidate_emails(parser: SAMLParser) -> list[str]:
+    """Extract candidate emails from known SAML attributes in priority order."""
+    candidates = [
+        parser.get_attribute_value("email"),
+        # Okta
+        parser.get_attribute_value(
+            "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+        ),
+        # Microsoft Entra ID (prefer explicit email over UPN/name)
+        parser.get_attribute_value(
+            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
+        ),
+        parser.get_attribute_value(
+            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
+        ),
+    ]
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in candidates:
+        if not value:
+            continue
+        email = value.strip()
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        deduped.append(email)
+    return deduped
+
+
+async def _select_allowlisted_email(
+    session: AsyncSession, organization_id: OrganizationID, candidates: list[str]
+) -> str | None:
+    """Return the first candidate that satisfies org-domain allowlist."""
+    for candidate in candidates:
+        if await should_allow_email_for_org(session, organization_id, candidate):
+            return candidate
+    return None
+
+
+async def create_saml_client(
+    saml_idp_metadata_url: str,
+) -> Saml2Client:
     # Handle SSL certificate configuration for self-signed certificates
     saml_settings = {
         "strict": True,
@@ -349,15 +492,25 @@ async def create_saml_client() -> Saml2Client:
         return client
 
 
-@router.get("/login", name=f"saml:{auth_backend.name}.login")
+@router.get(
+    "/login",
+    name=f"saml:{auth_backend.name}.login",
+    dependencies=[require_auth_type_enabled(AuthType.SAML)],
+)
 async def login(
-    client: Annotated[Saml2Client, Depends(create_saml_client)],
+    request: Request,
     db_session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> SAMLDatabaseLoginResponse:
     """Initiate SAML login flow"""
+    # Org resolution is explicit in multi-tenant mode and default-org in
+    # single-tenant mode. This keeps login org-scoped before we contact the IdP.
+    organization_id = await resolve_auth_organization_id(request, session=db_session)
+    saml_idp_metadata_url = await get_org_saml_metadata_url(db_session, organization_id)
+    client = await create_saml_client(saml_idp_metadata_url)
 
-    # Generate a unique relay state
-    relay_state = secrets.token_urlsafe(32)
+    # RelayState carries org context so ACS can resolve org-scoped config without
+    # trusting callback query/body org parameters.
+    relay_state = build_relay_state(organization_id)
 
     # Prepare the authentication request
     req_id, info = client.prepare_for_authenticate(relay_state=relay_state)
@@ -397,7 +550,6 @@ async def sso_acs(
     relay_state: str = Form(..., alias="RelayState"),
     user_manager: UserManagerDep,
     strategy: AuthBackendStrategyDep,
-    client: Annotated[Saml2Client, Depends(create_saml_client)],
     db_session: Annotated[AsyncSession, Depends(get_async_session)],
     role: ServiceRole,
 ) -> Response:
@@ -417,7 +569,35 @@ async def sso_acs(
     logger.info(f"Configured SAML ACS URL: {SAML_PUBLIC_ACS_URL}")
     logger.info(f"Received RelayState: '{relay_state}' (type: {type(relay_state)})")
 
-    # Retrieve all stored SAML requests to populate outstanding_queries
+    organization_id = parse_relay_state_org_id(relay_state)
+    if organization_id is None:
+        # Backward-compatible fallback for legacy RelayState values that predate
+        # org-prefixed RelayState format.
+        logger.warning(
+            "RelayState missing org prefix; using default organization fallback"
+        )
+        organization_id = await get_default_organization_id(db_session)
+
+    relay_lookup_stmt = select(SAMLRequestData.id).where(
+        SAMLRequestData.relay_state == relay_state,
+        SAMLRequestData.expires_at > datetime.now(UTC),
+    )
+    matched_request_id = (
+        await db_session.execute(relay_lookup_stmt)
+    ).scalar_one_or_none()
+    if matched_request_id is None:
+        logger.error("Unknown or expired SAML relay state")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Authentication failed",
+        )
+
+    # Load IdP metadata after RelayState validation so ACS config is tied to the
+    # validated org context.
+    saml_idp_metadata_url = await get_org_saml_metadata_url(db_session, organization_id)
+    client = await create_saml_client(saml_idp_metadata_url)
+
+    # Retrieve stored SAML requests to populate outstanding_queries.
     stmt = select(SAMLRequestData)
     result = await db_session.execute(stmt)
     stored_requests = result.scalars().all()
@@ -532,23 +712,8 @@ async def sso_acs(
     logger.info("SAML response validated successfully")
 
     parser = SAMLParser(str(authn_response))
-
-    email = (
-        parser.get_attribute_value("email")
-        # Okta
-        or parser.get_attribute_value(
-            "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
-        )
-        # Microsoft Entra ID
-        or parser.get_attribute_value(
-            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
-        )
-        or parser.get_attribute_value(
-            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
-        )
-    )
-
-    if not email:
+    candidate_emails = _extract_candidate_emails(parser)
+    if not candidate_emails:
         attributes = parser.attributes or {}
         logger.error(
             f"Expected attribute 'email' in the SAML response, but got {len(attributes)} attributes"
@@ -558,13 +723,32 @@ async def sso_acs(
             detail="Authentication failed",
         )
 
+    email = await _select_allowlisted_email(
+        db_session, organization_id, candidate_emails
+    )
+    if email is None:
+        logger.warning("SAML login denied by org domain allowlist")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Authentication failed",
+        )
+
     logger.info("SAML authentication successful")
+
+    auto_provisioning = await get_setting(
+        "saml_auto_provisioning",
+        role=bootstrap_role(organization_id),
+        session=db_session,
+        default=True,
+    )
 
     try:
         user = await user_manager.saml_callback(
             email=email,
+            organization_id=organization_id,
             associate_by_email=True,
             is_verified_by_default=True,
+            allow_auto_provisioning=bool(auto_provisioning),
         )
     except UserAlreadyExists as e:
         logger.error("User already exists during SAML authentication")
@@ -579,6 +763,34 @@ async def sso_acs(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Authentication failed",
         )
+
+    # Ensure user belongs to this organization (JIT membership provisioning).
+    membership_stmt = select(OrganizationMembership).where(
+        OrganizationMembership.user_id == user.id,  # pyright: ignore[reportArgumentType]
+        OrganizationMembership.organization_id == organization_id,
+    )
+    existing_membership = (
+        await db_session.execute(membership_stmt)
+    ).scalar_one_or_none()
+    if existing_membership is None:
+        if not auto_provisioning:
+            logger.warning(
+                "SAML login denied: user has no org membership and auto-provisioning is disabled",
+                email=email,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Authentication failed",
+            )
+        # JIT membership creation is always scoped to the RelayState-resolved org.
+        db_session.add(
+            OrganizationMembership(
+                user_id=user.id,  # pyright: ignore[reportArgumentType]
+                organization_id=organization_id,
+                role=OrgRole.MEMBER,
+            )
+        )
+        await db_session.commit()
 
     response = await auth_backend.login(strategy, user)
     await user_manager.on_after_login(user, request, response)
