@@ -5,5 +5,4 @@ class FeatureFlag(StrEnum):
     """Feature flag enum reserved for engineering rollouts."""
 
     AI_RANKING = "ai-ranking"
-    RBAC = "rbac"
     WORKFLOW_CONCURRENCY_LIMITS = "workflow-concurrency-limits"

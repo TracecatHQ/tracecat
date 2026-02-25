@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from temporalio import activity
 
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 from tracecat.tiers.schemas import EffectiveLimits
@@ -16,8 +17,8 @@ from tracecat.tiers.service import TierService
 class AcquireWorkflowPermitInput(BaseModel):
     """Input for acquiring a workflow execution permit."""
 
-    org_id: str
-    """Organization ID (as string for serialization)."""
+    org_id: OrganizationID
+    """Organization ID."""
     workflow_id: str
     """Workflow execution ID."""
     limit: int
@@ -27,8 +28,8 @@ class AcquireWorkflowPermitInput(BaseModel):
 class ReleaseWorkflowPermitInput(BaseModel):
     """Input for releasing a workflow execution permit."""
 
-    org_id: str
-    """Organization ID (as string for serialization)."""
+    org_id: OrganizationID
+    """Organization ID."""
     workflow_id: str
     """Workflow execution ID."""
 
@@ -36,8 +37,8 @@ class ReleaseWorkflowPermitInput(BaseModel):
 class HeartbeatWorkflowPermitInput(BaseModel):
     """Input for refreshing a workflow permit TTL."""
 
-    org_id: str
-    """Organization ID (as string for serialization)."""
+    org_id: OrganizationID
+    """Organization ID."""
     workflow_id: str
     """Workflow execution ID."""
 
@@ -45,15 +46,15 @@ class HeartbeatWorkflowPermitInput(BaseModel):
 class GetTierLimitsInput(BaseModel):
     """Input for getting tier limits."""
 
-    org_id: str
-    """Organization ID (as string for serialization)."""
+    org_id: OrganizationID
+    """Organization ID."""
 
 
 class AcquireActionPermitInput(BaseModel):
     """Input for acquiring an action execution permit."""
 
-    org_id: str
-    """Organization ID (as string for serialization)."""
+    org_id: OrganizationID
+    """Organization ID."""
     action_id: str
     """Action execution ID."""
     limit: int
@@ -63,8 +64,8 @@ class AcquireActionPermitInput(BaseModel):
 class ReleaseActionPermitInput(BaseModel):
     """Input for releasing an action execution permit."""
 
-    org_id: str
-    """Organization ID (as string for serialization)."""
+    org_id: OrganizationID
+    """Organization ID."""
     action_id: str
     """Action execution ID."""
 
@@ -72,8 +73,8 @@ class ReleaseActionPermitInput(BaseModel):
 class HeartbeatActionPermitInput(BaseModel):
     """Input for refreshing an action execution permit TTL."""
 
-    org_id: str
-    """Organization ID (as string for serialization)."""
+    org_id: OrganizationID
+    """Organization ID."""
     action_id: str
     """Action execution ID."""
 
@@ -95,7 +96,7 @@ async def acquire_workflow_permit_activity(
     semaphore = RedisSemaphore(client)
 
     result = await semaphore.acquire_workflow(
-        org_id=input.org_id,  # type: ignore[arg-type]
+        org_id=input.org_id,
         workflow_id=input.workflow_id,
         limit=input.limit,
     )
@@ -126,7 +127,7 @@ async def release_workflow_permit_activity(
     semaphore = RedisSemaphore(client)
 
     await semaphore.release_workflow(
-        org_id=input.org_id,  # type: ignore[arg-type]
+        org_id=input.org_id,
         workflow_id=input.workflow_id,
     )
 
@@ -154,7 +155,7 @@ async def heartbeat_workflow_permit_activity(
     semaphore = RedisSemaphore(client)
 
     return await semaphore.heartbeat_workflow(
-        org_id=input.org_id,  # type: ignore[arg-type]
+        org_id=input.org_id,
         workflow_id=input.workflow_id,
     )
 
@@ -169,7 +170,7 @@ async def acquire_action_permit_activity(
     semaphore = RedisSemaphore(client)
 
     result = await semaphore.acquire_action(
-        org_id=input.org_id,  # type: ignore[arg-type]
+        org_id=input.org_id,
         action_id=input.action_id,
         limit=input.limit,
     )
@@ -195,7 +196,7 @@ async def release_action_permit_activity(
     semaphore = RedisSemaphore(client)
 
     await semaphore.release_action(
-        org_id=input.org_id,  # type: ignore[arg-type]
+        org_id=input.org_id,
         action_id=input.action_id,
     )
 
@@ -216,7 +217,7 @@ async def heartbeat_action_permit_activity(
     semaphore = RedisSemaphore(client)
 
     return await semaphore.heartbeat_action(
-        org_id=input.org_id,  # type: ignore[arg-type]
+        org_id=input.org_id,
         action_id=input.action_id,
     )
 
@@ -235,7 +236,7 @@ async def get_tier_limits_activity(
     """
     async with get_async_session_context_manager() as session:
         service = TierService(session)
-        limits = await service.get_effective_limits(input.org_id)  # type: ignore[arg-type]
+        limits = await service.get_effective_limits(input.org_id)
 
     logger.debug(
         "Fetched tier limits",

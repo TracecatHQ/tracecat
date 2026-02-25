@@ -5,13 +5,15 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import redis.asyncio as redis
 
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
+    from redis.commands.core import AsyncScript
+
     from tracecat.identifiers import OrganizationID
 
 # Default TTL for semaphore entries (1 hour)
@@ -63,6 +65,22 @@ redis.call('ZADD', key, now, wf_id)
 return {1, count + 1}  -- acquired=true
 """
 
+# Lua script for heartbeat updates on existing permits only
+# KEYS[1] = semaphore key
+# ARGV[1] = permit_id, ARGV[2] = now (unix timestamp)
+_HEARTBEAT_SCRIPT = """
+local key = KEYS[1]
+local permit_id = ARGV[1]
+local now = tonumber(ARGV[2])
+
+if not redis.call('ZSCORE', key, permit_id) then
+    return 0
+end
+
+redis.call('ZADD', key, now, permit_id)
+return 1
+"""
+
 
 class RedisSemaphore:
     """Per-organization workflow semaphore using Redis sorted sets.
@@ -80,7 +98,8 @@ class RedisSemaphore:
         """
         self._client = client
         self._ttl_seconds = ttl_seconds
-        self._acquire_script: Any = None
+        self._acquire_script: AsyncScript | None = None
+        self._heartbeat_script: AsyncScript | None = None
 
     def _semaphore_key(self, org_id: OrganizationID, scope: PermitScope) -> str:
         """Get the Redis key for an organization's semaphore."""
@@ -89,11 +108,17 @@ class RedisSemaphore:
             return f"tier:org:{org_id}:semaphore"
         return f"tier:org:{org_id}:action-semaphore"
 
-    async def _get_acquire_script(self) -> Any:
+    async def _get_acquire_script(self) -> AsyncScript:
         """Get or create the acquire Lua script."""
         if self._acquire_script is None:
             self._acquire_script = self._client.register_script(_ACQUIRE_SCRIPT)
         return self._acquire_script
+
+    async def _get_heartbeat_script(self) -> AsyncScript:
+        """Get or create the heartbeat Lua script."""
+        if self._heartbeat_script is None:
+            self._heartbeat_script = self._client.register_script(_HEARTBEAT_SCRIPT)
+        return self._heartbeat_script
 
     async def _acquire(
         self,
@@ -192,18 +217,19 @@ class RedisSemaphore:
         key = self._semaphore_key(org_id, scope)
         now = int(time.time())
 
-        # Only update if the entry exists (XX flag)
-        result = await self._client.zadd(key, {permit_id: now}, xx=True)
+        script = await self._get_heartbeat_script()
+        result = await script(keys=[key], args=[permit_id, now])
+        updated = bool(result)
 
         logger.debug(
             "Semaphore heartbeat",
             org_id=str(org_id),
             permit_id=permit_id,
             scope=scope,
-            updated=bool(result),
+            updated=updated,
         )
 
-        return bool(result)
+        return updated
 
     async def get_count(self, org_id: OrganizationID, scope: PermitScope) -> int:
         """Get the current count of permit holders.

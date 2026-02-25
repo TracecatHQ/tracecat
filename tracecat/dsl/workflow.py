@@ -379,7 +379,7 @@ class DSLWorkflow:
         ):
             self._tier_limits = await workflow.execute_activity(
                 get_tier_limits_activity,
-                arg=GetTierLimitsInput(org_id=str(self.role.organization_id)),
+                arg=GetTierLimitsInput(org_id=self.role.organization_id),
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
@@ -728,16 +728,15 @@ class DSLWorkflow:
 
     async def execute_task(self, task: ActionStatement) -> TaskResult:
         """Execute a task and manage the results."""
-        # Check action execution limit before running.
-        if self._is_executable_action(task):
-            self._check_action_execution_limit()
-
         if task.action == PlatformAction.TRANSFORM_GATHER:
             return await self._noop_gather_action(task)
         if task.action in (PlatformAction.LOOP_START, PlatformAction.LOOP_END):
             return await self._noop_loop_action(task)
         if task.retry_policy.retry_until:
             return await self._execute_task_until_condition(task)
+        if self._is_executable_action(task):
+            # Non-retry-until actions perform one execution attempt.
+            self._check_action_execution_limit()
         return await self._execute_task(task)
 
     async def _execute_task_until_condition(self, task: ActionStatement) -> TaskResult:
@@ -748,6 +747,9 @@ class DSLWorkflow:
         ctx = self.context.copy()
         result = None
         while True:
+            if self._is_executable_action(task):
+                # retry_until executes the action repeatedly; enforce per attempt.
+                self._check_action_execution_limit()
             # NOTE: This only works with successful results
             result = await self._execute_task(task)
             ctx["ACTIONS"][task.ref] = result
@@ -829,6 +831,9 @@ class DSLWorkflow:
         action_permit_heartbeat_task: asyncio.Task[None] | None = None
 
         try:
+            # Handle timing control flow logic before consuming action permits.
+            await self._handle_timers(task)
+
             max_concurrent_actions = (
                 self._tier_limits.max_concurrent_actions
                 if self._tier_limits is not None
@@ -845,9 +850,6 @@ class DSLWorkflow:
                 action_permit_heartbeat_task = asyncio.create_task(
                     self._action_permit_heartbeat_loop(action_id=action_permit_id)
                 )
-
-            # Handle timing control flow logic
-            await self._handle_timers(task)
 
             # Do action stuff
             match task.action:
@@ -2218,7 +2220,7 @@ class DSLWorkflow:
             return
 
         wf_id = workflow.info().workflow_id
-        org_id = str(self.role.organization_id)
+        org_id = self.role.organization_id
         while self._workflow_permit_acquired:
             await asyncio.sleep(heartbeat_interval)
             if not self._workflow_permit_acquired:
@@ -2248,7 +2250,7 @@ class DSLWorkflow:
         heartbeat_interval = config.TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS
         if heartbeat_interval <= 0:
             return
-        org_id = str(self.role.organization_id)
+        org_id = self.role.organization_id
         while True:
             await asyncio.sleep(heartbeat_interval)
             try:
@@ -2299,7 +2301,7 @@ class DSLWorkflow:
         if self.role.organization_id is None:
             raise ValueError("Organization ID is required to acquire workflow permit")
         wf_id = workflow.info().workflow_id
-        org_id = str(self.role.organization_id)
+        org_id = self.role.organization_id
         attempt = 0
         started_at = workflow.now()
 
@@ -2359,7 +2361,7 @@ class DSLWorkflow:
         """Acquire an action execution permit or wait with exponential backoff."""
         if self.role.organization_id is None:
             raise ValueError("Organization ID is required to acquire action permit")
-        org_id = str(self.role.organization_id)
+        org_id = self.role.organization_id
         attempt = 0
         started_at = workflow.now()
 
@@ -2416,9 +2418,11 @@ class DSLWorkflow:
         """Release the workflow execution permit."""
         if not self._workflow_permit_acquired:
             return
+        if self.role.organization_id is None:
+            return
 
         wf_id = workflow.info().workflow_id
-        org_id = str(self.role.organization_id)
+        org_id = self.role.organization_id
 
         try:
             await workflow.execute_activity(
@@ -2444,7 +2448,7 @@ class DSLWorkflow:
         if self.role.organization_id is None:
             return
 
-        org_id = str(self.role.organization_id)
+        org_id = self.role.organization_id
         try:
             await workflow.execute_activity(
                 release_action_permit_activity,
