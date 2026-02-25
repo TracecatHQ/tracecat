@@ -42,7 +42,7 @@ dependencies = [
     "fastapi-users[sqlalchemy,oauth]==15.0.2",
     "fastapi[standard]==0.120.3",
     "fastmcp==3.0.0",
-    "fickling==0.1.7",
+    "fickling==0.1.8",
     "filelock==3.20.3",
     "fastapi-sso==0.16.0",
     "google-auth==2.48.0",
