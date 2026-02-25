@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import (
@@ -69,6 +70,28 @@ WorkflowExecutionStatusLiteral = Literal[
     "TIMED_OUT",
 ]
 """Mapped literal types for workflow execution statuses."""
+
+_ERROR_MESSAGE_MAX_LENGTH = 2048
+_SENSITIVE_ERROR_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]+"),
+        r"\1 [REDACTED]",
+    ),
+    (
+        re.compile(
+            r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|passwd|secret)=([^&\s]+)"
+        ),
+        r"\1=[REDACTED]",
+    ),
+    (
+        re.compile(r"(?i)(authorization:\s*(?:basic|bearer)\s+)[^\s,;]+"),
+        r"\1[REDACTED]",
+    ),
+    (
+        re.compile(r"(?i)(://[^/\s:@]+:)([^@\s/]+)@"),
+        r"\1[REDACTED]@",
+    ),
+)
 
 
 class WorkflowExecutionBase(BaseModel):
@@ -478,8 +501,22 @@ class EventFailure(BaseModel):
         return root_message
 
     @staticmethod
+    def sanitize_error_text(text: str | None) -> str | None:
+        if text is None:
+            return None
+
+        sanitized = text
+        for pattern, replacement in _SENSITIVE_ERROR_PATTERNS:
+            sanitized = pattern.sub(replacement, sanitized)
+        if len(sanitized) > _ERROR_MESSAGE_MAX_LENGTH:
+            return f"{sanitized[:_ERROR_MESSAGE_MAX_LENGTH]}...[truncated]"
+        return sanitized
+
+    @staticmethod
     def from_history_event(
         event: temporalio.api.history.v1.HistoryEvent,
+        *,
+        include_raw_cause: bool = False,
     ) -> EventFailure:
         match event.event_type:
             case temporalio.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED:
@@ -494,10 +531,11 @@ class EventFailure(BaseModel):
                 raise ValueError("Event type not supported for failure extraction.")
 
         cause = MessageToDict(failure.cause) if failure.HasField("cause") else None
+        root_cause_message = EventFailure.extract_root_cause_message(cause)
         return EventFailure(
-            message=failure.message,
-            cause=cause,
-            root_cause_message=EventFailure.extract_root_cause_message(cause),
+            message=EventFailure.sanitize_error_text(failure.message) or "",
+            cause=cause if include_raw_cause else None,
+            root_cause_message=EventFailure.sanitize_error_text(root_cause_message),
         )
 
 

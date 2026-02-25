@@ -1004,8 +1004,54 @@ def test_event_failure_from_history_event_populates_root_cause_message() -> None
         failure = EventFailure.from_history_event(event)
 
     assert failure.message == "Workflow execution failed"
-    assert failure.cause == nested_cause
+    assert failure.cause is None
     assert failure.root_cause_message == "Workflow alias 'invalid' not found"
+
+
+def test_event_failure_from_history_event_sanitizes_sensitive_data() -> None:
+    failure_cause = Mock()
+    event = create_mock_history_event(
+        event_id=1,
+        event_type=cast(EventType, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED),
+        failure_message="Request failed with Authorization: Bearer abc123",
+        failure_cause=failure_cause,
+    )
+    nested_cause = {
+        "message": "Outer failure",
+        "cause": {
+            "message": "Call failed: api_key=topsecret&foo=bar",
+            "cause": {"message": "postgresql://user:password@localhost/db"},
+        },
+    }
+
+    with patch(
+        "tracecat.workflow.executions.schemas.MessageToDict",
+        return_value=nested_cause,
+    ):
+        failure = EventFailure.from_history_event(event)
+
+    assert failure.message == "Request failed with Authorization: Bearer [REDACTED]"
+    assert failure.root_cause_message == "postgresql://user:[REDACTED]@localhost/db"
+    assert failure.cause is None
+
+
+def test_event_failure_from_history_event_include_raw_cause() -> None:
+    failure_cause = Mock()
+    event = create_mock_history_event(
+        event_id=1,
+        event_type=cast(EventType, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED),
+        failure_message="Workflow execution failed",
+        failure_cause=failure_cause,
+    )
+    nested_cause = {"message": "raw-cause"}
+
+    with patch(
+        "tracecat.workflow.executions.schemas.MessageToDict",
+        return_value=nested_cause,
+    ):
+        failure = EventFailure.from_history_event(event, include_raw_cause=True)
+
+    assert failure.cause == nested_cause
 
 
 class TestWorkflowStartAcknowledgement:
