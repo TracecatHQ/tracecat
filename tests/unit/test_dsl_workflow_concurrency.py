@@ -18,7 +18,7 @@ from tracecat.dsl.schemas import (
     TaskResult,
 )
 from tracecat.dsl.workflow import DSLWorkflow
-from tracecat.logger import logger
+from tracecat.dsl.workflow_logging import get_workflow_logger
 from tracecat.storage.object import InlineObject
 from tracecat.tiers.schemas import EffectiveLimits
 
@@ -45,7 +45,7 @@ def _build_workflow(*, limits: EffectiveLimits | None = None) -> DSLWorkflow:
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
     )
-    workflow.logger = logger
+    workflow.logger = get_workflow_logger()
     workflow.runtime_config = DSLConfig()
     workflow._tier_limits = limits
     workflow._workflow_permit_acquired = False
