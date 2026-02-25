@@ -36,6 +36,7 @@ from tracecat.agent.session.title_generator import generate_session_title
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA
 from tracecat.audit.logger import audit_log
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
 from tracecat.chat.enums import MessageKind
@@ -63,6 +64,8 @@ from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 
 if TYPE_CHECKING:
     from tracecat.agent.executor.activity import ToolExecutionResult
+
+AUTO_TITLE_SERVICE_ID = "tracecat-api"
 
 
 @dataclass
@@ -514,7 +517,17 @@ class AgentSessionService(BaseWorkspaceService):
         )
 
         try:
-            agent_service = AgentManagementService(self.session, self.role)
+            service_role = self.role.model_copy(
+                update={
+                    "type": "service",
+                    "service_id": AUTO_TITLE_SERVICE_ID,
+                    "scopes": SERVICE_PRINCIPAL_SCOPES.get(
+                        AUTO_TITLE_SERVICE_ID,
+                        frozenset(),
+                    ),
+                }
+            )
+            agent_service = AgentManagementService(self.session, service_role)
             async with agent_service.with_model_config(
                 use_workspace_credentials=False
             ) as model_config:
