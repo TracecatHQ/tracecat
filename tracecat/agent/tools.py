@@ -173,6 +173,20 @@ async def create_tool_from_registry(
 
     parameters_json_schema = manifest_action.interface.get("expects", {})
 
+    # Guard against malformed manifests where expects is a field map
+    # (e.g. {"input": "str"}) rather than a proper JSON Schema object.
+    # Valid schemas from model_json_schema() always have "properties" or "type".
+    if (
+        parameters_json_schema
+        and "properties" not in parameters_json_schema
+        and "type" not in parameters_json_schema
+    ):
+        raise ValueError(
+            f"Action '{action_name}' has a malformed interface schema: "
+            f"expected a JSON Schema object with 'type'/'properties', "
+            f"got {set(parameters_json_schema.keys())}"
+        )
+
     return Tool(
         name=action_name,  # Canonical name with dots
         description=description,
