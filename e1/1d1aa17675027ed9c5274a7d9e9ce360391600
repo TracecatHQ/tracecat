@@ -1,0 +1,67 @@
+tracecat/tiers/semaphore.py
+  cdb56513ef71071b 16
+  50bcbc5454b2ae6d 68-78,80-83,101-102,111,117-121,220-222,229,232
+tracecat/tiers/activities.py
+  cdb56513ef71071b 9,20-21,31-32,40-41,49-50,56-57,67-68,76-77,99,130,158,173,199,220,239
+tracecat/dsl/workflow.py
+  cdb56513ef71071b 753-755,766-768,817-819,2327-2328
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "e11d1aa17675027ed9c5274a7d9e9ce360391600",
+  "prompts": {
+    "50bcbc5454b2ae6d": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "d2303db1-9ab3-4d23-aac0-64d96133beaf",
+        "model": "gpt-5.3-codex-spark-preview-xhigh"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 217,
+      "total_deletions": 95,
+      "accepted_lines": 60,
+      "overriden_lines": 0
+    },
+    "cdb56513ef71071b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c90bd-d8ca-7751-beb5-3fa0d15d8f90",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 236,
+      "total_deletions": 76,
+      "accepted_lines": 211,
+      "overriden_lines": 0
+    },
+    "dde86d8a55d9cc15": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0796d8db-f096-47cd-9546-5aca9e045937",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 34,
+      "total_deletions": 53,
+      "accepted_lines": 31,
+      "overriden_lines": 0
+    },
+    "e9db6cc7f58a5410": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "327e51aa-0ace-4800-892c-00518c9099c5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 55,
+      "total_deletions": 33,
+      "accepted_lines": 52,
+      "overriden_lines": 0
+    }
+  }
+}
