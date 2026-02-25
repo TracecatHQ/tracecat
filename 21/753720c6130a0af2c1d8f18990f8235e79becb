@@ -1,0 +1,49 @@
+frontend/src/lib/registry-lock.ts
+  17984b8461b67b1b 1-47
+tracecat/registry/lock/types.py
+  17984b8461b67b1b 3,5,37-64
+tracecat/workflow/executions/constants.py
+  17984b8461b67b1b 6-11
+tracecat/workflow/management/schemas.py
+  17984b8461b67b1b 46
+tests/unit/test_webhook.py
+  17984b8461b67b1b 329
+tracecat/webhooks/router.py
+  17984b8461b67b1b 165,185,240
+tracecat/workflow/executions/internal_router.py
+  17984b8461b67b1b 185
+frontend/src/components/executions/event-history.tsx
+  17984b8461b67b1b 15,23,59-67,107-112,121,148-151,157-190
+tracecat/workflow/management/router.py
+  17984b8461b67b1b 37,329
+tracecat/cases/triggers/consumer.py
+  17984b8461b67b1b 355
+tracecat/workflow/executions/service.py
+  17984b8461b67b1b 44,67,213-242,258
+tests/unit/test_workflow_executions.py
+  17984b8461b67b1b 786,955-981,984-1056
+tracecat/workflow/executions/schemas.py
+  17984b8461b67b1b 74-95
+frontend/src/components/nav/builder-nav.tsx
+  17984b8461b67b1b 1005,1010
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "21753720c6130a0af2c1d8f18990f8235e79becb",
+  "prompts": {
+    "17984b8461b67b1b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c9613-a227-7d21-ab6f-a6f2b5367b1f",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 645,
+      "total_deletions": 222,
+      "accepted_lines": 306,
+      "overriden_lines": 0
+    }
+  }
+}
