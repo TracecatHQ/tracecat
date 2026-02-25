@@ -61,7 +61,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Check frontend client is up to date
-        run: pnpm -C frontend generate-client-ci && git diff --exit-code frontend/src/client/
+        run: |
+          pnpm -C frontend generate-client-ci
+          pnpm -C frontend check
+          uv run ruff check . --fix
+          uv run ruff format .
+          git diff --exit-code frontend/src/client/
 
       - name: Run TypeScript type check
         working-directory: frontend
