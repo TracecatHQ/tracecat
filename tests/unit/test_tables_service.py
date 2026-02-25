@@ -725,10 +725,10 @@ class TestTableRows:
         assert result["name"] == "Bob"
         assert result["age"] == 40
 
-    async def test_lookup_row_with_grouped_aggregation(
+    async def test_search_rows_with_grouped_aggregation(
         self, tables_service: TablesService, table: Table
     ) -> None:
-        """lookup_rows should return grouped aggregation buckets when requested."""
+        """search_rows should return grouped aggregation buckets when requested."""
         await tables_service.insert_row(
             table, TableRowInsert(data={"name": "Bob", "age": 40})
         )
@@ -739,15 +739,13 @@ class TestTableRows:
             table, TableRowInsert(data={"name": "Bob", "age": 50})
         )
 
-        result = await tables_service.lookup_rows(
-            table_name=table.name,
-            columns=["name"],
-            values=["Bob"],
+        result = await tables_service.search_rows(
+            table,
+            search_term="Bob",
             group_by="age",
             agg=TableAggregation.SUM,
         )
 
-        assert not isinstance(result, list)
         assert len(result.items) == 3
         assert result.aggregation is not None
         assert result.aggregation.agg == "sum"

@@ -82,28 +82,14 @@ class TablesClient:
         column: str,
         value: Any,
         limit: int | Unset = UNSET,
-        group_by: str | Unset = UNSET,
-        agg: TableAggregation | Unset = UNSET,
-        agg_field: str | Unset = UNSET,
-        include_aggregation: bool = False,
-    ) -> list[dict[str, Any]] | types.TableLookupResponse:
+    ) -> list[dict[str, Any]]:
         """Lookup multiple rows by column value."""
         data: dict[str, Any] = {"columns": [column], "values": [value]}
         if is_set(limit):
             data["limit"] = limit
-        if is_set(group_by):
-            data["group_by"] = group_by
-        if is_set(agg):
-            data["agg"] = agg
-        if is_set(agg_field):
-            data["agg_field"] = agg_field
         rows = await self._client.post(f"/tables/{table}/lookup", json=data)
         if isinstance(rows, list):
             return rows
-        if isinstance(rows, dict) and isinstance(rows.get("items"), list):
-            if include_aggregation:
-                return cast(types.TableLookupResponse, rows)
-            return cast(list[dict[str, Any]], rows["items"])
         raise ValueError("Unexpected lookup response")
 
     async def exists(
@@ -131,6 +117,9 @@ class TablesClient:
         cursor: str | Unset = UNSET,
         reverse: bool | Unset = UNSET,
         limit: int | Unset = UNSET,
+        group_by: str | Unset = UNSET,
+        agg: TableAggregation | Unset = UNSET,
+        agg_field: str | Unset = UNSET,
     ) -> types.TableSearchResponse | list[dict[str, Any]]:
         """Search rows with optional filters."""
         data: dict[str, Any] = {}
@@ -164,6 +153,12 @@ class TablesClient:
             data["reverse"] = reverse
         if is_set(limit):
             data["limit"] = limit
+        if is_set(group_by):
+            data["group_by"] = group_by
+        if is_set(agg):
+            data["agg"] = agg
+        if is_set(agg_field):
+            data["agg_field"] = agg_field
         response = await self._client.post(f"/tables/{table}/search", json=data)
         if isinstance(response, list):
             return cast(list[dict[str, Any]], response)

@@ -20,7 +20,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.expressions.functions import tabulate
 from tracecat.logger import logger
-from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
+from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
@@ -28,10 +28,10 @@ from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnRead,
     TableCreate,
-    TableLookupResponse,
     TableRead,
     TableRowInsert,
     TableRowInsertBatch,
+    TableSearchResponse,
 )
 from tracecat.tables.service import TablesService
 
@@ -54,22 +54,6 @@ class TableLookupRequest(BaseModel):
         ge=config.TRACECAT__LIMIT_MIN,
         le=config.TRACECAT__LIMIT_CURSOR_MAX,
     )
-    group_by: str | None = None
-    agg: TableAggregation | None = None
-    agg_field: str | None = None
-
-    @model_validator(mode="after")
-    def validate_aggregation(self) -> TableLookupRequest:
-        has_group_by = self.group_by is not None
-        has_agg = self.agg is not None
-        has_agg_field = self.agg_field is not None
-
-        if not has_agg and (has_group_by or has_agg_field):
-            raise ValueError("group_by and agg_field require agg")
-        if has_agg and self.agg is TableAggregation.VALUE_COUNTS and not has_group_by:
-            raise ValueError("value_counts aggregation requires group_by")
-
-        return self
 
 
 class TableExistsRequest(BaseModel):
@@ -90,6 +74,22 @@ class TableSearchRequest(BaseModel):
         ge=config.TRACECAT__LIMIT_MIN,
         le=config.TRACECAT__LIMIT_CURSOR_MAX,
     )
+    group_by: str | None = None
+    agg: TableAggregation | None = None
+    agg_field: str | None = None
+
+    @model_validator(mode="after")
+    def validate_aggregation(self) -> TableSearchRequest:
+        has_group_by = self.group_by is not None
+        has_agg = self.agg is not None
+        has_agg_field = self.agg_field is not None
+
+        if not has_agg and (has_group_by or has_agg_field):
+            raise ValueError("group_by and agg_field require agg")
+        if has_agg and self.agg is TableAggregation.VALUE_COUNTS and not has_group_by:
+            raise ValueError("value_counts aggregation requires group_by")
+
+        return self
 
 
 class TableRowUpdate(BaseModel):
@@ -197,7 +197,7 @@ async def lookup_rows(
     session: AsyncDBSession,
     table_name: str,
     params: TableLookupRequest,
-) -> TableLookupResponse:
+) -> list[dict[str, Any]]:
     """Lookup rows matching column/value pairs."""
     if params.limit is not None and params.limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise HTTPException(
@@ -213,12 +213,7 @@ async def lookup_rows(
             columns=params.columns,
             values=params.values,
             limit=params.limit,
-            group_by=params.group_by,
-            agg=params.agg,
-            agg_field=params.agg_field,
         )
-        if isinstance(result, list):
-            return TableLookupResponse(items=result, aggregation=None)
         return result
     except TracecatNotFoundError as exc:
         raise HTTPException(
@@ -269,7 +264,7 @@ async def search_rows(
     session: AsyncDBSession,
     table_name: str,
     params: TableSearchRequest,
-) -> CursorPaginatedResponse[dict[str, Any]]:
+) -> TableSearchResponse:
     """Search rows in a table with optional filters."""
     service = TablesService(session, role=role)
     try:
@@ -281,18 +276,19 @@ async def search_rows(
         ) from exc
 
     try:
-        return await service.list_rows(
+        return await service.search_rows(
             table,
-            params=CursorPaginationParams(
-                limit=params.limit,
-                cursor=params.cursor,
-                reverse=params.reverse,
-            ),
+            limit=params.limit,
+            cursor=params.cursor,
+            reverse=params.reverse,
             search_term=params.search_term,
             start_time=coerce_optional_to_utc_datetime(params.start_time),
             end_time=coerce_optional_to_utc_datetime(params.end_time),
             updated_before=coerce_optional_to_utc_datetime(params.updated_before),
             updated_after=coerce_optional_to_utc_datetime(params.updated_after),
+            group_by=params.group_by,
+            agg=params.agg,
+            agg_field=params.agg_field,
         )
     except ValueError as exc:
         raise HTTPException(

@@ -88,25 +88,7 @@ async def lookup_many(
         int,
         Doc("The maximum number of rows to return."),
     ] = 100,
-    group_by: Annotated[
-        str | None,
-        Doc("Optional field to group aggregation results by."),
-    ] = None,
-    agg: Annotated[
-        TableAggType | None,
-        Doc(
-            "Optional aggregation operation: sum, min, max, mean, median, mode, n_unique, value_counts."
-        ),
-    ] = None,
-    agg_field: Annotated[
-        str | None,
-        Doc("Optional field to aggregate."),
-    ] = None,
-    include_aggregation: Annotated[
-        bool,
-        Doc("If true, include aggregation metadata in the response."),
-    ] = False,
-) -> list[dict[str, Any]] | types.TableLookupResponse:
+) -> list[dict[str, Any]]:
     if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise ValueError(
             f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}"
@@ -119,14 +101,6 @@ async def lookup_many(
     }
     if limit is not None:
         params["limit"] = limit
-    if group_by is not None:
-        params["group_by"] = group_by
-    if agg is not None:
-        params["agg"] = agg
-    if agg_field is not None:
-        params["agg_field"] = agg_field
-    if include_aggregation or agg is not None or group_by is not None:
-        params["include_aggregation"] = True
     return await get_context().tables.lookup_many(**params)
 
 
@@ -173,6 +147,20 @@ async def search_rows(
         int,
         Doc("The maximum number of rows to return."),
     ] = 100,
+    group_by: Annotated[
+        str | None,
+        Doc("Field name used for group-by aggregation."),
+    ] = None,
+    agg: Annotated[
+        TableAggType | None,
+        Doc(
+            "Aggregation operation: sum, min, max, mean, median, mode, n_unique, value_counts."
+        ),
+    ] = None,
+    agg_field: Annotated[
+        str | None,
+        Doc("Field to aggregate (optional for sum row-count and value_counts)."),
+    ] = None,
     paginate: Annotated[
         bool,
         Doc("If true, return cursor pagination metadata along with items."),
@@ -199,8 +187,14 @@ async def search_rows(
     if cursor is not None:
         params["cursor"] = cursor
     params["reverse"] = reverse
+    if group_by is not None:
+        params["group_by"] = group_by
+    if agg is not None:
+        params["agg"] = agg
+    if agg_field is not None:
+        params["agg_field"] = agg_field
     response = await get_context().tables.search_rows(**params)
-    if paginate:
+    if paginate or agg is not None or group_by is not None:
         return response
     if isinstance(response, dict):
         return response.get("items")

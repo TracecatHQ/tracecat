@@ -6,7 +6,7 @@ from decimal import Decimal
 from enum import Enum
 from io import StringIO
 from pathlib import Path
-from typing import Any, Literal, overload
+from typing import Any, Literal
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -69,8 +69,8 @@ from tracecat.tables.schemas import (
     TableColumnCreate,
     TableColumnUpdate,
     TableCreate,
-    TableLookupResponse,
     TableRowInsert,
+    TableSearchResponse,
     TableUpdate,
 )
 
@@ -949,32 +949,6 @@ class BaseTablesService(BaseWorkspaceService):
         await self.session.flush()
         return result.rowcount
 
-    @overload
-    async def lookup_rows(
-        self,
-        table_name: str,
-        *,
-        columns: Sequence[str],
-        values: Sequence[Any],
-        limit: int | None = None,
-        group_by: str | None = None,
-        agg: None = None,
-        agg_field: str | None = None,
-    ) -> list[dict[str, Any]]: ...
-
-    @overload
-    async def lookup_rows(
-        self,
-        table_name: str,
-        *,
-        columns: Sequence[str],
-        values: Sequence[Any],
-        limit: int | None = None,
-        group_by: str | None = None,
-        agg: TableAggregation,
-        agg_field: str | None = None,
-    ) -> TableLookupResponse: ...
-
     @retry(
         retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
         stop=stop_after_attempt(3),
@@ -988,10 +962,7 @@ class BaseTablesService(BaseWorkspaceService):
         columns: Sequence[str],
         values: Sequence[Any],
         limit: int | None = None,
-        group_by: str | None = None,
-        agg: TableAggregation | None = None,
-        agg_field: str | None = None,
-    ) -> list[dict[str, Any]] | TableLookupResponse:
+    ) -> list[dict[str, Any]]:
         """Lookup a value in a table with automatic retry on database errors."""
         if len(values) != len(columns):
             raise ValueError("Values and column names must have the same length")
@@ -1001,9 +972,7 @@ class BaseTablesService(BaseWorkspaceService):
         sanitized_table_name = self._sanitize_identifier(table_name)
         table_clause = sa.table(sanitized_table_name, schema=schema_name)
 
-        field_lookup = {column.name.lower(): column.name for column in table.columns}
-        for fixed_col in _LOOKUP_FIXED_COLUMNS:
-            field_lookup[fixed_col] = fixed_col
+        field_lookup = self._build_field_lookup(table)
 
         resolved_columns = [
             self._resolve_lookup_field_name(column_name, field_lookup)
@@ -1020,18 +989,6 @@ class BaseTablesService(BaseWorkspaceService):
         if limit is not None:
             stmt = stmt.limit(limit)
 
-        aggregation_stmt: sa.Select[Any] | None = None
-        if agg is not None:
-            aggregation_stmt = self._build_lookup_aggregation_stmt(
-                table=table,
-                table_clause=table_clause,
-                where_clause=where_clause,
-                agg=agg,
-                agg_field=agg_field,
-                group_by=group_by,
-                field_lookup=field_lookup,
-            )
-
         txn_cm = (
             self.session.begin_nested()
             if self.session.in_transaction()
@@ -1047,39 +1004,7 @@ class BaseTablesService(BaseWorkspaceService):
                     },
                 )
                 rows = [dict(row) for row in result.mappings().all()]
-                aggregation: TableAggregationRead | None = None
-
-                if aggregation_stmt is None:
-                    return rows
-
-                assert agg is not None
-                if group_by is None:
-                    agg_value = await conn.scalar(aggregation_stmt)
-                    aggregation = TableAggregationRead(
-                        agg=agg,
-                        group_by=None,
-                        agg_field=agg_field,
-                        value=_normalize_aggregation_value(agg_value),
-                        buckets=[],
-                    )
-                else:
-                    agg_result = await conn.execute(aggregation_stmt)
-                    buckets = [
-                        TableAggregationBucket(
-                            group=_normalize_aggregation_value(row.group_value),
-                            value=_normalize_aggregation_value(row.agg_value),
-                        )
-                        for row in agg_result
-                    ]
-                    aggregation = TableAggregationRead(
-                        agg=agg,
-                        group_by=group_by,
-                        agg_field=agg_field,
-                        value=None,
-                        buckets=buckets,
-                    )
-
-                return TableLookupResponse(items=rows, aggregation=aggregation)
+                return rows
             except _RETRYABLE_DB_EXCEPTIONS as e:
                 # Log the error for debugging
                 # Note: Context manager handles rollback (savepoint or full) automatically
@@ -1109,6 +1034,12 @@ class BaseTablesService(BaseWorkspaceService):
                 )
                 raise
 
+    def _build_field_lookup(self, table: Table) -> dict[str, str]:
+        field_lookup = {column.name.lower(): column.name for column in table.columns}
+        for fixed_col in _LOOKUP_FIXED_COLUMNS:
+            field_lookup[fixed_col] = fixed_col
+        return field_lookup
+
     def _resolve_lookup_field_name(
         self, field_name: str, field_lookup: dict[str, str]
     ) -> str:
@@ -1125,12 +1056,81 @@ class BaseTablesService(BaseWorkspaceService):
                 return column.type in _NUMERIC_SQL_TYPES
         return False
 
-    def _build_lookup_aggregation_stmt(
+    def _build_search_where_conditions(
+        self,
+        *,
+        table: Table,
+        search_term: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        updated_before: datetime | None = None,
+        updated_after: datetime | None = None,
+    ) -> list[ColumnElement[bool]]:
+        where_conditions: list[ColumnElement[bool]] = []
+
+        if search_term:
+            if len(search_term) > 1000:
+                raise ValueError("Search term cannot exceed 1000 characters")
+            if "\x00" in search_term:
+                raise ValueError("Search term cannot contain null bytes")
+
+            searchable_columns = [
+                col.name
+                for col in table.columns
+                if col.type
+                in (
+                    SqlType.TEXT.value,
+                    SqlType.JSONB.value,
+                    SqlType.SELECT.value,
+                    SqlType.MULTI_SELECT.value,
+                )
+            ]
+            json_searchable_columns = {
+                col.name
+                for col in table.columns
+                if col.type in (SqlType.JSONB.value, SqlType.MULTI_SELECT.value)
+            }
+
+            if searchable_columns:
+                search_pattern = sa.func.concat("%", search_term, "%")
+                search_conditions: list[ColumnElement[bool]] = []
+                for col_name in searchable_columns:
+                    sanitized_col = self._sanitize_identifier(col_name)
+                    if col_name in json_searchable_columns:
+                        search_conditions.append(
+                            sa.func.cast(sa.column(sanitized_col), sa.TEXT).ilike(
+                                search_pattern
+                            )
+                        )
+                    else:
+                        search_conditions.append(
+                            sa.column(sanitized_col).ilike(search_pattern)
+                        )
+                where_conditions.append(sa.or_(*search_conditions))
+            else:
+                self.logger.warning(
+                    "No searchable columns found for text search",
+                    table=table.name,
+                    search_term=search_term,
+                )
+
+        if start_time is not None:
+            where_conditions.append(sa.column("created_at") >= start_time)
+        if end_time is not None:
+            where_conditions.append(sa.column("created_at") <= end_time)
+        if updated_after is not None:
+            where_conditions.append(sa.column("updated_at") >= updated_after)
+        if updated_before is not None:
+            where_conditions.append(sa.column("updated_at") <= updated_before)
+
+        return where_conditions
+
+    def _build_aggregation_stmt(
         self,
         *,
         table: Table,
         table_clause: Any,
-        where_clause: sa.ColumnElement[bool],
+        where_conditions: Sequence[ColumnElement[bool]],
         agg: TableAggregation,
         agg_field: str | None,
         group_by: str | None,
@@ -1174,31 +1174,31 @@ class BaseTablesService(BaseWorkspaceService):
                     "sum aggregation requires numeric agg_field, or omit agg_field to count rows"
                 )
 
-        agg_expr = self._lookup_aggregation_expression(
-            agg=agg, selected_col=selected_col
-        )
+        agg_expr = self._aggregation_expression(agg=agg, selected_col=selected_col)
+
+        stmt = sa.select(agg_expr.label("agg_value")).select_from(table_clause)
+        if where_conditions:
+            stmt = stmt.where(sa.and_(*where_conditions))
 
         if group_by is None:
-            return (
-                sa.select(agg_expr.label("agg_value"))
-                .select_from(table_clause)
-                .where(where_clause)
-            )
+            return stmt
 
         resolved_group_by = self._resolve_lookup_field_name(group_by, field_lookup)
         group_col = sa.column(self._sanitize_identifier(resolved_group_by))
-        return (
+        group_stmt = (
             sa.select(
                 group_col.label("group_value"),
                 agg_expr.label("agg_value"),
             )
             .select_from(table_clause)
-            .where(where_clause)
             .group_by(group_col)
             .order_by(group_col)
         )
+        if where_conditions:
+            group_stmt = group_stmt.where(sa.and_(*where_conditions))
+        return group_stmt
 
-    def _lookup_aggregation_expression(
+    def _aggregation_expression(
         self,
         *,
         agg: TableAggregation,
@@ -1230,6 +1230,60 @@ class BaseTablesService(BaseWorkspaceService):
             return func.count(sa.distinct(selected_col))
         # VALUE_COUNTS
         return func.count(sa.column("id"))
+
+    async def _search_aggregation(
+        self,
+        *,
+        table: Table,
+        where_conditions: Sequence[ColumnElement[bool]],
+        agg: TableAggregation | None,
+        group_by: str | None,
+        agg_field: str | None,
+    ) -> TableAggregationRead | None:
+        if agg is None:
+            return None
+
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        table_clause = sa.table(sanitized_table_name, schema=schema_name)
+        field_lookup = self._build_field_lookup(table)
+
+        aggregation_stmt = self._build_aggregation_stmt(
+            table=table,
+            table_clause=table_clause,
+            where_conditions=where_conditions,
+            agg=agg,
+            agg_field=agg_field,
+            group_by=group_by,
+            field_lookup=field_lookup,
+        )
+
+        conn = await self.session.connection()
+        if group_by is None:
+            agg_value = await conn.scalar(aggregation_stmt)
+            return TableAggregationRead(
+                agg=agg,
+                group_by=None,
+                agg_field=agg_field,
+                value=_normalize_aggregation_value(agg_value),
+                buckets=[],
+            )
+
+        agg_result = await conn.execute(aggregation_stmt)
+        buckets = [
+            TableAggregationBucket(
+                group=_normalize_aggregation_value(row.group_value),
+                value=_normalize_aggregation_value(row.agg_value),
+            )
+            for row in agg_result
+        ]
+        return TableAggregationRead(
+            agg=agg,
+            group_by=group_by,
+            agg_field=agg_field,
+            value=None,
+            buckets=buckets,
+        )
 
     @retry(
         retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
@@ -1321,8 +1375,11 @@ class BaseTablesService(BaseWorkspaceService):
         reverse: bool = False,
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
-    ) -> CursorPaginatedResponse[dict[str, Any]]:
-        """Search rows in a table using cursor-based pagination."""
+        group_by: str | None = None,
+        agg: TableAggregation | None = None,
+        agg_field: str | None = None,
+    ) -> TableSearchResponse:
+        """Search rows with cursor pagination and optional aggregation."""
         page_limit = (
             limit if limit is not None else config.TRACECAT__LIMIT_TABLE_SEARCH_DEFAULT
         )
@@ -1331,7 +1388,16 @@ class BaseTablesService(BaseWorkspaceService):
             cursor=cursor,
             reverse=reverse,
         )
-        return await self.list_rows(
+
+        where_conditions = self._build_search_where_conditions(
+            table=table,
+            search_term=search_term,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
+        )
+        rows = await self.list_rows(
             table=table,
             params=params,
             search_term=search_term,
@@ -1341,6 +1407,22 @@ class BaseTablesService(BaseWorkspaceService):
             updated_after=updated_after,
             order_by=order_by,
             sort=sort,
+        )
+        aggregation = await self._search_aggregation(
+            table=table,
+            where_conditions=where_conditions,
+            agg=agg,
+            group_by=group_by,
+            agg_field=agg_field,
+        )
+        return TableSearchResponse(
+            items=rows.items,
+            next_cursor=rows.next_cursor,
+            prev_cursor=rows.prev_cursor,
+            has_more=rows.has_more,
+            has_previous=rows.has_previous,
+            total_estimate=rows.total_estimate,
+            aggregation=aggregation,
         )
 
     async def list_rows(
@@ -1384,73 +1466,14 @@ class BaseTablesService(BaseWorkspaceService):
             sa.table(sanitized_table_name, schema=schema_name)
         )
 
-        # Build WHERE conditions
-        where_conditions = []
-
-        # Add text search conditions
-        if search_term:
-            # Validate search term to prevent abuse
-            if len(search_term) > 1000:
-                raise ValueError("Search term cannot exceed 1000 characters")
-            if "\x00" in search_term:
-                raise ValueError("Search term cannot contain null bytes")
-
-            # Get all text-searchable columns (TEXT and JSONB types)
-            searchable_columns = [
-                col.name
-                for col in table.columns
-                if col.type
-                in (
-                    SqlType.TEXT.value,
-                    SqlType.JSONB.value,
-                    SqlType.SELECT.value,
-                    SqlType.MULTI_SELECT.value,
-                )
-            ]
-
-            if searchable_columns:
-                # Use SQLAlchemy's concat function for proper parameter binding
-                search_pattern = sa.func.concat("%", search_term, "%")
-                search_conditions = []
-                for col_name in searchable_columns:
-                    sanitized_col = self._sanitize_identifier(col_name)
-                    if col_name in [
-                        c.name
-                        for c in table.columns
-                        if c.type in (SqlType.JSONB.value, SqlType.MULTI_SELECT.value)
-                    ]:
-                        # For JSONB columns, convert to text for searching
-                        search_conditions.append(
-                            sa.func.cast(sa.column(sanitized_col), sa.TEXT).ilike(
-                                search_pattern
-                            )
-                        )
-                    else:
-                        # For TEXT columns, search directly
-                        search_conditions.append(
-                            sa.column(sanitized_col).ilike(search_pattern)
-                        )
-                where_conditions.append(sa.or_(*search_conditions))
-            else:
-                # No searchable columns found, search_term will have no effect
-                self.logger.warning(
-                    "No searchable columns found for text search",
-                    table=table.name,
-                    search_term=search_term,
-                )
-
-        # Add date filters
-        if start_time is not None:
-            where_conditions.append(sa.column("created_at") >= start_time)
-
-        if end_time is not None:
-            where_conditions.append(sa.column("created_at") <= end_time)
-
-        if updated_after is not None:
-            where_conditions.append(sa.column("updated_at") >= updated_after)
-
-        if updated_before is not None:
-            where_conditions.append(sa.column("updated_at") <= updated_before)
+        where_conditions = self._build_search_where_conditions(
+            table=table,
+            search_term=search_term,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
+        )
 
         # Apply WHERE conditions if any
         if where_conditions:

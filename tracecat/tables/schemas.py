@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import TableColumnID, TableID, TableRowID
+from tracecat.pagination import CursorPaginatedResponse
 from tracecat.tables.common import (
     coerce_multi_select_value,
     coerce_select_value,
@@ -223,6 +224,10 @@ class TableAggregationRead(Schema):
 
 class TableLookupResponse(Schema):
     items: list[dict[str, Any]]
+    aggregation: TableAggregationRead | None = None
+
+
+class TableSearchResponse(CursorPaginatedResponse[dict[str, Any]]):
     aggregation: TableAggregationRead | None = None
 
 

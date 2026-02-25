@@ -162,77 +162,6 @@ class TestCoreLookupMany:
         )
         assert result == mock_rows
 
-    async def test_lookup_many_with_aggregation(
-        self, mock_tables_client: AsyncMock, mock_row
-    ) -> None:
-        """lookup_many should forward aggregation options when requested."""
-        response = {
-            "items": [mock_row],
-            "aggregation": {
-                "agg": "sum",
-                "group_by": "age",
-                "agg_field": None,
-                "value": None,
-                "buckets": [{"group": 30, "value": 1}],
-            },
-        }
-        mock_tables_client.lookup_many.return_value = response
-
-        result = await lookup_many(
-            table="test_table",
-            column="name",
-            value="John Doe",
-            group_by="age",
-            agg="sum",
-            include_aggregation=True,
-        )
-
-        mock_tables_client.lookup_many.assert_called_once_with(
-            table="test_table",
-            column="name",
-            value="John Doe",
-            limit=100,
-            group_by="age",
-            agg="sum",
-            include_aggregation=True,
-        )
-        assert result == response
-
-    async def test_lookup_many_with_aggregation_auto_enables_response(
-        self, mock_tables_client: AsyncMock, mock_row
-    ) -> None:
-        """lookup_many should auto-return aggregation when agg/group_by is set."""
-        response = {
-            "items": [mock_row],
-            "aggregation": {
-                "agg": "sum",
-                "group_by": "age",
-                "agg_field": None,
-                "value": None,
-                "buckets": [{"group": 30, "value": 1}],
-            },
-        }
-        mock_tables_client.lookup_many.return_value = response
-
-        result = await lookup_many(
-            table="test_table",
-            column="name",
-            value="John Doe",
-            group_by="age",
-            agg="sum",
-        )
-
-        mock_tables_client.lookup_many.assert_called_once_with(
-            table="test_table",
-            column="name",
-            value="John Doe",
-            limit=100,
-            group_by="age",
-            agg="sum",
-            include_aggregation=True,
-        )
-        assert result == response
-
 
 @pytest.mark.anyio
 class TestCoreInsertRow:
@@ -477,6 +406,45 @@ class TestCoreSearchRecords:
         assert len(result["items"]) == 1
         assert result["items"][0] == mock_row
         assert result["next_cursor"] == "cursor-1"
+
+    async def test_search_rows_with_aggregation(
+        self, mock_tables_client: AsyncMock, mock_row
+    ) -> None:
+        """search_rows should return full response when aggregation is requested."""
+        mock_tables_client.search_rows.return_value = {
+            "items": [mock_row],
+            "next_cursor": None,
+            "prev_cursor": None,
+            "has_more": False,
+            "has_previous": False,
+            "aggregation": {
+                "agg": "value_counts",
+                "group_by": "age",
+                "agg_field": None,
+                "value": None,
+                "buckets": [{"group": 30, "value": 1}],
+            },
+        }
+
+        result = await search_rows(
+            table="test_table",
+            limit=50,
+            group_by="age",
+            agg="value_counts",
+        )
+
+        mock_tables_client.search_rows.assert_called_once_with(
+            table="test_table",
+            limit=50,
+            reverse=False,
+            group_by="age",
+            agg="value_counts",
+        )
+        assert isinstance(result, dict)
+        aggregation = result.get("aggregation")
+        assert aggregation is not None
+        assert aggregation["agg"] == "value_counts"
+        assert aggregation["buckets"][0]["group"] == 30
 
     async def test_search_rows_legacy_list_response(
         self, mock_tables_client: AsyncMock

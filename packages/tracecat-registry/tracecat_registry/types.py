@@ -618,10 +618,9 @@ class TableSearchResponse(TypedDict):
 
 
 class TableLookupResponse(TypedDict):
-    """Lookup rows response with optional aggregation."""
+    """Lookup rows response."""
 
     items: list[dict[str, Any]]
-    aggregation: NotRequired[SearchAggregationRead | None]
 
 
 # ============================================================================
