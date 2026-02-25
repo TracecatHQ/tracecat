@@ -1071,6 +1071,7 @@ async def create_case_simple(
                 severity=params.severity,
                 status=params.status,
                 fields=params.fields,
+                dropdown_values=params.dropdown_values,
                 assignee_id=params.assignee_id,
                 payload=params.payload,
             )
@@ -1135,6 +1136,8 @@ async def update_case_simple(
         update_params["status"] = params.status
     if params.fields is not None:
         update_params["fields"] = params.fields
+    if params.dropdown_values is not None:
+        update_params["dropdown_values"] = params.dropdown_values
     if params.assignee_id is not None:
         update_params["assignee_id"] = params.assignee_id
     if params.payload is not None:

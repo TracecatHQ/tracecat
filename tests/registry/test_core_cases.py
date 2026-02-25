@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import tracecat_registry.core.cases as cases_core
+import tracecat_registry.types as registry_types
 from tracecat_registry.core.cases import (
     add_case_tag,
     assign_user,
@@ -203,6 +204,35 @@ class TestCoreCreate:
         )
         assert result == mock_case_dict
 
+    async def test_create_case_with_dropdown_values(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ):
+        """Test creating a case with dropdown selections."""
+        mock_cases_client.create_case_simple.return_value = mock_case_dict
+
+        dropdown_values: list[registry_types.CaseDropdownValueInput] = [
+            {"definition_ref": "environment", "option_ref": "prod"},
+            {"definition_ref": "region", "option_ref": "us_west"},
+        ]
+        result = await create_case(
+            summary="Test Case",
+            description="Test Description",
+            priority="medium",
+            severity="medium",
+            status="new",
+            dropdown_values=dropdown_values,
+        )
+
+        mock_cases_client.create_case_simple.assert_called_once_with(
+            summary="Test Case",
+            description="Test Description",
+            priority="medium",
+            severity="medium",
+            status="new",
+            dropdown_values=dropdown_values,
+        )
+        assert result == mock_case_dict
+
 
 @pytest.mark.anyio
 class TestCoreUpdate:
@@ -322,6 +352,29 @@ class TestCoreUpdate:
         mock_cases_client.update_case_simple.assert_called_once_with(
             case_id,
             tags=["new-tag1", "new-tag2"],
+        )
+        assert result == updated_case
+
+    async def test_update_with_dropdown_values(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ):
+        """Test updating case dropdown selections."""
+        updated_case = {**mock_case_dict}
+        mock_cases_client.update_case_simple.return_value = updated_case
+
+        case_id = mock_case_dict["id"]
+        dropdown_values: list[registry_types.CaseDropdownValueInput] = [
+            {"definition_ref": "environment", "option_ref": "staging"},
+            {"definition_ref": "region", "option_ref": None},
+        ]
+        result = await update_case(
+            case_id=case_id,
+            dropdown_values=dropdown_values,
+        )
+
+        mock_cases_client.update_case_simple.assert_called_once_with(
+            case_id,
+            dropdown_values=dropdown_values,
         )
         assert result == updated_case
 

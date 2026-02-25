@@ -85,6 +85,13 @@ async def create_case(
         dict[str, Any] | None,
         Doc("Payload for the case."),
     ] = None,
+    dropdown_values: Annotated[
+        list[types.CaseDropdownValueInput] | None,
+        Doc(
+            "Dropdown selections to set on the case. "
+            "Each item must include either definition_id or definition_ref, and either option_id or option_ref (or null to clear)."
+        ),
+    ] = None,
     tags: Annotated[
         list[str] | None,
         Doc("List of tag identifiers (IDs or refs) to add to the case."),
@@ -105,6 +112,8 @@ async def create_case(
         params["fields"] = fields
     if payload is not None:
         params["payload"] = payload
+    if dropdown_values is not None:
+        params["dropdown_values"] = dropdown_values
     if tags is not None:
         params["tags"] = tags
     return await get_context().cases.create_case_simple(**params)
@@ -149,6 +158,13 @@ async def update_case(
         dict[str, Any] | None,
         Doc("Updated payload for the case."),
     ] = None,
+    dropdown_values: Annotated[
+        list[types.CaseDropdownValueInput] | None,
+        Doc(
+            "Dropdown selections to set or clear. "
+            "Each item must include either definition_id or definition_ref, and either option_id or option_ref (or null to clear)."
+        ),
+    ] = None,
     tags: Annotated[
         list[str] | None,
         Doc(
@@ -180,6 +196,8 @@ async def update_case(
         client_params["fields"] = fields
     if payload is not None:
         client_params["payload"] = payload
+    if dropdown_values is not None:
+        client_params["dropdown_values"] = dropdown_values
     if tags is not None:
         client_params["tags"] = tags
     if append and description is not None:

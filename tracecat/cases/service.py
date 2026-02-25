@@ -19,7 +19,11 @@ from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.cases.attachments import CaseAttachmentService
-from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
+from tracecat.cases.dropdowns.schemas import (
+    CaseDropdownValueInput,
+    CaseDropdownValueRead,
+)
+from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import (
     CaseEventType,
@@ -158,6 +162,7 @@ class CasesService(BaseWorkspaceService):
         self.events = CaseEventsService(session=self.session, role=self.role)
         self.attachments = CaseAttachmentService(session=self.session, role=self.role)
         self.tags = CaseTagsService(session=self.session, role=self.role)
+        self.dropdowns = CaseDropdownValuesService(session=self.session, role=self.role)
 
     async def get_task_counts(
         self, case_ids: list[uuid.UUID]
@@ -778,6 +783,13 @@ class CasesService(BaseWorkspaceService):
                 event=CreatedEvent(wf_exec_id=run_ctx.wf_exec_id if run_ctx else None),
             )
 
+            if params.dropdown_values is not None:
+                await self.dropdowns.apply_values(
+                    case.id,
+                    params.dropdown_values,
+                    commit=False,
+                )
+
             # Commit once to persist case, fields, and event atomically
             await self.session.commit()
             # Make sure to refresh the case to get the fields relationship loaded
@@ -809,6 +821,7 @@ class CasesService(BaseWorkspaceService):
 
         # Update case parameters if provided
         set_fields = params.model_dump(exclude_unset=True)
+        dropdown_values = set_fields.pop("dropdown_values", None)
 
         # Check for status changes
         if new_status := set_fields.pop("status", None):
@@ -877,6 +890,17 @@ class CasesService(BaseWorkspaceService):
             await self.events.create_event(
                 case=case,
                 event=FieldsChangedEvent(changes=diffs, wf_exec_id=wf_exec_id),
+            )
+
+        if dropdown_values is not None:
+            normalized_dropdown_values = [
+                CaseDropdownValueInput.model_validate(value)
+                for value in dropdown_values
+            ]
+            await self.dropdowns.apply_values(
+                case.id,
+                normalized_dropdown_values,
+                commit=False,
             )
 
         # Handle the rest of the field updates

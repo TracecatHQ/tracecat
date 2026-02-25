@@ -13,6 +13,7 @@ from tracecat.cases.dropdowns.schemas import (
     CaseDropdownDefinitionUpdate,
     CaseDropdownOptionCreate,
     CaseDropdownOptionUpdate,
+    CaseDropdownValueInput,
     CaseDropdownValueRead,
     CaseDropdownValueSet,
 )
@@ -276,6 +277,73 @@ class CaseDropdownValuesService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Case {case_id} not found")
         return case
 
+    async def _resolve_definition_id(
+        self,
+        *,
+        definition_id: uuid.UUID | None,
+        definition_ref: str | None,
+    ) -> uuid.UUID:
+        if definition_id is not None:
+            stmt = select(CaseDropdownDefinition.id).where(
+                CaseDropdownDefinition.workspace_id == self.workspace_id,
+                CaseDropdownDefinition.id == definition_id,
+            )
+            resolved_definition_id = await self.session.scalar(stmt)
+            if resolved_definition_id is None:
+                raise TracecatNotFoundError(
+                    f"Dropdown definition {definition_id} not found"
+                )
+            return resolved_definition_id
+
+        if definition_ref is None:
+            raise TracecatValidationError(
+                "Either definition_id or definition_ref must be provided"
+            )
+
+        stmt = select(CaseDropdownDefinition.id).where(
+            CaseDropdownDefinition.workspace_id == self.workspace_id,
+            CaseDropdownDefinition.ref == definition_ref,
+        )
+        resolved_definition_id = await self.session.scalar(stmt)
+        if resolved_definition_id is None:
+            raise TracecatNotFoundError(
+                f"Dropdown definition with ref '{definition_ref}' not found"
+            )
+        return resolved_definition_id
+
+    async def _resolve_option_id(
+        self,
+        *,
+        definition_id: uuid.UUID,
+        option_id: uuid.UUID | None,
+        option_ref: str | None,
+    ) -> uuid.UUID | None:
+        if option_id is not None:
+            stmt = select(CaseDropdownOption.id).where(
+                CaseDropdownOption.id == option_id,
+                CaseDropdownOption.definition_id == definition_id,
+            )
+            resolved_option_id = await self.session.scalar(stmt)
+            if resolved_option_id is None:
+                raise TracecatNotFoundError(
+                    f"Dropdown option {option_id} not found for definition {definition_id}"
+                )
+            return resolved_option_id
+
+        if option_ref is None:
+            return None
+
+        stmt = select(CaseDropdownOption.id).where(
+            CaseDropdownOption.ref == option_ref,
+            CaseDropdownOption.definition_id == definition_id,
+        )
+        resolved_option_id = await self.session.scalar(stmt)
+        if resolved_option_id is None:
+            raise TracecatNotFoundError(
+                f"Dropdown option with ref '{option_ref}' not found for definition {definition_id}"
+            )
+        return resolved_option_id
+
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def list_values_for_case(
         self, case_id: uuid.UUID
@@ -311,16 +379,14 @@ class CaseDropdownValuesService(BaseWorkspaceService):
             for row in rows
         ]
 
-    @requires_entitlement(Entitlement.CASE_ADDONS)
-    async def set_value(
+    async def _set_value(
         self,
-        case_id: uuid.UUID,
+        *,
+        case: Case,
         definition_id: uuid.UUID,
         params: CaseDropdownValueSet,
     ) -> CaseDropdownValueRead:
-        """Set (upsert) or clear a dropdown value for a case. Records an event."""
-        case = await self._get_case(case_id)
-
+        case_id = case.id
         # Resolve old value
         stmt = select(CaseDropdownValue).where(
             CaseDropdownValue.case_id == case_id,
@@ -397,9 +463,6 @@ class CaseDropdownValuesService(BaseWorkspaceService):
         events_service = CaseEventsService(session=self.session, role=self.role)
         await events_service.create_event(case=case, event=event)
 
-        await self.session.commit()
-        await self.session.refresh(row)
-
         return CaseDropdownValueRead(
             id=row.id,
             definition_id=definition_id,
@@ -411,3 +474,68 @@ class CaseDropdownValuesService(BaseWorkspaceService):
             option_icon_name=new_option.icon_name if new_option else None,
             option_color=new_option.color if new_option else None,
         )
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def set_value(
+        self,
+        case_id: uuid.UUID,
+        definition_id: uuid.UUID,
+        params: CaseDropdownValueSet,
+        *,
+        commit: bool = True,
+    ) -> CaseDropdownValueRead:
+        """Set (upsert) or clear a dropdown value for a case. Records an event."""
+        case = await self._get_case(case_id)
+        result = await self._set_value(
+            case=case,
+            definition_id=definition_id,
+            params=params,
+        )
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
+        return result
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def apply_values(
+        self,
+        case_id: uuid.UUID,
+        values: Sequence[CaseDropdownValueInput],
+        *,
+        commit: bool = True,
+    ) -> list[CaseDropdownValueRead]:
+        """Apply multiple dropdown selections to a case in a single transaction."""
+        case = await self._get_case(case_id)
+        seen_definition_ids: set[uuid.UUID] = set()
+        results: list[CaseDropdownValueRead] = []
+
+        for value in values:
+            definition_id = await self._resolve_definition_id(
+                definition_id=value.definition_id,
+                definition_ref=value.definition_ref,
+            )
+            if definition_id in seen_definition_ids:
+                raise TracecatValidationError(
+                    f"Duplicate dropdown definition {definition_id} in request"
+                )
+            seen_definition_ids.add(definition_id)
+
+            option_id = await self._resolve_option_id(
+                definition_id=definition_id,
+                option_id=value.option_id,
+                option_ref=value.option_ref,
+            )
+
+            result = await self._set_value(
+                case=case,
+                definition_id=definition_id,
+                params=CaseDropdownValueSet(option_id=option_id),
+            )
+            results.append(result)
+
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
+        return results

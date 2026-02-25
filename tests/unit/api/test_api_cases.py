@@ -220,6 +220,44 @@ async def test_create_case_success(
 
 
 @pytest.mark.anyio
+async def test_create_case_with_dropdown_values(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """Test POST /cases accepts dropdown value inputs."""
+    with (
+        patch.object(cases_router, "CasesService") as MockService,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.create_case.return_value = mock_case
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            "/cases",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "summary": "Test Case Summary",
+                "description": "Test case description with details",
+                "priority": "medium",
+                "severity": "medium",
+                "status": "new",
+                "dropdown_values": [
+                    {"definition_ref": "environment", "option_ref": "prod"}
+                ],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        mock_svc.create_case.assert_called_once()
+        params = mock_svc.create_case.call_args.args[0]
+        assert params.dropdown_values is not None
+        assert len(params.dropdown_values) == 1
+        assert params.dropdown_values[0].definition_ref == "environment"
+        assert params.dropdown_values[0].option_ref == "prod"
+
+
+@pytest.mark.anyio
 async def test_create_case_validation_error(
     client: TestClient,
     test_admin_role: Role,
@@ -341,6 +379,41 @@ async def test_update_case_success(
 
         # Verify service was called
         mock_svc.update_case.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_update_case_with_dropdown_values(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """Test PATCH /cases/{id} accepts dropdown value inputs."""
+    with (
+        patch.object(cases_router, "CasesService") as MockService,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.get_case.return_value = mock_case
+        mock_svc.update_case.return_value = mock_case
+        MockService.return_value = mock_svc
+
+        case_id = str(mock_case.id)
+        response = client.patch(
+            f"/cases/{case_id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "dropdown_values": [
+                    {"definition_ref": "environment", "option_ref": "staging"}
+                ]
+            },
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        mock_svc.update_case.assert_called_once()
+        params = mock_svc.update_case.call_args.args[1]
+        assert params.dropdown_values is not None
+        assert len(params.dropdown_values) == 1
+        assert params.dropdown_values[0].definition_ref == "environment"
+        assert params.dropdown_values[0].option_ref == "staging"
 
 
 @pytest.mark.anyio
