@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat.db.models import Organization, OrganizationTier, Tier
+from tracecat.logger import logger
 from tracecat.service import BasePlatformService
 from tracecat.tiers.exceptions import (
     CannotDeleteDefaultTierError,
@@ -17,6 +18,10 @@ from tracecat.tiers.exceptions import (
     OrganizationNotFoundError,
     TierInUseError,
     TierNotFoundError,
+)
+from tracecat.tiers.limits_cache import (
+    invalidate_effective_limits_cache,
+    invalidate_effective_limits_cache_many,
 )
 from tracecat.tiers.schemas import (
     OrganizationTierRead,
@@ -97,6 +102,25 @@ class AdminTierService(BasePlatformService):
 
         await self.session.commit()
         await self.session.refresh(tier)
+        org_ids = list(
+            (
+                await self.session.scalars(
+                    select(OrganizationTier.organization_id).where(
+                        OrganizationTier.tier_id == tier_id
+                    )
+                )
+            ).all()
+        )
+        if org_ids:
+            try:
+                await invalidate_effective_limits_cache_many(org_ids)
+            except Exception as e:
+                logger.warning(
+                    "Failed to invalidate effective limits cache for tier update",
+                    tier_id=tier_id,
+                    org_count=len(org_ids),
+                    error=e,
+                )
         return TierRead.model_validate(tier)
 
     async def delete_tier(self, tier_id: uuid.UUID) -> None:
@@ -237,6 +261,14 @@ class AdminTierService(BasePlatformService):
             setattr(org_tier, field, value)
 
         await self.session.commit()
+        try:
+            await invalidate_effective_limits_cache(org_id)
+        except Exception as e:
+            logger.warning(
+                "Failed to invalidate effective limits cache for organization tier update",
+                org_id=org_id,
+                error=e,
+            )
 
         # Refresh with tier loaded
         stmt = (

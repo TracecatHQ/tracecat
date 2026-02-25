@@ -63,6 +63,11 @@ TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS = int(
 )
 """Maximum seconds to wait for an action concurrency permit before failing."""
 
+TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS = int(
+    os.environ.get("TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS", 30)
+)
+"""TTL in seconds for cached per-organization effective tier limits."""
+
 TRACECAT__EXECUTOR_QUEUE = os.environ.get(
     "TRACECAT__EXECUTOR_QUEUE", "shared-action-queue"
 )

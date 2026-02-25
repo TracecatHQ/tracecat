@@ -4,14 +4,21 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
+from tracecat.tiers.limits_cache import (
+    get_effective_limits_cached,
+    set_effective_limits_cached,
+)
 from tracecat.tiers.schemas import EffectiveLimits
 from tracecat.tiers.semaphore import AcquireResult, RedisSemaphore
 from tracecat.tiers.service import TierService
+
+_UNBOUNDED_CONCURRENCY_LIMIT = 2_147_483_647
 
 
 class AcquireWorkflowPermitInput(BaseModel):
@@ -22,7 +29,7 @@ class AcquireWorkflowPermitInput(BaseModel):
     workflow_id: str
     """Workflow execution ID."""
     limit: int
-    """Maximum concurrent workflows allowed."""
+    """Requested concurrency limit (legacy advisory input)."""
 
 
 class ReleaseWorkflowPermitInput(BaseModel):
@@ -58,7 +65,7 @@ class AcquireActionPermitInput(BaseModel):
     action_id: str
     """Action execution ID."""
     limit: int
-    """Maximum concurrent action executions allowed."""
+    """Requested concurrency limit (legacy advisory input)."""
 
 
 class ReleaseActionPermitInput(BaseModel):
@@ -90,6 +97,13 @@ async def acquire_workflow_permit_activity(
     Returns:
         AcquireResult with acquired status and current count.
     """
+    limits, cap_source = await _get_effective_limits_for_org(input.org_id)
+    effective_limit = _normalize_concurrency_limit(
+        limit=limits.max_concurrent_workflows,
+        org_id=input.org_id,
+        scope="workflow",
+    )
+
     redis_client = await get_redis_client()
     # Get the underlying redis.Redis client for the semaphore
     client = await redis_client._get_client()
@@ -98,14 +112,16 @@ async def acquire_workflow_permit_activity(
     result = await semaphore.acquire_workflow(
         org_id=input.org_id,
         workflow_id=input.workflow_id,
-        limit=input.limit,
+        limit=effective_limit,
     )
 
     logger.info(
         "Workflow permit acquire attempt",
         org_id=input.org_id,
         workflow_id=input.workflow_id,
-        limit=input.limit,
+        requested_limit=input.limit,
+        effective_limit=effective_limit,
+        cap_source=cap_source,
         acquired=result.acquired,
         current_count=result.current_count,
     )
@@ -165,6 +181,13 @@ async def acquire_action_permit_activity(
     input: AcquireActionPermitInput,
 ) -> AcquireResult:
     """Try to acquire an action execution permit."""
+    limits, cap_source = await _get_effective_limits_for_org(input.org_id)
+    effective_limit = _normalize_concurrency_limit(
+        limit=limits.max_concurrent_actions,
+        org_id=input.org_id,
+        scope="action",
+    )
+
     redis_client = await get_redis_client()
     client = await redis_client._get_client()
     semaphore = RedisSemaphore(client)
@@ -172,14 +195,16 @@ async def acquire_action_permit_activity(
     result = await semaphore.acquire_action(
         org_id=input.org_id,
         action_id=input.action_id,
-        limit=input.limit,
+        limit=effective_limit,
     )
 
     logger.info(
         "Action permit acquire attempt",
         org_id=input.org_id,
         action_id=input.action_id,
-        limit=input.limit,
+        requested_limit=input.limit,
+        effective_limit=effective_limit,
+        cap_source=cap_source,
         acquired=result.acquired,
         current_count=result.current_count,
     )
@@ -245,6 +270,53 @@ async def get_tier_limits_activity(
     )
 
     return limits
+
+
+def _normalize_concurrency_limit(
+    *, limit: int | None, org_id: OrganizationID, scope: str
+) -> int:
+    if limit is None:
+        return _UNBOUNDED_CONCURRENCY_LIMIT
+    if limit <= 0:
+        raise ApplicationError(
+            (
+                "Invalid organization concurrency cap: "
+                f"scope={scope} org_id={org_id} limit={limit}"
+            ),
+            non_retryable=True,
+            type="InvalidOrganizationConcurrencyCap",
+        )
+    return limit
+
+
+async def _get_effective_limits_for_org(
+    org_id: OrganizationID,
+) -> tuple[EffectiveLimits, str]:
+    try:
+        limits = await get_effective_limits_cached(org_id)
+    except Exception as e:
+        logger.warning(
+            "Failed to read effective limits cache",
+            org_id=org_id,
+            error=e,
+        )
+        limits = None
+    if limits is not None:
+        return limits, "cache"
+
+    async with get_async_session_context_manager() as session:
+        service = TierService(session)
+        limits = await service.get_effective_limits(org_id)
+
+    try:
+        await set_effective_limits_cached(org_id, limits)
+    except Exception as e:
+        logger.warning(
+            "Failed to update effective limits cache",
+            org_id=org_id,
+            error=e,
+        )
+    return limits, "db"
 
 
 class TierActivities:
