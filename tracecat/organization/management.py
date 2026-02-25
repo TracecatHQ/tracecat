@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
+from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
@@ -67,6 +68,10 @@ async def ensure_organization_defaults(
         logger.info("Creating default workspace", organization_id=str(org_id))
         workspace_service = WorkspaceService(session, role=org_role)
         await workspace_service.create_workspace(name="Default Workspace")
+
+    # Ensure system roles exist for this org (idempotent)
+    await seed_system_roles_for_org(session, org_id)
+    await session.commit()
 
     # Ensure org tier exists (assigns default tier if configured)
     tier_service = TierService(session)
