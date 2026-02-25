@@ -1080,7 +1080,7 @@ function AgentPresetBreadcrumb({
       <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
-            <Link href={`/workspaces/${workspaceId}/agents`}>Agents</Link>
+            <Link href={`/workspaces/${workspaceId}/agents/new`}>Agents</Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
         <BreadcrumbSeparator className="shrink-0">

@@ -103,7 +103,7 @@ export function shortTimeAgo(date: Date) {
   if (diffDay < 7) return `${diffDay}d ago`
 
   const diffWeek = Math.floor(diffDay / 7)
-  if (diffWeek < 4) return `${diffWeek}w ago`
+  if (diffDay < 30) return `${diffWeek}w ago`
 
   const diffMonth = Math.floor(diffDay / 30)
   if (diffMonth < 12) return `${diffMonth}mo ago`

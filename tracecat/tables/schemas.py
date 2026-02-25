@@ -183,6 +183,8 @@ class TableReadMinimal(Schema):
 
     id: TableID
     name: str
+    created_at: datetime
+    updated_at: datetime
 
 
 class TableRead(Schema):

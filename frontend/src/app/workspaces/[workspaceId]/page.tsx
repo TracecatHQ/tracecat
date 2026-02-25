@@ -74,7 +74,7 @@ export default function WorkspacePage() {
       return `${basePath}/cases`
     }
     if (agentAddonsEnabled && canViewAgents === true) {
-      return `${basePath}/agents`
+      return `${basePath}/agents/new`
     }
     if (canViewTables === true) {
       return `${basePath}/tables`

@@ -9,7 +9,6 @@ import {
   LayersIcon,
   LayersPlus,
   type LucideIcon,
-  SquareMousePointerIcon,
   SquarePen,
   Table2Icon,
   Trash2Icon,
@@ -36,7 +35,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Sidebar,
   SidebarContent,
@@ -62,6 +60,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { parseChatError, useDeleteChat, useListChats } from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { cn, shortTimeAgo } from "@/lib/utils"
@@ -71,7 +70,7 @@ function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
   return <AppMenu workspaceId={workspaceId} />
 }
 
-function formatChatLastActive(updatedAt: string): string {
+function formatRelativeTime(updatedAt: string): string {
   const date = new Date(updatedAt)
   if (Number.isNaN(date.getTime())) {
     return ""
@@ -114,6 +113,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     null
   )
   const canExecuteAgents = useScopeCheck("agent:execute")
+  const canViewWorkflows = useScopeCheck("workflow:read")
+  const canViewAgents = useScopeCheck("agent:read")
+  const canViewTables = useScopeCheck("table:read")
+  const canViewVariables = useScopeCheck("variable:read")
+  const canViewSecrets = useScopeCheck("secret:read")
+  const canViewIntegrations = useScopeCheck("integration:read")
+  const canViewInbox = useScopeCheck("inbox:read")
+  const canViewMembers = useScopeCheck("workspace:member:read")
+  const canViewCases = useScopeCheck("case:read")
+  const canCreateCase = useScopeCheck("case:create")
   const { deleteChat, isDeleting: deleteChatPending } =
     useDeleteChat(workspaceId)
   const {
@@ -130,6 +139,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const selectedSessionId = searchParams?.get("chatId")
   const isCopilotPage = pathname?.startsWith(`${basePath}/copilot`)
   const isCasePage = pathname?.startsWith(`${basePath}/cases/`)
+  const {
+    presets: sidebarAgentPresets,
+    presetsIsLoading: sidebarAgentPresetsLoading,
+    presetsError: sidebarAgentPresetsError,
+  } = useAgentPresets(workspaceId, {
+    enabled: canViewAgents === true && agentAddonsEnabled,
+  })
   const recentSessions = useMemo(
     () =>
       [...(sidebarChats ?? [])]
@@ -140,6 +156,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         )
         .slice(0, 20),
     [sidebarChats]
+  )
+  const agentPresets = useMemo(
+    () =>
+      [...(sidebarAgentPresets ?? [])].sort(
+        (a, b) =>
+          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      ),
+    [sidebarAgentPresets]
   )
   const firstCopilotSessionId = useMemo(
     () => recentSessions.find((chat) => chat.entity_type === "copilot")?.id,
@@ -276,18 +300,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }[]
   }
 
-  // Scope checks for sidebar items
-  const canViewWorkflows = useScopeCheck("workflow:read")
-  const canViewAgents = useScopeCheck("agent:read")
-  const canViewTables = useScopeCheck("table:read")
-  const canViewVariables = useScopeCheck("variable:read")
-  const canViewSecrets = useScopeCheck("secret:read")
-  const canViewIntegrations = useScopeCheck("integration:read")
-  const canViewInbox = useScopeCheck("inbox:read")
-  const canViewMembers = useScopeCheck("workspace:member:read")
-  const canViewCases = useScopeCheck("case:read")
-  const canCreateCase = useScopeCheck("case:create")
-
   const navWorkspace: NavItem[] = [
     {
       title: "Workflows",
@@ -303,17 +315,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname?.startsWith(`${basePath}/cases`),
       visible: canViewCases === true,
     },
-    ...(agentAddonsEnabled
-      ? [
-          {
-            title: "Agents",
-            url: `${basePath}/agents`,
-            icon: SquareMousePointerIcon,
-            isActive: pathname?.startsWith(`${basePath}/agents`),
-            visible: canViewAgents === true,
-          },
-        ]
-      : []),
     {
       title: "Tables",
       url: `${basePath}/tables`,
@@ -410,97 +411,57 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               <CollapsibleContent>
                 <SidebarGroupContent>
                   <TooltipProvider delayDuration={0}>
-                    <div className="h-[7.75rem]">
-                      {sidebarChatsLoading ? (
-                        <div className="px-2 py-1 text-xs text-muted-foreground">
-                          Loading sessions...
-                        </div>
-                      ) : sidebarChatsError ? (
-                        <div className="px-2 py-1 text-xs text-red-600">
-                          Failed to load sessions
-                        </div>
-                      ) : recentSessions.length === 0 ? (
-                        <div className="px-2 py-1 text-xs text-muted-foreground">
-                          No sessions yet
-                        </div>
-                      ) : (
-                        <ScrollArea className="h-full">
-                          <SidebarMenuSub className="mx-0 border-l-0 px-0 pr-1">
-                            {recentSessions.map((chat) => {
-                              const isCaseSession = chat.entity_type === "case"
-                              const caseInfo = isCaseSession
-                                ? caseInfoByEntityId[chat.entity_id]
-                                : undefined
-                              const caseShortId = caseInfo?.shortId
-                              const caseSummary = caseInfo?.summary
-                              const caseHref = `${basePath}/cases/${chat.entity_id}`
-                              const sessionHref = isCaseSession
-                                ? `${caseHref}?chatId=${chat.id}`
-                                : `${basePath}/copilot?chatId=${chat.id}`
-                              const lastActive = formatChatLastActive(
-                                chat.updated_at
-                              )
-                              const isChatActive =
-                                chat.entity_type === "copilot"
-                                  ? isCopilotPage &&
-                                    (selectedSessionId
-                                      ? selectedSessionId === chat.id
-                                      : firstCopilotSessionId === chat.id)
-                                  : isCasePage &&
-                                    caseId === chat.entity_id &&
-                                    (selectedSessionId
-                                      ? selectedSessionId === chat.id
-                                      : firstCaseSessionIdByCaseId.get(
-                                          caseId
-                                        ) === chat.id)
-                              const isDeleteConfirming =
-                                confirmDeleteChatId === chat.id
+                    {sidebarChatsLoading ? (
+                      <div className="px-2 py-1 text-xs text-muted-foreground">
+                        Loading sessions...
+                      </div>
+                    ) : sidebarChatsError ? (
+                      <div className="px-2 py-1 text-xs text-red-600">
+                        Failed to load sessions
+                      </div>
+                    ) : recentSessions.length === 0 ? (
+                      <div className="px-2 py-1 text-xs text-muted-foreground">
+                        No sessions yet
+                      </div>
+                    ) : (
+                      <SidebarMenuSub className="mx-0 border-l-0 px-0 pr-1">
+                        {recentSessions.map((chat) => {
+                          const isCaseSession = chat.entity_type === "case"
+                          const caseInfo = isCaseSession
+                            ? caseInfoByEntityId[chat.entity_id]
+                            : undefined
+                          const caseShortId = caseInfo?.shortId
+                          const caseSummary = caseInfo?.summary
+                          const caseHref = `${basePath}/cases/${chat.entity_id}`
+                          const sessionHref = isCaseSession
+                            ? `${caseHref}?chatId=${chat.id}`
+                            : `${basePath}/copilot?chatId=${chat.id}`
+                          const lastActive = formatRelativeTime(chat.updated_at)
+                          const isChatActive =
+                            chat.entity_type === "copilot"
+                              ? isCopilotPage &&
+                                (selectedSessionId
+                                  ? selectedSessionId === chat.id
+                                  : firstCopilotSessionId === chat.id)
+                              : isCasePage &&
+                                caseId === chat.entity_id &&
+                                (selectedSessionId
+                                  ? selectedSessionId === chat.id
+                                  : firstCaseSessionIdByCaseId.get(caseId) ===
+                                    chat.id)
+                          const isDeleteConfirming =
+                            confirmDeleteChatId === chat.id
 
-                              return (
-                                <SidebarMenuSubItem
-                                  key={chat.id}
-                                  className="group/menu-item relative"
-                                >
-                                  {isCaseSession &&
-                                  caseSummary &&
-                                  !isDeleteConfirming ? (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <SidebarMenuSubButton
-                                          asChild
-                                          isActive={isChatActive}
-                                        >
-                                          <Link
-                                            href={sessionHref}
-                                            className="flex min-w-0 items-center gap-2"
-                                          >
-                                            <span
-                                              className={cn(
-                                                "min-w-0 flex-1 truncate text-xs",
-                                                "transition-opacity group-hover/menu-item:opacity-0"
-                                              )}
-                                            >
-                                              {chat.title || "Untitled chat"}
-                                            </span>
-                                            {lastActive ? (
-                                              <time
-                                                dateTime={chat.updated_at}
-                                                className="ml-auto shrink-0 text-[11px] text-zinc-500 transition-opacity group-hover/menu-item:opacity-0 dark:text-zinc-400"
-                                              >
-                                                {lastActive}
-                                              </time>
-                                            ) : null}
-                                          </Link>
-                                        </SidebarMenuSubButton>
-                                      </TooltipTrigger>
-                                      <TooltipContent
-                                        side="bottom"
-                                        align="start"
-                                      >
-                                        {caseSummary}
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  ) : (
+                          return (
+                            <SidebarMenuSubItem
+                              key={chat.id}
+                              className="group/menu-item relative"
+                            >
+                              {isCaseSession &&
+                              caseSummary &&
+                              !isDeleteConfirming ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
                                     <SidebarMenuSubButton
                                       asChild
                                       isActive={isChatActive}
@@ -512,9 +473,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                         <span
                                           className={cn(
                                             "min-w-0 flex-1 truncate text-xs",
-                                            isCaseSession &&
-                                              !isDeleteConfirming &&
-                                              "transition-opacity group-hover/menu-item:opacity-0"
+                                            "transition-opacity group-hover/menu-item:opacity-0"
                                           )}
                                         >
                                           {chat.title || "Untitled chat"}
@@ -522,90 +481,116 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                         {lastActive ? (
                                           <time
                                             dateTime={chat.updated_at}
-                                            className={cn(
-                                              "ml-auto shrink-0 text-[11px] text-zinc-500 transition-opacity dark:text-zinc-400",
-                                              isDeleteConfirming
-                                                ? "opacity-0"
-                                                : "group-hover/menu-item:opacity-0"
-                                            )}
+                                            className="ml-auto shrink-0 text-[11px] text-zinc-500 transition-opacity group-hover/menu-item:opacity-0 dark:text-zinc-400"
                                           >
                                             {lastActive}
                                           </time>
                                         ) : null}
                                       </Link>
                                     </SidebarMenuSubButton>
-                                  )}
-                                  {isCaseSession && caseShortId ? (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Link
-                                          href={caseHref}
-                                          className={cn(
-                                            "absolute left-2 top-1/2 z-10 hidden -translate-y-1/2 items-center rounded-md border border-border/70 bg-background/95 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-foreground transition-colors hover:bg-muted group-data-[collapsible=icon]:hidden",
-                                            !isDeleteConfirming &&
-                                              "group-hover/menu-item:inline-flex"
-                                          )}
-                                          aria-label={`Open case ${caseShortId}`}
-                                        >
-                                          {caseShortId}
-                                        </Link>
-                                      </TooltipTrigger>
-                                      {caseSummary ? (
-                                        <TooltipContent
-                                          side="bottom"
-                                          align="start"
-                                        >
-                                          {caseSummary}
-                                        </TooltipContent>
-                                      ) : null}
-                                    </Tooltip>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="bottom" align="start">
+                                    {caseSummary}
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                <SidebarMenuSubButton
+                                  asChild
+                                  isActive={isChatActive}
+                                >
+                                  <Link
+                                    href={sessionHref}
+                                    className="flex min-w-0 items-center gap-2"
+                                  >
+                                    <span
+                                      className={cn(
+                                        "min-w-0 flex-1 truncate text-xs",
+                                        isCaseSession &&
+                                          !isDeleteConfirming &&
+                                          "transition-opacity group-hover/menu-item:opacity-0"
+                                      )}
+                                    >
+                                      {chat.title || "Untitled chat"}
+                                    </span>
+                                    {lastActive ? (
+                                      <time
+                                        dateTime={chat.updated_at}
+                                        className={cn(
+                                          "ml-auto shrink-0 text-[11px] text-zinc-500 transition-opacity dark:text-zinc-400",
+                                          isDeleteConfirming
+                                            ? "opacity-0"
+                                            : "group-hover/menu-item:opacity-0"
+                                        )}
+                                      >
+                                        {lastActive}
+                                      </time>
+                                    ) : null}
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              )}
+                              {isCaseSession && caseShortId ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Link
+                                      href={caseHref}
+                                      className={cn(
+                                        "absolute left-2 top-1/2 z-10 hidden -translate-y-1/2 items-center rounded-md border border-border/70 bg-background/95 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-foreground transition-colors hover:bg-muted group-data-[collapsible=icon]:hidden",
+                                        !isDeleteConfirming &&
+                                          "group-hover/menu-item:inline-flex"
+                                      )}
+                                      aria-label={`Open case ${caseShortId}`}
+                                    >
+                                      {caseShortId}
+                                    </Link>
+                                  </TooltipTrigger>
+                                  {caseSummary ? (
+                                    <TooltipContent side="bottom" align="start">
+                                      {caseSummary}
+                                    </TooltipContent>
                                   ) : null}
-                                  {isDeleteConfirming ? (
-                                    <button
-                                      type="button"
+                                </Tooltip>
+                              ) : null}
+                              {isDeleteConfirming ? (
+                                <button
+                                  type="button"
+                                  onClick={(event) =>
+                                    void handleDeleteChat(chat.id, event)
+                                  }
+                                  onMouseLeave={() =>
+                                    setConfirmDeleteChatId((current) =>
+                                      current === chat.id ? null : current
+                                    )
+                                  }
+                                  disabled={deleteChatPending}
+                                  className="absolute right-1 top-1/2 z-10 inline-flex h-5 -translate-y-1/2 items-center justify-center rounded-md border border-destructive/60 bg-white px-1.5 text-[10px] font-semibold leading-none text-destructive transition-colors hover:border-destructive focus-visible:border-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive group-data-[collapsible=icon]:hidden"
+                                  aria-label={`Confirm deleting session ${chat.title || chat.id}`}
+                                >
+                                  Confirm
+                                </button>
+                              ) : (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <SidebarMenuAction
                                       onClick={(event) =>
-                                        void handleDeleteChat(chat.id, event)
-                                      }
-                                      onMouseLeave={() =>
-                                        setConfirmDeleteChatId((current) =>
-                                          current === chat.id ? null : current
-                                        )
+                                        handleRequestDeleteChat(chat.id, event)
                                       }
                                       disabled={deleteChatPending}
-                                      className="absolute right-1 top-1/2 z-10 inline-flex h-5 -translate-y-1/2 items-center justify-center rounded-md border border-destructive/60 bg-white px-1.5 text-[10px] font-semibold leading-none text-destructive transition-colors hover:border-destructive focus-visible:border-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive group-data-[collapsible=icon]:hidden"
-                                      aria-label={`Confirm deleting session ${chat.title || chat.id}`}
+                                      className="pointer-events-none !top-1/2 !-translate-y-1/2 opacity-0 text-muted-foreground hover:text-foreground focus-visible:ring-ring peer-data-[active=true]/menu-button:text-muted-foreground group-hover/menu-item:pointer-events-auto group-hover/menu-item:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100 [&>svg]:size-3"
+                                      aria-label={`Delete session ${chat.title || chat.id}`}
                                     >
-                                      Confirm
-                                    </button>
-                                  ) : (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <SidebarMenuAction
-                                          onClick={(event) =>
-                                            handleRequestDeleteChat(
-                                              chat.id,
-                                              event
-                                            )
-                                          }
-                                          disabled={deleteChatPending}
-                                          className="pointer-events-none !top-1/2 !-translate-y-1/2 opacity-0 text-muted-foreground hover:text-foreground focus-visible:ring-ring peer-data-[active=true]/menu-button:text-muted-foreground group-hover/menu-item:pointer-events-auto group-hover/menu-item:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100 [&>svg]:size-3"
-                                          aria-label={`Delete session ${chat.title || chat.id}`}
-                                        >
-                                          <Trash2Icon />
-                                        </SidebarMenuAction>
-                                      </TooltipTrigger>
-                                      <TooltipContent side="right">
-                                        Delete session
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  )}
-                                </SidebarMenuSubItem>
-                              )
-                            })}
-                          </SidebarMenuSub>
-                        </ScrollArea>
-                      )}
-                    </div>
+                                      <Trash2Icon />
+                                    </SidebarMenuAction>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right">
+                                    Delete session
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            </SidebarMenuSubItem>
+                          )
+                        })}
+                      </SidebarMenuSub>
+                    )}
                   </TooltipProvider>
                 </SidebarGroupContent>
               </CollapsibleContent>
@@ -663,6 +648,71 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                         </SidebarMenuItem>
                       ))}
                   </SidebarMenu>
+                </SidebarGroupContent>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+        {canViewAgents === true && agentAddonsEnabled && (
+          <Collapsible defaultOpen className="group/collapsible">
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger>
+                  Agents
+                  <ChevronDown className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+                </CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarGroupContent>
+                  {sidebarAgentPresetsLoading ? (
+                    <div className="px-2 py-1 text-xs text-muted-foreground">
+                      Loading agents...
+                    </div>
+                  ) : sidebarAgentPresetsError ? (
+                    <div className="px-2 py-1 text-xs text-red-600">
+                      Failed to load agents
+                    </div>
+                  ) : agentPresets.length === 0 ? (
+                    <div className="px-2 py-1 text-xs text-muted-foreground">
+                      No agents yet
+                    </div>
+                  ) : (
+                    <SidebarMenuSub className="mx-0 border-l-0 px-0 pr-1">
+                      {agentPresets.map((preset) => {
+                        const presetPath = `${basePath}/agents/${preset.id}`
+                        const isPresetActive = pathname?.startsWith(presetPath)
+                        const lastUpdated = formatRelativeTime(
+                          preset.updated_at
+                        )
+
+                        return (
+                          <SidebarMenuSubItem key={preset.id}>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={isPresetActive}
+                            >
+                              <Link
+                                href={presetPath}
+                                className="flex min-w-0 items-center gap-2"
+                              >
+                                <span className="min-w-0 flex-1 truncate text-xs">
+                                  {preset.name || "Untitled agent"}
+                                </span>
+                                {lastUpdated ? (
+                                  <time
+                                    dateTime={preset.updated_at}
+                                    className="ml-auto shrink-0 text-[11px] text-zinc-500 dark:text-zinc-400"
+                                  >
+                                    {lastUpdated}
+                                  </time>
+                                ) : null}
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        )
+                      })}
+                    </SidebarMenuSub>
+                  )}
                 </SidebarGroupContent>
               </CollapsibleContent>
             </SidebarGroup>

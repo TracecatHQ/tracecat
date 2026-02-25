@@ -18,6 +18,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { getRelativeTime } from "@/lib/event-history"
 import { useListTables } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -77,6 +78,48 @@ export function TablesDashboard() {
             ),
             enableSorting: true,
             enableHiding: false,
+          },
+          {
+            accessorKey: "created_at",
+            header: ({ column }) => (
+              <DataTableColumnHeader
+                className="text-xs"
+                column={column}
+                title="Created"
+              />
+            ),
+            cell: ({ row }) => {
+              const createdAt =
+                row.getValue<TableReadMinimal["created_at"]>("created_at")
+              const date = new Date(createdAt)
+              return (
+                <div className="text-xs text-foreground/80" title={date.toLocaleString()}>
+                  {getRelativeTime(date)}
+                </div>
+              )
+            },
+            enableSorting: true,
+          },
+          {
+            accessorKey: "updated_at",
+            header: ({ column }) => (
+              <DataTableColumnHeader
+                className="text-xs"
+                column={column}
+                title="Updated"
+              />
+            ),
+            cell: ({ row }) => {
+              const updatedAt =
+                row.getValue<TableReadMinimal["updated_at"]>("updated_at")
+              const date = new Date(updatedAt)
+              return (
+                <div className="text-xs text-foreground/80" title={date.toLocaleString()}>
+                  {getRelativeTime(date)}
+                </div>
+              )
+            },
+            enableSorting: true,
           },
           {
             id: "actions",

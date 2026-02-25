@@ -16257,9 +16257,19 @@ export const $TableReadMinimal = {
       type: "string",
       title: "Name",
     },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
   },
   type: "object",
-  required: ["id", "name"],
+  required: ["id", "name", "created_at", "updated_at"],
   title: "TableReadMinimal",
   description: "Read model for a table.",
 } as const
