@@ -115,6 +115,56 @@ spec:
                 name: {{ include "tracecat.fullname" . }}-mcp
                 port:
                   number: {{ .Values.mcp.port }}
+          # MCP OIDC auth routes
+          - path: /.well-known/oauth-authorization-server
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /.well-known/oauth-protected-resource
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /authorize
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /token
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /register
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /consent
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /auth/callback
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
 {{- end }}
 {{- else }}
 apiVersion: networking.k8s.io/v1
@@ -156,6 +206,56 @@ spec:
 {{- if .Values.mcp.enabled }}
           # MCP server
           - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          # MCP OIDC auth routes
+          - path: /.well-known/oauth-authorization-server
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /.well-known/oauth-protected-resource
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /authorize
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /token
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /register
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /consent
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /auth/callback
             pathType: Prefix
             backend:
               service:
