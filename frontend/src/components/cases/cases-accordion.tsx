@@ -75,6 +75,10 @@ const GROUP_ORDER: StatusGroup[] = [
   "other",
 ]
 
+function isStatusGroup(value: string): value is StatusGroup {
+  return value in STATUS_GROUPS
+}
+
 interface CasesAccordionProps {
   cases: CaseReadMinimal[]
   selectedId: string | null
@@ -264,6 +268,7 @@ export function CasesAccordion({
   isFetchingNextPage = false,
   onLoadMore,
 }: CasesAccordionProps) {
+  const [expandedGroups, setExpandedGroups] = useState<StatusGroup[]>([])
   const hasExplicitSort =
     prioritySortDirection ||
     severitySortDirection ||
@@ -305,10 +310,6 @@ export function CasesAccordion({
     return groups
   }, [cases, hasExplicitSort])
 
-  const defaultExpandedGroups = useMemo(() => {
-    return GROUP_ORDER.filter((group) => groupedCases[group].length > 0)
-  }, [groupedCases])
-
   const singleFilteredGroup = useMemo<StatusGroup | null>(() => {
     if (statusMode !== "include" || statusFilter.length === 0) {
       return null
@@ -325,9 +326,10 @@ export function CasesAccordion({
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const loadMoreRef = useRef<HTMLDivElement | null>(null)
+  const hasExpandedGroups = expandedGroups.length > 0
 
   useEffect(() => {
-    if (!hasNextPage || !onLoadMore) {
+    if (!hasExpandedGroups || !hasNextPage || !onLoadMore) {
       return
     }
 
@@ -352,13 +354,16 @@ export function CasesAccordion({
 
     observer.observe(target)
     return () => observer.disconnect()
-  }, [hasNextPage, isFetchingNextPage, onLoadMore])
+  }, [hasExpandedGroups, hasNextPage, isFetchingNextPage, onLoadMore])
 
   return (
     <div ref={scrollContainerRef} className="h-full overflow-auto">
       <AccordionPrimitive.Root
         type="multiple"
-        defaultValue={defaultExpandedGroups}
+        value={expandedGroups}
+        onValueChange={(value) => {
+          setExpandedGroups(value.filter(isStatusGroup))
+        }}
         className="w-full"
       >
         {GROUP_ORDER.map((groupKey) => {
@@ -438,7 +443,7 @@ export function CasesAccordion({
         })}
       </AccordionPrimitive.Root>
 
-      {(hasNextPage || isFetchingNextPage) && (
+      {hasExpandedGroups && (hasNextPage || isFetchingNextPage) && (
         <div
           ref={loadMoreRef}
           className="flex h-10 items-center justify-center text-xs text-muted-foreground"
