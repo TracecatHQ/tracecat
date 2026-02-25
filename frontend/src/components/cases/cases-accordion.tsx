@@ -70,6 +70,7 @@ const STATUS_GROUPS: Record<StatusGroup, StatusGroupConfig> = {
     icon: CheckCircleIcon,
     statuses: ["resolved"],
     iconColor: "text-green-600",
+    aggregateKey: "resolved",
   },
   closed: {
     label: "Closed",
@@ -82,6 +83,7 @@ const STATUS_GROUPS: Record<StatusGroup, StatusGroupConfig> = {
     icon: CircleIcon,
     statuses: ["other"],
     iconColor: "text-muted-foreground",
+    aggregateKey: "other",
   },
   unknown: {
     label: "Unknown",
