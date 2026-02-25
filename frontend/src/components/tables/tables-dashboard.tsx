@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { getRelativeTime } from "@/lib/event-history"
 import { useListTables } from "@/lib/hooks"
+import { capitalizeFirst } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function TablesDashboard() {
@@ -93,8 +94,11 @@ export function TablesDashboard() {
                 row.getValue<TableReadMinimal["created_at"]>("created_at")
               const date = new Date(createdAt)
               return (
-                <div className="text-xs text-foreground/80" title={date.toLocaleString()}>
-                  {getRelativeTime(date)}
+                <div
+                  className="text-xs text-foreground/80"
+                  title={date.toLocaleString()}
+                >
+                  {capitalizeFirst(getRelativeTime(date))}
                 </div>
               )
             },
@@ -114,8 +118,11 @@ export function TablesDashboard() {
                 row.getValue<TableReadMinimal["updated_at"]>("updated_at")
               const date = new Date(updatedAt)
               return (
-                <div className="text-xs text-foreground/80" title={date.toLocaleString()}>
-                  {getRelativeTime(date)}
+                <div
+                  className="text-xs text-foreground/80"
+                  title={date.toLocaleString()}
+                >
+                  {capitalizeFirst(getRelativeTime(date))}
                 </div>
               )
             },

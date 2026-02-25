@@ -61,7 +61,9 @@ export function EditVariableDialog({
   ...props
 }: EditVariableDialogProps) {
   const workspaceId = useWorkspaceId()
-  const { updateVariableById } = useWorkspaceVariables(workspaceId)
+  const { updateVariableById } = useWorkspaceVariables(workspaceId, {
+    listEnabled: false,
+  })
 
   const methods = useForm<UpdateVariableFormData>({
     resolver: zodResolver(updateVariableFormSchema),

@@ -145,14 +145,16 @@ export function MCPIntegrationDialog({
     useCreateMcpIntegration(workspaceId)
   const { updateMcpIntegration, updateMcpIntegrationIsPending } =
     useUpdateMcpIntegration(workspaceId)
-  const { integrations, providers, integrationsIsLoading } =
-    useIntegrations(workspaceId)
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = controlledOpen ?? internalOpen
+  const { integrations, providers, integrationsIsLoading } = useIntegrations(
+    workspaceId,
+    { enabled: open }
+  )
   const { mcpIntegration, mcpIntegrationIsLoading } = useGetMcpIntegration(
     workspaceId,
     mcpIntegrationId ?? null
   )
-  const [internalOpen, setInternalOpen] = useState(false)
-  const open = controlledOpen ?? internalOpen
   const { className: triggerClassName, ...restTriggerProps } =
     triggerProps ?? {}
 

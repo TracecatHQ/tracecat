@@ -134,6 +134,7 @@ export default function IntegrationsPage() {
   const canReadIntegrations = useScopeCheck("integration:read")
   const canUpdateIntegrations = useScopeCheck("integration:update")
   const canMutateIntegrations = canUpdateIntegrations === true
+  const integrationsQueryEnabled = canReadIntegrations === true
   const router = useRouter()
   const searchParams = useSearchParams()
   const [searchQuery, setSearchQuery] = useState("")
@@ -162,16 +163,18 @@ export default function IntegrationsPage() {
   const lastHandledConnectRef = useRef<string | null>(null)
 
   const { integrations, providers, providersIsLoading, providersError } =
-    useIntegrations(workspaceId)
+    useIntegrations(workspaceId, { enabled: integrationsQueryEnabled })
   const { mcpIntegrations, mcpIntegrationsIsLoading, mcpIntegrationsError } =
-    useListMcpIntegrations(workspaceId)
+    useListMcpIntegrations(workspaceId, { enabled: integrationsQueryEnabled })
   const {
     secretDefinitions,
     secretDefinitionsIsLoading,
     secretDefinitionsError,
-  } = useSecretDefinitions(workspaceId)
-  const { secrets, secretsIsLoading, secretsError } =
-    useWorkspaceSecrets(workspaceId)
+  } = useSecretDefinitions(workspaceId, { enabled: integrationsQueryEnabled })
+  const { secrets, secretsIsLoading, secretsError } = useWorkspaceSecrets(
+    workspaceId,
+    { listEnabled: integrationsQueryEnabled }
+  )
   const { deleteMcpIntegration, deleteMcpIntegrationIsPending } =
     useDeleteMcpIntegration(workspaceId)
 

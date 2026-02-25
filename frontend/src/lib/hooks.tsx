@@ -1322,8 +1322,16 @@ export function useSchedules(workflowId: string) {
   }
 }
 
-export function useWorkspaceSecrets(workspaceId: string) {
+interface WorkspaceSecretsOptions {
+  listEnabled?: boolean
+}
+
+export function useWorkspaceSecrets(
+  workspaceId: string,
+  options: WorkspaceSecretsOptions = {}
+) {
   const queryClient = useQueryClient()
+  const listEnabled = options.listEnabled ?? true
   const {
     data: secrets,
     isLoading: secretsIsLoading,
@@ -1335,7 +1343,9 @@ export function useWorkspaceSecrets(workspaceId: string) {
         workspaceId,
         type: ["custom", "ssh-key", "mtls", "ca-cert"],
       }),
-    enabled: !!workspaceId,
+    enabled: Boolean(workspaceId) && listEnabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Create secret
@@ -1458,7 +1468,15 @@ export function useWorkspaceSecrets(workspaceId: string) {
   }
 }
 
-export function useSecretDefinitions(workspaceId: string) {
+interface SecretDefinitionsOptions {
+  enabled?: boolean
+}
+
+export function useSecretDefinitions(
+  workspaceId: string,
+  options: SecretDefinitionsOptions = {}
+) {
+  const enabled = options.enabled ?? true
   const {
     data: secretDefinitions,
     isLoading: secretDefinitionsIsLoading,
@@ -1466,7 +1484,9 @@ export function useSecretDefinitions(workspaceId: string) {
   } = useQuery<SecretDefinition[], ApiError>({
     queryKey: ["secret-definitions", workspaceId],
     queryFn: async () => await secretsListSecretDefinitions({ workspaceId }),
-    enabled: !!workspaceId,
+    enabled: Boolean(workspaceId) && enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {
@@ -1476,8 +1496,16 @@ export function useSecretDefinitions(workspaceId: string) {
   }
 }
 
-export function useWorkspaceVariables(workspaceId: string) {
+interface WorkspaceVariablesOptions {
+  listEnabled?: boolean
+}
+
+export function useWorkspaceVariables(
+  workspaceId: string,
+  options: WorkspaceVariablesOptions = {}
+) {
   const queryClient = useQueryClient()
+  const listEnabled = options.listEnabled ?? true
   const {
     data: variables,
     isLoading: variablesIsLoading,
@@ -1488,7 +1516,9 @@ export function useWorkspaceVariables(workspaceId: string) {
       await variablesListVariables({
         workspaceId,
       }),
-    enabled: !!workspaceId,
+    enabled: Boolean(workspaceId) && listEnabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Create variable
@@ -2443,7 +2473,9 @@ export function useCaseTagCatalog(
   } = useQuery<CaseTagRead[]>({
     queryKey: ["case-tag-catalog", workspaceId],
     queryFn: async () => await caseTagsListCaseTags({ workspaceId }),
-    enabled: options.enabled,
+    enabled: Boolean(workspaceId) && options.enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   const {
@@ -2946,7 +2978,15 @@ export function useOrgAuditSettings() {
   }
 }
 
-export function useListTables({ workspaceId }: TablesListTablesData) {
+interface UseListTablesOptions {
+  enabled?: boolean
+}
+
+export function useListTables(
+  { workspaceId }: TablesListTablesData,
+  options: UseListTablesOptions = {}
+) {
+  const enabled = options.enabled ?? true
   const {
     data: tables,
     isLoading: tablesIsLoading,
@@ -2954,6 +2994,9 @@ export function useListTables({ workspaceId }: TablesListTablesData) {
   } = useQuery<TableReadMinimal[], ApiError>({
     queryKey: ["tables", workspaceId],
     queryFn: async () => await tablesListTables({ workspaceId }),
+    enabled: Boolean(workspaceId) && enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {
@@ -4416,7 +4459,15 @@ export function useRemoveCaseTag({
 }
 
 /* Integrations */
-export function useIntegrations(workspaceId: string) {
+interface IntegrationsListOptions {
+  enabled?: boolean
+}
+
+export function useIntegrations(
+  workspaceId: string,
+  options: IntegrationsListOptions = {}
+) {
+  const enabled = options.enabled ?? true
   // List workspace integrations
   const {
     data: integrations,
@@ -4425,6 +4476,9 @@ export function useIntegrations(workspaceId: string) {
   } = useQuery<IntegrationReadMinimal[], TracecatApiError>({
     queryKey: ["integrations", workspaceId],
     queryFn: async () => await integrationsListIntegrations({ workspaceId }),
+    enabled: Boolean(workspaceId) && enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // List providers
@@ -4435,6 +4489,9 @@ export function useIntegrations(workspaceId: string) {
   } = useQuery<ProviderReadMinimal[], TracecatApiError>({
     queryKey: ["providers", workspaceId],
     queryFn: async () => await providersListProviders({ workspaceId }),
+    enabled: Boolean(workspaceId) && enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {
@@ -4547,7 +4604,11 @@ export function useCreateMcpIntegration(workspaceId: string) {
   }
 }
 
-export function useListMcpIntegrations(workspaceId: string) {
+export function useListMcpIntegrations(
+  workspaceId: string,
+  options: IntegrationsListOptions = {}
+) {
+  const enabled = options.enabled ?? true
   const {
     data: mcpIntegrations,
     isLoading: mcpIntegrationsIsLoading,
@@ -4556,7 +4617,9 @@ export function useListMcpIntegrations(workspaceId: string) {
     queryKey: ["mcp-integrations", workspaceId],
     queryFn: async () =>
       await mcpIntegrationsListMcpIntegrations({ workspaceId }),
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {
@@ -4693,10 +4756,12 @@ export function useIntegrationProvider({
   providerId,
   workspaceId,
   grantType,
+  enabled = true,
 }: {
   providerId: string
   workspaceId: string
   grantType?: OAuthGrantType
+  enabled?: boolean
 }) {
   const queryClient = useQueryClient()
 
@@ -4713,7 +4778,10 @@ export function useIntegrationProvider({
         workspaceId,
         grantType,
       }),
+    enabled: Boolean(workspaceId) && Boolean(providerId) && enabled,
     retry: retryHandler,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Get provider schema
@@ -4725,6 +4793,9 @@ export function useIntegrationProvider({
     queryKey: ["provider-schema", providerId, workspaceId, grantType],
     queryFn: async () =>
       await providersGetProvider({ providerId, workspaceId, grantType }),
+    enabled: Boolean(workspaceId) && Boolean(providerId) && enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Update
@@ -5684,8 +5755,9 @@ export function useRbacScopes(options?: {
 /**
  * Hook to manage RBAC roles.
  */
-export function useRbacRoles() {
+export function useRbacRoles(options?: { enabled?: boolean }) {
   const queryClient = useQueryClient()
+  const enabled = options?.enabled ?? true
 
   // List roles (org-level, shared across all workspaces)
   const {
@@ -5698,6 +5770,9 @@ export function useRbacRoles() {
       const response = await rbacListRoles()
       return response.items
     },
+    enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Get single role
@@ -6344,8 +6419,10 @@ export function useRbacAssignments(options?: {
 export function useRbacUserAssignments(options?: {
   userId?: string
   workspaceId?: string
+  enabled?: boolean
 }) {
   const queryClient = useQueryClient()
+  const enabled = options?.enabled ?? true
 
   // List user assignments
   const {
@@ -6361,6 +6438,9 @@ export function useRbacUserAssignments(options?: {
       })
       return response.items
     },
+    enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Create user assignment
@@ -6540,6 +6620,8 @@ export function useCaseDropdownDefinitions(
     queryFn: async () =>
       await caseDropdownsListDropdownDefinitions({ workspaceId }),
     enabled: Boolean(workspaceId) && enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   const invalidate = () =>

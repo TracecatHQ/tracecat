@@ -28,6 +28,8 @@ export function useWorkspaceDetails() {
     select: (d: WorkspaceRead | undefined) => d,
     enabled: !!workspaceId,
     retry: retryHandler,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return { workspace, workspaceLoading, workspaceError }
@@ -83,7 +85,11 @@ export function useWorkspaceMutations() {
   }
 }
 
-export function useWorkspaceMembers(workspaceId: string) {
+export function useWorkspaceMembers(
+  workspaceId: string,
+  options: { enabled?: boolean } = {}
+) {
+  const enabled = options.enabled ?? true
   const {
     data: members,
     isLoading: membersLoading,
@@ -91,6 +97,9 @@ export function useWorkspaceMembers(workspaceId: string) {
   } = useQuery<WorkspaceMember[], ApiError>({
     queryKey: ["workspace", workspaceId, "members"],
     queryFn: () => workspacesListWorkspaceMembers({ workspaceId }),
+    enabled: Boolean(workspaceId) && enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return { members, membersLoading, membersError }

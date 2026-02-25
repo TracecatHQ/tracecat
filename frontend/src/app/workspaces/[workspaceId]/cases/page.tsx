@@ -46,7 +46,9 @@ export default function CasesPage() {
     fetchNextPage,
   } = useCases()
 
-  const { members } = useWorkspaceMembers(workspaceId)
+  const { members } = useWorkspaceMembers(workspaceId, {
+    enabled: Boolean(workspaceId),
+  })
   const { caseTags } = useCaseTagCatalog(workspaceId)
   const { hasEntitlement } = useEntitlements()
   const caseAddonsEnabled = hasEntitlement("case_addons")

@@ -59,18 +59,33 @@ export function WorkspaceMembersTable({
   const queryClient = useQueryClient()
   const canUpdateMembers = useScopeCheck("workspace:member:update")
   const canRemoveMembers = useScopeCheck("workspace:member:remove")
+  const canUpdateMembersResolved = canUpdateMembers === true
   const [selectedUser, setSelectedUser] = useState<WorkspaceMember | null>(null)
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
   const { removeMember } = useWorkspaceMutations()
   const { members, membersLoading, membersError } = useWorkspaceMembers(
-    workspace.id
+    workspace.id,
+    { enabled: Boolean(workspace.id) }
   )
-  const { userAssignments, updateUserAssignment, createUserAssignment } =
-    useRbacUserAssignments({ workspaceId: workspace.id })
+  const {
+    userAssignments,
+    isLoading: userAssignmentsLoading,
+    updateUserAssignment,
+    createUserAssignment,
+  } = useRbacUserAssignments({
+    workspaceId: workspace.id,
+    enabled: canUpdateMembersResolved && isChangeRoleOpen,
+  })
 
   const handleChangeRole = useCallback(
     async (roleId: string) => {
       try {
+        if (!canUpdateMembersResolved) {
+          return
+        }
+        if (userAssignmentsLoading) {
+          return
+        }
         if (!selectedUser) {
           return toast({
             title: "No user selected",
@@ -108,7 +123,9 @@ export function WorkspaceMembersTable({
     },
     [
       selectedUser,
+      canUpdateMembersResolved,
       userAssignments,
+      userAssignmentsLoading,
       workspace.id,
       updateUserAssignment,
       createUserAssignment,
@@ -297,6 +314,8 @@ export function WorkspaceMembersTable({
         selectedUser={selectedUser}
         setOpen={setIsChangeRoleOpen}
         onConfirm={handleChangeRole}
+        enabled={canUpdateMembersResolved && isChangeRoleOpen}
+        isAssignmentsLoading={userAssignmentsLoading}
       />
     </Dialog>
   )
@@ -306,12 +325,16 @@ function ChangeUserRoleDialog({
   selectedUser,
   setOpen,
   onConfirm,
+  enabled,
+  isAssignmentsLoading,
 }: {
   selectedUser: WorkspaceMember | null
   setOpen: (open: boolean) => void
   onConfirm: (roleId: string) => void
+  enabled: boolean
+  isAssignmentsLoading: boolean
 }) {
-  const { roles } = useRbacRoles()
+  const { roles, isLoading: rolesLoading } = useRbacRoles({ enabled })
   const workspaceRoles = useMemo(
     () => roles.filter((r) => !r.slug || r.slug.startsWith("workspace-")),
     [roles]
@@ -350,7 +373,14 @@ function ChangeUserRoleDialog({
         <Button variant="outline" onClick={() => setOpen(false)}>
           Cancel
         </Button>
-        <Button onClick={() => onConfirm(selectedRoleId)}>Change role</Button>
+        <Button
+          onClick={() => onConfirm(selectedRoleId)}
+          disabled={
+            !selectedRoleId || !enabled || rolesLoading || isAssignmentsLoading
+          }
+        >
+          Change role
+        </Button>
       </DialogFooter>
     </DialogContent>
   )
