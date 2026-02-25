@@ -5,11 +5,15 @@ on:
     branches: ["main"]
     paths:
       - frontend/**
+      - tracecat/**
+      - packages/**
       - .github/workflows/lint-frontend.yml
   pull_request:
     branches: ["main", "staging"]
     paths:
       - frontend/**
+      - tracecat/**
+      - packages/**
       - .github/workflows/lint-frontend.yml
 
 permissions:
@@ -23,6 +27,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: uv sync --no-install-project
+
       - name: Setup Biome
         uses: biomejs/setup-biome@v2
         with:
@@ -33,7 +45,6 @@ jobs:
         working-directory: frontend
         run: biome ci .
 
-      # Typescrtip typechecking
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -45,9 +56,16 @@ jobs:
           version: 9
           run_install: false
 
-      - name: Install dependencies
+      - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
+
+      - name: Check frontend client is up to date
+        run: |
+          pnpm -C frontend generate-client-ci
+          # openapi-ts output style doesn't match repo formatting; normalize generated client only
+          pnpm -C frontend exec biome check --write src/client
+          git diff --exit-code frontend/src/client/
 
       - name: Run TypeScript type check
         working-directory: frontend
