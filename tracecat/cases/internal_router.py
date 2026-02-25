@@ -134,6 +134,7 @@ async def list_cases(
 
 
 @router.post("/search")
+@require_scope("case:read")
 async def search_cases(
     *,
     role: ExecutorWorkspaceRole,
