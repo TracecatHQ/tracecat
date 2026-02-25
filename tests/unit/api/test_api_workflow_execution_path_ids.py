@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.auth.types import Role
+from tracecat.dsl.common import DSLInput
+from tracecat.validation.schemas import ValidationResult, ValidationResultType
 from tracecat.workflow.executions import internal_router as internal_executions_router
 from tracecat.workflow.executions import router as executions_router
 
@@ -484,3 +486,70 @@ async def test_get_workflow_execution_compact_accepts_slash_id(
     assert payload["status"] == "RUNNING"
     mock_svc.get_execution.assert_awaited_once_with(wf_exec_id)
     mock_svc.list_workflow_execution_events_compact.assert_awaited_once_with(wf_exec_id)
+
+
+@pytest.mark.anyio
+async def test_draft_execution_returns_400_when_dsl_validation_fails(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Draft execution should fail fast on commit-equivalent DSL validation errors."""
+    workflow_id = "wf_4itKqkgCZrLhgYiq5L211X"
+
+    mock_workflow = Mock()
+    mock_mgmt_service = AsyncMock()
+    mock_mgmt_service.get_workflow.return_value = mock_workflow
+    mock_mgmt_service.build_dsl_from_workflow.return_value = DSLInput(
+        **{
+            "title": "Draft workflow",
+            "description": "Draft workflow for validation test",
+            "entrypoint": {"expects": {}, "ref": "start"},
+            "actions": [{"ref": "start", "action": "core.noop"}],
+            "config": {"enable_runtime_tests": False},
+        }
+    )
+    mock_mgmt_ctx = AsyncMock()
+    mock_mgmt_ctx.__aenter__.return_value = mock_mgmt_service
+    mock_mgmt_ctx.__aexit__.return_value = None
+
+    validation_error = ValidationResult.new(
+        type=ValidationResultType.DSL,
+        status="error",
+        msg="Action validation failed",
+        ref="start",
+    )
+    mock_validate_dsl = AsyncMock(return_value={validation_error})
+
+    mock_exec_service = AsyncMock()
+    mock_exec_service.create_draft_workflow_execution_nowait = Mock()
+
+    with (
+        patch.object(
+            executions_router.WorkflowExecutionsService,
+            "connect",
+            AsyncMock(return_value=mock_exec_service),
+        ),
+        patch.object(
+            executions_router.WorkflowsManagementService,
+            "with_session",
+            return_value=mock_mgmt_ctx,
+        ),
+        patch.object(
+            executions_router,
+            "validate_dsl",
+            mock_validate_dsl,
+        ),
+    ):
+        response = client.post(
+            "/workflow-executions/draft",
+            json={"workflow_id": workflow_id, "inputs": {"sample": "value"}},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    payload = response.json()
+    assert payload["detail"]["type"] == "TracecatValidationError"
+    assert "validation failed with 1 error" in payload["detail"]["message"].lower()
+    assert isinstance(payload["detail"]["detail"], list)
+    assert payload["detail"]["detail"][0]["type"] == "dsl"
+    mock_validate_dsl.assert_awaited_once()
+    mock_exec_service.create_draft_workflow_execution_nowait.assert_not_called()
