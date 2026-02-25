@@ -363,7 +363,7 @@ export function WorkflowEvents({
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="relative flex size-5 items-center justify-center">
-                  {getWorkflowEventIcon(aggregateStatus)}
+                  {getWorkflowEventIcon(aggregateStatus, "size-5")}
                   <Repeat2Icon className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-sm bg-orange-100 text-orange-700 ring-1 ring-orange-200" />
                 </div>
               </TooltipTrigger>
