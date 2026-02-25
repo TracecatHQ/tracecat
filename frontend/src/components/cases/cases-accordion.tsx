@@ -5,6 +5,7 @@ import { useVirtualizer } from "@tanstack/react-virtual"
 import {
   CheckCircleIcon,
   ChevronRightIcon,
+  CircleHelpIcon,
   CircleIcon,
   CirclePauseIcon,
   FlagTriangleRightIcon,
@@ -25,13 +26,21 @@ import { CaseItem } from "@/components/cases/case-item"
 import type { FilterMode, SortDirection } from "@/components/cases/cases-header"
 import { cn } from "@/lib/utils"
 
-type StatusGroup = "new" | "in_progress" | "on_hold" | "resolved" | "other"
+type StatusGroup =
+  | "new"
+  | "in_progress"
+  | "on_hold"
+  | "resolved"
+  | "closed"
+  | "other"
+  | "unknown"
 
 interface StatusGroupConfig {
   label: string
   icon: ComponentType<{ className?: string }>
   statuses: CaseStatus[]
   iconColor: string
+  aggregateKey?: keyof CaseSearchAggregateRead["status_groups"]
 }
 
 const STATUS_GROUPS: Record<StatusGroup, StatusGroupConfig> = {
@@ -40,30 +49,45 @@ const STATUS_GROUPS: Record<StatusGroup, StatusGroupConfig> = {
     icon: FlagTriangleRightIcon,
     statuses: ["new"],
     iconColor: "text-yellow-600",
+    aggregateKey: "new",
   },
   in_progress: {
     label: "In progress",
     icon: TrafficConeIcon,
     statuses: ["in_progress"],
     iconColor: "text-blue-600",
+    aggregateKey: "in_progress",
   },
   on_hold: {
     label: "On hold",
     icon: CirclePauseIcon,
     statuses: ["on_hold"],
     iconColor: "text-orange-600",
+    aggregateKey: "on_hold",
   },
   resolved: {
     label: "Resolved",
     icon: CheckCircleIcon,
-    statuses: ["resolved", "closed"],
+    statuses: ["resolved"],
     iconColor: "text-green-600",
+  },
+  closed: {
+    label: "Closed",
+    icon: CheckCircleIcon,
+    statuses: ["closed"],
+    iconColor: "text-violet-600",
   },
   other: {
     label: "Other",
     icon: CircleIcon,
-    statuses: ["other", "unknown"],
+    statuses: ["other"],
     iconColor: "text-muted-foreground",
+  },
+  unknown: {
+    label: "Unknown",
+    icon: CircleHelpIcon,
+    statuses: ["unknown"],
+    iconColor: "text-slate-600",
   },
 }
 
@@ -72,7 +96,9 @@ const GROUP_ORDER: StatusGroup[] = [
   "in_progress",
   "on_hold",
   "resolved",
+  "closed",
   "other",
+  "unknown",
 ]
 
 function isStatusGroup(value: string): value is StatusGroup {
@@ -281,7 +307,9 @@ export function CasesAccordion({
       in_progress: [],
       on_hold: [],
       resolved: [],
+      closed: [],
       other: [],
+      unknown: [],
     }
 
     for (const caseData of cases) {
@@ -370,13 +398,15 @@ export function CasesAccordion({
           const config = STATUS_GROUPS[groupKey]
           const groupCases = groupedCases[groupKey]
           const StatusIcon = config.icon
-          const hasGlobalCount = typeof stageCounts?.[groupKey] === "number"
+          const aggregateKey = config.aggregateKey
+          const globalCount = aggregateKey ? stageCounts?.[aggregateKey] : null
+          const hasGlobalCount = typeof globalCount === "number"
           const groupCount =
             singleFilteredGroup === groupKey &&
             typeof totalFilteredCaseEstimate === "number"
               ? totalFilteredCaseEstimate
               : hasGlobalCount
-                ? stageCounts[groupKey]
+                ? globalCount
                 : groupCases.length
 
           return (
@@ -401,8 +431,12 @@ export function CasesAccordion({
                       "data-[state=open]:border-l-orange-600 data-[state=open]:bg-orange-600/[0.03] dark:data-[state=open]:bg-orange-600/[0.08]",
                     groupKey === "resolved" &&
                       "data-[state=open]:border-l-green-600 data-[state=open]:bg-green-600/[0.03] dark:data-[state=open]:bg-green-600/[0.08]",
+                    groupKey === "closed" &&
+                      "data-[state=open]:border-l-violet-600 data-[state=open]:bg-violet-600/[0.03] dark:data-[state=open]:bg-violet-600/[0.08]",
                     groupKey === "other" &&
-                      "data-[state=open]:border-l-muted-foreground data-[state=open]:bg-muted/50"
+                      "data-[state=open]:border-l-muted-foreground data-[state=open]:bg-muted/50",
+                    groupKey === "unknown" &&
+                      "data-[state=open]:border-l-slate-600 data-[state=open]:bg-slate-600/[0.03] dark:data-[state=open]:bg-slate-600/[0.08]"
                   )}
                 >
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center">
