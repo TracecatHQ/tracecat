@@ -82,8 +82,8 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
     if mcp_tool_name.startswith("mcp__"):
         parts = mcp_tool_name.split("__", 2)
         if len(parts) >= 3:
-            # Return everything after mcp__{server-name}__ with underscores -> dots
-            return mcp_tool_name_to_action_name(parts[2])
+            # Return user MCP tool as canonical form: mcp.{server}.{tool_name}
+            return f"mcp.{parts[1]}.{mcp_tool_name_to_action_name(parts[2])}"
 
     # Other tool names returned as-is
     return mcp_tool_name
