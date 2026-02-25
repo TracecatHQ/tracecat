@@ -418,10 +418,18 @@ function toDslApiErrorResult(message: string): ValidationResult {
 function normalizeRunValidationErrors(
   detail: unknown
 ): ValidationResult[] | null {
-  if (Array.isArray(detail) && detail.every(isValidationResult)) {
+  if (
+    Array.isArray(detail) &&
+    detail.length > 0 &&
+    detail.every(isValidationResult)
+  ) {
     return detail
   }
-  if (Array.isArray(detail) && detail.every(isValidationDetail)) {
+  if (
+    Array.isArray(detail) &&
+    detail.length > 0 &&
+    detail.every(isValidationDetail)
+  ) {
     return [
       {
         type: "dsl",
@@ -451,10 +459,18 @@ function normalizeRunValidationErrors(
     }
   }
 
-  if (Array.isArray(nestedDetail) && nestedDetail.every(isValidationResult)) {
+  if (
+    Array.isArray(nestedDetail) &&
+    nestedDetail.length > 0 &&
+    nestedDetail.every(isValidationResult)
+  ) {
     return nestedDetail
   }
-  if (Array.isArray(nestedDetail) && nestedDetail.every(isValidationDetail)) {
+  if (
+    Array.isArray(nestedDetail) &&
+    nestedDetail.length > 0 &&
+    nestedDetail.every(isValidationDetail)
+  ) {
     return [
       {
         type: "dsl",
@@ -530,7 +546,7 @@ function WorkflowManualTrigger({
         const validationErrors = normalizeRunValidationErrors(
           tracecatError.body.detail
         )
-        if (validationErrors) {
+        if (validationErrors && validationErrors.length > 0) {
           setManualTriggerErrors(validationErrors)
         } else {
           setManualTriggerErrors([
