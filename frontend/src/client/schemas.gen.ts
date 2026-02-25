@@ -14673,6 +14673,7 @@ export const $SAMLSettingsRead = {
     saml_auto_provisioning: {
       type: "boolean",
       title: "Saml Auto Provisioning",
+      default: true,
     },
     saml_idp_metadata_url: {
       anyOf: [
@@ -14700,12 +14701,7 @@ export const $SAMLSettingsRead = {
     },
   },
   type: "object",
-  required: [
-    "saml_enabled",
-    "saml_enforced",
-    "saml_auto_provisioning",
-    "saml_sp_acs_url",
-  ],
+  required: ["saml_enabled", "saml_enforced", "saml_sp_acs_url"],
   title: "SAMLSettingsRead",
 } as const
 

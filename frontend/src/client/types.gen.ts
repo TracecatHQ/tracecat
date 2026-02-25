@@ -4668,7 +4668,7 @@ export type SAMLDatabaseLoginResponse = {
 export type SAMLSettingsRead = {
   saml_enabled: boolean
   saml_enforced: boolean
-  saml_auto_provisioning: boolean
+  saml_auto_provisioning?: boolean
   saml_idp_metadata_url?: string | null
   saml_sp_acs_url: string
   /**
