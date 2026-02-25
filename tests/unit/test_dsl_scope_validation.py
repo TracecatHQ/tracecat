@@ -473,6 +473,146 @@ class TestScopeValidation:
 
         assert dsl is not None
 
+    def test_loop_scope_requires_synchronization_at_loop_end(self):
+        """Loop body branches must converge at loop_end.
+
+        This prevents the scheduler from continuing to the next iteration while a
+        sibling in-loop branch is still running and mutating ACTIONS.
+        """
+        with pytest.raises(
+            TracecatDSLError,
+            match="must synchronize at 'loop_end'",
+        ):
+            DSLInput(
+                title="Loop branch unsynchronized",
+                description="A loop body branch does not flow into loop_end",
+                entrypoint=DSLEntrypoint(),
+                actions=[
+                    ActionStatement(
+                        ref="seed",
+                        action="core.transform.reshape",
+                        args={"value": 1},
+                    ),
+                    ActionStatement(
+                        ref="loop_start",
+                        action="core.loop.start",
+                        depends_on=["seed"],
+                    ),
+                    ActionStatement(
+                        ref="fast",
+                        action="core.transform.reshape",
+                        depends_on=["loop_start"],
+                        args={"value": "fast"},
+                    ),
+                    ActionStatement(
+                        ref="slow",
+                        action="core.transform.reshape",
+                        depends_on=["loop_start"],
+                        args={"value": "slow"},
+                    ),
+                    ActionStatement(
+                        ref="loop_end",
+                        action="core.loop.end",
+                        depends_on=["fast"],
+                        args={"condition": "${{ True }}"},
+                    ),
+                ],
+            )
+
+    def test_loop_scope_with_scatter_requires_synchronization_at_loop_end(self):
+        """Scatter work inside a loop must also converge before loop_end."""
+        with pytest.raises(
+            TracecatDSLError,
+            match="must synchronize at 'loop_end'",
+        ):
+            DSLInput(
+                title="Loop scatter unsynchronized",
+                description="Scatter/gather branch in loop does not feed loop_end",
+                entrypoint=DSLEntrypoint(),
+                actions=[
+                    ActionStatement(
+                        ref="seed",
+                        action="core.transform.reshape",
+                        args={"value": [1, 2]},
+                    ),
+                    ActionStatement(
+                        ref="loop_start",
+                        action="core.loop.start",
+                        depends_on=["seed"],
+                    ),
+                    ActionStatement(
+                        ref="items",
+                        action="core.transform.reshape",
+                        depends_on=["loop_start"],
+                        args={"value": [1, 2]},
+                    ),
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        depends_on=["items"],
+                        args={"collection": "${{ ACTIONS.items.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="per_item",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["per_item"],
+                        args={"items": "${{ ACTIONS.per_item.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="loop_end",
+                        action="core.loop.end",
+                        depends_on=["loop_start"],
+                        args={"condition": "${{ False }}"},
+                    ),
+                ],
+            )
+
+    def test_loop_scope_synchronization_passes_when_all_branches_join_loop_end(self):
+        """A loop with fan-out/fan-in is valid when all branches feed loop_end."""
+        dsl = DSLInput(
+            title="Loop synchronized fan-in",
+            description="All loop branches are synchronized at loop_end",
+            entrypoint=DSLEntrypoint(),
+            actions=[
+                ActionStatement(
+                    ref="seed",
+                    action="core.transform.reshape",
+                    args={"value": 1},
+                ),
+                ActionStatement(
+                    ref="loop_start",
+                    action="core.loop.start",
+                    depends_on=["seed"],
+                ),
+                ActionStatement(
+                    ref="left",
+                    action="core.transform.reshape",
+                    depends_on=["loop_start"],
+                    args={"value": "left"},
+                ),
+                ActionStatement(
+                    ref="right",
+                    action="core.transform.reshape",
+                    depends_on=["loop_start"],
+                    args={"value": "right"},
+                ),
+                ActionStatement(
+                    ref="loop_end",
+                    action="core.loop.end",
+                    depends_on=["left", "right"],
+                    args={"condition": "${{ False }}"},
+                ),
+            ],
+        )
+
+        assert dsl is not None
+
     def test_outer_scope_cannot_reference_scatter_descendant_expression(self):
         """Test parent scope still cannot reference scatter descendant expression."""
         with pytest.raises(

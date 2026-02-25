@@ -267,6 +267,11 @@ class DSLInput(BaseModel):
         # Assign scope IDs to all actions
         scopes, scope_hierarchy, scope_openers = self._assign_action_scopes(adj)
         self._validate_scope_dependencies(scopes, scope_hierarchy, scope_openers)
+        self._validate_loop_scope_synchronization(
+            action_scopes=scopes,
+            scope_hierarchy=scope_hierarchy,
+            scope_openers=scope_openers,
+        )
 
     def _validate_scope_dependencies(
         self,
@@ -386,6 +391,115 @@ class DSLInput(BaseModel):
                                 f"Action '{action.ref}' has an expression in field '{key2loc(key)}' that references '{dep}' which cannot be referenced from this scope"
                             )
 
+    def _validate_loop_scope_synchronization(
+        self,
+        *,
+        action_scopes: dict[str, str],
+        scope_hierarchy: dict[str, str | None],
+        scope_openers: dict[str, str],
+    ) -> None:
+        """Validate that every do-while loop region synchronizes at `core.loop.end`.
+
+        Invariant
+        ---------
+        For each loop scope opened by `core.loop.start`, every action inside that
+        scope (including nested descendant scopes) must have a SUCCESS-path to the
+        matching `core.loop.end`.
+
+        Why this exists
+        ---------------
+        Loop continuation resets in-loop scheduler state and queues the next
+        iteration. If any in-loop branch can still execute after loop_end decides
+        to continue, iterations can interleave and race on `ACTIONS` writes.
+        Enforcing a single synchronization barrier at loop_end prevents that.
+
+        Algorithm
+        ---------
+        1. Collect loop scopes from `scope_openers`.
+        2. Resolve exactly one `loop_end` per loop scope from dependency scopes.
+        3. Build a reverse adjacency graph over SUCCESS edges only.
+        4. For each loop scope, reverse-traverse from `loop_end` to compute all
+           actions that can reach it.
+        5. Fail if any action in the loop scope/descendants is missing from this
+           reachable set.
+        """
+        loop_scopes = {
+            scope_ref
+            for scope_ref, opener in scope_openers.items()
+            if opener == PlatformAction.LOOP_START
+        }
+        if not loop_scopes:
+            return
+
+        loop_end_by_scope: dict[str, str] = {}
+        for stmt in self.actions:
+            if stmt.action != PlatformAction.LOOP_END:
+                continue
+            dep_scopes = {
+                action_scopes[edge_components_from_dep(dep_ref)[0]]
+                for dep_ref in stmt.depends_on
+            }
+            if len(dep_scopes) != 1:
+                raise TracecatDSLError(
+                    f"Loop end action '{stmt.ref}' must depend on actions from exactly one loop scope"
+                )
+            loop_scope = next(iter(dep_scopes))
+            if scope_openers.get(loop_scope) != PlatformAction.LOOP_START:
+                raise TracecatDSLError(
+                    f"Loop end action '{stmt.ref}' must close a loop.start scope"
+                )
+            if existing := loop_end_by_scope.get(loop_scope):
+                raise TracecatDSLError(
+                    f"Loop start action '{loop_scope}' has multiple loop end actions: "
+                    f"'{existing}' and '{stmt.ref}'"
+                )
+            loop_end_by_scope[loop_scope] = stmt.ref
+
+        missing_end_scopes = sorted(loop_scopes - set(loop_end_by_scope))
+        if missing_end_scopes:
+            missing_scope = missing_end_scopes[0]
+            raise TracecatDSLError(
+                f"Loop start action '{missing_scope}' has no matching loop end action"
+            )
+
+        reverse_success_adj: dict[str, set[str]] = {
+            action.ref: set() for action in self.actions
+        }
+        for src_ref, outgoing in self._to_typed_adjacency().items():
+            for dst_ref, edge_type in outgoing:
+                if edge_type == EdgeType.SUCCESS:
+                    reverse_success_adj[dst_ref].add(src_ref)
+
+        # We've validated that every loop scope has a loop end action, so we can now
+        # check that every action in the loop region can reach the loop end action.
+        for loop_scope, loop_end_ref in loop_end_by_scope.items():
+            can_reach_loop_end: set[str] = set()
+            stack = [loop_end_ref]
+            while stack:
+                curr_ref = stack.pop()
+                if curr_ref in can_reach_loop_end:
+                    continue
+                can_reach_loop_end.add(curr_ref)
+                stack.extend(reverse_success_adj.get(curr_ref, ()))
+
+            unsynchronized_actions = sorted(
+                action_ref
+                for action_ref, scope in action_scopes.items()
+                if self._is_same_or_descendant_scope(
+                    scope=scope,
+                    ancestor_scope=loop_scope,
+                    scope_hierarchy=scope_hierarchy,
+                )
+                and action_ref not in can_reach_loop_end
+            )
+            if unsynchronized_actions:
+                raise TracecatDSLError(
+                    f"Loop scope opened by '{loop_scope}' must synchronize at "
+                    f"'{loop_end_ref}'. Every action in the loop region needs a success path "
+                    "to loop_end so iterations cannot interleave and overwrite each other. "
+                    f"Unsynchronized actions: {unsynchronized_actions}"
+                )
+
     @staticmethod
     def _is_same_or_ancestor_scope(
         dep_scope: str,
@@ -395,6 +509,20 @@ class DSLInput(BaseModel):
         curr_scope: str | None = action_scope
         while curr_scope is not None:
             if dep_scope == curr_scope:
+                return True
+            curr_scope = scope_hierarchy.get(curr_scope)
+        return False
+
+    @staticmethod
+    def _is_same_or_descendant_scope(
+        scope: str,
+        ancestor_scope: str,
+        scope_hierarchy: dict[str, str | None],
+    ) -> bool:
+        """Return True if scope equals ancestor_scope or descends from it."""
+        curr_scope: str | None = scope
+        while curr_scope is not None:
+            if curr_scope == ancestor_scope:
                 return True
             curr_scope = scope_hierarchy.get(curr_scope)
         return False
@@ -519,6 +647,17 @@ class DSLInput(BaseModel):
             for dep in action.depends_on:
                 src_ref, _ = edge_components_from_dep(dep)
                 adj[src_ref].append(action.ref)
+        return adj
+
+    def _to_typed_adjacency(self) -> dict[str, list[tuple[str, EdgeType]]]:
+        """Convert the DSLInput to adjacency with edge types."""
+        adj: dict[str, list[tuple[str, EdgeType]]] = {}
+        for action in self.actions:
+            adj[action.ref] = []
+        for action in self.actions:
+            for dep in action.depends_on:
+                src_ref, edge_type = edge_components_from_dep(dep)
+                adj[src_ref].append((action.ref, edge_type))
         return adj
 
     @staticmethod
