@@ -1231,6 +1231,12 @@ class BaseTablesService(BaseWorkspaceService):
         # VALUE_COUNTS
         return func.count(sa.column("id"))
 
+    @retry(
+        retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=0.1, min=0.2, max=2),
+        reraise=True,
+    )
     async def _search_aggregation(
         self,
         *,
@@ -1258,32 +1264,76 @@ class BaseTablesService(BaseWorkspaceService):
             field_lookup=field_lookup,
         )
 
-        conn = await self.session.connection()
-        if group_by is None:
-            agg_value = await conn.scalar(aggregation_stmt)
-            return TableAggregationRead(
-                agg=agg,
-                group_by=None,
-                agg_field=agg_field,
-                value=_normalize_aggregation_value(agg_value),
-                buckets=[],
-            )
-
-        agg_result = await conn.execute(aggregation_stmt)
-        buckets = [
-            TableAggregationBucket(
-                group=_normalize_aggregation_value(row.group_value),
-                value=_normalize_aggregation_value(row.agg_value),
-            )
-            for row in agg_result
-        ]
-        return TableAggregationRead(
-            agg=agg,
-            group_by=group_by,
-            agg_field=agg_field,
-            value=None,
-            buckets=buckets,
+        txn_cm = (
+            self.session.begin_nested()
+            if self.session.in_transaction()
+            else self.session.begin()
         )
+        async with txn_cm as txn:
+            conn = await txn.session.connection()
+            try:
+                if group_by is None:
+                    agg_result = await conn.execute(
+                        aggregation_stmt,
+                        execution_options={
+                            "isolation_level": "READ COMMITTED",
+                        },
+                    )
+                    agg_value = agg_result.scalar()
+                    return TableAggregationRead(
+                        agg=agg,
+                        group_by=None,
+                        agg_field=agg_field,
+                        value=_normalize_aggregation_value(agg_value),
+                        buckets=[],
+                    )
+
+                agg_result = await conn.execute(
+                    aggregation_stmt,
+                    execution_options={
+                        "isolation_level": "READ COMMITTED",
+                    },
+                )
+                buckets = [
+                    TableAggregationBucket(
+                        group=_normalize_aggregation_value(row.group_value),
+                        value=_normalize_aggregation_value(row.agg_value),
+                    )
+                    for row in agg_result
+                ]
+                return TableAggregationRead(
+                    agg=agg,
+                    group_by=group_by,
+                    agg_field=agg_field,
+                    value=None,
+                    buckets=buckets,
+                )
+            except _RETRYABLE_DB_EXCEPTIONS as e:
+                self.logger.warning(
+                    "Retryable DB exception occurred during search aggregation",
+                    kind=type(e).__name__,
+                    error=str(e),
+                    table=table.name,
+                    schema=schema_name,
+                )
+                raise
+            except ProgrammingError as e:
+                while (cause := e.__cause__) is not None:
+                    e = cause
+                if isinstance(e, UndefinedTableError):
+                    raise TracecatNotFoundError(
+                        f"Table '{table.name}' does not exist"
+                    ) from e
+                raise ValueError(str(e)) from e
+            except Exception as e:
+                self.logger.error(
+                    "Unexpected DB exception occurred during search aggregation",
+                    kind=type(e).__name__,
+                    error=str(e),
+                    table=table.name,
+                    schema=schema_name,
+                )
+                raise
 
     @retry(
         retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
