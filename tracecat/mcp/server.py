@@ -6,6 +6,7 @@ Users authenticate via their existing Tracecat OIDC login.
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import json
 import re
@@ -13,7 +14,7 @@ import uuid
 from collections import deque
 from datetime import datetime, timedelta
 from io import StringIO
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import yaml
 from fastmcp import FastMCP
@@ -36,7 +37,15 @@ from temporalio.client import WorkflowExecutionStatus
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 from tracecat import config
+from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.session.schemas import AgentSessionCreate
+from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.stream.connector import AgentStream
+from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamError
 from tracecat.agent.tools import create_tool_from_registry
+from tracecat.chat.schemas import BasicChatRequest, ChatRequest
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Action, WorkflowDefinition
 from tracecat.dsl.common import (
@@ -3170,3 +3179,127 @@ def _parse_iso8601_duration(duration_str: str) -> timedelta:
     minutes = int(match.group(3) or 0)
     seconds = int(match.group(4) or 0)
     return timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
+
+
+# ── Agent Presets ────────────────────────────────────────────────────────────
+
+
+async def _collect_agent_response(
+    session_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    timeout: float,
+) -> str:
+    """Poll Redis agent stream, collect TEXT_DELTA chunks until StreamEnd."""
+    stream = await AgentStream.new(session_id, workspace_id)
+    text_parts: list[str] = []
+
+    async def _not_disconnected() -> bool:
+        return False
+
+    try:
+        async with asyncio.timeout(timeout):
+            async for event in stream._stream_events(_not_disconnected, last_id="$"):
+                match event:
+                    case StreamEnd():
+                        break
+                    case StreamError(error=err):
+                        raise ToolError(f"Agent error: {err}")
+                    case StreamDelta(event=delta) if (
+                        isinstance(delta, UnifiedStreamEvent)
+                        and delta.type == StreamEventType.TEXT_DELTA
+                        and delta.text
+                    ):
+                        text_parts.append(delta.text)
+    except TimeoutError:
+        raise ToolError(f"Agent response timed out after {timeout}s") from None
+
+    return "".join(text_parts) or "(no output)"
+
+
+@mcp.tool()
+async def list_agent_presets(workspace_id: str) -> str:
+    """List agent presets in a workspace with their capabilities.
+
+    Returns each preset's slug, name, description, model, instructions,
+    configured actions (tools), and namespaces.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with AgentPresetService.with_session(role=role) as svc:
+            presets = await svc.list_presets()
+        return _json(
+            [
+                {
+                    "id": str(p.id),
+                    "slug": p.slug,
+                    "name": p.name,
+                    "description": p.description,
+                    "model_name": p.model_name,
+                    "model_provider": p.model_provider,
+                    "instructions": p.instructions,
+                    "actions": p.actions,
+                    "namespaces": p.namespaces,
+                }
+                for p in presets
+            ]
+        )
+    except ToolError:
+        raise
+    except Exception as e:
+        logger.error("Failed to list agent presets", error=str(e))
+        raise ToolError(f"Failed to list agent presets: {e}") from None
+
+
+@mcp.tool()
+async def run_agent_preset(
+    workspace_id: str,
+    preset_slug: str,
+    prompt: str,
+    timeout_seconds: int = 120,
+) -> str:
+    """Run an agent preset with a prompt and return its text response.
+
+    Creates an ephemeral session, triggers the agent workflow, and waits
+    for the response. The agent has access to all tools configured on the preset.
+
+    Args:
+        workspace_id: The workspace ID (from list_workspaces).
+        preset_slug: Slug of the agent preset to run (from list_agent_presets).
+        prompt: The user prompt to send to the agent.
+        timeout_seconds: Max seconds to wait for response (default 120, max 300).
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        timeout = min(max(timeout_seconds, 10), 300)
+
+        # Resolve preset
+        async with AgentPresetService.with_session(role=role) as svc:
+            preset = await svc.get_preset_by_slug(preset_slug)
+            if not preset:
+                raise ToolError(f"Agent preset '{preset_slug}' not found")
+
+        # Create ephemeral session and run turn
+        async with AgentSessionService.with_session(role=role) as svc:
+            session = await svc.create_session(
+                AgentSessionCreate(
+                    title=f"MCP: {prompt[:50]}",
+                    entity_type=AgentSessionEntity.AGENT_PRESET,
+                    entity_id=preset.id,
+                    agent_preset_id=preset.id,
+                )
+            )
+            # BasicChatRequest is handled at runtime by run_turn's match statement
+            # but not included in the ChatRequest type alias
+            await svc.run_turn(
+                session.id, cast(ChatRequest, BasicChatRequest(message=prompt))
+            )
+
+        # Collect text from Redis stream
+        if role.workspace_id is None:
+            raise ToolError("Workspace ID is required")
+        return await _collect_agent_response(session.id, role.workspace_id, timeout)
+    except ToolError:
+        raise
+    except Exception as e:
+        logger.error("Failed to run agent preset", error=str(e))
+        raise ToolError(f"Failed to run agent preset: {e}") from None

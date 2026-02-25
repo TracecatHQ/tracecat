@@ -788,6 +788,7 @@ Merges: common + temporal + postgres + mcp-specific
 {{ include "tracecat.env.common" . }}
 {{ include "tracecat.env.temporal" . }}
 {{ include "tracecat.env.postgres" . }}
+{{ include "tracecat.env.redis" . }}
 - name: TRACECAT_MCP__HOST
   value: "0.0.0.0"
 - name: TRACECAT_MCP__PORT
