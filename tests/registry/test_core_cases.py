@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import tracecat_registry.core.cases as cases_core
+import tracecat_registry.types as registry_types
 from tracecat_registry.core.cases import (
     add_case_tag,
     assign_user,
@@ -209,7 +210,7 @@ class TestCoreCreate:
         """Test creating a case with dropdown selections."""
         mock_cases_client.create_case_simple.return_value = mock_case_dict
 
-        dropdown_values = [
+        dropdown_values: list[registry_types.CaseDropdownValueInput] = [
             {"definition_ref": "environment", "option_ref": "prod"},
             {"definition_ref": "region", "option_ref": "us_west"},
         ]
@@ -362,7 +363,7 @@ class TestCoreUpdate:
         mock_cases_client.update_case_simple.return_value = updated_case
 
         case_id = mock_case_dict["id"]
-        dropdown_values = [
+        dropdown_values: list[registry_types.CaseDropdownValueInput] = [
             {"definition_ref": "environment", "option_ref": "staging"},
             {"definition_ref": "region", "option_ref": None},
         ]
