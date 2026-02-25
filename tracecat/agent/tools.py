@@ -21,14 +21,11 @@ from tracecat_registry import RegistrySecretType
 from tracecat.agent.types import Tool
 from tracecat.config import TRACECAT__AGENT_MAX_TOOLS
 from tracecat.contexts import ctx_role
-from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
-from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.service import (
     IndexedActionResult,
     RegistryActionsService,
 )
-from tracecat.registry.loaders import get_bound_action_from_manifest
 
 
 class ToolExecutionError(Exception):
@@ -162,27 +159,19 @@ async def create_tool_from_registry(
     if tool_approvals and action_name in tool_approvals:
         requires_approval = tool_approvals[action_name]
 
-    # Build BoundRegistryAction from manifest
+    # Read description and JSON schema directly from the manifest action.
+    # This avoids importing the action module (which may not be installed
+    # in this process for custom/git-synced UDF actions). The manifest
+    # already stores the pre-computed interface from registry sync time.
     manifest_action = indexed_result.manifest.actions.get(action_name)
     if not manifest_action:
         raise ValueError(f"Action '{action_name}' not found in manifest")
 
-    bound_action = get_bound_action_from_manifest(
-        manifest_action,
-        indexed_result.origin,
-        mode="execution",
-    )
-
-    # Extract metadata from the bound action
-    description, model_cls = _extract_action_metadata(bound_action)
-
+    description = manifest_action.description
     if not description:
         raise ValueError(f"Action '{action_name}' has no description")
 
-    # Get JSON schema from model class
-    parameters_json_schema = (
-        model_cls.model_json_schema() if hasattr(model_cls, "model_json_schema") else {}  # type: ignore[call-non-callable]
-    )
+    parameters_json_schema = manifest_action.interface.get("expects", {})
 
     return Tool(
         name=action_name,  # Canonical name with dots
@@ -335,38 +324,6 @@ async def build_agent_tools(
         raise ValueError(f"Cannot request more than {max_tools} tools")
 
     return BuildToolsResult(tools=tools, collected_secrets=collected_secrets)
-
-
-def _extract_action_metadata(bound_action: BoundRegistryAction) -> tuple[str, type]:
-    """Extract description and model class from a bound action.
-
-    Args:
-        bound_action: The bound action from the registry
-
-    Returns:
-        Tuple of (description, model_cls)
-
-    Raises:
-        ValueError: If template action is not set
-    """
-    if bound_action.type == "template":
-        if not bound_action.template_action:
-            raise ValueError("Template action is not set")
-
-        description = (
-            bound_action.template_action.definition.description
-            or bound_action.description
-        )
-
-        expects = bound_action.template_action.definition.expects
-        model_cls = create_expectation_model(
-            expects, bound_action.template_action.definition.action.replace(".", "__")
-        )
-    else:
-        description = bound_action.description
-        model_cls = bound_action.args_cls
-
-    return description, model_cls
 
 
 def denormalize_tool_name(tool_name: str) -> str:
