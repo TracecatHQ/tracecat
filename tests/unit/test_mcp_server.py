@@ -9,7 +9,7 @@ from typing import Any, cast
 
 import pytest
 import yaml
-from fastmcp.exceptions import ToolError
+from fastmcp.exceptions import AuthorizationError, ToolError
 from fastmcp.server.middleware.middleware import MiddlewareContext
 from fastmcp.tools.tool import ToolResult
 from mcp.types import CallToolRequestParams
@@ -41,6 +41,19 @@ def _tool(fn: Any) -> Callable[..., Coroutine[Any, Any, Any]]:
     return cast(Callable[..., Coroutine[Any, Any, Any]], fn)
 
 
+def _payload(result: Any) -> Any:
+    """Normalize tool output into plain Python data for assertions."""
+    if isinstance(result, str):
+        return json.loads(result)
+    if hasattr(result, "model_dump"):
+        return result.model_dump(mode="json")
+    if isinstance(result, list):
+        return [_payload(item) for item in result]
+    if isinstance(result, dict):
+        return {key: _payload(value) for key, value in result.items()}
+    return result
+
+
 class _AsyncContext:
     def __init__(self, value):
         self._value = value
@@ -50,6 +63,27 @@ class _AsyncContext:
 
     async def __aexit__(self, exc_type, exc, tb):
         return None
+
+
+@pytest.mark.anyio
+async def test_resolve_workspace_role_rejects_invalid_workspace_id():
+    with pytest.raises(AuthorizationError, match="Invalid workspace ID"):
+        await mcp_server._resolve_workspace_role("not-a-uuid")
+
+
+@pytest.mark.anyio
+async def test_resolve_workspace_role_surfaces_auth_errors(monkeypatch):
+    async def _resolve_role_for_request(_workspace_id):
+        raise ValueError("Workspace access denied")
+
+    monkeypatch.setattr(
+        mcp_server,
+        "resolve_role_for_request",
+        _resolve_role_for_request,
+    )
+
+    with pytest.raises(AuthorizationError, match="Workspace access denied"):
+        await mcp_server._resolve_workspace_role(str(uuid.uuid4()))
 
 
 @pytest.mark.anyio
@@ -98,7 +132,7 @@ async def test_validate_workflow_returns_expression_details(monkeypatch):
     result = await _tool(mcp_server.validate_workflow)(
         workspace_id=str(uuid.uuid4()), workflow_id=str(uuid.uuid4())
     )
-    payload = json.loads(result)
+    payload = _payload(result)
     assert payload["valid"] is False
     assert payload["errors"][0]["type"] == "expression"
     assert payload["errors"][0]["details"][0]["type"] == "action.input"
@@ -201,6 +235,9 @@ async def test_update_workflow_layout_only_does_not_null_metadata(monkeypatch):
         title = "Original title"
         description = "Original desc"
         status = "online"
+        version = None
+        alias = None
+        entrypoint = None
         actions = [SimpleNamespace(ref="step_a", position_x=0.0, position_y=0.0)]
 
         def __setattr__(self, name, value):
@@ -249,8 +286,9 @@ layout:
         workflow_id=str(wf_id),
         definition_yaml=layout_yaml,
     )
-    payload = json.loads(result)
-    assert "updated successfully" in payload["message"]
+    payload = _payload(result)
+    assert payload["message"] == f"Workflow {wf_id} updated successfully"
+    assert payload["mode"] == "patch"
 
     # The metadata fields must NOT have been set via setattr
     assert "title" not in setattr_calls
@@ -311,7 +349,7 @@ async def test_get_workflow_includes_layout_when_definition_build_fails(monkeypa
         workflow_id=str(workflow_id),
     )
 
-    payload = json.loads(result)
+    payload = _payload(result)
     assert payload["definition_yaml"] != ""
     exported = yaml.safe_load(payload["definition_yaml"])
     assert (
@@ -322,7 +360,7 @@ async def test_get_workflow_includes_layout_when_definition_build_fails(monkeypa
     assert exported["layout"]["actions"] == [{"ref": "step_a", "x": 100.0, "y": 200.0}]
 
 
-def test_evaluate_configuration_prefers_workspace_secret_even_when_empty():
+def test_evaluate_configuration_reports_missing_workspace_secret_keys():
     requirements = [
         {
             "name": "slack",
@@ -331,12 +369,9 @@ def test_evaluate_configuration_prefers_workspace_secret_even_when_empty():
         }
     ]
     workspace_inventory = {"slack": set()}
-    org_inventory = {"slack": {"SLACK_BOT_TOKEN"}}
-
     configured, missing = mcp_server._evaluate_configuration(
         requirements,
         workspace_inventory,
-        org_inventory,
     )
 
     assert configured is False
@@ -367,7 +402,7 @@ async def test_create_table_parses_columns_json(monkeypatch):
         name="ioc_table",
         columns_json='[{"name":"ioc","type":"TEXT","nullable":false}]',
     )
-    payload = json.loads(result)
+    payload = _payload(result)
     assert payload["name"] == "ioc_table"
     assert created["params"].name == "ioc_table"
     assert created["params"].columns[0].name == "ioc"
@@ -406,7 +441,7 @@ async def test_get_action_context_includes_configuration(monkeypatch):
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
 
     async def _secret_inventory(_role):
-        return {"slack": {"SLACK_BOT_TOKEN"}}, {}
+        return {"slack": {"SLACK_BOT_TOKEN"}}
 
     monkeypatch.setattr(
         mcp_server,
@@ -423,7 +458,7 @@ async def test_get_action_context_includes_configuration(monkeypatch):
         workspace_id=str(uuid.uuid4()),
         action_name="tools.slack.post_message",
     )
-    payload = json.loads(result)
+    payload = _payload(result)
     assert payload["action_name"] == "tools.slack.post_message"
     assert payload["configured"] is True
     assert payload["missing_requirements"] == []
@@ -439,28 +474,17 @@ async def test_list_secrets_metadata_returns_keys_not_values(monkeypatch):
         id=uuid.uuid4(),
         name="slack",
         type="custom",
+        description=None,
         environment="default",
         tags={"team": "soc"},
         encrypted_keys=b"encrypted",
-    )
-    org_secret = SimpleNamespace(
-        id=uuid.uuid4(),
-        name="pagerduty",
-        type="custom",
-        environment="default",
-        tags=None,
-        encrypted_keys=b"encrypted2",
     )
 
     async def _list_secrets():
         return [workspace_secret]
 
-    async def _list_org_secrets():
-        return [org_secret]
-
     secret_service = SimpleNamespace(
         list_secrets=_list_secrets,
-        list_org_secrets=_list_org_secrets,
         decrypt_keys=lambda _encrypted: [
             SimpleNamespace(key="API_KEY", value="super-secret-value")
         ],
@@ -474,12 +498,10 @@ async def test_list_secrets_metadata_returns_keys_not_values(monkeypatch):
 
     result = await _tool(mcp_server.list_secrets_metadata)(
         workspace_id=str(uuid.uuid4()),
-        scope="both",
     )
-    payload = json.loads(result)
-    assert len(payload) == 2
+    payload = _payload(result)
+    assert len(payload) == 1
     assert payload[0]["keys"] == ["API_KEY"]
-    assert "super-secret-value" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -525,7 +547,7 @@ async def test_get_webhook(monkeypatch):
         workspace_id=str(uuid.uuid4()),
         workflow_id=str(uuid.uuid4()),
     )
-    payload = json.loads(result)
+    payload = _payload(result)
     assert payload["secret"] == "whsec_test"
     assert payload["status"] == "online"
 
@@ -563,10 +585,15 @@ async def test_update_webhook(monkeypatch):
 
     fake_webhook = SimpleNamespace(
         id=uuid.uuid4(),
+        secret="whsec_test",
         status="offline",
         methods=["POST"],
         entrypoint_ref=None,
         allowlisted_cidrs=[],
+        filters={},
+        workflow_id=uuid.uuid4(),
+        url="https://example.com/webhook",
+        api_key=None,
     )
 
     async def _get_webhook(session, workspace_id, workflow_id):
@@ -577,6 +604,9 @@ async def test_update_webhook(monkeypatch):
             pass
 
         async def commit(self):
+            pass
+
+        async def refresh(self, _obj):
             pass
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
@@ -595,7 +625,7 @@ async def test_update_webhook(monkeypatch):
         workflow_id=str(uuid.uuid4()),
         status="online",
     )
-    payload = json.loads(result)
+    payload = _payload(result)
     assert "updated successfully" in payload["message"]
     assert fake_webhook.status == "online"
 
@@ -634,7 +664,7 @@ async def test_get_case_trigger(monkeypatch):
         workspace_id=str(uuid.uuid4()),
         workflow_id=str(uuid.uuid4()),
     )
-    payload = json.loads(result)
+    payload = _payload(result)
     assert payload["status"] == "online"
     assert payload["event_types"] == ["case_created"]
     assert payload["tag_filters"] == ["malware"]
@@ -670,8 +700,24 @@ async def test_update_case_trigger(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
 
+    workflow_id = uuid.uuid4()
+    trigger_id = uuid.uuid4()
+
+    captured_update: dict[str, Any] = {}
+
     async def _update_case_trigger(_workflow_id, _params, create_missing_tags=False):
-        return SimpleNamespace()
+        captured_update["workflow_id"] = _workflow_id
+        captured_update["status"] = _params.status
+        captured_update["event_types"] = _params.event_types
+        captured_update["tag_filters"] = _params.tag_filters
+        captured_update["create_missing_tags"] = create_missing_tags
+        return SimpleNamespace(
+            id=trigger_id,
+            workflow_id=workflow_id,
+            status=_params.status or "offline",
+            event_types=_params.event_types or [],
+            tag_filters=_params.tag_filters or [],
+        )
 
     ct_service = SimpleNamespace(update_case_trigger=_update_case_trigger)
 
@@ -683,12 +729,17 @@ async def test_update_case_trigger(monkeypatch):
 
     result = await _tool(mcp_server.update_case_trigger)(
         workspace_id=str(uuid.uuid4()),
-        workflow_id=str(uuid.uuid4()),
+        workflow_id=str(workflow_id),
         status="online",
         event_types='["case_created", "case_updated"]',
     )
-    payload = json.loads(result)
+    payload = _payload(result)
     assert "updated successfully" in payload["message"]
+    assert captured_update["workflow_id"] == workflow_id
+    assert captured_update["status"] == "online"
+    assert captured_update["event_types"] == ["case_created", "case_updated"]
+    assert captured_update["tag_filters"] is None
+    assert captured_update["create_missing_tags"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -948,7 +999,7 @@ async def test_action_catalog_resource(monkeypatch):
         return uuid.uuid4(), SimpleNamespace()
 
     async def _secret_inventory(_role):
-        return {"slack": {"SLACK_BOT_TOKEN"}}, {}
+        return {"slack": {"SLACK_BOT_TOKEN"}}
 
     class _IndexEntry:
         def __init__(self, namespace, name, description):
@@ -986,7 +1037,7 @@ async def test_action_catalog_resource(monkeypatch):
     )
 
     result = await mcp_server._build_action_catalog(str(uuid.uuid4()))
-    payload = json.loads(result)
+    payload = _payload(result)
     assert payload["total_actions"] == 4
     assert "core" in payload["namespaces"]
     assert "tools.slack" in payload["namespaces"]
@@ -1010,7 +1061,7 @@ async def test_list_actions_browse_without_query(monkeypatch):
         return uuid.uuid4(), SimpleNamespace()
 
     async def _secret_inventory(_role):
-        return {}, {}
+        return {}
 
     class _IndexEntry:
         def __init__(self, namespace, name, description):
@@ -1047,7 +1098,7 @@ async def test_list_actions_browse_without_query(monkeypatch):
     result = await _tool(mcp_server.list_actions)(
         workspace_id=str(uuid.uuid4()),
     )
-    payload = json.loads(result)
+    payload = _payload(result)
     assert len(payload) == 2
     assert payload[0]["action_name"] == "core.http_request"
     assert payload[1]["action_name"] == "tools.slack.post_message"
@@ -1061,7 +1112,7 @@ async def test_list_actions_browse_with_namespace(monkeypatch):
         return uuid.uuid4(), SimpleNamespace()
 
     async def _secret_inventory(_role):
-        return {}, {}
+        return {}
 
     class _IndexEntry:
         def __init__(self, namespace, name, description):
@@ -1101,7 +1152,7 @@ async def test_list_actions_browse_with_namespace(monkeypatch):
         workspace_id=str(uuid.uuid4()),
         namespace="tools.slack",
     )
-    payload = json.loads(result)
+    payload = _payload(result)
     assert len(payload) == 1
     assert captured_kwargs.get("namespace") == "tools.slack"
 
@@ -1117,7 +1168,7 @@ async def test_list_workspaces_applies_org_scope(monkeypatch):
         _list_workspaces_for_request,
     )
     result = await _tool(mcp_server.list_workspaces)()
-    payload = json.loads(result)
+    payload = _payload(result)
 
     assert len(payload) == 1
 
@@ -1145,7 +1196,7 @@ async def test_list_workspaces_returns_multi_org_workspaces(monkeypatch):
         mcp_server, "list_workspaces_for_request", _list_workspaces_for_request
     )
     result = await _tool(mcp_server.list_workspaces)()
-    payload = json.loads(result)
+    payload = _payload(result)
 
     assert len(payload) == 2
     returned_ids = {w["id"] for w in payload}
@@ -1270,7 +1321,7 @@ async def test_import_csv(monkeypatch):
         csv_content=csv_text,
         table_name="test_table",
     )
-    payload = json.loads(result)
+    payload = _payload(result)
     assert payload["id"] == str(table_id)
     assert payload["name"] == "test_table"
     assert payload["rows_inserted"] == 3

@@ -46,5 +46,5 @@ This document lists the currently registered MCP tools in
 
 - `list_variables(workspace_id, environment=DEFAULT_SECRETS_ENVIRONMENT)`
 - `get_variable(workspace_id, variable_name, environment=DEFAULT_SECRETS_ENVIRONMENT)`
-- `list_secrets_metadata(workspace_id, environment=DEFAULT_SECRETS_ENVIRONMENT, scope="both")`
-- `get_secret_metadata(workspace_id, secret_name, environment=DEFAULT_SECRETS_ENVIRONMENT, scope="both")`
+- `list_secrets_metadata(workspace_id, environment=DEFAULT_SECRETS_ENVIRONMENT)`
+- `get_secret_metadata(workspace_id, secret_name, environment=DEFAULT_SECRETS_ENVIRONMENT)`

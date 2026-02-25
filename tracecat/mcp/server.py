@@ -17,7 +17,7 @@ from typing import Any, Literal
 
 import yaml
 from fastmcp import FastMCP
-from fastmcp.exceptions import ToolError
+from fastmcp.exceptions import AuthorizationError, ToolError
 from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
 from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
@@ -187,8 +187,14 @@ def _validate_and_parse_trigger_inputs(
 
 async def _resolve_workspace_role(workspace_id: str) -> tuple[uuid.UUID, Any]:
     """Resolve workspace UUID + role from current token."""
-    ws_id = uuid.UUID(workspace_id)
-    role = await resolve_role_for_request(ws_id)
+    try:
+        ws_id = uuid.UUID(workspace_id)
+    except ValueError as exc:
+        raise AuthorizationError("Invalid workspace ID") from exc
+    try:
+        role = await resolve_role_for_request(ws_id)
+    except ValueError as exc:
+        raise AuthorizationError(str(exc)) from exc
     return ws_id, role
 
 
@@ -244,12 +250,11 @@ def _secrets_to_requirements(secrets: list[Any]) -> list[dict[str, Any]]:
 
 async def _load_secret_inventory(
     role: Any,
-) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
-    """Load workspace and organization secret key inventories for default environment."""
+) -> dict[str, set[str]]:
+    """Load workspace secret key inventory for the default environment."""
 
     async with SecretsService.with_session(role=role) as svc:
         workspace_inventory: dict[str, set[str]] = {}
-        org_inventory: dict[str, set[str]] = {}
 
         workspace_secrets = await svc.list_secrets()
         for secret in workspace_secrets:
@@ -258,20 +263,12 @@ async def _load_secret_inventory(
             keys = {kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)}
             workspace_inventory[secret.name] = keys
 
-        org_secrets = await svc.list_org_secrets()
-        for secret in org_secrets:
-            if secret.environment != DEFAULT_SECRETS_ENVIRONMENT:
-                continue
-            keys = {kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)}
-            org_inventory[secret.name] = keys
-
-        return workspace_inventory, org_inventory
+        return workspace_inventory
 
 
 def _evaluate_configuration(
     requirements: list[dict[str, Any]],
     workspace_inventory: dict[str, set[str]],
-    org_inventory: dict[str, set[str]],
 ) -> tuple[bool, list[str]]:
     """Evaluate whether required secret names/keys are configured."""
     missing: list[str] = []
@@ -281,8 +278,6 @@ def _evaluate_configuration(
         if not required_keys and req.get("optional", False):
             continue
         available_keys = workspace_inventory.get(secret_name)
-        if available_keys is None:
-            available_keys = org_inventory.get(secret_name)
         if available_keys is None:
             missing.append(f"missing secret: {secret_name}")
             continue
@@ -1156,7 +1151,7 @@ async def _build_action_catalog(workspace_id: str) -> str:
     """Build the action catalog JSON for a workspace."""
 
     _, role = await _resolve_workspace_role(workspace_id)
-    workspace_inventory, org_inventory = await _load_secret_inventory(role)
+    workspace_inventory = await _load_secret_inventory(role)
 
     async with RegistryActionsService.with_session(role=role) as svc:
         entries = await svc.list_actions_from_index()
@@ -1195,7 +1190,7 @@ async def _build_action_catalog(workspace_id: str) -> str:
                 if secrets:
                     requirements = _secrets_to_requirements(secrets)
                     configured, missing = _evaluate_configuration(
-                        requirements, workspace_inventory, org_inventory
+                        requirements, workspace_inventory
                     )
                     if not configured:
                         ns_configured = False
@@ -1337,6 +1332,8 @@ async def list_workspaces() -> str:
         return _json(workspaces)
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to list workspaces", error=str(e))
         raise ToolError(f"Failed to list workspaces: {e}") from None
@@ -1450,6 +1447,8 @@ async def create_workflow(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to create workflow", error=str(e))
         raise ToolError(f"Failed to create workflow: {e}") from None
@@ -1531,6 +1530,8 @@ async def get_workflow(
                 }
             except TracecatNotFoundError:
                 payload["case_trigger"] = None
+            except AuthorizationError:
+                raise
             except Exception as e:
                 logger.warning(
                     "Could not load case trigger for workflow",
@@ -1542,6 +1543,8 @@ async def get_workflow(
             try:
                 dsl = await svc.build_dsl_from_workflow(workflow)
                 payload["definition"] = dsl.model_dump(mode="json", exclude_none=True)
+            except AuthorizationError:
+                raise
             except Exception as e:
                 logger.warning(
                     "Could not build DSL for workflow",
@@ -1574,6 +1577,8 @@ async def get_workflow(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to get workflow", error=str(e))
         raise ToolError(f"Failed to get workflow: {e}") from None
@@ -1716,6 +1721,8 @@ async def update_workflow(
             )
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to update workflow", error=str(e))
         raise ToolError(f"Failed to update workflow: {e}") from None
@@ -1764,6 +1771,8 @@ async def list_workflows(
             return _json(workflows)
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to list workflows", error=str(e))
         raise ToolError(f"Failed to list workflows: {e}") from None
@@ -1803,7 +1812,7 @@ async def list_actions(
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         limit = max(1, min(limit, 200))
-        workspace_inventory, org_inventory = await _load_secret_inventory(role)
+        workspace_inventory = await _load_secret_inventory(role)
         async with RegistryActionsService.with_session(role=role) as svc:
             if query:
                 entries = await svc.search_actions_from_index(query, limit=limit)
@@ -1822,7 +1831,7 @@ async def list_actions(
                 )
                 requirements = _secrets_to_requirements(secrets)
                 configured, missing = _evaluate_configuration(
-                    requirements, workspace_inventory, org_inventory
+                    requirements, workspace_inventory
                 )
                 items.append(
                     {
@@ -1835,6 +1844,8 @@ async def list_actions(
             return _json(items[:limit])
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to list actions", error=str(e))
         raise ToolError(f"Failed to list actions: {e}") from None
@@ -1867,7 +1878,7 @@ async def get_action_context(workspace_id: str, action_name: str) -> str:
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        workspace_inventory, org_inventory = await _load_secret_inventory(role)
+        workspace_inventory = await _load_secret_inventory(role)
         async with RegistryActionsService.with_session(role=role) as svc:
             indexed = await svc.get_action_from_index(action_name)
             if indexed is None:
@@ -1876,7 +1887,7 @@ async def get_action_context(workspace_id: str, action_name: str) -> str:
             secrets = svc.aggregate_secrets_from_manifest(indexed.manifest, action_name)
             requirements = _secrets_to_requirements(secrets)
             configured, missing = _evaluate_configuration(
-                requirements, workspace_inventory, org_inventory
+                requirements, workspace_inventory
             )
             schema = tool.parameters_json_schema
             return _json(
@@ -1894,6 +1905,8 @@ async def get_action_context(workspace_id: str, action_name: str) -> str:
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to get action context", error=str(e))
         raise ToolError(f"Failed to get action context: {e}") from None
@@ -1924,7 +1937,7 @@ async def get_workflow_authoring_context(
     Returns JSON with sections:
     - actions: Array of action contexts (schema, secrets, examples for each action)
     - variable_hints: Available workspace variables ({name, keys, environment})
-    - secret_hints: Available secrets ({name, keys, environment, scope})
+    - secret_hints: Available workspace secrets ({name, keys, environment})
     - notes: Additional context about the response
     """
 
@@ -1939,7 +1952,7 @@ async def get_workflow_authoring_context(
                 raise ToolError("action_names_json must be a JSON array of strings")
             action_names = action_names_raw
 
-        workspace_inventory, org_inventory = await _load_secret_inventory(role)
+        workspace_inventory = await _load_secret_inventory(role)
         action_contexts: list[dict[str, Any]] = []
         async with RegistryActionsService.with_session(role=role) as registry_svc:
             if not action_names and query:
@@ -1958,7 +1971,7 @@ async def get_workflow_authoring_context(
                     )
                 )
                 configured, missing = _evaluate_configuration(
-                    requirements, workspace_inventory, org_inventory
+                    requirements, workspace_inventory
                 )
                 action_contexts.append(
                     {
@@ -1994,16 +2007,6 @@ async def get_workflow_authoring_context(
                     "name": secret_name,
                     "keys": sorted(keys),
                     "environment": DEFAULT_SECRETS_ENVIRONMENT,
-                    "scope": "workspace",
-                }
-            )
-        for secret_name, keys in org_inventory.items():
-            secret_hints.append(
-                {
-                    "name": secret_name,
-                    "keys": sorted(keys),
-                    "environment": DEFAULT_SECRETS_ENVIRONMENT,
-                    "scope": "organization",
                 }
             )
 
@@ -2021,6 +2024,8 @@ async def get_workflow_authoring_context(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to build workflow authoring context", error=str(e))
         raise ToolError(f"Failed to build workflow authoring context: {e}") from None
@@ -2427,6 +2432,8 @@ async def list_workflow_executions(
         return _json(items)
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to list workflow executions", error=str(e))
         raise ToolError(f"Failed to list workflow executions: {e}") from None
@@ -2537,6 +2544,8 @@ async def get_workflow_execution(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to get workflow execution", error=str(e))
         raise ToolError(f"Failed to get workflow execution: {e}") from None
@@ -2580,6 +2589,8 @@ async def get_webhook(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to get webhook", error=str(e))
         raise ToolError(f"Failed to get webhook: {e}") from None
@@ -2642,6 +2653,8 @@ async def update_webhook(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to update webhook", error=str(e))
         raise ToolError(f"Failed to update webhook: {e}") from None
@@ -2679,6 +2692,8 @@ async def get_case_trigger(
         raise ToolError(str(e)) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to get case trigger", error=str(e))
         raise ToolError(f"Failed to get case trigger: {e}") from None
@@ -2735,6 +2750,8 @@ async def update_case_trigger(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to update case trigger", error=str(e))
         raise ToolError(f"Failed to update case trigger: {e}") from None
@@ -2758,6 +2775,8 @@ async def list_tables(workspace_id: str) -> str:
             )
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to list tables", error=str(e))
         raise ToolError(f"Failed to list tables: {e}") from None
@@ -2795,6 +2814,8 @@ async def create_table(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to create table", error=str(e))
         raise ToolError(f"Failed to create table: {e}") from None
@@ -2829,6 +2850,8 @@ async def get_table(workspace_id: str, table_id: str) -> str:
             )
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to get table", error=str(e))
         raise ToolError(f"Failed to get table: {e}") from None
@@ -2850,6 +2873,8 @@ async def update_table(
             return _json({"id": str(updated.id), "name": updated.name})
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to update table", error=str(e))
         raise ToolError(f"Failed to update table: {e}") from None
@@ -2879,6 +2904,8 @@ async def insert_table_row(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to insert table row", error=str(e))
         raise ToolError(f"Failed to insert table row: {e}") from None
@@ -2906,6 +2933,8 @@ async def update_table_row(
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to update table row", error=str(e))
         raise ToolError(f"Failed to update table row: {e}") from None
@@ -2935,6 +2964,8 @@ async def search_table_rows(
             return _json(page.items)
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to search table rows", error=str(e))
         raise ToolError(f"Failed to search table rows: {e}") from None
@@ -2975,6 +3006,8 @@ async def import_csv(
             )
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to import CSV", error=str(e))
         raise ToolError(f"Failed to import CSV: {e}") from None
@@ -3024,6 +3057,8 @@ async def export_csv(
             return output.getvalue()
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to export CSV", error=str(e))
         raise ToolError(f"Failed to export CSV: {e}") from None
@@ -3054,6 +3089,8 @@ async def list_variables(
             )
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to list variables", error=str(e))
         raise ToolError(f"Failed to list variables: {e}") from None
@@ -3084,6 +3121,8 @@ async def get_variable(
             )
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to get variable", error=str(e))
         raise ToolError(f"Failed to get variable: {e}") from None
@@ -3093,55 +3132,35 @@ async def get_variable(
 async def list_secrets_metadata(
     workspace_id: str,
     environment: str = DEFAULT_SECRETS_ENVIRONMENT,
-    scope: str = "both",
 ) -> str:
     """List secret metadata without secret values."""
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        if scope not in {"workspace", "organization", "both"}:
-            raise ToolError("scope must be one of: workspace, organization, both")
         result: list[dict[str, Any]] = []
         async with SecretsService.with_session(role=role) as svc:
-            if scope in {"workspace", "both"}:
-                workspace_secrets = await svc.list_secrets()
-                for secret in workspace_secrets:
-                    if secret.environment != environment:
-                        continue
-                    keys = [kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)]
-                    result.append(
-                        {
-                            "id": str(secret.id),
-                            "name": secret.name,
-                            "type": secret.type,
-                            "environment": secret.environment,
-                            "scope": "workspace",
-                            "keys": keys,
-                            "tags": secret.tags,
-                        }
-                    )
-            if scope in {"organization", "both"}:
-                org_secrets = await svc.list_org_secrets()
-                for secret in org_secrets:
-                    if secret.environment != environment:
-                        continue
-                    keys = [kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)]
-                    result.append(
-                        {
-                            "id": str(secret.id),
-                            "name": secret.name,
-                            "type": secret.type,
-                            "environment": secret.environment,
-                            "scope": "organization",
-                            "keys": keys,
-                            "tags": secret.tags,
-                        }
-                    )
+            workspace_secrets = await svc.list_secrets()
+            for secret in workspace_secrets:
+                if secret.environment != environment:
+                    continue
+                keys = [kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)]
+                result.append(
+                    {
+                        "id": str(secret.id),
+                        "name": secret.name,
+                        "type": secret.type,
+                        "environment": secret.environment,
+                        "keys": keys,
+                        "tags": secret.tags,
+                    }
+                )
             return _json(result)
     except ToolError:
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to list secrets metadata", error=str(e))
         raise ToolError(f"Failed to list secrets metadata: {e}") from None
@@ -3152,60 +3171,34 @@ async def get_secret_metadata(
     workspace_id: str,
     secret_name: str,
     environment: str = DEFAULT_SECRETS_ENVIRONMENT,
-    scope: str = "both",
 ) -> str:
     """Get secret metadata by name without secret values."""
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        if scope not in {"workspace", "organization", "both"}:
-            raise ToolError("scope must be one of: workspace, organization, both")
         async with SecretsService.with_session(role=role) as svc:
-            if scope in {"workspace", "both"}:
-                try:
-                    secret = await svc.get_secret_by_name(
-                        secret_name, environment=environment
-                    )
-                    return _json(
-                        {
-                            "id": str(secret.id),
-                            "name": secret.name,
-                            "type": secret.type,
-                            "environment": secret.environment,
-                            "scope": "workspace",
-                            "keys": [
-                                kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)
-                            ],
-                            "tags": secret.tags,
-                        }
-                    )
-                except TracecatNotFoundError:
-                    pass
-            if scope in {"organization", "both"}:
-                try:
-                    secret = await svc.get_org_secret_by_name(
-                        secret_name, environment=environment
-                    )
-                    return _json(
-                        {
-                            "id": str(secret.id),
-                            "name": secret.name,
-                            "type": secret.type,
-                            "environment": secret.environment,
-                            "scope": "organization",
-                            "keys": [
-                                kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)
-                            ],
-                            "tags": secret.tags,
-                        }
-                    )
-                except TracecatNotFoundError:
-                    pass
-        raise ToolError(f"Secret {secret_name!r} not found in scope={scope}")
+            try:
+                secret = await svc.get_secret_by_name(
+                    secret_name, environment=environment
+                )
+            except TracecatNotFoundError:
+                raise ToolError(f"Secret {secret_name!r} not found") from None
+            return _json(
+                {
+                    "id": str(secret.id),
+                    "name": secret.name,
+                    "type": secret.type,
+                    "environment": secret.environment,
+                    "keys": [kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)],
+                    "tags": secret.tags,
+                }
+            )
     except ToolError:
         raise
     except ValueError as e:
         raise ToolError(str(e)) from e
+    except AuthorizationError:
+        raise
     except Exception as e:
         logger.error("Failed to get secret metadata", error=str(e))
         raise ToolError(f"Failed to get secret metadata: {e}") from None
