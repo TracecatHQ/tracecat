@@ -828,14 +828,19 @@ def build_action_statements_from_actions(
         for action in actions:
             for edge_data in action.upstream_edges:
                 edge = UpstreamEdgeDataValidator.validate_python(edge_data)
-                source_type = edge.get("source_type", "udf")
+                source_type = edge.get("source_type")
                 source_id_str = edge.get("source_id")
                 if not source_id_str:
                     continue
 
-                if source_type == "trigger":
+                # Legacy edge format omitted source_type for trigger roots.
+                if source_type == "trigger" or (
+                    source_type is None and source_id_str.startswith("trigger-")
+                ):
                     trigger_roots.add(action.id)
                     continue
+                if source_type is None:
+                    source_type = "udf"
                 if source_type != "udf":
                     continue
 

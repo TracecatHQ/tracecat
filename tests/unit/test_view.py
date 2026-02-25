@@ -2129,6 +2129,51 @@ def test_build_action_statements_no_trigger_edges_keeps_all_actions():
     assert stmts_by_ref["action_b"].depends_on == ["action_a"]
 
 
+def test_build_action_statements_keeps_legacy_trigger_roots_in_mixed_workflow():
+    """Legacy trigger roots should remain reachable when mixed with typed edges."""
+    trigger_id = f"trigger-{WORKFLOW_UUID}"
+
+    # Legacy trigger edge (source_type omitted)
+    action_a = MockActionWithRef(
+        id=UUID_A,
+        type="udf",
+        title="Action A",
+        ref="action_a",
+        upstream_edges=[{"source_id": trigger_id}],
+    )
+    action_b = MockActionWithRef(
+        id=UUID_B,
+        type="udf",
+        title="Action B",
+        ref="action_b",
+        upstream_edges=[
+            {
+                "source_id": str(UUID_A),
+                "source_type": "udf",
+                "source_handle": "success",
+            },
+        ],
+    )
+    # Typed trigger edge (new format)
+    action_c = MockActionWithRef(
+        id=UUID_C,
+        type="udf",
+        title="Action C",
+        ref="action_c",
+        upstream_edges=[{"source_id": trigger_id, "source_type": "trigger"}],
+    )
+
+    stmts = build_action_statements_from_actions(
+        cast("list[Action]", [action_a, action_b, action_c])
+    )
+    stmts_by_ref = {stmt.ref: stmt for stmt in stmts}
+
+    assert set(stmts_by_ref) == {"action_a", "action_b", "action_c"}
+    assert stmts_by_ref["action_a"].depends_on == []
+    assert stmts_by_ref["action_b"].depends_on == ["action_a"]
+    assert stmts_by_ref["action_c"].depends_on == []
+
+
 # =============================================================================
 # Tests for RFGraph validation
 # =============================================================================
