@@ -69,6 +69,15 @@ class CaseDropdownValueRead(TypedDict):
     option_color: str | None
 
 
+class CaseDropdownValueInput(TypedDict):
+    """Dropdown selection payload for case create/update operations."""
+
+    definition_id: NotRequired[UUID]
+    definition_ref: NotRequired[str]
+    option_id: NotRequired[UUID | None]
+    option_ref: NotRequired[str | None]
+
+
 class Case(TypedDict):
     """Case information returned by create/update/assign operations.
 

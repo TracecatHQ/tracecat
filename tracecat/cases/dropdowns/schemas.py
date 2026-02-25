@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from tracecat.core.schemas import Schema
 
@@ -100,3 +100,35 @@ class CaseDropdownValueSet(Schema):
         default=None,
         description="The option ID to set. Pass null to clear the value.",
     )
+
+
+class CaseDropdownValueInput(Schema):
+    """Dropdown selection payload for case create/update operations."""
+
+    definition_id: uuid.UUID | None = Field(
+        default=None,
+        description="Dropdown definition ID.",
+    )
+    definition_ref: str | None = Field(
+        default=None,
+        description="Dropdown definition ref.",
+    )
+    option_id: uuid.UUID | None = Field(
+        default=None,
+        description="Dropdown option ID. Pass null to clear the value.",
+    )
+    option_ref: str | None = Field(
+        default=None,
+        description="Dropdown option ref. Pass null to clear the value.",
+    )
+
+    @model_validator(mode="after")
+    def validate_identifiers(self) -> CaseDropdownValueInput:
+        has_definition_id = self.definition_id is not None
+        has_definition_ref = self.definition_ref is not None
+        if has_definition_id == has_definition_ref:
+            raise ValueError("Provide exactly one of definition_id or definition_ref")
+
+        if self.option_id is not None and self.option_ref is not None:
+            raise ValueError("Provide only one of option_id or option_ref")
+        return self

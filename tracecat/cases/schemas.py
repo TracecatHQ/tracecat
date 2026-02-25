@@ -9,7 +9,10 @@ from pydantic import ConfigDict, Field, RootModel, field_validator
 
 from tracecat.auth.schemas import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
-from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
+from tracecat.cases.dropdowns.schemas import (
+    CaseDropdownValueInput,
+    CaseDropdownValueRead,
+)
 from tracecat.cases.enums import (
     CaseEventType,
     CasePriority,
@@ -84,6 +87,7 @@ class CaseCreate(Schema):
     priority: CasePriority
     severity: CaseSeverity
     fields: dict[str, Any] | None = None
+    dropdown_values: list[CaseDropdownValueInput] | None = None
     assignee_id: uuid.UUID | None = None
     payload: dict[str, Any] | None = None
 
@@ -95,6 +99,7 @@ class CaseUpdate(Schema):
     priority: CasePriority | None = None
     severity: CaseSeverity | None = None
     fields: dict[str, Any] | None = None
+    dropdown_values: list[CaseDropdownValueInput] | None = None
     assignee_id: uuid.UUID | None = None
     payload: dict[str, Any] | None = None
 

@@ -40,6 +40,7 @@ class CasesClient:
         payload: dict[str, Any] | None | Unset = UNSET,
         tags: list[str] | None | Unset = UNSET,
         fields: dict[str, Any] | None | Unset = UNSET,
+        dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = UNSET,
     ) -> types.CaseRead:
         """Create a new case.
 
@@ -53,6 +54,7 @@ class CasesClient:
             payload: Additional JSON payload.
             tags: List of tag names or IDs to attach.
             fields: Custom field values.
+            dropdown_values: Dropdown selections to set on the case.
 
         Returns:
             Created case data.
@@ -72,6 +74,8 @@ class CasesClient:
             data["tags"] = tags
         if is_set(fields):
             data["fields"] = fields
+        if is_set(dropdown_values):
+            data["dropdown_values"] = dropdown_values
 
         return await self._client.post("/cases", json=data)
 
@@ -99,6 +103,7 @@ class CasesClient:
         payload: dict[str, Any] | None | Unset = UNSET,
         fields: dict[str, Any] | None | Unset = UNSET,
         tags: list[str] | None | Unset = UNSET,
+        dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = UNSET,
     ) -> types.CaseRead:
         """Update a case.
 
@@ -113,6 +118,7 @@ class CasesClient:
             payload: New payload (merged with existing). Pass None to clear.
             fields: Custom field values to update.
             tags: List of tag IDs or refs to set (replaces existing).
+            dropdown_values: Dropdown selections to set or clear.
 
         Returns:
             Updated case data.
@@ -136,6 +142,8 @@ class CasesClient:
             data["fields"] = fields
         if is_set(tags):
             data["tags"] = tags
+        if is_set(dropdown_values):
+            data["dropdown_values"] = dropdown_values
 
         return await self._client.patch(f"/cases/{case_id}", json=data)
 
@@ -573,6 +581,7 @@ class CasesClient:
         payload: dict[str, Any] | None | Unset = UNSET,
         tags: list[str] | None | Unset = UNSET,
         fields: dict[str, Any] | None | Unset = UNSET,
+        dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = UNSET,
     ) -> types.Case:
         """Create a new case and return simple dict format.
 
@@ -588,6 +597,7 @@ class CasesClient:
             payload: Additional JSON payload.
             tags: List of tag names or IDs to attach.
             fields: Custom field values.
+            dropdown_values: Dropdown selections to set on the case.
 
         Returns:
             Created case data (CaseDict format).
@@ -607,6 +617,8 @@ class CasesClient:
             data["tags"] = tags
         if is_set(fields):
             data["fields"] = fields
+        if is_set(dropdown_values):
+            data["dropdown_values"] = dropdown_values
 
         return await self._client.post("/cases/simple", json=data)
 
@@ -623,6 +635,7 @@ class CasesClient:
         payload: dict[str, Any] | None | Unset = UNSET,
         fields: dict[str, Any] | None | Unset = UNSET,
         tags: list[str] | None | Unset = UNSET,
+        dropdown_values: list[types.CaseDropdownValueInput] | None | Unset = UNSET,
         append_description: bool = False,
     ) -> types.Case:
         """Update a case and return simple dict format.
@@ -640,6 +653,7 @@ class CasesClient:
             payload: New payload (merged with existing). Pass None to clear.
             fields: Custom field values to update.
             tags: List of tag IDs or refs to set (replaces existing).
+            dropdown_values: Dropdown selections to set or clear.
             append_description: If True, append description to existing.
 
         Returns:
@@ -664,6 +678,8 @@ class CasesClient:
             data["fields"] = fields
         if is_set(tags):
             data["tags"] = tags
+        if is_set(dropdown_values):
+            data["dropdown_values"] = dropdown_values
         if append_description:
             data["append_description"] = append_description
 

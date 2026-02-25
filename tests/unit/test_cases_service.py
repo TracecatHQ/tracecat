@@ -7,6 +7,17 @@ from unittest.mock import patch, MagicMock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.cases.dropdowns.schemas import (
+    CaseDropdownDefinitionCreate,
+    CaseDropdownOptionCreate,
+    CaseDropdownValueInput,
+)
+from tracecat.cases.dropdowns.service import (
+    CaseDropdownDefinitionsService,
+    CaseDropdownValuesService,
+)
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import (
     CaseCreate,
@@ -15,12 +26,10 @@ from tracecat.cases.schemas import (
     CaseUpdate,
 )
 from tracecat.cases.service import CaseFieldsService, CasesService
-from tracecat.tables.enums import SqlType
-from tracecat.auth.types import Role
-from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import Case
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.pagination import CursorPaginationParams
+from tracecat.tables.enums import SqlType
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -90,6 +99,36 @@ async def _list_cases(
         sort=sort,
     )
     return response.items
+
+
+async def _create_dropdown_with_option(
+    cases_service: CasesService,
+    *,
+    definition_name: str,
+    definition_ref: str,
+    option_label: str,
+    option_ref: str,
+):
+    definitions_service = CaseDropdownDefinitionsService(
+        session=cases_service.session, role=cases_service.role
+    )
+    definition = await definitions_service.create_definition(
+        CaseDropdownDefinitionCreate(
+            name=definition_name,
+            ref=definition_ref,
+            is_ordered=False,
+            options=[],
+        )
+    )
+    option = await definitions_service.add_option(
+        definition.id,
+        CaseDropdownOptionCreate(
+            label=option_label,
+            ref=option_ref,
+            position=0,
+        ),
+    )
+    return definition, option
 
 
 @pytest.mark.anyio
@@ -529,6 +568,100 @@ class TestCasesService:
         assert fields is not None
         assert fields["field1"] == "updated_value"
         assert fields["field2"] == 2
+
+    async def test_create_case_with_dropdown_values(
+        self, cases_service: CasesService, case_create_params: CaseCreate
+    ) -> None:
+        """Test creating a case with dropdown values."""
+        definition, option = await _create_dropdown_with_option(
+            cases_service,
+            definition_name="Environment",
+            definition_ref="environment",
+            option_label="Production",
+            option_ref="prod",
+        )
+        params = CaseCreate(
+            summary=case_create_params.summary,
+            description=case_create_params.description,
+            status=case_create_params.status,
+            priority=case_create_params.priority,
+            severity=case_create_params.severity,
+            dropdown_values=[
+                CaseDropdownValueInput(
+                    definition_ref=definition.ref,
+                    option_ref=option.ref,
+                )
+            ],
+        )
+
+        created_case = await cases_service.create_case(params)
+
+        dropdowns_service = CaseDropdownValuesService(
+            session=cases_service.session, role=cases_service.role
+        )
+        values = await dropdowns_service.list_values_for_case(created_case.id)
+        assert len(values) == 1
+        assert values[0].definition_id == definition.id
+        assert values[0].option_id == option.id
+
+    async def test_update_case_with_dropdown_values(
+        self, cases_service: CasesService, case_create_params: CaseCreate
+    ) -> None:
+        """Test updating a case with dropdown values."""
+        definition, initial_option = await _create_dropdown_with_option(
+            cases_service,
+            definition_name="Triage",
+            definition_ref="triage",
+            option_label="Needs Review",
+            option_ref="needs_review",
+        )
+        definitions_service = CaseDropdownDefinitionsService(
+            session=cases_service.session, role=cases_service.role
+        )
+        target_option = await definitions_service.add_option(
+            definition.id,
+            CaseDropdownOptionCreate(
+                label="Escalated",
+                ref="escalated",
+                position=1,
+            ),
+        )
+
+        created_case = await cases_service.create_case(
+            CaseCreate(
+                summary=case_create_params.summary,
+                description=case_create_params.description,
+                status=case_create_params.status,
+                priority=case_create_params.priority,
+                severity=case_create_params.severity,
+                dropdown_values=[
+                    CaseDropdownValueInput(
+                        definition_id=definition.id,
+                        option_id=initial_option.id,
+                    )
+                ],
+            )
+        )
+
+        await cases_service.update_case(
+            created_case,
+            CaseUpdate(
+                dropdown_values=[
+                    CaseDropdownValueInput(
+                        definition_id=definition.id,
+                        option_ref="escalated",
+                    )
+                ]
+            ),
+        )
+
+        dropdowns_service = CaseDropdownValuesService(
+            session=cases_service.session, role=cases_service.role
+        )
+        values = await dropdowns_service.list_values_for_case(created_case.id)
+        assert len(values) == 1
+        assert values[0].definition_id == definition.id
+        assert values[0].option_id == target_option.id
 
     async def test_delete_case(
         self, cases_service: CasesService, case_create_params: CaseCreate
