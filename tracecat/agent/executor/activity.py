@@ -732,6 +732,9 @@ async def execute_approved_tools_activity(
 
             # Check if this is a user MCP tool (not a registry action)
             parsed_mcp = UserMCPClient.parse_user_mcp_tool_name(tool_call.tool_name)
+            if parsed_mcp is None:
+                # Fall back to already-normalized name (helps with canonical MCP names)
+                parsed_mcp = UserMCPClient.parse_user_mcp_tool_name(action_name)
 
             logger.info(
                 "Executing approved tool",

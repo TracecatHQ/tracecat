@@ -11,7 +11,7 @@ from slugify import slugify
 from sqlalchemy import select
 
 from tracecat import config
-from tracecat.agent.mcp.user_client import discover_user_mcp_tools
+from tracecat.agent.mcp.user_client import UserMCPClient, discover_user_mcp_tools
 from tracecat.agent.mcp.utils import mcp_tool_name_to_canonical
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -91,11 +91,16 @@ class AgentPresetService(BaseWorkspaceService):
     async def _validate_actions(self, actions: list[str]) -> None:
         """Validate that all actions are in the registry index.
 
-        MCP tool keys (``mcp.*``) are skipped — they are discovered
-        dynamically from user MCP servers, not stored in the registry.
+        MCP tool keys (``mcp.*``) are validated separately against MCP
+        integrations and may be mixed with registry actions.
         """
+        normalized_actions = {action.strip() for action in actions if action.strip()}
         # Separate MCP tools from registry actions
-        registry_actions = {a for a in actions if not a.startswith("mcp.")}
+        registry_actions = {
+            action
+            for action in normalized_actions
+            if not UserMCPClient.parse_user_mcp_tool_name(action)
+        }
         if not registry_actions:
             return
         registry_service = RegistryActionsService(self.session, role=self.role)

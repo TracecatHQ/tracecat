@@ -188,9 +188,22 @@ class UserMCPClient:
             Tuple of (server_name, original_tool_name), or None if not a user MCP tool.
 
         """
+        tool_name = tool_name.strip()
+        # Legacy or wrapped registry names are not user-defined MCP tools.
+        if tool_name.startswith("mcp.tracecat-registry."):
+            return None
+
         # Skip tracecat-registry tools (handled separately)
         if tool_name.startswith("mcp__tracecat-registry__"):
             return None
+
+        # Canonical user MCP format:
+        #   mcp.{server_name}.{tool_name}
+        if tool_name.startswith("mcp."):
+            canonical_name = tool_name.removeprefix("mcp.")
+            parts = canonical_name.rsplit(".", 1)
+            if len(parts) == 2 and parts[0] and parts[1]:
+                return (parts[0], parts[1])
 
         # Check for user MCP pattern
         if not tool_name.startswith("mcp__"):
