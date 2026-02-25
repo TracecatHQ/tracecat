@@ -34,6 +34,7 @@ from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.lock.service import RegistryLockService
+from tracecat.registry.lock.types import coerce_registry_lock
 from tracecat.settings.service import get_setting
 from tracecat.tags.schemas import TagRead
 from tracecat.validation.schemas import (
@@ -325,6 +326,7 @@ async def get_workflow(
         alias=workflow.alias,
         git_sync_branch=workflow.git_sync_branch,
         error_handler=workflow.error_handler,
+        registry_lock=coerce_registry_lock(workflow.registry_lock),
         trigger_position_x=workflow.trigger_position_x,
         trigger_position_y=workflow.trigger_position_y,
         graph_version=workflow.graph_version,

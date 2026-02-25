@@ -352,6 +352,7 @@ class CaseTriggerConsumer:
             registry_lock=RegistryLock.model_validate(defn.registry_lock)
             if defn.registry_lock
             else None,
+            definition_version=defn.version,
         )
         return True
 

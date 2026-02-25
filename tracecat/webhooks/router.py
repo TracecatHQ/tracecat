@@ -162,6 +162,7 @@ async def _incoming_webhook(
                 registry_lock=RegistryLock.model_validate(defn.registry_lock)
                 if defn.registry_lock
                 else None,
+                definition_version=defn.version,
             )
         # Currently just return the last response's wf_exec_id
         response = WorkflowExecutionCreateResponse(
@@ -181,6 +182,7 @@ async def _incoming_webhook(
             registry_lock=RegistryLock.model_validate(defn.registry_lock)
             if defn.registry_lock
             else None,
+            definition_version=defn.version,
         )
 
     # Response handling
@@ -235,6 +237,7 @@ async def incoming_webhook_wait(
         registry_lock=RegistryLock.model_validate(defn.registry_lock)
         if defn.registry_lock
         else None,
+        definition_version=defn.version,
     )
 
     return response["result"]

@@ -24,6 +24,11 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import Workspace
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowUUID
+from tracecat.registry.lock.types import RegistryLock
+from tracecat.workflow.executions.constants import (
+    WF_EXECUTION_MEMO_DEFINITION_VERSION_KEY,
+    WF_EXECUTION_MEMO_REGISTRY_LOCK_KEY,
+)
 from tracecat.workflow.executions.enums import (
     TriggerType,
     WorkflowEventType,
@@ -785,6 +790,63 @@ class TestWorkflowExecutionEvents:
             assert event.start_time is None
 
 
+@pytest.mark.anyio
+class TestExecutionRegistryLockResolution:
+    """Test execution registry lock extraction from workflow memo."""
+
+    async def test_returns_lock_from_execution_memo(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        expected_lock = RegistryLock(
+            origins={"tracecat_registry": "2026.02.01.000001"},
+            actions={"core.noop": "tracecat_registry"},
+        )
+        execution = Mock()
+        execution.memo = AsyncMock(
+            return_value={"registry_lock": expected_lock.model_dump()}
+        )
+
+        lock = await workflow_executions_service.get_execution_registry_lock(
+            workflow_exec_id,
+            execution=execution,
+        )
+
+        assert lock == expected_lock
+        execution.memo.assert_awaited_once()
+
+    async def test_returns_none_when_execution_not_found(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        with patch.object(
+            workflow_executions_service,
+            "get_execution",
+            AsyncMock(return_value=None),
+        ):
+            lock = await workflow_executions_service.get_execution_registry_lock(
+                workflow_exec_id
+            )
+
+        assert lock is None
+
+    async def test_returns_none_when_memo_lock_payload_is_invalid(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        execution = Mock()
+        execution.memo = AsyncMock(return_value={"registry_lock": 42})
+        lock = await workflow_executions_service.get_execution_registry_lock(
+            workflow_exec_id,
+            execution=execution,
+        )
+
+        assert lock is None
+
+
 # === Timeout Resolution Tests ===
 
 
@@ -1093,3 +1155,45 @@ class TestWorkflowStartAcknowledgement:
         assert (
             mock_client.start_workflow.await_args.kwargs["id"] == response["wf_exec_id"]
         )
+
+    @pytest.mark.anyio
+    async def test_start_persists_registry_lock_and_definition_version_in_memo(
+        self,
+        mock_client: Mock,
+        mock_role: Role,
+    ) -> None:
+        service = WorkflowExecutionsService(client=mock_client, role=mock_role)
+        mock_client.start_workflow = AsyncMock(return_value=Mock(spec=WorkflowHandle))
+
+        dsl = DSLInput.model_validate(
+            {
+                "title": "Webhook test workflow",
+                "description": "Test workflow",
+                "entrypoint": {"ref": "start"},
+                "actions": [{"ref": "start", "action": "core.noop"}],
+                "config": {"enable_runtime_tests": False},
+            }
+        )
+        wf_id = WorkflowUUID.new("wf_4itKqkgCZrLhgYiq5L211X")
+        registry_lock = RegistryLock(
+            origins={"tracecat_registry": "2026.02.25.000001"},
+            actions={"core.noop": "tracecat_registry"},
+        )
+
+        with patch.object(
+            service, "_resolve_execution_timeout", AsyncMock(return_value=None)
+        ):
+            await cast(Any, service).create_workflow_execution_wait_for_start(
+                dsl=dsl,
+                wf_id=wf_id,
+                payload=None,
+                trigger_type=TriggerType.WEBHOOK,
+                registry_lock=registry_lock,
+                definition_version=42,
+                memo={"parent_workflow_execution_id": "wf_abc/exec_def"},
+            )
+
+        memo = mock_client.start_workflow.await_args.kwargs["memo"]
+        assert memo["parent_workflow_execution_id"] == "wf_abc/exec_def"
+        assert memo[WF_EXECUTION_MEMO_DEFINITION_VERSION_KEY] == 42
+        assert memo[WF_EXECUTION_MEMO_REGISTRY_LOCK_KEY] == registry_lock.model_dump()

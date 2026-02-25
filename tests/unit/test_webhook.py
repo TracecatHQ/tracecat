@@ -326,6 +326,7 @@ class TestIncomingWebhook:
                     "config": {"enable_runtime_tests": False},
                 },
                 registry_lock=None,
+                version=1,
             ),
         )
 

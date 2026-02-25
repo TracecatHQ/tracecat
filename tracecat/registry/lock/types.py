@@ -1,8 +1,8 @@
 """Types for registry version locks."""
 
-from typing import Self
+from typing import Any, Self, cast
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ValidationError, model_validator
 
 
 class RegistryLock(BaseModel):
@@ -34,3 +34,31 @@ class RegistryLock(BaseModel):
             )
 
         return self
+
+
+def coerce_registry_lock(value: Any) -> RegistryLock | None:
+    """Best-effort coercion for registry lock payloads.
+
+    Supports:
+    1. Canonical shape: {"origins": {...}, "actions": {...}}
+    2. Legacy flat shape: {"origin": "version"}
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, RegistryLock):
+        return value
+
+    if not isinstance(value, dict):
+        return None
+
+    try:
+        return RegistryLock.model_validate(value)
+    except ValidationError:
+        if all(
+            isinstance(origin, str) and isinstance(version, str)
+            for origin, version in value.items()
+        ):
+            legacy_origins = cast(dict[str, str], value)
+            return RegistryLock(origins=legacy_origins, actions={})
+        return None

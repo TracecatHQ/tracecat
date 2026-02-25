@@ -124,6 +124,9 @@ with workflow.unsafe.imports_passed_through():
         trigger_key,
     )
     from tracecat.validation.schemas import ValidationDetailListTA
+    from tracecat.workflow.executions.constants import (
+        WF_EXECUTION_MEMO_REGISTRY_LOCK_KEY,
+    )
     from tracecat.workflow.executions.enums import (
         ExecutionType,
         TemporalSearchAttr,
@@ -362,6 +365,11 @@ class DSLWorkflow:
             "Workflow registry lock",
             registry_lock=self.registry_lock,
             dispatch_type=self.dispatch_type,
+        )
+        workflow.upsert_memo(
+            {
+                WF_EXECUTION_MEMO_REGISTRY_LOCK_KEY: self.registry_lock.model_dump(),
+            }
         )
 
         # Note that we can't run the error handler above this

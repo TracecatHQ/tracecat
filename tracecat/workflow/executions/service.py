@@ -41,7 +41,7 @@ from tracecat.identifiers.workflow import (
     generate_exec_id,
 )
 from tracecat.logger import logger
-from tracecat.registry.lock.types import RegistryLock
+from tracecat.registry.lock.types import RegistryLock, coerce_registry_lock
 from tracecat.storage.collection import (
     get_collection_page as get_storage_collection_page,
 )
@@ -64,7 +64,12 @@ from tracecat.workflow.executions.common import (
     is_scheduled_event,
     is_start_event,
 )
-from tracecat.workflow.executions.constants import WF_COMPLETED_REF, WF_FAILURE_REF
+from tracecat.workflow.executions.constants import (
+    WF_COMPLETED_REF,
+    WF_EXECUTION_MEMO_DEFINITION_VERSION_KEY,
+    WF_EXECUTION_MEMO_REGISTRY_LOCK_KEY,
+    WF_FAILURE_REF,
+)
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -175,6 +180,21 @@ class WorkflowExecutionsService:
 
         return None
 
+    def _build_execution_memo(
+        self,
+        *,
+        memo: dict[str, Any] | None,
+        registry_lock: RegistryLock | None,
+        definition_version: int | None,
+    ) -> dict[str, Any] | None:
+        """Build workflow memo payload for execution metadata."""
+        payload = dict(memo) if memo else {}
+        if definition_version is not None:
+            payload[WF_EXECUTION_MEMO_DEFINITION_VERSION_KEY] = definition_version
+        if registry_lock is not None:
+            payload[WF_EXECUTION_MEMO_REGISTRY_LOCK_KEY] = registry_lock.model_dump()
+        return payload or None
+
     async def query_interaction_states(
         self,
         wf_exec_id: WorkflowExecutionID,
@@ -255,6 +275,37 @@ class WorkflowExecutionsService:
             if "not found" in str(e).lower():
                 return None
             raise
+
+    async def get_execution_registry_lock(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+        *,
+        execution: WorkflowExecution | None = None,
+    ) -> RegistryLock | None:
+        """Resolve the registry lock used by a workflow execution from memo."""
+        execution_desc = execution or await self.get_execution(wf_exec_id)
+        if execution_desc is None:
+            return None
+
+        try:
+            memo = await execution_desc.memo()
+        except Exception as e:
+            self.logger.warning(
+                "Failed to read workflow execution memo for registry lock",
+                wf_exec_id=wf_exec_id,
+                error=e,
+            )
+            return None
+
+        lock_payload = memo.get(WF_EXECUTION_MEMO_REGISTRY_LOCK_KEY)
+        lock = coerce_registry_lock(lock_payload)
+        if lock is None and lock_payload is not None:
+            self.logger.warning(
+                "Workflow memo registry lock payload is invalid",
+                wf_exec_id=wf_exec_id,
+                payload_type=type(lock_payload).__name__,
+            )
+        return lock
 
     async def list_executions(
         self,
@@ -908,6 +959,7 @@ class WorkflowExecutionsService:
         trigger_type: TriggerType = TriggerType.MANUAL,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        definition_version: int | None = None,
         memo: dict[str, Any] | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a new workflow execution.
@@ -926,6 +978,7 @@ class WorkflowExecutionsService:
             wf_exec_id=wf_exec_id,
             time_anchor=time_anchor,
             registry_lock=registry_lock,
+            definition_version=definition_version,
             memo=memo,
             trigger_inputs=payload,
             execution_type=ExecutionType.PUBLISHED,
@@ -949,6 +1002,7 @@ class WorkflowExecutionsService:
         wf_exec_id: WorkflowExecutionID | None = None,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        definition_version: int | None = None,
         memo: dict[str, Any] | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a workflow execution and wait until Temporal acknowledges start."""
@@ -964,6 +1018,7 @@ class WorkflowExecutionsService:
             execution_type=ExecutionType.PUBLISHED,
             time_anchor=time_anchor,
             registry_lock=registry_lock,
+            definition_version=definition_version,
             memo=memo,
         )
 
@@ -982,6 +1037,7 @@ class WorkflowExecutionsService:
         trigger_type: TriggerType = TriggerType.MANUAL,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        definition_version: int | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a new draft workflow execution.
 
@@ -998,6 +1054,7 @@ class WorkflowExecutionsService:
             registry_lock=registry_lock,
             trigger_inputs=payload,
             execution_type=ExecutionType.DRAFT,
+            definition_version=definition_version,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
@@ -1018,6 +1075,7 @@ class WorkflowExecutionsService:
         wf_exec_id: WorkflowExecutionID | None = None,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        definition_version: int | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a draft workflow execution and wait until Temporal acknowledges start."""
         if wf_exec_id is None:
@@ -1032,6 +1090,7 @@ class WorkflowExecutionsService:
             execution_type=ExecutionType.DRAFT,
             time_anchor=time_anchor,
             registry_lock=registry_lock,
+            definition_version=definition_version,
         )
 
         return WorkflowExecutionCreateResponse(
@@ -1051,6 +1110,7 @@ class WorkflowExecutionsService:
         wf_exec_id: WorkflowExecutionID | None = None,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        definition_version: int | None = None,
     ) -> WorkflowDispatchResponse:
         """Create a new draft workflow execution.
 
@@ -1068,6 +1128,7 @@ class WorkflowExecutionsService:
             execution_type=ExecutionType.DRAFT,
             time_anchor=time_anchor,
             registry_lock=registry_lock,
+            definition_version=definition_version,
         )
 
     @audit_log(resource_type="workflow_execution", action="create")
@@ -1081,6 +1142,7 @@ class WorkflowExecutionsService:
         wf_exec_id: WorkflowExecutionID | None = None,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        definition_version: int | None = None,
         memo: dict[str, Any] | None = None,
     ) -> WorkflowDispatchResponse:
         """Create a new workflow execution.
@@ -1102,6 +1164,7 @@ class WorkflowExecutionsService:
             trigger_type=trigger_type,
             time_anchor=time_anchor,
             registry_lock=registry_lock,
+            definition_version=definition_version,
             memo=memo,
         )
 
@@ -1115,6 +1178,8 @@ class WorkflowExecutionsService:
         execution_type: ExecutionType = ExecutionType.PUBLISHED,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        definition_version: int | None = None,
+        memo: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> WorkflowDispatchResponse:
         if self.role is None:
@@ -1130,6 +1195,14 @@ class WorkflowExecutionsService:
             seconds=dsl.config.timeout
         ):
             kwargs["execution_timeout"] = execution_timeout
+
+        merged_memo = self._build_execution_memo(
+            memo=memo,
+            registry_lock=registry_lock,
+            definition_version=definition_version,
+        )
+        if merged_memo is not None:
+            kwargs["memo"] = merged_memo
 
         # Mint time_anchor for webhook/manual triggers if not explicitly provided.
         # This ensures the time_anchor is baked into workflow input and survives resets.
@@ -1250,6 +1323,8 @@ class WorkflowExecutionsService:
         execution_type: ExecutionType = ExecutionType.PUBLISHED,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        definition_version: int | None = None,
+        memo: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
         if self.role is None:
@@ -1264,6 +1339,14 @@ class WorkflowExecutionsService:
             seconds=dsl.config.timeout
         ):
             kwargs["execution_timeout"] = execution_timeout
+
+        merged_memo = self._build_execution_memo(
+            memo=memo,
+            registry_lock=registry_lock,
+            definition_version=definition_version,
+        )
+        if merged_memo is not None:
+            kwargs["memo"] = merged_memo
 
         if time_anchor is None and trigger_type in (
             TriggerType.WEBHOOK,

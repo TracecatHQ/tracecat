@@ -45,6 +45,7 @@ from tracecat.ee.interactions.schemas import (
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.sessions import Session
 from tracecat.storage.object import CollectionObject, StoredObject
 from tracecat.workflow.executions.common import (
@@ -168,6 +169,14 @@ class WorkflowExecutionReadCompact[TInput: Any, TResult: Any, TSessionEvent: Any
     interactions: list[InteractionRead] = Field(
         default_factory=list,
         description="The interactions in the workflow execution",
+    )
+    registry_lock: RegistryLock | None = Field(
+        default=None,
+        description=(
+            "Registry lock used for this run. For draft executions this is "
+            "resolved at workflow start; for published executions this comes "
+            "from the committed definition/start arguments."
+        ),
     )
 
 

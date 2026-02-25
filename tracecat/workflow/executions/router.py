@@ -343,6 +343,9 @@ async def get_workflow_execution_compact(
         )
 
     compact_events = await service.list_workflow_execution_events_compact(execution_id)
+    registry_lock = await service.get_execution_registry_lock(
+        execution_id, execution=execution
+    )
 
     for event in compact_events:
         # Project AgentOutput to UIMessages only in the compact workflow execution view
@@ -386,6 +389,7 @@ async def get_workflow_execution_compact(
         history_length=execution.history_length,
         events=compact_events,
         interactions=interactions,
+        registry_lock=registry_lock,
         trigger_type=get_trigger_type_from_search_attr(
             execution.typed_search_attributes, execution.id
         ),
@@ -672,6 +676,7 @@ async def create_workflow_execution(
                 if defn.registry_lock
                 else None
             ),
+            definition_version=defn.version,
         )
         return response
     except TracecatValidationError as e:

@@ -248,6 +248,7 @@ async def test_internal_execute_workflow_by_id(
         "config": {"enable_runtime_tests": False},
     }
     mock_defn.registry_lock = None
+    mock_defn.version = 1
 
     mock_defn_service = AsyncMock()
     mock_defn_service.get_definition_by_workflow_id.return_value = mock_defn
@@ -313,6 +314,7 @@ async def test_internal_execute_workflow_by_alias(
         "config": {"enable_runtime_tests": False},
     }
     mock_defn.registry_lock = None
+    mock_defn.version = 1
 
     mock_defn_service = AsyncMock()
     mock_defn_service.get_definition_by_workflow_id.return_value = mock_defn

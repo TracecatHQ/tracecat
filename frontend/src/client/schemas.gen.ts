@@ -21249,6 +21249,18 @@ export const $WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ =
         title: "Interactions",
         description: "The interactions in the workflow execution",
       },
+      registry_lock: {
+        anyOf: [
+          {
+            $ref: "#/components/schemas/RegistryLock",
+          },
+          {
+            type: "null",
+          },
+        ],
+        description:
+          "Registry lock used for this run. For draft executions this is resolved at workflow start; for published executions this comes from the committed definition/start arguments.",
+      },
     },
     type: "object",
     required: [
@@ -21651,6 +21663,16 @@ export const $WorkflowRead = {
         },
       ],
       title: "Error Handler",
+    },
+    registry_lock: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RegistryLock",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     trigger_position_x: {
       type: "number",

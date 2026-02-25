@@ -97,6 +97,7 @@ import {
   useOrgAppSettings,
   useWorkflowManager,
 } from "@/lib/hooks"
+import { sortRegistryLockOrigins } from "@/lib/registry-lock"
 import { cn, copyToClipboard } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
@@ -137,6 +138,10 @@ export function BuilderNav() {
 
   // Always allow running - use draft endpoint when no committed version
   const manualTriggerDisabled = false
+  const workflowRegistryLock =
+    "registry_lock" in workflow
+      ? ((workflow as { registry_lock?: unknown }).registry_lock ?? null)
+      : null
 
   return (
     <div className="flex w-full items-center">
@@ -184,6 +189,7 @@ export function BuilderNav() {
         {/* Save button */}
         <WorkflowSaveActions
           workflow={workflow}
+          registryLock={workflowRegistryLock}
           workspaceId={workspaceId}
           validationErrors={validationErrors}
           onSave={handleCommit}
@@ -674,12 +680,14 @@ function WorkflowManualTrigger({
 
 function WorkflowSaveActions({
   workflow,
+  registryLock,
   workspaceId,
   validationErrors,
   onSave,
   onPublish,
 }: {
   workflow: { version?: number | null; git_sync_branch?: string | null }
+  registryLock: unknown
   workspaceId: string
   validationErrors: ValidationResult[] | null
   onSave: () => Promise<void>
@@ -766,6 +774,7 @@ function WorkflowSaveActions({
     (branch) => branch.name === selectedBranch
   )
   const isDefaultBranchSelected = selectedBranchInfo?.is_default ?? false
+  const registryLockEntries = sortRegistryLockOrigins(registryLock)
 
   const handlePublish = async (data: TPublishForm) => {
     setIsPublishing(true)
@@ -1002,12 +1011,39 @@ function WorkflowSaveActions({
         )}
       </div>
 
-      <Badge
-        variant="secondary"
-        className="h-7 text-xs font-normal text-muted-foreground hover:cursor-default"
-      >
-        {workflow.version ? `v${workflow.version}` : "Draft"}
-      </Badge>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge
+            variant="secondary"
+            className="h-7 text-xs font-normal text-muted-foreground hover:cursor-default"
+          >
+            {workflow.version ? `v${workflow.version}` : "Draft"}
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="w-80">
+          <div className="space-y-2 text-xs">
+            <div className="font-medium text-foreground/80">Registry lock</div>
+            {registryLockEntries.length > 0 ? (
+              <div className="space-y-1">
+                {registryLockEntries.map(([origin, version]) => (
+                  <div key={origin} className="flex items-center gap-2">
+                    <span className="font-mono text-muted-foreground">
+                      {origin}
+                    </span>
+                    <span className="ml-auto font-mono text-foreground/80">
+                      {version}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <span className="text-muted-foreground">
+                Not published yet (uses latest registry).
+              </span>
+            )}
+          </div>
+        </TooltipContent>
+      </Tooltip>
     </div>
   )
 }

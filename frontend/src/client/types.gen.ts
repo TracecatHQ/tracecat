@@ -6648,6 +6648,10 @@ export type WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ = {
    * The interactions in the workflow execution
    */
   interactions?: Array<InteractionRead>
+  /**
+   * Registry lock used for this run. For draft executions this is resolved at workflow start; for published executions this comes from the committed definition/start arguments.
+   */
+  registry_lock?: RegistryLock | null
 }
 
 export type WorkflowExecutionReadMinimal = {
@@ -6758,6 +6762,7 @@ export type WorkflowRead = {
   alias?: string | null
   git_sync_branch?: string | null
   error_handler?: string | null
+  registry_lock?: RegistryLock | null
   trigger_position_x?: number
   trigger_position_y?: number
   graph_version?: number

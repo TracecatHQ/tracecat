@@ -43,6 +43,7 @@ class WorkflowRead(Schema):
     alias: str | None = None
     git_sync_branch: str | None = None
     error_handler: str | None = None
+    registry_lock: RegistryLock | None = None
     trigger_position_x: float = 0.0
     trigger_position_y: float = 0.0
     graph_version: int = 1

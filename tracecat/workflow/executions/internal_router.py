@@ -182,6 +182,7 @@ async def execute_workflow(
             payload=params.trigger_inputs,
             trigger_type=TriggerType.MANUAL,
             registry_lock=registry_lock,
+            definition_version=defn.version,
             memo=memo,
         )
         logger.info(

@@ -12,6 +12,7 @@ import {
 import { CenteredSpinner, Spinner } from "@/components/loading/spinner"
 import NoContent from "@/components/no-content"
 import { AlertNotification } from "@/components/notifications"
+import { Badge } from "@/components/ui/badge"
 import {
   groupEventsByActionRef,
   executionId as parseWorkflowExecutionId,
@@ -19,6 +20,7 @@ import {
   type WorkflowExecutionEventCompact,
 } from "@/lib/event-history"
 import { useCompactWorkflowExecution } from "@/lib/hooks"
+import { sortRegistryLockOrigins } from "@/lib/registry-lock"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 import "react18-json-view/src/style.css"
@@ -54,6 +56,15 @@ export function WorkflowExecutionEventHistory({
   if (!execution) {
     return <NoContent message="No events found." />
   }
+  const registryLock =
+    "registry_lock" in execution
+      ? ((execution as { registry_lock?: unknown }).registry_lock ?? null)
+      : null
+  const registryLockEntries = sortRegistryLockOrigins(registryLock)
+  const lockSourceLabel =
+    execution.execution_type === "draft"
+      ? "Resolved at run start"
+      : "Published definition"
 
   const terminalEvents = execution.events.filter(
     (event) => !INTERMEDIATE_EVENT_STATUSES.has(event.status)
@@ -93,15 +104,21 @@ export function WorkflowExecutionEventHistory({
 
   if (eventRows.length === 0) {
     return (
-      <div className="flex h-16 items-center justify-center text-center text-xs text-muted-foreground">
-        {execution.status === "RUNNING" ? (
-          <div className="flex items-center justify-center gap-2">
-            <Spinner className="size-3" />
-            <span>Waiting for events...</span>
-          </div>
-        ) : (
-          <span>No events</span>
-        )}
+      <div className="group h-full">
+        <ExecutionRegistryLockSummary
+          entries={registryLockEntries}
+          sourceLabel={lockSourceLabel}
+        />
+        <div className="flex h-16 items-center justify-center text-center text-xs text-muted-foreground">
+          {execution.status === "RUNNING" ? (
+            <div className="flex items-center justify-center gap-2">
+              <Spinner className="size-3" />
+              <span>Waiting for events...</span>
+            </div>
+          ) : (
+            <span>No events</span>
+          )}
+        </div>
       </div>
     )
   }
@@ -128,7 +145,49 @@ export function WorkflowExecutionEventHistory({
 
   return (
     <div className="group h-full">
+      <ExecutionRegistryLockSummary
+        entries={registryLockEntries}
+        sourceLabel={lockSourceLabel}
+      />
       <WorkflowEventsList rows={rows} />
+    </div>
+  )
+}
+
+function ExecutionRegistryLockSummary({
+  entries,
+  sourceLabel,
+}: {
+  entries: Array<[string, string]>
+  sourceLabel: string
+}) {
+  return (
+    <div className="border-b px-3 py-2 text-left">
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-muted-foreground">Registry lock</span>
+        <Badge
+          variant="outline"
+          className="h-4 px-1.5 text-[10px] font-normal text-muted-foreground"
+        >
+          {sourceLabel}
+        </Badge>
+      </div>
+      {entries.length > 0 ? (
+        <div className="mt-2 space-y-1 text-xs">
+          {entries.map(([origin, version]) => (
+            <div key={origin} className="flex items-center gap-2">
+              <span className="font-mono text-muted-foreground">{origin}</span>
+              <span className="ml-auto font-mono text-foreground/80">
+                {version}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <span className="mt-2 block text-xs text-muted-foreground">
+          Not published yet (uses latest registry).
+        </span>
+      )}
     </div>
   )
 }
