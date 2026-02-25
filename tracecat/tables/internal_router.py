@@ -88,7 +88,7 @@ class TableSearchRequest(BaseModel):
             raise ValueError("group_by and agg_field require agg")
         if has_agg and self.agg is TableAggregation.VALUE_COUNTS and not has_group_by:
             raise ValueError("value_counts aggregation requires group_by")
-        if has_agg and self.agg not in {TableAggregation.SUM, TableAggregation.VALUE_COUNTS} and not has_agg_field:
+        if self.agg is not None and self.agg not in {TableAggregation.SUM, TableAggregation.VALUE_COUNTS} and not has_agg_field:
             # For aggregations other than SUM and VALUE_COUNTS, an aggregation field is required
             raise ValueError(f"{self.agg.value} aggregation requires agg_field")
 

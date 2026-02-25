@@ -1324,10 +1324,19 @@ class BaseTablesService(BaseWorkspaceService):
                     raise TracecatNotFoundError(
                         f"Table '{table.name}' does not exist"
                     ) from e
-                raise ValueError(str(e)) from e
-            except Exception as e:
                 self.logger.error(
-                    "Unexpected DB exception occurred during search aggregation",
+                    "ProgrammingError during search aggregation",
+                    kind=type(e).__name__,
+                    error=str(e),
+                    table=table.name,
+                    schema=schema_name,
+                )
+                raise ValueError(
+                    "Invalid aggregation query for the given table schema"
+                ) from e
+            except DBAPIError as e:
+                self.logger.error(
+                    "Database error during search aggregation",
                     kind=type(e).__name__,
                     error=str(e),
                     table=table.name,
