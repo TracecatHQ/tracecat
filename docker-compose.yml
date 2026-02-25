@@ -315,7 +315,7 @@ services:
       - core-db
       - temporal
     ports:
-      - ${MCP_PORT:-8099}:8099
+      - ${MCP_PORT:-8099}:${TRACECAT_MCP__PORT:-8099}
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__APP_ENV: production

@@ -50,7 +50,7 @@ class AgentPresetBuilderPrompt:
             "Important fields include `instructions` for the system prompt, `actions` for allowed tools, "
             "`namespaces` for dynamic discovery limits, and `tool_approvals` for manual approval requirements.\n"
             "If a useful tool is not configured, suggest it with a clear setup checklist and why it is useful, but do not add it."
-            "Important Configuration Notes:"
+            " Important Configuration Notes:"
             "Do NOT fill in the `provider_base_url` field - this config is exclusively for LLM providers, not for tools.\n"
             "If the user requests a tool with a `base_url` parameter (e.g., tools.splunk.search_events), ask the user if they have "
             "configured a global base_url variable (e.g., splunk.base_url) in their workspace variables. "
