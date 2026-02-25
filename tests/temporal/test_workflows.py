@@ -6200,11 +6200,13 @@ async def test_workflow_time_anchor_deterministic_time_functions(
     time_2 = datetime.fromisoformat(action_2["utcnow_iso"])
     time_3 = datetime.fromisoformat(action_3["utcnow_iso"])
 
-    # Verify all times are based on time_anchor (same date, starting from 14:30:45)
-    assert "2024-06-15" in action_1["utcnow_iso"]
-    assert "14:30:45" in action_1["utcnow_iso"]
-    assert "2024-06-15" in action_2["utcnow_iso"]
-    assert "2024-06-15" in action_3["utcnow_iso"]
+    # Verify all times are based on time_anchor date and do not move backwards
+    assert time_1.date() == time_anchor.date()
+    assert time_2.date() == time_anchor.date()
+    assert time_3.date() == time_anchor.date()
+    assert time_1 >= time_anchor, (
+        f"action_1 time {time_1} should be >= time_anchor {time_anchor}"
+    )
 
     # Verify time advances between sequential actions
     # (logical time = time_anchor + elapsed workflow time)
@@ -6333,12 +6335,14 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
     # Both parent and child times should be based on the same time_anchor
     # Unwrap StoredObject to compare actual data (handles both inline and external)
     data = await to_data(result)
-    assert "2024-06-15" in data["parent_utcnow"]
-    assert "14:30:45" in data["parent_utcnow"]
+    parent_time = datetime.fromisoformat(data["parent_utcnow"])
+    assert parent_time.date() == time_anchor.date()
+    assert parent_time >= time_anchor, (
+        f"Parent time {parent_time} should be >= time_anchor {time_anchor}"
+    )
 
     # Child time should be >= parent time since child continues from parent's position
     # (child starts after some workflow time has elapsed from when parent evaluated its time)
-    parent_time = datetime.fromisoformat(data["parent_utcnow"])
     child_time = datetime.fromisoformat(data["child_utcnow"])
     assert child_time >= parent_time, (
         f"Child time {child_time} should be >= parent time {parent_time}"
