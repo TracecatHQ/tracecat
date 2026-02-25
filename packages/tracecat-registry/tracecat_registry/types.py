@@ -133,6 +133,23 @@ class CaseReadMinimal(TypedDict):
     num_tasks_total: int
 
 
+class SearchAggregationBucket(TypedDict):
+    """Single aggregation bucket."""
+
+    group: int | float | str | bool | datetime | UUID | None
+    value: int | float | str | bool | datetime | UUID | None
+
+
+class SearchAggregationRead(TypedDict):
+    """Generic aggregation metadata and results."""
+
+    agg: str
+    group_by: str | None
+    agg_field: str | None
+    value: int | float | str | bool | datetime | UUID | None
+    buckets: list[SearchAggregationBucket]
+
+
 class CaseListResponse(TypedDict):
     """Paginated case list response."""
 
@@ -142,6 +159,7 @@ class CaseListResponse(TypedDict):
     has_more: bool
     has_previous: bool
     total_estimate: int | None
+    aggregation: NotRequired[SearchAggregationRead | None]
 
 
 class CaseComment(TypedDict):
@@ -596,6 +614,14 @@ class TableSearchResponse(TypedDict):
     has_more: bool
     has_previous: bool
     total_estimate: NotRequired[int | None]
+    aggregation: NotRequired[SearchAggregationRead | None]
+
+
+class TableLookupResponse(TypedDict):
+    """Lookup rows response with optional aggregation."""
+
+    items: list[dict[str, Any]]
+    aggregation: NotRequired[SearchAggregationRead | None]
 
 
 # ============================================================================

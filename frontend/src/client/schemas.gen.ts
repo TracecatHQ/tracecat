@@ -5236,19 +5236,454 @@ export const $CaseReadMinimal = {
   title: "CaseReadMinimal",
 } as const
 
-export const $CaseSearchAggregateRead = {
+export const $CaseSearchAggField = {
+  type: "string",
+  enum: [
+    "case_number",
+    "status",
+    "priority",
+    "severity",
+    "assignee_id",
+    "created_at",
+    "updated_at",
+  ],
+} as const
+
+export const $CaseSearchAggregate = {
+  type: "string",
+  enum: [
+    "sum",
+    "min",
+    "max",
+    "mean",
+    "median",
+    "mode",
+    "n_unique",
+    "value_counts",
+  ],
+  title: "CaseSearchAggregate",
+} as const
+
+export const $CaseSearchAggregationBucket = {
   properties: {
-    total: {
-      type: "integer",
-      title: "Total",
+    group: {
+      $ref: "#/components/schemas/CaseSearchAggregationScalar",
     },
-    status_groups: {
-      $ref: "#/components/schemas/CaseStatusGroupCounts",
+    value: {
+      $ref: "#/components/schemas/CaseSearchAggregationScalar",
     },
   },
   type: "object",
-  required: ["total", "status_groups"],
-  title: "CaseSearchAggregateRead",
+  required: ["group", "value"],
+  title: "CaseSearchAggregationBucket",
+} as const
+
+export const $CaseSearchAggregationRead = {
+  properties: {
+    agg: {
+      $ref: "#/components/schemas/CaseSearchAggregate",
+    },
+    group_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchGroupBy",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    agg_field: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchAggField",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    value: {
+      $ref: "#/components/schemas/CaseSearchAggregationScalar",
+    },
+    buckets: {
+      items: {
+        $ref: "#/components/schemas/CaseSearchAggregationBucket",
+      },
+      type: "array",
+      title: "Buckets",
+    },
+  },
+  type: "object",
+  required: ["agg"],
+  title: "CaseSearchAggregationRead",
+} as const
+
+export const $CaseSearchAggregationScalar = {
+  anyOf: [
+    {
+      type: "integer",
+    },
+    {
+      type: "number",
+    },
+    {
+      type: "string",
+    },
+    {
+      type: "boolean",
+    },
+    {
+      type: "string",
+      format: "date-time",
+    },
+    {
+      type: "string",
+      format: "uuid",
+    },
+    {
+      type: "null",
+    },
+  ],
+} as const
+
+export const $CaseSearchGroupBy = {
+  type: "string",
+  enum: [
+    "status",
+    "priority",
+    "severity",
+    "assignee_id",
+    "created_at",
+    "updated_at",
+  ],
+} as const
+
+export const $CaseSearchOrderBy = {
+  type: "string",
+  enum: ["created_at", "updated_at", "priority", "severity", "status", "tasks"],
+} as const
+
+export const $CaseSearchRequest = {
+  properties: {
+    limit: {
+      type: "integer",
+      maximum: 200,
+      minimum: 1,
+      title: "Limit",
+      description: "Maximum items per page",
+      default: 20,
+    },
+    cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Cursor",
+      description: "Cursor for pagination",
+    },
+    reverse: {
+      type: "boolean",
+      title: "Reverse",
+      description: "Reverse pagination direction",
+      default: false,
+    },
+    search_term: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Term",
+      description:
+        "Text to search for in case summary, description, or short ID",
+    },
+    status: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseStatus",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Status",
+      description: "Filter by case status",
+    },
+    priority: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CasePriority",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Priority",
+      description: "Filter by case priority",
+    },
+    severity: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseSeverity",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Severity",
+      description: "Filter by case severity",
+    },
+    tags: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+      description: "Filter by tag IDs or slugs (AND logic)",
+    },
+    dropdown: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Dropdown",
+      description:
+        "Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)",
+    },
+    start_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Time",
+      description: "Return cases created at or after this timestamp",
+    },
+    end_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Time",
+      description: "Return cases created at or before this timestamp",
+    },
+    updated_after: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated After",
+      description: "Return cases updated at or after this timestamp",
+    },
+    updated_before: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated Before",
+      description: "Return cases updated at or before this timestamp",
+    },
+    assignee_id: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+      description: "Filter by assignee ID or 'unassigned'",
+    },
+    order_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchOrderBy",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at",
+    },
+    sort: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["asc", "desc"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Sort",
+      description: "Direction to sort (asc or desc)",
+    },
+    group_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchGroupBy",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Field to group aggregation results by",
+    },
+    agg: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchAggregate",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Aggregation operation. Supported values: sum, min, max, mean, median, mode, n_unique, value_counts",
+    },
+    agg_field: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchAggField",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Field to aggregate. Optional for sum (defaults to row count) and value_counts.",
+    },
+  },
+  type: "object",
+  title: "CaseSearchRequest",
+} as const
+
+export const $CaseSearchResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/CaseReadMinimal",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+    aggregation: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchAggregationRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CaseSearchResponse",
 } as const
 
 export const $CaseSeverity = {
@@ -5290,38 +5725,6 @@ export const $CaseStatus = {
   ],
   title: "CaseStatus",
   description: "Case status values aligned with OCSF Incident Finding status.",
-} as const
-
-export const $CaseStatusGroupCounts = {
-  properties: {
-    new: {
-      type: "integer",
-      title: "New",
-      default: 0,
-    },
-    in_progress: {
-      type: "integer",
-      title: "In Progress",
-      default: 0,
-    },
-    on_hold: {
-      type: "integer",
-      title: "On Hold",
-      default: 0,
-    },
-    resolved: {
-      type: "integer",
-      title: "Resolved",
-      default: 0,
-    },
-    other: {
-      type: "integer",
-      title: "Other",
-      default: 0,
-    },
-  },
-  type: "object",
-  title: "CaseStatusGroupCounts",
 } as const
 
 export const $CaseTagCreate = {

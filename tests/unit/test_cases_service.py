@@ -12,6 +12,7 @@ from tracecat.cases.schemas import (
     CaseCreate,
     CaseFieldCreate,
     CaseReadMinimal,
+    CaseSearchAggregate,
     CaseUpdate,
 )
 from tracecat.cases.service import CaseFieldsService, CasesService
@@ -677,10 +678,10 @@ class TestCasesService:
 
         assert search_response.model_dump() == list_response.model_dump()
 
-    async def test_get_search_case_aggregates_applies_enum_filters(
+    async def test_search_cases_aggregation_applies_enum_filters(
         self, cases_service: CasesService, session: AsyncSession
     ) -> None:
-        """Aggregate counts should respect include/exclude enum filters."""
+        """Grouped sum aggregation should respect enum filters."""
         now = datetime.now(UTC)
         session.add_all(
             [
@@ -738,18 +739,24 @@ class TestCasesService:
         )
         await session.commit()
 
-        aggregates = await cases_service.get_search_case_aggregates(
+        response = await cases_service.search_cases(
+            params=CursorPaginationParams(limit=10, cursor=None, reverse=False),
             status=[CaseStatus.IN_PROGRESS, CaseStatus.RESOLVED],
             priority=[CasePriority.HIGH, CasePriority.CRITICAL],
             severity=[CaseSeverity.MEDIUM, CaseSeverity.HIGH],
+            group_by="status",
+            agg=CaseSearchAggregate.SUM,
         )
 
-        assert aggregates.total == 2
-        assert aggregates.status_groups.new == 0
-        assert aggregates.status_groups.in_progress == 1
-        assert aggregates.status_groups.on_hold == 0
-        assert aggregates.status_groups.resolved == 1
-        assert aggregates.status_groups.other == 0
+        assert response.total_estimate == 2
+        assert response.aggregation is not None
+        assert response.aggregation.agg == "sum"
+        assert response.aggregation.group_by == "status"
+        bucket_map = {
+            bucket.group: bucket.value for bucket in response.aggregation.buckets
+        }
+        assert bucket_map["in_progress"] == 1
+        assert bucket_map["resolved"] == 1
 
     async def test_create_case_with_nonexistent_field(
         self, cases_service: CasesService

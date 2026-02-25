@@ -17,6 +17,7 @@ from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
+    TableAggregation,
     TableColumnCreate,
     TableColumnUpdate,
     TableCreate,
@@ -723,6 +724,40 @@ class TestTableRows:
         result = results[0]
         assert result["name"] == "Bob"
         assert result["age"] == 40
+
+    async def test_lookup_row_with_grouped_aggregation(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """lookup_rows should return grouped aggregation buckets when requested."""
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 40})
+        )
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 45})
+        )
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 50})
+        )
+
+        result = await tables_service.lookup_rows(
+            table_name=table.name,
+            columns=["name"],
+            values=["Bob"],
+            group_by="age",
+            agg=TableAggregation.SUM,
+        )
+
+        assert not isinstance(result, list)
+        assert len(result.items) == 3
+        assert result.aggregation is not None
+        assert result.aggregation.agg == "sum"
+        assert result.aggregation.group_by == "age"
+        bucket_map = {
+            bucket.group: bucket.value for bucket in result.aggregation.buckets
+        }
+        assert bucket_map[40] == 1
+        assert bucket_map[45] == 1
+        assert bucket_map[50] == 1
 
     async def test_list_rows(self, tables_service: TablesService, table: Table) -> None:
         """Test listing rows with cursor-based pagination."""

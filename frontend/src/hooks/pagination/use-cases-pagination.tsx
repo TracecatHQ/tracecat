@@ -3,12 +3,13 @@
 import type {
   CasePriority,
   CaseReadMinimal,
+  CaseSearchOrderBy,
   CaseSeverity,
   CaseStatus,
-  CasesSearchCasesData,
 } from "@/client"
 import { casesSearchCases } from "@/client"
 import {
+  type CursorPaginationParams,
   type CursorPaginationResponse,
   useCursorPagination,
 } from "./use-cursor-pagination"
@@ -25,6 +26,26 @@ export interface UseCasesPaginationParams {
   tags?: string[] | null
 }
 
+interface CasesPaginationQueryParams extends CursorPaginationParams {}
+
+const CASE_SEARCH_ORDER_BY_OPTIONS: ReadonlyArray<CaseSearchOrderBy> = [
+  "created_at",
+  "updated_at",
+  "priority",
+  "severity",
+  "status",
+  "tasks",
+]
+
+function isCaseSearchOrderBy(
+  value: string | null | undefined
+): value is CaseSearchOrderBy {
+  return (
+    typeof value === "string" &&
+    CASE_SEARCH_ORDER_BY_OPTIONS.includes(value as CaseSearchOrderBy)
+  )
+}
+
 export function useCasesPagination({
   workspaceId,
   limit,
@@ -37,16 +58,26 @@ export function useCasesPagination({
 }: UseCasesPaginationParams) {
   // Wrapper function to adapt the API response to our generic interface
   const adaptedCasesSearchCases = async (
-    params: CasesSearchCasesData
+    params: CasesPaginationQueryParams
   ): Promise<CursorPaginationResponse<CaseReadMinimal>> => {
     const response = await casesSearchCases({
-      ...params,
-      searchTerm,
-      status: status && status.length ? status : null,
-      priority: priority && priority.length ? priority : null,
-      severity: severity && severity.length ? severity : null,
-      assigneeId: assigneeIds && assigneeIds.length ? assigneeIds : null,
-      tags,
+      workspaceId: params.workspaceId,
+      requestBody: {
+        limit: params.limit,
+        cursor: params.cursor ?? undefined,
+        reverse: params.reverse ?? undefined,
+        order_by: isCaseSearchOrderBy(params.orderBy)
+          ? params.orderBy
+          : undefined,
+        sort: params.sort ?? undefined,
+        search_term: searchTerm ?? undefined,
+        status: status && status.length ? status : undefined,
+        priority: priority && priority.length ? priority : undefined,
+        severity: severity && severity.length ? severity : undefined,
+        assignee_id:
+          assigneeIds && assigneeIds.length ? assigneeIds : undefined,
+        tags: tags && tags.length > 0 ? tags : undefined,
+      },
     })
     return {
       items: response.items,
@@ -58,7 +89,7 @@ export function useCasesPagination({
     }
   }
 
-  return useCursorPagination<CaseReadMinimal, CasesSearchCasesData>({
+  return useCursorPagination<CaseReadMinimal, CasesPaginationQueryParams>({
     workspaceId,
     limit,
     queryKey: [

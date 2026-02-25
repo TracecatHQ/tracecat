@@ -1,5 +1,4 @@
 import uuid
-from datetime import datetime
 from typing import Annotated, Literal, TypedDict
 
 from asyncpg import DuplicateColumnError
@@ -22,7 +21,6 @@ from tracecat.auth.types import Role
 from tracecat.auth.users import search_users
 from tracecat.authz.controls import require_scope
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
     CaseCommentCreate,
@@ -37,7 +35,8 @@ from tracecat.cases.schemas import (
     CaseFieldUpdate,
     CaseRead,
     CaseReadMinimal,
-    CaseSearchAggregateRead,
+    CaseSearchRequest,
+    CaseSearchResponse,
     CaseTaskCreate,
     CaseTaskRead,
     CaseTaskUpdate,
@@ -221,97 +220,50 @@ async def list_cases(
     return cases
 
 
-@cases_router.get("/search")
+@cases_router.post("/search")
 @require_scope("case:read")
 async def search_cases(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
-    limit: int = Query(
-        config.TRACECAT__LIMIT_DEFAULT,
-        ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CURSOR_MAX,
-        description="Maximum items per page",
-    ),
-    cursor: str | None = Query(None, description="Cursor for pagination"),
-    reverse: bool = Query(False, description="Reverse pagination direction"),
-    search_term: str | None = Query(
-        None,
-        description="Text to search for in case summary, description, or short ID",
-    ),
-    status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
-    priority: list[CasePriority] | None = Query(
-        None, description="Filter by case priority"
-    ),
-    severity: list[CaseSeverity] | None = Query(
-        None, description="Filter by case severity"
-    ),
-    tags: list[str] | None = Query(
-        None, description="Filter by tag IDs or slugs (AND logic)"
-    ),
-    dropdown: list[str] | None = Query(
-        None,
-        description="Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)",
-    ),
-    start_time: datetime | None = Query(
-        None, description="Return cases created at or after this timestamp"
-    ),
-    end_time: datetime | None = Query(
-        None, description="Return cases created at or before this timestamp"
-    ),
-    updated_after: datetime | None = Query(
-        None, description="Return cases updated at or after this timestamp"
-    ),
-    updated_before: datetime | None = Query(
-        None, description="Return cases updated at or before this timestamp"
-    ),
-    assignee_id: list[str] | None = Query(
-        None, description="Filter by assignee ID or 'unassigned'"
-    ),
-    order_by: Literal[
-        "created_at", "updated_at", "priority", "severity", "status", "tasks"
-    ]
-    | None = Query(
-        None,
-        description="Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at",
-    ),
-    sort: Literal["asc", "desc"] | None = Query(
-        None, description="Direction to sort (asc or desc)"
-    ),
-) -> CursorPaginatedResponse[CaseReadMinimal]:
+    params: CaseSearchRequest,
+) -> CaseSearchResponse:
     """Search cases with cursor-based pagination, filtering, and sorting."""
     service = CasesService(session, role)
 
     pagination_params = CursorPaginationParams(
-        limit=limit,
-        cursor=cursor,
-        reverse=reverse,
+        limit=params.limit,
+        cursor=params.cursor,
+        reverse=params.reverse,
     )
     parsed_filters = await _parse_case_search_filters(
         role=role,
         session=session,
-        assignee_id=assignee_id,
-        tags=tags,
-        dropdown=dropdown,
+        assignee_id=params.assignee_id,
+        tags=params.tags,
+        dropdown=params.dropdown,
     )
 
     try:
         cases = await service.search_cases(
             pagination_params,
-            search_term=search_term,
-            status=status,
-            priority=priority,
-            severity=severity,
+            search_term=params.search_term,
+            status=params.status,
+            priority=params.priority,
+            severity=params.severity,
             assignee_ids=parsed_filters["assignee_ids"],
             include_unassigned=parsed_filters["include_unassigned"],
             tag_ids=parsed_filters["tag_ids"],
             dropdown_filters=parsed_filters["dropdown_filters"],
-            start_time=start_time,
-            end_time=end_time,
-            updated_after=updated_after,
-            updated_before=updated_before,
-            order_by=order_by,
-            sort=sort,
+            start_time=params.start_time,
+            end_time=params.end_time,
+            updated_after=params.updated_after,
+            updated_before=params.updated_before,
+            order_by=params.order_by,
+            sort=params.sort,
+            group_by=params.group_by,
+            agg=params.agg,
+            agg_field=params.agg_field,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for search cases: {e}")
@@ -328,87 +280,6 @@ async def search_cases(
             detail="Failed to retrieve cases",
         ) from e
     return cases
-
-
-@cases_router.get("/search/aggregate")
-@require_scope("case:read")
-async def search_case_aggregates(
-    *,
-    role: WorkspaceUser,
-    session: AsyncDBSession,
-    search_term: str | None = Query(
-        None,
-        description="Text to search for in case summary, description, or short ID",
-    ),
-    status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
-    priority: list[CasePriority] | None = Query(
-        None, description="Filter by case priority"
-    ),
-    severity: list[CaseSeverity] | None = Query(
-        None, description="Filter by case severity"
-    ),
-    tags: list[str] | None = Query(
-        None, description="Filter by tag IDs or slugs (AND logic)"
-    ),
-    dropdown: list[str] | None = Query(
-        None,
-        description="Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)",
-    ),
-    start_time: datetime | None = Query(
-        None, description="Return cases created at or after this timestamp"
-    ),
-    end_time: datetime | None = Query(
-        None, description="Return cases created at or before this timestamp"
-    ),
-    updated_after: datetime | None = Query(
-        None, description="Return cases updated at or after this timestamp"
-    ),
-    updated_before: datetime | None = Query(
-        None, description="Return cases updated at or before this timestamp"
-    ),
-    assignee_id: list[str] | None = Query(
-        None, description="Filter by assignee ID or 'unassigned'"
-    ),
-) -> CaseSearchAggregateRead:
-    """Return global case totals and per-stage counts for the current filters."""
-    service = CasesService(session, role)
-    parsed_filters = await _parse_case_search_filters(
-        role=role,
-        session=session,
-        assignee_id=assignee_id,
-        tags=tags,
-        dropdown=dropdown,
-    )
-
-    try:
-        return await service.get_search_case_aggregates(
-            search_term=search_term,
-            status=status,
-            priority=priority,
-            severity=severity,
-            assignee_ids=parsed_filters["assignee_ids"],
-            include_unassigned=parsed_filters["include_unassigned"],
-            tag_ids=parsed_filters["tag_ids"],
-            dropdown_filters=parsed_filters["dropdown_filters"],
-            start_time=start_time,
-            end_time=end_time,
-            updated_after=updated_after,
-            updated_before=updated_before,
-        )
-    except ValueError as e:
-        logger.warning(f"Invalid request for case aggregate counts: {e}")
-        raise HTTPException(
-            status_code=HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to fetch case aggregate counts: {e}")
-        raise HTTPException(
-            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve case aggregate counts",
-        ) from e
 
 
 @cases_router.get("/{case_id}")

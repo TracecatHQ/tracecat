@@ -7,6 +7,17 @@ from tracecat_registry import config, registry, types
 from tracecat_registry.context import get_context
 from tracecat_registry.sdk.exceptions import TracecatConflictError
 
+TableAggType = Literal[
+    "sum",
+    "min",
+    "max",
+    "mean",
+    "median",
+    "mode",
+    "n_unique",
+    "value_counts",
+]
+
 
 @registry.register(
     default_title="Lookup row",
@@ -77,7 +88,25 @@ async def lookup_many(
         int,
         Doc("The maximum number of rows to return."),
     ] = 100,
-) -> list[dict[str, Any]]:
+    group_by: Annotated[
+        str | None,
+        Doc("Optional field to group aggregation results by."),
+    ] = None,
+    agg: Annotated[
+        TableAggType | None,
+        Doc(
+            "Optional aggregation operation: sum, min, max, mean, median, mode, n_unique, value_counts."
+        ),
+    ] = None,
+    agg_field: Annotated[
+        str | None,
+        Doc("Optional field to aggregate."),
+    ] = None,
+    include_aggregation: Annotated[
+        bool,
+        Doc("If true, include aggregation metadata in the response."),
+    ] = False,
+) -> list[dict[str, Any]] | types.TableLookupResponse:
     if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise ValueError(
             f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}"
@@ -90,6 +119,14 @@ async def lookup_many(
     }
     if limit is not None:
         params["limit"] = limit
+    if group_by is not None:
+        params["group_by"] = group_by
+    if agg is not None:
+        params["agg"] = agg
+    if agg_field is not None:
+        params["agg_field"] = agg_field
+    if include_aggregation or agg is not None or group_by is not None:
+        params["include_aggregation"] = True
     return await get_context().tables.lookup_many(**params)
 
 

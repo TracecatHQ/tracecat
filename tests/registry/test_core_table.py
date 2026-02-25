@@ -162,6 +162,77 @@ class TestCoreLookupMany:
         )
         assert result == mock_rows
 
+    async def test_lookup_many_with_aggregation(
+        self, mock_tables_client: AsyncMock, mock_row
+    ) -> None:
+        """lookup_many should forward aggregation options when requested."""
+        response = {
+            "items": [mock_row],
+            "aggregation": {
+                "agg": "sum",
+                "group_by": "age",
+                "agg_field": None,
+                "value": None,
+                "buckets": [{"group": 30, "value": 1}],
+            },
+        }
+        mock_tables_client.lookup_many.return_value = response
+
+        result = await lookup_many(
+            table="test_table",
+            column="name",
+            value="John Doe",
+            group_by="age",
+            agg="sum",
+            include_aggregation=True,
+        )
+
+        mock_tables_client.lookup_many.assert_called_once_with(
+            table="test_table",
+            column="name",
+            value="John Doe",
+            limit=100,
+            group_by="age",
+            agg="sum",
+            include_aggregation=True,
+        )
+        assert result == response
+
+    async def test_lookup_many_with_aggregation_auto_enables_response(
+        self, mock_tables_client: AsyncMock, mock_row
+    ) -> None:
+        """lookup_many should auto-return aggregation when agg/group_by is set."""
+        response = {
+            "items": [mock_row],
+            "aggregation": {
+                "agg": "sum",
+                "group_by": "age",
+                "agg_field": None,
+                "value": None,
+                "buckets": [{"group": 30, "value": 1}],
+            },
+        }
+        mock_tables_client.lookup_many.return_value = response
+
+        result = await lookup_many(
+            table="test_table",
+            column="name",
+            value="John Doe",
+            group_by="age",
+            agg="sum",
+        )
+
+        mock_tables_client.lookup_many.assert_called_once_with(
+            table="test_table",
+            column="name",
+            value="John Doe",
+            limit=100,
+            group_by="age",
+            agg="sum",
+            include_aggregation=True,
+        )
+        assert result == response
+
 
 @pytest.mark.anyio
 class TestCoreInsertRow:

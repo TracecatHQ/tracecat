@@ -9,7 +9,7 @@ from uuid import UUID
 import orjson
 from asyncpg import DuplicateTableError
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_core import to_jsonable_python
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
@@ -24,9 +24,11 @@ from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
+    TableAggregation,
     TableColumnCreate,
     TableColumnRead,
     TableCreate,
+    TableLookupResponse,
     TableRead,
     TableRowInsert,
     TableRowInsertBatch,
@@ -52,6 +54,22 @@ class TableLookupRequest(BaseModel):
         ge=config.TRACECAT__LIMIT_MIN,
         le=config.TRACECAT__LIMIT_CURSOR_MAX,
     )
+    group_by: str | None = None
+    agg: TableAggregation | None = None
+    agg_field: str | None = None
+
+    @model_validator(mode="after")
+    def validate_aggregation(self) -> TableLookupRequest:
+        has_group_by = self.group_by is not None
+        has_agg = self.agg is not None
+        has_agg_field = self.agg_field is not None
+
+        if not has_agg and (has_group_by or has_agg_field):
+            raise ValueError("group_by and agg_field require agg")
+        if has_agg and self.agg is TableAggregation.VALUE_COUNTS and not has_group_by:
+            raise ValueError("value_counts aggregation requires group_by")
+
+        return self
 
 
 class TableExistsRequest(BaseModel):
@@ -179,7 +197,7 @@ async def lookup_rows(
     session: AsyncDBSession,
     table_name: str,
     params: TableLookupRequest,
-) -> list[dict[str, Any]]:
+) -> TableLookupResponse:
     """Lookup rows matching column/value pairs."""
     if params.limit is not None and params.limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise HTTPException(
@@ -190,12 +208,18 @@ async def lookup_rows(
         )
     service = TablesService(session, role=role)
     try:
-        return await service.lookup_rows(
+        result = await service.lookup_rows(
             table_name,
             columns=params.columns,
             values=params.values,
             limit=params.limit,
+            group_by=params.group_by,
+            agg=params.agg,
+            agg_field=params.agg_field,
         )
+        if isinstance(result, list):
+            return TableLookupResponse(items=result, aggregation=None)
+        return result
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

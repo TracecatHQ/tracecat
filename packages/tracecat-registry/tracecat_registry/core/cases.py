@@ -45,6 +45,36 @@ StatusType = Literal[
     "other",
 ]
 
+SearchCasesGroupByType = Literal[
+    "status",
+    "priority",
+    "severity",
+    "assignee_id",
+    "created_at",
+    "updated_at",
+]
+
+SearchCasesAggType = Literal[
+    "sum",
+    "min",
+    "max",
+    "mean",
+    "median",
+    "mode",
+    "n_unique",
+    "value_counts",
+]
+
+SearchCasesAggFieldType = Literal[
+    "case_number",
+    "status",
+    "priority",
+    "severity",
+    "assignee_id",
+    "created_at",
+    "updated_at",
+]
+
 
 def _as_list_filter[T](value: T | list[T]) -> list[T]:
     return value if isinstance(value, list) else [value]
@@ -381,6 +411,20 @@ async def search_cases(
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
     ] = None,
+    group_by: Annotated[
+        SearchCasesGroupByType | None,
+        Doc("Field name used for group-by aggregation."),
+    ] = None,
+    agg: Annotated[
+        SearchCasesAggType | None,
+        Doc(
+            "Aggregation operation: sum, min, max, mean, median, mode, n_unique, value_counts."
+        ),
+    ] = None,
+    agg_field: Annotated[
+        SearchCasesAggFieldType | None,
+        Doc("Field to aggregate (optional for sum row-count and value_counts)."),
+    ] = None,
     paginate: Annotated[
         bool,
         Doc("If true, return cursor pagination metadata along with items."),
@@ -423,8 +467,14 @@ async def search_cases(
         params["order_by"] = order_by
     if sort is not None:
         params["sort"] = sort
+    if group_by is not None:
+        params["group_by"] = group_by
+    if agg is not None:
+        params["agg"] = agg
+    if agg_field is not None:
+        params["agg_field"] = agg_field
     response = await get_context().cases.search_cases(**params)
-    if paginate:
+    if paginate or agg is not None or group_by is not None:
         return response
     return response["items"]
 

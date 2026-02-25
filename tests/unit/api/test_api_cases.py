@@ -14,8 +14,10 @@ from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import (
     CaseReadMinimal,
-    CaseSearchAggregateRead,
-    CaseStatusGroupCounts,
+    CaseSearchAggregate,
+    CaseSearchAggregationBucket,
+    CaseSearchAggregationRead,
+    CaseSearchResponse,
 )
 from tracecat.db.models import Case, CaseTag, Workspace
 from tracecat.pagination import CursorPaginatedResponse
@@ -532,7 +534,7 @@ async def test_search_cases_success(
     test_admin_role: Role,
     mock_case: Case,
 ) -> None:
-    """Test GET /cases/search delegates to search_cases shape/response."""
+    """Test POST /cases/search delegates to search_cases shape/response."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
     ):
@@ -553,23 +555,23 @@ async def test_search_cases_success(
             num_tasks_completed=0,
             num_tasks_total=0,
         )
-        mock_svc.search_cases.return_value = CursorPaginatedResponse(
+        mock_svc.search_cases.return_value = CaseSearchResponse(
             items=[mock_case_read],
             next_cursor=None,
             prev_cursor=None,
             has_more=False,
             has_previous=False,
+            aggregation=None,
         )
         MockService.return_value = mock_svc
 
         # Make request
-        response = client.get(
+        response = client.post(
             "/cases/search",
             params={
                 "workspace_id": str(test_admin_role.workspace_id),
-                "search_term": "Test",
-                "limit": 10,
             },
+            json={"search_term": "Test", "limit": 10},
         )
 
         # Assertions
@@ -586,7 +588,7 @@ async def test_search_cases_forwards_date_filters(
     test_admin_role: Role,
     mock_case: Case,
 ) -> None:
-    """Test GET /cases/search forwards date filters to search_cases."""
+    """Test POST /cases/search forwards date filters to search_cases."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
     ):
@@ -607,19 +609,22 @@ async def test_search_cases_forwards_date_filters(
             num_tasks_completed=0,
             num_tasks_total=0,
         )
-        mock_svc.search_cases.return_value = CursorPaginatedResponse(
+        mock_svc.search_cases.return_value = CaseSearchResponse(
             items=[mock_case_read],
             next_cursor=None,
             prev_cursor=None,
             has_more=False,
             has_previous=False,
+            aggregation=None,
         )
         MockService.return_value = mock_svc
 
-        response = client.get(
+        response = client.post(
             "/cases/search",
             params={
                 "workspace_id": str(test_admin_role.workspace_id),
+            },
+            json={
                 "start_time": "2024-01-01T00:00:00Z",
                 "end_time": "2024-01-31T23:59:59Z",
                 "updated_after": "2024-01-15T00:00:00Z",
@@ -632,43 +637,56 @@ async def test_search_cases_forwards_date_filters(
 
 
 @pytest.mark.anyio
-async def test_search_case_aggregates_success(
+async def test_search_cases_returns_aggregation_payload(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """Test GET /cases/search/aggregate returns grouped global counts."""
+    """Test POST /cases/search returns aggregation results when requested."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
     ):
         mock_svc = AsyncMock()
-        mock_svc.get_search_case_aggregates.return_value = CaseSearchAggregateRead(
-            total=42,
-            status_groups=CaseStatusGroupCounts(
-                new=10,
-                in_progress=8,
-                on_hold=4,
-                resolved=18,
-                other=2,
+        mock_svc.search_cases.return_value = CaseSearchResponse(
+            items=[],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+            total_estimate=42,
+            aggregation=CaseSearchAggregationRead(
+                agg=CaseSearchAggregate.SUM,
+                group_by="status",
+                agg_field=None,
+                value=None,
+                buckets=[
+                    CaseSearchAggregationBucket(group="new", value=10),
+                    CaseSearchAggregationBucket(group="resolved", value=18),
+                ],
             ),
         )
         MockService.return_value = mock_svc
 
-        response = client.get(
-            "/cases/search/aggregate",
+        response = client.post(
+            "/cases/search",
             params={
                 "workspace_id": str(test_admin_role.workspace_id),
-                "status": "new",
-                "priority": "medium",
-                "severity": "high",
+            },
+            json={
+                "status": ["new"],
+                "priority": ["medium"],
+                "severity": ["high"],
                 "search_term": "incident",
                 "start_time": "2024-01-01T00:00:00Z",
                 "updated_after": "2024-01-15T00:00:00Z",
+                "group_by": "status",
+                "agg": "sum",
             },
         )
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["total"] == 42
-        assert data["status_groups"]["new"] == 10
-        assert data["status_groups"]["resolved"] == 18
-        mock_svc.get_search_case_aggregates.assert_called_once()
+        assert data["aggregation"]["agg"] == "sum"
+        assert data["aggregation"]["group_by"] == "status"
+        assert data["aggregation"]["buckets"][0]["group"] == "new"
+        assert data["aggregation"]["buckets"][0]["value"] == 10
+        mock_svc.search_cases.assert_called_once()

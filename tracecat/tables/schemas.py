@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -191,6 +192,38 @@ class TableRead(Schema):
     id: TableID
     name: str
     columns: list[TableColumnRead]
+
+
+class TableAggregation(StrEnum):
+    SUM = "sum"
+    MIN = "min"
+    MAX = "max"
+    MEAN = "mean"
+    MEDIAN = "median"
+    MODE = "mode"
+    N_UNIQUE = "n_unique"
+    VALUE_COUNTS = "value_counts"
+
+
+type TableAggregationScalar = int | float | str | bool | datetime | UUID | None
+
+
+class TableAggregationBucket(Schema):
+    group: TableAggregationScalar
+    value: TableAggregationScalar
+
+
+class TableAggregationRead(Schema):
+    agg: TableAggregation
+    group_by: str | None = None
+    agg_field: str | None = None
+    value: TableAggregationScalar = None
+    buckets: list[TableAggregationBucket] = Field(default_factory=list)
+
+
+class TableLookupResponse(Schema):
+    items: list[dict[str, Any]]
+    aggregation: TableAggregationRead | None = None
 
 
 class InferredColumn(BaseModel):

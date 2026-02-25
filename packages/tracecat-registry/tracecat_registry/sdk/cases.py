@@ -10,6 +10,7 @@ from tracecat_registry import types
 from tracecat_registry.sdk.types import (
     UNSET,
     CasePriority,
+    CaseSearchAggregate,
     CaseSeverity,
     CaseStatus,
     Unset,
@@ -199,55 +200,85 @@ class CasesClient:
         end_time: datetime | str | Unset = UNSET,
         updated_after: datetime | str | Unset = UNSET,
         updated_before: datetime | str | Unset = UNSET,
+        group_by: (
+            Literal[
+                "status",
+                "priority",
+                "severity",
+                "assignee_id",
+                "created_at",
+                "updated_at",
+            ]
+            | Unset
+        ) = UNSET,
+        agg: CaseSearchAggregate | Unset = UNSET,
+        agg_field: (
+            Literal[
+                "case_number",
+                "status",
+                "priority",
+                "severity",
+                "assignee_id",
+                "created_at",
+                "updated_at",
+            ]
+            | Unset
+        ) = UNSET,
     ) -> types.CaseListResponse:
         """Search cases with filtering and pagination."""
-        params: dict[str, Any] = {"limit": limit}
+        data: dict[str, Any] = {"limit": limit}
         if is_set(cursor):
-            params["cursor"] = cursor
+            data["cursor"] = cursor
         if is_set(reverse):
-            params["reverse"] = reverse
+            data["reverse"] = reverse
         if is_set(search_term):
-            params["search_term"] = search_term
+            data["search_term"] = search_term
         if is_set(status):
-            params["status"] = status
+            data["status"] = status
         if is_set(priority):
-            params["priority"] = priority
+            data["priority"] = priority
         if is_set(severity):
-            params["severity"] = severity
+            data["severity"] = severity
         if is_set(assignee_id):
-            params["assignee_id"] = assignee_id
+            data["assignee_id"] = assignee_id
         if is_set(tags):
-            params["tags"] = tags
+            data["tags"] = tags
         if is_set(dropdown):
-            params["dropdown"] = dropdown
+            data["dropdown"] = dropdown
         if is_set(order_by):
-            params["order_by"] = order_by
+            data["order_by"] = order_by
         if is_set(sort):
-            params["sort"] = sort
+            data["sort"] = sort
         if is_set(start_time):
-            params["start_time"] = (
+            data["start_time"] = (
                 start_time.isoformat()
                 if isinstance(start_time, datetime)
                 else start_time
             )
         if is_set(end_time):
-            params["end_time"] = (
+            data["end_time"] = (
                 end_time.isoformat() if isinstance(end_time, datetime) else end_time
             )
         if is_set(updated_after):
-            params["updated_after"] = (
+            data["updated_after"] = (
                 updated_after.isoformat()
                 if isinstance(updated_after, datetime)
                 else updated_after
             )
         if is_set(updated_before):
-            params["updated_before"] = (
+            data["updated_before"] = (
                 updated_before.isoformat()
                 if isinstance(updated_before, datetime)
                 else updated_before
             )
+        if is_set(group_by):
+            data["group_by"] = group_by
+        if is_set(agg):
+            data["agg"] = agg
+        if is_set(agg_field):
+            data["agg_field"] = agg_field
 
-        return await self._client.get("/cases/search", params=params)
+        return await self._client.post("/cases/search", json=data)
 
     # === Comments === #
 

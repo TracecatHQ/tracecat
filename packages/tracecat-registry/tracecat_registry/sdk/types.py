@@ -96,6 +96,17 @@ CaseStatus = Literal[
     "other",
 ]
 
+CaseSearchAggregate = Literal[
+    "sum",
+    "min",
+    "max",
+    "mean",
+    "median",
+    "mode",
+    "n_unique",
+    "value_counts",
+]
+
 
 @dataclass
 class CaseData:
@@ -213,6 +224,17 @@ SqlType = Literal[
     "UUID",
     "SELECT",
     "MULTI_SELECT",
+]
+
+TableAggregation = Literal[
+    "sum",
+    "min",
+    "max",
+    "mean",
+    "median",
+    "mode",
+    "n_unique",
+    "value_counts",
 ]
 
 

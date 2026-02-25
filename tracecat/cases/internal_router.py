@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -24,7 +23,6 @@ from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.durations.schemas import CaseDurationMetric
 from tracecat.cases.durations.service import CaseDurationService
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
     CaseCommentCreate,
@@ -37,6 +35,8 @@ from tracecat.cases.schemas import (
     CaseFieldReadMinimal,
     CaseRead,
     CaseReadMinimal,
+    CaseSearchRequest,
+    CaseSearchResponse,
     CaseTaskCreate,
     CaseTaskRead,
     CaseTaskUpdate,
@@ -133,69 +133,19 @@ async def list_cases(
     return cases
 
 
-@router.get("/search")
+@router.post("/search")
 async def search_cases(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    limit: int = Query(
-        config.TRACECAT__LIMIT_DEFAULT,
-        ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CURSOR_MAX,
-        description="Maximum items per page",
-    ),
-    cursor: str | None = Query(None, description="Cursor for pagination"),
-    reverse: bool = Query(False, description="Reverse pagination direction"),
-    search_term: str | None = Query(
-        None,
-        description="Text to search for in case summary, description, or short ID",
-    ),
-    status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
-    priority: list[CasePriority] | None = Query(
-        None, description="Filter by case priority"
-    ),
-    severity: list[CaseSeverity] | None = Query(
-        None, description="Filter by case severity"
-    ),
-    assignee_id: list[str] | None = Query(
-        None, description="Filter by assignee ID or 'unassigned'"
-    ),
-    tags: list[str] | None = Query(
-        None, description="Filter by tag IDs or slugs (AND logic)"
-    ),
-    dropdown: list[str] | None = Query(
-        None,
-        description="Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)",
-    ),
-    start_time: datetime | None = Query(
-        None, description="Return cases created at or after this timestamp"
-    ),
-    end_time: datetime | None = Query(
-        None, description="Return cases created at or before this timestamp"
-    ),
-    updated_after: datetime | None = Query(
-        None, description="Return cases updated at or after this timestamp"
-    ),
-    updated_before: datetime | None = Query(
-        None, description="Return cases updated at or before this timestamp"
-    ),
-    order_by: Literal[
-        "created_at", "updated_at", "priority", "severity", "status", "tasks"
-    ]
-    | None = Query(
-        None,
-        description="Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at",
-    ),
-    sort: Literal["asc", "desc"] | None = Query(
-        None, description="Direction to sort (asc or desc)"
-    ),
-) -> CursorPaginatedResponse[CaseReadMinimal]:
+    params: CaseSearchRequest,
+) -> CaseSearchResponse:
     service = CasesService(session, role)
 
     tag_ids: list[uuid.UUID] = []
-    if tags:
+    if params.tags:
         tags_service = CaseTagsService(session, role)
-        for tag_identifier in tags:
+        for tag_identifier in params.tags:
             try:
                 tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
                 tag_ids.append(tag.id)
@@ -203,15 +153,15 @@ async def search_cases(
                 continue
 
     pagination_params = CursorPaginationParams(
-        limit=limit,
-        cursor=cursor,
-        reverse=reverse,
+        limit=params.limit,
+        cursor=params.cursor,
+        reverse=params.reverse,
     )
 
     parsed_assignee_ids: list[uuid.UUID] = []
     include_unassigned = False
-    if assignee_id:
-        for identifier in assignee_id:
+    if params.assignee_id:
+        for identifier in params.assignee_id:
             if identifier == "unassigned":
                 include_unassigned = True
                 continue
@@ -224,9 +174,9 @@ async def search_cases(
                 ) from e
 
     parsed_dropdown_filters: dict[str, list[str]] | None = None
-    if dropdown:
+    if params.dropdown:
         parsed_dropdown_filters = {}
-        for entry in dropdown:
+        for entry in params.dropdown:
             if ":" not in entry:
                 raise HTTPException(
                     status_code=HTTP_400_BAD_REQUEST,
@@ -238,20 +188,23 @@ async def search_cases(
     try:
         return await service.search_cases(
             pagination_params,
-            search_term=search_term,
-            status=status,
-            priority=priority,
-            severity=severity,
+            search_term=params.search_term,
+            status=params.status,
+            priority=params.priority,
+            severity=params.severity,
             assignee_ids=parsed_assignee_ids or None,
             include_unassigned=include_unassigned,
             tag_ids=tag_ids if tag_ids else None,
             dropdown_filters=parsed_dropdown_filters,
-            start_time=start_time,
-            end_time=end_time,
-            updated_after=updated_after,
-            updated_before=updated_before,
-            order_by=order_by,
-            sort=sort,
+            start_time=params.start_time,
+            end_time=params.end_time,
+            updated_after=params.updated_after,
+            updated_before=params.updated_before,
+            order_by=params.order_by,
+            sort=params.sort,
+            group_by=params.group_by,
+            agg=params.agg,
+            agg_field=params.agg_field,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for search cases: {e}")

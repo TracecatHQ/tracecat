@@ -16,13 +16,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
   CaseReadMinimal,
-  CaseSearchAggregateRead,
   CaseStatus,
   CaseTagRead,
   WorkspaceMember,
 } from "@/client"
 import { CaseItem } from "@/components/cases/case-item"
 import type { FilterMode, SortDirection } from "@/components/cases/cases-header"
+import type { CaseStageCounts } from "@/lib/cases/stage-counts"
 import { cn } from "@/lib/utils"
 
 type StatusGroup = "new" | "in_progress" | "on_hold" | "resolved" | "other"
@@ -92,7 +92,7 @@ interface CasesAccordionProps {
   statusFilter?: CaseStatus[]
   statusMode?: FilterMode
   totalFilteredCaseEstimate?: number | null
-  stageCounts?: CaseSearchAggregateRead["status_groups"] | null
+  stageCounts?: CaseStageCounts | null
   isCountsLoading?: boolean
   isCountsFetching?: boolean
   hasNextPage?: boolean

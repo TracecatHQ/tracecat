@@ -6,7 +6,12 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from tracecat_registry import types
-from tracecat_registry.sdk.types import UNSET, Unset, is_set
+from tracecat_registry.sdk.types import (
+    UNSET,
+    TableAggregation,
+    Unset,
+    is_set,
+)
 
 if TYPE_CHECKING:
     from tracecat_registry.sdk.client import TracecatClient
@@ -63,9 +68,12 @@ class TablesClient:
             f"/tables/{table}/lookup",
             json={"columns": [column], "values": [value], "limit": 1},
         )
-        if not isinstance(rows, list):
-            raise ValueError("Unexpected lookup response")
-        return rows[0] if rows else None
+        if isinstance(rows, list):
+            return rows[0] if rows else None
+        if isinstance(rows, dict) and isinstance(rows.get("items"), list):
+            items = cast(list[dict[str, Any]], rows["items"])
+            return items[0] if items else None
+        raise ValueError("Unexpected lookup response")
 
     async def lookup_many(
         self,
@@ -74,15 +82,29 @@ class TablesClient:
         column: str,
         value: Any,
         limit: int | Unset = UNSET,
-    ) -> list[dict[str, Any]]:
+        group_by: str | Unset = UNSET,
+        agg: TableAggregation | Unset = UNSET,
+        agg_field: str | Unset = UNSET,
+        include_aggregation: bool = False,
+    ) -> list[dict[str, Any]] | types.TableLookupResponse:
         """Lookup multiple rows by column value."""
         data: dict[str, Any] = {"columns": [column], "values": [value]}
         if is_set(limit):
             data["limit"] = limit
+        if is_set(group_by):
+            data["group_by"] = group_by
+        if is_set(agg):
+            data["agg"] = agg
+        if is_set(agg_field):
+            data["agg_field"] = agg_field
         rows = await self._client.post(f"/tables/{table}/lookup", json=data)
-        if not isinstance(rows, list):
-            raise ValueError("Unexpected lookup response")
-        return rows
+        if isinstance(rows, list):
+            return rows
+        if isinstance(rows, dict) and isinstance(rows.get("items"), list):
+            if include_aggregation:
+                return cast(types.TableLookupResponse, rows)
+            return cast(list[dict[str, Any]], rows["items"])
+        raise ValueError("Unexpected lookup response")
 
     async def exists(
         self,

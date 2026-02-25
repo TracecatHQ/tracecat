@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 import sqlalchemy as sa
-from pydantic import ConfigDict, Field, RootModel, field_validator
+from pydantic import ConfigDict, Field, RootModel, field_validator, model_validator
 
+from tracecat import config
 from tracecat.auth.schemas import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
@@ -29,6 +31,7 @@ from tracecat.identifiers.workflow import (
     WorkflowIDShort,
     WorkflowUUID,
 )
+from tracecat.pagination import CursorPaginatedResponse
 
 
 class CaseReadMinimal(Schema):
@@ -58,6 +61,151 @@ class CaseStatusGroupCounts(Schema):
 class CaseSearchAggregateRead(Schema):
     total: int
     status_groups: CaseStatusGroupCounts
+
+
+class CaseSearchAggregate(StrEnum):
+    SUM = "sum"
+    MIN = "min"
+    MAX = "max"
+    MEAN = "mean"
+    MEDIAN = "median"
+    MODE = "mode"
+    N_UNIQUE = "n_unique"
+    VALUE_COUNTS = "value_counts"
+
+
+type CaseSearchGroupBy = Literal[
+    "status",
+    "priority",
+    "severity",
+    "assignee_id",
+    "created_at",
+    "updated_at",
+]
+
+
+type CaseSearchAggField = Literal[
+    "case_number",
+    "status",
+    "priority",
+    "severity",
+    "assignee_id",
+    "created_at",
+    "updated_at",
+]
+
+
+type CaseSearchOrderBy = Literal[
+    "created_at",
+    "updated_at",
+    "priority",
+    "severity",
+    "status",
+    "tasks",
+]
+
+
+type CaseSearchAggregationScalar = (
+    int | float | str | bool | datetime | uuid.UUID | None
+)
+
+
+class CaseSearchRequest(Schema):
+    limit: int = Field(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+        description="Maximum items per page",
+    )
+    cursor: str | None = Field(default=None, description="Cursor for pagination")
+    reverse: bool = Field(default=False, description="Reverse pagination direction")
+    search_term: str | None = Field(
+        default=None,
+        description="Text to search for in case summary, description, or short ID",
+    )
+    status: list[CaseStatus] | None = Field(
+        default=None, description="Filter by case status"
+    )
+    priority: list[CasePriority] | None = Field(
+        default=None, description="Filter by case priority"
+    )
+    severity: list[CaseSeverity] | None = Field(
+        default=None, description="Filter by case severity"
+    )
+    tags: list[str] | None = Field(
+        default=None, description="Filter by tag IDs or slugs (AND logic)"
+    )
+    dropdown: list[str] | None = Field(
+        default=None,
+        description="Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)",
+    )
+    start_time: datetime | None = Field(
+        default=None, description="Return cases created at or after this timestamp"
+    )
+    end_time: datetime | None = Field(
+        default=None, description="Return cases created at or before this timestamp"
+    )
+    updated_after: datetime | None = Field(
+        default=None, description="Return cases updated at or after this timestamp"
+    )
+    updated_before: datetime | None = Field(
+        default=None, description="Return cases updated at or before this timestamp"
+    )
+    assignee_id: list[str] | None = Field(
+        default=None, description="Filter by assignee ID or 'unassigned'"
+    )
+    order_by: CaseSearchOrderBy | None = Field(
+        default=None,
+        description="Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at",
+    )
+    sort: Literal["asc", "desc"] | None = Field(
+        default=None, description="Direction to sort (asc or desc)"
+    )
+    group_by: CaseSearchGroupBy | None = Field(
+        default=None, description="Field to group aggregation results by"
+    )
+    agg: CaseSearchAggregate | None = Field(
+        default=None,
+        description="Aggregation operation. Supported values: sum, min, max, mean, median, mode, n_unique, value_counts",
+    )
+    agg_field: CaseSearchAggField | None = Field(
+        default=None,
+        description="Field to aggregate. Optional for sum (defaults to row count) and value_counts.",
+    )
+
+    @model_validator(mode="after")
+    def validate_aggregation(self) -> CaseSearchRequest:
+        has_group_by = self.group_by is not None
+        has_agg = self.agg is not None
+        has_agg_field = self.agg_field is not None
+
+        if not has_agg and (has_group_by or has_agg_field):
+            raise ValueError("group_by and agg_field require agg")
+        if (
+            has_agg
+            and self.agg is CaseSearchAggregate.VALUE_COUNTS
+            and not has_group_by
+        ):
+            raise ValueError("value_counts aggregation requires group_by")
+
+        return self
+
+
+class CaseSearchAggregationBucket(Schema):
+    group: CaseSearchAggregationScalar
+    value: CaseSearchAggregationScalar
+
+
+class CaseSearchAggregationRead(Schema):
+    agg: CaseSearchAggregate
+    group_by: CaseSearchGroupBy | None = None
+    agg_field: CaseSearchAggField | None = None
+    value: CaseSearchAggregationScalar = None
+    buckets: list[CaseSearchAggregationBucket] = Field(default_factory=list)
+
+
+class CaseSearchResponse(CursorPaginatedResponse[CaseReadMinimal]):
+    aggregation: CaseSearchAggregationRead | None = None
 
 
 class CaseRead(Schema):

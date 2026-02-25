@@ -574,6 +574,40 @@ class TestCoreSearchCases:
         assert result["items"] == [mock_case_dict]
         assert result["next_cursor"] == "cursor-1"
 
+    async def test_search_cases_with_aggregation_returns_full_response(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ):
+        """search_cases should return aggregation metadata when requested."""
+        mock_cases_client.search_cases.return_value = {
+            "items": [mock_case_dict],
+            "next_cursor": None,
+            "prev_cursor": None,
+            "has_more": False,
+            "has_previous": False,
+            "total_estimate": 1,
+            "aggregation": {
+                "agg": "sum",
+                "group_by": "status",
+                "agg_field": None,
+                "value": None,
+                "buckets": [{"group": "new", "value": 1}],
+            },
+        }
+
+        result = await search_cases(
+            group_by="status",
+            agg="sum",
+        )
+
+        mock_cases_client.search_cases.assert_called_once_with(
+            limit=100,
+            group_by="status",
+            agg="sum",
+        )
+        assert isinstance(result, dict)
+        assert result["aggregation"]["agg"] == "sum"
+        assert result["aggregation"]["buckets"][0]["group"] == "new"
+
     async def test_search_cases_with_ordering(
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):

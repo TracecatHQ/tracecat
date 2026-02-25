@@ -234,8 +234,6 @@ import type {
   CasesListTasksResponse,
   CasesRemoveTagData,
   CasesRemoveTagResponse,
-  CasesSearchCaseAggregatesData,
-  CasesSearchCaseAggregatesResponse,
   CasesSearchCasesData,
   CasesSearchCasesResponse,
   CasesSetCaseDropdownValueData,
@@ -6510,95 +6508,21 @@ export const casesCreateCase = (
  * Search cases with cursor-based pagination, filtering, and sorting.
  * @param data The data for the request.
  * @param data.workspaceId
- * @param data.limit Maximum items per page
- * @param data.cursor Cursor for pagination
- * @param data.reverse Reverse pagination direction
- * @param data.searchTerm Text to search for in case summary, description, or short ID
- * @param data.status Filter by case status
- * @param data.priority Filter by case priority
- * @param data.severity Filter by case severity
- * @param data.tags Filter by tag IDs or slugs (AND logic)
- * @param data.dropdown Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
- * @param data.startTime Return cases created at or after this timestamp
- * @param data.endTime Return cases created at or before this timestamp
- * @param data.updatedAfter Return cases updated at or after this timestamp
- * @param data.updatedBefore Return cases updated at or before this timestamp
- * @param data.assigneeId Filter by assignee ID or 'unassigned'
- * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
- * @param data.sort Direction to sort (asc or desc)
- * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
+ * @param data.requestBody
+ * @returns CaseSearchResponse Successful Response
  * @throws ApiError
  */
 export const casesSearchCases = (
   data: CasesSearchCasesData
 ): CancelablePromise<CasesSearchCasesResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/cases/search",
     query: {
-      limit: data.limit,
-      cursor: data.cursor,
-      reverse: data.reverse,
-      search_term: data.searchTerm,
-      status: data.status,
-      priority: data.priority,
-      severity: data.severity,
-      tags: data.tags,
-      dropdown: data.dropdown,
-      start_time: data.startTime,
-      end_time: data.endTime,
-      updated_after: data.updatedAfter,
-      updated_before: data.updatedBefore,
-      assignee_id: data.assigneeId,
-      order_by: data.orderBy,
-      sort: data.sort,
       workspace_id: data.workspaceId,
     },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Search Case Aggregates
- * Return global case totals and per-stage counts for the current filters.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.searchTerm Text to search for in case summary, description, or short ID
- * @param data.status Filter by case status
- * @param data.priority Filter by case priority
- * @param data.severity Filter by case severity
- * @param data.tags Filter by tag IDs or slugs (AND logic)
- * @param data.dropdown Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
- * @param data.startTime Return cases created at or after this timestamp
- * @param data.endTime Return cases created at or before this timestamp
- * @param data.updatedAfter Return cases updated at or after this timestamp
- * @param data.updatedBefore Return cases updated at or before this timestamp
- * @param data.assigneeId Filter by assignee ID or 'unassigned'
- * @returns CaseSearchAggregateRead Successful Response
- * @throws ApiError
- */
-export const casesSearchCaseAggregates = (
-  data: CasesSearchCaseAggregatesData
-): CancelablePromise<CasesSearchCaseAggregatesResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/cases/search/aggregate",
-    query: {
-      search_term: data.searchTerm,
-      status: data.status,
-      priority: data.priority,
-      severity: data.severity,
-      tags: data.tags,
-      dropdown: data.dropdown,
-      start_time: data.startTime,
-      end_time: data.endTime,
-      updated_after: data.updatedAfter,
-      updated_before: data.updatedBefore,
-      assignee_id: data.assigneeId,
-      workspace_id: data.workspaceId,
-    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

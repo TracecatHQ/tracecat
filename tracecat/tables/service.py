@@ -2,9 +2,11 @@ import csv
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
+from decimal import Decimal
+from enum import Enum
 from io import StringIO
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, overload
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -13,10 +15,11 @@ from asyncpg.exceptions import (
     InvalidCachedStatementError,
     UndefinedTableError,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -60,9 +63,13 @@ from tracecat.tables.importer import (
     generate_table_name,
 )
 from tracecat.tables.schemas import (
+    TableAggregation,
+    TableAggregationBucket,
+    TableAggregationRead,
     TableColumnCreate,
     TableColumnUpdate,
     TableCreate,
+    TableLookupResponse,
     TableRowInsert,
     TableUpdate,
 )
@@ -71,6 +78,25 @@ _RETRYABLE_DB_EXCEPTIONS = (
     InvalidCachedStatementError,
     InFailedSQLTransactionError,
 )
+
+_NUMERIC_SQL_TYPES = frozenset({SqlType.INTEGER.value, SqlType.NUMERIC.value})
+_LOOKUP_FIXED_COLUMNS = {"id", "created_at", "updated_at"}
+
+
+def _normalize_aggregation_value(
+    value: Any,
+) -> int | float | str | bool | datetime | UUID | None:
+    if value is None:
+        return None
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, Decimal):
+        if value % 1 == 0:
+            return int(value)
+        return float(value)
+    if isinstance(value, int | float | str | bool | datetime | UUID):
+        return value
+    return str(value)
 
 
 class BaseTablesService(BaseWorkspaceService):
@@ -923,6 +949,32 @@ class BaseTablesService(BaseWorkspaceService):
         await self.session.flush()
         return result.rowcount
 
+    @overload
+    async def lookup_rows(
+        self,
+        table_name: str,
+        *,
+        columns: Sequence[str],
+        values: Sequence[Any],
+        limit: int | None = None,
+        group_by: str | None = None,
+        agg: None = None,
+        agg_field: str | None = None,
+    ) -> list[dict[str, Any]]: ...
+
+    @overload
+    async def lookup_rows(
+        self,
+        table_name: str,
+        *,
+        columns: Sequence[str],
+        values: Sequence[Any],
+        limit: int | None = None,
+        group_by: str | None = None,
+        agg: TableAggregation,
+        agg_field: str | None = None,
+    ) -> TableLookupResponse: ...
+
     @retry(
         retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
         stop=stop_after_attempt(3),
@@ -936,26 +988,50 @@ class BaseTablesService(BaseWorkspaceService):
         columns: Sequence[str],
         values: Sequence[Any],
         limit: int | None = None,
-    ) -> list[dict[str, Any]]:
+        group_by: str | None = None,
+        agg: TableAggregation | None = None,
+        agg_field: str | None = None,
+    ) -> list[dict[str, Any]] | TableLookupResponse:
         """Lookup a value in a table with automatic retry on database errors."""
         if len(values) != len(columns):
             raise ValueError("Values and column names must have the same length")
 
+        table = await self.get_table_by_name(table_name)
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table_name)
+        table_clause = sa.table(sanitized_table_name, schema=schema_name)
 
-        cols = [sa.column(self._sanitize_identifier(c)) for c in columns]
-        stmt = (
-            sa.select(sa.text("*"))
-            .select_from(sa.table(sanitized_table_name, schema=schema_name))
-            .where(
-                sa.and_(
-                    *[col == value for col, value in zip(cols, values, strict=True)]
-                )
-            )
+        field_lookup = {column.name.lower(): column.name for column in table.columns}
+        for fixed_col in _LOOKUP_FIXED_COLUMNS:
+            field_lookup[fixed_col] = fixed_col
+
+        resolved_columns = [
+            self._resolve_lookup_field_name(column_name, field_lookup)
+            for column_name in columns
+        ]
+        where_cols = [
+            sa.column(self._sanitize_identifier(name)) for name in resolved_columns
+        ]
+        where_clause = sa.and_(
+            *[col == value for col, value in zip(where_cols, values, strict=True)]
         )
+
+        stmt = sa.select(sa.text("*")).select_from(table_clause).where(where_clause)
         if limit is not None:
             stmt = stmt.limit(limit)
+
+        aggregation_stmt: sa.Select[Any] | None = None
+        if agg is not None:
+            aggregation_stmt = self._build_lookup_aggregation_stmt(
+                table=table,
+                table_clause=table_clause,
+                where_clause=where_clause,
+                agg=agg,
+                agg_field=agg_field,
+                group_by=group_by,
+                field_lookup=field_lookup,
+            )
+
         txn_cm = (
             self.session.begin_nested()
             if self.session.in_transaction()
@@ -970,7 +1046,40 @@ class BaseTablesService(BaseWorkspaceService):
                         "isolation_level": "READ COMMITTED",
                     },
                 )
-                return [dict(row) for row in result.mappings().all()]
+                rows = [dict(row) for row in result.mappings().all()]
+                aggregation: TableAggregationRead | None = None
+
+                if aggregation_stmt is None:
+                    return rows
+
+                assert agg is not None
+                if group_by is None:
+                    agg_value = await conn.scalar(aggregation_stmt)
+                    aggregation = TableAggregationRead(
+                        agg=agg,
+                        group_by=None,
+                        agg_field=agg_field,
+                        value=_normalize_aggregation_value(agg_value),
+                        buckets=[],
+                    )
+                else:
+                    agg_result = await conn.execute(aggregation_stmt)
+                    buckets = [
+                        TableAggregationBucket(
+                            group=_normalize_aggregation_value(row.group_value),
+                            value=_normalize_aggregation_value(row.agg_value),
+                        )
+                        for row in agg_result
+                    ]
+                    aggregation = TableAggregationRead(
+                        agg=agg,
+                        group_by=group_by,
+                        agg_field=agg_field,
+                        value=None,
+                        buckets=buckets,
+                    )
+
+                return TableLookupResponse(items=rows, aggregation=aggregation)
             except _RETRYABLE_DB_EXCEPTIONS as e:
                 # Log the error for debugging
                 # Note: Context manager handles rollback (savepoint or full) automatically
@@ -999,6 +1108,128 @@ class BaseTablesService(BaseWorkspaceService):
                     schema=schema_name,
                 )
                 raise
+
+    def _resolve_lookup_field_name(
+        self, field_name: str, field_lookup: dict[str, str]
+    ) -> str:
+        resolved = field_lookup.get(field_name.lower())
+        if resolved is None:
+            raise ValueError(f"Unknown lookup field: {field_name}")
+        return resolved
+
+    def _is_numeric_lookup_field(self, table: Table, field_name: str | None) -> bool:
+        if field_name is None:
+            return False
+        for column in table.columns:
+            if column.name == field_name:
+                return column.type in _NUMERIC_SQL_TYPES
+        return False
+
+    def _build_lookup_aggregation_stmt(
+        self,
+        *,
+        table: Table,
+        table_clause: Any,
+        where_clause: sa.ColumnElement[bool],
+        agg: TableAggregation,
+        agg_field: str | None,
+        group_by: str | None,
+        field_lookup: dict[str, str],
+    ) -> sa.Select[Any]:
+        if agg is TableAggregation.SUM:
+            selected_field = agg_field
+        elif agg is TableAggregation.VALUE_COUNTS:
+            selected_field = None
+        else:
+            selected_field = agg_field or group_by
+        selected_col: ColumnElement[Any] | None = None
+        if selected_field is not None:
+            resolved_selected_field = self._resolve_lookup_field_name(
+                selected_field, field_lookup
+            )
+            selected_field = resolved_selected_field
+            selected_col = sa.column(self._sanitize_identifier(resolved_selected_field))
+
+        if agg in {TableAggregation.MEAN, TableAggregation.MEDIAN}:
+            if not self._is_numeric_lookup_field(table, selected_field):
+                raise ValueError(f"{agg.value} aggregation requires numeric agg_field")
+
+        if (
+            agg
+            in {
+                TableAggregation.MIN,
+                TableAggregation.MAX,
+                TableAggregation.MODE,
+                TableAggregation.N_UNIQUE,
+            }
+            and selected_col is None
+        ):
+            raise ValueError(f"{agg.value} aggregation requires agg_field or group_by")
+
+        if agg is TableAggregation.SUM:
+            if agg_field is not None and not self._is_numeric_lookup_field(
+                table, selected_field
+            ):
+                raise ValueError(
+                    "sum aggregation requires numeric agg_field, or omit agg_field to count rows"
+                )
+
+        agg_expr = self._lookup_aggregation_expression(
+            agg=agg, selected_col=selected_col
+        )
+
+        if group_by is None:
+            return (
+                sa.select(agg_expr.label("agg_value"))
+                .select_from(table_clause)
+                .where(where_clause)
+            )
+
+        resolved_group_by = self._resolve_lookup_field_name(group_by, field_lookup)
+        group_col = sa.column(self._sanitize_identifier(resolved_group_by))
+        return (
+            sa.select(
+                group_col.label("group_value"),
+                agg_expr.label("agg_value"),
+            )
+            .select_from(table_clause)
+            .where(where_clause)
+            .group_by(group_col)
+            .order_by(group_col)
+        )
+
+    def _lookup_aggregation_expression(
+        self,
+        *,
+        agg: TableAggregation,
+        selected_col: ColumnElement[Any] | None,
+    ) -> ColumnElement[Any]:
+        if agg is TableAggregation.SUM:
+            if selected_col is None:
+                return func.count(sa.column("id"))
+            return func.coalesce(func.sum(sa.cast(selected_col, sa.Float)), 0)
+        if agg is TableAggregation.MIN:
+            assert selected_col is not None
+            return func.min(selected_col)
+        if agg is TableAggregation.MAX:
+            assert selected_col is not None
+            return func.max(selected_col)
+        if agg is TableAggregation.MEAN:
+            assert selected_col is not None
+            return func.avg(sa.cast(selected_col, sa.Float))
+        if agg is TableAggregation.MEDIAN:
+            assert selected_col is not None
+            return func.percentile_cont(0.5).within_group(
+                sa.cast(selected_col, sa.Float)
+            )
+        if agg is TableAggregation.MODE:
+            assert selected_col is not None
+            return func.mode().within_group(selected_col)
+        if agg is TableAggregation.N_UNIQUE:
+            assert selected_col is not None
+            return func.count(sa.distinct(selected_col))
+        # VALUE_COUNTS
+        return func.count(sa.column("id"))
 
     @retry(
         retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),

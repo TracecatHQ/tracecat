@@ -1,6 +1,8 @@
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from enum import Enum
 from typing import Any, Literal
 
 import sqlalchemy as sa
@@ -35,8 +37,12 @@ from tracecat.cases.schemas import (
     CaseCreate,
     CaseEventVariant,
     CaseReadMinimal,
-    CaseSearchAggregateRead,
-    CaseStatusGroupCounts,
+    CaseSearchAggField,
+    CaseSearchAggregate,
+    CaseSearchAggregationBucket,
+    CaseSearchAggregationRead,
+    CaseSearchGroupBy,
+    CaseSearchResponse,
     CaseTaskCreate,
     CaseTaskUpdate,
     CaseUpdate,
@@ -120,6 +126,43 @@ def _normalize_filter_values(values: Any) -> list[Any]:
 CASE_PRIORITY_SORT_ORDER = tuple(priority.value for priority in CasePriority)
 CASE_SEVERITY_SORT_ORDER = tuple(severity.value for severity in CaseSeverity)
 CASE_STATUS_SORT_ORDER = tuple(status.value for status in CaseStatus)
+
+CASE_SEARCH_GROUP_BY_COLUMNS: dict[CaseSearchGroupBy, Any] = {
+    "status": Case.status,
+    "priority": Case.priority,
+    "severity": Case.severity,
+    "assignee_id": Case.assignee_id,
+    "created_at": Case.created_at,
+    "updated_at": Case.updated_at,
+}
+
+CASE_SEARCH_AGG_FIELDS: dict[CaseSearchAggField, Any] = {
+    "case_number": Case.case_number,
+    "status": Case.status,
+    "priority": Case.priority,
+    "severity": Case.severity,
+    "assignee_id": Case.assignee_id,
+    "created_at": Case.created_at,
+    "updated_at": Case.updated_at,
+}
+
+CASE_SEARCH_NUMERIC_FIELDS = frozenset({"case_number"})
+
+
+def _normalize_aggregation_value(
+    value: Any,
+) -> int | float | str | bool | datetime | uuid.UUID | None:
+    if value is None:
+        return None
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, Decimal):
+        if value % 1 == 0:
+            return int(value)
+        return float(value)
+    if isinstance(value, int | float | str | bool | datetime | uuid.UUID):
+        return value
+    return str(value)
 
 
 def _enum_sort_expr(column: Any, ordered_values: Sequence[str]) -> ColumnElement[int]:
@@ -318,7 +361,10 @@ class CasesService(BaseWorkspaceService):
         ]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
-    ) -> CursorPaginatedResponse[CaseReadMinimal]:
+        group_by: CaseSearchGroupBy | None = None,
+        agg: CaseSearchAggregate | None = None,
+        agg_field: CaseSearchAggField | None = None,
+    ) -> CaseSearchResponse:
         """Search cases with cursor-based pagination and filtering."""
         paginator = BaseCursorPaginator(self.session)
         filters = self._build_search_filters(
@@ -363,6 +409,13 @@ class CasesService(BaseWorkspaceService):
 
         total_count = await self.session.scalar(count_stmt)
         total_estimate = int(total_count or 0)
+
+        aggregation = await self._search_aggregation(
+            filters=filters,
+            group_by=group_by,
+            agg=agg,
+            agg_field=agg_field,
+        )
 
         # Determine sort column and direction
         sort_column = order_by or "created_at"
@@ -585,102 +638,149 @@ class CasesService(BaseWorkspaceService):
                 )
             )
 
-        return CursorPaginatedResponse(
+        return CaseSearchResponse(
             items=case_items,
             next_cursor=next_cursor,
             prev_cursor=prev_cursor,
             has_more=has_more,
             has_previous=has_previous,
             total_estimate=total_estimate,
+            aggregation=aggregation,
         )
 
-    async def get_search_case_aggregates(
+    async def _search_aggregation(
         self,
         *,
-        search_term: str | None = None,
-        status: CaseStatus | Sequence[CaseStatus] | None = None,
-        priority: CasePriority | Sequence[CasePriority] | None = None,
-        severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
-        assignee_ids: Sequence[uuid.UUID] | None = None,
-        include_unassigned: bool = False,
-        tag_ids: list[uuid.UUID] | None = None,
-        dropdown_filters: dict[str, list[str]] | None = None,
-        start_time: datetime | None = None,
-        end_time: datetime | None = None,
-        updated_before: datetime | None = None,
-        updated_after: datetime | None = None,
-    ) -> CaseSearchAggregateRead:
-        """Return global totals for the current case search filter set."""
-        filters = self._build_search_filters(
-            search_term=search_term,
-            status=status,
-            priority=priority,
-            severity=severity,
-            assignee_ids=assignee_ids,
-            include_unassigned=include_unassigned,
-            tag_ids=tag_ids,
-            dropdown_filters=dropdown_filters,
-            start_time=start_time,
-            end_time=end_time,
-            updated_before=updated_before,
-            updated_after=updated_after,
+        filters: Sequence[Any],
+        group_by: CaseSearchGroupBy | None,
+        agg: CaseSearchAggregate | None,
+        agg_field: CaseSearchAggField | None,
+    ) -> CaseSearchAggregationRead | None:
+        if agg is None:
+            return None
+
+        if agg is CaseSearchAggregate.SUM:
+            selected_field = agg_field
+        elif agg is CaseSearchAggregate.VALUE_COUNTS:
+            selected_field = None
+        else:
+            selected_field = agg_field or group_by
+        selected_col: ColumnElement[Any] | None = (
+            CASE_SEARCH_AGG_FIELDS[selected_field]
+            if selected_field is not None and selected_field in CASE_SEARCH_AGG_FIELDS
+            else None
         )
 
-        aggregate_stmt = select(
-            func.count(Case.id).label("total"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.NEW, 1), else_=0)),
-                0,
-            ).label("new"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.IN_PROGRESS, 1), else_=0)),
-                0,
-            ).label("in_progress"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.ON_HOLD, 1), else_=0)),
-                0,
-            ).label("on_hold"),
-            func.coalesce(
-                func.sum(
-                    sa.case(
-                        (
-                            Case.status.in_([CaseStatus.RESOLVED, CaseStatus.CLOSED]),
-                            1,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("resolved"),
-            func.coalesce(
-                func.sum(
-                    sa.case(
-                        (
-                            Case.status.in_([CaseStatus.OTHER, CaseStatus.UNKNOWN]),
-                            1,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("other"),
+        if agg in {
+            CaseSearchAggregate.MEAN,
+            CaseSearchAggregate.MEDIAN,
+        }:
+            if (
+                selected_field is None
+                or selected_field not in CASE_SEARCH_NUMERIC_FIELDS
+            ):
+                raise ValueError(
+                    f"{agg.value} aggregation requires a numeric agg_field"
+                )
+
+        if (
+            agg
+            in {
+                CaseSearchAggregate.MIN,
+                CaseSearchAggregate.MAX,
+                CaseSearchAggregate.MODE,
+                CaseSearchAggregate.N_UNIQUE,
+            }
+            and selected_col is None
+        ):
+            raise ValueError(f"{agg.value} aggregation requires agg_field or group_by")
+
+        if agg is CaseSearchAggregate.SUM:
+            if (
+                agg_field is not None
+                and selected_field not in CASE_SEARCH_NUMERIC_FIELDS
+            ):
+                raise ValueError(
+                    "sum aggregation requires numeric agg_field, or omit agg_field to count rows"
+                )
+
+        agg_expr = self._build_aggregation_expression(
+            agg=agg,
+            selected_col=selected_col,
         )
 
+        if group_by is None:
+            stmt = select(agg_expr.label("agg_value")).select_from(Case)
+            for clause in filters:
+                stmt = stmt.where(clause)
+            agg_value = await self.session.scalar(stmt)
+            return CaseSearchAggregationRead(
+                agg=agg,
+                group_by=None,
+                agg_field=agg_field,
+                value=_normalize_aggregation_value(agg_value),
+                buckets=[],
+            )
+
+        group_col = CASE_SEARCH_GROUP_BY_COLUMNS[group_by]
+        stmt = (
+            select(
+                group_col.label("group_value"),
+                agg_expr.label("agg_value"),
+            )
+            .select_from(Case)
+            .group_by(group_col)
+            .order_by(group_col)
+        )
         for clause in filters:
-            aggregate_stmt = aggregate_stmt.where(clause)
+            stmt = stmt.where(clause)
 
-        row = (await self.session.execute(aggregate_stmt)).one()
-
-        return CaseSearchAggregateRead(
-            total=int(row.total or 0),
-            status_groups=CaseStatusGroupCounts(
-                new=int(row.new or 0),
-                in_progress=int(row.in_progress or 0),
-                on_hold=int(row.on_hold or 0),
-                resolved=int(row.resolved or 0),
-                other=int(row.other or 0),
-            ),
+        result = await self.session.execute(stmt)
+        buckets = [
+            CaseSearchAggregationBucket(
+                group=_normalize_aggregation_value(row.group_value),
+                value=_normalize_aggregation_value(row.agg_value),
+            )
+            for row in result
+        ]
+        return CaseSearchAggregationRead(
+            agg=agg,
+            group_by=group_by,
+            agg_field=agg_field,
+            value=None,
+            buckets=buckets,
         )
+
+    def _build_aggregation_expression(
+        self,
+        *,
+        agg: CaseSearchAggregate,
+        selected_col: ColumnElement[Any] | None,
+    ) -> ColumnElement[Any]:
+        if agg is CaseSearchAggregate.SUM:
+            if selected_col is None:
+                return func.count(Case.id)
+            return func.coalesce(func.sum(cast(selected_col, sa.Float)), 0)
+        if agg is CaseSearchAggregate.MIN:
+            assert selected_col is not None
+            return func.min(selected_col)
+        if agg is CaseSearchAggregate.MAX:
+            assert selected_col is not None
+            return func.max(selected_col)
+        if agg is CaseSearchAggregate.MEAN:
+            assert selected_col is not None
+            return func.avg(cast(selected_col, sa.Float))
+        if agg is CaseSearchAggregate.MEDIAN:
+            assert selected_col is not None
+            return func.percentile_cont(0.5).within_group(cast(selected_col, sa.Float))
+        if agg is CaseSearchAggregate.MODE:
+            assert selected_col is not None
+            return func.mode().within_group(selected_col)
+        if agg is CaseSearchAggregate.N_UNIQUE:
+            assert selected_col is not None
+            return func.count(sa.distinct(selected_col))
+        # VALUE_COUNTS
+        return func.count(Case.id)
 
     async def list_cases(
         self,
