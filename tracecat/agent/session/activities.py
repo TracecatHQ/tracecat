@@ -37,6 +37,8 @@ class CreateSessionInput(BaseModel):
     harness_type: HarnessType = HarnessType.CLAUDE_CODE
     # Workflow run tracking (for approval lookups)
     curr_run_id: uuid.UUID | None = None
+    # First user prompt for best-effort auto-title
+    initial_user_prompt: str | None = None
 
 
 class CreateSessionResult(BaseModel):
@@ -97,6 +99,12 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 agent_session.curr_run_id = input.curr_run_id
                 service.session.add(agent_session)
                 await service.session.commit()
+
+            if input.initial_user_prompt is not None:
+                await service.auto_title_session_on_first_prompt(
+                    agent_session,
+                    input.initial_user_prompt,
+                )
 
         if created:
             logger.info(

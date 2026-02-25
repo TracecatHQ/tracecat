@@ -174,6 +174,37 @@ class TestCreateSessionActivity:
         create_schema = call_args[0][0]
         assert create_schema.harness_type == "claude_code"
 
+    @pytest.mark.anyio
+    @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    async def test_auto_titles_with_initial_prompt(
+        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    ):
+        """Test auto-title attempt when an initial user prompt is provided."""
+        input = CreateSessionInput(
+            role=mock_role,
+            session_id=mock_session_id,
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+            initial_user_prompt="Investigate login failures",
+        )
+
+        mock_agent_session = MagicMock()
+        mock_service = AsyncMock()
+        mock_service.get_or_create_session.return_value = (mock_agent_session, True)
+        mock_service.auto_title_session_on_first_prompt = AsyncMock()
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await create_session_activity(input)
+
+        assert result.success is True
+        mock_service.auto_title_session_on_first_prompt.assert_awaited_once_with(
+            mock_agent_session,
+            "Investigate login failures",
+        )
+
 
 class TestLoadSessionActivity:
     """Tests for load_session_activity."""
