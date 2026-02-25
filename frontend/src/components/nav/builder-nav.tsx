@@ -1021,7 +1021,9 @@ function BuilderNavOptions({
 }) {
   const router = useRouter()
   const { appSettings } = useOrgAppSettings()
-  const { deleteWorkflow } = useWorkflowManager()
+  const { deleteWorkflow } = useWorkflowManager(undefined, {
+    listEnabled: false,
+  })
   const enabledExport = appSettings?.app_workflow_export_enabled
 
   const handleDelete = async () => {

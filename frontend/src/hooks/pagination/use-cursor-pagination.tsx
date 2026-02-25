@@ -1,7 +1,7 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type { ApiError } from "@/client"
 
 export interface CursorPaginationResponse<T> {
@@ -37,6 +37,8 @@ export interface UseCursorPaginationOptions<
   queryFn: (params: P) => Promise<CursorPaginationResponse<T>>
   additionalParams?: Omit<P, keyof CursorPaginationParams>
   enabled?: boolean
+  staleTime?: number
+  refetchOnWindowFocus?: boolean
 }
 
 export interface CursorPaginationState {
@@ -52,6 +54,8 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
   queryFn,
   additionalParams,
   enabled = true,
+  staleTime,
+  refetchOnWindowFocus,
 }: UseCursorPaginationOptions<T, P>) {
   const [paginationState, setPaginationState] = useState<CursorPaginationState>(
     {
@@ -65,6 +69,20 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
     orderBy: null,
     sort: null,
   })
+
+  const queryKeyFingerprint = useMemo(
+    () => JSON.stringify(queryKey),
+    [queryKey]
+  )
+
+  // Reset pagination when the query changes (for example filters).
+  useEffect(() => {
+    setPaginationState({
+      currentCursor: null,
+      cursors: [],
+      currentPage: 0,
+    })
+  }, [queryKeyFingerprint])
 
   // Reset pagination when limit changes
   useEffect(() => {
@@ -107,6 +125,8 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
     ],
     queryFn: () => queryFn(queryParams),
     enabled: enabled && !!workspaceId,
+    staleTime,
+    refetchOnWindowFocus,
   })
 
   const goToNextPage = () => {

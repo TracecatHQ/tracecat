@@ -42,10 +42,6 @@ import {
   CasesViewToggle,
 } from "@/components/cases/cases-view-toggle"
 import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
-import {
-  FolderViewToggle,
-  ViewMode,
-} from "@/components/dashboard/folder-view-toggle"
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { Spinner } from "@/components/loading/spinner"
@@ -99,7 +95,6 @@ import {
 import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
 import {
@@ -136,17 +131,15 @@ const CASE_STATUS_TINTS: Record<CaseStatus, string> = {
 
 function WorkflowsActions() {
   const searchParams = useSearchParams()
-  const currentPath = searchParams?.get("path") || null
-  const [view, setView] = useLocalStorage("folder-view", ViewMode.Tags)
+  const view = searchParams?.get("view") === "list" ? "list" : "folders"
+  const currentPath =
+    view === "folders" ? searchParams?.get("path") || "/" : null
 
   return (
-    <>
-      <FolderViewToggle view={view} onViewChange={setView} />
-      <CreateWorkflowButton
-        view={view === ViewMode.Folders ? "folders" : "default"}
-        currentFolderPath={currentPath}
-      />
-    </>
+    <CreateWorkflowButton
+      view={view === "folders" ? "folders" : "default"}
+      currentFolderPath={currentPath}
+    />
   )
 }
 
@@ -171,8 +164,8 @@ function WorkflowsBreadcrumb({
   const segments = normalizedPath.split("/").filter(Boolean)
   const baseHref = `/workspaces/${workspaceId}/workflows`
   const getFolderHref = (folderPath: string) => {
-    if (folderPath === "/") return baseHref
-    return `${baseHref}?path=${encodeURIComponent(folderPath)}`
+    if (folderPath === "/") return `${baseHref}?view=folders&path=%2F`
+    return `${baseHref}?view=folders&path=${encodeURIComponent(folderPath)}`
   }
 
   return (
@@ -1108,11 +1101,17 @@ function getPageConfig(
 
   // Match routes and return appropriate config
   if (pagePath === "/" || pagePath.startsWith("/workflows")) {
+    const workflowView =
+      searchParams?.get("view") === "list" ? "list" : "folders"
     return {
       title: (
         <WorkflowsBreadcrumb
           workspaceId={workspaceId}
-          path={searchParams?.get("path") ?? "/"}
+          path={
+            workflowView === "folders"
+              ? (searchParams?.get("path") ?? "/")
+              : "/"
+          }
         />
       ),
       actions: <WorkflowsActions />,

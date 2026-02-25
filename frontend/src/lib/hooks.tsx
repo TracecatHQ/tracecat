@@ -692,12 +692,23 @@ export function useDeleteWebhookApiKey(
 
 interface WorkflowFilter {
   tag?: string[]
-  folderId?: string
 }
 
-export function useWorkflowManager(filter?: WorkflowFilter) {
+interface UseWorkflowManagerOptions {
+  listEnabled?: boolean
+}
+
+export function useWorkflowManager(
+  filter?: WorkflowFilter,
+  options: UseWorkflowManagerOptions = {}
+) {
   const queryClient = useQueryClient()
   const workspaceId = useWorkspaceId()
+  const listEnabled = options.listEnabled ?? true
+  const normalizedTags =
+    filter?.tag && filter.tag.length > 0
+      ? [...filter.tag].sort((a, b) => a.localeCompare(b))
+      : null
 
   // List all workflows
   const {
@@ -705,16 +716,19 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
     isLoading: workflowsLoading,
     error: workflowsError,
   } = useQuery<WorkflowReadMinimal[], ApiError>({
-    queryKey: ["workflows", workspaceId, filter?.tag],
+    enabled: listEnabled,
+    queryKey: ["workflows", workspaceId, normalizedTags],
     queryFn: async () => {
       const response = await workflowsListWorkflows({
         workspaceId,
-        tag: filter?.tag,
+        tag: normalizedTags,
         limit: 0,
       })
       return response.items
     },
     retry: retryHandler,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Create workflow
@@ -722,7 +736,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
     mutationFn: async (params: WorkflowsCreateWorkflowData) =>
       await workflowsCreateWorkflow(params),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workflows", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["workflows"] })
       toast({
         title: "Created workflow",
         description: "Your workflow has been created successfully.",
@@ -761,7 +775,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
         workspaceId,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workflows", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["workflows"] })
       queryClient.invalidateQueries({ queryKey: ["directory-items"] })
       toast({
         title: "Deleted workflow",
@@ -791,7 +805,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
     mutationFn: async (params: WorkflowsAddTagData) =>
       await workflowsAddTag(params),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workflows", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["workflows"] })
     },
     onError: (error: TracecatApiError) => {
       console.error("Failed to add tag to workflow:", error)
@@ -806,7 +820,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
     mutationFn: async (params: WorkflowsRemoveTagData) =>
       await workflowsRemoveTag(params),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workflows", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["workflows"] })
     },
     onError: (error: TracecatApiError) => {
       console.error("Failed to remove tag from workflow:", error)
@@ -2292,6 +2306,8 @@ export function useWorkflowTags(
     queryKey: ["tags", workspaceId],
     queryFn: async () => await tagsListTags({ workspaceId }),
     enabled: options.enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Create tag
@@ -2826,6 +2842,8 @@ export function useOrgAppSettings() {
   } = useQuery<AppSettingsRead>({
     queryKey: ["org-app-settings"],
     queryFn: async () => await settingsGetAppSettings(),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Update App settings
@@ -4280,16 +4298,23 @@ export function useFolders(
 }
 
 export type DirectoryItem = FolderDirectoryItem | WorkflowDirectoryItem
-export function useGetDirectoryItems(path: string, workspaceId?: string) {
+export function useGetDirectoryItems(
+  path: string,
+  workspaceId?: string,
+  options: { enabled?: boolean } = {}
+) {
+  const enabled = options.enabled ?? true
   const {
     data: directoryItems,
     isLoading: directoryItemsIsLoading,
     error: directoryItemsError,
   } = useQuery<DirectoryItem[], ApiError>({
-    enabled: !!workspaceId,
-    queryKey: ["directory-items", path],
+    enabled: enabled && !!workspaceId,
+    queryKey: ["directory-items", workspaceId, path],
     queryFn: async () =>
       await foldersGetDirectory({ path, workspaceId: workspaceId ?? "" }),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {

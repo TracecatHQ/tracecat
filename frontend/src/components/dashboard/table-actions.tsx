@@ -13,11 +13,11 @@ import {
 import Link from "next/link"
 import type {
   FolderDirectoryItem,
+  TagRead,
   WorkflowDirectoryItem,
   WorkflowReadMinimal,
 } from "@/client"
 import { DeleteWorkflowAlertDialogTrigger } from "@/components/dashboard/delete-workflow-dialog"
-import { ViewMode } from "@/components/dashboard/folder-view-toggle"
 import { ActiveDialog } from "@/components/dashboard/table-common"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import {
@@ -31,29 +31,28 @@ import {
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
-import {
-  useOrgAppSettings,
-  useWorkflowManager,
-  useWorkflowTags,
-} from "@/lib/hooks"
+import { useOrgAppSettings, useWorkflowManager } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function WorkflowActions({
-  view,
   item,
   setSelectedWorkflow,
   setActiveDialog,
+  showMoveToFolder = true,
+  availableTags,
 }: {
-  view: ViewMode
   item: WorkflowDirectoryItem
   setSelectedWorkflow: (workflow: WorkflowReadMinimal) => void
   setActiveDialog?: (activeDialog: ActiveDialog | null) => void
+  showMoveToFolder?: boolean
+  availableTags?: TagRead[]
 }) {
   const { appSettings } = useOrgAppSettings()
   const workspaceId = useWorkspaceId()
-  const { tags } = useWorkflowTags(workspaceId)
 
-  const { addWorkflowTag, removeWorkflowTag } = useWorkflowManager()
+  const { addWorkflowTag, removeWorkflowTag } = useWorkflowManager(undefined, {
+    listEnabled: false,
+  })
   const enabledExport = appSettings?.app_workflow_export_enabled ?? false
 
   return (
@@ -86,7 +85,7 @@ export function WorkflowActions({
           Copy workflow alias
         </DropdownMenuItem>
       )}
-      {view === ViewMode.Folders && (
+      {showMoveToFolder && (
         <DropdownMenuItem
           className="text-xs"
           onClick={(e) => {
@@ -99,7 +98,7 @@ export function WorkflowActions({
           Move to folder
         </DropdownMenuItem>
       )}
-      {tags && tags.length > 0 ? (
+      {availableTags && availableTags.length > 0 ? (
         <DropdownMenuSub>
           <DropdownMenuSubTrigger
             className="text-xs"
@@ -110,9 +109,7 @@ export function WorkflowActions({
           </DropdownMenuSubTrigger>
           <DropdownMenuPortal>
             <DropdownMenuSubContent>
-              {/* No tags */}
-
-              {tags.map((tag) => {
+              {availableTags.map((tag) => {
                 const hasTag = item.tags?.some((t) => t.id === tag.id)
                 return (
                   <DropdownMenuCheckboxItem
@@ -214,7 +211,6 @@ export function WorkflowActions({
           onClick={(e) => {
             e.stopPropagation() // Prevent row click
             setSelectedWorkflow(item)
-            console.debug("Selected workflow to delete", item)
           }}
         >
           <Trash2 className="mr-2 size-3.5" />
