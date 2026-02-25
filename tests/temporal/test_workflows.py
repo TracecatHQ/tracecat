@@ -6332,7 +6332,7 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
-    # Both parent and child times should be based on the same time_anchor
+    # Both parent and child times should be based on the same time_anchor.
     # Unwrap StoredObject to compare actual data (handles both inline and external)
     data = await to_data(result)
     parent_time = datetime.fromisoformat(data["parent_utcnow"])
@@ -6344,6 +6344,7 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
     # Child time should be >= parent time since child continues from parent's position
     # (child starts after some workflow time has elapsed from when parent evaluated its time)
     child_time = datetime.fromisoformat(data["child_utcnow"])
+    assert parent_time >= time_anchor
     assert child_time >= parent_time, (
         f"Child time {child_time} should be >= parent time {parent_time}"
     )
