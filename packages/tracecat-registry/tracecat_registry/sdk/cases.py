@@ -26,6 +26,22 @@ class CasesClient:
     def __init__(self, client: TracecatClient) -> None:
         self._client = client
 
+    @staticmethod
+    def _serialize_dropdown_values(
+        dropdown_values: list[types.CaseDropdownValueInput] | None,
+    ) -> list[dict[str, Any]] | None:
+        """Serialize dropdown UUID values to strings for JSON transport."""
+        if dropdown_values is None:
+            return None
+
+        serialized: list[dict[str, Any]] = []
+        for dropdown_value in dropdown_values:
+            item: dict[str, Any] = {}
+            for key, value in dropdown_value.items():
+                item[key] = str(value) if isinstance(value, UUID) else value
+            serialized.append(item)
+        return serialized
+
     # === Case CRUD === #
 
     async def create_case(
@@ -75,7 +91,7 @@ class CasesClient:
         if is_set(fields):
             data["fields"] = fields
         if is_set(dropdown_values):
-            data["dropdown_values"] = dropdown_values
+            data["dropdown_values"] = self._serialize_dropdown_values(dropdown_values)
 
         return await self._client.post("/cases", json=data)
 
@@ -143,7 +159,7 @@ class CasesClient:
         if is_set(tags):
             data["tags"] = tags
         if is_set(dropdown_values):
-            data["dropdown_values"] = dropdown_values
+            data["dropdown_values"] = self._serialize_dropdown_values(dropdown_values)
 
         return await self._client.patch(f"/cases/{case_id}", json=data)
 
@@ -618,7 +634,7 @@ class CasesClient:
         if is_set(fields):
             data["fields"] = fields
         if is_set(dropdown_values):
-            data["dropdown_values"] = dropdown_values
+            data["dropdown_values"] = self._serialize_dropdown_values(dropdown_values)
 
         return await self._client.post("/cases/simple", json=data)
 
@@ -679,7 +695,7 @@ class CasesClient:
         if is_set(tags):
             data["tags"] = tags
         if is_set(dropdown_values):
-            data["dropdown_values"] = dropdown_values
+            data["dropdown_values"] = self._serialize_dropdown_values(dropdown_values)
         if append_description:
             data["append_description"] = append_description
 
