@@ -38,6 +38,12 @@ export function getCaseSearchTotal(
   if (typeof aggregation.value === "number") {
     return aggregation.value
   }
+  if (typeof aggregation.value === "string") {
+    const parsed = Number(aggregation.value)
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
   if (!Array.isArray(aggregation.buckets)) {
     return null
   }
