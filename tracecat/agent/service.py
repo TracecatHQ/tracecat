@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import contextlib
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator
 
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
-from tracecat_registry._internal import secrets as registry_secrets
 
 from tracecat.agent.config import MODEL_CONFIGS, PROVIDER_CREDENTIAL_CONFIGS
 from tracecat.agent.preset.service import AgentPresetService
@@ -246,16 +245,6 @@ class AgentManagementService(BaseOrgService):
             return self.settings_service.get_value(setting)
         return None
 
-    @contextlib.contextmanager
-    def _credentials_sandbox(self, credentials: dict[str, str]) -> Iterator[None]:
-        """Expose provider credentials to both Tracecat and registry contexts."""
-        secrets_token = registry_secrets.set_context(credentials)
-        try:
-            with secrets_manager.env_sandbox(credentials):
-                yield
-        finally:
-            registry_secrets.reset_context(secrets_token)
-
     @contextlib.asynccontextmanager
     async def with_model_config(
         self,
@@ -342,8 +331,8 @@ class AgentManagementService(BaseOrgService):
                 )
             model_config = model_config.model_copy(update={"name": model_name})
 
-        # Expose credentials in both env and registry secrets context.
-        with self._credentials_sandbox(credentials):
+        # Use the credentials directly in the environment sandbox
+        with secrets_manager.env_sandbox(credentials):
             yield model_config
 
     @contextlib.asynccontextmanager
@@ -388,5 +377,5 @@ class AgentManagementService(BaseOrgService):
                 "Please configure credentials for this provider first."
             )
 
-        with self._credentials_sandbox(credentials):
+        with secrets_manager.env_sandbox(credentials):
             yield preset_config
