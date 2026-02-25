@@ -42,6 +42,7 @@ from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.redis import client as redis_client_module
 from tracecat.redis.client import get_redis_client
 from tracecat.storage.object import InlineObject, StoredObject
+from tracecat.tiers.limits_cache import invalidate_effective_limits_cache
 
 pytestmark = [
     pytest.mark.temporal,
@@ -187,6 +188,7 @@ async def _configure_org_limits(
             )
         )
         await session.commit()
+    await invalidate_effective_limits_cache(org_id)
 
 
 async def _start_batch(
@@ -412,6 +414,201 @@ async def test_action_concurrency_never_exceeds_cap(
 
     assert max_in_flight_actions <= cap
     assert max_action_permits <= cap
+    assert int(await redis_client.zcard(semaphore_key)) == 0
+
+
+@pytest.mark.anyio
+async def test_action_concurrency_limit_update_applies_to_pending_acquires(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    concurrency_limits_enabled: None,
+) -> None:
+    """Verify reduced action cap is enforced for acquires after an in-flight update.
+
+    Workflows are started under a higher cap and blocked inside mocked actions. We then
+    lower the org action cap before releasing blocked actions. Any actions that acquire
+    permits after the update must respect the lower cap.
+    """
+    initial_cap = 3
+    updated_cap = 1
+    batch_size = 8
+    org_id = test_role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_concurrent_actions=initial_cap)
+
+    redis_wrapper = await get_redis_client()
+    redis_client = await redis_wrapper._get_client()
+    semaphore_key = _action_semaphore_key(org_id)
+    await redis_client.delete(semaphore_key)
+
+    started_actions = 0
+    in_flight_actions = 0
+    post_update_in_flight_actions = 0
+    max_post_update_in_flight_actions = 0
+    lock = asyncio.Lock()
+    initial_cap_reached = asyncio.Event()
+    release_actions = asyncio.Event()
+
+    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
+    async def execute_action_activity_mock(
+        input: RunActionInput, role: Role
+    ) -> StoredObject:
+        del input, role
+        nonlocal started_actions
+        nonlocal in_flight_actions
+        nonlocal post_update_in_flight_actions
+        nonlocal max_post_update_in_flight_actions
+        is_post_update = False
+        async with lock:
+            started_actions += 1
+            start_index = started_actions
+            in_flight_actions += 1
+            if start_index <= initial_cap and in_flight_actions >= initial_cap:
+                initial_cap_reached.set()
+            is_post_update = start_index > initial_cap
+            if is_post_update:
+                post_update_in_flight_actions += 1
+                max_post_update_in_flight_actions = max(
+                    max_post_update_in_flight_actions,
+                    post_update_in_flight_actions,
+                )
+        try:
+            await release_actions.wait()
+            await asyncio.sleep(0.05)
+            return InlineObject(data={"ok": True})
+        finally:
+            async with lock:
+                in_flight_actions -= 1
+                if is_post_update:
+                    post_update_in_flight_actions -= 1
+
+    dsl = _build_single_action_dsl(title="action-cap-update", ref="task")
+    activities = get_activities()
+    activities.append(execute_action_activity_mock)
+
+    async with (
+        test_worker_factory(env.client, activities=activities),
+        test_worker_factory(
+            env.client,
+            activities=[execute_action_activity_mock],
+            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+        ),
+    ):
+        handles = await _start_batch(
+            env=env,
+            role=test_role,
+            dsl=dsl,
+            workflow_name_prefix="action_cap_dynamic_update",
+            size=batch_size,
+        )
+
+        await asyncio.wait_for(initial_cap_reached.wait(), timeout=10)
+        assert in_flight_actions == initial_cap
+
+        await _configure_org_limits(org_id, max_concurrent_actions=updated_cap)
+
+        release_actions.set()
+        for handle in handles:
+            await handle.result()
+
+    assert started_actions == batch_size
+    assert max_post_update_in_flight_actions <= updated_cap
+    assert int(await redis_client.zcard(semaphore_key)) == 0
+
+
+@pytest.mark.anyio
+async def test_workflow_concurrency_limit_update_applies_to_pending_acquires(
+    env: WorkflowEnvironment,
+    test_role: Role,
+    test_worker_factory: Callable[..., Worker],
+    concurrency_limits_enabled: None,
+) -> None:
+    """Verify reduced workflow cap is enforced for acquires after an update."""
+    initial_cap = 3
+    updated_cap = 1
+    batch_size = 8
+    org_id = test_role.organization_id
+    assert org_id is not None
+    await _configure_org_limits(org_id, max_concurrent_workflows=initial_cap)
+
+    redis_wrapper = await get_redis_client()
+    redis_client = await redis_wrapper._get_client()
+    semaphore_key = _workflow_semaphore_key(org_id)
+    await redis_client.delete(semaphore_key)
+
+    started_actions = 0
+    in_flight_actions = 0
+    post_update_in_flight_actions = 0
+    max_post_update_in_flight_actions = 0
+    lock = asyncio.Lock()
+    initial_cap_reached = asyncio.Event()
+    release_actions = asyncio.Event()
+
+    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
+    async def execute_action_activity_mock(
+        input: RunActionInput, role: Role
+    ) -> StoredObject:
+        del input, role
+        nonlocal started_actions
+        nonlocal in_flight_actions
+        nonlocal post_update_in_flight_actions
+        nonlocal max_post_update_in_flight_actions
+        is_post_update = False
+        async with lock:
+            started_actions += 1
+            start_index = started_actions
+            in_flight_actions += 1
+            if start_index <= initial_cap and in_flight_actions >= initial_cap:
+                initial_cap_reached.set()
+            is_post_update = start_index > initial_cap
+            if is_post_update:
+                post_update_in_flight_actions += 1
+                max_post_update_in_flight_actions = max(
+                    max_post_update_in_flight_actions,
+                    post_update_in_flight_actions,
+                )
+        try:
+            await release_actions.wait()
+            await asyncio.sleep(0.05)
+            return InlineObject(data={"ok": True})
+        finally:
+            async with lock:
+                in_flight_actions -= 1
+                if is_post_update:
+                    post_update_in_flight_actions -= 1
+
+    dsl = _build_single_action_dsl(title="workflow-cap-update", ref="task")
+    activities = get_activities()
+    activities.append(execute_action_activity_mock)
+
+    async with (
+        test_worker_factory(env.client, activities=activities),
+        test_worker_factory(
+            env.client,
+            activities=[execute_action_activity_mock],
+            task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+        ),
+    ):
+        handles = await _start_batch(
+            env=env,
+            role=test_role,
+            dsl=dsl,
+            workflow_name_prefix="workflow_cap_dynamic_update",
+            size=batch_size,
+        )
+
+        await asyncio.wait_for(initial_cap_reached.wait(), timeout=10)
+        assert in_flight_actions == initial_cap
+
+        await _configure_org_limits(org_id, max_concurrent_workflows=updated_cap)
+
+        release_actions.set()
+        for handle in handles:
+            await handle.result()
+
+    assert started_actions == batch_size
+    assert max_post_update_in_flight_actions <= updated_cap
     assert int(await redis_client.zcard(semaphore_key)) == 0
 
 
