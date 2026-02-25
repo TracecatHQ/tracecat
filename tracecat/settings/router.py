@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
-from tracecat.auth.dependencies import OrgAdminUser, OrgUserRole
+from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.enums import AuthType
 from tracecat.authz.controls import require_scope
 from tracecat.config import SAML_PUBLIC_ACS_URL
