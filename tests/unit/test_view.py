@@ -2032,6 +2032,103 @@ def test_build_action_statements_from_actions_fixes_depends_on_bug():
     assert stmts_by_ref["action_c"].depends_on == ["action_b"]  # C depends on B
 
 
+def test_build_action_statements_skips_disconnected_island():
+    """Only trigger-connected actions should be converted to statements.
+
+    Main DAG:
+        trigger -> A -> B
+
+    Disconnected island:
+        C -> D
+    """
+    trigger_id = f"trigger-{WORKFLOW_UUID}"
+
+    action_a = MockActionWithRef(
+        id=UUID_A,
+        type="udf",
+        title="Action A",
+        ref="action_a",
+        upstream_edges=[
+            {"source_id": trigger_id, "source_type": "trigger"},
+        ],
+    )
+    action_b = MockActionWithRef(
+        id=UUID_B,
+        type="udf",
+        title="Action B",
+        ref="action_b",
+        upstream_edges=[
+            {
+                "source_id": str(UUID_A),
+                "source_type": "udf",
+                "source_handle": "success",
+            },
+        ],
+    )
+    action_c = MockActionWithRef(
+        id=UUID_C,
+        type="udf",
+        title="Action C",
+        ref="action_c",
+        upstream_edges=[],
+    )
+    action_d = MockActionWithRef(
+        id=UUID_D,
+        type="udf",
+        title="Action D",
+        ref="action_d",
+        upstream_edges=[
+            {
+                "source_id": str(UUID_C),
+                "source_type": "udf",
+                "source_handle": "success",
+            },
+        ],
+    )
+
+    stmts = build_action_statements_from_actions(
+        cast("list[Action]", [action_a, action_b, action_c, action_d])
+    )
+    stmts_by_ref = {stmt.ref: stmt for stmt in stmts}
+
+    assert set(stmts_by_ref) == {"action_a", "action_b"}
+    assert stmts_by_ref["action_a"].depends_on == []
+    assert stmts_by_ref["action_b"].depends_on == ["action_a"]
+
+
+def test_build_action_statements_no_trigger_edges_keeps_all_actions():
+    """Legacy fallback: keep previous behavior if no trigger edges are present."""
+    action_a = MockActionWithRef(
+        id=UUID_A,
+        type="udf",
+        title="Action A",
+        ref="action_a",
+        upstream_edges=[],
+    )
+    action_b = MockActionWithRef(
+        id=UUID_B,
+        type="udf",
+        title="Action B",
+        ref="action_b",
+        upstream_edges=[
+            {
+                "source_id": str(UUID_A),
+                "source_type": "udf",
+                "source_handle": "success",
+            },
+        ],
+    )
+
+    stmts = build_action_statements_from_actions(
+        cast("list[Action]", [action_a, action_b])
+    )
+    stmts_by_ref = {stmt.ref: stmt for stmt in stmts}
+
+    assert set(stmts_by_ref) == {"action_a", "action_b"}
+    assert stmts_by_ref["action_a"].depends_on == []
+    assert stmts_by_ref["action_b"].depends_on == ["action_a"]
+
+
 # =============================================================================
 # Tests for RFGraph validation
 # =============================================================================

@@ -812,11 +812,63 @@ def build_action_statements_from_actions(
 
     This function uses Action.upstream_edges directly as the source of truth
     for dependencies, eliminating the need for a separate RFGraph object.
+
+    Only actions reachable from trigger-connected roots are converted.
+    This prevents disconnected action islands from being executable.
+
+    Legacy fallback: if a workflow has no trigger edges at all, keep previous
+    behavior and include all actions.
     """
+
+    def get_reachable_action_ids(actions: list[Action]) -> set[ActionID]:
+        id2action = {action.id: action for action in actions}
+        trigger_roots: set[ActionID] = set()
+        adjacency: dict[ActionID, set[ActionID]] = {}
+
+        for action in actions:
+            for edge_data in action.upstream_edges:
+                edge = UpstreamEdgeDataValidator.validate_python(edge_data)
+                source_type = edge.get("source_type", "udf")
+                source_id_str = edge.get("source_id")
+                if not source_id_str:
+                    continue
+
+                if source_type == "trigger":
+                    trigger_roots.add(action.id)
+                    continue
+                if source_type != "udf":
+                    continue
+
+                try:
+                    source_id = ActionID(source_id_str)
+                except ValueError:
+                    continue
+
+                if source_id in id2action:
+                    adjacency.setdefault(source_id, set()).add(action.id)
+
+        if not trigger_roots:
+            return set(id2action)
+
+        reachable: set[ActionID] = set(trigger_roots)
+        queue = deque(trigger_roots)
+        while queue:
+            source_id = queue.popleft()
+            for target_id in adjacency.get(source_id, set()):
+                if target_id in reachable:
+                    continue
+                reachable.add(target_id)
+                queue.append(target_id)
+        return reachable
+
     id2action = {action.id: action for action in actions}
+    reachable_action_ids = get_reachable_action_ids(actions)
 
     statements = []
     for action in actions:
+        if action.id not in reachable_action_ids:
+            continue
+
         dependencies: list[str] = []
 
         # Build dependencies from upstream_edges
@@ -835,7 +887,7 @@ def build_action_statements_from_actions(
             else:
                 continue
 
-            if source_id in id2action:
+            if source_id in id2action and source_id in reachable_action_ids:
                 source_action = id2action[source_id]
                 base_ref = source_action.ref
 
