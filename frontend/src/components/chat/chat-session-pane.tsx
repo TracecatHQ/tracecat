@@ -89,7 +89,7 @@ import {
 import { cn } from "@/lib/utils"
 
 export interface ChatSessionPaneProps {
-  chat: AgentSessionReadVercel | ChatReadVercel
+  chat?: AgentSessionReadVercel | ChatReadVercel
   workspaceId: string
   entityType?: AgentSessionEntity
   entityId?: string
@@ -158,7 +158,7 @@ export function ChatSessionPane({
   const [toolsDialogOpen, setToolsDialogOpen] = useState(false)
 
   // Check if this is a legacy read-only session
-  const isReadonly = "is_readonly" in chat && chat.is_readonly === true
+  const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
 
   const uiMessages = useMemo(
     () => (chat?.messages || []).map(toUIMessage),
@@ -166,26 +166,30 @@ export function ChatSessionPane({
   )
   const { sendMessage, messages, status, regenerate, lastError, clearError } =
     useVercelChat({
-      chatId: chat.id,
+      chatId: chat?.id,
       workspaceId,
       messages: uiMessages,
       modelInfo,
     })
 
-  // Track whether we've sent the pending message to avoid double-sends
-  const pendingMessageSentRef = useRef(false)
+  // Track pending message sends to avoid duplicate sends
+  const pendingMessageSentRef = useRef<string | null>(null)
 
   // Send pending message on mount (used after forking)
   useEffect(() => {
-    if (pendingMessage && !pendingMessageSentRef.current && !isReadonly) {
-      pendingMessageSentRef.current = true
-      clearError()
-      sendMessage({ text: pendingMessage })
-      onPendingMessageSent?.()
-    }
+    if (!pendingMessage || isReadonly || !chat) return
+
+    const messageKey = `${chat.id}:${pendingMessage}`
+    if (pendingMessageSentRef.current === messageKey) return
+
+    pendingMessageSentRef.current = messageKey
+    clearError()
+    sendMessage({ text: pendingMessage })
+    onPendingMessageSent?.()
   }, [
     pendingMessage,
     isReadonly,
+    chat,
     clearError,
     sendMessage,
     onPendingMessageSent,
@@ -310,6 +314,10 @@ export function ChatSessionPane({
         setInput("")
       }
       // Parent will handle switching sessions and sending via pendingMessage
+      return
+    }
+
+    if (!chat) {
       return
     }
 
@@ -473,7 +481,7 @@ export function ChatSessionPane({
             />
           </PromptInputToolbar>
         </PromptInput>
-        {toolsEnabled && !isReadonly && (
+        {chat && toolsEnabled && !isReadonly && (
           <ChatToolsDialog
             chatId={chat.id}
             open={toolsDialogOpen}
