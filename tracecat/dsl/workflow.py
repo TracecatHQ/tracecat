@@ -731,6 +731,11 @@ class DSLWorkflow:
         """Return the deepest nested Temporal cause and best-effort message."""
         current = error
         seen: set[int] = set()
+        # Termination argument:
+        # - Each non-breaking iteration adds one new exception object id to `seen`.
+        # - If a cause object repeats, we break on the `seen` check (cycle guard).
+        # - If `cause` is missing or not an exception, we break.
+        # Therefore this traversal cannot loop indefinitely.
         while True:
             current_id = id(current)
             if current_id in seen:

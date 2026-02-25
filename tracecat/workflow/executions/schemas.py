@@ -455,6 +455,11 @@ class EventFailure(BaseModel):
         root_message: str | None = None
         current: dict[str, Any] | None = cause
         seen: set[int] = set()
+        # Termination argument:
+        # - Each non-breaking iteration adds a new object id to `seen`.
+        # - If a dict repeats (cycle), we break on the `seen` check.
+        # - If `cause` is missing or not a dict, we break.
+        # Therefore the loop cannot run indefinitely.
         while current is not None:
             current_id = id(current)
             if current_id in seen:

@@ -1199,6 +1199,64 @@ async def test_single_child_workflow_alias(
     assert await to_data(result) == {"data": "Test", "index": 0}
 
 
+@pytest.mark.anyio
+async def test_child_workflow_alias_not_found_surfaces_detail(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+):
+    test_name = test_child_workflow_alias_not_found_surfaces_detail.__name__
+    wf_exec_id = generate_test_exec_id(test_name)
+    missing_alias = "missing_child_alias_for_test"
+
+    parent_dsl = DSLInput(
+        title="Parent",
+        description="Test missing child workflow alias surfaces useful error",
+        entrypoint=DSLEntrypoint(ref="run_child", expects={}),
+        actions=[
+            ActionStatement(
+                ref="run_child",
+                action="core.workflow.execute",
+                args={
+                    "workflow_alias": missing_alias,
+                    "trigger_inputs": {
+                        "data": "Test",
+                        "index": 0,
+                    },
+                },
+                depends_on=[],
+                description="",
+                for_each=None,
+                run_if=None,
+            ),
+        ],
+        returns="${{ ACTIONS.run_child.result }}",
+        triggers=[],
+    )
+    run_args = DSLRunArgs(
+        dsl=parent_dsl,
+        role=test_role,
+        wf_id=WorkflowUUID.new("wf-00000000000000000000000000000002"),
+    )
+
+    worker = test_worker_factory(temporal_client)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    with pytest.raises(WorkflowFailureError) as exc_info:
+        _ = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
+
+    assert str(exc_info.value) == "Workflow execution failed"
+    cause = exc_info.value.cause
+    if isinstance(cause, ActivityError):
+        nested = cause.cause
+        if isinstance(nested, BaseException):
+            cause = nested
+    assert isinstance(cause, ApplicationError)
+    err = str(cause)
+    assert f"Workflow alias '{missing_alias}' not found" in err
+    assert "Activity task failed" not in err
+
+
 @pytest.mark.parametrize(
     "alias,loop_strategy,loop_kwargs",
     [
