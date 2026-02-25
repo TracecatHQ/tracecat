@@ -70,7 +70,9 @@ export function WorkflowExecutionEventDetailView({
             <div className="p-3">
               <CodeBlock title="Message">
                 <span className="text-xs">
-                  {event.action_error?.message ?? "No error message"}
+                  {event.action_error?.root_cause_message ??
+                    event.action_error?.message ??
+                    "No error message"}
                 </span>
               </CodeBlock>
             </div>

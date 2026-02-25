@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import (
@@ -69,6 +70,28 @@ WorkflowExecutionStatusLiteral = Literal[
     "TIMED_OUT",
 ]
 """Mapped literal types for workflow execution statuses."""
+
+_ERROR_MESSAGE_MAX_LENGTH = 2048
+_SENSITIVE_ERROR_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]+"),
+        r"\1 [REDACTED]",
+    ),
+    (
+        re.compile(
+            r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|passwd|secret)=([^&\s]+)"
+        ),
+        r"\1=[REDACTED]",
+    ),
+    (
+        re.compile(r"(?i)(authorization:\s*(?:basic|bearer)\s+)[^\s,;]+"),
+        r"\1[REDACTED]",
+    ),
+    (
+        re.compile(r"(?i)(://[^/\s:@]+:)([^@\s/]+)@"),
+        r"\1[REDACTED]@",
+    ),
+)
 
 
 class WorkflowExecutionBase(BaseModel):
@@ -444,10 +467,56 @@ class EventGroup[T: EventInput](BaseModel):
 class EventFailure(BaseModel):
     message: str
     cause: dict[str, Any] | None = None
+    root_cause_message: str | None = None
+
+    @staticmethod
+    def extract_root_cause_message(cause: dict[str, Any] | None) -> str | None:
+        """Extract the deepest non-empty message from nested Temporal failure causes."""
+        if not cause:
+            return None
+
+        root_message: str | None = None
+        current: dict[str, Any] | None = cause
+        seen: set[int] = set()
+        # Termination argument:
+        # - Each non-breaking iteration adds a new object id to `seen`.
+        # - If a dict repeats (cycle), we break on the `seen` check.
+        # - If `cause` is missing or not a dict, we break.
+        # Therefore the loop cannot run indefinitely.
+        while current is not None:
+            current_id = id(current)
+            if current_id in seen:
+                break
+            seen.add(current_id)
+
+            message = current.get("message")
+            if isinstance(message, str) and message.strip():
+                root_message = message
+
+            nested_cause = current.get("cause")
+            if not isinstance(nested_cause, dict):
+                break
+            current = nested_cause
+
+        return root_message
+
+    @staticmethod
+    def sanitize_error_text(text: str | None) -> str | None:
+        if text is None:
+            return None
+
+        sanitized = text
+        for pattern, replacement in _SENSITIVE_ERROR_PATTERNS:
+            sanitized = pattern.sub(replacement, sanitized)
+        if len(sanitized) > _ERROR_MESSAGE_MAX_LENGTH:
+            return f"{sanitized[:_ERROR_MESSAGE_MAX_LENGTH]}...[truncated]"
+        return sanitized
 
     @staticmethod
     def from_history_event(
         event: temporalio.api.history.v1.HistoryEvent,
+        *,
+        include_raw_cause: bool = False,
     ) -> EventFailure:
         match event.event_type:
             case temporalio.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED:
@@ -461,9 +530,12 @@ class EventFailure(BaseModel):
             case _:
                 raise ValueError("Event type not supported for failure extraction.")
 
+        cause = MessageToDict(failure.cause) if failure.HasField("cause") else None
+        root_cause_message = EventFailure.extract_root_cause_message(cause)
         return EventFailure(
-            message=failure.message,
-            cause=MessageToDict(failure.cause) if failure.cause is not None else None,
+            message=EventFailure.sanitize_error_text(failure.message) or "",
+            cause=cause if include_raw_cause else None,
+            root_cause_message=EventFailure.sanitize_error_text(root_cause_message),
         )
 
 

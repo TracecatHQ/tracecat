@@ -954,6 +954,106 @@ class TestTimeoutResolution:
             assert result is None
 
 
+def test_event_failure_extract_root_cause_message_returns_deepest_message() -> None:
+    cause = {
+        "message": "Activity task failed",
+        "cause": {
+            "message": "ApplicationError: Workflow dispatch failed",
+            "cause": {"message": "Workflow alias 'invalid' not found"},
+        },
+    }
+
+    result = EventFailure.extract_root_cause_message(cause)
+
+    assert result == "Workflow alias 'invalid' not found"
+
+
+def test_event_failure_extract_root_cause_message_handles_empty_and_cycles() -> None:
+    cyclic_cause: dict[str, Any] = {
+        "message": "Top-level failure",
+        "cause": {"message": "   "},
+    }
+    nested = cast(dict[str, Any], cyclic_cause["cause"])
+    nested["cause"] = cyclic_cause
+
+    result = EventFailure.extract_root_cause_message(cyclic_cause)
+
+    assert result == "Top-level failure"
+
+
+def test_event_failure_from_history_event_populates_root_cause_message() -> None:
+    failure_cause = Mock()
+    event = create_mock_history_event(
+        event_id=1,
+        event_type=cast(EventType, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED),
+        failure_message="Workflow execution failed",
+        failure_cause=failure_cause,
+    )
+    nested_cause = {
+        "message": "Workflow execution failed",
+        "cause": {
+            "message": "Activity task failed",
+            "cause": {"message": "Workflow alias 'invalid' not found"},
+        },
+    }
+
+    with patch(
+        "tracecat.workflow.executions.schemas.MessageToDict",
+        return_value=nested_cause,
+    ):
+        failure = EventFailure.from_history_event(event)
+
+    assert failure.message == "Workflow execution failed"
+    assert failure.cause is None
+    assert failure.root_cause_message == "Workflow alias 'invalid' not found"
+
+
+def test_event_failure_from_history_event_sanitizes_sensitive_data() -> None:
+    failure_cause = Mock()
+    event = create_mock_history_event(
+        event_id=1,
+        event_type=cast(EventType, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED),
+        failure_message="Request failed with Authorization: Bearer abc123",
+        failure_cause=failure_cause,
+    )
+    nested_cause = {
+        "message": "Outer failure",
+        "cause": {
+            "message": "Call failed: api_key=topsecret&foo=bar",
+            "cause": {"message": "postgresql://user:password@localhost/db"},
+        },
+    }
+
+    with patch(
+        "tracecat.workflow.executions.schemas.MessageToDict",
+        return_value=nested_cause,
+    ):
+        failure = EventFailure.from_history_event(event)
+
+    assert failure.message == "Request failed with Authorization: Bearer [REDACTED]"
+    assert failure.root_cause_message == "postgresql://user:[REDACTED]@localhost/db"
+    assert failure.cause is None
+
+
+def test_event_failure_from_history_event_include_raw_cause() -> None:
+    failure_cause = Mock()
+    event = create_mock_history_event(
+        event_id=1,
+        event_type=cast(EventType, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED),
+        failure_message="Workflow execution failed",
+        failure_cause=failure_cause,
+    )
+    nested_cause = {"message": "raw-cause"}
+
+    with patch(
+        "tracecat.workflow.executions.schemas.MessageToDict",
+        return_value=nested_cause,
+    ):
+        failure = EventFailure.from_history_event(event, include_raw_cause=True)
+
+    assert failure.cause == nested_cause
+
+
 class TestWorkflowStartAcknowledgement:
     @pytest.mark.anyio
     async def test_create_workflow_execution_wait_for_start_acknowledges_temporal_start(

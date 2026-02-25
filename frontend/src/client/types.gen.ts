@@ -2430,6 +2430,7 @@ export type EventFailure = {
   cause?: {
     [key: string]: unknown
   } | null
+  root_cause_message?: string | null
 }
 
 export type EventGroup_TypeVar_ = {

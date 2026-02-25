@@ -7931,6 +7931,17 @@ export const $EventFailure = {
       ],
       title: "Cause",
     },
+    root_cause_message: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Root Cause Message",
+    },
   },
   type: "object",
   required: ["message"],

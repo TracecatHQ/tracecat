@@ -724,6 +724,37 @@ class DSLWorkflow:
                 break
         return result
 
+    @staticmethod
+    def _unwrap_temporal_failure_cause(
+        error: BaseException,
+    ) -> tuple[BaseException, str]:
+        """Return the deepest nested Temporal cause and best-effort message."""
+        current = error
+        seen: set[int] = set()
+        # Termination argument:
+        # - Each non-breaking iteration adds one new exception object id to `seen`.
+        # - If a cause object repeats, we break on the `seen` check (cycle guard).
+        # - If `cause` is missing or not an exception, we break.
+        # Therefore this traversal cannot loop indefinitely.
+        while True:
+            current_id = id(current)
+            if current_id in seen:
+                break
+            seen.add(current_id)
+
+            nested = getattr(current, "cause", None)
+            if not isinstance(nested, BaseException):
+                break
+            current = nested
+
+        message = str(current)
+        if message:
+            return current, message
+        outer_message = str(error)
+        if outer_message:
+            return current, outer_message
+        return current, current.__class__.__name__
+
     @maybe_interactive
     async def _execute_task(self, task: ActionStatement) -> TaskResult:
         """Purely execute a task and manage the results.
@@ -1016,20 +1047,43 @@ class DSLWorkflow:
             # These are deterministic and expected errors that
             err_type = e.__class__.__name__
             msg = self.ERROR_TYPE_TO_MESSAGE[err_type]
-            self.logger.warning(msg, role=self.role, e=e, cause=e.cause, type=err_type)
-            match cause := e.cause:
+            cause = e.cause
+            root_error, root_message = self._unwrap_temporal_failure_cause(
+                cause if isinstance(cause, BaseException) else e
+            )
+            self.logger.warning(
+                msg,
+                role=self.role,
+                e=e,
+                cause=cause,
+                root_cause=root_error,
+                root_message=root_message,
+                type=err_type,
+            )
+            match cause:
                 case ApplicationError(details=details) if details:
                     err_info = details[0]
                     err_type = cause.type or err_type
                     task_result = task_result.with_error(err_info, err_type)
                     # Reraise the cause, as it's wrapped by the ApplicationError
                     raise cause from e
+                case ApplicationError() as app_err:
+                    err_type = app_err.type or err_type
+                    err_message = app_err.message or root_message
+                    task_result = task_result.with_error(err_message, err_type)
+                    raise app_err from e
                 case _:
-                    self.logger.warning("Unexpected error cause", cause=cause)
-                    task_result = task_result.with_error(e.message, err_type)
+                    resolved_type = root_error.__class__.__name__
+                    self.logger.warning(
+                        "Unexpected error cause",
+                        cause=cause,
+                        root_cause=root_error,
+                        root_message=root_message,
+                    )
+                    task_result = task_result.with_error(root_message, resolved_type)
                     raise ApplicationError(
-                        e.message, non_retryable=True, type=err_type
-                    ) from cause
+                        root_message, non_retryable=True, type=resolved_type
+                    ) from e
 
         except TracecatExpressionError as e:
             err_type = e.__class__.__name__

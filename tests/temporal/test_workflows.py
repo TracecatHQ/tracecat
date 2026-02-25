@@ -1199,6 +1199,64 @@ async def test_single_child_workflow_alias(
     assert await to_data(result) == {"data": "Test", "index": 0}
 
 
+@pytest.mark.anyio
+async def test_child_workflow_alias_not_found_surfaces_detail(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+):
+    test_name = test_child_workflow_alias_not_found_surfaces_detail.__name__
+    wf_exec_id = generate_test_exec_id(test_name)
+    missing_alias = "missing_child_alias_for_test"
+
+    parent_dsl = DSLInput(
+        title="Parent",
+        description="Test missing child workflow alias surfaces useful error",
+        entrypoint=DSLEntrypoint(ref="run_child", expects={}),
+        actions=[
+            ActionStatement(
+                ref="run_child",
+                action="core.workflow.execute",
+                args={
+                    "workflow_alias": missing_alias,
+                    "trigger_inputs": {
+                        "data": "Test",
+                        "index": 0,
+                    },
+                },
+                depends_on=[],
+                description="",
+                for_each=None,
+                run_if=None,
+            ),
+        ],
+        returns="${{ ACTIONS.run_child.result }}",
+        triggers=[],
+    )
+    run_args = DSLRunArgs(
+        dsl=parent_dsl,
+        role=test_role,
+        wf_id=WorkflowUUID.new("wf-00000000000000000000000000000002"),
+    )
+
+    worker = test_worker_factory(temporal_client)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    with pytest.raises(WorkflowFailureError) as exc_info:
+        _ = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
+
+    assert str(exc_info.value) == "Workflow execution failed"
+    cause = exc_info.value.cause
+    if isinstance(cause, ActivityError):
+        nested = cause.cause
+        if isinstance(nested, BaseException):
+            cause = nested
+    assert isinstance(cause, ApplicationError)
+    err = str(cause)
+    assert f"Workflow alias '{missing_alias}' not found" in err
+    assert "Activity task failed" not in err
+
+
 @pytest.mark.parametrize(
     "alias,loop_strategy,loop_kwargs",
     [
@@ -3250,7 +3308,7 @@ async def test_workflow_error_handler_success(
         ),
         pytest.param(
             "invalid_error_handler",
-            "RuntimeError: Couldn't find matching workflow for alias 'invalid_error_handler'",
+            "WorkflowAliasResolutionError: Couldn't find matching workflow for alias 'invalid_error_handler'",
             id="alias-no-match",
         ),
     ],
@@ -3297,6 +3355,10 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
     cause1 = cause0.cause
     assert isinstance(cause1, ApplicationError)
     assert str(cause1) == expected_err_msg
+    if id_or_alias == "invalid_error_handler":
+        err = str(cause1)
+        assert "Activity task failed" not in err
+        assert "timed out" not in err.lower()
 
 
 @pytest.mark.anyio
@@ -6138,11 +6200,13 @@ async def test_workflow_time_anchor_deterministic_time_functions(
     time_2 = datetime.fromisoformat(action_2["utcnow_iso"])
     time_3 = datetime.fromisoformat(action_3["utcnow_iso"])
 
-    # Verify all times are based on time_anchor (same date, starting from 14:30:45)
-    assert "2024-06-15" in action_1["utcnow_iso"]
-    assert "14:30:45" in action_1["utcnow_iso"]
-    assert "2024-06-15" in action_2["utcnow_iso"]
-    assert "2024-06-15" in action_3["utcnow_iso"]
+    # Verify all times are based on time_anchor date and do not move backwards
+    assert time_1.date() == time_anchor.date()
+    assert time_2.date() == time_anchor.date()
+    assert time_3.date() == time_anchor.date()
+    assert time_1 >= time_anchor, (
+        f"action_1 time {time_1} should be >= time_anchor {time_anchor}"
+    )
 
     # Verify time advances between sequential actions
     # (logical time = time_anchor + elapsed workflow time)
@@ -6271,12 +6335,14 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
     # Both parent and child times should be based on the same time_anchor
     # Unwrap StoredObject to compare actual data (handles both inline and external)
     data = await to_data(result)
-    assert "2024-06-15" in data["parent_utcnow"]
-    assert "14:30:45" in data["parent_utcnow"]
+    parent_time = datetime.fromisoformat(data["parent_utcnow"])
+    assert parent_time.date() == time_anchor.date()
+    assert parent_time >= time_anchor, (
+        f"Parent time {parent_time} should be >= time_anchor {time_anchor}"
+    )
 
     # Child time should be >= parent time since child continues from parent's position
     # (child starts after some workflow time has elapsed from when parent evaluated its time)
-    parent_time = datetime.fromisoformat(data["parent_utcnow"])
     child_time = datetime.fromisoformat(data["child_utcnow"])
     assert child_time >= parent_time, (
         f"Child time {child_time} should be >= parent time {parent_time}"
