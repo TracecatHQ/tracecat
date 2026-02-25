@@ -76,6 +76,96 @@ spec:
                 name: {{ include "tracecat.fullname" . }}-api
                 port:
                   number: 8000
+{{- if .Values.mcp.enabled }}
+---
+{{- $mcpAnnotations := merge (dict) $baseAnnotations (.Values.ingress.mcp.annotations | default dict) -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "tracecat.fullname" . }}-mcp
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+  {{- with $mcpAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- range .Values.ingress.tls }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .secretName }}
+    {{- end }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          # MCP server
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          # MCP OIDC auth routes
+          - path: /.well-known/oauth-authorization-server
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /.well-known/oauth-protected-resource
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /authorize
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /token
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /register
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /consent
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /auth/callback
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+{{- end }}
 {{- else }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -113,6 +203,66 @@ spec:
                 name: {{ include "tracecat.fullname" . }}-api
                 port:
                   number: 8000
+{{- if .Values.mcp.enabled }}
+          # MCP server
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          # MCP OIDC auth routes
+          - path: /.well-known/oauth-authorization-server
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /.well-known/oauth-protected-resource
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /authorize
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /token
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /register
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /consent
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+          - path: /auth/callback
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracecat.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.port }}
+{{- end }}
           # UI (default/catch-all)
           - path: /
             pathType: Prefix

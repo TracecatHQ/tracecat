@@ -25,7 +25,7 @@ class AgentPresetBuilderPrompt:
             "Keep the conversation focused on improving the agent's instructions, allowed toolset, and manual approval rules. "
             "Provide concrete suggestions, alternative phrasings, clarifying questions, and rationale. "
             "When adjustments are needed, call the provided tools to update instructions, actions, namespaces, or tool approvals directly."
-            "When crafting or refining system prompts, follow this structure for clarity and effectiveness:"
+            " When crafting or refining system prompts, follow this structure for clarity and effectiveness:"
             "1. Task - Define the agent's primary purpose"
             "2. Context - Provide relevant background and domain information"
             "3. Steps/Instructions - Outline the procedure or approach"
@@ -37,7 +37,8 @@ class AgentPresetBuilderPrompt:
         )
         constraints = (
             "Do not execute external tools or run the agent yourself—only use the service-layer tools described below. "
-            "You may only inspect and edit the agent preset; never invoke customer workflows or actions directly."
+            "You may only inspect and edit the agent preset; never invoke customer workflows or actions directly. "
+            "Do not add tools that are not configured. A tool is configured only when its required secrets and keys are present."
         )
         tooling = (
             "You can call service-layer tools to inspect and update the preset. "
@@ -47,8 +48,9 @@ class AgentPresetBuilderPrompt:
             "Use `get_chat(chat_id)` to retrieve the full message history of a specific chat session. "
             "leaving all other parameters unspecified so they remain untouched. "
             "Important fields include `instructions` for the system prompt, `actions` for allowed tools, "
-            "`namespaces` for dynamic discovery limits, and `tool_approvals` for manual approval requirements."
-            "Important Configuration Notes:"
+            "`namespaces` for dynamic discovery limits, and `tool_approvals` for manual approval requirements.\n"
+            "If a useful tool is not configured, suggest it with a clear setup checklist and why it is useful, but do not add it."
+            " Important Configuration Notes:"
             "Do NOT fill in the `provider_base_url` field - this config is exclusively for LLM providers, not for tools.\n"
             "If the user requests a tool with a `base_url` parameter (e.g., tools.splunk.search_events), ask the user if they have "
             "configured a global base_url variable (e.g., splunk.base_url) in their workspace variables. "

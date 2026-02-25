@@ -260,6 +260,17 @@ Public API URL - used for external API access
 {{- end }}
 
 {{/*
+Public MCP URL - used by MCP server for OIDC auth callbacks and connect links
+*/}}
+{{- define "tracecat.publicMcpUrl" -}}
+{{- if .Values.urls.publicMcp }}
+{{- .Values.urls.publicMcp }}
+{{- else }}
+{{- printf "%s://%s/mcp" (include "tracecat.urlScheme" .) .Values.ingress.host }}
+{{- end }}
+{{- end }}
+
+{{/*
 Public S3 URL - used for presigned URLs
 */}}
 {{- define "tracecat.publicS3Url" -}}
@@ -652,7 +663,8 @@ Merges: common + temporal + postgres + redis + api-specific
 - name: SAML_ALLOW_UNSOLICITED
   value: {{ .Values.tracecat.saml.allowUnsolicited | quote }}
 {{- end }}
-{{- /* OIDC settings */}}
+{{- /* OIDC settings (API only needs these when oidc auth is enabled) */}}
+{{- if regexMatch "(^|,)\\s*oidc\\s*(,|$)" (.Values.tracecat.auth.types | default "") }}
 {{- if .Values.tracecat.oidc.issuer }}
 - name: OIDC_ISSUER
   value: {{ .Values.tracecat.oidc.issuer | quote }}
@@ -668,6 +680,7 @@ Merges: common + temporal + postgres + redis + api-specific
 {{- if .Values.tracecat.oidc.scopes }}
 - name: OIDC_SCOPES
   value: {{ .Values.tracecat.oidc.scopes | quote }}
+{{- end }}
 {{- end }}
 {{- end }}
 
@@ -765,6 +778,51 @@ Merges: common + temporal + postgres + redis + agent-executor-specific
   value: {{ .Values.agentExecutor.queue | quote }}
 - name: TRACECAT__EXECUTOR_WORKER_POOL_SIZE
   value: {{ .Values.agentExecutor.workerPoolSize | quote }}
+{{- end }}
+
+{{/*
+MCP service environment variables
+Merges: common + temporal + postgres + mcp-specific
+*/}}
+{{- define "tracecat.env.mcp" -}}
+{{ include "tracecat.env.common" . }}
+{{ include "tracecat.env.temporal" . }}
+{{ include "tracecat.env.postgres" . }}
+- name: TRACECAT_MCP__HOST
+  value: "0.0.0.0"
+- name: TRACECAT_MCP__PORT
+  value: {{ .Values.mcp.port | quote }}
+- name: TRACECAT_MCP__BASE_URL
+  value: {{ include "tracecat.publicMcpUrl" . | quote }}
+- name: TRACECAT_MCP__RATE_LIMIT_RPS
+  value: {{ .Values.tracecat.mcp.rateLimitRps | quote }}
+- name: TRACECAT_MCP__RATE_LIMIT_BURST
+  value: {{ .Values.tracecat.mcp.rateLimitBurst | quote }}
+- name: TRACECAT_MCP__TOOL_TIMEOUT_SECONDS
+  value: {{ .Values.tracecat.mcp.toolTimeoutSeconds | quote }}
+- name: TRACECAT_MCP__MAX_INPUT_SIZE_BYTES
+  value: {{ .Values.tracecat.mcp.maxInputSizeBytes | quote }}
+- name: TRACECAT_MCP__STARTUP_MAX_ATTEMPTS
+  value: {{ .Values.tracecat.mcp.startupMaxAttempts | quote }}
+- name: TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS
+  value: {{ .Values.tracecat.mcp.startupRetryDelaySeconds | quote }}
+{{- /* OIDC settings */}}
+{{- if .Values.tracecat.oidc.issuer }}
+- name: OIDC_ISSUER
+  value: {{ .Values.tracecat.oidc.issuer | quote }}
+{{- end }}
+{{- if .Values.tracecat.oidc.clientId }}
+- name: OIDC_CLIENT_ID
+  value: {{ .Values.tracecat.oidc.clientId | quote }}
+{{- end }}
+{{- if .Values.tracecat.oidc.clientSecret }}
+- name: OIDC_CLIENT_SECRET
+  value: {{ .Values.tracecat.oidc.clientSecret | quote }}
+{{- end }}
+{{- if .Values.tracecat.oidc.scopes }}
+- name: OIDC_SCOPES
+  value: {{ .Values.tracecat.oidc.scopes | quote }}
+{{- end }}
 {{- end }}
 
 {{/*
@@ -936,6 +994,23 @@ Validate infrastructure dependencies
 {{- $visibilitySql := dig "temporal" "server" "config" "persistence" "datastores" "visibility" "sql" nil $values -}}
 {{- include "tracecat.validateTemporalSqlStore" (dict "storeName" "default" "storeConfig" $defaultSql) -}}
 {{- include "tracecat.validateTemporalSqlStore" (dict "storeName" "visibility" "storeConfig" $visibilitySql) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Validate MCP configuration
+*/}}
+{{- define "tracecat.validateMcpConfig" -}}
+{{- if .Values.mcp.enabled -}}
+{{- if not .Values.tracecat.oidc.issuer -}}
+{{- fail "tracecat.oidc.issuer is required when mcp.enabled=true" -}}
+{{- end -}}
+{{- if not .Values.tracecat.oidc.clientId -}}
+{{- fail "tracecat.oidc.clientId is required when mcp.enabled=true" -}}
+{{- end -}}
+{{- if not .Values.tracecat.oidc.clientSecret -}}
+{{- fail "tracecat.oidc.clientSecret is required when mcp.enabled=true" -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 

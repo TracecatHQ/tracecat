@@ -105,6 +105,13 @@ export function OrganizationSidebar({
       visible: canViewSettings === true,
       locked: !gitSyncEnabled,
     },
+    // MCP settings page not yet implemented — hidden until route exists
+    // {
+    //   title: "MCP",
+    //   url: "/organization/settings/mcp",
+    //   icon: LinkIcon,
+    //   isActive: pathname?.includes("/organization/settings/mcp"),
+    // },
   ]
 
   const navSecrets = [
