@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   publish-release:
@@ -14,6 +15,8 @@ jobs:
       github.event.pull_request.merged == true &&
       startsWith(github.event.pull_request.head.ref, 'release/')
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Extract version from branch name
         id: version
@@ -26,6 +29,86 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create tag on merge commit
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          REMOTE_SHA=$(git ls-remote --tags origin "refs/tags/${VERSION}" | awk '{print $1}')
+
+          if [ -n "$REMOTE_SHA" ]; then
+            echo "Tag ${VERSION} exists on remote, moving it to merge commit ${MERGE_SHA}"
+            git fetch --force origin "refs/tags/${VERSION}:refs/tags/${VERSION}" 2>/dev/null || true
+            git tag -fa "${VERSION}" "${MERGE_SHA}" -m "Release ${VERSION}"
+            git push --force origin "refs/tags/${VERSION}"
+          else
+            echo "Creating tag ${VERSION} on merge commit ${MERGE_SHA}"
+            git tag -a "${VERSION}" "${MERGE_SHA}" -m "Release ${VERSION}"
+            git push origin "refs/tags/${VERSION}"
+          fi
+
+      - name: Trigger and wait for publish images
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Dispatch build-push-images from the tag ref so the checkout
+          # picks up the merge commit (which includes the version bump).
+          # (GITHUB_TOKEN push events don't trigger other workflows,
+          # but workflow_dispatch events do.)
+          gh workflow run build-push-images.yml \
+            --ref "${VERSION}" \
+            --field "tag=${VERSION}"
+
+          # Wait for the dispatched run to appear
+          for _ in $(seq 1 30); do
+            run_id=$(gh run list \
+              --workflow build-push-images.yml \
+              --json databaseId,headBranch,event,status \
+              --jq "map(select(.headBranch == \"${VERSION}\" and .event == \"workflow_dispatch\")) | sort_by(.databaseId) | reverse | .[0].databaseId")
+
+            if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
+              break
+            fi
+            sleep 10
+          done
+
+          if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
+            echo "Timed out waiting for publish-images run for tag $VERSION" >&2
+            exit 1
+          fi
+
+          max_retries=3
+          attempt=1
+          max_attempts=$((max_retries + 1))
+
+          while [ "$attempt" -le "$max_attempts" ]; do
+            echo "Watching publish-images run $run_id (attempt $attempt/$max_attempts)"
+            if gh run watch "$run_id" --exit-status; then
+              echo "publish-images succeeded"
+              break
+            fi
+
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              echo "publish-images failed after $attempt attempts ($max_retries retries)" >&2
+              exit 1
+            fi
+
+            echo "Retrying failed jobs for publish-images run $run_id"
+            gh run rerun "$run_id" --failed
+            attempt=$((attempt + 1))
+          done
 
       - name: Publish draft release
         uses: actions/github-script@v7
@@ -62,8 +145,6 @@ jobs:
             core.info(`Published release ${version}`)
 
       - name: Delete release branch
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/release/${VERSION}" || true
