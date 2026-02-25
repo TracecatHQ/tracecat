@@ -38,6 +38,7 @@ from tracecat.storage.object import (
     StoredObjectValidator,
 )
 from tracecat.storage.utils import serialize_object
+from tracecat.validation.service import validate_dsl
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.schemas import (
@@ -727,6 +728,17 @@ async def create_draft_workflow_execution(
                     "detail": e.errors(),
                 },
             ) from e
+
+    # Run the same tiered DSL validator used at commit time.
+    if val_errors := await validate_dsl(session=session, dsl=dsl_input, role=role):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "type": "TracecatValidationError",
+                "message": f"Workflow validation failed with {len(val_errors)} error(s)",
+                "detail": [err.root.model_dump(mode="json") for err in val_errors],
+            },
+        )
 
     try:
         response = service.create_draft_workflow_execution_nowait(
