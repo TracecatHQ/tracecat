@@ -403,16 +403,15 @@ async def seed_registry_scopes(
 ) -> int:
     """Seed registry scopes.
 
-    Current behavior has two explicit steps:
-    1. Seed platform registry scopes.
-    2. Seed custom registry scopes
+    Current behavior seeds platform registry scopes only.
     """
     platform_inserted = await _seed_platform_registry_scopes(
         session,
         action_keys,
     )
-    custom_inserted = await _seed_custom_registry_scopes(session, action_keys)
-    return platform_inserted + custom_inserted
+    # Re-enable custom scope seeding when org-specific action keys differ from platform keys.
+    # custom_inserted = await _seed_custom_registry_scopes(session, action_keys)
+    return platform_inserted
 
 
 async def _seed_platform_registry_scopes(
@@ -442,62 +441,6 @@ async def _seed_platform_registry_scopes(
         values=values,
         source=ScopeSource.PLATFORM,
     )
-
-
-async def _seed_custom_registry_scopes(
-    session: AsyncSession,
-    action_keys: list[str],
-) -> int:
-    """Seed custom registry scopes for all organizations using chunked upserts."""
-    if not action_keys:
-        return 0
-
-    org_stmt = select(Organization.id)
-    org_result = await session.execute(org_stmt)
-    org_ids = [org_id for (org_id,) in org_result.tuples().all()]
-    if not org_ids:
-        return 0
-
-    logger.info(
-        "Seeding registry scopes",
-        num_actions=len(action_keys),
-        source=ScopeSource.CUSTOM.value,
-        num_organizations=len(org_ids),
-    )
-
-    inserted_count = 0
-    batch_values: list[ScopeInsertRow] = []
-    for org_id in org_ids:
-        for key in action_keys:
-            batch_values.append(
-                _build_registry_scope_row(
-                    action_key=key,
-                    source=ScopeSource.CUSTOM,
-                    organization_id=org_id,
-                )
-            )
-            if len(batch_values) >= _CUSTOM_SCOPE_BATCH_ROWS:
-                inserted_count += await _upsert_registry_scope_rows(
-                    session=session,
-                    values=batch_values,
-                    source=ScopeSource.CUSTOM,
-                )
-                batch_values.clear()
-
-    if batch_values:
-        inserted_count += await _upsert_registry_scope_rows(
-            session=session,
-            values=batch_values,
-            source=ScopeSource.CUSTOM,
-        )
-
-    logger.info(
-        "Registry scopes seeded",
-        inserted=inserted_count,
-        total=len(org_ids) * len(action_keys),
-        source=ScopeSource.CUSTOM.value,
-    )
-    return inserted_count
 
 
 def _build_registry_scope_row(

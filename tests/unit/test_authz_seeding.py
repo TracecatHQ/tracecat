@@ -73,13 +73,10 @@ async def test_seed_registry_scopes(session):
         "core.http_request",
     ]
 
-    org_count_result = await session.execute(select(func.count(Organization.id)))
-    org_count = org_count_result.scalar_one()
-
     inserted_count = await seed_registry_scopes(session, action_keys)
     await session.commit()
 
-    assert inserted_count == len(action_keys) * (1 + org_count)
+    assert inserted_count == len(action_keys)
 
     # Verify scopes exist
     result = await session.execute(
@@ -95,10 +92,14 @@ async def test_seed_registry_scopes(session):
     for key in action_keys:
         assert f"action:{key}:execute" in scope_names
 
+    action_scope_names = [f"action:{key}:execute" for key in action_keys]
     custom_scope_result = await session.execute(
-        select(func.count(Scope.id)).where(Scope.source == ScopeSource.CUSTOM)
+        select(func.count(Scope.id)).where(
+            Scope.source == ScopeSource.CUSTOM,
+            Scope.name.in_(action_scope_names),
+        )
     )
-    assert custom_scope_result.scalar_one() == len(action_keys) * org_count
+    assert custom_scope_result.scalar_one() == 0
 
 
 @pytest.mark.anyio
@@ -106,13 +107,10 @@ async def test_seed_registry_scopes_idempotent(session):
     """Test that bulk seeding is idempotent."""
     action_keys = ["tools.test.action1", "tools.test.action2"]
 
-    org_count_result = await session.execute(select(func.count(Organization.id)))
-    org_count = org_count_result.scalar_one()
-
     # First seed
     first_count = await seed_registry_scopes(session, action_keys)
     await session.commit()
-    assert first_count == len(action_keys) * (1 + org_count)
+    assert first_count == len(action_keys)
 
     # Second seed
     second_count = await seed_registry_scopes(session, action_keys)
