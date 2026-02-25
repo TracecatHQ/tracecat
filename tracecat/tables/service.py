@@ -1231,6 +1231,12 @@ class BaseTablesService(BaseWorkspaceService):
         # VALUE_COUNTS
         return func.count(sa.column("id"))
 
+    @retry(
+        retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=0.1, min=0.2, max=2),
+        reraise=True,
+    )
     async def _search_aggregation(
         self,
         *,
@@ -1267,12 +1273,13 @@ class BaseTablesService(BaseWorkspaceService):
             conn = await txn.session.connection()
             try:
                 if group_by is None:
-                    agg_value = await conn.scalar(
+                    agg_result = await conn.execute(
                         aggregation_stmt,
                         execution_options={
                             "isolation_level": "READ COMMITTED",
                         },
                     )
+                    agg_value = agg_result.scalar()
                     return TableAggregationRead(
                         agg=agg,
                         group_by=None,
@@ -1303,7 +1310,7 @@ class BaseTablesService(BaseWorkspaceService):
                 )
             except _RETRYABLE_DB_EXCEPTIONS as e:
                 self.logger.warning(
-                    "Retryable DB exception occurred during _search_aggregation",
+                    "Retryable DB exception occurred during search aggregation",
                     kind=type(e).__name__,
                     error=str(e),
                     table=table.name,
@@ -1314,11 +1321,13 @@ class BaseTablesService(BaseWorkspaceService):
                 while (cause := e.__cause__) is not None:
                     e = cause
                 if isinstance(e, UndefinedTableError):
-                    raise TracecatNotFoundError(f"Table '{table.name}' does not exist") from e
+                    raise TracecatNotFoundError(
+                        f"Table '{table.name}' does not exist"
+                    ) from e
                 raise ValueError(str(e)) from e
             except Exception as e:
                 self.logger.error(
-                    "Unexpected DB exception occurred during _search_aggregation",
+                    "Unexpected DB exception occurred during search aggregation",
                     kind=type(e).__name__,
                     error=str(e),
                     table=table.name,
