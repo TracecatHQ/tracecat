@@ -695,9 +695,17 @@ interface WorkflowFilter {
   folderId?: string
 }
 
-export function useWorkflowManager(filter?: WorkflowFilter) {
+interface UseWorkflowManagerOptions {
+  listEnabled?: boolean
+}
+
+export function useWorkflowManager(
+  filter?: WorkflowFilter,
+  options: UseWorkflowManagerOptions = {}
+) {
   const queryClient = useQueryClient()
   const workspaceId = useWorkspaceId()
+  const listEnabled = options.listEnabled ?? true
 
   // List all workflows
   const {
@@ -715,6 +723,9 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
       return response.items
     },
     retry: retryHandler,
+    enabled: listEnabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Create workflow
@@ -2292,6 +2303,8 @@ export function useWorkflowTags(
     queryKey: ["tags", workspaceId],
     queryFn: async () => await tagsListTags({ workspaceId }),
     enabled: options.enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Create tag
@@ -2826,6 +2839,8 @@ export function useOrgAppSettings() {
   } = useQuery<AppSettingsRead>({
     queryKey: ["org-app-settings"],
     queryFn: async () => await settingsGetAppSettings(),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Update App settings
@@ -4287,9 +4302,11 @@ export function useGetDirectoryItems(path: string, workspaceId?: string) {
     error: directoryItemsError,
   } = useQuery<DirectoryItem[], ApiError>({
     enabled: !!workspaceId,
-    queryKey: ["directory-items", path],
+    queryKey: ["directory-items", workspaceId, path],
     queryFn: async () =>
       await foldersGetDirectory({ path, workspaceId: workspaceId ?? "" }),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {

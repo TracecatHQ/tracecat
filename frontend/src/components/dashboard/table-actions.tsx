@@ -53,7 +53,9 @@ export function WorkflowActions({
   const workspaceId = useWorkspaceId()
   const { tags } = useWorkflowTags(workspaceId)
 
-  const { addWorkflowTag, removeWorkflowTag } = useWorkflowManager()
+  const { addWorkflowTag, removeWorkflowTag } = useWorkflowManager(undefined, {
+    listEnabled: false,
+  })
   const enabledExport = appSettings?.app_workflow_export_enabled ?? false
 
   return (

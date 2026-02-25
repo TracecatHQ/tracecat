@@ -40,7 +40,9 @@ export function WorkflowMoveDialog({
   setSelectedWorkflow,
 }: WorkflowMoveDialogProps) {
   const workspaceId = useWorkspaceId()
-  const { moveWorkflow } = useWorkflowManager()
+  const { moveWorkflow } = useWorkflowManager(undefined, {
+    listEnabled: false,
+  })
   const { folders } = useFolders(workspaceId, { enabled: open })
   const [isLoading, setIsLoading] = useState(false)
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)

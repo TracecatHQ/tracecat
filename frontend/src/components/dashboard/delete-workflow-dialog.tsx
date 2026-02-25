@@ -23,7 +23,9 @@ export function DeleteWorkflowAlertDialog({
   selectedWorkflow: WorkflowReadMinimal | null
   setSelectedWorkflow: (selectedSecret: WorkflowReadMinimal | null) => void
 }>) {
-  const { deleteWorkflow } = useWorkflowManager()
+  const { deleteWorkflow } = useWorkflowManager(undefined, {
+    listEnabled: false,
+  })
   return (
     <AlertDialog
       onOpenChange={(isOpen) => {

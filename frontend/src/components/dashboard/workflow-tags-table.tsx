@@ -30,8 +30,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useWorkflowsPagination } from "@/hooks/pagination/use-workflows-pagination"
 import { useAuth } from "@/hooks/use-auth"
-import { useWorkflowManager } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -40,18 +40,34 @@ export function WorkflowsTagsTable() {
   const workspaceId = useWorkspaceId()
   const { user } = useAuth()
   const searchParams = useSearchParams()
-  const queryTags = searchParams?.getAll("tag") || undefined
-  const { workflows, workflowsLoading, workflowsError } = useWorkflowManager({
-    tag: queryTags,
+  const queryTags = searchParams?.getAll("tag")
+  const tags = queryTags && queryTags.length > 0 ? queryTags : undefined
+  const [pageSize, setPageSize] = useState(20)
+  const {
+    data: workflows,
+    isLoading: workflowsLoading,
+    error: workflowsError,
+    goToNextPage,
+    goToPreviousPage,
+    goToFirstPage,
+    hasNextPage,
+    hasPreviousPage,
+    currentPage,
+    totalEstimate,
+    startItem,
+    endItem,
+  } = useWorkflowsPagination({
+    workspaceId,
+    tags,
+    limit: pageSize,
   })
   const [selectedWorkflow, setSelectedWorkflow] =
     useState<WorkflowReadMinimal | null>(null)
 
   const handleOnClickRow = (row: Row<WorkflowReadMinimal>) => () => {
-    // Link to workflow detail page
-    console.debug("Clicked row", row)
     router.push(`/workspaces/${workspaceId}/workflows/${row.original.id}`)
   }
+
   return (
     <DeleteWorkflowAlertDialog
       selectedWorkflow={selectedWorkflow}
@@ -72,6 +88,20 @@ export function WorkflowsTagsTable() {
           getRowHref={(row) =>
             `/workspaces/${workspaceId}/workflows/${row.original.id}`
           }
+          serverSidePagination={{
+            currentPage,
+            hasNextPage,
+            hasPreviousPage,
+            pageSize,
+            totalEstimate,
+            startItem,
+            endItem,
+            onNextPage: goToNextPage,
+            onPreviousPage: goToPreviousPage,
+            onFirstPage: goToFirstPage,
+            onPageSizeChange: setPageSize,
+            isLoading: workflowsLoading,
+          }}
           columns={[
             {
               accessorKey: "title",
@@ -87,7 +117,7 @@ export function WorkflowsTagsTable() {
                   {row.getValue<WorkflowReadMinimal["title"]>("title")}
                 </div>
               ),
-              enableSorting: true,
+              enableSorting: false,
               enableHiding: false,
             },
             {
@@ -118,7 +148,7 @@ export function WorkflowsTagsTable() {
                   </Badge>
                 )
               },
-              enableSorting: true,
+              enableSorting: false,
               enableHiding: false,
             },
             {
@@ -146,7 +176,7 @@ export function WorkflowsTagsTable() {
                   </div>
                 )
               },
-              enableSorting: true,
+              enableSorting: false,
             },
             {
               id: "Updated",
@@ -185,7 +215,7 @@ export function WorkflowsTagsTable() {
                   </Tooltip>
                 )
               },
-              enableSorting: true,
+              enableSorting: false,
               enableHiding: false,
             },
             {
@@ -228,7 +258,7 @@ export function WorkflowsTagsTable() {
                   </Tooltip>
                 )
               },
-              enableSorting: true,
+              enableSorting: false,
             },
             {
               id: "Version",
@@ -292,7 +322,7 @@ export function WorkflowsTagsTable() {
                       <Button
                         variant="ghost"
                         className="size-6 p-0"
-                        onClick={(e) => e.stopPropagation()} // Prevent row click
+                        onClick={(e) => e.stopPropagation()}
                       >
                         <span className="sr-only">Open menu</span>
                         <DotsHorizontalIcon className="size-4" />
@@ -319,6 +349,7 @@ export function WorkflowsTagsTable() {
     </DeleteWorkflowAlertDialog>
   )
 }
+
 const defaultToolbarProps: DataTableToolbarProps<WorkflowReadMinimal> = {
   filterProps: {
     placeholder: "Search workflows...",

@@ -6,7 +6,13 @@ import { useRouter } from "next/navigation"
 import { useCallback, useState } from "react"
 import { useForm } from "react-hook-form"
 import z from "zod"
-import type { TagCreate, TagRead, TagUpdate } from "@/client"
+import type {
+  TagCreate,
+  TagRead,
+  TagsDeleteTagData,
+  TagsUpdateTagData,
+  TagUpdate,
+} from "@/client"
 import { ColorPicker } from "@/components/color-picker"
 import {
   AlertDialog,
@@ -47,7 +53,6 @@ import {
 import { Input } from "@/components/ui/input"
 import { useWorkflowTags } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-import { useWorkspaceId } from "@/providers/workspace-id"
 
 const createTagSchema = z.object({
   name: z
@@ -66,7 +71,8 @@ const createTagSchema = z.object({
 
 export function WorkflowTagsSidebar({ workspaceId }: { workspaceId: string }) {
   const router = useRouter()
-  const { tags, createTag, tagsIsLoading } = useWorkflowTags(workspaceId)
+  const { tags, createTag, updateTag, deleteTag, tagsIsLoading } =
+    useWorkflowTags(workspaceId)
   const [showTagDialog, setShowTagDialog] = useState(false)
 
   const methods = useForm<TagCreate>({
@@ -132,6 +138,9 @@ export function WorkflowTagsSidebar({ workspaceId }: { workspaceId: string }) {
                 key={tag.id}
                 tag={tag}
                 onSelect={() => handleSelectTag(tag)}
+                workspaceId={workspaceId}
+                updateTag={updateTag}
+                deleteTag={deleteTag}
               />
             ))
           ) : (
@@ -237,13 +246,17 @@ const updateTagSchema = z.object({
 function TagItemActionDialogContent({
   action,
   tag,
+  workspaceId,
+  updateTag,
+  deleteTag,
 }: {
   action: TagItemAction | null
   tag: TagRead
+  workspaceId: string
+  updateTag: (params: TagsUpdateTagData) => Promise<unknown>
+  deleteTag: (params: TagsDeleteTagData) => Promise<unknown>
 }) {
   const router = useRouter()
-  const workspaceId = useWorkspaceId()
-  const { updateTag, deleteTag } = useWorkflowTags(workspaceId)
   const methods = useForm<TagUpdate>({
     resolver: zodResolver(updateTagSchema),
     defaultValues: {
@@ -271,7 +284,7 @@ function TagItemActionDialogContent({
         })
       }
     },
-    [tag.id, workspaceId]
+    [methods, tag.id, updateTag, workspaceId]
   )
 
   const onDelete = useCallback(async () => {
@@ -281,7 +294,7 @@ function TagItemActionDialogContent({
     } catch (error) {
       console.error("Error deleting tag", error)
     }
-  }, [tag.id, workspaceId])
+  }, [deleteTag, router, tag.id, workspaceId])
 
   switch (action) {
     case TagItemAction.Delete:
@@ -391,9 +404,15 @@ function TagItemActionDialogContent({
 function TagItem({
   tag,
   onSelect,
+  workspaceId,
+  updateTag,
+  deleteTag,
 }: {
   tag: TagRead
   onSelect: (id: string) => void
+  workspaceId: string
+  updateTag: (params: TagsUpdateTagData) => Promise<unknown>
+  deleteTag: (params: TagsDeleteTagData) => Promise<unknown>
 }) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [action, setAction] = useState<TagItemAction | null>(null)
@@ -460,7 +479,13 @@ function TagItem({
           </div>
         </div>
       </DropdownMenu>
-      <TagItemActionDialogContent action={action} tag={tag} />
+      <TagItemActionDialogContent
+        action={action}
+        tag={tag}
+        workspaceId={workspaceId}
+        updateTag={updateTag}
+        deleteTag={deleteTag}
+      />
     </AlertDialog>
   )
 }

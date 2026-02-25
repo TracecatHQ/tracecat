@@ -66,7 +66,9 @@ function ImportWorkflowDialog({
 }) {
   const router = useRouter()
   const [validationErrors, setValidationErrors] = useState<string | null>(null)
-  const { createWorkflow } = useWorkflowManager()
+  const { createWorkflow } = useWorkflowManager(undefined, {
+    listEnabled: false,
+  })
 
   const form = useForm<ImportFormValues>({
     resolver: zodResolver(importFormSchema),
@@ -297,7 +299,9 @@ export function CreateWorkflowButton({
   const router = useRouter()
   const workspaceId = useWorkspaceId()
   const canCreateWorkflow = useScopeCheck("workflow:create")
-  const { createWorkflow, moveWorkflow } = useWorkflowManager()
+  const { createWorkflow, moveWorkflow } = useWorkflowManager(undefined, {
+    listEnabled: false,
+  })
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
 

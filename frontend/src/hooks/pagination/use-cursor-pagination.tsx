@@ -37,6 +37,8 @@ export interface UseCursorPaginationOptions<
   queryFn: (params: P) => Promise<CursorPaginationResponse<T>>
   additionalParams?: Omit<P, keyof CursorPaginationParams>
   enabled?: boolean
+  staleTime?: number
+  refetchOnWindowFocus?: boolean
 }
 
 export interface CursorPaginationState {
@@ -52,6 +54,8 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
   queryFn,
   additionalParams,
   enabled = true,
+  staleTime,
+  refetchOnWindowFocus,
 }: UseCursorPaginationOptions<T, P>) {
   const [paginationState, setPaginationState] = useState<CursorPaginationState>(
     {
@@ -107,6 +111,8 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
     ],
     queryFn: () => queryFn(queryParams),
     enabled: enabled && !!workspaceId,
+    staleTime,
+    refetchOnWindowFocus,
   })
 
   const goToNextPage = () => {
