@@ -71,6 +71,7 @@ async def ensure_organization_defaults(
 
     # Ensure system roles exist for this org (idempotent)
     await seed_system_roles_for_org(session, org_id)
+    await session.commit()
 
     # Ensure org tier exists (assigns default tier if configured)
     tier_service = TierService(session)
