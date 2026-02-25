@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from temporalio.exceptions import ApplicationError
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl.schemas import (
     ROOT_STREAM,
@@ -164,3 +165,44 @@ async def test_execute_task_handles_timers_before_action_permit_acquisition() ->
     assert events[:2] == ["timers", "acquire"]
     assert acquire_mock.await_count == 1
     assert result.get_data() == {"ok": True}
+
+
+def test_resolve_child_loop_batch_size_rejects_non_positive_max_in_flight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _build_workflow()
+    monkeypatch.setattr(config, "TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT", 0)
+
+    with pytest.raises(
+        ApplicationError,
+        match="TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT must be greater than 0",
+    ):
+        workflow._resolve_child_loop_batch_size(total_count=3, requested_batch_size=3)
+
+
+def test_resolve_child_loop_batch_size_rejects_non_positive_tier_action_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _build_workflow(limits=_effective_limits(max_concurrent_actions=0))
+    monkeypatch.setattr(config, "TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT", 5)
+
+    with pytest.raises(
+        ApplicationError,
+        match="max_concurrent_actions must be greater than 0",
+    ):
+        workflow._resolve_child_loop_batch_size(total_count=3, requested_batch_size=3)
+
+
+def test_resolve_child_loop_batch_size_applies_caps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _build_workflow(limits=_effective_limits(max_concurrent_actions=2))
+    monkeypatch.setattr(config, "TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT", 4)
+
+    strategy_batch_size, batch_size = workflow._resolve_child_loop_batch_size(
+        total_count=10,
+        requested_batch_size=6,
+    )
+
+    assert strategy_batch_size == 6
+    assert batch_size == 2
