@@ -461,8 +461,8 @@ async def test_skip_outside_loop_bypasses_whole_loop_region(
     dsl = DSLInput(
         title="Outside skip bypasses loop",
         description=(
-            "If skip propagation reaches loop_start, the loop body is bypassed and "
-            "execution continues after loop_end."
+            "If skip propagation reaches loop_start, loop_start->loop_end behaves as "
+            "one skipped unit and downstream nodes are skipped accordingly."
         ),
         entrypoint=DSLEntrypoint(ref="seed"),
         actions=[
@@ -517,7 +517,7 @@ async def test_skip_outside_loop_bypasses_whole_loop_region(
     assert "loop_start" not in result["ACTIONS"]
     assert "body" not in result["ACTIONS"]
     assert await action_result(result, "loop_end") == {"continue": False}
-    assert await action_result(result, "after") is False
+    assert "after" not in result["ACTIONS"]
 
 
 @pytest.mark.anyio
@@ -528,6 +528,31 @@ async def test_skip_inside_loop_does_not_bypass_loop_when_other_dependency_succe
     test_worker_factory: Callable[[Client], Worker],
     test_executor_worker_factory: Callable[[Client], Worker],
 ) -> None:
+    """Loop DAG.
+
+    [loop region]
+      loop_start
+          |
+          v
+         body
+         |
+         +-----------------+
+         |                 |
+         v                 |
+    maybe_even             |
+  (iteration==0)          |
+         |                 |
+         +-----------------+
+                           |
+                           v
+                       loop_end (ANY)
+                           |
+                           v
+                          after
+
+    `maybe_even` is skipped when iteration != 0, but `body` still satisfies
+    `loop_end`'s ANY join, so control reaches `loop_end` and then continues to `after`.
+    """
     test_name = f"{test_skip_inside_loop_does_not_bypass_loop_when_other_dependency_succeeds.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)
 
@@ -594,5 +619,101 @@ async def test_skip_inside_loop_does_not_bypass_loop_when_other_dependency_succe
     assert await action_result(result, "loop_start") == {"iteration": 2}
     assert await action_result(result, "body") == 2
     assert await action_result(result, "maybe_even") == 0
+    assert await action_result(result, "loop_end") == {"continue": False}
+    assert await action_result(result, "after") is False
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_skip_inside_loop_to_loop_end_continues_downstream(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
+) -> None:
+    """Loop DAG.
+
+    [loop region]
+      loop_start
+          |
+          v
+          a (run_if: iteration == 0)
+          |
+          v
+          b
+          |
+          v
+      loop_end
+          |
+          v
+         after
+
+    Iteration 0 runs a/b and loops.
+    Iteration 1 skips a, which force-skips b and reaches loop_end in skip mode.
+    Since skip originated inside the loop (not at loop_start), loop_end is a skip
+    boundary and downstream `after` still executes.
+    """
+    test_name = f"{test_skip_inside_loop_to_loop_end_continues_downstream.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    dsl = DSLInput(
+        title="Inside skip reaches loop_end",
+        description=(
+            "If skip originates inside loop body and reaches loop_end, loop_end should "
+            "stop skip propagation and continue downstream."
+        ),
+        entrypoint=DSLEntrypoint(ref="loop_start"),
+        actions=[
+            ActionStatement(
+                ref="loop_start",
+                action="core.loop.start",
+            ),
+            ActionStatement(
+                ref="a",
+                action="core.transform.reshape",
+                depends_on=["loop_start"],
+                run_if="${{ ACTIONS.loop_start.result.iteration == 0 }}",
+                args={"value": "${{ ACTIONS.loop_start.result.iteration }}"},
+            ),
+            ActionStatement(
+                ref="b",
+                action="core.transform.reshape",
+                depends_on=["a"],
+                args={"value": "${{ ACTIONS.a.result }}"},
+            ),
+            ActionStatement(
+                ref="loop_end",
+                action="core.loop.end",
+                depends_on=["b"],
+                args={"condition": "${{ True }}", "max_iterations": 10},
+            ),
+            ActionStatement(
+                ref="after",
+                action="core.transform.reshape",
+                depends_on=["loop_end"],
+                args={"value": "${{ ACTIONS.loop_end.result.continue }}"},
+            ),
+        ],
+    )
+
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+    run_args = DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID)
+
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
+        result = await temporal_client.execute_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=wf_exec_id,
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+        )
+
+    result = await to_data(result)
+    assert await action_result(result, "loop_start") == {"iteration": 1}
+    assert await action_result(result, "a") == 0
+    assert await action_result(result, "b") == 0
     assert await action_result(result, "loop_end") == {"continue": False}
     assert await action_result(result, "after") is False

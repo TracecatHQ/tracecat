@@ -158,3 +158,52 @@ Under the `If condition / Loops` tab, you can specify loop expressions to iterat
     ![Run workflow](/img/quickstart/tutorial/run-loop-workflow.png)
   </Step>
 </Steps>
+
+### Do-while loops (`core.loop.start` + `core.loop.end`)
+
+Tracecat also supports explicit do-while control flow with `core.loop.start` and
+`core.loop.end`.
+
+- `core.loop.start` opens the loop region and seeds the current iteration.
+- `core.loop.end` closes the loop region and decides whether to continue.
+
+**Shape**
+
+```text
+loop_start -> (loop body actions) -> loop_end -> after
+                    ^                    |
+                    +--------------------+
+                   if ACTIONS.loop_end.result.continue is true
+```
+
+**Iteration value**
+
+- Iteration is 0-based.
+- Access it via `${{ ACTIONS.<loop_start_ref>.result.iteration }}`.
+
+**Condition behavior**
+
+- `core.loop.end` evaluates `condition` only when reached in normal execution.
+- If `core.loop.end` is reached in skip propagation mode, condition is not
+  evaluated and the loop exits (`continue = false`).
+
+**Skip propagation edge cases**
+
+1. Skip reaches `loop_start` from outside the loop region:
+   - The loop unit (`loop_start -> ... -> loop_end`) is treated as skipped.
+   - Skip propagation continues downstream from `loop_end`.
+2. Skip starts inside the loop region, but another dependency still reaches
+   `loop_end`:
+   - `loop_end` executes normally.
+   - `condition` is evaluated as usual.
+3. Skip starts inside the loop region and all paths into `loop_end` are skipped:
+   - `loop_end` acts as a skip boundary (break-like behavior).
+   - Condition is not evaluated.
+   - Execution continues to downstream nodes after `loop_end`.
+
+**Other loop semantics**
+
+- Results in the loop body are overwritten when an action runs again.
+- If an action is skipped in an iteration, its previous result is retained.
+- `max_iterations` protects against unbounded loops and fails the run when the
+  limit is exceeded.

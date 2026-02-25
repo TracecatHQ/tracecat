@@ -181,6 +181,7 @@ class DSLScheduler:
             region.end_ref: region for region in self.loop_regions.values()
         }
         self.loop_indices: dict[tuple[str, StreamID], int] = {}
+        self.loop_start_skips: set[tuple[str, StreamID]] = set()
 
         # Scope management
         self._root_context = context
@@ -928,7 +929,10 @@ class DSLScheduler:
         self, task: Task, stmt: ActionStatement, *, is_skipping: bool = False
     ) -> None:
         self.logger.debug("Handling loop start", task=task, is_skipping=is_skipping)
+        loop_key = (task.ref, task.stream_id)
         if is_skipping:
+            # If skip reaches loop_start, treat start->end as one skipped unit.
+            self.loop_start_skips.add(loop_key)
             unreachable = {
                 DSLEdge(src=task.ref, dst=dst, type=edge_type, stream_id=task.stream_id)
                 for dst, edge_type in self.adj[task.ref]
@@ -936,7 +940,7 @@ class DSLScheduler:
             await self._queue_tasks(task, unreachable=unreachable)
             return
 
-        loop_key = (task.ref, task.stream_id)
+        self.loop_start_skips.discard(loop_key)
         index = self.loop_indices.get(loop_key, 0)
         action_context = self._get_action_context(task.stream_id)
         action_context[task.ref] = TaskResult.from_result({"iteration": index})
@@ -954,6 +958,12 @@ class DSLScheduler:
         args = LoopEndArgs(**stmt.args)
         loop_key = (region.start_ref, task.stream_id)
         current_index = self.loop_indices.get(loop_key, 0)
+        # Skip semantics:
+        # - skip reached loop_start => skip the whole loop unit (start->end)
+        # - skip originated inside loop body => stop skipping at loop_end
+        skip_propagated_from_loop_start = is_skipping and loop_key in self.loop_start_skips
+        if skip_propagated_from_loop_start:
+            self.loop_start_skips.discard(loop_key)
 
         if is_skipping:
             should_continue = False
@@ -990,6 +1000,15 @@ class DSLScheduler:
             return
 
         self.loop_indices.pop(loop_key, None)
+        if skip_propagated_from_loop_start:
+            # A loop-start skip means the current iteration is being bypassed; mark every
+            # outgoing edge from this task unreachable so skip semantics propagate downstream.
+            all_edges = {
+                DSLEdge(src=task.ref, dst=dst, type=edge_type, stream_id=task.stream_id)
+                for dst, edge_type in self.adj[task.ref]
+            }
+            await self._queue_tasks(task, unreachable=all_edges)
+            return
         await self._handle_success_path(task)
 
     async def _handle_scatter(
