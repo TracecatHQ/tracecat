@@ -29,7 +29,7 @@ async def test_get_workspace_organization_id_activity_returns_match(monkeypatch)
         yield mock_session
 
     monkeypatch.setattr(
-        "tracecat.workflow.schedules.service.get_async_session_context_manager",
+        "tracecat.workflow.schedules.service.get_async_session_bypass_rls_context_manager",
         fake_session_manager,
     )
 
@@ -56,7 +56,7 @@ async def test_get_workspace_organization_id_activity_returns_none_when_missing(
         yield mock_session
 
     monkeypatch.setattr(
-        "tracecat.workflow.schedules.service.get_async_session_context_manager",
+        "tracecat.workflow.schedules.service.get_async_session_bypass_rls_context_manager",
         fake_session_manager,
     )
 
