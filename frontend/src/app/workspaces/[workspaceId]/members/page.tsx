@@ -24,14 +24,6 @@ export default function WorkspaceMembersPage() {
   return (
     <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[1200px] flex-col space-y-8 py-6">
-        <div className="flex w-full">
-          <div className="items-start space-y-3 text-left">
-            <h2 className="text-2xl font-semibold tracking-tight">Members</h2>
-            <p className="text-md text-muted-foreground">
-              Manage workspace members, roles, and groups.
-            </p>
-          </div>
-        </div>
         <WorkspaceMembersTable workspace={workspace} />
       </div>
     </div>

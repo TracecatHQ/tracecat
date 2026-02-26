@@ -44,6 +44,7 @@ import {
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -191,7 +192,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <SidebarHeader>
         <SidebarHeaderContent workspaceId={workspaceId} />
       </SidebarHeader>
-      <SidebarContent className="overflow-y-auto">
+      <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -364,26 +365,23 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </SidebarGroup>
           </Collapsible>
         )}
-
-        <div className="mt-auto p-2">
-          {canViewMembers === true && (
-            <SidebarMenu className="mb-2">
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname?.startsWith(`${basePath}/members`)}
-                >
-                  <Link href={`${basePath}/members`}>
-                    <UsersIcon />
-                    <span>Members</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          )}
-          <SidebarUserNav />
-        </div>
       </SidebarContent>
+      <SidebarFooter>
+        <SidebarUserNav
+          settingsItems={
+            canViewMembers === true
+              ? [
+                  {
+                    title: "Members",
+                    href: `${basePath}/members`,
+                    icon: UsersIcon,
+                    isActive: pathname?.startsWith(`${basePath}/members`),
+                  },
+                ]
+              : undefined
+          }
+        />
+      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   )

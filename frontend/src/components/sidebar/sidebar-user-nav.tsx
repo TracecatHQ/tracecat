@@ -1,5 +1,6 @@
 "use client"
 
+import type { LucideIcon } from "lucide-react"
 import { BookText, Settings, ShieldCheckIcon } from "lucide-react"
 import Link from "next/link"
 import { useSettingsModal } from "@/components/settings/settings-modal-context"
@@ -19,7 +20,18 @@ import { useAuth } from "@/hooks/use-auth"
 import { useOrganization } from "@/hooks/use-organization"
 import { useAppInfo } from "@/lib/hooks"
 
-export function SidebarUserNav() {
+type SidebarUserNavSettingsItem = {
+  title: string
+  href: string
+  icon: LucideIcon
+  isActive?: boolean
+}
+
+export function SidebarUserNav({
+  settingsItems,
+}: {
+  settingsItems?: SidebarUserNavSettingsItem[]
+}) {
   const { user } = useAuth()
   const { setOpen } = useSettingsModal()
   const { organization, isLoading } = useOrganization()
@@ -37,6 +49,17 @@ export function SidebarUserNav() {
           <span>Settings</span>
         </SidebarMenuButton>
       </SidebarMenuItem>
+
+      {settingsItems?.map((item) => (
+        <SidebarMenuItem key={item.href}>
+          <SidebarMenuButton asChild isActive={item.isActive}>
+            <Link href={item.href}>
+              <item.icon className="size-4" />
+              <span>{item.title}</span>
+            </Link>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      ))}
 
       {user?.isSuperuser && (
         <SidebarMenuItem>
