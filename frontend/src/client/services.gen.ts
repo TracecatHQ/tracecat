@@ -302,6 +302,19 @@ import type {
   IntegrationsTestConnectionResponse,
   IntegrationsUpdateIntegrationData,
   IntegrationsUpdateIntegrationResponse,
+  InvitationsAcceptInvitationData,
+  InvitationsAcceptInvitationResponse,
+  InvitationsCreateInvitationData,
+  InvitationsCreateInvitationResponse,
+  InvitationsGetInvitationByTokenData,
+  InvitationsGetInvitationByTokenResponse,
+  InvitationsGetInvitationTokenData,
+  InvitationsGetInvitationTokenResponse,
+  InvitationsListInvitationsData,
+  InvitationsListInvitationsResponse,
+  InvitationsListMyPendingInvitationsResponse,
+  InvitationsRevokeInvitationData,
+  InvitationsRevokeInvitationResponse,
   McpIntegrationsCreateMcpIntegrationData,
   McpIntegrationsCreateMcpIntegrationResponse,
   McpIntegrationsDeleteMcpIntegrationData,
@@ -312,10 +325,6 @@ import type {
   McpIntegrationsListMcpIntegrationsResponse,
   McpIntegrationsUpdateMcpIntegrationData,
   McpIntegrationsUpdateMcpIntegrationResponse,
-  OrganizationAcceptInvitationData,
-  OrganizationAcceptInvitationResponse,
-  OrganizationCreateInvitationData,
-  OrganizationCreateInvitationResponse,
   OrganizationDeleteOrganizationData,
   OrganizationDeleteOrganizationResponse,
   OrganizationDeleteOrgMemberData,
@@ -323,20 +332,13 @@ import type {
   OrganizationDeleteSessionData,
   OrganizationDeleteSessionResponse,
   OrganizationGetCurrentOrgMemberResponse,
-  OrganizationGetInvitationByTokenData,
-  OrganizationGetInvitationByTokenResponse,
-  OrganizationGetInvitationTokenData,
-  OrganizationGetInvitationTokenResponse,
   OrganizationGetOrganizationEntitlementsResponse,
   OrganizationGetOrganizationResponse,
-  OrganizationListInvitationsData,
-  OrganizationListInvitationsResponse,
-  OrganizationListMyPendingInvitationsResponse,
+  OrganizationListMemberWorkspaceMembershipsData,
+  OrganizationListMemberWorkspaceMembershipsResponse,
   OrganizationListOrganizationDomainsResponse,
   OrganizationListOrgMembersResponse,
   OrganizationListSessionsResponse,
-  OrganizationRevokeInvitationData,
-  OrganizationRevokeInvitationResponse,
   OrganizationSecretsCreateOrgSecretData,
   OrganizationSecretsCreateOrgSecretResponse,
   OrganizationSecretsDeleteOrgSecretByIdData,
@@ -647,8 +649,6 @@ import type {
   WorkflowsValidateWorkflowEntrypointData,
   WorkflowsValidateWorkflowEntrypointResponse,
   WorkspacesCreateWorkspaceData,
-  WorkspacesCreateWorkspaceInvitationData,
-  WorkspacesCreateWorkspaceInvitationResponse,
   WorkspacesCreateWorkspaceMembershipData,
   WorkspacesCreateWorkspaceMembershipResponse,
   WorkspacesCreateWorkspaceResponse,
@@ -660,15 +660,11 @@ import type {
   WorkspacesGetWorkspaceMembershipData,
   WorkspacesGetWorkspaceMembershipResponse,
   WorkspacesGetWorkspaceResponse,
-  WorkspacesListWorkspaceInvitationsData,
-  WorkspacesListWorkspaceInvitationsResponse,
   WorkspacesListWorkspaceMembersData,
   WorkspacesListWorkspaceMembershipsData,
   WorkspacesListWorkspaceMembershipsResponse,
   WorkspacesListWorkspaceMembersResponse,
   WorkspacesListWorkspacesResponse,
-  WorkspacesRevokeWorkspaceInvitationData,
-  WorkspacesRevokeWorkspaceInvitationResponse,
   WorkspacesSearchWorkspacesData,
   WorkspacesSearchWorkspacesResponse,
   WorkspacesUpdateWorkspaceData,
@@ -1005,7 +1001,7 @@ export const workspacesDeleteWorkspace = (
 
 /**
  * List Workspace Members
- * List members of a workspace.
+ * List members of a workspace, including pending invitations.
  * @param data The data for the request.
  * @param data.workspaceId
  * @returns WorkspaceMember Successful Response
@@ -1118,96 +1114,6 @@ export const workspacesDeleteWorkspaceMembership = (
     path: {
       workspace_id: data.workspaceId,
       user_id: data.userId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Create Workspace Invitation
- * Create a workspace invitation.
- *
- * Authorization
- * -------------
- * - Workspace Admin: Can create invitations for their workspace.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.requestBody
- * @returns WorkspaceInvitationRead Successful Response
- * @throws ApiError
- */
-export const workspacesCreateWorkspaceInvitation = (
-  data: WorkspacesCreateWorkspaceInvitationData
-): CancelablePromise<WorkspacesCreateWorkspaceInvitationResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/workspaces/{workspace_id}/invitations",
-    path: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Workspace Invitations
- * List workspace invitations.
- *
- * Authorization
- * -------------
- * - Workspace Admin: Can list invitations for their workspace.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.status
- * @returns WorkspaceInvitationRead Successful Response
- * @throws ApiError
- */
-export const workspacesListWorkspaceInvitations = (
-  data: WorkspacesListWorkspaceInvitationsData
-): CancelablePromise<WorkspacesListWorkspaceInvitationsResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/workspaces/{workspace_id}/invitations",
-    path: {
-      workspace_id: data.workspaceId,
-    },
-    query: {
-      status: data.status,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Revoke Workspace Invitation
- * Revoke a workspace invitation.
- *
- * Authorization
- * -------------
- * - Workspace Admin: Can revoke invitations for their workspace.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.invitationId
- * @returns void Successful Response
- * @throws ApiError
- */
-export const workspacesRevokeWorkspaceInvitation = (
-  data: WorkspacesRevokeWorkspaceInvitationData
-): CancelablePromise<WorkspacesRevokeWorkspaceInvitationResponse> => {
-  return __request(OpenAPI, {
-    method: "DELETE",
-    url: "/workspaces/{workspace_id}/invitations/{invitation_id}",
-    path: {
-      workspace_id: data.workspaceId,
-      invitation_id: data.invitationId,
     },
     errors: {
       422: "Validation Error",
@@ -3361,6 +3267,29 @@ export const organizationUpdateOrgMember = (
 }
 
 /**
+ * List Member Workspace Memberships
+ * List workspace memberships for an organization member.
+ * @param data The data for the request.
+ * @param data.userId
+ * @returns UserWorkspaceMembership Successful Response
+ * @throws ApiError
+ */
+export const organizationListMemberWorkspaceMemberships = (
+  data: OrganizationListMemberWorkspaceMembershipsData
+): CancelablePromise<OrganizationListMemberWorkspaceMembershipsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/members/{user_id}/workspace-memberships",
+    path: {
+      user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Sessions
  * @returns SessionRead Successful Response
  * @throws ApiError
@@ -3397,18 +3326,23 @@ export const organizationDeleteSession = (
 
 /**
  * Create Invitation
- * Create an invitation to join the organization.
+ * Create an invitation (org or workspace, based on workspace_id in body).
+ *
+ * When ``workspace_id`` is set, creates a workspace invitation (smart: direct
+ * membership if user is an org member, else invitation).  Returns ``null``
+ * when the user was added directly as a member (no invitation needed).
+ * When ``workspace_id`` is None, creates an org-level invitation.
  * @param data The data for the request.
  * @param data.requestBody
- * @returns OrgInvitationRead Successful Response
+ * @returns unknown Successful Response
  * @throws ApiError
  */
-export const organizationCreateInvitation = (
-  data: OrganizationCreateInvitationData
-): CancelablePromise<OrganizationCreateInvitationResponse> => {
+export const invitationsCreateInvitation = (
+  data: InvitationsCreateInvitationData
+): CancelablePromise<InvitationsCreateInvitationResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/organization/invitations",
+    url: "/invitations",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
@@ -3419,19 +3353,21 @@ export const organizationCreateInvitation = (
 
 /**
  * List Invitations
- * List invitations for the organization.
+ * List invitations (org or workspace, based on workspace_id query param).
  * @param data The data for the request.
+ * @param data.workspaceId
  * @param data.status
- * @returns OrgInvitationRead Successful Response
+ * @returns InvitationRead Successful Response
  * @throws ApiError
  */
-export const organizationListInvitations = (
-  data: OrganizationListInvitationsData = {}
-): CancelablePromise<OrganizationListInvitationsResponse> => {
+export const invitationsListInvitations = (
+  data: InvitationsListInvitationsData = {}
+): CancelablePromise<InvitationsListInvitationsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/organization/invitations",
+    url: "/invitations",
     query: {
+      workspace_id: data.workspaceId,
       status: data.status,
     },
     errors: {
@@ -3441,19 +3377,88 @@ export const organizationListInvitations = (
 }
 
 /**
+ * List My Pending Invitations
+ * List pending, unexpired invitations for the authenticated user.
+ *
+ * Returns both org-level and workspace-level invitations.
+ * @returns PendingInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const invitationsListMyPendingInvitations =
+  (): CancelablePromise<InvitationsListMyPendingInvitationsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/invitations/pending/me",
+    })
+  }
+
+/**
+ * Get Invitation By Token
+ * Get invitation details by token (public endpoint for the accept page).
+ *
+ * Works for both org-level and workspace-level invitations.
+ * Returns organization/workspace name and inviter info.
+ * If user is authenticated, also returns whether their email matches.
+ * @param data The data for the request.
+ * @param data.token
+ * @returns InvitationReadMinimal Successful Response
+ * @throws ApiError
+ */
+export const invitationsGetInvitationByToken = (
+  data: InvitationsGetInvitationByTokenData
+): CancelablePromise<InvitationsGetInvitationByTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/invitations/token/{token}",
+    path: {
+      token: data.token,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Accept Invitation
+ * Accept an invitation (org or workspace) and join.
+ *
+ * Determines the invitation type from the token and creates the appropriate
+ * memberships. Uses AuthenticatedUserOnly — no org context required since
+ * the user may not belong to the org yet.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const invitationsAcceptInvitation = (
+  data: InvitationsAcceptInvitationData
+): CancelablePromise<InvitationsAcceptInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/invitations/accept",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Revoke Invitation
- * Revoke a pending invitation.
+ * Revoke any pending invitation (org or workspace).
  * @param data The data for the request.
  * @param data.invitationId
  * @returns void Successful Response
  * @throws ApiError
  */
-export const organizationRevokeInvitation = (
-  data: OrganizationRevokeInvitationData
-): CancelablePromise<OrganizationRevokeInvitationResponse> => {
+export const invitationsRevokeInvitation = (
+  data: InvitationsRevokeInvitationData
+): CancelablePromise<InvitationsRevokeInvitationResponse> => {
   return __request(OpenAPI, {
     method: "DELETE",
-    url: "/organization/invitations/{invitation_id}",
+    url: "/invitations/{invitation_id}",
     path: {
       invitation_id: data.invitationId,
     },
@@ -3467,86 +3472,20 @@ export const organizationRevokeInvitation = (
  * Get Invitation Token
  * Get the token for a specific invitation (admin only).
  *
- * This endpoint is used to generate shareable invitation links.
+ * Used to generate shareable invitation links.
  * @param data The data for the request.
  * @param data.invitationId
  * @returns string Successful Response
  * @throws ApiError
  */
-export const organizationGetInvitationToken = (
-  data: OrganizationGetInvitationTokenData
-): CancelablePromise<OrganizationGetInvitationTokenResponse> => {
+export const invitationsGetInvitationToken = (
+  data: InvitationsGetInvitationTokenData
+): CancelablePromise<InvitationsGetInvitationTokenResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/organization/invitations/{invitation_id}/token",
+    url: "/invitations/{invitation_id}/token",
     path: {
       invitation_id: data.invitationId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Accept Invitation
- * Accept an invitation and join the organization.
- *
- * This endpoint doesn't require organization context since the user
- * may not belong to any organization yet. Uses AuthenticatedUserOnly
- * which only requires an authenticated user (role.organization_id is None).
- * @param data The data for the request.
- * @param data.requestBody
- * @returns string Successful Response
- * @throws ApiError
- */
-export const organizationAcceptInvitation = (
-  data: OrganizationAcceptInvitationData
-): CancelablePromise<OrganizationAcceptInvitationResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/organization/invitations/accept",
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List My Pending Invitations
- * List pending, unexpired invitations for the authenticated user.
- * @returns OrgPendingInvitationRead Successful Response
- * @throws ApiError
- */
-export const organizationListMyPendingInvitations =
-  (): CancelablePromise<OrganizationListMyPendingInvitationsResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/organization/invitations/pending/me",
-    })
-  }
-
-/**
- * Get Invitation By Token
- * Get minimal invitation details by token (public endpoint for UI).
- *
- * Returns organization name and inviter info for the acceptance page.
- * If user is authenticated, also returns whether their email matches the invitation.
- * @param data The data for the request.
- * @param data.token
- * @returns OrgInvitationReadMinimal Successful Response
- * @throws ApiError
- */
-export const organizationGetInvitationByToken = (
-  data: OrganizationGetInvitationByTokenData
-): CancelablePromise<OrganizationGetInvitationByTokenResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/organization/invitations/token/{token}",
-    path: {
-      token: data.token,
     },
     errors: {
       422: "Validation Error",

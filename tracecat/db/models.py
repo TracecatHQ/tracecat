@@ -114,34 +114,6 @@ class TimestampMixin:
     )
 
 
-class InvitationMixin:
-    """Mixin for invitation columns shared between workspace and organization invitations."""
-
-    email: Mapped[str] = mapped_column(String(255), doc="Email address of the invitee")
-    status: Mapped[InvitationStatus] = mapped_column(
-        INVITATION_STATUS_ENUM, default=InvitationStatus.PENDING, index=True
-    )
-    invited_by: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        ForeignKey("user.id", ondelete="SET NULL"),
-        doc="User who created the invitation",
-    )
-    role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("role.id", ondelete="RESTRICT"),
-        doc="RBAC role to assign upon acceptance",
-    )
-    token: Mapped[str] = mapped_column(
-        String(64), unique=True, doc="Unique token for magic link acceptance"
-    )
-    expires_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), doc="When the invitation expires"
-    )
-    accepted_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True), doc="When the invitation was accepted"
-    )
-
-
 class RecordModel(TimestampMixin, Base):
     """Base class for all record models - provides surrogate key and timestamps."""
 
@@ -3077,36 +3049,65 @@ class WorkflowTag(WorkspaceModel):
     )
 
 
-class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
-    """Invitation to join an organization."""
+class Invitation(TimestampMixin, Base):
+    """Invitation to join an organization or workspace.
 
-    __tablename__ = "organization_invitation"
-    __table_args__ = (UniqueConstraint("email", "organization_id"),)
+    When workspace_id is NULL, this is an organization-level invitation.
+    When workspace_id is set, this is a workspace-level invitation.
+    """
+
+    __tablename__ = "invitation"
+    __table_args__ = (
+        Index(
+            "uq_invitation_workspace_email",
+            "workspace_id",
+            "email",
+            unique=True,
+            postgresql_where=text("workspace_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_invitation_org_email",
+            "organization_id",
+            "email",
+            unique=True,
+            postgresql_where=text("workspace_id IS NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
     )
-
-    # Relationships
-    organization: Mapped[Organization] = relationship("Organization")
-    inviter: Mapped[User | None] = relationship("User")
-    role_obj: Mapped[Role] = relationship("Role")
-
-
-class Invitation(InvitationMixin, TimestampMixin, Base):
-    """Invitation to join a workspace."""
-
-    __tablename__ = "invitation"
-    __table_args__ = (UniqueConstraint("workspace_id", "email"),)
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID, ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    )
+    email: Mapped[str] = mapped_column(String(255), doc="Email address of the invitee")
+    status: Mapped[InvitationStatus] = mapped_column(
+        INVITATION_STATUS_ENUM, default=InvitationStatus.PENDING, index=True
+    )
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        doc="User who created the invitation",
+    )
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("role.id", ondelete="RESTRICT"),
+        doc="RBAC role to assign upon acceptance",
+    )
+    token: Mapped[str] = mapped_column(
+        String(64), unique=True, doc="Unique token for magic link acceptance"
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), doc="When the invitation expires"
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), doc="When the invitation was accepted"
     )
 
     # Relationships
-    workspace: Mapped[Workspace] = relationship("Workspace")
+    organization: Mapped[Organization] = relationship("Organization")
+    workspace: Mapped[Workspace | None] = relationship("Workspace")
     inviter: Mapped[User | None] = relationship("User")
     role_obj: Mapped[Role] = relationship("Role")
 

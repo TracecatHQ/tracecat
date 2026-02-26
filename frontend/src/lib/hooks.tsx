@@ -123,6 +123,7 @@ import {
   type IntegrationRead,
   type IntegrationReadMinimal,
   type IntegrationUpdate,
+  type InvitationCreate,
   integrationsConnectProvider,
   integrationsDeleteIntegration,
   integrationsDisconnectIntegration,
@@ -130,6 +131,8 @@ import {
   integrationsListIntegrations,
   integrationsTestConnection,
   integrationsUpdateIntegration,
+  invitationsCreateInvitation,
+  invitationsRevokeInvitation,
   type MCPIntegrationCreate,
   type MCPIntegrationRead,
   type MCPIntegrationUpdate,
@@ -144,14 +147,11 @@ import {
   type OrganizationDeleteOrgMemberData,
   type OrganizationDeleteSessionData,
   type OrganizationUpdateOrgMemberData,
-  type OrgInvitationCreate,
   type OrgMemberRead,
-  organizationCreateInvitation,
   organizationDeleteOrgMember,
   organizationDeleteSession,
   organizationListOrgMembers,
   organizationListSessions,
-  organizationRevokeInvitation,
   organizationSecretsCreateOrgSecret,
   organizationSecretsDeleteOrgSecretById,
   organizationSecretsListOrgSecrets,
@@ -2183,8 +2183,8 @@ export function useOrgMembers() {
     mutateAsync: createInvitation,
     isPending: createInvitationIsPending,
   } = useMutation({
-    mutationFn: async (params: OrgInvitationCreate) =>
-      await organizationCreateInvitation({ requestBody: params }),
+    mutationFn: async (params: InvitationCreate) =>
+      await invitationsCreateInvitation({ requestBody: params }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
       toast({
@@ -2205,7 +2205,7 @@ export function useOrgMembers() {
 
   const { mutateAsync: revokeInvitation } = useMutation({
     mutationFn: async (invitationId: string) =>
-      await organizationRevokeInvitation({ invitationId }),
+      await invitationsRevokeInvitation({ invitationId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
       toast({

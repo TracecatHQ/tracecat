@@ -268,21 +268,23 @@ export function CaseTaskDialog({
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
-                          {members?.map((member) => {
-                            const displayName = getDisplayName({
-                              email: member.email,
-                              first_name: member.first_name,
-                              last_name: member.last_name,
-                            })
-                            return (
-                              <SelectItem
-                                key={member.user_id}
-                                value={member.user_id}
-                              >
-                                {displayName}
-                              </SelectItem>
-                            )
-                          })}
+                          {members
+                            ?.filter((m) => m.user_id)
+                            .map((member) => {
+                              const displayName = getDisplayName({
+                                email: member.email,
+                                first_name: member.first_name,
+                                last_name: member.last_name,
+                              })
+                              return (
+                                <SelectItem
+                                  key={member.user_id}
+                                  value={member.user_id as string}
+                                >
+                                  {displayName}
+                                </SelectItem>
+                              )
+                            })}
                         </SelectContent>
                       </Select>
                     </FormControl>

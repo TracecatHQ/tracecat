@@ -1,12 +1,11 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Plus } from "lucide-react"
+import { Check, Copy, Plus } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   ApiError,
-  type UserRead,
-  usersSearchUser,
+  invitationsGetInvitationToken,
   type WorkspaceRead,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -14,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -35,79 +35,111 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useWorkspaceMutations } from "@/hooks/use-workspace"
+import { useInvitations } from "@/hooks/use-invitations"
 import { useRbacRoles } from "@/lib/hooks"
 
-const addUserSchema = z.object({
+const inviteSchema = z.object({
   email: z.string().email(),
-  role: z.string(), // legacy role for membership creation
+  role_id: z.string().min(1, "Please select a role"),
 })
-type AddUser = z.infer<typeof addUserSchema>
+type InviteForm = z.infer<typeof inviteSchema>
+
+type DialogState = "form" | "success_membership" | "success_invitation"
 
 export function AddWorkspaceMember({
   workspace,
   className,
 }: { workspace: WorkspaceRead } & React.HTMLAttributes<HTMLButtonElement>) {
   const canInviteMembers = useScopeCheck("workspace:member:invite")
-  const { addMember: addWorkspaceMember } = useWorkspaceMutations()
+  const { createInvitation } = useInvitations({ workspaceId: workspace.id })
   const [showDialog, setShowDialog] = useState(false)
+  const [dialogState, setDialogState] = useState<DialogState>("form")
+  const [inviteLink, setInviteLink] = useState("")
+  const [addedEmail, setAddedEmail] = useState("")
+  const [copied, setCopied] = useState(false)
   const { roles } = useRbacRoles()
 
-  // Include workspace preset roles and custom roles (custom roles have no slug prefix)
   const workspaceRoles = roles.filter(
     (r) => !r.slug || r.slug.startsWith("workspace-")
   )
 
-  const form = useForm<AddUser>({
-    resolver: zodResolver(addUserSchema),
+  const form = useForm<InviteForm>({
+    resolver: zodResolver(inviteSchema),
     defaultValues: {
       email: "",
-      role: "editor",
+      role_id: "",
     },
   })
 
-  const onSubmit = async (values: AddUser) => {
-    let userToAdd: UserRead
-    try {
-      // Check if the user exists
-      userToAdd = await usersSearchUser({
-        email: values.email,
-        workspaceId: workspace.id,
-      })
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 404) {
-        form.setError("email", {
-          message:
-            "Couldn't find a user with this email. Please ensure they have signed up via email/password, OAuth2.0, or SSO.",
-        })
-      } else {
-        console.error("Unexpected error", e)
-        form.setError("email", {
-          message: `Error adding user to workspace: ${(e as ApiError).message}`,
-        })
-      }
-      return
-    }
+  function resetDialog() {
+    setDialogState("form")
+    setInviteLink("")
+    setAddedEmail("")
+    setCopied(false)
+    form.reset()
+  }
 
-    // We've found this user
-    try {
-      await addWorkspaceMember({
-        workspaceId: workspace.id,
-        requestBody: {
-          user_id: userToAdd.id,
-        },
-      })
-      setShowDialog(false)
-    } catch (e) {
-      console.error("Error adding user to workspace", e)
-      form.setError("email", {
-        message: `Error adding user to workspace: ${(e as ApiError).message}`,
-      })
+  function handleOpenChange(open: boolean) {
+    setShowDialog(open)
+    if (!open) {
+      resetDialog()
     }
   }
 
+  async function onSubmit(values: InviteForm) {
+    try {
+      const result = await createInvitation({
+        requestBody: {
+          email: values.email,
+          role_id: values.role_id,
+          workspace_id: workspace.id,
+        },
+      })
+
+      setAddedEmail(values.email)
+
+      if (result === null) {
+        // Direct membership — user was already an org member
+        setDialogState("success_membership")
+      } else {
+        // Invitation created — build the invite link
+        let token = result.token
+        if (!token) {
+          const tokenResponse = await invitationsGetInvitationToken({
+            invitationId: result.id,
+          })
+          token = tokenResponse.token
+        }
+        if (token) {
+          setInviteLink(
+            `${window.location.origin}/invitations/accept?token=${token}`
+          )
+        }
+        setDialogState("success_invitation")
+      }
+    } catch (e) {
+      if (e instanceof ApiError) {
+        form.setError("email", {
+          message:
+            (e.body as Record<string, unknown>)?.detail?.toString() ??
+            e.message,
+        })
+      } else {
+        form.setError("email", {
+          message: "Failed to add member",
+        })
+      }
+    }
+  }
+
+  async function handleCopy() {
+    await navigator.clipboard.writeText(inviteLink)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   return (
-    <Dialog open={showDialog} onOpenChange={setShowDialog}>
+    <Dialog open={showDialog} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button
           variant="outline"
@@ -120,70 +152,133 @@ export function AddWorkspaceMember({
         </Button>
       </DialogTrigger>
       <DialogContent className={className}>
-        <DialogHeader>
-          <DialogTitle>Add a workspace member</DialogTitle>
-          <div className="flex text-sm leading-relaxed text-muted-foreground">
-            <span>
-              Add a user to the <b className="inline-block">{workspace.name}</b>{" "}
-              workspace.
-            </span>
-          </div>
-        </DialogHeader>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              key="email"
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-sm">Email</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      className="text-sm"
-                      placeholder="test@domain.com"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              key="role"
-              control={form.control}
-              name="role"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-sm">Role</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
+        {dialogState === "form" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Add a workspace member</DialogTitle>
+              <DialogDescription>
+                Add a member to the{" "}
+                <b className="inline-block">{workspace.name}</b> workspace. Org
+                members are added directly; external users receive an invitation
+                link.
+              </DialogDescription>
+            </DialogHeader>
+            <Form {...form}>
+              <form
+                onSubmit={form.handleSubmit(onSubmit)}
+                className="space-y-4"
+              >
+                <FormField
+                  key="email"
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Email</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          className="text-sm"
+                          placeholder="user@example.com"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  key="role_id"
+                  control={form.control}
+                  name="role_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Role</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a role" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {workspaceRoles.map((role) => (
+                            <SelectItem key={role.id} value={role.id}>
+                              {role.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <DialogFooter>
+                  <Button
+                    type="submit"
+                    variant="default"
+                    disabled={form.formState.isSubmitting}
                   >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a role" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {workspaceRoles.map((role) => (
-                        <SelectItem key={role.id} value={role.slug ?? role.id}>
-                          {role.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <DialogFooter>
-              <Button type="submit" variant="default">
-                Add member
+                    {form.formState.isSubmitting ? "Adding..." : "Add member"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          </>
+        ) : dialogState === "success_membership" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Member added</DialogTitle>
+              <DialogDescription>
+                <b>{addedEmail}</b> has been added to the workspace.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={resetDialog}>
+                Add another
               </Button>
+              <Button onClick={() => handleOpenChange(false)}>Done</Button>
             </DialogFooter>
-          </form>
-        </Form>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>Invitation created</DialogTitle>
+              <DialogDescription>
+                <b>{addedEmail}</b> is not an org member. Share this link with
+                them to join the workspace.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Input
+                  readOnly
+                  value={inviteLink}
+                  className="text-sm font-mono"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  onClick={handleCopy}
+                >
+                  {copied ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={resetDialog}>
+                Add another
+              </Button>
+              <Button onClick={() => handleOpenChange(false)}>Done</Button>
+            </DialogFooter>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   )

@@ -91,6 +91,7 @@ from tracecat.integrations.router import (
     mcp_router,
     providers_router,
 )
+from tracecat.invitations.router import router as invitations_router
 from tracecat.logger import logger
 from tracecat.middleware import (
     AuthorizationCacheMiddleware,
@@ -412,6 +413,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(tags_router)
     app.include_router(users_router)
     app.include_router(org_router)
+    app.include_router(invitations_router)
     app.include_router(agent_router)
     app.include_router(agent_preset_router)
     app.include_router(agent_session_router)

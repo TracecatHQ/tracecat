@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from typing import NotRequired, TypedDict
+from uuid import UUID
 
 from pydantic import EmailStr, Field, computed_field, field_validator
 
 from tracecat import config
 from tracecat.core.schemas import Schema
 from tracecat.git.constants import GIT_SSH_URL_REGEX
-from tracecat.identifiers import InvitationID, OrganizationID, UserID, WorkspaceID
-from tracecat.invitations.enums import InvitationStatus
+from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 
 # === Workspace === #
 
@@ -111,12 +112,23 @@ class WorkspaceReadMinimal(Schema):
     name: str
 
 
+class WorkspaceMemberStatus(StrEnum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    INVITED = "invited"
+
+
 class WorkspaceMember(Schema):
-    user_id: UserID
-    first_name: str | None
-    last_name: str | None
+    user_id: UserID | None = None
+    invitation_id: UUID | None = None
+    first_name: str | None = None
+    last_name: str | None = None
     email: EmailStr
     role_name: str
+    status: WorkspaceMemberStatus = WorkspaceMemberStatus.ACTIVE
+    token: str | None = None
+    expires_at: datetime | None = None
+    created_at: datetime | None = None
 
 
 class WorkspaceRead(Schema):
@@ -133,38 +145,9 @@ WorkspaceSettingsUpdate.model_rebuild()
 # === Membership === #
 class WorkspaceMembershipCreate(Schema):
     user_id: UserID
+    role_id: UUID | None = None  # defaults to workspace-editor if not provided
 
 
 class WorkspaceMembershipRead(Schema):
     user_id: UserID
     workspace_id: WorkspaceID
-
-
-# === Invitation === #
-class WorkspaceInvitationCreate(Schema):
-    """Request schema for creating a workspace invitation."""
-
-    email: EmailStr
-    role_id: str  # UUID as string for API compatibility
-
-
-class WorkspaceInvitationRead(Schema):
-    """Response schema for a workspace invitation."""
-
-    id: InvitationID
-    workspace_id: WorkspaceID
-    email: EmailStr
-    role_id: str
-    role_name: str
-    role_slug: str | None = None
-    status: InvitationStatus
-    invited_by: UserID | None
-    expires_at: datetime
-    accepted_at: datetime | None
-    created_at: datetime
-
-
-class WorkspaceInvitationList(Schema):
-    """Query params for listing workspace invitations."""
-
-    status: InvitationStatus | None = None

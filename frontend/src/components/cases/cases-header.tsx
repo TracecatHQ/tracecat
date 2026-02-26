@@ -626,28 +626,30 @@ export function CasesHeader({
   }, [])
 
   const assigneeOptions = useMemo<FilterOption<string>[]>(() => {
-    const workspaceMembers = members?.map((member) => {
-      const displayName = getDisplayName({
-        first_name: member.first_name,
-        last_name: member.last_name,
-        email: member.email,
-      })
-      const initials = member.first_name
-        ? member.first_name[0].toUpperCase()
-        : member.email[0].toUpperCase()
+    const workspaceMembers = members
+      ?.filter((m) => m.user_id)
+      .map((member) => {
+        const displayName = getDisplayName({
+          first_name: member.first_name,
+          last_name: member.last_name,
+          email: member.email,
+        })
+        const initials = member.first_name
+          ? member.first_name[0].toUpperCase()
+          : member.email[0].toUpperCase()
 
-      return {
-        value: member.user_id,
-        label: displayName,
-        renderIcon: () => (
-          <Avatar className="size-5">
-            <AvatarFallback className="text-[10px] font-medium">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
-        ),
-      }
-    })
+        return {
+          value: member.user_id as string,
+          label: displayName,
+          renderIcon: () => (
+            <Avatar className="size-5">
+              <AvatarFallback className="text-[10px] font-medium">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+          ),
+        }
+      })
 
     return [
       {

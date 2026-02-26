@@ -2,8 +2,8 @@
 
 import { useQuery } from "@tanstack/react-query"
 import {
-  type OrgPendingInvitationRead,
-  organizationListMyPendingInvitations,
+  invitationsListMyPendingInvitations,
+  type PendingInvitationRead,
 } from "@/client"
 
 export function usePendingOrgInvitations() {
@@ -11,9 +11,9 @@ export function usePendingOrgInvitations() {
     data: pendingInvitations,
     isLoading: pendingInvitationsIsLoading,
     error: pendingInvitationsError,
-  } = useQuery<OrgPendingInvitationRead[]>({
+  } = useQuery<PendingInvitationRead[]>({
     queryKey: ["pending-org-invitations"],
-    queryFn: organizationListMyPendingInvitations,
+    queryFn: invitationsListMyPendingInvitations,
     retry: false,
   })
 
