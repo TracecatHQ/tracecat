@@ -394,7 +394,7 @@ function CasesActions() {
   )
 }
 
-function CasesSelectionActionsBar() {
+function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
   const {
     selectedCount,
     selectedCaseIds,
@@ -409,8 +409,13 @@ function CasesSelectionActionsBar() {
   const [isApplyingTags, setIsApplyingTags] = useState(false)
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
-  const { members, membersLoading } = useWorkspaceMembers(workspaceId)
-  const { caseTags, caseTagsIsLoading } = useCaseTagCatalog(workspaceId)
+  const shouldLoadCatalogData = enabled && selectedCount > 0
+  const { members, membersLoading } = useWorkspaceMembers(workspaceId, {
+    enabled: shouldLoadCatalogData,
+  })
+  const { caseTags, caseTagsIsLoading } = useCaseTagCatalog(workspaceId, {
+    enabled: shouldLoadCatalogData,
+  })
 
   // All callbacks must be defined before any early returns to satisfy React's rules of hooks
   const handleToggleTagSelection = useCallback((tagId: string) => {
@@ -1259,6 +1264,7 @@ export function ControlsHeader({
   const pagePath = pathname
     ? pathname.replace(`/workspaces/${workspaceId}`, "") || "/"
     : "/"
+  const isCasesListPage = pagePath === "/cases"
   const isCaseDetail = pagePath.match(
     /^\/cases\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
   )
@@ -1318,7 +1324,7 @@ export function ControlsHeader({
 
       {/* Middle section: bulk selection actions */}
       <div className="flex flex-1 justify-center min-w-[1rem]">
-        <CasesSelectionActionsBar />
+        {isCasesListPage && <CasesSelectionActionsBar enabled />}
       </div>
 
       {/* Right section: actions / timestamp / chat toggle */}

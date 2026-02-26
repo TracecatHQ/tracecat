@@ -2447,6 +2447,8 @@ export function useCaseTagCatalog(
     queryKey: ["case-tag-catalog", workspaceId],
     queryFn: async () => await caseTagsListCaseTags({ workspaceId }),
     enabled: options.enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   const {
