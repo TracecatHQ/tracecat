@@ -4457,6 +4457,9 @@ export function useIntegrations(workspaceId: string) {
   } = useQuery<IntegrationReadMinimal[], TracecatApiError>({
     queryKey: ["integrations", workspaceId],
     queryFn: async () => await integrationsListIntegrations({ workspaceId }),
+    enabled: Boolean(workspaceId),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // List providers
@@ -4467,6 +4470,9 @@ export function useIntegrations(workspaceId: string) {
   } = useQuery<ProviderReadMinimal[], TracecatApiError>({
     queryKey: ["providers", workspaceId],
     queryFn: async () => await providersListProviders({ workspaceId }),
+    enabled: Boolean(workspaceId),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {
@@ -4589,6 +4595,8 @@ export function useListMcpIntegrations(workspaceId: string) {
     queryFn: async () =>
       await mcpIntegrationsListMcpIntegrations({ workspaceId }),
     enabled: Boolean(workspaceId),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {
@@ -4614,6 +4622,8 @@ export function useGetMcpIntegration(
         mcpIntegrationId: mcpIntegrationId!,
       }),
     enabled: Boolean(workspaceId && mcpIntegrationId),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {
@@ -4746,6 +4756,9 @@ export function useIntegrationProvider({
         grantType,
       }),
     retry: retryHandler,
+    enabled: Boolean(providerId && workspaceId),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Get provider schema
@@ -4757,6 +4770,9 @@ export function useIntegrationProvider({
     queryKey: ["provider-schema", providerId, workspaceId, grantType],
     queryFn: async () =>
       await providersGetProvider({ providerId, workspaceId, grantType }),
+    enabled: Boolean(providerId && workspaceId),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Update
