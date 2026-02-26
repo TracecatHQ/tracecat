@@ -1,6 +1,6 @@
 "use client"
 
-import { useParams } from "next/navigation"
+import { useParams, useSearchParams } from "next/navigation"
 import { useEffect } from "react"
 import { AgentPresetsBuilder } from "@/components/agents/agent-presets-builder"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
@@ -11,7 +11,9 @@ export default function AgentPresetsPage() {
   const params = useParams<{
     presetId: string
   }>()
+  const searchParams = useSearchParams()
   const presetId = params?.presetId
+  const builderPrompt = searchParams.get("builderPrompt") ?? undefined
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
 
@@ -38,7 +40,7 @@ export default function AgentPresetsPage() {
 
   return (
     <div className="h-full">
-      <AgentPresetsBuilder presetId={presetId} />
+      <AgentPresetsBuilder presetId={presetId} builderPrompt={builderPrompt} />
     </div>
   )
 }

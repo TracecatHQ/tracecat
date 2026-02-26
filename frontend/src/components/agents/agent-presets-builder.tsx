@@ -245,7 +245,13 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   enableInternetAccess: false,
 }
 
-export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
+export function AgentPresetsBuilder({
+  presetId,
+  builderPrompt,
+}: {
+  presetId?: string
+  builderPrompt?: string
+}) {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
@@ -761,6 +767,7 @@ type AgentPresetFormProps = {
   preset: AgentPresetRead | null
   mode: AgentPresetFormMode
   workspaceId: string
+  builderPrompt?: string
   onCreate: (payload: AgentPresetCreate) => Promise<AgentPresetRead>
   onUpdate: (
     presetId: string,
@@ -781,6 +788,7 @@ function AgentPresetForm({
   preset,
   mode,
   workspaceId,
+  builderPrompt,
   onCreate,
   onUpdate,
   onDelete,
@@ -924,6 +932,7 @@ function AgentPresetForm({
               onTabChange={setActiveTab}
               preset={preset}
               workspaceId={workspaceId}
+              builderPrompt={builderPrompt}
               form={form}
               isSaving={isSaving}
               actionSuggestions={actionSuggestions}
@@ -1135,6 +1144,7 @@ function AgentPresetRightPanel({
   onTabChange,
   preset,
   workspaceId,
+  builderPrompt,
   form,
   isSaving,
   actionSuggestions,
@@ -1151,6 +1161,7 @@ function AgentPresetRightPanel({
   onTabChange: (tab: AgentPresetSideTab) => void
   preset: AgentPresetRead | null
   workspaceId: string
+  builderPrompt?: string
   form: UseFormReturn<AgentPresetFormValues>
   isSaving: boolean
   actionSuggestions: Suggestion[]
@@ -1215,6 +1226,7 @@ function AgentPresetRightPanel({
             <AgentPresetBuilderChatPane
               preset={preset}
               workspaceId={workspaceId}
+              builderPrompt={builderPrompt}
             />
           </TabsContent>
 
@@ -1719,12 +1731,17 @@ function AgentPresetStructuredOutputPanel({
 function AgentPresetBuilderChatPane({
   preset,
   workspaceId,
+  builderPrompt,
 }: {
   preset: AgentPresetRead | null
   workspaceId: string
+  builderPrompt?: string
 }) {
   const presetId = preset?.id
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
+  const [pendingBuilderPrompt, setPendingBuilderPrompt] = useState<
+    string | undefined
+  >(builderPrompt?.trim() ? builderPrompt.trim() : undefined)
 
   const {
     ready: chatReady,
@@ -1745,6 +1762,12 @@ function AgentPresetBuilderChatPane({
   useEffect(() => {
     setSelectedChatId(null)
   }, [presetId])
+
+  useEffect(() => {
+    setPendingBuilderPrompt(
+      builderPrompt?.trim() ? builderPrompt.trim() : undefined
+    )
+  }, [builderPrompt, presetId])
 
   const latestChatId = chats?.[0]?.id
   const activeChatId = selectedChatId ?? latestChatId
@@ -1900,6 +1923,8 @@ function AgentPresetBuilderChatPane({
         placeholder={`Talk to the builder assistant about your agent's prompt, tools, and approval rules...`}
         modelInfo={modelInfo}
         toolsEnabled={false}
+        pendingMessage={pendingBuilderPrompt}
+        onPendingMessageSent={() => setPendingBuilderPrompt(undefined)}
       />
     )
   }

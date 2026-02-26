@@ -2,13 +2,13 @@
 
 import {
   BlocksIcon,
+  Bot,
   ChevronDown,
   InboxIcon,
   KeyRound,
   LayersIcon,
   LayersPlus,
   type LucideIcon,
-  SquareMousePointerIcon,
   SquarePen,
   Table2Icon,
   UsersIcon,
@@ -19,19 +19,31 @@ import Link from "next/link"
 import { useParams, usePathname, useRouter } from "next/navigation"
 import type * as React from "react"
 import { useEffect, useRef, useState } from "react"
+import type { AgentPresetReadMinimal } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import { AppMenu } from "@/components/sidebar/app-menu"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
+import { Button } from "@/components/ui/button"
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import {
+  Command,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -45,7 +57,9 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { shortTimeAgo } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
@@ -113,6 +127,19 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewCases = useScopeCheck("case:read")
   const canCreateCase = useScopeCheck("case:create")
+  const [newAgentPrompt, setNewAgentPrompt] = useState("")
+  const [newAgentPromptOpen, setNewAgentPromptOpen] = useState(false)
+  const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
+    enabled: agentAddonsEnabled && canViewAgents === true,
+  })
+
+  const openNewAgentBuilder = () => {
+    const prompt = newAgentPrompt.trim()
+    const params = prompt ? `?builderPrompt=${encodeURIComponent(prompt)}` : ""
+    router.push(`${basePath}/agents/new${params}`)
+    setNewAgentPrompt("")
+    setNewAgentPromptOpen(false)
+  }
 
   const navWorkspace: NavItem[] = [
     {
@@ -129,17 +156,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname?.startsWith(`${basePath}/cases`),
       visible: canViewCases === true,
     },
-    ...(agentAddonsEnabled
-      ? [
-          {
-            title: "Agents",
-            url: `${basePath}/agents`,
-            icon: SquareMousePointerIcon,
-            isActive: pathname?.startsWith(`${basePath}/agents`),
-            visible: canViewAgents === true,
-          },
-        ]
-      : []),
     {
       title: "Tables",
       url: `${basePath}/tables`,
@@ -168,13 +184,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname?.startsWith(`${basePath}/integrations`),
       visible: canViewIntegrations === true,
     },
-    {
-      title: "Members",
-      url: `${basePath}/members`,
-      icon: UsersIcon,
-      isActive: pathname?.startsWith(`${basePath}/members`),
-      visible: canViewMembers === true,
-    },
   ]
 
   return (
@@ -182,7 +191,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <SidebarHeader>
         <SidebarHeaderContent workspaceId={workspaceId} />
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="overflow-y-auto">
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -202,6 +211,38 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     <LayersPlus />
                     <span>Add case</span>
                   </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+              {agentAddonsEnabled && canViewAgents === true && (
+                <SidebarMenuItem>
+                  <Popover
+                    open={newAgentPromptOpen}
+                    onOpenChange={setNewAgentPromptOpen}
+                  >
+                    <PopoverTrigger asChild>
+                      <SidebarMenuButton>
+                        <Bot />
+                        <span>New agent</span>
+                      </SidebarMenuButton>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-80 p-0">
+                      <Command>
+                        <CommandInput
+                          value={newAgentPrompt}
+                          onValueChange={setNewAgentPrompt}
+                          placeholder="Describe the builder task..."
+                        />
+                        <CommandList>
+                          <CommandItem
+                            onSelect={openNewAgentBuilder}
+                            className="py-2"
+                          >
+                            Start builder assistant
+                          </CommandItem>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </SidebarMenuItem>
               )}
               {canViewInbox === true && (
@@ -280,11 +321,99 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </SidebarGroup>
           </Collapsible>
         )}
+
+        {agentAddonsEnabled && canViewAgents === true && (
+          <Collapsible defaultOpen className="group/collapsible">
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger>
+                  Agents
+                  <ChevronDown className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+                </CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarGroupContent>
+                  {presetsIsLoading ? (
+                    <div className="px-2 py-3 text-xs text-muted-foreground">
+                      Loading agents…
+                    </div>
+                  ) : presets && presets.length > 0 ? (
+                    <SidebarMenu>
+                      {presets.map((preset) => (
+                        <AgentPresetSidebarItem
+                          key={preset.id}
+                          preset={preset}
+                          isActive={
+                            pathname === `${basePath}/agents/${preset.id}`
+                          }
+                          href={`${basePath}/agents/${preset.id}`}
+                        />
+                      ))}
+                    </SidebarMenu>
+                  ) : (
+                    <Button
+                      variant="link"
+                      className="h-auto px-2 py-1 text-xs"
+                      onClick={openNewAgentBuilder}
+                    >
+                      Create first agent
+                    </Button>
+                  )}
+                </SidebarGroupContent>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+
+        <div className="mt-auto p-2">
+          {canViewMembers === true && (
+            <SidebarMenu className="mb-2">
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname?.startsWith(`${basePath}/members`)}
+                >
+                  <Link href={`${basePath}/members`}>
+                    <UsersIcon />
+                    <span>Members</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          )}
+          <SidebarUserNav />
+        </div>
       </SidebarContent>
-      <SidebarFooter>
-        <SidebarUserNav />
-      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
+  )
+}
+
+function AgentPresetSidebarItem({
+  preset,
+  isActive,
+  href,
+}: {
+  preset: AgentPresetReadMinimal
+  isActive: boolean
+  href: string
+}) {
+  const shortUpdatedAtRaw = shortTimeAgo(new Date(preset.updated_at))
+  const shortUpdatedAt =
+    shortUpdatedAtRaw === "just now"
+      ? "now"
+      : shortUpdatedAtRaw.replace(" ago", "")
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton asChild isActive={isActive} className="h-auto py-2">
+        <Link href={href} className="flex w-full min-w-0 items-center gap-2">
+          <p className="truncate text-xs font-normal">{preset.name}</p>
+          <p className="ml-auto shrink-0 text-xs text-muted-foreground">
+            {shortUpdatedAt}
+          </p>
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   )
 }
