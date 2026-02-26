@@ -436,31 +436,12 @@ export function WorkflowsHeader({
           <span className="text-xs text-muted-foreground">
             {totalCount} {countLabel}
           </span>
-          <div className="flex items-center gap-1">
-            <span className="text-xs text-muted-foreground">Limit</span>
-            <Select
-              value={`${limit}`}
-              onValueChange={(value) => onLimitChange(Number(value))}
-              disabled={isPaginationLoading}
-            >
-              <SelectTrigger className="h-7 w-[72px] text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                {LIMIT_OPTIONS.map((option) => (
-                  <SelectItem key={option} value={`${option}`}>
-                    {option}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
           <button
             type="button"
             className={cn(
-              "flex h-7 items-center gap-1 rounded-md border px-2 text-xs transition-colors",
+              "inline-flex h-7 items-center gap-1 px-1 text-xs text-muted-foreground transition-colors",
               hasPreviousPage
-                ? "hover:bg-muted"
+                ? "hover:text-foreground"
                 : "cursor-not-allowed opacity-50"
             )}
             onClick={onPreviousPage}
@@ -473,8 +454,10 @@ export function WorkflowsHeader({
           <button
             type="button"
             className={cn(
-              "flex h-7 items-center gap-1 rounded-md border px-2 text-xs transition-colors",
-              hasNextPage ? "hover:bg-muted" : "cursor-not-allowed opacity-50"
+              "inline-flex h-7 items-center gap-1 px-1 text-xs text-muted-foreground transition-colors",
+              hasNextPage
+                ? "hover:text-foreground"
+                : "cursor-not-allowed opacity-50"
             )}
             onClick={onNextPage}
             disabled={!hasNextPage || isPaginationLoading}
@@ -486,7 +469,7 @@ export function WorkflowsHeader({
         </div>
       </header>
 
-      <div className="flex flex-wrap items-center gap-2 py-2 pl-3 pr-4">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2">
         <Select
           value={view}
           onValueChange={(nextView) =>
@@ -536,6 +519,26 @@ export function WorkflowsHeader({
             <Cross2Icon className="size-3" />
           </button>
         )}
+
+        <div className="ml-auto flex items-center">
+          <Select
+            value={`${limit}`}
+            onValueChange={(value) => onLimitChange(Number(value))}
+            disabled={isPaginationLoading}
+          >
+            <SelectTrigger className="h-6 w-auto gap-1.5 rounded-md px-2 text-xs font-medium">
+              <span className="text-muted-foreground">Limit</span>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end">
+              {LIMIT_OPTIONS.map((option) => (
+                <SelectItem key={option} value={`${option}`}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
     </div>
   )

@@ -1,8 +1,15 @@
 "use client"
 
-import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { format, formatDistanceToNow } from "date-fns"
-import { CircleDot, FolderIcon, WorkflowIcon } from "lucide-react"
+import {
+  AtSignIcon,
+  CircleCheck,
+  CircleDot,
+  Clock3,
+  FolderIcon,
+  HistoryIcon,
+  WorkflowIcon,
+} from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
@@ -31,12 +38,11 @@ import {
 } from "@/components/dashboard/workflows-header"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import {
   Tooltip,
   TooltipContent,
@@ -184,9 +190,12 @@ function WorkflowMetadataBadges({ item }: { item: WorkflowDirectoryItem }) {
 
   return (
     <div className="flex shrink-0 items-center gap-1">
-      <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
-        Alias {item.alias ?? "--"}
-      </Badge>
+      {item.alias && (
+        <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
+          <AtSignIcon className="mr-1 size-3" />
+          {item.alias}
+        </Badge>
+      )}
 
       <Tooltip>
         <TooltipTrigger asChild>
@@ -194,7 +203,8 @@ function WorkflowMetadataBadges({ item }: { item: WorkflowDirectoryItem }) {
             variant="secondary"
             className="h-5 cursor-default px-2 text-[10px] font-normal"
           >
-            Updated {getRelativeDateLabel(item.updated_at)}
+            <Clock3 className="mr-1 size-3" />
+            {getRelativeDateLabel(item.updated_at)}
           </Badge>
         </TooltipTrigger>
         <TooltipContent>
@@ -209,7 +219,8 @@ function WorkflowMetadataBadges({ item }: { item: WorkflowDirectoryItem }) {
               variant="secondary"
               className="h-5 cursor-default px-2 text-[10px] font-normal"
             >
-              Published {getRelativeDateLabel(lastPublished)}
+              <CircleCheck className="mr-1 size-3" />
+              {getRelativeDateLabel(lastPublished)}
             </Badge>
           </TooltipTrigger>
           <TooltipContent>
@@ -219,13 +230,15 @@ function WorkflowMetadataBadges({ item }: { item: WorkflowDirectoryItem }) {
       ) : (
         <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
           <CircleDot className="mr-1 size-3" />
-          Published Unsaved
+          Unpublished
         </Badge>
       )}
 
-      <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
-        Version {version ? `v${version}` : "--"}
-      </Badge>
+      {version !== null && (
+        <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
+          <HistoryIcon className="mr-1 size-3" />v{version}
+        </Badge>
+      )}
     </div>
   )
 }
@@ -239,7 +252,8 @@ function FolderMetadataBadges({ item }: { item: FolderDirectoryItem }) {
             variant="secondary"
             className="h-5 cursor-default px-2 text-[10px] font-normal"
           >
-            Updated {getRelativeDateLabel(item.updated_at)}
+            <Clock3 className="mr-1 size-3" />
+            {getRelativeDateLabel(item.updated_at)}
           </Badge>
         </TooltipTrigger>
         <TooltipContent>
@@ -248,7 +262,8 @@ function FolderMetadataBadges({ item }: { item: FolderDirectoryItem }) {
       </Tooltip>
 
       <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
-        Items {item.num_items}
+        <WorkflowIcon className="mr-1 size-3" />
+        {item.num_items} workflows
       </Badge>
     </div>
   )
@@ -271,79 +286,80 @@ function WorkflowsListRow({
   setActiveDialog: (activeDialog: ActiveDialog | null) => void
   availableTags?: TagRead[]
 }) {
+  const [isContextMenuOpen, setIsContextMenuOpen] = useState(false)
+
   if (item.type === "folder") {
     return (
-      <div className="group/item flex items-center gap-2 px-3 py-2 transition-colors hover:bg-muted/50">
-        <button
-          type="button"
-          onClick={() => onOpenFolder(item.path)}
-          className="flex min-w-0 flex-1 items-center gap-3 bg-transparent p-0 text-left"
-        >
-          <FolderIcon className="size-4 shrink-0 text-sky-500" />
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <span className="truncate text-xs font-medium">{item.name}</span>
-          </div>
-          <FolderMetadataBadges item={item} />
-        </button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              className="size-6 p-0"
-              onClick={(event) => event.stopPropagation()}
+      <ContextMenu onOpenChange={setIsContextMenuOpen}>
+        <ContextMenuTrigger asChild>
+          <div
+            className={cn(
+              "group/item flex items-center gap-2 px-4 py-2 transition-colors hover:bg-muted/50",
+              isContextMenuOpen && "bg-muted/70"
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => onOpenFolder(item.path)}
+              className="flex min-w-0 flex-1 items-center gap-3 bg-transparent p-0 text-left"
             >
-              <span className="sr-only">Open menu</span>
-              <DotsHorizontalIcon className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            <FolderActions
-              item={item}
-              setActiveDialog={setActiveDialog}
-              setSelectedFolder={setSelectedFolder}
-            />
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+              <FolderIcon className="size-4 shrink-0 text-sky-500" />
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <span className="min-w-0 max-w-[340px] flex-1 truncate text-xs">
+                  {item.name}
+                </span>
+                <FolderMetadataBadges item={item} />
+              </div>
+            </button>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-48">
+          <FolderActions
+            item={item}
+            setActiveDialog={setActiveDialog}
+            setSelectedFolder={setSelectedFolder}
+          />
+        </ContextMenuContent>
+      </ContextMenu>
     )
   }
 
   return (
-    <div className="group/item flex items-center gap-2 px-3 py-2 transition-colors hover:bg-muted/50">
-      <button
-        type="button"
-        onClick={() => onOpenWorkflow(item.id)}
-        className="flex min-w-0 flex-1 items-center gap-3 bg-transparent p-0 text-left"
-      >
-        <WorkflowIcon className="size-4 shrink-0 text-orange-500" />
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="truncate text-xs font-medium">{item.title}</span>
-          <WorkflowTagPills tags={item.tags} />
-        </div>
-        <WorkflowMetadataBadges item={item} />
-      </button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            className="size-6 p-0"
-            onClick={(event) => event.stopPropagation()}
+    <ContextMenu onOpenChange={setIsContextMenuOpen}>
+      <ContextMenuTrigger asChild>
+        <div
+          className={cn(
+            "group/item flex items-center gap-2 px-4 py-2 transition-colors hover:bg-muted/50",
+            isContextMenuOpen && "bg-muted/70"
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => onOpenWorkflow(item.id)}
+            className="flex min-w-0 flex-1 items-center gap-3 bg-transparent p-0 text-left"
           >
-            <span className="sr-only">Open menu</span>
-            <DotsHorizontalIcon className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <WorkflowActions
-            item={item}
-            availableTags={availableTags}
-            showMoveToFolder
-            setSelectedWorkflow={setSelectedWorkflow}
-            setActiveDialog={setActiveDialog}
-          />
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+            <WorkflowIcon className="size-4 shrink-0 text-orange-500" />
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <span className="min-w-0 max-w-[340px] flex-1 truncate text-xs">
+                {item.title}
+              </span>
+              <WorkflowMetadataBadges item={item} />
+              <WorkflowTagPills tags={item.tags} />
+            </div>
+          </button>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-52">
+        {/* Reuse the existing workflow action set, now rendered in right-click menu */}
+        <WorkflowActions
+          item={item}
+          availableTags={availableTags}
+          showMoveToFolder
+          setSelectedWorkflow={setSelectedWorkflow}
+          setActiveDialog={setActiveDialog}
+        />
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 
@@ -588,7 +604,7 @@ export function WorkflowsDashboard() {
             createdAfter={createdAfter}
             onCreatedAfterChange={setCreatedAfter}
             totalCount={headerTotalCount}
-            countLabel={view === "folders" ? "items" : "workflows"}
+            countLabel="workflows"
             limit={limit}
             onLimitChange={setLimit}
             hasPreviousPage={hasPreviousPage}
