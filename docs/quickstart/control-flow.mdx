@@ -206,4 +206,4 @@ loop_start -> (loop body actions) -> loop_end -> after
 - Results in the loop body are overwritten when an action runs again.
 - If an action is skipped in an iteration, its previous result is retained.
 - `max_iterations` protects against unbounded loops and fails the run when the
-  limit is exceeded.
+  limit is exceeded (platform hard cap: `2048`).

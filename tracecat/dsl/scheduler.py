@@ -30,6 +30,7 @@ with workflow.unsafe.imports_passed_through():
         DSLInput,
         edge_components_from_dep,
     )
+    from tracecat.dsl.constants import MAX_DO_WHILE_ITERATIONS
     from tracecat.dsl.enums import (
         EdgeMarker,
         EdgeType,
@@ -955,6 +956,18 @@ class DSLScheduler:
             raise RuntimeError(f"Unknown loop end action: {task.ref!r}")
 
         region = self.loop_regions_by_end[task.ref]
+        raw_max_iterations = stmt.args.get("max_iterations", 100)
+        if (
+            isinstance(raw_max_iterations, int)
+            and raw_max_iterations > MAX_DO_WHILE_ITERATIONS
+        ):
+            raise ApplicationError(
+                (
+                    "Loop max_iterations exceeds platform cap: "
+                    f"{raw_max_iterations} > {MAX_DO_WHILE_ITERATIONS}."
+                ),
+                non_retryable=True,
+            )
         args = LoopEndArgs(**stmt.args)
         loop_key = (region.start_ref, task.stream_id)
         current_index = self.loop_indices.get(loop_key, 0)

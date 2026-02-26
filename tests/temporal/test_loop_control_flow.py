@@ -215,6 +215,73 @@ async def test_loop_respects_max_iterations_guard(
 
 @pytest.mark.anyio
 @pytest.mark.integration
+async def test_loop_rejects_max_iterations_over_platform_cap(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    test_name = f"{test_loop_rejects_max_iterations_over_platform_cap.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+    low_platform_cap = 3
+    monkeypatch.setattr(
+        "tracecat.dsl.scheduler.MAX_DO_WHILE_ITERATIONS",
+        low_platform_cap,
+    )
+
+    dsl = DSLInput(
+        title="Loop platform cap guard",
+        description="Loop should fail when max_iterations exceeds platform cap",
+        entrypoint=DSLEntrypoint(ref="loop_start"),
+        actions=[
+            ActionStatement(
+                ref="loop_start",
+                action="core.loop.start",
+            ),
+            ActionStatement(
+                ref="body",
+                action="core.transform.reshape",
+                depends_on=["loop_start"],
+                args={"value": 1},
+            ),
+            ActionStatement(
+                ref="loop_end",
+                action="core.loop.end",
+                depends_on=["body"],
+                args={
+                    "condition": "${{ False }}",
+                    "max_iterations": low_platform_cap + 1,
+                },
+            ),
+        ],
+    )
+
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+    run_args = DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID)
+
+    async with (
+        test_worker_factory(temporal_client),
+        test_executor_worker_factory(temporal_client),
+    ):
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await temporal_client.execute_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=wf_exec_id,
+                task_queue=queue,
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            )
+
+    assert str(exc_info.value) == "Workflow execution failed"
+    cause = exc_info.value.cause
+    assert isinstance(cause, ApplicationError)
+    assert "exceeds platform cap" in str(cause)
+    assert str(low_platform_cap) in str(cause)
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
 async def test_nested_loops_execute_with_independent_closers(
     test_role: Role,
     temporal_client: Client,
