@@ -517,23 +517,27 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
         "AccessToken",
         back_populates="user",
         lazy="select",
+        passive_deletes=True,
     )
     chats: Mapped[list[Chat]] = relationship(
         "Chat",
         back_populates="user",
         lazy="select",
+        passive_deletes=True,
     )
     role_assignments: Mapped[list[UserRoleAssignment]] = relationship(
         "UserRoleAssignment",
         back_populates="user",
         foreign_keys="UserRoleAssignment.user_id",
         lazy="select",
+        passive_deletes=True,
     )
     organizations: Mapped[list[Organization]] = relationship(
         "Organization",
         secondary=OrganizationMembership.__table__,
         back_populates="members",
         lazy="select",
+        passive_deletes=True,
     )
 
 
