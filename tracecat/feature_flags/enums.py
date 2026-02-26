@@ -5,4 +5,3 @@ class FeatureFlag(StrEnum):
     """Feature flag enum reserved for engineering rollouts."""
 
     AI_RANKING = "ai-ranking"
-    RLS_ENABLED = "rls-enabled"

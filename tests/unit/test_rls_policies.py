@@ -5,8 +5,7 @@ based on organization and workspace context.
 
 IMPORTANT: These tests require:
 1. A running PostgreSQL database with the RLS migration applied
-2. RLS app mode/flag enabled (TRACECAT__RLS_MODE=enforce or legacy
-   TRACECAT__FEATURE_FLAGS=rls-enabled)
+2. RLS mode enabled (TRACECAT__RLS_MODE=enforce or shadow)
 
 Run with:
     TRACECAT__RLS_MODE=enforce uv run pytest tests/unit/test_rls_policies.py -v
@@ -42,10 +41,7 @@ if TYPE_CHECKING:
 # Skip all tests if RLS is not enabled
 pytestmark = pytest.mark.skipif(
     not is_rls_enabled(),
-    reason=(
-        "RLS mode/flag not enabled. Set TRACECAT__RLS_MODE=enforce "
-        "or TRACECAT__FEATURE_FLAGS=rls-enabled"
-    ),
+    reason="RLS mode not enabled. Set TRACECAT__RLS_MODE=enforce or shadow",
 )
 
 

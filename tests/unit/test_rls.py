@@ -23,7 +23,6 @@ from tracecat.db.rls import (
     verify_rls_access,
 )
 from tracecat.exceptions import TracecatRLSViolationError
-from tracecat.feature_flags.enums import FeatureFlag
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -98,31 +97,25 @@ def superuser_role() -> Role:
 class TestIsRlsEnabled:
     """Tests for is_rls_enabled function."""
 
-    def test_returns_false_when_flag_not_set(self, monkeypatch: pytest.MonkeyPatch):
-        """Test that RLS is disabled when feature flag is not set."""
+    def test_returns_false_when_mode_is_off(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that RLS is disabled when mode is off."""
         monkeypatch.setattr(
             "tracecat.db.rls.config.TRACECAT__RLS_MODE", config.RLSMode.OFF
         )
-        monkeypatch.setattr("tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS", set())
         assert is_rls_enabled() is False
 
-    def test_returns_true_when_flag_set(self, monkeypatch: pytest.MonkeyPatch):
-        """Test that RLS is enabled when feature flag is set."""
+    def test_returns_true_when_mode_is_shadow(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that RLS is enabled when mode is shadow."""
         monkeypatch.setattr(
-            "tracecat.db.rls.config.TRACECAT__RLS_MODE", config.RLSMode.OFF
-        )
-        monkeypatch.setattr(
-            "tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS",
-            {FeatureFlag.RLS_ENABLED},
+            "tracecat.db.rls.config.TRACECAT__RLS_MODE", config.RLSMode.SHADOW
         )
         assert is_rls_enabled() is True
 
     def test_returns_true_when_mode_is_enforce(self, monkeypatch: pytest.MonkeyPatch):
-        """Test that RLS is enabled when mode is enforce, without feature flag."""
+        """Test that RLS is enabled when mode is enforce."""
         monkeypatch.setattr(
             "tracecat.db.rls.config.TRACECAT__RLS_MODE", config.RLSMode.ENFORCE
         )
-        monkeypatch.setattr("tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS", set())
         assert is_rls_enabled() is True
 
 
@@ -130,11 +123,13 @@ class TestSetRlsContext:
     """Tests for set_rls_context function."""
 
     @pytest.mark.anyio
-    async def test_applies_context_even_when_flag_not_set(
+    async def test_applies_context_when_mode_is_off(
         self, mock_session: AsyncMock, monkeypatch: pytest.MonkeyPatch
     ):
-        """set_rls_context should still apply GUCs even if flag is not set."""
-        monkeypatch.setattr("tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS", set())
+        """set_rls_context should still apply GUCs when mode is off."""
+        monkeypatch.setattr(
+            "tracecat.db.rls.config.TRACECAT__RLS_MODE", config.RLSMode.OFF
+        )
 
         org_id = uuid.uuid4()
         workspace_id = uuid.uuid4()
@@ -156,15 +151,8 @@ class TestSetRlsContext:
         )
 
     @pytest.mark.anyio
-    async def test_sets_context_variables(
-        self, mock_session: AsyncMock, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_sets_context_variables(self, mock_session: AsyncMock):
         """Test that RLS context variables are set correctly."""
-        monkeypatch.setattr(
-            "tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS",
-            {FeatureFlag.RLS_ENABLED},
-        )
-
         org_id = uuid.uuid4()
         workspace_id = uuid.uuid4()
         user_id = uuid.uuid4()
@@ -185,15 +173,8 @@ class TestSetRlsContext:
         )
 
     @pytest.mark.anyio
-    async def test_resets_tenant_context_for_none_values(
-        self, mock_session: AsyncMock, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_resets_tenant_context_for_none_values(self, mock_session: AsyncMock):
         """Test that None values reset tenant variables while bypass stays off."""
-        monkeypatch.setattr(
-            "tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS",
-            {FeatureFlag.RLS_ENABLED},
-        )
-
         await set_rls_context(
             mock_session,
             org_id=None,
@@ -214,14 +195,16 @@ class TestSetRlsContextFromRole:
     """Tests for set_rls_context_from_role function."""
 
     @pytest.mark.anyio
-    async def test_applies_context_even_when_flag_not_set(
+    async def test_applies_context_when_mode_is_off(
         self,
         mock_session: AsyncMock,
         test_role: Role,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """set_rls_context_from_role should still apply GUCs when flag is off."""
-        monkeypatch.setattr("tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS", set())
+        """set_rls_context_from_role should still apply GUCs when mode is off."""
+        monkeypatch.setattr(
+            "tracecat.db.rls.config.TRACECAT__RLS_MODE", config.RLSMode.OFF
+        )
 
         await set_rls_context_from_role(mock_session, test_role)
 
@@ -238,14 +221,8 @@ class TestSetRlsContextFromRole:
         self,
         mock_session: AsyncMock,
         test_role: Role,
-        monkeypatch: pytest.MonkeyPatch,
     ):
         """Test that provided role is used to set context."""
-        monkeypatch.setattr(
-            "tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS",
-            {FeatureFlag.RLS_ENABLED},
-        )
-
         await set_rls_context_from_role(mock_session, test_role)
 
         _assert_execute_params(
@@ -261,14 +238,8 @@ class TestSetRlsContextFromRole:
         self,
         mock_session: AsyncMock,
         test_role: Role,
-        monkeypatch: pytest.MonkeyPatch,
     ):
         """Test that ctx_role is used when no role is provided."""
-        monkeypatch.setattr(
-            "tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS",
-            {FeatureFlag.RLS_ENABLED},
-        )
-
         # Set ctx_role
         ctx_role.set(test_role)
 
@@ -289,14 +260,8 @@ class TestSetRlsContextFromRole:
     async def test_sets_deny_default_when_no_role_available(
         self,
         mock_session: AsyncMock,
-        monkeypatch: pytest.MonkeyPatch,
     ):
         """Test that no-role context sets bypass off and resets tenant IDs."""
-        monkeypatch.setattr(
-            "tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS",
-            {FeatureFlag.RLS_ENABLED},
-        )
-
         # Ensure ctx_role is None
         ctx_role.set(None)
 
@@ -315,14 +280,8 @@ class TestSetRlsContextFromRole:
         self,
         mock_session: AsyncMock,
         superuser_role: Role,
-        monkeypatch: pytest.MonkeyPatch,
     ):
         """Test that platform superusers get explicit bypass context."""
-        monkeypatch.setattr(
-            "tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS",
-            {FeatureFlag.RLS_ENABLED},
-        )
-
         await set_rls_context_from_role(mock_session, superuser_role)
 
         _assert_execute_params(
@@ -338,11 +297,13 @@ class TestClearRlsContext:
     """Tests for clear_rls_context function."""
 
     @pytest.mark.anyio
-    async def test_clears_context_even_when_flag_not_set(
+    async def test_clears_context_when_mode_is_off(
         self, mock_session: AsyncMock, monkeypatch: pytest.MonkeyPatch
     ):
-        """clear_rls_context should still enforce deny-default when flag is off."""
-        monkeypatch.setattr("tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS", set())
+        """clear_rls_context should still enforce deny-default when mode is off."""
+        monkeypatch.setattr(
+            "tracecat.db.rls.config.TRACECAT__RLS_MODE", config.RLSMode.OFF
+        )
 
         await clear_rls_context(mock_session)
 
@@ -355,15 +316,8 @@ class TestClearRlsContext:
         )
 
     @pytest.mark.anyio
-    async def test_sets_deny_default_values(
-        self, mock_session: AsyncMock, monkeypatch: pytest.MonkeyPatch
-    ):
+    async def test_sets_deny_default_values(self, mock_session: AsyncMock):
         """Test that clearing enforces bypass-off and no tenant scope."""
-        monkeypatch.setattr(
-            "tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS",
-            {FeatureFlag.RLS_ENABLED},
-        )
-
         await clear_rls_context(mock_session)
 
         _assert_execute_params(
@@ -432,8 +386,7 @@ class TestRequireRlsAccess:
     ):
         """Test that require_rls_access passes when access is allowed."""
         monkeypatch.setattr(
-            "tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS",
-            {FeatureFlag.RLS_ENABLED},
+            "tracecat.db.rls.config.TRACECAT__RLS_MODE", config.RLSMode.ENFORCE
         )
 
         from tracecat.db.models import Workflow
@@ -452,8 +405,7 @@ class TestRequireRlsAccess:
     ):
         """Test that require_rls_access raises TracecatRLSViolationError when access is denied."""
         monkeypatch.setattr(
-            "tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS",
-            {FeatureFlag.RLS_ENABLED},
+            "tracecat.db.rls.config.TRACECAT__RLS_MODE", config.RLSMode.ENFORCE
         )
 
         from tracecat.db.models import Workflow
@@ -485,8 +437,7 @@ class TestRequireRlsAccess:
     ):
         """Test that violations are audited when access is denied."""
         monkeypatch.setattr(
-            "tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS",
-            {FeatureFlag.RLS_ENABLED},
+            "tracecat.db.rls.config.TRACECAT__RLS_MODE", config.RLSMode.ENFORCE
         )
 
         from tracecat.db.models import Workflow

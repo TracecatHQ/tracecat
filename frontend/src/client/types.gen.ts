@@ -2557,7 +2557,7 @@ export type ExternalObject = {
 /**
  * Feature flag enum reserved for engineering rollouts.
  */
-export type FeatureFlag = "ai-ranking" | "rls-enabled"
+export type FeatureFlag = "ai-ranking"
 
 /**
  * Response model for feature flags.
