@@ -56,6 +56,12 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -1172,11 +1178,6 @@ export function WorkflowsDashboard() {
     })
   }
 
-  const emptyMessage =
-    view === "folders"
-      ? "No items found in this folder."
-      : "No workflows found."
-
   return (
     <DeleteWorkflowAlertDialog
       selectedWorkflow={selectedWorkflow}
@@ -1224,10 +1225,15 @@ export function WorkflowsDashboard() {
                 </span>
               </div>
             ) : visibleItems.length === 0 ? (
-              <div className="flex h-full items-center justify-center px-6">
-                <span className="text-sm text-muted-foreground">
-                  {emptyMessage}
-                </span>
+              <div className="flex h-full p-6">
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <WorkflowIcon className="size-5 text-muted-foreground/60" />
+                    </EmptyMedia>
+                    <EmptyTitle>No workflows found in this folder</EmptyTitle>
+                  </EmptyHeader>
+                </Empty>
               </div>
             ) : (
               <div className="divide-y">
