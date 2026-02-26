@@ -14,6 +14,7 @@ import uuid
 from collections import deque
 from datetime import datetime, timedelta
 from io import StringIO
+from pathlib import Path
 from typing import Any, Literal, cast
 
 import yaml
@@ -78,9 +79,16 @@ from tracecat.mcp.middleware import (
     get_mcp_client_id,
 )
 from tracecat.pagination import CursorPaginationParams
-from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.actions.schemas import TemplateAction
+from tracecat.registry.actions.service import (
+    RegistryActionsService,
+)
+from tracecat.registry.actions.service import (
+    validate_action_template as validate_template_action_impl,
+)
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.registry.repository import Repository
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.service import SecretsService
 from tracecat.tables.enums import SqlType
@@ -2085,6 +2093,145 @@ async def validate_workflow(
         return _json(
             {
                 "valid": False,
+                "errors": [
+                    {
+                        "type": "internal",
+                        "message": "An internal error occurred during validation. Check server logs for details.",
+                    }
+                ],
+            }
+        )
+
+
+@mcp.tool()
+async def validate_template_action(
+    workspace_id: str,
+    template_yaml: str | None = None,
+    template_path: str | None = None,
+    check_db: bool = False,
+) -> str:
+    """Validate a template action YAML payload.
+
+    Validates YAML parsing, template schema correctness, step action references,
+    argument schemas, and expression references.
+
+    Args:
+        workspace_id: The workspace ID.
+        template_yaml: Full template action YAML content.
+        template_path: Path to a local .yml/.yaml template file.
+        check_db: When True, also resolve missing actions from registry DB.
+            Defaults to False for local-only validation.
+
+    Returns JSON with valid (bool), action_name (if available), and any errors.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        action_name: str | None = None
+        source_count = int(template_yaml is not None) + int(template_path is not None)
+        if source_count != 1:
+            raise ToolError("Provide exactly one of template_yaml or template_path")
+
+        if template_path is not None:
+            path = Path(template_path).expanduser()
+            if path.suffix.lower() not in {".yml", ".yaml"}:
+                raise ToolError("template_path must point to a .yml or .yaml file")
+            try:
+                template_yaml = path.read_text(encoding="utf-8")
+            except OSError as exc:
+                raise ToolError(f"Failed to read template file: {exc}") from exc
+
+        if template_yaml is None:
+            raise ToolError("template_yaml is required when template_path is not set")
+
+        try:
+            raw_template = yaml.safe_load(template_yaml)
+        except yaml.YAMLError as exc:
+            return _json(
+                {
+                    "valid": False,
+                    "action_name": action_name,
+                    "errors": [
+                        {
+                            "type": "yaml_error",
+                            "message": str(exc),
+                        }
+                    ],
+                }
+            )
+
+        try:
+            template = TemplateAction.model_validate(raw_template)
+            action_name = template.definition.action
+        except ValidationError as exc:
+            return _json(
+                {
+                    "valid": False,
+                    "action_name": action_name,
+                    "errors": [
+                        {
+                            "type": "schema_validation_error",
+                            "message": "Template action schema validation failed",
+                            "details": [
+                                {
+                                    "type": err.get("type"),
+                                    "msg": err.get("msg"),
+                                    "loc": list(err.get("loc", ())),
+                                }
+                                for err in exc.errors(include_url=False)
+                            ],
+                        }
+                    ],
+                }
+            )
+        except TracecatValidationError as exc:
+            return _json(
+                {
+                    "valid": False,
+                    "action_name": action_name,
+                    "errors": [
+                        {
+                            "type": "schema_validation_error",
+                            "message": str(exc),
+                        }
+                    ],
+                }
+            )
+
+        repo = Repository(role=role)
+        repo.init(include_base=True, include_templates=True)
+        repo.register_template_action(template, origin="mcp")
+        bound_action = repo.store[template.definition.action]
+
+        async with RegistryActionsService.with_session(role=role) as svc:
+            errs = await validate_template_action_impl(
+                bound_action,
+                repo,
+                check_db=check_db,
+                ra_service=svc,
+            )
+
+        return _json(
+            {
+                "valid": len(errs) == 0,
+                "action_name": action_name,
+                "errors": [err.model_dump(mode="json") for err in errs],
+            }
+        )
+    except ToolError:
+        raise
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+    except BaseException as exc:
+        msg = str(exc)
+        if isinstance(exc, BaseExceptionGroup):
+            msgs = [str(err) for err in exc.exceptions]
+            msg = "; ".join(msgs)
+        logger.error("Failed to validate template action", error=msg)
+        return _json(
+            {
+                "valid": False,
+                "action_name": None,
                 "errors": [
                     {
                         "type": "internal",
