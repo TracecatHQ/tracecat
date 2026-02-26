@@ -145,6 +145,7 @@ def build_workflow_trigger_summary(
 ) -> WorkflowTriggerSummaryMinimal | None:
     """Build list-row trigger summary fields from denormalized query columns."""
     schedule_count = online_schedule_count or 0
+    has_schedule_configuration = schedule_cron is not None or schedule_every is not None
     schedule_natural: str | None
     if schedule_cron:
         schedule_natural = humanize_cron_expression(schedule_cron)
@@ -156,7 +157,12 @@ def build_workflow_trigger_summary(
     resolved_webhook_active = bool(webhook_active)
     case_trigger_events = tuple(case_trigger_event_types or [])
 
-    if schedule_count <= 0 and not resolved_webhook_active and not case_trigger_events:
+    if (
+        schedule_count <= 0
+        and not has_schedule_configuration
+        and not resolved_webhook_active
+        and not case_trigger_events
+    ):
         return None
 
     return WorkflowTriggerSummaryMinimal(

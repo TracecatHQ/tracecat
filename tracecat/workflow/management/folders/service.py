@@ -500,21 +500,21 @@ class WorkflowFolderService(BaseWorkspaceService):
             .group_by(Schedule.workflow_id)
             .subquery()
         )
-        ranked_schedule_subq = (
-            select(
-                Schedule.workflow_id.label("workflow_id"),
-                Schedule.cron.label("schedule_cron"),
-                Schedule.every.label("schedule_every"),
-                sa.func.row_number()
-                .over(
-                    partition_by=Schedule.workflow_id,
-                    order_by=(Schedule.updated_at.desc(), Schedule.id.desc()),
-                )
-                .label("row_num"),
+        ranked_schedule_subq = select(
+            Schedule.workflow_id.label("workflow_id"),
+            Schedule.cron.label("schedule_cron"),
+            Schedule.every.label("schedule_every"),
+            sa.func.row_number()
+            .over(
+                partition_by=Schedule.workflow_id,
+                order_by=(
+                    sa.case((Schedule.status == "online", 0), else_=1).asc(),
+                    Schedule.updated_at.desc(),
+                    Schedule.id.desc(),
+                ),
             )
-            .where(Schedule.status == "online")
-            .subquery()
-        )
+            .label("row_num"),
+        ).subquery()
         schedule_preview_subq = (
             select(
                 ranked_schedule_subq.c.workflow_id,
@@ -569,7 +569,10 @@ class WorkflowFolderService(BaseWorkspaceService):
             )
             .outerjoin(
                 CaseTrigger,
-                cast(Workflow.id, sa.UUID) == CaseTrigger.workflow_id,
+                and_(
+                    cast(Workflow.id, sa.UUID) == CaseTrigger.workflow_id,
+                    CaseTrigger.status == "online",
+                ),
             )
             .outerjoin(
                 webhook_summary_subq,

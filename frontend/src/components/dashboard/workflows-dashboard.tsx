@@ -306,9 +306,37 @@ function parseCronScheduleIntervalMs(scheduleCron: string): number | null {
   const isInteger = (value: string) => /^\d+$/.test(value)
   const minuteStepMatch = minute.match(/^\*\/(\d+)$/)
   const hourStepMatch = hour.match(/^\*\/(\d+)$/)
+  const dayOfMonthStepMatch = dayOfMonth.match(/^\*\/(\d+)$/)
+  const monthStepMatch = month.match(/^\*\/(\d+)$/)
+
+  const hasWildcardWeekday = dayOfWeek === "*" || dayOfWeek === "?"
+  const hasFixedMinuteAndHour = isInteger(minute) && isInteger(hour)
+
+  if (
+    dayOfMonthStepMatch &&
+    month === "*" &&
+    hasWildcardWeekday &&
+    hasFixedMinuteAndHour
+  ) {
+    const interval = Number(dayOfMonthStepMatch[1])
+    return interval > 0 ? interval * DAY_MS : null
+  }
 
   if (dayOfMonth !== "*" || month !== "*") {
-    return WEEK_MS
+    if (hasFixedMinuteAndHour && isInteger(dayOfMonth) && hasWildcardWeekday) {
+      if (month === "*") {
+        return 30 * DAY_MS
+      }
+      if (monthStepMatch) {
+        const monthInterval = Number(monthStepMatch[1])
+        return monthInterval > 0 ? monthInterval * 30 * DAY_MS : null
+      }
+      if (isInteger(month)) {
+        return 365 * DAY_MS
+      }
+    }
+
+    return null
   }
 
   if (

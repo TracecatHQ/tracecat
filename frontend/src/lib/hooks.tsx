@@ -837,6 +837,7 @@ export function useWorkflowManager(
       await workflowsMoveWorkflowToFolder(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+      queryClient.invalidateQueries({ queryKey: ["workflows"] })
     },
     onError: (error: TracecatApiError) => {
       console.error("Failed to move workflow:", error)
