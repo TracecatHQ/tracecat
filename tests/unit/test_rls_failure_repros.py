@@ -327,6 +327,12 @@ def test_rls_migration_sanity_all_tenant_keyed_tables_are_covered_or_allowlisted
     )
 
 
+def test_rls_migration_uses_enable_without_force() -> None:
+    migration_sql = RLS_MIGRATION_PATH.read_text()
+    assert "ENABLE ROW LEVEL SECURITY" in migration_sql
+    assert "FORCE ROW LEVEL SECURITY" not in migration_sql
+
+
 def test_validate_incoming_webhook_uses_bypass_session_manager() -> None:
     source = inspect.getsource(validate_incoming_webhook)
     assert "get_async_session_bypass_rls_context_manager" in source
