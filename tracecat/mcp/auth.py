@@ -631,20 +631,32 @@ async def list_user_workspaces(
     """
     user = await resolve_user_by_email(email)
 
-    # Resolve the user's organization(s)
     async with get_async_session_context_manager() as session:
+        # Platform superusers can see all workspaces without org memberships.
+        if user.is_superuser:
+            stmt = select(Workspace.id, Workspace.name)
+            if organization_id is not None:
+                stmt = stmt.where(Workspace.organization_id == organization_id)
+            stmt = stmt.order_by(Workspace.name.asc(), Workspace.id.asc())
+            result = await session.execute(stmt)
+            return [{"id": str(row.id), "name": row.name} for row in result.all()]
+
+        # Resolve the user's organization(s)
         org_stmt = select(OrganizationMembership.organization_id).where(
             OrganizationMembership.user_id == user.id
         )
         org_result = await session.execute(org_stmt)
-        org_ids = {row[0] for row in org_result.all()}
+        org_ids = set(org_result.scalars().all())
 
-    if not org_ids:
-        return []
+        if not org_ids:
+            return []
+        if organization_id is not None:
+            if organization_id not in org_ids:
+                return []
+            org_ids = {organization_id}
 
-    # Check whether the user has org-level workspace read in any of their orgs
-    can_see_all = user.is_superuser
-    if not can_see_all:
+        # Determine org-admin visibility on a per-organization basis.
+        org_admin_ids: set[OrganizationID] = set()
         for oid in org_ids:
             role = Role(
                 type="user",
@@ -656,27 +668,40 @@ async def list_user_workspaces(
             )
             scopes = await compute_effective_scopes(role)
             if has_scope(scopes, "org:workspace:read"):
-                can_see_all = True
-                break
+                org_admin_ids.add(oid)
 
-    async with get_async_session_context_manager() as session:
-        if can_see_all:
-            stmt = select(Workspace.id, Workspace.name).where(
-                Workspace.organization_id.in_(org_ids)
+        workspace_map: dict[uuid.UUID, str] = {}
+
+        # For orgs where the user is org-admin/owner, list all workspaces in that org.
+        if org_admin_ids:
+            admin_stmt = select(Workspace.id, Workspace.name).where(
+                Workspace.organization_id.in_(org_admin_ids)
             )
-        else:
-            stmt = (
+            admin_result = await session.execute(admin_stmt)
+            for row in admin_result.all():
+                workspace_map[row.id] = row.name
+
+        # For other orgs, list only direct workspace memberships.
+        member_org_ids = org_ids - org_admin_ids
+        if member_org_ids:
+            member_stmt = (
                 select(Workspace.id, Workspace.name)
                 .join(Membership, Membership.workspace_id == Workspace.id)
-                .where(Membership.user_id == user.id)
+                .where(
+                    Membership.user_id == user.id,
+                    Workspace.organization_id.in_(member_org_ids),
+                )
             )
+            member_result = await session.execute(member_stmt)
+            for row in member_result.all():
+                workspace_map[row.id] = row.name
 
-        if organization_id is not None:
-            stmt = stmt.where(Workspace.organization_id == organization_id)
-
-        stmt = stmt.order_by(Workspace.name.asc(), Workspace.id.asc())
-        result = await session.execute(stmt)
-        return [{"id": str(row.id), "name": row.name} for row in result.all()]
+        ordered = sorted(
+            workspace_map.items(), key=lambda item: (item[1], str(item[0]))
+        )
+        return [
+            {"id": str(workspace_id), "name": name} for workspace_id, name in ordered
+        ]
 
 
 async def resolve_role_for_request(workspace_id: WorkspaceID) -> Role:
