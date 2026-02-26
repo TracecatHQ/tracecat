@@ -1,7 +1,10 @@
-import pytest
-from litellm.proxy._types import ProxyException
+from typing import cast
 
-from tracecat.agent.gateway import _inject_provider_credentials
+import pytest
+from litellm.caching.dual_cache import DualCache
+from litellm.proxy._types import ProxyException, UserAPIKeyAuth
+
+from tracecat.agent.gateway import TracecatCallbackHandler, _inject_provider_credentials
 
 
 def test_gemini_injects_api_key_and_prefixes_model():
@@ -21,6 +24,32 @@ def test_gemini_does_not_double_prefix_model():
     _inject_provider_credentials(data, "gemini", creds)
 
     assert data["model"] == "gemini/gemini-3-flash-preview"
+
+
+def test_openai_injects_optional_base_url():
+    data = {"model": "gpt-5"}
+    creds = {
+        "OPENAI_API_KEY": "test-openai-key",
+        "OPENAI_BASE_URL": "https://api.openai.eu/v1",
+    }
+
+    _inject_provider_credentials(data, "openai", creds)
+
+    assert data["api_key"] == "test-openai-key"
+    assert data["api_base"] == "https://api.openai.eu/v1"
+
+
+def test_anthropic_injects_optional_base_url():
+    data = {"model": "claude-sonnet-4-5-20250929"}
+    creds = {
+        "ANTHROPIC_API_KEY": "test-anthropic-key",
+        "ANTHROPIC_BASE_URL": "https://api.eu-west-1.anthropic.com",
+    }
+
+    _inject_provider_credentials(data, "anthropic", creds)
+
+    assert data["api_key"] == "test-anthropic-key"
+    assert data["api_base"] == "https://api.eu-west-1.anthropic.com"
 
 
 def test_vertex_ai_injects_project_credentials_and_model():
@@ -105,3 +134,84 @@ def test_bedrock_rejects_session_token_without_static_keys():
 
     with pytest.raises(ProxyException):
         _inject_provider_credentials(data, "bedrock", creds)
+
+
+@pytest.mark.anyio
+async def test_pre_call_hook_uses_preset_base_url_over_openai_credential_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+        return {
+            "OPENAI_API_KEY": "test-openai-key",
+            "OPENAI_BASE_URL": "https://creds.openai.example/v1",
+        }
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+
+    user_api_key_dict = UserAPIKeyAuth(
+        api_key="llm-token",
+        metadata={
+            "workspace_id": "00000000-0000-0000-0000-000000000001",
+            "organization_id": "00000000-0000-0000-0000-000000000002",
+            "model": "gpt-5",
+            "provider": "openai",
+            "base_url": "https://preset.openai.example/v1",
+            "model_settings": {},
+            "use_workspace_credentials": True,
+        },
+    )
+
+    handler = TracecatCallbackHandler()
+    result = await handler.async_pre_call_hook(
+        user_api_key_dict=user_api_key_dict,
+        cache=cast(DualCache, object()),
+        data={},
+        call_type="completion",
+    )
+
+    assert result["api_key"] == "test-openai-key"
+    assert result["api_base"] == "https://preset.openai.example/v1"
+
+
+@pytest.mark.anyio
+async def test_pre_call_hook_uses_preset_base_url_over_custom_provider_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+        return {
+            "CUSTOM_MODEL_PROVIDER_API_KEY": "test-custom-key",
+            "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://creds.custom.example/v1",
+            "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "qwen2.5-coder",
+        }
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+
+    user_api_key_dict = UserAPIKeyAuth(
+        api_key="llm-token",
+        metadata={
+            "workspace_id": "00000000-0000-0000-0000-000000000001",
+            "organization_id": "00000000-0000-0000-0000-000000000002",
+            "model": "custom",
+            "provider": "custom-model-provider",
+            "base_url": "https://preset.custom.example/v1",
+            "model_settings": {},
+            "use_workspace_credentials": True,
+        },
+    )
+
+    handler = TracecatCallbackHandler()
+    result = await handler.async_pre_call_hook(
+        user_api_key_dict=user_api_key_dict,
+        cache=cast(DualCache, object()),
+        data={},
+        call_type="completion",
+    )
+
+    assert result["api_key"] == "test-custom-key"
+    assert result["api_base"] == "https://preset.custom.example/v1"
