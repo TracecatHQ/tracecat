@@ -431,6 +431,325 @@ class TestScopeValidation:
 
         assert dsl is not None
 
+    def test_loop_end_condition_rejects_sibling_scatter_scope_reference(self):
+        """Loop end condition cannot read from a sibling scatter branch."""
+        with pytest.raises(
+            TracecatDSLError,
+            match="condition refs must be in loop scope",
+        ):
+            DSLInput(
+                title="Loop end rejects sibling scatter ref",
+                description="Loop condition cannot read sibling scatter action",
+                entrypoint=DSLEntrypoint(),
+                actions=[
+                    ActionStatement(
+                        ref="seed",
+                        action="core.transform.reshape",
+                        args={"value": [1, 2]},
+                    ),
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        depends_on=["seed"],
+                        args={"collection": "${{ ACTIONS.seed.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="per_item",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["per_item"],
+                        args={"items": "${{ ACTIONS.per_item.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="loop_start",
+                        action="core.loop.start",
+                        depends_on=["seed"],
+                    ),
+                    ActionStatement(
+                        ref="loop_body",
+                        action="core.transform.reshape",
+                        depends_on=["loop_start"],
+                        args={"value": "${{ ACTIONS.loop_start.result.iteration }}"},
+                    ),
+                    ActionStatement(
+                        ref="loop_end",
+                        action="core.loop.end",
+                        depends_on=["loop_body"],
+                        args={"condition": "${{ ACTIONS.per_item.result > 0 }}"},
+                    ),
+                ],
+            )
+
+    def test_loop_end_condition_allows_same_loop_scope_reference(self):
+        """Loop end condition can read actions in the closed loop scope."""
+        dsl = DSLInput(
+            title="Loop end allows loop scope ref",
+            description="Loop condition reads loop-body action",
+            entrypoint=DSLEntrypoint(),
+            actions=[
+                ActionStatement(
+                    ref="seed",
+                    action="core.transform.reshape",
+                    args={"value": 1},
+                ),
+                ActionStatement(
+                    ref="loop_start",
+                    action="core.loop.start",
+                    depends_on=["seed"],
+                ),
+                ActionStatement(
+                    ref="loop_body",
+                    action="core.transform.reshape",
+                    depends_on=["loop_start"],
+                    args={"value": "${{ ACTIONS.loop_start.result.iteration }}"},
+                ),
+                ActionStatement(
+                    ref="loop_end",
+                    action="core.loop.end",
+                    depends_on=["loop_body"],
+                    args={"condition": "${{ ACTIONS.loop_body.result >= 0 }}"},
+                ),
+            ],
+        )
+
+        assert dsl is not None
+
+    def test_loop_end_condition_rejects_nested_scatter_item_reference(self):
+        """Loop end condition cannot read per-item action in nested scatter scope."""
+        with pytest.raises(
+            TracecatDSLError,
+            match="condition refs must be in loop scope",
+        ):
+            DSLInput(
+                title="Loop end rejects nested scatter item ref",
+                description="Loop condition cannot read nested per-item action",
+                entrypoint=DSLEntrypoint(),
+                actions=[
+                    ActionStatement(
+                        ref="seed",
+                        action="core.transform.reshape",
+                        args={"value": [1, 2]},
+                    ),
+                    ActionStatement(
+                        ref="loop_start",
+                        action="core.loop.start",
+                        depends_on=["seed"],
+                    ),
+                    ActionStatement(
+                        ref="items",
+                        action="core.transform.reshape",
+                        depends_on=["loop_start"],
+                        args={"value": "${{ ACTIONS.seed.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        depends_on=["items"],
+                        args={"collection": "${{ ACTIONS.items.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="per_item",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["per_item"],
+                        args={"items": "${{ ACTIONS.per_item.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="loop_end",
+                        action="core.loop.end",
+                        depends_on=["gather"],
+                        args={"condition": "${{ ACTIONS.per_item.result > 0 }}"},
+                    ),
+                ],
+            )
+
+    def test_loop_end_condition_allows_loop_scope_gather_reference(self):
+        """Loop end condition can read synchronized gather output in loop scope."""
+        dsl = DSLInput(
+            title="Loop end allows loop-scope gather ref",
+            description="Loop condition reads gather output in loop scope",
+            entrypoint=DSLEntrypoint(),
+            actions=[
+                ActionStatement(
+                    ref="seed",
+                    action="core.transform.reshape",
+                    args={"value": [1, 2]},
+                ),
+                ActionStatement(
+                    ref="loop_start",
+                    action="core.loop.start",
+                    depends_on=["seed"],
+                ),
+                ActionStatement(
+                    ref="items",
+                    action="core.transform.reshape",
+                    depends_on=["loop_start"],
+                    args={"value": "${{ ACTIONS.seed.result }}"},
+                ),
+                ActionStatement(
+                    ref="scatter",
+                    action="core.transform.scatter",
+                    depends_on=["items"],
+                    args={"collection": "${{ ACTIONS.items.result }}"},
+                ),
+                ActionStatement(
+                    ref="per_item",
+                    action="core.transform.reshape",
+                    depends_on=["scatter"],
+                    args={"value": "${{ ACTIONS.scatter.result }}"},
+                ),
+                ActionStatement(
+                    ref="gather",
+                    action="core.transform.gather",
+                    depends_on=["per_item"],
+                    args={"items": "${{ ACTIONS.per_item.result }}"},
+                ),
+                ActionStatement(
+                    ref="loop_end",
+                    action="core.loop.end",
+                    depends_on=["gather"],
+                    args={"condition": "${{ ACTIONS.gather.result != None }}"},
+                ),
+            ],
+        )
+
+        assert dsl is not None
+
+    def test_loop_end_condition_rejects_ancestor_scope_reference(self):
+        """Loop end condition cannot read from an ancestor/root action."""
+        with pytest.raises(
+            TracecatDSLError,
+            match="condition refs must be in loop scope",
+        ):
+            DSLInput(
+                title="Loop end rejects root scope ref",
+                description="Loop condition cannot read root action",
+                entrypoint=DSLEntrypoint(),
+                actions=[
+                    ActionStatement(
+                        ref="seed",
+                        action="core.transform.reshape",
+                        args={"value": 1},
+                    ),
+                    ActionStatement(
+                        ref="loop_start",
+                        action="core.loop.start",
+                        depends_on=["seed"],
+                    ),
+                    ActionStatement(
+                        ref="loop_body",
+                        action="core.transform.reshape",
+                        depends_on=["loop_start"],
+                        args={"value": "${{ ACTIONS.loop_start.result.iteration }}"},
+                    ),
+                    ActionStatement(
+                        ref="loop_end",
+                        action="core.loop.end",
+                        depends_on=["loop_body"],
+                        args={"condition": "${{ ACTIONS.seed.result > 0 }}"},
+                    ),
+                ],
+            )
+
+    def test_outer_loop_end_condition_rejects_inner_loop_reference(self):
+        """Outer loop condition cannot read inner-loop action output."""
+        with pytest.raises(
+            TracecatDSLError,
+            match="condition refs must be in loop scope",
+        ):
+            DSLInput(
+                title="Outer loop rejects inner loop ref",
+                description="Outer loop condition cannot read inner body action",
+                entrypoint=DSLEntrypoint(),
+                actions=[
+                    ActionStatement(
+                        ref="seed",
+                        action="core.transform.reshape",
+                        args={"value": 1},
+                    ),
+                    ActionStatement(
+                        ref="outer_start",
+                        action="core.loop.start",
+                        depends_on=["seed"],
+                    ),
+                    ActionStatement(
+                        ref="inner_start",
+                        action="core.loop.start",
+                        depends_on=["outer_start"],
+                    ),
+                    ActionStatement(
+                        ref="inner_body",
+                        action="core.transform.reshape",
+                        depends_on=["inner_start"],
+                        args={"value": "${{ ACTIONS.inner_start.result.iteration }}"},
+                    ),
+                    ActionStatement(
+                        ref="inner_end",
+                        action="core.loop.end",
+                        depends_on=["inner_body"],
+                        args={"condition": "${{ False }}"},
+                    ),
+                    ActionStatement(
+                        ref="outer_body",
+                        action="core.transform.reshape",
+                        depends_on=["inner_end"],
+                        args={"value": "${{ ACTIONS.inner_end.result.continue }}"},
+                    ),
+                    ActionStatement(
+                        ref="outer_end",
+                        action="core.loop.end",
+                        depends_on=["outer_body"],
+                        args={"condition": "${{ ACTIONS.inner_body.result > 0 }}"},
+                    ),
+                ],
+            )
+
+    def test_loop_end_requires_single_dependency_scope(self):
+        """Loop end must not depend on multiple distinct dependency scopes."""
+        with pytest.raises(
+            TracecatDSLError,
+            match="must depend on actions from exactly one loop scope",
+        ):
+            DSLInput(
+                title="Loop end multiple dep scopes invalid",
+                description="Loop end cannot close from multiple scopes",
+                entrypoint=DSLEntrypoint(),
+                actions=[
+                    ActionStatement(
+                        ref="seed",
+                        action="core.transform.reshape",
+                        args={"value": 1},
+                    ),
+                    ActionStatement(
+                        ref="loop_start",
+                        action="core.loop.start",
+                        depends_on=["seed"],
+                    ),
+                    ActionStatement(
+                        ref="loop_body",
+                        action="core.transform.reshape",
+                        depends_on=["loop_start"],
+                        args={"value": "${{ ACTIONS.loop_start.result.iteration }}"},
+                    ),
+                    ActionStatement(
+                        ref="loop_end",
+                        action="core.loop.end",
+                        depends_on=["loop_body", "seed"],
+                        args={"condition": "${{ False }}"},
+                    ),
+                ],
+            )
+
     def test_outer_scope_can_reference_loop_descendant_expression(self):
         """Test parent scope can reference loop-body expression after loop closes."""
         dsl = DSLInput(

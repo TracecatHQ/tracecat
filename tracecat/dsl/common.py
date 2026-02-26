@@ -280,6 +280,25 @@ class DSLInput(BaseModel):
         scope_openers: dict[str, str],
     ) -> None:
         """Validate that actions don't reference actions in inner scopes."""
+        # Pre-compute loop-end closure metadata once so downstream checks can be
+        # strict and O(1) per reference.
+        loop_end_scope_by_ref: dict[str, str] = {}
+        loop_end_condition_refs_by_ref: dict[str, set[str]] = {}
+        for action in self.actions:
+            if action.action != PlatformAction.LOOP_END:
+                continue
+            loop_end_scope_by_ref[action.ref] = self._resolve_closed_loop_scope(
+                loop_end_stmt=action,
+                action_scopes=action_scopes,
+                scope_hierarchy=scope_hierarchy,
+                scope_openers=scope_openers,
+            )
+            condition_value = action.args.get("condition")
+            condition_expr_ctxs = extract_expressions({"condition": condition_value})
+            loop_end_condition_refs_by_ref[action.ref] = set(
+                condition_expr_ctxs[ExprContext.ACTIONS]
+            )
+
         for action in self.actions:
             # Logic:
             # Scatter - must depend on an action in a parent scope
@@ -304,6 +323,15 @@ class DSLInput(BaseModel):
                                 f" '{dep}', which isn't the parent scope"
                             )
                         raise TracecatDSLError(msg)
+                elif action.action == PlatformAction.LOOP_END:
+                    # loop_end must only depend on actions from the loop scope
+                    # it closes; otherwise it can accidentally close a sibling scope.
+                    closed_loop_scope = loop_end_scope_by_ref[action.ref]
+                    if dep_scope != closed_loop_scope:
+                        raise TracecatDSLError(
+                            f"Loop end action '{action.ref}' has an edge from '{dep}', "
+                            f"which isn't the closed loop scope '{closed_loop_scope}'"
+                        )
                 elif action.action in SCOPE_CLOSER_ACTIONS:
                     # Here, action_scope is the parent scope
                     if action_scope != scope_hierarchy[dep_scope]:
@@ -351,6 +379,34 @@ class DSLInput(BaseModel):
                                     f"that references '{dep}', which isn't the parent scope"
                                 )
                             raise TracecatDSLError(msg)
+                    elif action.action == PlatformAction.LOOP_END:
+                        closed_loop_scope = loop_end_scope_by_ref[action.ref]
+                        condition_refs = loop_end_condition_refs_by_ref[action.ref]
+                        # Enforce strict scope rules only for loop-end condition refs.
+                        # This is the decision point that controls iteration continuation.
+                        if key == "args" and dep in condition_refs:
+                            if dep_scope != closed_loop_scope:
+                                raise TracecatDSLError(
+                                    f"Loop end action '{action.ref}' has an expression "
+                                    f"in field '{key2loc(key)}.condition' that "
+                                    f"references '{dep}', but condition refs must be "
+                                    f"in loop scope '{closed_loop_scope}'."
+                                )
+                        # Keep existing closer semantics for non-condition expression refs.
+                        if action_scope != scope_hierarchy[dep_scope]:
+                            opener = scope_openers.get(dep_scope)
+                            if (
+                                action.action in CLOSER_TO_OPENER_ACTION
+                                and opener != CLOSER_TO_OPENER_ACTION[action.action]
+                            ):
+                                raise TracecatDSLError(
+                                    f"Action '{action.ref}' closes the wrong scope type for expression dependency '{dep}'"
+                                )
+                            msg = (
+                                f"Loop end action '{action.ref}' has an expression in field '{key2loc(key)}' "
+                                f"that references '{dep}', which isn't the child scope"
+                            )
+                            raise TracecatDSLError(msg)
                     elif action.action in SCOPE_CLOSER_ACTIONS:
                         # Here, action_scope is the parent scope
                         if action_scope != scope_hierarchy[dep_scope]:
@@ -390,6 +446,47 @@ class DSLInput(BaseModel):
                             raise TracecatDSLError(
                                 f"Action '{action.ref}' has an expression in field '{key2loc(key)}' that references '{dep}' which cannot be referenced from this scope"
                             )
+
+    def _resolve_closed_loop_scope(
+        self,
+        *,
+        loop_end_stmt: ActionStatement,
+        action_scopes: dict[str, str],
+        scope_hierarchy: dict[str, str | None],
+        scope_openers: dict[str, str],
+    ) -> str:
+        """Resolve and validate the loop scope closed by a `core.loop.end` action.
+
+        A valid `core.loop.end` must:
+        - depend on actions from exactly one scope
+        - close a direct child scope of its own scope
+        - close a scope opened by `core.loop.start`
+        """
+        action_scope = action_scopes[loop_end_stmt.ref]
+        # Convert depends_on refs into scopes and validate the closer targets a
+        # single region.
+        dep_scopes = {
+            action_scopes[edge_components_from_dep(dep_ref)[0]]
+            for dep_ref in loop_end_stmt.depends_on
+        }
+        if len(dep_scopes) != 1:
+            raise TracecatDSLError(
+                f"Loop end action '{loop_end_stmt.ref}' must depend on actions "
+                "from exactly one loop scope"
+            )
+
+        loop_scope = next(iter(dep_scopes))
+        # A closer in parent scope can only close one of its direct children.
+        if scope_hierarchy.get(loop_scope) != action_scope:
+            raise TracecatDSLError(
+                f"Loop end action '{loop_end_stmt.ref}' must depend on actions "
+                "from its child loop scope"
+            )
+        if scope_openers.get(loop_scope) != PlatformAction.LOOP_START:
+            raise TracecatDSLError(
+                f"Loop end action '{loop_end_stmt.ref}' must close a loop.start scope"
+            )
+        return loop_scope
 
     def _validate_loop_scope_synchronization(
         self,
@@ -435,19 +532,12 @@ class DSLInput(BaseModel):
         for stmt in self.actions:
             if stmt.action != PlatformAction.LOOP_END:
                 continue
-            dep_scopes = {
-                action_scopes[edge_components_from_dep(dep_ref)[0]]
-                for dep_ref in stmt.depends_on
-            }
-            if len(dep_scopes) != 1:
-                raise TracecatDSLError(
-                    f"Loop end action '{stmt.ref}' must depend on actions from exactly one loop scope"
-                )
-            loop_scope = next(iter(dep_scopes))
-            if scope_openers.get(loop_scope) != PlatformAction.LOOP_START:
-                raise TracecatDSLError(
-                    f"Loop end action '{stmt.ref}' must close a loop.start scope"
-                )
+            loop_scope = self._resolve_closed_loop_scope(
+                loop_end_stmt=stmt,
+                action_scopes=action_scopes,
+                scope_hierarchy=scope_hierarchy,
+                scope_openers=scope_openers,
+            )
             if existing := loop_end_by_scope.get(loop_scope):
                 raise TracecatDSLError(
                     f"Loop start action '{loop_scope}' has multiple loop end actions: "
