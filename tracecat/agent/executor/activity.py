@@ -164,7 +164,6 @@ class SandboxedAgentExecutor:
                 sdk_session_data=self.input.sdk_session_data,
                 is_approval_continuation=self.input.is_approval_continuation,
                 is_fork=self.input.is_fork,
-                mcp_command_servers=self.input.config.mcp_command_servers,
             )
             handler = LoopbackHandler(input=loopback_input)
 

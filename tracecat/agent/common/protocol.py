@@ -13,11 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
-from tracecat.agent.common.types import (
-    MCPCommandServerConfig,
-    MCPToolDefinition,
-    SandboxAgentConfig,
-)
+from tracecat.agent.common.types import MCPToolDefinition, SandboxAgentConfig
 
 
 @dataclass(kw_only=True, slots=True)
@@ -49,8 +45,6 @@ class RuntimeInitPayload:
     sdk_session_data: str | None = None  # JSONL content for resume
     is_approval_continuation: bool = False  # True when resuming after approval decision
     is_fork: bool = False
-    # Command-based MCP servers (stdio) - run as subprocesses inside the sandbox
-    mcp_command_servers: list[MCPCommandServerConfig] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RuntimeInitPayload:
@@ -83,7 +77,6 @@ class RuntimeInitPayload:
             sdk_session_data=data.get("sdk_session_data"),
             is_approval_continuation=data.get("is_approval_continuation", False),
             is_fork=data.get("is_fork", False),
-            mcp_command_servers=data.get("mcp_command_servers"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -106,8 +99,6 @@ class RuntimeInitPayload:
             result["sdk_session_id"] = self.sdk_session_id
         if self.sdk_session_data is not None:
             result["sdk_session_data"] = self.sdk_session_data
-        if self.mcp_command_servers is not None:
-            result["mcp_command_servers"] = self.mcp_command_servers
         return result
 
 

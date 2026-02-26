@@ -9,7 +9,6 @@ from typing import Any, cast
 from fastapi import APIRouter, HTTPException, status
 from tracecat_registry import secrets as registry_secrets
 
-from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.exceptions import AgentRunError
 from tracecat.agent.runtime.pydantic_ai.runtime import run_agent as runtime_run_agent
 from tracecat.agent.schemas import (
@@ -120,9 +119,7 @@ async def run_agent_endpoint(
     try:
         agent_svc = AgentManagementService(session, role=role)
         config = await _resolve_run_config(params, agent_svc)
-        mcp_servers: list[MCPServerConfig] | None = None
-        if config.mcp_servers:
-            mcp_servers = [MCPServerConfig(**s) for s in config.mcp_servers]
+        mcp_servers = config.mcp_servers
 
         if config and config.tool_approvals:
             await check_entitlement(session, role, Entitlement.AGENT_ADDONS)

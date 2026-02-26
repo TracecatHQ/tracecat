@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, TypeGuard
 
 from pydantic_ai import Agent, ModelSettings
 from pydantic_ai.agent import AbstractAgent
@@ -9,6 +9,7 @@ from pydantic_ai.mcp import MCPServerStreamableHTTP
 from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai.tools import Tool as PATool
 
+from tracecat.agent.common.types import MCPServerConfig, MCPUrlServerConfig
 from tracecat.agent.parsers import parse_output_type
 from tracecat.agent.prompts import ToolCallPrompt, VerbosityPrompt
 from tracecat.agent.providers import get_model
@@ -17,6 +18,10 @@ from tracecat.agent.tools import build_agent_tools
 from tracecat.agent.types import AgentConfig
 
 type AgentFactory = Callable[[AgentConfig], Awaitable[AbstractAgent[Any, Any]]]
+
+
+def _is_url_server(config: MCPServerConfig) -> TypeGuard[MCPUrlServerConfig]:
+    return config["type"] == "url"
 
 
 async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
@@ -56,12 +61,15 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
 
     toolsets = None
     if config.mcp_servers:
+        url_servers = [
+            server for server in config.mcp_servers if _is_url_server(server)
+        ]
         toolsets = [
             MCPServerStreamableHTTP(
                 url=server["url"],
                 headers=server.get("headers", {}),
             )
-            for server in config.mcp_servers
+            for server in url_servers
         ]
 
     output_type_for_agent: type[Any] | list[type[Any]]

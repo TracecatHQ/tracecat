@@ -14,7 +14,7 @@ from typing import Any, Literal
 from fastmcp import Client
 from fastmcp.client.transports import SSETransport, StreamableHttpTransport
 
-from tracecat.agent.common.types import MCPServerConfig, MCPToolDefinition
+from tracecat.agent.common.types import MCPToolDefinition, MCPUrlServerConfig
 from tracecat.logger import logger
 
 
@@ -41,7 +41,7 @@ class UserMCPClient:
     full network access to reach user-provided endpoints.
     """
 
-    def __init__(self, configs: list[MCPServerConfig]):
+    def __init__(self, configs: list[MCPUrlServerConfig]):
         """Initialize with user MCP server configurations.
 
         Args:
@@ -84,7 +84,7 @@ class UserMCPClient:
     async def _discover_server_tools(
         self,
         server_name: str,
-        config: MCPServerConfig,
+        config: MCPUrlServerConfig,
     ) -> dict[str, MCPToolDefinition]:
         """Discover tools from a single MCP server.
 
@@ -205,7 +205,7 @@ class UserMCPClient:
 
 
 async def discover_user_mcp_tools(
-    configs: list[MCPServerConfig],
+    configs: list[MCPUrlServerConfig],
 ) -> dict[str, MCPToolDefinition]:
     """Discover tools from all configured user MCP servers.
 
@@ -226,7 +226,7 @@ async def discover_user_mcp_tools(
 
 
 async def call_user_mcp_tool(
-    configs: list[MCPServerConfig],
+    configs: list[MCPUrlServerConfig],
     server_name: str,
     tool_name: str,
     args: dict[str, Any],
