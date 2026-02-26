@@ -57,7 +57,7 @@ WORKSPACE_SCOPED_TABLES = [
     "case_duration",
     "case_trigger",
     "case_dropdown_definition",
-    "tag",
+    "workflow_tag",
     "interaction",
     "approval",
     "agent_session",
