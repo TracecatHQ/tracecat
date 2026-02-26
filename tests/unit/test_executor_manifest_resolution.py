@@ -126,6 +126,10 @@ async def test_prepare_resolved_context_uses_manifest_for_locked_workflows(
         "tracecat.executor.registry_resolver.get_async_session_context_manager",
         _session_cm,
     )
+    mocker.patch(
+        "tracecat.executor.registry_resolver.get_async_session_bypass_rls_context_manager",
+        _session_cm,
+    )
 
     prepared = await prepare_resolved_context(input=input, role=test_role)
     assert prepared.resolved_context.action_impl.type == "udf"
@@ -202,6 +206,10 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
     )
     mocker.patch(
         "tracecat.executor.registry_resolver.get_async_session_context_manager",
+        _session_cm,
+    )
+    mocker.patch(
+        "tracecat.executor.registry_resolver.get_async_session_bypass_rls_context_manager",
         _session_cm,
     )
 
