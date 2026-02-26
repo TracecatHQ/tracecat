@@ -1,6 +1,6 @@
 """Tracecat managed actions and integrations registry."""
 
-__version__ = "1.0.0-beta.20"
+__version__ = "1.0.0-beta.21"
 
 
 from tracecat_registry import types
