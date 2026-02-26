@@ -102,6 +102,52 @@ async def test_role_dependency_rebinds_rls_context_on_session():
 
 
 @pytest.mark.anyio
+async def test_role_dependency_preserves_auth_exception_when_cleanup_fails():
+    """Cleanup errors must not mask the original auth exception."""
+    workspace_id = uuid.uuid4()
+    request = MagicMock(spec=Request)
+    request.state = MagicMock()
+    request.state.auth_cache = None
+    session = AsyncMock()
+    user = MagicMock(spec=User)
+
+    original_exc = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="auth failure",
+    )
+
+    with (
+        patch(
+            "tracecat.auth.credentials.set_rls_context",
+            new=AsyncMock(),
+        ),
+        patch(
+            "tracecat.auth.credentials._authenticate_user",
+            new=AsyncMock(side_effect=original_exc),
+        ),
+        patch(
+            "tracecat.auth.credentials.set_rls_context_from_role",
+            new=AsyncMock(side_effect=RuntimeError("cleanup failed")),
+        ) as mock_cleanup,
+    ):
+        with pytest.raises(HTTPException) as excinfo:
+            await _role_dependency(
+                request=request,
+                session=session,
+                workspace_id=workspace_id,
+                user=user,
+                api_key=None,
+                allow_user=True,
+                allow_service=False,
+                allow_executor=False,
+                require_workspace="yes",
+            )
+
+    assert excinfo.value is original_exc
+    mock_cleanup.assert_awaited_once_with(session, None)
+
+
+@pytest.mark.anyio
 async def test_auth_cache_middleware_initializes_cache():
     """Test that the middleware properly initializes the auth cache."""
     request = MagicMock(spec=Request)
