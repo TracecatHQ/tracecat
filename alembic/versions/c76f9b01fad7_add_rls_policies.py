@@ -19,6 +19,13 @@ RLS is controlled by PostgreSQL session variables:
 
 Bypass mechanism:
 - Setting app.rls_bypass='on' bypasses tenant filters for privileged operations
+
+Rollout note (intentional):
+- This migration enables RLS but does not force it.
+- Phase 1 relies on application-controlled rollout via TRACECAT__RLS_MODE
+  (off|shadow|enforce) and explicit bypass paths.
+- FORCE ROW LEVEL SECURITY is deferred to a later phase once deployments are
+  ready to run with stricter runtime role separation.
 """
 
 from collections.abc import Sequence
@@ -102,6 +109,8 @@ ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = [
 
 def _enable_rls_workspace_table(table: str) -> str:
     """Generate SQL to enable RLS on a workspace-scoped table."""
+    # Intentionally ENABLE without FORCE for phase-1 rollout.
+    # Enforcement is gated by TRACECAT__RLS_MODE and session context.
     return f"""
         ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY;
 
