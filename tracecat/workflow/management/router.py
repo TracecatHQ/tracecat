@@ -1,4 +1,5 @@
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Literal, cast
 
@@ -71,9 +72,13 @@ from tracecat.workflow.management.schemas import (
     WorkflowMoveToFolder,
     WorkflowRead,
     WorkflowReadMinimal,
+    WorkflowTriggerSummary,
     WorkflowUpdate,
 )
-from tracecat.workflow.management.types import WorkflowDefinitionMinimal
+from tracecat.workflow.management.types import (
+    WorkflowDefinitionMinimal,
+    WorkflowTriggerSummaryMinimal,
+)
 from tracecat.workflow.management.utils import build_trigger_inputs_schema
 from tracecat.workflow.schedules.schemas import ScheduleRead
 
@@ -151,16 +156,33 @@ async def validate_workflow_entrypoint(
 
 
 def wfs_and_defns_to_response(
-    wfs_and_defns: list[tuple[Workflow, WorkflowDefinitionMinimal | None]],
+    wfs_and_defns: Sequence[
+        tuple[Workflow, WorkflowDefinitionMinimal | None]
+        | tuple[
+            Workflow,
+            WorkflowDefinitionMinimal | None,
+            WorkflowTriggerSummaryMinimal | None,
+        ]
+    ],
 ) -> list[WorkflowReadMinimal]:
     res = []
-    for workflow, defn in wfs_and_defns:
+    for row in wfs_and_defns:
+        if len(row) == 3:
+            workflow, defn, trigger_summary = row
+        else:
+            workflow, defn = row
+            trigger_summary = None
         tags = [
             TagRead.model_validate(tag, from_attributes=True) for tag in workflow.tags
         ]
         latest_defn = (
             WorkflowDefinitionReadMinimal.model_validate(defn, from_attributes=True)
             if defn
+            else None
+        )
+        trigger_summary_read = (
+            WorkflowTriggerSummary.model_validate(trigger_summary, from_attributes=True)
+            if trigger_summary
             else None
         )
         res.append(
@@ -178,6 +200,7 @@ def wfs_and_defns_to_response(
                 error_handler=workflow.error_handler,
                 latest_definition=latest_defn,
                 folder_id=workflow.folder_id,
+                trigger_summary=trigger_summary_read,
             )
         )
     return res

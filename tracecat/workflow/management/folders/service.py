@@ -9,7 +9,14 @@ from sqlalchemy import and_, cast, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import Workflow, WorkflowDefinition, WorkflowFolder
+from tracecat.db.models import (
+    CaseTrigger,
+    Schedule,
+    Webhook,
+    Workflow,
+    WorkflowDefinition,
+    WorkflowFolder,
+)
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -20,7 +27,11 @@ from tracecat.workflow.management.folders.schemas import (
     FolderDirectoryItem,
     WorkflowDirectoryItem,
 )
-from tracecat.workflow.management.schemas import WorkflowDefinitionReadMinimal
+from tracecat.workflow.management.schemas import (
+    WorkflowDefinitionReadMinimal,
+    WorkflowTriggerSummary,
+)
+from tracecat.workflow.management.types import build_workflow_trigger_summary
 
 
 class WorkflowFolderService(BaseWorkspaceService):
@@ -479,6 +490,48 @@ class WorkflowFolderService(BaseWorkspaceService):
             .group_by(cast(WorkflowDefinition.workflow_id, sa.UUID))
             .subquery()
         )
+
+        schedule_count_subq = (
+            select(
+                Schedule.workflow_id.label("workflow_id"),
+                sa.func.count(Schedule.id).label("online_schedule_count"),
+            )
+            .where(Schedule.status == "online")
+            .group_by(Schedule.workflow_id)
+            .subquery()
+        )
+        ranked_schedule_subq = (
+            select(
+                Schedule.workflow_id.label("workflow_id"),
+                Schedule.cron.label("schedule_cron"),
+                Schedule.every.label("schedule_every"),
+                sa.func.row_number()
+                .over(
+                    partition_by=Schedule.workflow_id,
+                    order_by=(Schedule.updated_at.desc(), Schedule.id.desc()),
+                )
+                .label("row_num"),
+            )
+            .where(Schedule.status == "online")
+            .subquery()
+        )
+        schedule_preview_subq = (
+            select(
+                ranked_schedule_subq.c.workflow_id,
+                ranked_schedule_subq.c.schedule_cron,
+                ranked_schedule_subq.c.schedule_every,
+            )
+            .where(ranked_schedule_subq.c.row_num == 1)
+            .subquery()
+        )
+        webhook_summary_subq = (
+            select(
+                Webhook.workflow_id.label("workflow_id"),
+                sa.func.bool_or(Webhook.status == "online").label("webhook_active"),
+            )
+            .group_by(Webhook.workflow_id)
+            .subquery()
+        )
         if path != "/":
             folder = await self.get_folder_by_path(path)
             if not folder:
@@ -493,6 +546,11 @@ class WorkflowFolderService(BaseWorkspaceService):
                 WorkflowDefinition.id,
                 WorkflowDefinition.version,
                 WorkflowDefinition.created_at,
+                webhook_summary_subq.c.webhook_active,
+                CaseTrigger.event_types.label("case_trigger_event_types"),
+                schedule_count_subq.c.online_schedule_count,
+                schedule_preview_subq.c.schedule_cron,
+                schedule_preview_subq.c.schedule_every,
             )
             .where(
                 Workflow.workspace_id == self.workspace_id,
@@ -508,6 +566,22 @@ class WorkflowFolderService(BaseWorkspaceService):
                     WorkflowDefinition.workflow_id == Workflow.id,
                     WorkflowDefinition.version == latest_defn_subq.c.latest_version,
                 ),
+            )
+            .outerjoin(
+                CaseTrigger,
+                cast(Workflow.id, sa.UUID) == CaseTrigger.workflow_id,
+            )
+            .outerjoin(
+                webhook_summary_subq,
+                cast(Workflow.id, sa.UUID) == webhook_summary_subq.c.workflow_id,
+            )
+            .outerjoin(
+                schedule_count_subq,
+                cast(Workflow.id, sa.UUID) == schedule_count_subq.c.workflow_id,
+            )
+            .outerjoin(
+                schedule_preview_subq,
+                cast(Workflow.id, sa.UUID) == schedule_preview_subq.c.workflow_id,
             )
             .order_by(
                 Workflow.created_at.desc()
@@ -564,7 +638,17 @@ class WorkflowFolderService(BaseWorkspaceService):
             )
 
         # Add workflows
-        for workflow, defn_id, defn_version, defn_created in workflows_with_defns:
+        for (
+            workflow,
+            defn_id,
+            defn_version,
+            defn_created,
+            webhook_active,
+            case_trigger_event_types,
+            online_schedule_count,
+            schedule_cron,
+            schedule_every,
+        ) in workflows_with_defns:
             if all((defn_id, defn_version, defn_created)):
                 latest_definition = WorkflowDefinitionReadMinimal(
                     id=defn_id,
@@ -573,6 +657,13 @@ class WorkflowFolderService(BaseWorkspaceService):
                 )
             else:
                 latest_definition = None
+            trigger_summary = build_workflow_trigger_summary(
+                online_schedule_count=online_schedule_count,
+                schedule_cron=schedule_cron,
+                schedule_every=schedule_every,
+                webhook_active=webhook_active,
+                case_trigger_event_types=case_trigger_event_types,
+            )
             directory_items.append(
                 WorkflowDirectoryItem(
                     type="workflow",
@@ -590,6 +681,13 @@ class WorkflowFolderService(BaseWorkspaceService):
                         TagRead.model_validate(tag, from_attributes=True)
                         for tag in workflow.tags
                     ],
+                    trigger_summary=(
+                        WorkflowTriggerSummary.model_validate(
+                            trigger_summary, from_attributes=True
+                        )
+                        if trigger_summary
+                        else None
+                    ),
                 )
             )
 

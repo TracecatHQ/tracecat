@@ -20205,6 +20205,16 @@ export const $WorkflowDirectoryItem = {
       ],
       title: "Folder Id",
     },
+    trigger_summary: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowTriggerSummary",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     type: {
       type: "string",
       const: "workflow",
@@ -21790,6 +21800,16 @@ export const $WorkflowReadMinimal = {
       ],
       title: "Folder Id",
     },
+    trigger_summary: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowTriggerSummary",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
   },
   type: "object",
   required: [
@@ -21871,6 +21891,52 @@ export const $WorkflowTagCreate = {
   type: "object",
   required: ["tag_id"],
   title: "WorkflowTagCreate",
+} as const
+
+export const $WorkflowTriggerSummary = {
+  properties: {
+    schedule_count_online: {
+      type: "integer",
+      title: "Schedule Count Online",
+      default: 0,
+    },
+    schedule_cron: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Schedule Cron",
+    },
+    schedule_natural: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Schedule Natural",
+    },
+    webhook_active: {
+      type: "boolean",
+      title: "Webhook Active",
+      default: false,
+    },
+    case_trigger_events: {
+      items: {
+        $ref: "#/components/schemas/CaseEventType",
+      },
+      type: "array",
+      title: "Case Trigger Events",
+    },
+  },
+  type: "object",
+  title: "WorkflowTriggerSummary",
 } as const
 
 export const $WorkflowUpdate = {

@@ -19,6 +19,7 @@ from tracecat.contexts import ctx_logical_time
 from tracecat.db.models import (
     Action,
     CaseTrigger,
+    Schedule,
     Webhook,
     Workflow,
     WorkflowDefinition,
@@ -65,7 +66,11 @@ from tracecat.workflow.management.schemas import (
     WorkflowDSLCreateResponse,
     WorkflowUpdate,
 )
-from tracecat.workflow.management.types import WorkflowDefinitionMinimal
+from tracecat.workflow.management.types import (
+    WorkflowDefinitionMinimal,
+    WorkflowTriggerSummaryMinimal,
+    build_workflow_trigger_summary,
+)
 from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
@@ -75,17 +80,76 @@ class WorkflowsManagementService(BaseWorkspaceService):
 
     service_name = "workflows"
 
+    @staticmethod
+    def _build_schedule_summary_subqueries() -> tuple[sa.Subquery, sa.Subquery]:
+        """Build schedule summary subqueries for list endpoints."""
+        schedule_count_subq = (
+            select(
+                Schedule.workflow_id.label("workflow_id"),
+                sa.func.count(Schedule.id).label("online_schedule_count"),
+            )
+            .where(Schedule.status == "online")
+            .group_by(Schedule.workflow_id)
+            .subquery()
+        )
+
+        ranked_schedule_subq = (
+            select(
+                Schedule.workflow_id.label("workflow_id"),
+                Schedule.cron.label("schedule_cron"),
+                Schedule.every.label("schedule_every"),
+                sa.func.row_number()
+                .over(
+                    partition_by=Schedule.workflow_id,
+                    order_by=(Schedule.updated_at.desc(), Schedule.id.desc()),
+                )
+                .label("row_num"),
+            )
+            .where(Schedule.status == "online")
+            .subquery()
+        )
+
+        schedule_preview_subq = (
+            select(
+                ranked_schedule_subq.c.workflow_id,
+                ranked_schedule_subq.c.schedule_cron,
+                ranked_schedule_subq.c.schedule_every,
+            )
+            .where(ranked_schedule_subq.c.row_num == 1)
+            .subquery()
+        )
+
+        return schedule_count_subq, schedule_preview_subq
+
+    @staticmethod
+    def _build_webhook_summary_subquery() -> sa.Subquery:
+        """Build webhook summary subquery for list endpoints."""
+        return (
+            select(
+                Webhook.workflow_id.label("workflow_id"),
+                sa.func.bool_or(Webhook.status == "online").label("webhook_active"),
+            )
+            .group_by(Webhook.workflow_id)
+            .subquery()
+        )
+
     async def list_all_workflows(
         self, *, tags: list[str] | None = None, reverse: bool = False
-    ) -> list[tuple[Workflow, WorkflowDefinitionMinimal | None]]:
-        """List workflows with their latest definitions.
+    ) -> list[
+        tuple[
+            Workflow,
+            WorkflowDefinitionMinimal | None,
+            WorkflowTriggerSummaryMinimal | None,
+        ]
+    ]:
+        """List workflows with their latest definitions and trigger summaries.
 
         Args:
             tags: Optional list of tag names to filter workflows by
 
         Returns:
-            list[tuple[Workflow, WorkflowDefinition | None]]: List of tuples containing workflow
-                and its latest definition (or None if no definition exists)
+            List of tuples containing workflow, latest definition metadata,
+            and trigger summary metadata.
         """
         # Subquery to get the latest definition for each workflow
         latest_defn_subq = (
@@ -97,13 +161,23 @@ class WorkflowsManagementService(BaseWorkspaceService):
             .subquery()
         )
 
-        # Main query selecting workflow with left outer join to definitions
+        schedule_count_subq, schedule_preview_subq = (
+            self._build_schedule_summary_subqueries()
+        )
+        webhook_summary_subq = self._build_webhook_summary_subquery()
+
+        # Main query selecting workflow with trigger summary and latest definition
         stmt = (
             select(
                 Workflow,
                 WorkflowDefinition.id,
                 WorkflowDefinition.version,
                 WorkflowDefinition.created_at,
+                webhook_summary_subq.c.webhook_active,
+                CaseTrigger.event_types.label("case_trigger_event_types"),
+                schedule_count_subq.c.online_schedule_count,
+                schedule_preview_subq.c.schedule_cron,
+                schedule_preview_subq.c.schedule_every,
             )
             .where(Workflow.workspace_id == self.workspace_id)
             .outerjoin(
@@ -116,6 +190,22 @@ class WorkflowsManagementService(BaseWorkspaceService):
                     WorkflowDefinition.workflow_id == Workflow.id,
                     WorkflowDefinition.version == latest_defn_subq.c.latest_version,
                 ),
+            )
+            .outerjoin(
+                CaseTrigger,
+                sa.cast(Workflow.id, sa.UUID) == CaseTrigger.workflow_id,
+            )
+            .outerjoin(
+                webhook_summary_subq,
+                sa.cast(Workflow.id, sa.UUID) == webhook_summary_subq.c.workflow_id,
+            )
+            .outerjoin(
+                schedule_count_subq,
+                sa.cast(Workflow.id, sa.UUID) == schedule_count_subq.c.workflow_id,
+            )
+            .outerjoin(
+                schedule_preview_subq,
+                sa.cast(Workflow.id, sa.UUID) == schedule_preview_subq.c.workflow_id,
             )
         )
 
@@ -154,7 +244,17 @@ class WorkflowsManagementService(BaseWorkspaceService):
 
         results = await self.session.execute(stmt)
         res = []
-        for workflow, defn_id, defn_version, defn_created in results.all():
+        for (
+            workflow,
+            defn_id,
+            defn_version,
+            defn_created,
+            webhook_active,
+            case_trigger_event_types,
+            online_schedule_count,
+            schedule_cron,
+            schedule_every,
+        ) in results.all():
             if all((defn_id, defn_version, defn_created)):
                 latest_defn = WorkflowDefinitionMinimal(
                     id=defn_id,
@@ -163,12 +263,25 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 )
             else:
                 latest_defn = None
-            res.append((workflow, latest_defn))
+            trigger_summary = build_workflow_trigger_summary(
+                online_schedule_count=online_schedule_count,
+                schedule_cron=schedule_cron,
+                schedule_every=schedule_every,
+                webhook_active=webhook_active,
+                case_trigger_event_types=case_trigger_event_types,
+            )
+            res.append((workflow, latest_defn, trigger_summary))
         return res
 
     async def list_workflows(
         self, params: CursorPaginationParams, *, tags: list[str] | None = None
-    ) -> CursorPaginatedResponse[tuple[Workflow, WorkflowDefinitionMinimal | None]]:
+    ) -> CursorPaginatedResponse[
+        tuple[
+            Workflow,
+            WorkflowDefinitionMinimal | None,
+            WorkflowTriggerSummaryMinimal | None,
+        ]
+    ]:
         """List workflows with cursor-based pagination.
 
         Args:
@@ -176,7 +289,8 @@ class WorkflowsManagementService(BaseWorkspaceService):
             tags: Optional list of tag names to filter workflows by
 
         Returns:
-            CursorPaginatedResponse containing workflows and their latest definitions
+            CursorPaginatedResponse containing workflow rows with latest definition
+            and trigger summary metadata.
         """
 
         # Subquery to get the latest definition for each workflow
@@ -189,13 +303,23 @@ class WorkflowsManagementService(BaseWorkspaceService):
             .subquery()
         )
 
-        # Main query selecting workflow with left outer join to definitions
+        schedule_count_subq, schedule_preview_subq = (
+            self._build_schedule_summary_subqueries()
+        )
+        webhook_summary_subq = self._build_webhook_summary_subquery()
+
+        # Main query selecting workflow with trigger summary and latest definition
         stmt = (
             select(
                 Workflow,
                 WorkflowDefinition.id,
                 WorkflowDefinition.version,
                 WorkflowDefinition.created_at.label("defn_created_at"),
+                webhook_summary_subq.c.webhook_active,
+                CaseTrigger.event_types.label("case_trigger_event_types"),
+                schedule_count_subq.c.online_schedule_count,
+                schedule_preview_subq.c.schedule_cron,
+                schedule_preview_subq.c.schedule_every,
             )
             .where(Workflow.workspace_id == self.workspace_id)
             .outerjoin(
@@ -208,6 +332,22 @@ class WorkflowsManagementService(BaseWorkspaceService):
                     WorkflowDefinition.workflow_id == Workflow.id,
                     WorkflowDefinition.version == latest_defn_subq.c.latest_version,
                 ),
+            )
+            .outerjoin(
+                CaseTrigger,
+                sa.cast(Workflow.id, sa.UUID) == CaseTrigger.workflow_id,
+            )
+            .outerjoin(
+                webhook_summary_subq,
+                sa.cast(Workflow.id, sa.UUID) == webhook_summary_subq.c.workflow_id,
+            )
+            .outerjoin(
+                schedule_count_subq,
+                sa.cast(Workflow.id, sa.UUID) == schedule_count_subq.c.workflow_id,
+            )
+            .outerjoin(
+                schedule_preview_subq,
+                sa.cast(Workflow.id, sa.UUID) == schedule_preview_subq.c.workflow_id,
             )
         )
 
@@ -300,7 +440,17 @@ class WorkflowsManagementService(BaseWorkspaceService):
 
         # Process results into the expected format
         items = []
-        for workflow, defn_id, defn_version, defn_created in raw_items:
+        for (
+            workflow,
+            defn_id,
+            defn_version,
+            defn_created,
+            webhook_active,
+            case_trigger_event_types,
+            online_schedule_count,
+            schedule_cron,
+            schedule_every,
+        ) in raw_items:
             if all((defn_id, defn_version, defn_created)):
                 latest_defn = WorkflowDefinitionMinimal(
                     id=defn_id,
@@ -309,7 +459,14 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 )
             else:
                 latest_defn = None
-            items.append((workflow, latest_defn))
+            trigger_summary = build_workflow_trigger_summary(
+                online_schedule_count=online_schedule_count,
+                schedule_cron=schedule_cron,
+                schedule_every=schedule_every,
+                webhook_active=webhook_active,
+                case_trigger_event_types=case_trigger_event_types,
+            )
+            items.append((workflow, latest_defn, trigger_summary))
 
         # Generate cursors
         next_cursor = None

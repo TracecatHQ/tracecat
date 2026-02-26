@@ -4,20 +4,28 @@ import { Cross2Icon } from "@radix-ui/react-icons"
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  CalendarClockIcon,
   CalendarIcon,
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock3,
+  FlagTriangleRight,
   FolderIcon,
+  HistoryIcon,
   ListIcon,
   SearchIcon,
   TagIcon,
   TypeIcon,
+  WebhookIcon,
 } from "lucide-react"
 import { type ComponentType, type ReactNode, useMemo, useState } from "react"
-import type { TagRead } from "@/client"
+import type { CaseEventType, TagRead } from "@/client"
+import {
+  CASE_EVENT_SUGGESTIONS,
+  getCaseEventLabel,
+} from "@/components/builder/panel/case-event-suggestions"
 import {
   Command,
   CommandEmpty,
@@ -42,13 +50,28 @@ import {
 import { cn } from "@/lib/utils"
 
 export type WorkflowsViewMode = "list" | "folders"
-export type WorkflowsSortField = "updated_at" | "created_at" | "name"
+export type WorkflowsSortField =
+  | "updated_at"
+  | "created_at"
+  | "name"
+  | "version"
 export type WorkflowsSortDirection = "asc" | "desc"
 
 export interface WorkflowsSortValue {
   field: WorkflowsSortField
   direction: WorkflowsSortDirection
 }
+
+export type WorkflowWebhookFilterValue = "all" | "enabled" | "disabled"
+export type WorkflowScheduleFilterValue =
+  | "all"
+  | "never"
+  | "within_minutes"
+  | "within_hours"
+  | "within_days"
+  | "within_week"
+  | "more_than_week"
+export type WorkflowCaseTriggerFilterValue = CaseEventType[]
 
 export const DEFAULT_WORKFLOW_SORT: WorkflowsSortValue = {
   field: "updated_at",
@@ -63,14 +86,129 @@ const SORT_FIELD_OPTIONS: Array<{
   { value: "updated_at", label: "Updated", icon: Clock3 },
   { value: "created_at", label: "Created", icon: CalendarIcon },
   { value: "name", label: "Name", icon: TypeIcon },
+  { value: "version", label: "Version", icon: HistoryIcon },
 ]
 
 const LIMIT_OPTIONS = [10, 20, 50]
+
+type FilterSelectOption<TValue extends string> = {
+  value: TValue
+  label: string
+}
+
+const WEBHOOK_FILTER_OPTIONS: Array<
+  FilterSelectOption<WorkflowWebhookFilterValue>
+> = [
+  { value: "all", label: "All" },
+  { value: "enabled", label: "Enabled" },
+  { value: "disabled", label: "Disabled" },
+]
+
+const SCHEDULE_FILTER_OPTIONS: Array<
+  FilterSelectOption<WorkflowScheduleFilterValue>
+> = [
+  { value: "all", label: "All" },
+  { value: "never", label: "Never" },
+  { value: "within_minutes", label: "Within minutes" },
+  { value: "within_hours", label: "Within hours" },
+  { value: "within_days", label: "Within days" },
+  { value: "within_week", label: "Within a week" },
+  { value: "more_than_week", label: "More than a week" },
+]
+
+const CASE_TRIGGER_FILTER_OPTIONS: Array<FilterSelectOption<CaseEventType>> = [
+  ...CASE_EVENT_SUGGESTIONS.map(({ value }) => {
+    const eventType = value as CaseEventType
+    return {
+      value: eventType,
+      label: getCaseEventLabel(eventType),
+    }
+  }),
+]
 
 function isDefaultSort(value: WorkflowsSortValue): boolean {
   return (
     value.field === DEFAULT_WORKFLOW_SORT.field &&
     value.direction === DEFAULT_WORKFLOW_SORT.direction
+  )
+}
+
+interface IconFilterSelectProps<TValue extends string> {
+  label: string
+  icon: ComponentType<{ className?: string }>
+  value: TValue
+  options: ReadonlyArray<FilterSelectOption<TValue>>
+  onChange: (next: TValue) => void
+  showLabelWhenValue?: TValue
+  className?: string
+}
+
+function IconFilterSelect<TValue extends string>({
+  label,
+  icon: Icon,
+  value,
+  options,
+  onChange,
+  showLabelWhenValue,
+  className,
+}: IconFilterSelectProps<TValue>) {
+  const selectedLabel =
+    options.find((option) => option.value === value)?.label ?? options[0]?.label
+  const shouldShowLabel =
+    showLabelWhenValue === undefined || value === showLabelWhenValue
+  const showLabelOptionText =
+    showLabelWhenValue === undefined
+      ? ""
+      : (options.find((option) => option.value === showLabelWhenValue)?.label ??
+        "")
+  const widestContentLength = useMemo(() => {
+    const widestOption = options.reduce(
+      (maxLength, option) => Math.max(maxLength, option.label.length),
+      0
+    )
+    const labeledStateLength =
+      showLabelWhenValue === undefined
+        ? 0
+        : `${label} ${showLabelOptionText}`.trim().length
+    return Math.max(widestOption, labeledStateLength)
+  }, [label, options, showLabelOptionText, showLabelWhenValue])
+  const triggerStyle = useMemo(
+    () => ({
+      width: `calc(${widestContentLength + 1}ch + 2.25rem)`,
+    }),
+    [widestContentLength]
+  )
+
+  return (
+    <Select
+      value={value}
+      onValueChange={(nextValue) => onChange(nextValue as TValue)}
+    >
+      <SelectTrigger
+        className={cn(
+          "h-6 w-auto rounded-md px-2 text-xs font-medium",
+          className
+        )}
+        style={triggerStyle}
+      >
+        <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-muted-foreground">
+          <Icon className="size-3.5 shrink-0" />
+          {shouldShowLabel ? (
+            <div className="whitespace-nowrap">{label}</div>
+          ) : null}
+        </div>
+        <div className="ml-auto min-w-0 truncate whitespace-nowrap text-foreground">
+          {selectedLabel}
+        </div>
+      </SelectTrigger>
+      <SelectContent align="start">
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 
@@ -172,6 +310,100 @@ function TagFilterSelect({ value, options, onChange }: TagFilterSelectProps) {
   )
 }
 
+interface CaseTriggerFilterSelectProps {
+  value: WorkflowCaseTriggerFilterValue
+  onChange: (next: WorkflowCaseTriggerFilterValue) => void
+}
+
+function CaseTriggerFilterSelect({
+  value,
+  onChange,
+}: CaseTriggerFilterSelectProps) {
+  const [open, setOpen] = useState(false)
+  const valueSet = useMemo(() => new Set(value), [value])
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "flex h-6 items-center gap-1.5 rounded-md border border-input bg-transparent px-2 text-xs font-medium transition-colors",
+            "hover:bg-muted/50",
+            value.length > 0 && "border-primary/50 bg-primary/5"
+          )}
+        >
+          <FlagTriangleRight className="size-3.5 text-muted-foreground" />
+          <span>Case triggers</span>
+          {value.length > 0 && (
+            <span className="ml-0.5 text-[10px] font-medium text-muted-foreground">
+              {value.length}
+            </span>
+          )}
+          <ChevronDown className="size-3 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-[260px] p-0 shadow-sm"
+        align="start"
+        sideOffset={4}
+      >
+        <Command>
+          <CommandInput
+            placeholder="Search case events..."
+            className="text-xs"
+          />
+          <CommandList>
+            <CommandEmpty>No matching events.</CommandEmpty>
+            <CommandGroup>
+              {CASE_TRIGGER_FILTER_OPTIONS.map((option) => {
+                const isSelected = valueSet.has(option.value)
+                return (
+                  <CommandItem
+                    key={option.value}
+                    value={option.label}
+                    onSelect={() => {
+                      const nextValue = isSelected
+                        ? value.filter((item) => item !== option.value)
+                        : [...value, option.value]
+                      onChange(nextValue)
+                      setOpen(true)
+                    }}
+                    className="flex items-center gap-2 text-xs"
+                  >
+                    <div
+                      className={cn(
+                        "flex size-4 shrink-0 items-center justify-center rounded-sm border",
+                        isSelected
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-muted-foreground/40"
+                      )}
+                    >
+                      {isSelected && <Check className="size-3" aria-hidden />}
+                    </div>
+                    <span className="truncate">{option.label}</span>
+                  </CommandItem>
+                )
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+        {value.length > 0 && (
+          <div className="border-t p-1">
+            <button
+              type="button"
+              className="flex h-7 w-full items-center justify-center rounded text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              onClick={() => onChange([])}
+            >
+              Clear selection
+            </button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 interface SortBySelectProps {
   value: WorkflowsSortValue
   onChange: (next: WorkflowsSortValue) => void
@@ -242,6 +474,13 @@ interface WorkflowsHeaderProps {
   tags?: TagRead[]
   tagFilter: string[]
   onTagChange: (value: string[]) => void
+  webhookFilter: WorkflowWebhookFilterValue
+  onWebhookFilterChange: (value: WorkflowWebhookFilterValue) => void
+  scheduleFilter: WorkflowScheduleFilterValue
+  onScheduleFilterChange: (value: WorkflowScheduleFilterValue) => void
+  showCaseTriggerFilter: boolean
+  caseTriggerFilter: WorkflowCaseTriggerFilterValue
+  onCaseTriggerFilterChange: (value: WorkflowCaseTriggerFilterValue) => void
   sortBy: WorkflowsSortValue
   onSortByChange: (value: WorkflowsSortValue) => void
   totalCount: number
@@ -263,6 +502,13 @@ export function WorkflowsHeader({
   tags,
   tagFilter,
   onTagChange,
+  webhookFilter,
+  onWebhookFilterChange,
+  scheduleFilter,
+  onScheduleFilterChange,
+  showCaseTriggerFilter,
+  caseTriggerFilter,
+  onCaseTriggerFilterChange,
   sortBy,
   onSortByChange,
   totalCount,
@@ -278,11 +524,17 @@ export function WorkflowsHeader({
   const hasFilters =
     searchQuery.trim().length > 0 ||
     tagFilter.length > 0 ||
+    webhookFilter !== "all" ||
+    scheduleFilter !== "all" ||
+    (showCaseTriggerFilter && caseTriggerFilter.length > 0) ||
     !isDefaultSort(sortBy)
 
   const handleReset = () => {
     onSearchChange("")
     onTagChange([])
+    onWebhookFilterChange("all")
+    onScheduleFilterChange("all")
+    onCaseTriggerFilterChange([])
     onSortByChange(DEFAULT_WORKFLOW_SORT)
   }
 
@@ -380,6 +632,31 @@ export function WorkflowsHeader({
           options={tags ?? []}
           onChange={onTagChange}
         />
+
+        <IconFilterSelect
+          label="Webhook"
+          icon={WebhookIcon}
+          value={webhookFilter}
+          options={WEBHOOK_FILTER_OPTIONS}
+          onChange={onWebhookFilterChange}
+          showLabelWhenValue="all"
+        />
+
+        <IconFilterSelect
+          label="Schedules"
+          icon={CalendarClockIcon}
+          value={scheduleFilter}
+          options={SCHEDULE_FILTER_OPTIONS}
+          onChange={onScheduleFilterChange}
+          showLabelWhenValue="all"
+        />
+
+        {showCaseTriggerFilter && (
+          <CaseTriggerFilterSelect
+            value={caseTriggerFilter}
+            onChange={onCaseTriggerFilterChange}
+          />
+        )}
 
         <SortBySelect value={sortBy} onChange={onSortByChange} />
 
