@@ -24,7 +24,9 @@ export function DeleteSecretAlertDialog({
   setSelectedSecret: (selectedSecret: WorkspaceSecretListItem | null) => void
 }>) {
   const workspaceId = useWorkspaceId()
-  const { deleteSecretById } = useWorkspaceSecrets(workspaceId)
+  const { deleteSecretById } = useWorkspaceSecrets(workspaceId, {
+    listEnabled: false,
+  })
   return (
     <AlertDialog
       onOpenChange={(isOpen) => {

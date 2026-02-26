@@ -65,7 +65,9 @@ export function NewVariableDialog({
 }: NewVariableDialogProps) {
   const [showDialog, setShowDialog] = React.useState(false)
   const workspaceId = useWorkspaceId()
-  const { createVariable } = useWorkspaceVariables(workspaceId)
+  const { createVariable } = useWorkspaceVariables(workspaceId, {
+    listEnabled: false,
+  })
 
   const methods = useForm<CreateVariableFormData>({
     resolver: zodResolver(createVariableFormSchema),

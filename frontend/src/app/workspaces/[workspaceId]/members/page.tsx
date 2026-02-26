@@ -12,26 +12,28 @@ export default function WorkspaceMembersPage() {
   }
   if (workspaceError) {
     return (
-      <AlertNotification
-        level="error"
-        message="Error loading workspace info."
-      />
+      <div className="size-full overflow-auto">
+        <div className="container flex h-full flex-col space-y-12 py-8">
+          <AlertNotification
+            level="error"
+            message="Error loading workspace info."
+          />
+        </div>
+      </div>
     )
   }
   if (!workspace) {
-    return <AlertNotification level="error" message="Workspace not found." />
+    return (
+      <div className="size-full overflow-auto">
+        <div className="container flex h-full flex-col space-y-12 py-8">
+          <AlertNotification level="error" message="Workspace not found." />
+        </div>
+      </div>
+    )
   }
   return (
     <div className="size-full overflow-auto">
-      <div className="container flex h-full max-w-[1200px] flex-col space-y-8 py-6">
-        <div className="flex w-full">
-          <div className="items-start space-y-3 text-left">
-            <h2 className="text-2xl font-semibold tracking-tight">Members</h2>
-            <p className="text-md text-muted-foreground">
-              Manage workspace members, roles, and groups.
-            </p>
-          </div>
-        </div>
+      <div className="container flex h-full flex-col space-y-12 py-8">
         <WorkspaceMembersTable workspace={workspace} />
       </div>
     </div>
