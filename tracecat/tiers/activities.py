@@ -166,9 +166,7 @@ async def heartbeat_workflow_permit_activity(
     Returns:
         True if the permit was found and updated, False otherwise.
     """
-    redis_client = await get_redis_client()
-    client = await redis_client._get_client()
-    semaphore = RedisSemaphore(client)
+    semaphore = await _get_redis_semaphore()
 
     return await semaphore.heartbeat_workflow(
         org_id=input.org_id,
@@ -188,9 +186,7 @@ async def acquire_action_permit_activity(
         scope="action",
     )
 
-    redis_client = await get_redis_client()
-    client = await redis_client._get_client()
-    semaphore = RedisSemaphore(client)
+    semaphore = await _get_redis_semaphore()
 
     result = await semaphore.acquire_action(
         org_id=input.org_id,
@@ -216,9 +212,7 @@ async def release_action_permit_activity(
     input: ReleaseActionPermitInput,
 ) -> None:
     """Release an action execution permit."""
-    redis_client = await get_redis_client()
-    client = await redis_client._get_client()
-    semaphore = RedisSemaphore(client)
+    semaphore = await _get_redis_semaphore()
 
     await semaphore.release_action(
         org_id=input.org_id,
@@ -237,9 +231,7 @@ async def heartbeat_action_permit_activity(
     input: HeartbeatActionPermitInput,
 ) -> bool:
     """Refresh TTL for an action execution permit."""
-    redis_client = await get_redis_client()
-    client = await redis_client._get_client()
-    semaphore = RedisSemaphore(client)
+    semaphore = await _get_redis_semaphore()
 
     return await semaphore.heartbeat_action(
         org_id=input.org_id,
@@ -259,8 +251,7 @@ async def get_tier_limits_activity(
     Returns:
         EffectiveLimits with the organization's effective limits.
     """
-    async with get_async_session_context_manager() as session:
-        service = TierService(session)
+    async with TierService.with_session() as service:
         limits = await service.get_effective_limits(input.org_id)
 
     logger.debug(
@@ -270,6 +261,13 @@ async def get_tier_limits_activity(
     )
 
     return limits
+
+
+async def _get_redis_semaphore() -> RedisSemaphore:
+    """Return a configured Redis semaphore for this process."""
+    redis_client = await get_redis_client()
+    client = await redis_client._get_client()
+    return RedisSemaphore(client)
 
 
 def _normalize_concurrency_limit(
