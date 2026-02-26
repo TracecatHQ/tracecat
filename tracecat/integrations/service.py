@@ -1,6 +1,4 @@
 """Service for managing user integrations with external services."""
-from tracecat.integrations.mcp_validation import MAX_SERVER_NAME_LENGTH
-
 
 import os
 import uuid
@@ -25,6 +23,7 @@ from tracecat.db.models import (
 )
 from tracecat.identifiers import UserID
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
+from tracecat.integrations.mcp_validation import MAX_SERVER_NAME_LENGTH
 from tracecat.integrations.providers import get_provider_class
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
@@ -756,11 +755,11 @@ class IntegrationService(BaseWorkspaceService):
         return decrypt_value(encrypted_credential, key=self._encryption_key).decode(
             "utf-8"
         )
-        
+
     @require_scope("integration:read")
     def decrypt_command_env(
-    self, mcp_integration: MCPIntegration
-) -> dict[str, str] | None:
+        self, mcp_integration: MCPIntegration
+    ) -> dict[str, str] | None:
         """Decrypt and return command_env for an MCP integration."""
         if not mcp_integration.encrypted_command_env:
             return None

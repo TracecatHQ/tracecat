@@ -11,11 +11,31 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
 from pydantic import TypeAdapter
 
+# Re-export all types from common/types.py for backward compatibility
+from tracecat.agent.common.types import (
+    AgentConfig,
+    CustomToolList,
+    DeferredToolApprovalResult,
+    DeferredToolRequests,
+    DeferredToolResults,
+    MCPCommandServerConfig,
+    MCPServerConfig,
+    MCPToolDefinition,
+    OutputType,
+    SandboxAgentConfig,
+    StreamKey,
+    Tool,
+    ToolApproved,
+    ToolDenied,
+)
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
 
     from tracecat.agent.stream.writers import StreamWriter
+else:
+    ModelMessage = Any
+
 
 # --- Legacy TypeAdapters for pydantic-ai ---
 # These are used by the legacy pydantic-ai harness, not the sandbox runtime
@@ -67,3 +87,27 @@ UnifiedMessage = ModelMessage | ClaudeSDKMessage
 class StreamingAgentDeps(Protocol):
     stream_writer: StreamWriter
 
+
+__all__ = [
+    # Re-exported from common/types.py
+    "AgentConfig",
+    "CustomToolList",
+    "DeferredToolApprovalResult",
+    "DeferredToolRequests",
+    "DeferredToolResults",
+    "MCPCommandServerConfig",
+    "MCPServerConfig",
+    "MCPToolDefinition",
+    "OutputType",
+    "SandboxAgentConfig",
+    "StreamKey",
+    "Tool",
+    "ToolApproved",
+    "ToolDenied",
+    # Legacy TypeAdapters
+    "ClaudeSDKMessageTA",
+    "ModelMessageTA",
+    "ModelResponseTA",
+    "UnifiedMessage",
+    "StreamingAgentDeps",
+]

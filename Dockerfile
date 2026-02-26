@@ -51,6 +51,12 @@ ENV HOST=0.0.0.0 PORT=8000
 # Copy nsjail binary
 COPY --from=nsjail-builder /usr/local/bin/nsjail /usr/local/bin/nsjail
 
+# Copy Node.js + npx for in-process MCP command servers (stdio)
+COPY --from=node-bin /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-bin /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+
 # Install runtime packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     acl git openssh-client xmlsec1 libmagic1 curl ca-certificates \
