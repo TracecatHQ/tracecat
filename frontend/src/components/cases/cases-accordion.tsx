@@ -121,6 +121,7 @@ interface CasesAccordionProps {
   severitySortDirection?: SortDirection
   assigneeSortDirection?: SortDirection
   tagSortDirection?: SortDirection
+  hasExplicitSort?: boolean
   statusFilter?: CaseStatus[]
   statusMode?: FilterMode
   totalFilteredCaseEstimate?: number | null
@@ -286,6 +287,7 @@ export function CasesAccordion({
   severitySortDirection,
   assigneeSortDirection,
   tagSortDirection,
+  hasExplicitSort: hasExplicitSortProp = false,
   statusFilter = [],
   statusMode = "include",
   totalFilteredCaseEstimate = null,
@@ -298,6 +300,7 @@ export function CasesAccordion({
 }: CasesAccordionProps) {
   const [expandedGroups, setExpandedGroups] = useState<StatusGroup[]>([])
   const hasExplicitSort =
+    hasExplicitSortProp ||
     prioritySortDirection ||
     severitySortDirection ||
     assigneeSortDirection ||

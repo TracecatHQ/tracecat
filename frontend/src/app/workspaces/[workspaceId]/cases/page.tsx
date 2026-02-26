@@ -18,6 +18,7 @@ export default function CasesPage() {
     filters,
     refetch,
     setSearchQuery,
+    setSortBy,
     setStatusFilter,
     setStatusMode,
     setPriorityFilter,
@@ -71,6 +72,7 @@ export default function CasesPage() {
         members={members}
         tags={caseTags}
         onSearchChange={setSearchQuery}
+        onSortByChange={setSortBy}
         onStatusChange={setStatusFilter}
         onStatusModeChange={setStatusMode}
         onPriorityChange={setPriorityFilter}

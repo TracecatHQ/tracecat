@@ -29,11 +29,9 @@ import {
 import { ActiveDialog } from "@/components/dashboard/table-common"
 import { WorkflowMoveDialog } from "@/components/dashboard/workflow-move-dialog"
 import {
-  DEFAULT_WORKFLOW_DATE_FILTER,
-  isDateFilterActive,
-  type WorkflowsDateFilterValue,
-  type WorkflowsDatePreset,
+  DEFAULT_WORKFLOW_SORT,
   WorkflowsHeader,
+  type WorkflowsSortValue,
   type WorkflowsViewMode,
 } from "@/components/dashboard/workflows-header"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -60,11 +58,6 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 
 const DEFAULT_LIMIT = 10
 
-type DateBounds = {
-  start: Date | null
-  end: Date | null
-}
-
 function parseWorkflowsViewMode(value: string | null): WorkflowsViewMode {
   return value === "list" ? "list" : "folders"
 }
@@ -78,67 +71,6 @@ function normalizeFolderPath(rawPath: string | null): string {
   return withLeadingSlash.endsWith("/") && withLeadingSlash !== "/"
     ? withLeadingSlash.slice(0, -1)
     : withLeadingSlash
-}
-
-function getDateFromPreset(preset: WorkflowsDatePreset): Date | null {
-  if (typeof preset !== "string") {
-    return null
-  }
-
-  const now = new Date()
-  switch (preset) {
-    case "1d":
-      return new Date(now.getTime() - 24 * 60 * 60 * 1000)
-    case "3d":
-      return new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)
-    case "1w":
-      return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-    case "1m":
-      return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-    default:
-      return null
-  }
-}
-
-function getDateBoundsFromFilter(filter: WorkflowsDateFilterValue): DateBounds {
-  if (filter.type === "preset") {
-    return {
-      start: getDateFromPreset(filter.value),
-      end: null,
-    }
-  }
-
-  return {
-    start: filter.value.from ?? null,
-    end: filter.value.to ?? null,
-  }
-}
-
-function toEndOfDay(date: Date): Date {
-  const end = new Date(date)
-  end.setHours(23, 59, 59, 999)
-  return end
-}
-
-function matchesDateFilter(
-  dateValue: string,
-  filter: WorkflowsDateFilterValue
-): boolean {
-  const date = new Date(dateValue)
-  if (Number.isNaN(date.getTime())) {
-    return false
-  }
-
-  const bounds = getDateBoundsFromFilter(filter)
-  if (bounds.start && date < bounds.start) {
-    return false
-  }
-
-  if (bounds.end && date > toEndOfDay(bounds.end)) {
-    return false
-  }
-
-  return true
 }
 
 function getRelativeDateLabel(dateValue: string): string {
@@ -155,7 +87,7 @@ function WorkflowTagPills({ tags }: { tags?: TagRead[] | null }) {
   }
 
   return (
-    <div className="flex shrink-0 items-center gap-1">
+    <div className="flex items-center gap-1">
       {tags.slice(0, 3).map((tag) => (
         <span
           key={tag.id}
@@ -269,6 +201,55 @@ function FolderMetadataBadges({ item }: { item: FolderDirectoryItem }) {
   )
 }
 
+function getItemName(item: DirectoryItem): string {
+  return item.type === "workflow" ? item.title : item.name
+}
+
+function compareItemsBySort(
+  a: DirectoryItem,
+  b: DirectoryItem,
+  sortBy: WorkflowsSortValue
+): number {
+  // Keep folders pinned above workflows regardless of sort field/direction.
+  if (a.type !== b.type) {
+    return a.type === "folder" ? -1 : 1
+  }
+
+  const direction = sortBy.direction === "asc" ? 1 : -1
+
+  if (sortBy.field === "name") {
+    return (
+      getItemName(a).localeCompare(getItemName(b), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      }) * direction
+    )
+  }
+
+  const aTimestamp = Date.parse(a[sortBy.field])
+  const bTimestamp = Date.parse(b[sortBy.field])
+
+  if (aTimestamp !== bTimestamp) {
+    if (Number.isNaN(aTimestamp) && Number.isNaN(bTimestamp)) {
+      return 0
+    }
+    if (Number.isNaN(aTimestamp)) {
+      return 1
+    }
+    if (Number.isNaN(bTimestamp)) {
+      return -1
+    }
+    return (aTimestamp - bTimestamp) * direction
+  }
+
+  return (
+    getItemName(a).localeCompare(getItemName(b), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    }) * direction
+  )
+}
+
 function WorkflowsListRow({
   item,
   onOpenWorkflow,
@@ -339,10 +320,8 @@ function WorkflowsListRow({
             className="flex min-w-0 flex-1 items-center gap-3 bg-transparent p-0 text-left"
           >
             <WorkflowIcon className="size-4 shrink-0 text-orange-500" />
-            <div className="flex min-w-0 flex-1 items-center gap-3">
-              <span className="min-w-0 max-w-[340px] flex-1 truncate text-xs">
-                {item.title}
-              </span>
+            <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,340px)_max-content_max-content] items-center gap-3">
+              <span className="min-w-0 truncate text-xs">{item.title}</span>
               <WorkflowMetadataBadges item={item} />
               <WorkflowTagPills tags={item.tags} />
             </div>
@@ -373,11 +352,8 @@ export function WorkflowsDashboard() {
 
   const [searchQuery, setSearchQuery] = useState("")
   const [tagFilter, setTagFilter] = useState<string[]>([])
-  const [updatedAfter, setUpdatedAfter] = useState<WorkflowsDateFilterValue>(
-    DEFAULT_WORKFLOW_DATE_FILTER
-  )
-  const [createdAfter, setCreatedAfter] = useState<WorkflowsDateFilterValue>(
-    DEFAULT_WORKFLOW_DATE_FILTER
+  const [sortBy, setSortBy] = useState<WorkflowsSortValue>(
+    DEFAULT_WORKFLOW_SORT
   )
   const [limit, setLimit] = useState(DEFAULT_LIMIT)
   const [folderPage, setFolderPage] = useState(0)
@@ -479,17 +455,9 @@ export function WorkflowsDashboard() {
         }
       }
 
-      if (!matchesDateFilter(item.updated_at, updatedAfter)) {
-        return false
-      }
-
-      if (!matchesDateFilter(item.created_at, createdAfter)) {
-        return false
-      }
-
       return true
     },
-    [normalizedSearch, tagFilterSet, updatedAfter, createdAfter]
+    [normalizedSearch, tagFilterSet]
   )
 
   const listItems = useMemo<WorkflowDirectoryItem[]>(
@@ -506,44 +474,46 @@ export function WorkflowsDashboard() {
     [listItems, matchesFilters]
   )
 
+  const sortedListItems = useMemo(
+    () =>
+      [...filteredListItems].sort((a, b) => compareItemsBySort(a, b, sortBy)),
+    [filteredListItems, sortBy]
+  )
+
   const filteredDirectoryItems = useMemo(
     () => (directoryItems ?? []).filter((item) => matchesFilters(item)),
     [directoryItems, matchesFilters]
   )
 
+  const sortedDirectoryItems = useMemo(
+    () =>
+      [...filteredDirectoryItems].sort((a, b) =>
+        compareItemsBySort(a, b, sortBy)
+      ),
+    [filteredDirectoryItems, sortBy]
+  )
+
   useEffect(() => {
     setFolderPage(0)
-  }, [
-    view,
-    limit,
-    currentPath,
-    normalizedSearch,
-    tagFilter,
-    updatedAfter,
-    createdAfter,
-  ])
+  }, [view, limit, currentPath, normalizedSearch, tagFilter, sortBy])
 
   const folderStartIndex = folderPage * limit
   const folderVisibleItems = useMemo(
     () =>
-      filteredDirectoryItems.slice(folderStartIndex, folderStartIndex + limit),
-    [filteredDirectoryItems, folderStartIndex, limit]
+      sortedDirectoryItems.slice(folderStartIndex, folderStartIndex + limit),
+    [sortedDirectoryItems, folderStartIndex, limit]
   )
 
-  const localListFiltersActive =
-    normalizedSearch.length > 0 ||
-    isDateFilterActive(updatedAfter) ||
-    isDateFilterActive(createdAfter)
+  const localListFiltersActive = normalizedSearch.length > 0
 
   const headerTotalCount =
     view === "folders"
-      ? filteredDirectoryItems.length
+      ? sortedDirectoryItems.length
       : localListFiltersActive
-        ? filteredListItems.length
-        : workflowPagination.totalEstimate || filteredListItems.length
+        ? sortedListItems.length
+        : workflowPagination.totalEstimate || sortedListItems.length
 
-  const visibleItems =
-    view === "folders" ? folderVisibleItems : filteredListItems
+  const visibleItems = view === "folders" ? folderVisibleItems : sortedListItems
   const isLoading =
     view === "folders" ? directoryItemsIsLoading : workflowPagination.isLoading
   const error =
@@ -554,7 +524,7 @@ export function WorkflowsDashboard() {
 
   const hasNextPage =
     view === "folders"
-      ? folderStartIndex + limit < filteredDirectoryItems.length
+      ? folderStartIndex + limit < sortedDirectoryItems.length
       : workflowPagination.hasNextPage
 
   const handlePreviousPage = () => {
@@ -569,7 +539,7 @@ export function WorkflowsDashboard() {
     if (view === "folders") {
       setFolderPage((current) => {
         const maxPage = Math.max(
-          Math.ceil(filteredDirectoryItems.length / limit) - 1,
+          Math.ceil(sortedDirectoryItems.length / limit) - 1,
           0
         )
         return Math.min(current + 1, maxPage)
@@ -599,10 +569,8 @@ export function WorkflowsDashboard() {
             tags={tags}
             tagFilter={tagFilter}
             onTagChange={setTagFilter}
-            updatedAfter={updatedAfter}
-            onUpdatedAfterChange={setUpdatedAfter}
-            createdAfter={createdAfter}
-            onCreatedAfterChange={setCreatedAfter}
+            sortBy={sortBy}
+            onSortByChange={setSortBy}
             totalCount={headerTotalCount}
             countLabel="workflows"
             limit={limit}

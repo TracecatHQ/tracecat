@@ -14,7 +14,12 @@ import {
   casesSearchCaseAggregates,
   casesSearchCases,
 } from "@/client"
-import type { FilterMode, SortDirection } from "@/components/cases/cases-header"
+import {
+  type CaseSortValue,
+  DEFAULT_CASE_SORT,
+  type FilterMode,
+  type SortDirection,
+} from "@/components/cases/cases-header"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -71,6 +76,7 @@ export interface DropdownFilterState {
 
 export interface UseCasesFilters {
   searchQuery: string
+  sortBy: CaseSortValue
   statusFilter: CaseStatus[]
   statusMode: FilterMode
   priorityFilter: CasePriority[]
@@ -102,6 +108,7 @@ export interface UseCasesResult {
   refetch: () => void
   filters: UseCasesFilters
   setSearchQuery: (query: string) => void
+  setSortBy: (value: CaseSortValue) => void
   setStatusFilter: (status: CaseStatus[]) => void
   setStatusMode: (mode: FilterMode) => void
   setPriorityFilter: (priority: CasePriority[]) => void
@@ -206,23 +213,64 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const workspaceId = useWorkspaceId()
 
   const [searchQuery, setSearchQuery] = useState("")
+  const [sortBy, setSortByState] = useState<CaseSortValue>(DEFAULT_CASE_SORT)
   const [statusFilter, setStatusFilter] = useState<CaseStatus[]>([])
   const [statusMode, setStatusMode] = useState<FilterMode>("include")
   const [priorityFilter, setPriorityFilter] = useState<CasePriority[]>([])
   const [priorityMode, setPriorityMode] = useState<FilterMode>("include")
-  const [prioritySortDirection, setPrioritySortDirection] =
+  const [prioritySortDirection, setPrioritySortDirectionState] =
     useState<SortDirection>(null)
   const [severityFilter, setSeverityFilter] = useState<CaseSeverity[]>([])
   const [severityMode, setSeverityMode] = useState<FilterMode>("include")
-  const [severitySortDirection, setSeveritySortDirection] =
+  const [severitySortDirection, setSeveritySortDirectionState] =
     useState<SortDirection>(null)
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>([])
   const [assigneeMode, setAssigneeModeState] = useState<FilterMode>("include")
-  const [assigneeSortDirection, setAssigneeSortDirection] =
+  const [assigneeSortDirection, setAssigneeSortDirectionState] =
     useState<SortDirection>(null)
   const [tagFilter, setTagFilter] = useState<string[]>([])
   const [tagMode, setTagModeState] = useState<FilterMode>("include")
-  const [tagSortDirection, setTagSortDirection] = useState<SortDirection>(null)
+  const [tagSortDirection, setTagSortDirectionState] =
+    useState<SortDirection>(null)
+
+  const setSortBy = useCallback((value: CaseSortValue) => {
+    setSortByState(value)
+    setPrioritySortDirectionState(null)
+    setSeveritySortDirectionState(null)
+    setAssigneeSortDirectionState(null)
+    setTagSortDirectionState(null)
+    setDropdownFilters((prev) => {
+      const next: Record<string, DropdownFilterState> = {}
+      for (const [ref, state] of Object.entries(prev)) {
+        next[ref] = { ...state, sortDirection: null }
+      }
+      return next
+    })
+  }, [])
+
+  const setPrioritySortDirection = useCallback((direction: SortDirection) => {
+    setPrioritySortDirectionState(direction)
+    if (direction) {
+      setSortByState({ field: "priority", direction })
+      setSeveritySortDirectionState(null)
+    }
+  }, [])
+
+  const setSeveritySortDirection = useCallback((direction: SortDirection) => {
+    setSeveritySortDirectionState(direction)
+    if (direction) {
+      setSortByState({ field: "severity", direction })
+      setPrioritySortDirectionState(null)
+    }
+  }, [])
+
+  const setAssigneeSortDirection = useCallback((direction: SortDirection) => {
+    setAssigneeSortDirectionState(direction)
+  }, [])
+
+  const setTagSortDirection = useCallback((direction: SortDirection) => {
+    setTagSortDirectionState(direction)
+  }, [])
   const [dropdownFilters, setDropdownFilters] = useState<
     Record<string, DropdownFilterState>
   >({})
@@ -363,8 +411,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     if (severitySortDirection) {
       return { orderBy: "severity" as const, sort: severitySortDirection }
     }
-    return { orderBy: "created_at" as const, sort: "desc" as const }
-  }, [prioritySortDirection, severitySortDirection])
+    return { orderBy: sortBy.field, sort: sortBy.direction }
+  }, [prioritySortDirection, severitySortDirection, sortBy])
 
   const filtersKey = useMemo(
     () =>
@@ -519,6 +567,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     refetch,
     filters: {
       searchQuery,
+      sortBy,
       statusFilter,
       statusMode,
       priorityFilter,
@@ -538,6 +587,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       createdAfter,
     },
     setSearchQuery,
+    setSortBy,
     setStatusFilter,
     setStatusMode,
     setPriorityFilter,

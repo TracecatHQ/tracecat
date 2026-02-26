@@ -41,7 +41,12 @@ import {
   CasesViewMode,
   CasesViewToggle,
 } from "@/components/cases/cases-view-toggle"
+import { AddWorkflowTag } from "@/components/dashboard/add-workflow-tag"
 import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
+import {
+  WorkflowsCatalogViewMode,
+  WorkflowsCatalogViewToggle,
+} from "@/components/dashboard/workflows-catalog-view-toggle"
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { Spinner } from "@/components/loading/spinner"
@@ -130,16 +135,38 @@ const CASE_STATUS_TINTS: Record<CaseStatus, string> = {
 }
 
 function WorkflowsActions() {
+  const pathname = usePathname()
+  const workspaceId = useWorkspaceId()
   const searchParams = useSearchParams()
+  const catalogView = pathname?.includes("/workflows/tags")
+    ? WorkflowsCatalogViewMode.Tags
+    : WorkflowsCatalogViewMode.Workflows
   const view = searchParams?.get("view") === "list" ? "list" : "folders"
   const currentPath =
     view === "folders" ? searchParams?.get("path") || "/" : null
+  const workflowsHref = workspaceId
+    ? `/workspaces/${workspaceId}/workflows`
+    : undefined
+  const tagsHref = workspaceId
+    ? `/workspaces/${workspaceId}/workflows/tags`
+    : undefined
 
   return (
-    <CreateWorkflowButton
-      view={view === "folders" ? "folders" : "default"}
-      currentFolderPath={currentPath}
-    />
+    <>
+      <WorkflowsCatalogViewToggle
+        view={catalogView}
+        workflowsHref={workflowsHref}
+        tagsHref={tagsHref}
+      />
+      {catalogView === WorkflowsCatalogViewMode.Tags ? (
+        <AddWorkflowTag />
+      ) : (
+        <CreateWorkflowButton
+          view={view === "folders" ? "folders" : "default"}
+          currentFolderPath={currentPath}
+        />
+      )}
+    </>
   )
 }
 

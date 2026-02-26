@@ -1,23 +1,23 @@
 "use client"
 
 import { Cross2Icon } from "@radix-ui/react-icons"
-import { format } from "date-fns"
 import {
+  ArrowDownIcon,
+  ArrowUpIcon,
   CalendarIcon,
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ClockIcon,
+  Clock3,
   FolderIcon,
   ListIcon,
   SearchIcon,
   TagIcon,
+  TypeIcon,
 } from "lucide-react"
-import { type ReactNode, useEffect, useMemo, useState } from "react"
-import type { DateRange } from "react-day-picker"
+import { type ComponentType, type ReactNode, useMemo, useState } from "react"
 import type { TagRead } from "@/client"
-import { Calendar } from "@/components/ui/calendar"
 import {
   Command,
   CommandEmpty,
@@ -42,205 +42,35 @@ import {
 import { cn } from "@/lib/utils"
 
 export type WorkflowsViewMode = "list" | "folders"
-export type WorkflowsDatePreset = "1d" | "3d" | "1w" | "1m" | null
-export type WorkflowsDateFilterValue =
-  | { type: "preset"; value: WorkflowsDatePreset }
-  | { type: "range"; value: DateRange }
+export type WorkflowsSortField = "updated_at" | "created_at" | "name"
+export type WorkflowsSortDirection = "asc" | "desc"
 
-export const DEFAULT_WORKFLOW_DATE_FILTER: WorkflowsDateFilterValue = {
-  type: "preset",
-  value: null,
+export interface WorkflowsSortValue {
+  field: WorkflowsSortField
+  direction: WorkflowsSortDirection
 }
 
-const DATE_PRESET_OPTIONS: Array<{
-  value: WorkflowsDatePreset
+export const DEFAULT_WORKFLOW_SORT: WorkflowsSortValue = {
+  field: "updated_at",
+  direction: "desc",
+}
+
+const SORT_FIELD_OPTIONS: Array<{
+  value: WorkflowsSortField
   label: string
+  icon: ComponentType<{ className?: string }>
 }> = [
-  { value: null, label: "Any time" },
-  { value: "1d", label: "1 day ago" },
-  { value: "3d", label: "3 days ago" },
-  { value: "1w", label: "1 week ago" },
-  { value: "1m", label: "1 month ago" },
+  { value: "updated_at", label: "Updated", icon: Clock3 },
+  { value: "created_at", label: "Created", icon: CalendarIcon },
+  { value: "name", label: "Name", icon: TypeIcon },
 ]
 
 const LIMIT_OPTIONS = [10, 20, 50]
 
-function getDateFilterLabel(filter: WorkflowsDateFilterValue): string | null {
-  if (filter.type === "preset") {
-    if (filter.value === null) return null
-    return (
-      DATE_PRESET_OPTIONS.find((option) => option.value === filter.value)
-        ?.label ?? null
-    )
-  }
-
-  if (filter.value.from) {
-    if (filter.value.to) {
-      return `${format(filter.value.from, "MMM d")} - ${format(filter.value.to, "MMM d")}`
-    }
-    return `From ${format(filter.value.from, "MMM d")}`
-  }
-
-  return null
-}
-
-export function isDateFilterActive(filter: WorkflowsDateFilterValue): boolean {
-  if (filter.type === "preset") {
-    return filter.value !== null
-  }
-  return filter.value.from !== undefined
-}
-
-interface DateFilterSelectProps {
-  placeholder: string
-  icon: typeof ClockIcon | typeof CalendarIcon
-  value: WorkflowsDateFilterValue
-  onChange: (value: WorkflowsDateFilterValue) => void
-}
-
-function DateFilterSelect({
-  placeholder,
-  icon: Icon,
-  value,
-  onChange,
-}: DateFilterSelectProps) {
-  const [open, setOpen] = useState(false)
-  const [showCalendar, setShowCalendar] = useState(false)
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(
-    value.type === "range" ? value.value : undefined
-  )
-
-  useEffect(() => {
-    if (value.type === "range") {
-      setDateRange(value.value)
-    } else {
-      setDateRange(undefined)
-    }
-  }, [value])
-
-  const label = getDateFilterLabel(value)
-  const isActive = isDateFilterActive(value)
-
-  const handlePresetSelect = (preset: WorkflowsDatePreset) => {
-    onChange({ type: "preset", value: preset })
-    setShowCalendar(false)
-    if (preset !== null) {
-      setOpen(false)
-    }
-  }
-
-  const handleRangeChange = (range: DateRange | undefined) => {
-    setDateRange(range)
-    if (range?.from) {
-      onChange({ type: "range", value: range })
-    }
-  }
-
-  const handleOpenChange = (nextOpen: boolean) => {
-    setOpen(nextOpen)
-    if (!nextOpen) {
-      setShowCalendar(false)
-    }
-  }
-
+function isDefaultSort(value: WorkflowsSortValue): boolean {
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            "flex h-6 items-center gap-1.5 rounded-md border border-input bg-transparent px-2 text-xs font-medium transition-colors",
-            "hover:bg-muted/50",
-            isActive && "border-primary/50 bg-primary/5"
-          )}
-        >
-          <Icon className="size-3.5 text-muted-foreground" />
-          <span>{placeholder}</span>
-          {label && (
-            <span className="ml-0.5 max-w-[110px] truncate text-[10px] font-medium text-muted-foreground">
-              {label}
-            </span>
-          )}
-          <ChevronDown className="size-3 opacity-50" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        className="w-auto p-0 shadow-sm"
-        align="start"
-        sideOffset={4}
-      >
-        {showCalendar ? (
-          <div className="p-0">
-            <div className="flex items-center justify-between border-b px-3 py-2">
-              <span className="text-xs font-medium">Select date range</span>
-              <button
-                type="button"
-                className="text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => setShowCalendar(false)}
-              >
-                Back
-              </button>
-            </div>
-            <Calendar
-              mode="range"
-              selected={dateRange}
-              onSelect={handleRangeChange}
-              numberOfMonths={2}
-              className="p-3"
-            />
-            {dateRange?.from && (
-              <div className="border-t px-3 py-2">
-                <button
-                  type="button"
-                  className="w-full rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-                  onClick={() => setOpen(false)}
-                >
-                  Apply
-                </button>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="py-1">
-            {DATE_PRESET_OPTIONS.map((option) => (
-              <button
-                key={option.value ?? "any"}
-                type="button"
-                className={cn(
-                  "flex w-full items-center justify-between px-3 py-1.5 text-xs transition-colors",
-                  "hover:bg-muted",
-                  value.type === "preset" && value.value === option.value
-                    ? "text-foreground"
-                    : "text-muted-foreground"
-                )}
-                onClick={() => handlePresetSelect(option.value)}
-              >
-                <span>{option.label}</span>
-                {value.type === "preset" && value.value === option.value && (
-                  <Check className="size-3.5" />
-                )}
-              </button>
-            ))}
-            <div className="my-1 border-t" />
-            <button
-              type="button"
-              className={cn(
-                "flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors",
-                "hover:bg-muted",
-                value.type === "range"
-                  ? "text-foreground"
-                  : "text-muted-foreground"
-              )}
-              onClick={() => setShowCalendar(true)}
-            >
-              <CalendarIcon className="size-3.5" />
-              <span>Custom range...</span>
-              {value.type === "range" && <Check className="ml-auto size-3.5" />}
-            </button>
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
+    value.field === DEFAULT_WORKFLOW_SORT.field &&
+    value.direction === DEFAULT_WORKFLOW_SORT.direction
   )
 }
 
@@ -342,6 +172,68 @@ function TagFilterSelect({ value, options, onChange }: TagFilterSelectProps) {
   )
 }
 
+interface SortBySelectProps {
+  value: WorkflowsSortValue
+  onChange: (next: WorkflowsSortValue) => void
+}
+
+function SortBySelect({ value, onChange }: SortBySelectProps) {
+  const selectedLabel =
+    SORT_FIELD_OPTIONS.find((option) => option.value === value.field)?.label ??
+    "Updated"
+
+  return (
+    <div className="inline-flex items-center rounded-md border border-input bg-transparent">
+      <Select
+        value={value.field}
+        onValueChange={(nextField) =>
+          onChange({
+            field: nextField as WorkflowsSortField,
+            direction: value.direction,
+          })
+        }
+      >
+        <SelectTrigger className="h-6 w-[145px] rounded-r-none border-0 bg-transparent px-2 text-xs font-medium shadow-none focus:ring-0">
+          <span className="text-muted-foreground">Sort by</span>
+          <span className="text-foreground">{selectedLabel}</span>
+        </SelectTrigger>
+        <SelectContent align="start">
+          {SORT_FIELD_OPTIONS.map((option) => {
+            const Icon = option.icon
+            return (
+              <SelectItem key={option.value} value={option.value}>
+                <span className="flex items-center gap-2">
+                  <Icon className="size-3.5 text-muted-foreground" />
+                  <span>{option.label}</span>
+                </span>
+              </SelectItem>
+            )
+          })}
+        </SelectContent>
+      </Select>
+      <button
+        type="button"
+        className="flex h-6 w-7 items-center justify-center border-l border-input text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+        onClick={() =>
+          onChange({
+            field: value.field,
+            direction: value.direction === "asc" ? "desc" : "asc",
+          })
+        }
+        aria-label={
+          value.direction === "asc" ? "Sort ascending" : "Sort descending"
+        }
+      >
+        {value.direction === "asc" ? (
+          <ArrowUpIcon className="size-3.5" />
+        ) : (
+          <ArrowDownIcon className="size-3.5" />
+        )}
+      </button>
+    </div>
+  )
+}
+
 interface WorkflowsHeaderProps {
   searchQuery: string
   onSearchChange: (query: string) => void
@@ -350,10 +242,8 @@ interface WorkflowsHeaderProps {
   tags?: TagRead[]
   tagFilter: string[]
   onTagChange: (value: string[]) => void
-  updatedAfter: WorkflowsDateFilterValue
-  onUpdatedAfterChange: (value: WorkflowsDateFilterValue) => void
-  createdAfter: WorkflowsDateFilterValue
-  onCreatedAfterChange: (value: WorkflowsDateFilterValue) => void
+  sortBy: WorkflowsSortValue
+  onSortByChange: (value: WorkflowsSortValue) => void
   totalCount: number
   countLabel: string
   limit: number
@@ -373,10 +263,8 @@ export function WorkflowsHeader({
   tags,
   tagFilter,
   onTagChange,
-  updatedAfter,
-  onUpdatedAfterChange,
-  createdAfter,
-  onCreatedAfterChange,
+  sortBy,
+  onSortByChange,
   totalCount,
   countLabel,
   limit,
@@ -390,14 +278,12 @@ export function WorkflowsHeader({
   const hasFilters =
     searchQuery.trim().length > 0 ||
     tagFilter.length > 0 ||
-    isDateFilterActive(updatedAfter) ||
-    isDateFilterActive(createdAfter)
+    !isDefaultSort(sortBy)
 
   const handleReset = () => {
     onSearchChange("")
     onTagChange([])
-    onUpdatedAfterChange(DEFAULT_WORKFLOW_DATE_FILTER)
-    onCreatedAfterChange(DEFAULT_WORKFLOW_DATE_FILTER)
+    onSortByChange(DEFAULT_WORKFLOW_SORT)
   }
 
   const viewLabel: Record<WorkflowsViewMode, string> = {
@@ -495,19 +381,7 @@ export function WorkflowsHeader({
           onChange={onTagChange}
         />
 
-        <DateFilterSelect
-          placeholder="Updated"
-          icon={ClockIcon}
-          value={updatedAfter}
-          onChange={onUpdatedAfterChange}
-        />
-
-        <DateFilterSelect
-          placeholder="Created"
-          icon={CalendarIcon}
-          value={createdAfter}
-          onChange={onCreatedAfterChange}
-        />
+        <SortBySelect value={sortBy} onChange={onSortByChange} />
 
         {hasFilters && (
           <button

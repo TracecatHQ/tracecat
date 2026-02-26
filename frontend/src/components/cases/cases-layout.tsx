@@ -17,7 +17,9 @@ import {
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import { CasesAccordion } from "@/components/cases/cases-accordion"
 import {
+  type CaseSortValue,
   CasesHeader,
+  DEFAULT_CASE_SORT,
   type FilterMode,
   type SortDirection,
 } from "@/components/cases/cases-header"
@@ -36,6 +38,7 @@ interface CasesLayoutProps {
   members?: WorkspaceMember[]
   tags?: CaseTagRead[]
   onSearchChange: (query: string) => void
+  onSortByChange: (value: CaseSortValue) => void
   onStatusChange: (status: CaseStatus[]) => void
   onStatusModeChange: (mode: FilterMode) => void
   onPriorityChange: (priority: CasePriority[]) => void
@@ -74,6 +77,7 @@ export function CasesLayout({
   members,
   tags,
   onSearchChange,
+  onSortByChange,
   onStatusChange,
   onStatusModeChange,
   onPriorityChange,
@@ -260,6 +264,8 @@ export function CasesLayout({
   const headerProps = {
     searchQuery: filters.searchQuery,
     onSearchChange,
+    sortBy: filters.sortBy,
+    onSortByChange,
     statusFilter: filters.statusFilter,
     onStatusChange,
     statusMode: filters.statusMode,
@@ -305,6 +311,14 @@ export function CasesLayout({
     onSelectAll: handleSelectAll,
     onDeselectAll: handleDeselectAll,
   }
+
+  const hasExplicitSort =
+    filters.sortBy.field !== DEFAULT_CASE_SORT.field ||
+    filters.sortBy.direction !== DEFAULT_CASE_SORT.direction ||
+    Boolean(filters.prioritySortDirection) ||
+    Boolean(filters.severitySortDirection) ||
+    Boolean(filters.assigneeSortDirection) ||
+    Boolean(filters.tagSortDirection)
 
   if (isLoading) {
     return (
@@ -362,6 +376,7 @@ export function CasesLayout({
             severitySortDirection={filters.severitySortDirection}
             assigneeSortDirection={filters.assigneeSortDirection}
             tagSortDirection={filters.tagSortDirection}
+            hasExplicitSort={hasExplicitSort}
             statusFilter={filters.statusFilter}
             statusMode={filters.statusMode}
             totalFilteredCaseEstimate={totalFilteredCaseEstimate}
