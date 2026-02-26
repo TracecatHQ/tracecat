@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import Request
 
+from tracecat.agent.executor.loopback import LoopbackHandler
 from tracecat.api.app import info, lifespan
 from tracecat.auth.credentials import _role_dependency
 from tracecat.auth.discovery import AuthDiscoveryService
@@ -33,6 +34,7 @@ from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
 from tracecat.service import BaseOrgService
 from tracecat.settings.service import get_setting
 from tracecat.webhooks.dependencies import validate_incoming_webhook
+from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 RLS_MIGRATION_PATH = Path("alembic/versions/c76f9b01fad7_add_rls_policies.py")
 
@@ -371,6 +373,18 @@ def test_api_lifespan_rbac_seeding_uses_bypass_session_manager() -> None:
 
 def test_registry_sync_startup_uses_bypass_session_manager() -> None:
     source = inspect.getsource(sync_platform_registry_on_startup)
+    assert "get_async_session_bypass_rls_context_manager" in source
+
+
+def test_loopback_persist_session_line_uses_bypass_session_manager() -> None:
+    source = inspect.getsource(LoopbackHandler._persist_session_line)
+    assert "get_async_session_bypass_rls_context_manager" in source
+
+
+def test_schedule_workspace_org_lookup_activity_uses_bypass_session_manager() -> None:
+    source = inspect.getsource(
+        WorkflowSchedulesService.get_workspace_organization_id_activity
+    )
     assert "get_async_session_bypass_rls_context_manager" in source
 
 

@@ -5,10 +5,11 @@ from sqlalchemy.exc import NoResultFound
 from temporalio import activity
 
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import Schedule
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.models import Schedule, Workspace
+from tracecat.identifiers import OrganizationID, ScheduleUUID, WorkflowID, WorkspaceID
 from tracecat.db.session_events import add_after_commit_callback
 from tracecat.exceptions import TracecatNotFoundError
-from tracecat.identifiers import ScheduleUUID, WorkflowID
 from tracecat.identifiers.schedules import AnyScheduleID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
@@ -277,6 +278,21 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             await self.session.commit()
         else:
             await self.session.flush()
+
+    @staticmethod
+    @activity.defn
+    async def get_workspace_organization_id_activity(
+        workspace_id: WorkspaceID,
+    ) -> OrganizationID | None:
+        """Resolve organization_id for a workspace.
+
+        This activity is used to heal legacy scheduled workflow roles that are
+        missing organization_id in their serialized schedule arguments.
+        """
+        async with get_async_session_bypass_rls_context_manager() as session:
+            stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
 
     @staticmethod
     @activity.defn
