@@ -28,7 +28,6 @@ from tracecat import config
 from tracecat.audit.rls import audit_rls_violation
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import TracecatRLSViolationError
-from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
@@ -62,13 +61,9 @@ class _RLSContext:
 def is_rls_enabled() -> bool:
     """Check if RLS checks should be treated as enabled in application logic.
 
-    Primary source of truth is TRACECAT__RLS_MODE. The legacy rls-enabled
-    feature flag remains supported for backwards compatibility.
+    Primary source of truth is TRACECAT__RLS_MODE.
     """
-    return (
-        config.TRACECAT__RLS_MODE != config.RLSMode.OFF
-        or FeatureFlag.RLS_ENABLED in config.TRACECAT__FEATURE_FLAGS
-    )
+    return config.TRACECAT__RLS_MODE != config.RLSMode.OFF
 
 
 def is_rls_mode_off() -> bool:

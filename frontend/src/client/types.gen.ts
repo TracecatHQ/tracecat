@@ -2884,7 +2884,6 @@ export type FeatureFlag =
   | "ai-ranking"
   | "workflow-concurrency-limits"
   | "agent-channels"
-  | "rls-enabled"
 
 /**
  * Response model for feature flags.

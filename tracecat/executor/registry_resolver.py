@@ -12,7 +12,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistrySecretType
 
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.engine import (
+    get_async_session_bypass_rls_context_manager,
+    get_async_session_context_manager,
+)
 from tracecat.db.models import (
     PlatformRegistryRepository,
     PlatformRegistryVersion,
