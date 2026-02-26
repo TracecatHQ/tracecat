@@ -856,6 +856,7 @@ export function WorkflowsDashboard() {
   )
   const [limit, setLimit] = useState(DEFAULT_LIMIT)
   const [folderPage, setFolderPage] = useState(0)
+  const [listPage, setListPage] = useState(0)
 
   const [activeDialog, setActiveDialog] = useState<ActiveDialog | null>(null)
   const [selectedWorkflow, setSelectedWorkflow] =
@@ -881,9 +882,30 @@ export function WorkflowsDashboard() {
     [tagFilter, tagNameByRef]
   )
 
+  const tagFilterSet = useMemo(() => new Set(tagFilter), [tagFilter])
+  const caseTriggerFilterSet = useMemo(
+    () => new Set(caseTriggerFilter),
+    [caseTriggerFilter]
+  )
+  const hasTriggerFiltersActive =
+    webhookFilter !== "all" ||
+    scheduleFilter !== "all" ||
+    (caseAddonsEnabled && caseTriggerFilterSet.size > 0)
+  const normalizedSearch = useMemo(
+    () => searchQuery.trim().toLowerCase(),
+    [searchQuery]
+  )
+  const listFiltersActive =
+    normalizedSearch.length > 0 || hasTriggerFiltersActive
+  const canUseServerPaginatedList =
+    !listFiltersActive &&
+    sortBy.field === "created_at" &&
+    sortBy.direction === "desc"
+  const workflowPageLimit = canUseServerPaginatedList ? limit : 0
+
   const workflowPagination = useWorkflowsPagination({
     workspaceId,
-    limit,
+    limit: workflowPageLimit,
     tags: workflowTagNames,
     enabled: view === "list",
   })
@@ -922,20 +944,6 @@ export function WorkflowsDashboard() {
     nextParams.set("path", normalizeFolderPath(path))
     router.push(buildRoute(nextParams))
   }
-
-  const tagFilterSet = useMemo(() => new Set(tagFilter), [tagFilter])
-  const caseTriggerFilterSet = useMemo(
-    () => new Set(caseTriggerFilter),
-    [caseTriggerFilter]
-  )
-  const hasTriggerFiltersActive =
-    webhookFilter !== "all" ||
-    scheduleFilter !== "all" ||
-    (caseAddonsEnabled && caseTriggerFilterSet.size > 0)
-  const normalizedSearch = useMemo(
-    () => searchQuery.trim().toLowerCase(),
-    [searchQuery]
-  )
 
   const matchesFilters = useCallback(
     (item: DirectoryItem): boolean => {
@@ -1046,6 +1054,7 @@ export function WorkflowsDashboard() {
 
   useEffect(() => {
     setFolderPage(0)
+    setListPage(0)
   }, [
     caseAddonsEnabled,
     view,
@@ -1065,37 +1074,53 @@ export function WorkflowsDashboard() {
       sortedDirectoryItems.slice(folderStartIndex, folderStartIndex + limit),
     [sortedDirectoryItems, folderStartIndex, limit]
   )
-
-  const localListFiltersActive =
-    normalizedSearch.length > 0 || hasTriggerFiltersActive
+  const listStartIndex = listPage * limit
+  const listVisibleItems = useMemo(
+    () =>
+      canUseServerPaginatedList
+        ? sortedListItems
+        : sortedListItems.slice(listStartIndex, listStartIndex + limit),
+    [canUseServerPaginatedList, sortedListItems, listStartIndex, limit]
+  )
 
   const headerTotalCount =
     view === "folders"
       ? sortedDirectoryItems.length
-      : localListFiltersActive
-        ? sortedListItems.length
-        : workflowPagination.totalEstimate || sortedListItems.length
+      : canUseServerPaginatedList
+        ? workflowPagination.totalEstimate || sortedListItems.length
+        : sortedListItems.length
 
-  const visibleItems = view === "folders" ? folderVisibleItems : sortedListItems
+  const visibleItems =
+    view === "folders" ? folderVisibleItems : listVisibleItems
   const isLoading =
     view === "folders" ? directoryItemsIsLoading : workflowPagination.isLoading
   const error =
     view === "folders" ? directoryItemsError : workflowPagination.error
 
   const hasPreviousPage =
-    view === "folders" ? folderPage > 0 : workflowPagination.hasPreviousPage
+    view === "folders"
+      ? folderPage > 0
+      : canUseServerPaginatedList
+        ? workflowPagination.hasPreviousPage
+        : listPage > 0
 
   const hasNextPage =
     view === "folders"
       ? folderStartIndex + limit < sortedDirectoryItems.length
-      : workflowPagination.hasNextPage
+      : canUseServerPaginatedList
+        ? workflowPagination.hasNextPage
+        : listStartIndex + limit < sortedListItems.length
 
   const handlePreviousPage = () => {
     if (view === "folders") {
       setFolderPage((current) => Math.max(current - 1, 0))
       return
     }
-    workflowPagination.goToPreviousPage()
+    if (canUseServerPaginatedList) {
+      workflowPagination.goToPreviousPage()
+      return
+    }
+    setListPage((current) => Math.max(current - 1, 0))
   }
 
   const handleNextPage = () => {
@@ -1109,7 +1134,14 @@ export function WorkflowsDashboard() {
       })
       return
     }
-    workflowPagination.goToNextPage()
+    if (canUseServerPaginatedList) {
+      workflowPagination.goToNextPage()
+      return
+    }
+    setListPage((current) => {
+      const maxPage = Math.max(Math.ceil(sortedListItems.length / limit) - 1, 0)
+      return Math.min(current + 1, maxPage)
+    })
   }
 
   const emptyMessage =

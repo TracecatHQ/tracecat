@@ -90,9 +90,11 @@ export function WorkflowTagsTable({
 }: WorkflowTagsTableProps) {
   const [selectedTag, setSelectedTag] = useState<TagRead | null>(null)
   const [action, setAction] = useState<TagItemAction | null>(null)
+  const isDialogOpen = action !== null && selectedTag !== null
 
   return (
     <AlertDialog
+      open={isDialogOpen}
       onOpenChange={(isOpen) => {
         if (!isOpen) {
           setSelectedTag(null)
@@ -239,7 +241,8 @@ export function WorkflowTagsTable({
             <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              onClick={async () => {
+              onClick={async (event) => {
+                event.preventDefault()
                 if (selectedTag) {
                   try {
                     await onDeleteTag(selectedTag.id)

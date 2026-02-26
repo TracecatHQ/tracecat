@@ -253,6 +253,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     if (direction) {
       setSortByState({ field: "priority", direction })
       setSeveritySortDirectionState(null)
+    } else {
+      setSortByState(DEFAULT_CASE_SORT)
     }
   }, [])
 
@@ -261,6 +263,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     if (direction) {
       setSortByState({ field: "severity", direction })
       setPrioritySortDirectionState(null)
+    } else {
+      setSortByState(DEFAULT_CASE_SORT)
     }
   }, [])
 

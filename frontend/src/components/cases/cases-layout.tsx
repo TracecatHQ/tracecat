@@ -318,7 +318,10 @@ export function CasesLayout({
     Boolean(filters.prioritySortDirection) ||
     Boolean(filters.severitySortDirection) ||
     Boolean(filters.assigneeSortDirection) ||
-    Boolean(filters.tagSortDirection)
+    Boolean(filters.tagSortDirection) ||
+    Object.values(filters.dropdownFilters).some((filter) =>
+      Boolean(filter.sortDirection)
+    )
 
   if (isLoading) {
     return (
