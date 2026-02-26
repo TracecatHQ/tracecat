@@ -145,11 +145,28 @@ class TablesClient:
         response = await self._client.post(f"/tables/{table}/search", json=data)
         if isinstance(response, list):
             return cast(list[dict[str, Any]], response)
-        if not isinstance(response, dict) or not isinstance(
-            response.get("items"), list
-        ):
+        if not isinstance(response, dict):
             raise ValueError("Unexpected search response")
-        return cast(types.TableSearchResponse, response)
+        if isinstance(response.get("items"), list):
+            return cast(types.TableSearchResponse, response)
+
+        # Backward compatibility for historical payloads that used "rows"
+        # instead of "items" for paginated search responses.
+        if isinstance(response.get("rows"), list):
+            normalized_response: types.TableSearchResponse = {
+                "items": cast(list[dict[str, Any]], response["rows"]),
+                "next_cursor": cast(str | None, response.get("next_cursor")),
+                "prev_cursor": cast(str | None, response.get("prev_cursor")),
+                "has_more": bool(response.get("has_more", False)),
+                "has_previous": bool(response.get("has_previous", False)),
+            }
+            if "total_estimate" in response:
+                normalized_response["total_estimate"] = cast(
+                    int | None, response.get("total_estimate")
+                )
+            return normalized_response
+
+        raise ValueError("Unexpected search response")
 
     async def insert_row(
         self,
