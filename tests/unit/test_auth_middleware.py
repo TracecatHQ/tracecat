@@ -634,6 +634,10 @@ async def test_organization_id_populated_when_require_workspace_no(mocker):
     mocker.patch("tracecat.auth.credentials.is_unprivileged", return_value=False)
 
     mocker.patch(
+        "tracecat.auth.credentials.set_rls_context",
+        new=AsyncMock(),
+    )
+    mocker.patch(
         "tracecat.auth.credentials.set_rls_context_from_role",
         new=AsyncMock(),
     )

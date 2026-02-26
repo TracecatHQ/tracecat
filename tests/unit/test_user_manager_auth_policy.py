@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 
 import pytest
 from fastapi.security import OAuth2PasswordRequestForm
@@ -32,6 +33,20 @@ pytestmark = pytest.mark.usefixtures("db")
 def user_manager(session: AsyncSession) -> UserManager:
     user_db = SQLAlchemyUserDatabase(session, User, OAuthAccount)
     return UserManager(user_db)
+
+
+@pytest.fixture(autouse=True)
+def patch_bypass_session_context_manager(
+    monkeypatch: pytest.MonkeyPatch, session: AsyncSession
+) -> None:
+    @asynccontextmanager
+    async def _session_cm():
+        yield session
+
+    monkeypatch.setattr(
+        "tracecat.auth.users.get_async_session_bypass_rls_context_manager",
+        _session_cm,
+    )
 
 
 async def _create_user_with_org_membership(
