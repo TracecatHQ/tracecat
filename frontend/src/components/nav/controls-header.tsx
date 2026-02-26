@@ -144,12 +144,8 @@ function WorkflowsActions() {
   const view = searchParams?.get("view") === "list" ? "list" : "folders"
   const currentPath =
     view === "folders" ? searchParams?.get("path") || "/" : null
-  const workflowsHref = workspaceId
-    ? `/workspaces/${workspaceId}/workflows`
-    : undefined
-  const tagsHref = workspaceId
-    ? `/workspaces/${workspaceId}/workflows/tags`
-    : undefined
+  const workflowsHref = `/workspaces/${workspaceId}/workflows`
+  const tagsHref = `/workspaces/${workspaceId}/workflows/tags`
 
   return (
     <>

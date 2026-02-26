@@ -17,23 +17,17 @@ export enum WorkflowsCatalogViewMode {
 
 interface WorkflowsCatalogViewToggleProps {
   view: WorkflowsCatalogViewMode
-  onViewChange?: (view: WorkflowsCatalogViewMode) => void
   className?: string
-  workflowsHref?: string
-  tagsHref?: string
+  workflowsHref: string
+  tagsHref: string
 }
 
 export function WorkflowsCatalogViewToggle({
   view,
-  onViewChange,
   className,
   workflowsHref,
   tagsHref,
 }: WorkflowsCatalogViewToggleProps) {
-  const handleViewChange = (nextView: WorkflowsCatalogViewMode) => {
-    onViewChange?.(nextView)
-  }
-
   const toggleItems = [
     {
       mode: WorkflowsCatalogViewMode.Workflows,
@@ -77,31 +71,18 @@ export function WorkflowsCatalogViewToggle({
               : "bg-accent text-muted-foreground hover:bg-muted/50"
           )
 
-          const content = item.href ? (
-            <Link
-              href={item.href}
-              onClick={() => handleViewChange(item.mode)}
-              className={baseClasses}
-              aria-current={isActive ? "page" : undefined}
-              aria-label={item.ariaLabel}
-            >
-              <Icon className="size-3.5" />
-            </Link>
-          ) : (
-            <button
-              type="button"
-              onClick={() => handleViewChange(item.mode)}
-              className={baseClasses}
-              aria-current={isActive}
-              aria-label={item.ariaLabel}
-            >
-              <Icon className="size-3.5" />
-            </button>
-          )
-
           return (
             <Tooltip key={item.mode}>
-              <TooltipTrigger asChild>{content}</TooltipTrigger>
+              <TooltipTrigger asChild>
+                <Link
+                  href={item.href}
+                  className={baseClasses}
+                  aria-current={isActive ? "page" : undefined}
+                  aria-label={item.ariaLabel}
+                >
+                  <Icon className="size-3.5" />
+                </Link>
+              </TooltipTrigger>
               <TooltipContent>
                 <p>{item.tooltip}</p>
               </TooltipContent>
