@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypeGuard
 
 from pydantic import UUID4, BaseModel
 from temporalio import activity
 
-from tracecat.agent.common.types import MCPServerConfig, MCPToolDefinition
+from tracecat.agent.common.types import (
+    MCPServerConfig,
+    MCPToolDefinition,
+    MCPUrlServerConfig,
+)
 from tracecat.agent.mcp.internal_tools import (
     BUILDER_BUNDLED_ACTIONS,
     BUILDER_INTERNAL_TOOL_NAMES,
@@ -73,6 +77,10 @@ class ApplyApprovalResultsActivityInputs(BaseModel):
 
 class AgentActivities:
     """Activities for agent execution."""
+
+    @staticmethod
+    def _is_url_server(config: MCPServerConfig) -> TypeGuard[MCPUrlServerConfig]:
+        return config["type"] == "url"
 
     def get_activities(self) -> list[Callable[..., Any]]:
         return all_activities(self)
@@ -145,8 +153,13 @@ class AgentActivities:
         if args.mcp_servers:
             from tracecat.agent.mcp.user_client import discover_user_mcp_tools
 
+            url_servers = [cfg for cfg in args.mcp_servers if self._is_url_server(cfg)]
+            if not url_servers:
+                logger.info("No URL MCP servers configured for discovery")
+                url_servers = []
+
             try:
-                user_mcp_tools = await discover_user_mcp_tools(args.mcp_servers)
+                user_mcp_tools = await discover_user_mcp_tools(url_servers)
                 # Add user MCP tools to definitions
                 for tool_name, tool_def in user_mcp_tools.items():
                     defs[tool_name] = tool_def
@@ -159,13 +172,13 @@ class AgentActivities:
                         transport=cfg.get("transport", "http"),
                         headers=cfg.get("headers", {}),
                     )
-                    for cfg in args.mcp_servers
+                    for cfg in url_servers
                 ]
 
                 logger.info(
                     "Discovered user MCP tools",
                     tool_count=len(user_mcp_tools),
-                    server_count=len(args.mcp_servers),
+                    server_count=len(url_servers),
                 )
             except Exception as e:
                 logger.error(

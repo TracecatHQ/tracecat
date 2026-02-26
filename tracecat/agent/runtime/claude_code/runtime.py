@@ -13,12 +13,10 @@ from __future__ import annotations
 
 import asyncio
 import os
-import shutil
 import tempfile
-import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 import orjson
 from claude_agent_sdk import (
@@ -49,7 +47,11 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
-from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.common.types import (
+    MCPCommandServerConfig,
+    MCPServerConfig,
+    MCPToolDefinition,
+)
 from tracecat.agent.mcp.proxy_server import create_proxy_mcp_server
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
@@ -101,9 +103,11 @@ INTERNET_TOOLS = [
     "WebFetch",
 ]
 
-NPX_AUTO_YES_FLAGS = frozenset({"--yes", "-y"})
-NPX_TIMEOUT_WARNING_SECONDS = 60
-SUBPROCESS_LOG_OUTPUT_CHAR_LIMIT = 1000
+
+def _is_command_server(
+    config: MCPServerConfig,
+) -> TypeGuard[MCPCommandServerConfig]:
+    return config["type"] == "command"
 
 
 class ClaudeAgentRuntime:
@@ -414,170 +418,6 @@ class ClaudeAgentRuntime:
         base = "If asked about your identity, you are a Tracecat automation assistant."
         return f"{base}\n\n{instructions}" if instructions else base
 
-    @staticmethod
-    def _extract_npx_packages(args: list[str]) -> list[str]:
-        """Extract package names from an npx argument list."""
-        packages: list[str] = []
-        idx = 0
-        while idx < len(args):
-            arg = args[idx]
-            if arg in ("--package", "-p"):
-                if idx + 1 < len(args):
-                    package_name = args[idx + 1]
-                    if package_name and not package_name.startswith("-"):
-                        packages.append(package_name)
-                idx += 2
-                continue
-            if arg.startswith("--package="):
-                package_name = arg.split("=", maxsplit=1)[1]
-                if package_name:
-                    packages.append(package_name)
-            elif arg.startswith("-p="):
-                package_name = arg.split("=", maxsplit=1)[1]
-                if package_name:
-                    packages.append(package_name)
-            idx += 1
-
-        # Common case: npx <package> [package args...]
-        if not packages:
-            for arg in args:
-                if arg == "--":
-                    break
-                if arg.startswith("-"):
-                    continue
-                packages.append(arg)
-                break
-
-        # Preserve order while deduplicating.
-        return list(dict.fromkeys(packages))
-
-    @staticmethod
-    def _truncate_subprocess_output(output: bytes) -> str:
-        """Decode and truncate subprocess output for logs/errors."""
-        decoded = output.decode("utf-8", errors="replace").strip()
-        if len(decoded) <= SUBPROCESS_LOG_OUTPUT_CHAR_LIMIT:
-            return decoded
-        return (
-            f"{decoded[:SUBPROCESS_LOG_OUTPUT_CHAR_LIMIT]}... [truncated "
-            f"{len(decoded) - SUBPROCESS_LOG_OUTPUT_CHAR_LIMIT} chars]"
-        )
-
-    async def _warm_npx_command_server(
-        self,
-        *,
-        server_name: str,
-        command: str,
-        package_names: list[str],
-        env: dict[str, str] | None,
-        npx_has_yes_flag: bool,
-        timeout_seconds: int,
-    ) -> None:
-        """Pre-install npx package dependencies before Claude query starts."""
-        if not package_names:
-            await self._socket_writer.send_log(
-                "warning",
-                "Skipping npx MCP warmup because package could not be inferred",
-                extra={
-                    "server_name": server_name,
-                    "hint": "Provide package explicitly in args, e.g. ['@scope/pkg'] or ['--package', '@scope/pkg']",
-                },
-            )
-            return
-
-        warmup_command = [command]
-        if npx_has_yes_flag:
-            warmup_command.append("--yes")
-        for package_name in package_names:
-            warmup_command.extend(["--package", package_name])
-        # Execute a no-op node script to force npm package resolution/install.
-        warmup_command.extend(["--", "node", "-e", "process.exit(0)"])
-
-        await self._socket_writer.send_log(
-            "warning",
-            "Starting npx MCP dependency warmup",
-            extra={
-                "server_name": server_name,
-                "package_count": len(package_names),
-                "timeout": timeout_seconds,
-            },
-        )
-
-        subprocess_env = os.environ.copy()
-        if env:
-            subprocess_env.update(env)
-
-        started_at = time.perf_counter()
-        process = await asyncio.create_subprocess_exec(
-            *warmup_command,
-            cwd=str(self._cwd),
-            env=subprocess_env,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=timeout_seconds,
-            )
-        except TimeoutError as exc:
-            process.kill()
-            await process.communicate()
-            await self._socket_writer.send_log(
-                "warning",
-                "npx MCP dependency warmup timed out",
-                extra={
-                    "server_name": server_name,
-                    "timeout_seconds": timeout_seconds,
-                    "packages": package_names,
-                },
-            )
-            raise AgentSandboxValidationError(
-                f"Timed out warming npx MCP server '{server_name}' "
-                f"after {timeout_seconds}s"
-            ) from exc
-
-        duration_ms = int((time.perf_counter() - started_at) * 1000)
-        if process.returncode != 0:
-            stderr_preview = self._truncate_subprocess_output(stderr)
-            stdout_preview = self._truncate_subprocess_output(stdout)
-            await self._socket_writer.send_log(
-                "warning",
-                "npx MCP dependency warmup failed",
-                extra={
-                    "server_name": server_name,
-                    "exit_code": process.returncode,
-                    "packages": package_names,
-                    "duration_ms": duration_ms,
-                    "stderr_preview": stderr_preview,
-                    "stdout_preview": stdout_preview,
-                    "auth_hint": (
-                        "Check npm auth/.npmrc token in agent-executor environment"
-                        if "Access token expired or revoked" in stderr_preview
-                        else None
-                    ),
-                    "not_found_hint": (
-                        "Check package name and publish source (npm package may not exist)"
-                        if "Not Found" in stderr_preview or "E404" in stderr_preview
-                        else None
-                    ),
-                },
-            )
-            raise AgentSandboxValidationError(
-                f"npx MCP warmup failed for '{server_name}' with exit code "
-                f"{process.returncode}. stderr={stderr_preview}"
-            )
-
-        await self._socket_writer.send_log(
-            "warning",
-            "Completed npx MCP dependency warmup",
-            extra={
-                "server_name": server_name,
-                "duration_ms": duration_ms,
-                "stdout_preview": self._truncate_subprocess_output(stdout),
-                "stderr_preview": self._truncate_subprocess_output(stderr),
-            },
-        )
-
     async def run(self, payload: RuntimeInitPayload) -> None:
         """Run an agent with the given initialization payload.
 
@@ -627,19 +467,7 @@ class ClaudeAgentRuntime:
                 self._last_seen_line_index = len(payload.sdk_session_data.splitlines())
 
         try:
-            await self._socket_writer.send_log(
-                "warning",
-                "MCP runtime diagnostics",
-                extra={
-                    "direct_mode": TRACECAT__DISABLE_NSJAIL,
-                    "enable_internet_access": payload.config.enable_internet_access,
-                    "cwd": str(self._cwd),
-                    "path": os.environ.get("PATH", ""),
-                    "home": os.environ.get("HOME", ""),
-                },
-            )
-
-            # Build MCP servers config for registry actions and user MCP tools
+            # Build MCP servers config for registry actions and command servers
             mcp_servers: dict[str, Any] = {}
             if self.registry_tools:
                 proxy_config = await create_proxy_mcp_server(
@@ -648,119 +476,30 @@ class ClaudeAgentRuntime:
                 )
                 mcp_servers["tracecat-registry"] = proxy_config
 
-            # User MCP tools are now handled via the proxy server
-            # They're included in allowed_actions and routed through the trusted server
-            # (The sandbox has no network access, so direct HTTP connections don't work)
-
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
-            # Add command-based MCP servers (stdio)
-            # These run as subprocesses inside the sandbox and require internet access
-            reserved_names = frozenset(mcp_servers.keys())
-            npx_warmup_jobs: list[dict[str, Any]] = []
-            if payload.mcp_command_servers:
-                for cmd_server in payload.mcp_command_servers:
-                    server_name = cmd_server["name"]
-                    # Avoid collision with reserved names by adding suffix
-                    if server_name in reserved_names:
-                        server_name = f"{server_name}-cmd"
-                    command = cmd_server["command"]
-                    args = list(cmd_server.get("args", []))
-                    timeout = cmd_server.get("timeout")
+            if payload.config.mcp_servers:
+                for config in payload.config.mcp_servers:
+                    if not _is_command_server(config):
+                        continue
 
-                    await self._socket_writer.send_log(
-                        "warning",
-                        "Preparing command MCP server",
-                        extra={
-                            "server_name": server_name,
-                            "command": command,
-                            "args_preview": args,
-                            "args_count": len(args),
-                            "timeout": timeout or 30,
-                            "env_keys": sorted((cmd_server.get("env") or {}).keys()),
-                        },
-                    )
+                    base_name = config["name"]
+                    server_name = base_name
+                    suffix = 2
+                    while server_name in mcp_servers:
+                        server_name = f"{base_name}-{suffix}"
+                        suffix += 1
 
-                    resolved_command = shutil.which(command)
-                    await self._socket_writer.send_log(
-                        "warning",
-                        "Command resolution for MCP server",
-                        extra={
-                            "server_name": server_name,
-                            "command": command,
-                            "resolved_path": resolved_command,
-                        },
-                    )
-
-                    if command == "npx":
-                        await self._socket_writer.send_log(
-                            "warning",
-                            "npx runtime resolution diagnostics",
-                            extra={
-                                "server_name": server_name,
-                                "resolved_npx": shutil.which("npx"),
-                                "resolved_node": shutil.which("node"),
-                                "resolved_npm": shutil.which("npm"),
-                            },
-                        )
-
-                    if command == "npx" and not any(
-                        flag in NPX_AUTO_YES_FLAGS for flag in args
-                    ):
-                        await self._socket_writer.send_log(
-                            "warning",
-                            "npx MCP server args missing explicit --yes/-y",
-                            extra={
-                                "server_name": server_name,
-                                "hint": "Set args explicitly, e.g. ['-y', '@modelcontextprotocol/server-github']",
-                            },
-                        )
                     server_config: dict[str, Any] = {
-                        "command": command,
+                        "command": config["command"],
                     }
-                    if args:
+                    if args := config.get("args"):
                         server_config["args"] = args
-                    if env := cmd_server.get("env"):
+                    if env := config.get("env"):
                         server_config["env"] = env
-                    if timeout:
+                    if timeout := config.get("timeout"):
                         server_config["timeout"] = timeout
-                    if command == "npx":
-                        effective_timeout = timeout or 30
-                        if effective_timeout < NPX_TIMEOUT_WARNING_SECONDS:
-                            await self._socket_writer.send_log(
-                                "warning",
-                                "npx MCP server timeout may be too low for ephemeral installs",
-                                extra={
-                                    "server_name": server_name,
-                                    "timeout": effective_timeout,
-                                    "recommended_min_timeout": NPX_TIMEOUT_WARNING_SECONDS,
-                                },
-                            )
-                        npx_warmup_jobs.append(
-                            {
-                                "server_name": server_name,
-                                "command": command,
-                                "package_names": self._extract_npx_packages(args),
-                                "env": cmd_server.get("env"),
-                                "npx_has_yes_flag": any(
-                                    flag in NPX_AUTO_YES_FLAGS for flag in args
-                                ),
-                                "timeout_seconds": max(
-                                    effective_timeout,
-                                    NPX_TIMEOUT_WARNING_SECONDS,
-                                ),
-                            }
-                        )
-                    mcp_servers[server_name] = server_config
-                    logger.debug(
-                        "Added command MCP server",
-                        server_name=server_name,
-                        command=command,
-                    )
 
-            # Warm npx dependencies before starting Claude query.
-            # This avoids first-tool-call races in ephemeral execution environments.
-            for warmup in npx_warmup_jobs:
-                await self._warm_npx_command_server(**warmup)
+                    mcp_servers[server_name] = server_config
 
             def handle_claude_stderr(line: str) -> None:
                 """Forward Claude CLI stderr to loopback via queue."""
@@ -816,20 +555,10 @@ class ClaudeAgentRuntime:
             )
 
             async def drain_stderr() -> None:
-                """Background task to drain stderr queue to loopback.
-
-                Surfaces all stderr as user-visible stream events so users can
-                diagnose issues with MCP servers and other subprocess errors.
-                """
+                """Background task to drain stderr queue to loopback."""
                 while True:
                     line = await stderr_queue.get()
-                    # Surface as user-visible error in the stream
-                    await self._socket_writer.send_stream_event(
-                        UnifiedStreamEvent(
-                            type=StreamEventType.ERROR,
-                            error=line,
-                        )
-                    )
+                    await self._socket_writer.send_log("warning", f"[stderr] {line}")
 
             logger.debug(
                 "Creating ClaudeSDKClient",

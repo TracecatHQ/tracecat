@@ -14,7 +14,11 @@ from tracecat.agent.executor.aio import AioStreamingAgentExecutor
 from tracecat.agent.parsers import try_parse_json
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps
-from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
+from tracecat.agent.types import (
+    AgentConfig,
+    MCPServerConfig,
+    OutputType,
+)
 from tracecat.chat.schemas import ChatMessage
 from tracecat.config import (
     TRACECAT__AGENT_MAX_REQUESTS,
@@ -171,11 +175,12 @@ async def run_agent(
         if mcp_server_url:
             if mcp_servers is None:
                 mcp_servers = []
-            legacy_mcp_server = MCPServerConfig(
-                name="legacy",
-                url=mcp_server_url,
-                headers=mcp_server_headers or {},
-            )
+            legacy_mcp_server: MCPServerConfig = {
+                "type": "url",
+                "name": "legacy",
+                "url": mcp_server_url,
+                "headers": mcp_server_headers or {},
+            }
             mcp_servers.append(legacy_mcp_server)
 
         args = RunAgentArgs(

@@ -14,7 +14,6 @@ from tracecat import config
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.types import (
     AgentConfig,
-    MCPCommandServerConfig,
     MCPServerConfig,
     OutputType,
 )
@@ -216,14 +215,10 @@ class AgentPresetService(BaseWorkspaceService):
 
     async def _resolve_mcp_integrations(
         self, mcp_integrations: list[str] | None
-    ) -> tuple[list[MCPServerConfig] | None, list[MCPCommandServerConfig] | None]:
-        """Resolve MCP integrations into URL and command server configs.
-
-        Returns:
-            Tuple of (url_servers, command_servers) where each can be None if empty.
-        """
+    ) -> list[MCPServerConfig] | None:
+        """Resolve MCP integrations into MCP server configs."""
         if not mcp_integrations:
-            return None, None
+            return None
 
         integrations_service = IntegrationService(self.session, role=self.role)
         available_mcp_integrations = await integrations_service.list_mcp_integrations()
@@ -239,9 +234,7 @@ class AgentPresetService(BaseWorkspaceService):
                 "TRACECAT__DB_ENCRYPTION_KEY is not set, cannot resolve MCP integrations"
             )
 
-        # Collect URL-type and command-type servers separately
-        url_servers: list[MCPServerConfig] = []
-        command_servers: list[MCPCommandServerConfig] = []
+        mcp_servers: list[MCPServerConfig] = []
 
         for mcp_id_str in mcp_integrations:
             try:
@@ -306,7 +299,8 @@ class AgentPresetService(BaseWorkspaceService):
                     )
                     continue
 
-                command_config: MCPCommandServerConfig = {
+                command_config: MCPServerConfig = {
+                    "type": "command",
                     "name": mcp_integration.slug,
                     "command": mcp_integration.command,
                 }
@@ -317,7 +311,7 @@ class AgentPresetService(BaseWorkspaceService):
                 if mcp_integration.timeout:
                     command_config["timeout"] = mcp_integration.timeout
 
-                command_servers.append(command_config)
+                mcp_servers.append(command_config)
                 continue
 
             # Handle URL-type servers (default)
@@ -453,20 +447,21 @@ class AgentPresetService(BaseWorkspaceService):
                 continue
 
             # Build MCP server config
-            url_servers.append(
+            mcp_servers.append(
                 {
+                    "type": "url",
                     "name": mcp_integration.name,
                     "url": mcp_integration.server_uri,
                     "headers": headers,
                 }
             )
 
-        if not url_servers and not command_servers:
+        if not mcp_servers:
             raise TracecatValidationError(
                 "No matching MCP integrations found for this preset in the workspace"
             )
 
-        return url_servers or None, command_servers or None
+        return mcp_servers
 
     async def _normalize_and_validate_slug(
         self,
@@ -515,12 +510,10 @@ class AgentPresetService(BaseWorkspaceService):
         return result.scalars().first()
 
     async def _preset_to_agent_config(self, preset: AgentPreset) -> AgentConfig:
-        mcp_servers, mcp_command_servers = await self._resolve_mcp_integrations(
-            preset.mcp_integrations
-        )
+        mcp_servers = await self._resolve_mcp_integrations(preset.mcp_integrations)
         # Only disable parallel tool calls if tools will be present
         model_settings = {}
-        if preset.actions or mcp_servers or mcp_command_servers:
+        if preset.actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
         return AgentConfig(
             model_name=preset.model_name,
@@ -532,7 +525,6 @@ class AgentPresetService(BaseWorkspaceService):
             namespaces=preset.namespaces,
             tool_approvals=preset.tool_approvals,
             mcp_servers=mcp_servers,
-            mcp_command_servers=mcp_command_servers,
             retries=preset.retries,
             model_settings=model_settings,
             enable_internet_access=preset.enable_internet_access,

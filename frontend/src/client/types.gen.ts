@@ -3366,19 +3366,9 @@ export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
 
 /**
  * Configuration for a command-based MCP server (stdio).
- *
- * These servers run as subprocesses and communicate via stdio. They are spawned
- * fresh for each agent invocation inside the sandbox.
- *
- * Example:
- * {
- * "name": "github",
- * "command": "npx",
- * "args": ["@modelcontextprotocol/server-github"],
- * "env": {"GITHUB_TOKEN": "ghp_xxx"}
- * }
  */
 export type MCPCommandServerConfig = {
+  type: "command"
   name: string
   command: string
   args?: Array<string>
@@ -3499,8 +3489,15 @@ export type MCPIntegrationUpdate = {
   timeout?: number | null
 }
 
+export type MCPServerConfig = MCPUrlServerConfig | MCPCommandServerConfig
+
 /**
- * Configuration for a URL-based MCP server (HTTP/SSE).
+ * Server type for MCP integrations.
+ */
+export type MCPServerType = "url" | "command"
+
+/**
+ * Configuration for a user-defined MCP server.
  *
  * Users can connect custom MCP servers to their agents - whether running as
  * Docker containers, local processes, or remote services. The server must
@@ -3514,7 +3511,8 @@ export type MCPIntegrationUpdate = {
  * "headers": {"Authorization": "Bearer ${{ SECRETS.internal.API_KEY }}"}
  * }
  */
-export type MCPServerConfig = {
+export type MCPUrlServerConfig = {
+  type: "url"
   name: string
   url: string
   headers?: {
@@ -3524,11 +3522,6 @@ export type MCPServerConfig = {
 }
 
 export type transport = "http" | "sse"
-
-/**
- * Server type for MCP integrations.
- */
-export type MCPServerType = "url" | "command"
 
 /**
  * The type/kind of message stored in the chat.

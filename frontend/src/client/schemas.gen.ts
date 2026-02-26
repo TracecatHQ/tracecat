@@ -10523,6 +10523,11 @@ export const $MCPAuthType = {
 
 export const $MCPCommandServerConfig = {
   properties: {
+    type: {
+      type: "string",
+      const: "command",
+      title: "Type",
+    },
     name: {
       type: "string",
       title: "Name",
@@ -10551,20 +10556,9 @@ export const $MCPCommandServerConfig = {
     },
   },
   type: "object",
-  required: ["name", "command"],
+  required: ["type", "name", "command"],
   title: "MCPCommandServerConfig",
-  description: `Configuration for a command-based MCP server (stdio).
-
-These servers run as subprocesses and communicate via stdio. They are spawned
-fresh for each agent invocation inside the sandbox.
-
-Example:
-    {
-        "name": "github",
-        "command": "npx",
-        "args": ["@modelcontextprotocol/server-github"],
-        "env": {"GITHUB_TOKEN": "ghp_xxx"}
-    }`,
+  description: "Configuration for a command-based MCP server (stdio).",
 } as const
 
 export const $MCPIntegrationCreate = {
@@ -10980,7 +10974,30 @@ export const $MCPIntegrationUpdate = {
 } as const
 
 export const $MCPServerConfig = {
+  anyOf: [
+    {
+      $ref: "#/components/schemas/MCPUrlServerConfig",
+    },
+    {
+      $ref: "#/components/schemas/MCPCommandServerConfig",
+    },
+  ],
+} as const
+
+export const $MCPServerType = {
+  type: "string",
+  enum: ["url", "command"],
+  title: "MCPServerType",
+  description: "Server type for MCP integrations.",
+} as const
+
+export const $MCPUrlServerConfig = {
   properties: {
+    type: {
+      type: "string",
+      const: "url",
+      title: "Type",
+    },
     name: {
       type: "string",
       title: "Name",
@@ -11003,9 +11020,9 @@ export const $MCPServerConfig = {
     },
   },
   type: "object",
-  required: ["name", "url"],
-  title: "MCPServerConfig",
-  description: `Configuration for a URL-based MCP server (HTTP/SSE).
+  required: ["type", "name", "url"],
+  title: "MCPUrlServerConfig",
+  description: `Configuration for a user-defined MCP server.
 
 Users can connect custom MCP servers to their agents - whether running as
 Docker containers, local processes, or remote services. The server must
@@ -11018,13 +11035,6 @@ Example:
         "transport": "http",
         "headers": {"Authorization": "Bearer \${{ SECRETS.internal.API_KEY }}"}
     }`,
-} as const
-
-export const $MCPServerType = {
-  type: "string",
-  enum: ["url", "command"],
-  title: "MCPServerType",
-  description: "Server type for MCP integrations.",
 } as const
 
 export const $MessageKind = {

@@ -5,23 +5,12 @@ Pure dataclasses with no Pydantic dependencies for minimal import footprint.
 
 from __future__ import annotations
 
-import uuid
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Annotated, Any, Literal, NotRequired, TypedDict
-
-if TYPE_CHECKING:
-    from pydantic_ai.tools import Tool as _PATool
-
-    CustomToolList = list[_PATool[Any]]
-else:
-    CustomToolList = list[Any]
+from dataclasses import dataclass
+from typing import Any, Literal, NotRequired, TypedDict
 
 
-# --- MCP Configuration Types ---
-
-
-class MCPServerConfig(TypedDict):
-    """Configuration for a URL-based MCP server (HTTP/SSE).
+class MCPUrlServerConfig(TypedDict):
+    """Configuration for a user-defined MCP server.
 
     Users can connect custom MCP servers to their agents - whether running as
     Docker containers, local processes, or remote services. The server must
@@ -35,6 +24,9 @@ class MCPServerConfig(TypedDict):
             "headers": {"Authorization": "Bearer ${{ SECRETS.internal.API_KEY }}"}
         }
     """
+
+    type: Literal["url"]
+    """Discriminator for URL-based MCP configs."""
 
     name: str
     """Required: Unique identifier for the server. Tools will be prefixed with mcp__{name}__."""
@@ -50,37 +42,17 @@ class MCPServerConfig(TypedDict):
 
 
 class MCPCommandServerConfig(TypedDict):
-    """Configuration for a command-based MCP server (stdio).
+    """Configuration for a command-based MCP server (stdio)."""
 
-    These servers run as subprocesses and communicate via stdio. They are spawned
-    fresh for each agent invocation inside the sandbox.
-
-    Example:
-        {
-            "name": "github",
-            "command": "npx",
-            "args": ["@modelcontextprotocol/server-github"],
-            "env": {"GITHUB_TOKEN": "ghp_xxx"}
-        }
-    """
-
+    type: Literal["command"]
     name: str
-    """Required: Unique identifier for the server. Tools will be prefixed with mcp__{name}__."""
-
     command: str
-    """Required: Command to run (must be in allowlist: npx, uvx, python, python3, node)."""
-
     args: NotRequired[list[str]]
-    """Optional: Arguments for the command."""
-
     env: NotRequired[dict[str, str]]
-    """Optional: Environment variables for the subprocess (secrets already resolved)."""
-
     timeout: NotRequired[int]
-    """Optional: Process timeout in seconds. Defaults to 30."""
 
 
-# --- MCP Tool Definition ---
+type MCPServerConfig = MCPUrlServerConfig | MCPCommandServerConfig
 
 
 @dataclass(kw_only=True, slots=True)
@@ -116,71 +88,6 @@ class MCPToolDefinition:
             "description": self.description,
             "parameters_json_schema": self.parameters_json_schema,
         }
-
-
-# --- Stream Key ---
-
-
-class StreamKey(str):
-    """Redis stream key for agent sessions."""
-
-    def __new__(
-        cls,
-        workspace_id: uuid.UUID | str,
-        session_id: uuid.UUID | str,
-    ) -> StreamKey:
-        return super().__new__(
-            cls,
-            f"agent-stream:{str(workspace_id)}:{str(session_id)}",
-        )
-
-
-# --- Output Type ---
-
-
-type OutputType = (
-    Literal[
-        "bool",
-        "float",
-        "int",
-        "str",
-        "list[bool]",
-        "list[float]",
-        "list[int]",
-        "list[str]",
-    ]
-    | dict[str, Any]
-)
-
-
-# --- Agent Configuration ---
-
-
-@dataclass(kw_only=True, slots=True)
-class AgentConfig:
-    """Configuration for an agent."""
-
-    # Model
-    model_name: str
-    model_provider: str
-    base_url: str | None = None
-    # Agent
-    instructions: str | None = None
-    output_type: OutputType | None = None
-    # Tools
-    actions: list[str] | None = None
-    namespaces: list[str] | None = None
-    tool_approvals: dict[str, bool] | None = None
-    # MCP - URL-based servers (HTTP/SSE)
-    model_settings: dict[str, Any] | None = None
-    mcp_servers: list[MCPServerConfig] | None = None
-    # MCP - Command-based servers (stdio)
-    mcp_command_servers: list[MCPCommandServerConfig] | None = None
-    retries: int = 3
-    deps_type: type[Any] | None = None
-    custom_tools: CustomToolList | None = None
-    # Sandbox
-    enable_internet_access: bool = False
 
 
 @dataclass(kw_only=True, slots=True)
@@ -230,10 +137,13 @@ class SandboxAgentConfig:
         )
 
     @classmethod
-    def from_agent_config(cls, config: AgentConfig) -> SandboxAgentConfig:
-        """Create from a full AgentConfig.
+    def from_agent_config(cls, config: Any) -> SandboxAgentConfig:
+        """Create from a full AgentConfig (Pydantic model).
 
         This extracts only the fields needed for sandbox execution.
+
+        Args:
+            config: AgentConfig instance (or any object with matching attributes).
         """
         return cls(
             model_name=config.model_name,
@@ -243,7 +153,7 @@ class SandboxAgentConfig:
             tool_approvals=config.tool_approvals,
             mcp_servers=config.mcp_servers,
             output_type=config.output_type,
-            enable_internet_access=config.enable_internet_access,
+            enable_internet_access=getattr(config, "enable_internet_access", False),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -264,103 +174,3 @@ class SandboxAgentConfig:
             result["output_type"] = self.output_type
         result["enable_internet_access"] = self.enable_internet_access
         return result
-
-
-# --- Tool Types (Harness-Agnostic) ---
-
-
-@dataclass(kw_only=True, slots=True)
-class Tool:
-    """Harness-agnostic tool definition.
-
-    Uses canonical action names (with dots) throughout. Harness-specific adapters
-    are responsible for converting to their required format (e.g., pydantic-ai
-    requires underscores for Python function names).
-
-    Canonical names are used for:
-    - JWT token authorization (mcp/executor.py checks canonical names)
-    - Proxy server tool creation (expects canonical names, converts internally)
-    - UX display and configuration
-    """
-
-    name: str
-    """Canonical action name with dots (e.g., 'core.cases.list_cases')."""
-
-    description: str
-    """Human-readable description of what the tool does."""
-
-    parameters_json_schema: dict[str, Any]
-    """JSON schema for tool parameters."""
-
-    requires_approval: bool = False
-    """Whether this tool requires human approval before execution."""
-
-
-# --- Deferred Tool Types (Harness-Agnostic) ---
-
-
-@dataclass(kw_only=True)
-class ToolApproved:
-    """Indicates that a tool call has been approved for execution."""
-
-    override_args: dict[str, Any] | None = None
-    """Optional arguments to use instead of the original arguments."""
-
-    kind: Literal["tool-approved"] = "tool-approved"
-
-
-@dataclass(kw_only=True)
-class ToolDenied:
-    """Indicates that a tool call has been denied."""
-
-    message: str = "The tool call was denied."
-    """Message to return to the model explaining the denial."""
-
-    kind: Literal["tool-denied"] = "tool-denied"
-
-
-def _get_deferred_tool_approval_discriminator(v: Any) -> str:
-    """Discriminator function for DeferredToolApprovalResult."""
-    if isinstance(v, dict):
-        return v.get("kind", "tool-approved")
-    return getattr(v, "kind", "tool-approved")
-
-
-DeferredToolApprovalResult = Annotated[
-    ToolApproved | ToolDenied, _get_deferred_tool_approval_discriminator
-]
-"""Result for a tool call that required human-in-the-loop approval."""
-
-
-@dataclass(kw_only=True)
-class DeferredToolRequests:
-    """Harness-agnostic deferred tool requests.
-
-    Represents tool calls that require approval or external execution
-    before the agent can continue. Uses ToolCallContent for a harness-agnostic
-    representation of tool calls.
-    """
-
-    approvals: list[Any] = field(default_factory=list)
-    """Tool calls that require human-in-the-loop approval (ToolCallContent instances)."""
-
-    calls: list[Any] = field(default_factory=list)
-    """Tool calls that require external execution (ToolCallContent instances)."""
-
-    metadata: dict[str, dict[str, Any]] = field(default_factory=dict)
-    """Metadata for deferred tool calls, keyed by tool_call_id."""
-
-
-@dataclass(kw_only=True)
-class DeferredToolResults:
-    """Harness-agnostic deferred tool results.
-
-    Results for deferred tool calls from a previous run. The tool call IDs
-    must match those from the DeferredToolRequests output.
-    """
-
-    approvals: dict[str, bool | ToolApproved | ToolDenied] = field(default_factory=dict)
-    """Map of tool call IDs to approval results (True = approved, or ToolApproved/ToolDenied)."""
-
-    calls: dict[str, Any] = field(default_factory=dict)
-    """Map of tool call IDs to results for externally executed tools."""
