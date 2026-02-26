@@ -16,7 +16,7 @@ definition:
     model:
       type: enum["exa-research-fast", "exa-research", "exa-research-pro"]
       description: The model to use for research.
-      default: exa-research
+      default: exa-research-fast
   steps:
     - ref: create_research
       action: core.http_request
