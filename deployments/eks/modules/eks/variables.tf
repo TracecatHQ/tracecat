@@ -532,6 +532,12 @@ variable "feature_flags" {
   default     = ""
 }
 
+variable "registry_sync_builtin_use_installed_site_packages" {
+  description = "Use installed site-packages for builtin registry sync artifacts"
+  type        = bool
+  default     = false
+}
+
 # Auth Configuration
 variable "auth_types" {
   description = "Comma-separated authentication types (e.g., 'oidc', 'basic,saml', 'basic,oidc')"

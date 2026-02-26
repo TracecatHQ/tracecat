@@ -124,6 +124,9 @@ resource "helm_release" "tracecat" {
       }
       scheduling = local.tracecat_scheduling
       tracecat = {
+        registrySync = {
+          builtinUseInstalledSitePackages = var.registry_sync_builtin_use_installed_site_packages
+        }
         auth = {
           types = var.auth_types
         }
