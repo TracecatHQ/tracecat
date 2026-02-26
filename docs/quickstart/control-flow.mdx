@@ -169,11 +169,17 @@ Tracecat also supports explicit do-while control flow with `core.loop.start` and
 
 **Shape**
 
-```text
-loop_start -> (loop body actions) -> loop_end -> after
-                    ^                    |
-                    +--------------------+
-                   if ACTIONS.loop_end.result.continue is true
+```mermaid
+flowchart TD
+  LoopStart([loop_start])
+  LoopBody["loop body actions"]
+  LoopEnd([loop_end])
+  After([after])
+
+  LoopStart --> LoopBody
+  LoopBody --> LoopEnd
+  LoopEnd -->|continue = true| LoopStart
+  LoopEnd -->|continue = false| After
 ```
 
 **Iteration value**
@@ -186,6 +192,40 @@ loop_start -> (loop body actions) -> loop_end -> after
 - `core.loop.end` evaluates `condition` only when reached in normal execution.
 - If `core.loop.end` is reached in skip propagation mode, condition is not
   evaluated and the loop exits (`continue = false`).
+
+
+**Condition reference scope**
+
+- `core.loop.end.condition` can only reference actions in the loop scope that
+  the `core.loop.end` closes.
+- Referencing sibling or nested per-item scatter actions is invalid.
+- If condition logic depends on scatter work inside the loop, reference the
+  synchronized `gather` output (in loop scope), not the per-item action.
+
+```mermaid
+flowchart TD
+  subgraph "Valid"
+    ValidStart([loop_start])
+    ValidScatter["scatter"]
+    ValidPerItem["per_item"]
+    ValidGather["gather"]
+    ValidEnd([loop_end])
+
+    ValidStart --> ValidScatter --> ValidPerItem --> ValidGather --> ValidEnd
+    ValidEnd -->|"loop_end.condition uses"| ValidCondition1["ACTIONS.gather.result"]
+  end
+
+  subgraph "Invalid"
+    InvalidStart([loop_start])
+    InvalidScatter["scatter"]
+    InvalidPerItem["per_item"]
+    InvalidGather["gather"]
+    InvalidEnd([loop_end])
+
+    InvalidStart --> InvalidScatter --> InvalidPerItem --> InvalidGather --> InvalidEnd
+    InvalidEnd -->|"loop_end.condition uses"| InvalidCondition["ACTIONS.per_item.result"]
+  end
+```
 
 **Skip propagation edge cases**
 
