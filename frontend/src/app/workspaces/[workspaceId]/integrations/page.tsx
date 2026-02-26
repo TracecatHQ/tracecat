@@ -1,16 +1,7 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import {
-  KeyRound,
-  Loader2,
-  Lock,
-  LockKeyhole,
-  RotateCcw,
-  Sparkles,
-  SquareAsterisk,
-  WrenchIcon,
-} from "lucide-react"
+import { ChevronRight, Loader2, RotateCcw, SquareAsterisk } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
@@ -47,6 +38,11 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import {
   HoverCard,
   HoverCardContent,
@@ -113,13 +109,12 @@ type IntegrationItem =
 const displayStatus = (status: IntegrationStatus) =>
   status === "configured" ? "not_configured" : status
 
-const integrationTypeIcons = {
-  credential: KeyRound,
-  oauth: Lock,
-  mcp: Sparkles,
-  custom_oauth: LockKeyhole,
-  custom_mcp: WrenchIcon,
-} as const
+type IntegrationSectionType =
+  | "credential"
+  | "oauth"
+  | "mcp"
+  | "custom_oauth"
+  | "custom_mcp"
 
 const integrationTypeLabels = {
   credential: "Credential",
@@ -128,6 +123,22 @@ const integrationTypeLabels = {
   custom_oauth: "Custom OAuth",
   custom_mcp: "Custom MCP",
 } as const
+
+const integrationSectionOrder: IntegrationSectionType[] = [
+  "credential",
+  "oauth",
+  "custom_oauth",
+  "mcp",
+  "custom_mcp",
+]
+
+const integrationSectionTitles: Record<IntegrationSectionType, string> = {
+  credential: "Built-in credentials",
+  oauth: "OAuth",
+  custom_oauth: "Custom OAuth",
+  mcp: "MCP",
+  custom_mcp: "Custom MCP",
+}
 
 export default function IntegrationsPage() {
   const workspaceId = useWorkspaceId()
@@ -159,6 +170,15 @@ export default function IntegrationsPage() {
   const [disconnectConfirmTextByKey, setDisconnectConfirmTextByKey] = useState<
     Record<string, string>
   >({})
+  const [expandedSections, setExpandedSections] = useState<
+    Record<IntegrationSectionType, boolean>
+  >({
+    oauth: false,
+    custom_oauth: false,
+    mcp: false,
+    custom_mcp: false,
+    credential: false,
+  })
   const lastHandledConnectRef = useRef<string | null>(null)
 
   const { integrations, providers, providersIsLoading, providersError } =
@@ -331,6 +351,22 @@ export default function IntegrationsPage() {
     [integrationById]
   )
 
+  const getIntegrationDisplayType = useCallback(
+    (item: IntegrationItem): IntegrationSectionType => {
+      if (item.type === "oauth" && item.id.startsWith("custom_")) {
+        return "custom_oauth"
+      }
+      if (item.type === "oauth" && item.id.endsWith("_mcp")) {
+        return "mcp"
+      }
+      if (item.type === "mcp" && isCustomMcpIntegration(item)) {
+        return "custom_mcp"
+      }
+      return item.type
+    },
+    [isCustomMcpIntegration]
+  )
+
   const allIntegrations = useMemo<IntegrationItem[]>(() => {
     // Track which MCP provider IDs already have MCP integration records
     // so we don't show duplicates for connected MCP OAuth providers
@@ -455,6 +491,34 @@ export default function IntegrationsPage() {
     searchQuery,
     typeFilters,
   ])
+
+  const sectionedIntegrations = useMemo(() => {
+    const groupedIntegrations: Record<
+      IntegrationSectionType,
+      IntegrationItem[]
+    > = {
+      oauth: [],
+      custom_oauth: [],
+      mcp: [],
+      custom_mcp: [],
+      credential: [],
+    }
+
+    for (const item of filteredIntegrations) {
+      groupedIntegrations[getIntegrationDisplayType(item)].push(item)
+    }
+
+    return integrationSectionOrder
+      .map((sectionType) => ({
+        sectionType,
+        title: integrationSectionTitles[sectionType],
+        items: groupedIntegrations[sectionType],
+      }))
+      .filter(
+        (section) =>
+          section.items.length > 0 || section.sectionType === "custom_oauth"
+      )
+  }, [filteredIntegrations, getIntegrationDisplayType])
 
   const connectParam = searchParams?.get("connect")
   const connectGrantType = searchParams?.get(
@@ -647,349 +711,432 @@ export default function IntegrationsPage() {
         onTypeFilterToggle={handleTypeFilterToggle}
         connectionFilter={connectionFilter}
         onConnectionFilterChange={setConnectionFilter}
+        displayIntegrationCount={filteredIntegrations.length}
       />
 
       {/* Integrations List */}
-      <ScrollArea className="mt-6 flex-1 min-h-0 [&>[data-radix-scroll-area-viewport]]:[scrollbar-width:none] [&>[data-radix-scroll-area-viewport]::-webkit-scrollbar]:hidden [&>[data-orientation=vertical]]:!hidden [&>[data-orientation=horizontal]]:!hidden">
-        <div className="mx-auto grid max-w-[1600px] grid-cols-1 gap-2 pb-10 pl-3 pr-4 md:grid-cols-2 xl:grid-cols-3">
-          {filteredIntegrations.map((item) => {
-            const isOAuth = item.type === "oauth"
-            const isCredential = item.type === "credential"
-            const isMcp = item.type === "mcp"
-            const isCustomOAuth = isOAuth && item.id.startsWith("custom_")
-            const isMcpOAuth = isOAuth && item.id.endsWith("_mcp")
-            const isCustomMcp = isMcp && isCustomMcpIntegration(item)
-            const status = getIntegrationStatus(item)
-            const configuredEnvironments = isCredential
-              ? (credentialEnvironments.get(item.name) ?? [])
-              : []
-            const isConnected = isMcp
-              ? status === "connected"
-              : isCredential
-                ? false
-                : item.integration_status === "connected"
-            const isClickable =
-              (isOAuth && isConnected) ||
-              (canMutateIntegrations &&
-                (isCredential ||
-                  (isOAuth && item.requires_config && item.enabled) ||
-                  isMcp))
-            const isDisabled = isOAuth ? !item.enabled : false
-            const showConnect = canMutateIntegrations && !isConnected
-            const showDisconnect =
-              canMutateIntegrations && isConnected && !isCredential
-            const isConnecting =
-              isOAuth &&
-              ((connectProviderMutation.isPending &&
-                connectProviderMutation.variables?.providerId === item.id) ||
-                (testConnectionMutation.isPending &&
-                  testConnectionMutation.variables?.providerId === item.id))
-            const isDisconnecting =
-              isOAuth &&
-              disconnectProviderMutation.isPending &&
-              disconnectProviderMutation.variables?.providerId === item.id
-            const isDeletingMcp =
-              item.type === "mcp" &&
-              pendingMcpDeleteId === item.id &&
-              deleteMcpIntegrationIsPending
-            const disconnectKey = getDisconnectKey(item)
-            const disconnectConfirmText =
-              disconnectConfirmTextByKey[disconnectKey] ?? ""
-            const displayType = isCustomOAuth
-              ? "custom_oauth"
-              : isMcpOAuth
-                ? "mcp"
-                : isCustomMcp
-                  ? "custom_mcp"
-                  : item.type
-            const TypeIcon = integrationTypeIcons[displayType]
-            const typeLabel = integrationTypeLabels[displayType]
-
-            const mcpProviderIconId = isMcp
-              ? item.slug.endsWith("_mcp")
-                ? item.slug
-                : `${item.slug}_mcp`
-              : null
-
+      <ScrollArea className="flex-1 min-h-0 [&>[data-radix-scroll-area-viewport]]:[scrollbar-width:none] [&>[data-radix-scroll-area-viewport]::-webkit-scrollbar]:hidden [&>[data-orientation=vertical]]:!hidden [&>[data-orientation=horizontal]]:!hidden">
+        <div className="w-full pb-10">
+          {sectionedIntegrations.map((section) => {
+            const isExpanded = expandedSections[section.sectionType] ?? false
             return (
-              <Item
-                key={
-                  isOAuth
-                    ? `${item.id}-${item.grant_type}`
-                    : item.type === "credential"
-                      ? `credential-${item.id}`
-                      : item.id
+              <Collapsible
+                key={section.sectionType}
+                className="border-b border-border/50"
+                open={isExpanded}
+                onOpenChange={(nextOpen) =>
+                  setExpandedSections((prev) => ({
+                    ...prev,
+                    [section.sectionType]: nextOpen,
+                  }))
                 }
-                variant="outline"
-                className={cn(
-                  "flex-nowrap",
-                  isClickable && "cursor-pointer hover:bg-muted/50",
-                  !isClickable && "cursor-default"
-                )}
-                onClick={() => {
-                  if (isCredential) {
-                    if (!canMutateIntegrations) {
-                      return
-                    }
-                    setActiveCredentialTemplate(item.definition)
-                    return
-                  }
-                  if (isOAuth) {
-                    if (isConnected) {
-                      setDetailsProvider({
-                        providerId: item.id,
-                        grantType: item.grant_type,
-                      })
-                      return
-                    }
-                    if (item.requires_config && item.enabled) {
-                      if (!canMutateIntegrations) {
-                        return
-                      }
-                      handleOpenOAuthModal(item.id, item.grant_type)
-                    }
-                    return
-                  }
-                  if (isMcp) {
-                    if (!canMutateIntegrations) {
-                      return
-                    }
-                    setActiveMcpIntegrationId(item.id)
-                  }
-                }}
               >
-                <ItemMedia>
-                  {isOAuth ? (
-                    <ProviderIcon
-                      providerId={item.id}
-                      className="size-7 rounded"
-                    />
-                  ) : isCredential ? (
-                    <SecretIcon
-                      secretName={item.name}
-                      className="size-7 rounded"
-                    />
-                  ) : mcpProviderIconId ? (
-                    <ProviderIcon
-                      providerId={mcpProviderIconId}
-                      className="size-7 rounded"
-                    />
-                  ) : (
-                    <div className="flex size-7 items-center justify-center rounded bg-muted text-xs font-medium text-muted-foreground">
-                      MCP
-                    </div>
-                  )}
-                </ItemMedia>
-                <ItemContent className="min-w-0">
-                  <ItemTitle className="flex w-full min-w-0 items-center gap-2 text-[13px]">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="min-w-0 truncate">{item.name}</span>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>{item.name}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span
-                            role="img"
-                            aria-label={`${typeLabel} integration`}
-                            className="flex shrink-0 size-4 items-center justify-center rounded-sm border border-border bg-muted/70 text-muted-foreground"
-                          >
-                            <TypeIcon className="size-3" />
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>{typeLabel}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </ItemTitle>
-                </ItemContent>
-                <ItemActions className="ml-auto flex shrink-0 items-center gap-1.5 pl-3">
-                  {isOAuth && isConnected && canMutateIntegrations && (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            aria-label={`Reconnect ${item.name}`}
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              handleReconnect(item.id, item.grant_type)
-                            }}
-                            disabled={isDisabled || isConnecting}
-                          >
-                            <RotateCcw className="size-3.5" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Reconnect</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )}
-                  {showConnect && (
-                    <>
-                      {isCredential && configuredEnvironments.length > 0 && (
-                        <HoverCard openDelay={100} closeDelay={100}>
-                          <HoverCardTrigger asChild>
-                            <button
-                              type="button"
-                              className="flex h-6 w-6 items-center justify-center"
-                              aria-label={`View configured environments for ${item.name}`}
-                              onClick={(event) => event.stopPropagation()}
-                              onMouseDown={(event) => event.stopPropagation()}
-                            >
-                              <SquareAsterisk className="icon-success size-3.5" />
-                            </button>
-                          </HoverCardTrigger>
-                          <HoverCardContent
-                            className="w-auto max-w-[240px] p-3"
-                            align="end"
-                            side="top"
-                            sideOffset={6}
-                          >
-                            <div className="space-y-2 text-xs">
-                              <div className="font-medium text-foreground">
-                                Configured environments
-                              </div>
-                              <div className="flex flex-wrap gap-1">
-                                {configuredEnvironments.map((environment) => (
-                                  <Badge
-                                    key={environment}
-                                    variant="secondary"
-                                    className="text-[10px]"
-                                  >
-                                    {environment}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                          </HoverCardContent>
-                        </HoverCard>
-                      )}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-6 px-2.5 text-[11px] bg-white text-foreground hover:bg-muted border-input"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          if (isCredential) {
-                            setActiveCredentialTemplate(item.definition)
-                            return
-                          }
-                          if (isOAuth) {
-                            if (item.requires_config) {
-                              handleOpenOAuthModal(item.id, item.grant_type)
-                              return
-                            }
-                            handleDirectConnect(item.id, item.grant_type)
-                            return
-                          }
-                          setActiveMcpIntegrationId(item.id)
-                        }}
-                        disabled={isDisabled || isConnecting}
-                      >
-                        {isConnecting ? (
-                          <Loader2 className="mr-1.5 size-3 animate-spin" />
-                        ) : null}
-                        {isCredential ? "Configure" : "Connect"}
-                      </Button>
-                    </>
-                  )}
-                  {showDisconnect && (
-                    <AlertDialog
-                      onOpenChange={(nextOpen) => {
-                        if (!nextOpen) {
-                          resetDisconnectConfirmText(disconnectKey)
-                        }
-                      }}
+                <div>
+                  <CollapsibleTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-1 py-1.5 pl-[10px] pr-3 text-left transition-colors hover:bg-muted/50 data-[state=open]:bg-primary/5 dark:data-[state=open]:bg-primary/10 [&[data-state=open]_.chevron]:rotate-90"
                     >
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-6 px-2.5 text-[11px] bg-white text-foreground hover:bg-muted border-input"
-                          onClick={(event) => event.stopPropagation()}
-                          disabled={
-                            isDisabled || isDisconnecting || isDeletingMcp
-                          }
-                        >
-                          Disconnect
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>
-                            Disconnect integration
-                          </AlertDialogTitle>
-                          <AlertDialogDescription className="space-y-4">
-                            <p>
-                              {`Are you sure you want to disconnect from ${item.name}?`}
-                            </p>
-                            <div className="space-y-2">
-                              <Label htmlFor={`${disconnectKey}-confirm`}>
-                                Type <strong>{item.name}</strong> to confirm:
-                              </Label>
-                              <Input
-                                id={`${disconnectKey}-confirm`}
-                                value={disconnectConfirmText}
-                                onChange={(event) =>
-                                  setDisconnectConfirmTextByKey((prev) => ({
-                                    ...prev,
-                                    [disconnectKey]: event.target.value,
-                                  }))
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center">
+                        <ChevronRight className="chevron size-4 text-muted-foreground transition-transform duration-200" />
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-medium">
+                          {section.title}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {section.items.length}
+                        </span>
+                      </div>
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="divide-y divide-border/50">
+                      {section.items.map((item) => {
+                        const isOAuth = item.type === "oauth"
+                        const isCredential = item.type === "credential"
+                        const isMcp = item.type === "mcp"
+                        const status = getIntegrationStatus(item)
+                        const configuredEnvironments = isCredential
+                          ? (credentialEnvironments.get(item.name) ?? [])
+                          : []
+                        const isConnected = isMcp
+                          ? status === "connected"
+                          : isCredential
+                            ? false
+                            : item.integration_status === "connected"
+                        const isConfigured = status === "connected"
+                        const isClickable =
+                          (isOAuth && isConnected) ||
+                          (canMutateIntegrations &&
+                            (isCredential ||
+                              (isOAuth &&
+                                item.requires_config &&
+                                item.enabled) ||
+                              isMcp))
+                        const isDisabled = isOAuth ? !item.enabled : false
+                        const showConnect =
+                          canMutateIntegrations && !isConnected
+                        const showDisconnect =
+                          canMutateIntegrations && isConnected && !isCredential
+                        const isConnecting =
+                          isOAuth &&
+                          ((connectProviderMutation.isPending &&
+                            connectProviderMutation.variables?.providerId ===
+                              item.id) ||
+                            (testConnectionMutation.isPending &&
+                              testConnectionMutation.variables?.providerId ===
+                                item.id))
+                        const isDisconnecting =
+                          isOAuth &&
+                          disconnectProviderMutation.isPending &&
+                          disconnectProviderMutation.variables?.providerId ===
+                            item.id
+                        const isDeletingMcp =
+                          item.type === "mcp" &&
+                          pendingMcpDeleteId === item.id &&
+                          deleteMcpIntegrationIsPending
+                        const disconnectKey = getDisconnectKey(item)
+                        const disconnectConfirmText =
+                          disconnectConfirmTextByKey[disconnectKey] ?? ""
+                        const displayType = getIntegrationDisplayType(item)
+                        const typeLabel = integrationTypeLabels[displayType]
+
+                        const mcpProviderIconId = isMcp
+                          ? item.slug.endsWith("_mcp")
+                            ? item.slug
+                            : `${item.slug}_mcp`
+                          : null
+
+                        return (
+                          <Item
+                            key={
+                              isOAuth
+                                ? `${item.id}-${item.grant_type}`
+                                : item.type === "credential"
+                                  ? `credential-${item.id}`
+                                  : item.id
+                            }
+                            variant="default"
+                            size="sm"
+                            className={cn(
+                              "w-full flex-nowrap rounded-none border-none px-3 py-1.5 text-left transition-colors hover:bg-muted/50",
+                              isClickable && "cursor-pointer",
+                              !isClickable && "cursor-default"
+                            )}
+                            onClick={() => {
+                              if (isCredential) {
+                                if (!canMutateIntegrations) {
+                                  return
                                 }
-                                placeholder="Enter integration name"
-                                disabled={isDisconnecting || isDeletingMcp}
-                              />
-                            </div>
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            variant="destructive"
-                            onClick={async () => {
-                              if (disconnectConfirmText.trim() !== item.name) {
+                                setActiveCredentialTemplate(item.definition)
                                 return
                               }
                               if (isOAuth) {
-                                await handleOAuthDisconnect(
-                                  item.id,
-                                  item.grant_type
-                                )
-                              } else {
-                                await handleMcpDisconnect(item.id)
+                                if (isConnected) {
+                                  setDetailsProvider({
+                                    providerId: item.id,
+                                    grantType: item.grant_type,
+                                  })
+                                  return
+                                }
+                                if (item.requires_config && item.enabled) {
+                                  if (!canMutateIntegrations) {
+                                    return
+                                  }
+                                  handleOpenOAuthModal(item.id, item.grant_type)
+                                }
+                                return
                               }
-                              resetDisconnectConfirmText(disconnectKey)
+                              if (isMcp) {
+                                if (!canMutateIntegrations) {
+                                  return
+                                }
+                                setActiveMcpIntegrationId(item.id)
+                              }
                             }}
-                            disabled={
-                              isDisconnecting ||
-                              isDeletingMcp ||
-                              disconnectConfirmText.trim() !== item.name
-                            }
                           >
-                            {(isDisconnecting || isDeletingMcp) && (
-                              <Loader2 className="mr-2 size-3 animate-spin" />
-                            )}
-                            Disconnect
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  )}
-                </ItemActions>
-              </Item>
+                            <ItemMedia className="translate-y-0 self-center">
+                              {isOAuth ? (
+                                <ProviderIcon
+                                  providerId={item.id}
+                                  className="size-6 rounded"
+                                />
+                              ) : isCredential ? (
+                                <SecretIcon
+                                  secretName={item.name}
+                                  className="size-6 rounded"
+                                />
+                              ) : mcpProviderIconId ? (
+                                <ProviderIcon
+                                  providerId={mcpProviderIconId}
+                                  className="size-6 rounded"
+                                />
+                              ) : (
+                                <div className="flex size-6 items-center justify-center rounded bg-muted text-[10px] font-medium text-muted-foreground">
+                                  MCP
+                                </div>
+                              )}
+                            </ItemMedia>
+                            <ItemContent className="min-w-0 gap-0">
+                              <ItemTitle className="flex w-full min-w-0 items-center gap-2 text-xs">
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="min-w-0 truncate">
+                                        {item.name}
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>{item.name}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                                <span className="text-xs text-muted-foreground">
+                                  {typeLabel}
+                                </span>
+                              </ItemTitle>
+                            </ItemContent>
+                            <ItemActions className="ml-auto flex shrink-0 items-center gap-1.5 pl-3">
+                              {isConfigured &&
+                                (isCredential &&
+                                configuredEnvironments.length > 0 ? (
+                                  <HoverCard openDelay={100} closeDelay={100}>
+                                    <HoverCardTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="flex h-6 w-6 items-center justify-center"
+                                        aria-label={`View configured environments for ${item.name}`}
+                                        onClick={(event) =>
+                                          event.stopPropagation()
+                                        }
+                                        onMouseDown={(event) =>
+                                          event.stopPropagation()
+                                        }
+                                      >
+                                        <SquareAsterisk className="icon-success size-3.5" />
+                                      </button>
+                                    </HoverCardTrigger>
+                                    <HoverCardContent
+                                      className="w-auto max-w-[240px] p-3"
+                                      align="end"
+                                      side="top"
+                                      sideOffset={6}
+                                    >
+                                      <div className="space-y-2 text-xs">
+                                        <div className="font-medium text-foreground">
+                                          Configured environments
+                                        </div>
+                                        <div className="flex flex-wrap gap-1">
+                                          {configuredEnvironments.map(
+                                            (environment) => (
+                                              <Badge
+                                                key={environment}
+                                                variant="secondary"
+                                                className="text-[10px]"
+                                              >
+                                                {environment}
+                                              </Badge>
+                                            )
+                                          )}
+                                        </div>
+                                      </div>
+                                    </HoverCardContent>
+                                  </HoverCard>
+                                ) : (
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <span className="flex h-6 w-6 items-center justify-center">
+                                          <SquareAsterisk className="icon-success size-3.5" />
+                                        </span>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>Configured</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                ))}
+                              {isOAuth &&
+                                isConnected &&
+                                canMutateIntegrations && (
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-6 w-6"
+                                          aria-label={`Reconnect ${item.name}`}
+                                          onClick={(event) => {
+                                            event.stopPropagation()
+                                            handleReconnect(
+                                              item.id,
+                                              item.grant_type
+                                            )
+                                          }}
+                                          disabled={isDisabled || isConnecting}
+                                        >
+                                          <RotateCcw className="size-3.5" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>Reconnect</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                )}
+                              {showConnect && (
+                                <>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-6 border-input bg-white px-2.5 text-[11px] text-foreground hover:bg-muted"
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      if (isCredential) {
+                                        setActiveCredentialTemplate(
+                                          item.definition
+                                        )
+                                        return
+                                      }
+                                      if (isOAuth) {
+                                        if (item.requires_config) {
+                                          handleOpenOAuthModal(
+                                            item.id,
+                                            item.grant_type
+                                          )
+                                          return
+                                        }
+                                        handleDirectConnect(
+                                          item.id,
+                                          item.grant_type
+                                        )
+                                        return
+                                      }
+                                      setActiveMcpIntegrationId(item.id)
+                                    }}
+                                    disabled={isDisabled || isConnecting}
+                                  >
+                                    {isConnecting ? (
+                                      <Loader2 className="mr-1.5 size-3 animate-spin" />
+                                    ) : null}
+                                    {isCredential ? "Configure" : "Connect"}
+                                  </Button>
+                                </>
+                              )}
+                              {showDisconnect && (
+                                <AlertDialog
+                                  onOpenChange={(nextOpen) => {
+                                    if (!nextOpen) {
+                                      resetDisconnectConfirmText(disconnectKey)
+                                    }
+                                  }}
+                                >
+                                  <AlertDialogTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-6 border-input bg-white px-2.5 text-[11px] text-foreground hover:border-destructive hover:bg-destructive hover:text-destructive-foreground"
+                                      onClick={(event) =>
+                                        event.stopPropagation()
+                                      }
+                                      disabled={
+                                        isDisabled ||
+                                        isDisconnecting ||
+                                        isDeletingMcp
+                                      }
+                                    >
+                                      Disconnect
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>
+                                        Disconnect integration
+                                      </AlertDialogTitle>
+                                      <AlertDialogDescription className="space-y-4">
+                                        <p>
+                                          {`Are you sure you want to disconnect from ${item.name}?`}
+                                        </p>
+                                        <div className="space-y-2">
+                                          <Label
+                                            htmlFor={`${disconnectKey}-confirm`}
+                                          >
+                                            Type <strong>{item.name}</strong> to
+                                            confirm:
+                                          </Label>
+                                          <Input
+                                            id={`${disconnectKey}-confirm`}
+                                            value={disconnectConfirmText}
+                                            onChange={(event) =>
+                                              setDisconnectConfirmTextByKey(
+                                                (prev) => ({
+                                                  ...prev,
+                                                  [disconnectKey]:
+                                                    event.target.value,
+                                                })
+                                              )
+                                            }
+                                            placeholder="Enter integration name"
+                                            disabled={
+                                              isDisconnecting || isDeletingMcp
+                                            }
+                                          />
+                                        </div>
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>
+                                        Cancel
+                                      </AlertDialogCancel>
+                                      <AlertDialogAction
+                                        variant="destructive"
+                                        onClick={async () => {
+                                          if (
+                                            disconnectConfirmText.trim() !==
+                                            item.name
+                                          ) {
+                                            return
+                                          }
+                                          if (isOAuth) {
+                                            await handleOAuthDisconnect(
+                                              item.id,
+                                              item.grant_type
+                                            )
+                                          } else {
+                                            await handleMcpDisconnect(item.id)
+                                          }
+                                          resetDisconnectConfirmText(
+                                            disconnectKey
+                                          )
+                                        }}
+                                        disabled={
+                                          isDisconnecting ||
+                                          isDeletingMcp ||
+                                          disconnectConfirmText.trim() !==
+                                            item.name
+                                        }
+                                      >
+                                        {(isDisconnecting || isDeletingMcp) && (
+                                          <Loader2 className="mr-2 size-3 animate-spin" />
+                                        )}
+                                        Disconnect
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              )}
+                            </ItemActions>
+                          </Item>
+                        )
+                      })}
+                    </div>
+                  </CollapsibleContent>
+                </div>
+              </Collapsible>
             )
           })}
         </div>

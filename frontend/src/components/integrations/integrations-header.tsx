@@ -35,6 +35,7 @@ interface IntegrationsHeaderProps {
   onTypeFilterToggle: (filter: IntegrationTypeFilter) => void
   connectionFilter: ConnectionFilter
   onConnectionFilterChange: (filter: ConnectionFilter) => void
+  displayIntegrationCount?: number
 }
 
 const TYPE_FILTER_OPTIONS: Array<{
@@ -59,6 +60,7 @@ export function IntegrationsHeader({
   onTypeFilterToggle,
   connectionFilter,
   onConnectionFilterChange,
+  displayIntegrationCount = 0,
 }: IntegrationsHeaderProps) {
   return (
     <div className="w-full shrink-0 border-b">
@@ -82,6 +84,14 @@ export function IntegrationsHeader({
             )}
           />
         </div>
+
+        {displayIntegrationCount > 0 && (
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              {displayIntegrationCount} integrations
+            </span>
+          </div>
+        )}
       </header>
 
       {/* Row 2: Filters */}
