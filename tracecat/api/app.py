@@ -80,7 +80,9 @@ from tracecat.cases.tags.router import router as case_tags_router
 from tracecat.cases.triggers.consumer import start_case_trigger_consumer
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import (
+    get_async_session_bypass_rls_context_manager,
+)
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.editor.router import router as editor_router
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
@@ -158,7 +160,7 @@ async def lifespan(app: FastAPI):
 
     await ensure_default_organization()
 
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         await setup_rbac_defaults(session)
 
     # Spawn platform registry sync as background task (non-blocking)
