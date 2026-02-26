@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from tracecat_registry.sdk.tables import TablesClient
+from tracecat_registry.types import TableSearchResponse
 
 
 @pytest.fixture
@@ -37,17 +39,19 @@ async def test_search_rows_normalizes_legacy_rows_payload(
     }
 
     result = await tables_client.search_rows(table="test_table")
+    assert isinstance(result, dict)
+    paginated_result = cast(TableSearchResponse, result)
 
     mock_tracecat_client.post.assert_called_once_with(
         "/tables/test_table/search",
         json={},
     )
-    assert result["items"] == [{"id": "row-1"}]
-    assert result["next_cursor"] == "abc"
-    assert result["prev_cursor"] is None
-    assert result["has_more"] is True
-    assert result["has_previous"] is False
-    assert result["total_estimate"] == 7
+    assert paginated_result["items"] == [{"id": "row-1"}]
+    assert paginated_result["next_cursor"] == "abc"
+    assert paginated_result["prev_cursor"] is None
+    assert paginated_result["has_more"] is True
+    assert paginated_result["has_previous"] is False
+    assert paginated_result.get("total_estimate") == 7
 
 
 @pytest.mark.anyio
