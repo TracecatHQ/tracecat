@@ -1,7 +1,7 @@
 """Add Row-Level Security (RLS) policies for multi-tenancy
 
 Revision ID: c76f9b01fad7
-Revises: 8bec3e244487
+Revises: c9e4f54f0a2b
 Create Date: 2025-01-24
 
 This migration enables PostgreSQL Row-Level Security on all tenant-scoped tables.
@@ -27,7 +27,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "c76f9b01fad7"
-down_revision: str | None = "8bec3e244487"
+down_revision: str | None = "c9e4f54f0a2b"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
