@@ -1473,3 +1473,75 @@ async def test_import_csv_empty_raises(monkeypatch):
             workspace_id=str(uuid.uuid4()),
             csv_content="",
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("last_stream_id", "expected_start_id"),
+    [
+        ("1717426372766-0", "1717426372766-0"),
+        (None, "0-0"),
+    ],
+)
+async def test_run_agent_preset_uses_session_stream_cursor(
+    monkeypatch: pytest.MonkeyPatch,
+    last_stream_id: str | None,
+    expected_start_id: str,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    preset = SimpleNamespace(id=uuid.uuid4())
+    session = SimpleNamespace(id=uuid.uuid4(), last_stream_id=last_stream_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _PresetService:
+        async def get_preset_by_slug(self, _preset_slug: str) -> SimpleNamespace:
+            return preset
+
+    class _SessionService:
+        async def create_session(self, _create: Any) -> SimpleNamespace:
+            return session
+
+        async def run_turn(self, _session_id: uuid.UUID, _request: Any) -> None:
+            return None
+
+    captured: dict[str, Any] = {}
+
+    async def _collect(
+        session_id: uuid.UUID,
+        workspace_id_arg: uuid.UUID,
+        timeout: float,
+        last_id: str,
+    ) -> str:
+        captured["session_id"] = session_id
+        captured["workspace_id"] = workspace_id_arg
+        captured["timeout"] = timeout
+        captured["last_id"] = last_id
+        return "agent response"
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentSessionService,
+        "with_session",
+        lambda role: _AsyncContext(_SessionService()),
+    )
+    monkeypatch.setattr(mcp_server, "_collect_agent_response", _collect)
+
+    result = await _tool(mcp_server.run_agent_preset)(
+        workspace_id=str(workspace_id),
+        preset_slug="triage",
+        prompt="check alerts",
+    )
+
+    assert result == "agent response"
+    assert captured["session_id"] == session.id
+    assert captured["workspace_id"] == workspace_id
+    assert captured["timeout"] == 120
+    assert captured["last_id"] == expected_start_id

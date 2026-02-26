@@ -3335,6 +3335,7 @@ async def _collect_agent_response(
     session_id: uuid.UUID,
     workspace_id: uuid.UUID,
     timeout: float,
+    last_id: str,
 ) -> str:
     """Poll Redis agent stream, collect TEXT_DELTA chunks until StreamEnd."""
     stream = await AgentStream.new(session_id, workspace_id)
@@ -3345,7 +3346,9 @@ async def _collect_agent_response(
 
     try:
         async with asyncio.timeout(timeout):
-            async for event in stream._stream_events(_not_disconnected, last_id="$"):
+            async for event in stream._stream_events(
+                _not_disconnected, last_id=last_id
+            ):
                 match event:
                     case StreamEnd():
                         break
@@ -3444,7 +3447,13 @@ async def run_agent_preset(
         # Collect text from Redis stream
         if role.workspace_id is None:
             raise ToolError("Workspace ID is required")
-        return await _collect_agent_response(session.id, role.workspace_id, timeout)
+        start_id = session.last_stream_id or "0-0"
+        return await _collect_agent_response(
+            session.id,
+            role.workspace_id,
+            timeout,
+            start_id,
+        )
     except ToolError:
         raise
     except Exception as e:
