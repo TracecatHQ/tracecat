@@ -703,7 +703,11 @@ async def _role_dependency(
                 workspace_id=workspace_id,
             )
         except Exception:
-            await set_rls_context_from_role(session, None)
+            # Preserve the original auth error if cleanup cannot run.
+            try:
+                await set_rls_context_from_role(session, None)
+            except Exception:
+                logger.warning("Failed to clear RLS context after auth failure")
             raise
     elif api_key and allow_service:
         role = await _authenticate_service(request, api_key)
