@@ -284,7 +284,7 @@ function WorkflowsListRow({
               onClick={() => onOpenFolder(item.path)}
               className="flex min-w-0 flex-1 items-center gap-3 bg-transparent p-0 text-left"
             >
-              <FolderIcon className="size-4 shrink-0 text-sky-500" />
+              <FolderIcon className="size-4 shrink-0 text-black" />
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <span className="min-w-0 max-w-[340px] flex-1 truncate text-xs">
                   {item.name}
@@ -319,7 +319,7 @@ function WorkflowsListRow({
             onClick={() => onOpenWorkflow(item.id)}
             className="flex min-w-0 flex-1 items-center gap-3 bg-transparent p-0 text-left"
           >
-            <WorkflowIcon className="size-4 shrink-0 text-orange-500" />
+            <WorkflowIcon className="size-4 shrink-0 text-primary" />
             <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,340px)_max-content_max-content] items-center gap-3">
               <span className="min-w-0 truncate text-xs">{item.title}</span>
               <WorkflowMetadataBadges item={item} />
