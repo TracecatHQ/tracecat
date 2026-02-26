@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import Request
 
-from tracecat.api.app import info
+from tracecat.api.app import info, lifespan
 from tracecat.auth.credentials import _role_dependency
 from tracecat.auth.discovery import AuthDiscoveryService
 from tracecat.auth.types import Role
@@ -24,6 +24,12 @@ from tracecat.db.models import Base, OrganizationModel, WorkspaceModel
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.executor.registry_resolver import _get_manifest_entry
 from tracecat.executor.service import get_registry_artifacts_for_lock
+from tracecat.organization.router import (
+    accept_invitation,
+    get_invitation_by_token,
+    list_my_pending_invitations,
+)
+from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
 from tracecat.service import BaseOrgService
 from tracecat.settings.service import get_setting
 from tracecat.webhooks.dependencies import validate_incoming_webhook
@@ -130,10 +136,15 @@ async def test_authenticate_user_membership_check_is_not_done_under_deny_default
             rls_module._RLS_CONTEXT_INFO_KEY  # pyright: ignore[reportPrivateUsage]
         )
         assert isinstance(
-            context, rls_module._RLSContext  # pyright: ignore[reportPrivateUsage]
+            context,
+            rls_module._RLSContext,  # pyright: ignore[reportPrivateUsage]
         )
         # Auth should not run under deny-default (no tenant + bypass off).
-        assert context.bypass or context.workspace_id is not None or context.org_id is not None
+        assert (
+            context.bypass
+            or context.workspace_id is not None
+            or context.org_id is not None
+        )
         return role
 
     with (
@@ -257,8 +268,7 @@ def test_rls_migration_covers_org_registry_tables() -> None:
     missing_org_tables = modeled_org_tables - org_tables
 
     assert not missing_org_tables, (
-        f"Missing organization-scoped tables in migration: "
-        f"{sorted(missing_org_tables)}"
+        f"Missing organization-scoped tables in migration: {sorted(missing_org_tables)}"
     )
 
 
@@ -322,6 +332,45 @@ def test_validate_incoming_webhook_uses_bypass_session_manager() -> None:
 
 def test_case_trigger_consumer_uses_bypass_session_manager() -> None:
     source = inspect.getsource(CaseTriggerConsumer._process_message)
+    assert "get_async_session_bypass_rls_context_manager" in source
+
+
+def _source_has_auth_safe_rls_bootstrap(source: str) -> bool:
+    return any(
+        marker in source
+        for marker in (
+            "AsyncDBSessionBypass",
+            "get_async_session_bypass_rls_context_manager",
+            "set_rls_context(",
+        )
+    )
+
+
+def test_accept_invitation_bootstraps_rls_for_no_org_context() -> None:
+    source = inspect.getsource(accept_invitation)
+    assert _source_has_auth_safe_rls_bootstrap(source), (
+        "accept_invitation must use a bypass session or explicitly prime RLS context "
+        "before invitation reads/writes"
+    )
+
+
+def test_list_my_pending_invitations_uses_bypass_session_dependency() -> None:
+    source = inspect.getsource(list_my_pending_invitations)
+    assert "session: AsyncDBSessionBypass" in source
+
+
+def test_get_invitation_by_token_uses_bypass_session_dependency() -> None:
+    source = inspect.getsource(get_invitation_by_token)
+    assert "session: AsyncDBSessionBypass" in source
+
+
+def test_api_lifespan_rbac_seeding_uses_bypass_session_manager() -> None:
+    source = inspect.getsource(lifespan)
+    assert "get_async_session_bypass_rls_context_manager" in source
+
+
+def test_registry_sync_startup_uses_bypass_session_manager() -> None:
+    source = inspect.getsource(sync_platform_registry_on_startup)
     assert "get_async_session_bypass_rls_context_manager" in source
 
 
