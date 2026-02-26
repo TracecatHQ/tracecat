@@ -1,0 +1,37 @@
+tracecat/tiers/activities.py
+  d7f185447b1f7a4f 254
+  0a428bbf53d26ac2 169,189,215,234,266-270
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "72f8ebafa5da30c32fa0eb5e8f90e6bf15dd4ae4",
+  "prompts": {
+    "0a428bbf53d26ac2": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "560ddd24-9938-42c4-becf-873e456a886e",
+        "model": "gpt-5.3-codex-spark-preview-high"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 11,
+      "total_deletions": 12,
+      "accepted_lines": 11,
+      "overriden_lines": 0
+    },
+    "d7f185447b1f7a4f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c9aa1-02c3-7e01-b828-27130537e0f0",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 2,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
