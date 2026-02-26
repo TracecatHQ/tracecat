@@ -196,7 +196,9 @@ export function CreateCredentialDialog({
 }: CreateCredentialDialogProps) {
   const selectedTool = template
   const workspaceId = useWorkspaceId()
-  const { createSecret } = useWorkspaceSecrets(workspaceId)
+  const { createSecret } = useWorkspaceSecrets(workspaceId, {
+    listEnabled: false,
+  })
 
   // Form handling
   const methods = useForm<CreateSecretForm>({

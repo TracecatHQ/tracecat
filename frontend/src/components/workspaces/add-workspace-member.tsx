@@ -51,7 +51,7 @@ export function AddWorkspaceMember({
   const canInviteMembers = useScopeCheck("workspace:member:invite")
   const { addMember: addWorkspaceMember } = useWorkspaceMutations()
   const [showDialog, setShowDialog] = useState(false)
-  const { roles } = useRbacRoles()
+  const { roles } = useRbacRoles({ enabled: showDialog })
 
   // Include workspace preset roles and custom roles (custom roles have no slug prefix)
   const workspaceRoles = roles.filter(

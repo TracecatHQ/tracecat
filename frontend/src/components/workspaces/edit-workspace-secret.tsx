@@ -87,7 +87,9 @@ export function EditCredentialsDialog({
   ...props
 }: EditCredentialsDialogProps) {
   const workspaceId = useWorkspaceId()
-  const { updateSecretById } = useWorkspaceSecrets(workspaceId)
+  const { updateSecretById } = useWorkspaceSecrets(workspaceId, {
+    listEnabled: false,
+  })
   const isSshKey = selectedSecret?.type === "ssh-key"
   const hasFixedKeys =
     selectedSecret?.type === "mtls" || selectedSecret?.type === "ca-cert"

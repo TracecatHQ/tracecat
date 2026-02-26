@@ -65,8 +65,17 @@ export function WorkspaceMembersTable({
   const { members, membersLoading, membersError } = useWorkspaceMembers(
     workspace.id
   )
-  const { userAssignments, updateUserAssignment, createUserAssignment } =
-    useRbacUserAssignments({ workspaceId: workspace.id })
+  const {
+    userAssignments,
+    isLoading: userAssignmentsIsLoading,
+    updateUserAssignment,
+    updateUserAssignmentIsPending,
+    createUserAssignment,
+    createUserAssignmentIsPending,
+  } = useRbacUserAssignments({
+    workspaceId: workspace.id,
+    enabled: isChangeRoleOpen,
+  })
 
   const handleChangeRole = useCallback(
     async (roleId: string) => {
@@ -75,6 +84,18 @@ export function WorkspaceMembersTable({
           return toast({
             title: "No user selected",
             description: "Please select a user to change role",
+          })
+        }
+        if (!roleId) {
+          return toast({
+            title: "No role selected",
+            description: "Please select a role before continuing.",
+          })
+        }
+        if (userAssignmentsIsLoading) {
+          return toast({
+            title: "Role data is loading",
+            description: "Wait a moment and try changing the role again.",
           })
         }
         // Find the existing RBAC assignment for this user in this workspace
@@ -112,9 +133,14 @@ export function WorkspaceMembersTable({
       workspace.id,
       updateUserAssignment,
       createUserAssignment,
+      userAssignmentsIsLoading,
       queryClient,
     ]
   )
+
+  const isRoleMutationPending =
+    updateUserAssignmentIsPending || createUserAssignmentIsPending
+
   return (
     <Dialog open={isChangeRoleOpen} onOpenChange={setIsChangeRoleOpen}>
       <AlertDialog
@@ -294,7 +320,9 @@ export function WorkspaceMembersTable({
         </AlertDialogContent>
       </AlertDialog>
       <ChangeUserRoleDialog
+        open={isChangeRoleOpen}
         selectedUser={selectedUser}
+        isSubmitting={isRoleMutationPending || userAssignmentsIsLoading}
         setOpen={setIsChangeRoleOpen}
         onConfirm={handleChangeRole}
       />
@@ -303,15 +331,21 @@ export function WorkspaceMembersTable({
 }
 
 function ChangeUserRoleDialog({
+  open,
   selectedUser,
+  isSubmitting,
   setOpen,
   onConfirm,
 }: {
+  open: boolean
   selectedUser: WorkspaceMember | null
+  isSubmitting: boolean
   setOpen: (open: boolean) => void
   onConfirm: (roleId: string) => void
 }) {
-  const { roles } = useRbacRoles()
+  const { roles, isLoading: rolesIsLoading } = useRbacRoles({
+    enabled: open,
+  })
   const workspaceRoles = useMemo(
     () => roles.filter((r) => !r.slug || r.slug.startsWith("workspace-")),
     [roles]
@@ -319,9 +353,13 @@ function ChangeUserRoleDialog({
   const [selectedRoleId, setSelectedRoleId] = useState<string>("")
 
   useEffect(() => {
+    if (!open) {
+      setSelectedRoleId("")
+      return
+    }
     const match = workspaceRoles.find((r) => r.name === selectedUser?.role_name)
     setSelectedRoleId(match?.id ?? "")
-  }, [selectedUser, workspaceRoles])
+  }, [open, selectedUser, workspaceRoles])
 
   return (
     <DialogContent>
@@ -335,7 +373,7 @@ function ChangeUserRoleDialog({
         value={selectedRoleId}
         onValueChange={(value) => setSelectedRoleId(value)}
       >
-        <SelectTrigger>
+        <SelectTrigger disabled={rolesIsLoading}>
           <SelectValue placeholder="Select a role" />
         </SelectTrigger>
         <SelectContent>
@@ -350,7 +388,12 @@ function ChangeUserRoleDialog({
         <Button variant="outline" onClick={() => setOpen(false)}>
           Cancel
         </Button>
-        <Button onClick={() => onConfirm(selectedRoleId)}>Change role</Button>
+        <Button
+          disabled={!selectedRoleId || rolesIsLoading || isSubmitting}
+          onClick={() => onConfirm(selectedRoleId)}
+        >
+          Change role
+        </Button>
       </DialogFooter>
     </DialogContent>
   )

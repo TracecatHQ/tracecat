@@ -1326,8 +1326,12 @@ export function useSchedules(workflowId: string) {
   }
 }
 
-export function useWorkspaceSecrets(workspaceId: string) {
+export function useWorkspaceSecrets(
+  workspaceId: string,
+  options: { listEnabled?: boolean } = {}
+) {
   const queryClient = useQueryClient()
+  const listEnabled = options.listEnabled ?? true
   const {
     data: secrets,
     isLoading: secretsIsLoading,
@@ -1339,7 +1343,9 @@ export function useWorkspaceSecrets(workspaceId: string) {
         workspaceId,
         type: ["custom", "ssh-key", "mtls", "ca-cert"],
       }),
-    enabled: !!workspaceId,
+    enabled: !!workspaceId && listEnabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Create secret
@@ -1471,6 +1477,8 @@ export function useSecretDefinitions(workspaceId: string) {
     queryKey: ["secret-definitions", workspaceId],
     queryFn: async () => await secretsListSecretDefinitions({ workspaceId }),
     enabled: !!workspaceId,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {
@@ -1480,8 +1488,12 @@ export function useSecretDefinitions(workspaceId: string) {
   }
 }
 
-export function useWorkspaceVariables(workspaceId: string) {
+export function useWorkspaceVariables(
+  workspaceId: string,
+  options: { listEnabled?: boolean } = {}
+) {
   const queryClient = useQueryClient()
+  const listEnabled = options.listEnabled ?? true
   const {
     data: variables,
     isLoading: variablesIsLoading,
@@ -1492,7 +1504,9 @@ export function useWorkspaceVariables(workspaceId: string) {
       await variablesListVariables({
         workspaceId,
       }),
-    enabled: !!workspaceId,
+    enabled: !!workspaceId && listEnabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Create variable
@@ -2952,7 +2966,11 @@ export function useOrgAuditSettings() {
   }
 }
 
-export function useListTables({ workspaceId }: TablesListTablesData) {
+export function useListTables(
+  { workspaceId }: TablesListTablesData,
+  options: { enabled?: boolean } = {}
+) {
+  const enabled = options.enabled ?? true
   const {
     data: tables,
     isLoading: tablesIsLoading,
@@ -2960,6 +2978,9 @@ export function useListTables({ workspaceId }: TablesListTablesData) {
   } = useQuery<TableReadMinimal[], ApiError>({
     queryKey: ["tables", workspaceId],
     queryFn: async () => await tablesListTables({ workspaceId }),
+    enabled: enabled && Boolean(workspaceId),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {
@@ -5695,8 +5716,9 @@ export function useRbacScopes(options?: {
 /**
  * Hook to manage RBAC roles.
  */
-export function useRbacRoles() {
+export function useRbacRoles(options: { enabled?: boolean } = {}) {
   const queryClient = useQueryClient()
+  const enabled = options.enabled ?? true
 
   // List roles (org-level, shared across all workspaces)
   const {
@@ -5709,6 +5731,9 @@ export function useRbacRoles() {
       const response = await rbacListRoles()
       return response.items
     },
+    enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Get single role
@@ -6355,8 +6380,10 @@ export function useRbacAssignments(options?: {
 export function useRbacUserAssignments(options?: {
   userId?: string
   workspaceId?: string
+  enabled?: boolean
 }) {
   const queryClient = useQueryClient()
+  const enabled = options?.enabled ?? true
 
   // List user assignments
   const {
@@ -6372,6 +6399,9 @@ export function useRbacUserAssignments(options?: {
       })
       return response.items
     },
+    enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   // Create user assignment

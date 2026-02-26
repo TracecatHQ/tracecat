@@ -28,6 +28,8 @@ export function useWorkspaceDetails() {
     select: (d: WorkspaceRead | undefined) => d,
     enabled: !!workspaceId,
     retry: retryHandler,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return { workspace, workspaceLoading, workspaceError }

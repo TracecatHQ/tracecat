@@ -25,7 +25,9 @@ export function DeleteVariableAlertDialog({
   setSelectedVariable: (selectedVariable: VariableReadMinimal | null) => void
 }>) {
   const workspaceId = useWorkspaceId()
-  const { deleteVariableById } = useWorkspaceVariables(workspaceId)
+  const { deleteVariableById } = useWorkspaceVariables(workspaceId, {
+    listEnabled: false,
+  })
   return (
     <AlertDialog
       onOpenChange={(isOpen) => {
