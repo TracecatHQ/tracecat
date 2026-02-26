@@ -20,6 +20,20 @@ definition:
       description: Cursor token from previous response for pagination.
       optional: true
   steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          limit: ${{ inputs.limit }}
+          cursor: ${{ inputs.cursor }}
+        script: |
+          def main(limit=None, cursor=None):
+              params = {}
+              if limit is not None:
+                  params["limit"] = limit
+              if cursor is not None:
+                  params["cursor"] = cursor
+              return params
     - ref: list_research
       action: core.http_request
       args:
@@ -27,7 +41,5 @@ definition:
         method: GET
         headers:
           x-api-key: ${{ SECRETS.exa.EXA_API_KEY }}
-        params:
-          limit: ${{ inputs.limit }}
-          cursor: ${{ inputs.cursor }}
+        params: ${{ steps.build_params.result }}
   returns: ${{ steps.list_research.result.data }}
