@@ -126,11 +126,11 @@ export function OrgSettingsSsoForm() {
           <Alert>
             <AlertTriangleIcon className="size-4 !text-destructive" />
             <AlertTitle className="text-destructive">
-              Active domain required
+              Domain guardrail required
             </AlertTitle>
             <AlertDescription>
-              Multi-tenant SAML requires at least one active organization
-              domain. Configure domains first, then enable SAML.
+              Domain allowlist must be configured to enable SAML SSO. Contact a
+              Tracecat platform admin to set this up for your organization.
             </AlertDescription>
           </Alert>
         )}
