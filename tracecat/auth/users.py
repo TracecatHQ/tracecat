@@ -227,7 +227,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             await get_setting(
                 "saml_enabled",
                 role=bootstrap_role(org_id),
-                session=self._user_db.session,
                 default=True,
             )
         )
@@ -237,7 +236,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         saml_enforced = await get_setting(
             "saml_enforced",
             role=bootstrap_role(org_id),
-            session=self._user_db.session,
             default=False,
         )
         return bool(saml_enforced)

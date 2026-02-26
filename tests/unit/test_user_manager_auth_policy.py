@@ -48,6 +48,17 @@ def patch_bypass_session_context_manager(
         _session_cm,
     )
 
+    async def _get_setting_with_test_session(*args, **kwargs):  # noqa: ANN002, ANN003
+        from tracecat.settings.service import get_setting as get_setting_impl
+
+        kwargs.setdefault("session", session)
+        return await get_setting_impl(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "tracecat.auth.users.get_setting",
+        _get_setting_with_test_session,
+    )
+
 
 async def _create_user_with_org_membership(
     session: AsyncSession,
