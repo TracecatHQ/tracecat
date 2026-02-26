@@ -104,7 +104,6 @@ def _enable_rls_workspace_table(table: str) -> str:
     """Generate SQL to enable RLS on a workspace-scoped table."""
     return f"""
         ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY;
-        ALTER TABLE "{table}" FORCE ROW LEVEL SECURITY;
 
         CREATE POLICY rls_policy_{table} ON "{table}"
             FOR ALL
@@ -123,7 +122,6 @@ def _disable_rls_workspace_table(table: str) -> str:
     """Generate SQL to disable RLS on a workspace-scoped table."""
     return f"""
         DROP POLICY IF EXISTS rls_policy_{table} ON "{table}";
-        ALTER TABLE "{table}" NO FORCE ROW LEVEL SECURITY;
         ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
     """
 
@@ -132,7 +130,6 @@ def _enable_rls_org_table(table: str) -> str:
     """Generate SQL to enable RLS on an organization-scoped table."""
     return f"""
         ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY;
-        ALTER TABLE "{table}" FORCE ROW LEVEL SECURITY;
 
         CREATE POLICY rls_policy_{table} ON "{table}"
             FOR ALL
@@ -151,7 +148,6 @@ def _disable_rls_org_table(table: str) -> str:
     """Generate SQL to disable RLS on an organization-scoped table."""
     return f"""
         DROP POLICY IF EXISTS rls_policy_{table} ON "{table}";
-        ALTER TABLE "{table}" NO FORCE ROW LEVEL SECURITY;
         ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
     """
 
@@ -160,7 +156,6 @@ def _enable_rls_org_optional_workspace_table(table: str) -> str:
     """Enable RLS for org-scoped tables that optionally bind to workspace_id."""
     return f"""
         ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY;
-        ALTER TABLE "{table}" FORCE ROW LEVEL SECURITY;
 
         CREATE POLICY rls_policy_{table} ON "{table}"
             FOR ALL
@@ -198,7 +193,6 @@ def _enable_rls_scope_special() -> str:
     """
     return f"""
         ALTER TABLE "scope" ENABLE ROW LEVEL SECURITY;
-        ALTER TABLE "scope" FORCE ROW LEVEL SECURITY;
 
         CREATE POLICY rls_policy_scope ON "scope"
             FOR ALL
@@ -218,7 +212,6 @@ def _disable_rls_scope_special() -> str:
     """Disable RLS on the scope table."""
     return """
         DROP POLICY IF EXISTS rls_policy_scope ON "scope";
-        ALTER TABLE "scope" NO FORCE ROW LEVEL SECURITY;
         ALTER TABLE "scope" DISABLE ROW LEVEL SECURITY;
     """
 
@@ -233,7 +226,6 @@ def _enable_rls_workspace_special() -> str:
     """
     return f"""
         ALTER TABLE "workspace" ENABLE ROW LEVEL SECURITY;
-        ALTER TABLE "workspace" FORCE ROW LEVEL SECURITY;
 
         CREATE POLICY rls_policy_workspace ON "workspace"
             FOR ALL
@@ -257,7 +249,6 @@ def _disable_rls_workspace_special() -> str:
     """Generate SQL to disable RLS on the workspace table."""
     return """
         DROP POLICY IF EXISTS rls_policy_workspace ON "workspace";
-        ALTER TABLE "workspace" NO FORCE ROW LEVEL SECURITY;
         ALTER TABLE "workspace" DISABLE ROW LEVEL SECURITY;
     """
 

@@ -60,8 +60,30 @@ class _RLSContext:
 
 
 def is_rls_enabled() -> bool:
-    """Check if RLS feature flag is enabled."""
-    return FeatureFlag.RLS_ENABLED in config.TRACECAT__FEATURE_FLAGS
+    """Check if RLS checks should be treated as enabled in application logic.
+
+    Primary source of truth is TRACECAT__RLS_MODE. The legacy rls-enabled
+    feature flag remains supported for backwards compatibility.
+    """
+    return (
+        config.TRACECAT__RLS_MODE != config.RLSMode.OFF
+        or FeatureFlag.RLS_ENABLED in config.TRACECAT__FEATURE_FLAGS
+    )
+
+
+def is_rls_mode_off() -> bool:
+    """Check whether runtime RLS mode is OFF."""
+    return config.TRACECAT__RLS_MODE == config.RLSMode.OFF
+
+
+def is_rls_mode_shadow() -> bool:
+    """Check whether runtime RLS mode is SHADOW."""
+    return config.TRACECAT__RLS_MODE == config.RLSMode.SHADOW
+
+
+def is_rls_mode_enforce() -> bool:
+    """Check whether runtime RLS mode is ENFORCE."""
+    return config.TRACECAT__RLS_MODE == config.RLSMode.ENFORCE
 
 
 def _normalize_rls_context(

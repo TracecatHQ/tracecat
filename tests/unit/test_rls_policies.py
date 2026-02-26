@@ -5,10 +5,11 @@ based on organization and workspace context.
 
 IMPORTANT: These tests require:
 1. A running PostgreSQL database with the RLS migration applied
-2. The TRACECAT__FEATURE_FLAGS=rls-enabled environment variable set
+2. RLS app mode/flag enabled (TRACECAT__RLS_MODE=enforce or legacy
+   TRACECAT__FEATURE_FLAGS=rls-enabled)
 
 Run with:
-    TRACECAT__FEATURE_FLAGS=rls-enabled uv run pytest tests/unit/test_rls_policies.py -v
+    TRACECAT__RLS_MODE=enforce uv run pytest tests/unit/test_rls_policies.py -v
 """
 
 from __future__ import annotations
@@ -41,7 +42,10 @@ if TYPE_CHECKING:
 # Skip all tests if RLS is not enabled
 pytestmark = pytest.mark.skipif(
     not is_rls_enabled(),
-    reason="RLS feature flag not enabled. Set TRACECAT__FEATURE_FLAGS=rls-enabled",
+    reason=(
+        "RLS mode/flag not enabled. Set TRACECAT__RLS_MODE=enforce "
+        "or TRACECAT__FEATURE_FLAGS=rls-enabled"
+    ),
 )
 
 
@@ -197,7 +201,9 @@ class TestRlsPolicyEnforcement:
 
         relrowsecurity, relforcerowsecurity = row
         assert relrowsecurity is True, "RLS should be enabled on workspace table"
-        assert relforcerowsecurity is True, "RLS should be forced on workspace table"
+        assert relforcerowsecurity is False, (
+            "RLS should be enabled without FORCE on workspace table"
+        )
 
     @pytest.mark.anyio
     async def test_rls_enabled_on_workflow_table(self, rls_session: AsyncSession):
@@ -216,7 +222,9 @@ class TestRlsPolicyEnforcement:
 
         relrowsecurity, relforcerowsecurity = row
         assert relrowsecurity is True, "RLS should be enabled on workflow table"
-        assert relforcerowsecurity is True, "RLS should be forced on workflow table"
+        assert relforcerowsecurity is False, (
+            "RLS should be enabled without FORCE on workflow table"
+        )
 
     @pytest.mark.anyio
     async def test_rls_policy_exists_on_workflow(self, rls_session: AsyncSession):

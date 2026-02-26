@@ -182,6 +182,7 @@ async def lifespan(app: FastAPI):
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
     )
+    logger.info("RLS mode", rls_mode=config.TRACECAT__RLS_MODE.value)
     logger.info("API startup complete")
 
     yield

@@ -10,6 +10,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from tracecat import config
+from tracecat.contexts import ctx_role
 from tracecat.db import (
     session_events,  # noqa: F401  # pyright: ignore[reportUnusedImport] - side effect import to register listeners
 )
@@ -19,6 +20,38 @@ from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 # Outside of being best practice, this is needed so we can properly pool
 # connections and not create a new pool on every request
 _async_engine: AsyncEngine | None = None
+
+
+async def _initialize_session_rls_context(session: AsyncSession) -> None:
+    """Initialize RLS context for a newly opened request session."""
+    rls_mode = config.TRACECAT__RLS_MODE
+
+    if rls_mode == config.RLSMode.ENFORCE:
+        # Enforce mode applies role-based context with deny-default fallback.
+        await set_rls_context_from_role(session)
+        return
+
+    role = ctx_role.get()
+    user_id = role.user_id if role is not None else None
+
+    if rls_mode == config.RLSMode.SHADOW:
+        logger.trace(
+            "RLS shadow mode active (bypass context with telemetry)",
+            has_role=role is not None,
+            role_type=role.type if role is not None else None,
+            has_org_context=bool(role and role.organization_id),
+            has_workspace_context=bool(role and role.workspace_id),
+            is_platform_superuser=bool(role and role.is_platform_superuser),
+        )
+
+    # Off/shadow modes use bypass by default so rollout is app-controlled.
+    await set_rls_context(
+        session,
+        org_id=None,
+        workspace_id=None,
+        user_id=user_id,
+        bypass=True,
+    )
 
 
 def get_connection_string(
@@ -188,12 +221,13 @@ def reset_async_engine() -> None:
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     """Get an async SQLAlchemy database session with RLS context.
 
-    Automatically applies RLS context from ctx_role if available. When no role
-    is present, RLS defaults to deny-by-default mode.
+    Behavior depends on TRACECAT__RLS_MODE:
+    - off: bypass context by default
+    - shadow: bypass context + rollout telemetry
+    - enforce: role-derived context with deny-default fallback
     """
     async with AsyncSession(get_async_engine(), expire_on_commit=False) as session:
-        # Set RLS context from ctx_role (deny-default when no role exists).
-        await set_rls_context_from_role(session)
+        await _initialize_session_rls_context(session)
         yield session
 
 

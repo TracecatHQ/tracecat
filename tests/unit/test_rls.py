@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.rls import (
@@ -99,15 +100,29 @@ class TestIsRlsEnabled:
 
     def test_returns_false_when_flag_not_set(self, monkeypatch: pytest.MonkeyPatch):
         """Test that RLS is disabled when feature flag is not set."""
+        monkeypatch.setattr(
+            "tracecat.db.rls.config.TRACECAT__RLS_MODE", config.RLSMode.OFF
+        )
         monkeypatch.setattr("tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS", set())
         assert is_rls_enabled() is False
 
     def test_returns_true_when_flag_set(self, monkeypatch: pytest.MonkeyPatch):
         """Test that RLS is enabled when feature flag is set."""
         monkeypatch.setattr(
+            "tracecat.db.rls.config.TRACECAT__RLS_MODE", config.RLSMode.OFF
+        )
+        monkeypatch.setattr(
             "tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS",
             {FeatureFlag.RLS_ENABLED},
         )
+        assert is_rls_enabled() is True
+
+    def test_returns_true_when_mode_is_enforce(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that RLS is enabled when mode is enforce, without feature flag."""
+        monkeypatch.setattr(
+            "tracecat.db.rls.config.TRACECAT__RLS_MODE", config.RLSMode.ENFORCE
+        )
+        monkeypatch.setattr("tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS", set())
         assert is_rls_enabled() is True
 
 
