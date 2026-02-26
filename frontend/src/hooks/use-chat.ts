@@ -141,6 +141,8 @@ export function useListChats(
         limit,
       }),
     enabled: options?.enabled ?? true,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return { chats, chatsLoading, chatsError, refetchChats: refetch }

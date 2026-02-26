@@ -1,7 +1,7 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useState } from "react"
 import type { ApiError } from "@/client"
 
 export interface CursorPaginationResponse<T> {
@@ -37,12 +37,20 @@ export interface UseCursorPaginationOptions<
   queryFn: (params: P) => Promise<CursorPaginationResponse<T>>
   additionalParams?: Omit<P, keyof CursorPaginationParams>
   enabled?: boolean
+  staleTime?: number
+  refetchOnWindowFocus?: boolean
 }
 
 export interface CursorPaginationState {
   currentCursor: string | null
   cursors: string[]
   currentPage: number
+}
+
+const DEFAULT_PAGINATION_STATE: CursorPaginationState = {
+  currentCursor: null,
+  cursors: [],
+  currentPage: 0,
 }
 
 export function useCursorPagination<T, P extends CursorPaginationParams>({
@@ -52,13 +60,11 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
   queryFn,
   additionalParams,
   enabled = true,
+  staleTime,
+  refetchOnWindowFocus,
 }: UseCursorPaginationOptions<T, P>) {
   const [paginationState, setPaginationState] = useState<CursorPaginationState>(
-    {
-      currentCursor: null,
-      cursors: [],
-      currentPage: 0,
-    }
+    DEFAULT_PAGINATION_STATE
   )
 
   const [sortingState, setSortingState] = useState<SortingState>({
@@ -66,23 +72,15 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
     sort: null,
   })
 
-  // Reset pagination when limit changes
-  useEffect(() => {
-    setPaginationState({
-      currentCursor: null,
-      cursors: [],
-      currentPage: 0,
-    })
-  }, [limit])
+  const queryKeyFingerprint = JSON.stringify(queryKey)
+  const nextResetFingerprint = `${queryKeyFingerprint}|${limit}|${sortingState.orderBy ?? ""}|${sortingState.sort ?? ""}`
+  const [resetFingerprint, setResetFingerprint] = useState(nextResetFingerprint)
 
-  // Reset pagination when sorting changes
-  useEffect(() => {
-    setPaginationState({
-      currentCursor: null,
-      cursors: [],
-      currentPage: 0,
-    })
-  }, [sortingState.orderBy, sortingState.sort])
+  // Ensure cursor state is reset in the same render that changes query inputs.
+  if (resetFingerprint !== nextResetFingerprint) {
+    setResetFingerprint(nextResetFingerprint)
+    setPaginationState(DEFAULT_PAGINATION_STATE)
+  }
 
   const queryParams: P = {
     workspaceId,
@@ -107,6 +105,8 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
     ],
     queryFn: () => queryFn(queryParams),
     enabled: enabled && !!workspaceId,
+    staleTime,
+    refetchOnWindowFocus,
   })
 
   const goToNextPage = () => {
@@ -135,11 +135,7 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
   }
 
   const goToFirstPage = () => {
-    setPaginationState({
-      currentCursor: null,
-      cursors: [],
-      currentPage: 0,
-    })
+    setPaginationState(DEFAULT_PAGINATION_STATE)
   }
 
   // Sorting control for server-side sorting

@@ -9,6 +9,7 @@ from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from tracecat.auth.types import Role
+from tracecat.cases.enums import CaseEventType
 from tracecat.core.schemas import Schema
 from tracecat.db.models import Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput, DSLRunArgs
@@ -66,6 +67,14 @@ class WorkflowDefinitionRead(Schema):
     updated_at: datetime
 
 
+class WorkflowTriggerSummary(Schema):
+    schedule_count_online: int = 0
+    schedule_cron: str | None = None
+    schedule_natural: str | None = None
+    webhook_active: bool = False
+    case_trigger_events: list[CaseEventType] = Field(default_factory=list)
+
+
 class WorkflowReadMinimal(Schema):
     """Minimal version of WorkflowRead model for list endpoints."""
 
@@ -82,6 +91,7 @@ class WorkflowReadMinimal(Schema):
     error_handler: str | None = None
     latest_definition: WorkflowDefinitionReadMinimal | None = None
     folder_id: uuid.UUID | None = None
+    trigger_summary: WorkflowTriggerSummary | None = None
 
 
 class WorkflowUpdate(BaseModel):

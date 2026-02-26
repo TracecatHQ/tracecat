@@ -72,6 +72,8 @@ const ALL_STATUSES: CaseStatus[] = [
   "closed",
   "other",
 ]
+const DEFAULT_SORT_FIELD = "updated_at"
+const DEFAULT_SORT_DIRECTION = "desc"
 
 function ImpossibleFilterProbe() {
   const {
@@ -97,6 +99,32 @@ function ImpossibleFilterProbe() {
         type="button"
       >
         impossible-filter
+      </button>
+    </div>
+  )
+}
+
+function SortStateProbe() {
+  const { filters, setPrioritySortDirection, setSeveritySortDirection } =
+    useCases({
+      autoRefresh: false,
+    })
+
+  return (
+    <div>
+      <span data-testid="sort-field">{filters.sortBy.field}</span>
+      <span data-testid="sort-direction">{filters.sortBy.direction}</span>
+      <button onClick={() => setPrioritySortDirection("desc")} type="button">
+        priority-sort
+      </button>
+      <button onClick={() => setPrioritySortDirection(null)} type="button">
+        clear-priority-sort
+      </button>
+      <button onClick={() => setSeveritySortDirection("asc")} type="button">
+        severity-sort
+      </button>
+      <button onClick={() => setSeveritySortDirection(null)} type="button">
+        clear-severity-sort
       </button>
     </div>
   )
@@ -221,5 +249,82 @@ describe("useCases", () => {
     expect(screen.getByTestId("new-count")).toHaveTextContent("0")
     expect(mockSearchCases).toHaveBeenCalledTimes(1)
     expect(mockSearchCaseAggregates).toHaveBeenCalledTimes(1)
+  })
+
+  it("resets sortBy when clearing priority or severity sorting", async () => {
+    const firstPage: CasesSearchCasesResponse = {
+      items: [createCase(1)],
+      next_cursor: null,
+      prev_cursor: null,
+      has_more: false,
+      has_previous: false,
+      total_estimate: 1,
+    }
+
+    const aggregate: CasesSearchCaseAggregatesResponse = {
+      total: 1,
+      status_groups: {
+        new: 1,
+        in_progress: 0,
+        on_hold: 0,
+        resolved: 0,
+        other: 0,
+      },
+    }
+
+    mockSearchCases.mockResolvedValue(firstPage)
+    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SortStateProbe />
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sort-field")).toHaveTextContent(
+        DEFAULT_SORT_FIELD
+      )
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "priority-sort" }))
+    await waitFor(() => {
+      expect(screen.getByTestId("sort-field")).toHaveTextContent("priority")
+      expect(screen.getByTestId("sort-direction")).toHaveTextContent("desc")
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "clear-priority-sort" }))
+    await waitFor(() => {
+      expect(screen.getByTestId("sort-field")).toHaveTextContent(
+        DEFAULT_SORT_FIELD
+      )
+      expect(screen.getByTestId("sort-direction")).toHaveTextContent(
+        DEFAULT_SORT_DIRECTION
+      )
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "severity-sort" }))
+    await waitFor(() => {
+      expect(screen.getByTestId("sort-field")).toHaveTextContent("severity")
+      expect(screen.getByTestId("sort-direction")).toHaveTextContent("asc")
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "clear-severity-sort" }))
+    await waitFor(() => {
+      expect(screen.getByTestId("sort-field")).toHaveTextContent(
+        DEFAULT_SORT_FIELD
+      )
+      expect(screen.getByTestId("sort-direction")).toHaveTextContent(
+        DEFAULT_SORT_DIRECTION
+      )
+    })
   })
 })

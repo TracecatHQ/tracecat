@@ -21,7 +21,10 @@ from tracecat.db.models import (
 )
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat.workflow.management import router as workflow_management_router
-from tracecat.workflow.management.types import WorkflowDefinitionMinimal
+from tracecat.workflow.management.types import (
+    WorkflowDefinitionMinimal,
+    WorkflowTriggerSummaryMinimal,
+)
 
 
 @pytest.fixture
@@ -210,6 +213,55 @@ async def test_list_workflows_with_tag_filter(
         data = response.json()
         assert len(data["items"]) == 1
         assert data["items"][0]["tags"][0]["name"] == "test-tag"
+
+
+@pytest.mark.anyio
+async def test_list_workflows_includes_trigger_summary(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """Test GET /workflows includes trigger summary metadata when available."""
+    with patch.object(
+        workflow_management_router, "WorkflowsManagementService"
+    ) as MockService:
+        mock_svc = AsyncMock()
+        mock_definition = WorkflowDefinitionMinimal(
+            id=str(uuid.uuid4()),
+            version=3,
+            created_at=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+        trigger_summary = WorkflowTriggerSummaryMinimal(
+            schedule_count_online=1,
+            schedule_cron="0 * * * *",
+            schedule_natural="Hourly at minute 00",
+            webhook_active=True,
+            case_trigger_events=("case_created", "status_changed"),
+        )
+        mock_response = CursorPaginatedResponse(
+            items=[(mock_workflow, mock_definition, trigger_summary)],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+        )
+        mock_svc.list_workflows.return_value = mock_response
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            "/workflows",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["items"][0]["trigger_summary"] == {
+            "schedule_count_online": 1,
+            "schedule_cron": "0 * * * *",
+            "schedule_natural": "Hourly at minute 00",
+            "webhook_active": True,
+            "case_trigger_events": ["case_created", "status_changed"],
+        }
 
 
 @pytest.mark.anyio

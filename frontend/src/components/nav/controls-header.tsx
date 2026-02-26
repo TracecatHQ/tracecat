@@ -41,11 +41,12 @@ import {
   CasesViewMode,
   CasesViewToggle,
 } from "@/components/cases/cases-view-toggle"
+import { AddWorkflowTag } from "@/components/dashboard/add-workflow-tag"
 import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
 import {
-  FolderViewToggle,
-  ViewMode,
-} from "@/components/dashboard/folder-view-toggle"
+  WorkflowsCatalogViewMode,
+  WorkflowsCatalogViewToggle,
+} from "@/components/dashboard/workflows-catalog-view-toggle"
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { Spinner } from "@/components/loading/spinner"
@@ -99,7 +100,6 @@ import {
 import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
 import {
@@ -135,17 +135,33 @@ const CASE_STATUS_TINTS: Record<CaseStatus, string> = {
 }
 
 function WorkflowsActions() {
+  const pathname = usePathname()
+  const workspaceId = useWorkspaceId()
   const searchParams = useSearchParams()
-  const currentPath = searchParams?.get("path") || null
-  const [view, setView] = useLocalStorage("folder-view", ViewMode.Tags)
+  const catalogView = pathname?.includes("/workflows/tags")
+    ? WorkflowsCatalogViewMode.Tags
+    : WorkflowsCatalogViewMode.Workflows
+  const view = searchParams?.get("view") === "list" ? "list" : "folders"
+  const currentPath =
+    view === "folders" ? searchParams?.get("path") || "/" : null
+  const workflowsHref = `/workspaces/${workspaceId}/workflows`
+  const tagsHref = `/workspaces/${workspaceId}/workflows/tags`
 
   return (
     <>
-      <FolderViewToggle view={view} onViewChange={setView} />
-      <CreateWorkflowButton
-        view={view === ViewMode.Folders ? "folders" : "default"}
-        currentFolderPath={currentPath}
+      <WorkflowsCatalogViewToggle
+        view={catalogView}
+        workflowsHref={workflowsHref}
+        tagsHref={tagsHref}
       />
+      {catalogView === WorkflowsCatalogViewMode.Tags ? (
+        <AddWorkflowTag />
+      ) : (
+        <CreateWorkflowButton
+          view={view === "folders" ? "folders" : "default"}
+          currentFolderPath={currentPath}
+        />
+      )}
     </>
   )
 }
@@ -171,8 +187,8 @@ function WorkflowsBreadcrumb({
   const segments = normalizedPath.split("/").filter(Boolean)
   const baseHref = `/workspaces/${workspaceId}/workflows`
   const getFolderHref = (folderPath: string) => {
-    if (folderPath === "/") return baseHref
-    return `${baseHref}?path=${encodeURIComponent(folderPath)}`
+    if (folderPath === "/") return `${baseHref}?view=folders&path=%2F`
+    return `${baseHref}?view=folders&path=${encodeURIComponent(folderPath)}`
   }
 
   return (
@@ -401,7 +417,7 @@ function CasesActions() {
   )
 }
 
-function CasesSelectionActionsBar() {
+function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
   const {
     selectedCount,
     selectedCaseIds,
@@ -416,8 +432,13 @@ function CasesSelectionActionsBar() {
   const [isApplyingTags, setIsApplyingTags] = useState(false)
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
-  const { members, membersLoading } = useWorkspaceMembers(workspaceId)
-  const { caseTags, caseTagsIsLoading } = useCaseTagCatalog(workspaceId)
+  const shouldLoadCatalogData = enabled && selectedCount > 0
+  const { members, membersLoading } = useWorkspaceMembers(workspaceId, {
+    enabled: shouldLoadCatalogData,
+  })
+  const { caseTags, caseTagsIsLoading } = useCaseTagCatalog(workspaceId, {
+    enabled: shouldLoadCatalogData,
+  })
 
   // All callbacks must be defined before any early returns to satisfy React's rules of hooks
   const handleToggleTagSelection = useCallback((tagId: string) => {
@@ -1108,11 +1129,17 @@ function getPageConfig(
 
   // Match routes and return appropriate config
   if (pagePath === "/" || pagePath.startsWith("/workflows")) {
+    const workflowView =
+      searchParams?.get("view") === "list" ? "list" : "folders"
     return {
       title: (
         <WorkflowsBreadcrumb
           workspaceId={workspaceId}
-          path={searchParams?.get("path") ?? "/"}
+          path={
+            workflowView === "folders"
+              ? (searchParams?.get("path") ?? "/")
+              : "/"
+          }
         />
       ),
       actions: <WorkflowsActions />,
@@ -1260,6 +1287,7 @@ export function ControlsHeader({
   const pagePath = pathname
     ? pathname.replace(`/workspaces/${workspaceId}`, "") || "/"
     : "/"
+  const isCasesListPage = pagePath === "/cases"
   const isCaseDetail = pagePath.match(
     /^\/cases\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
   )
@@ -1319,7 +1347,7 @@ export function ControlsHeader({
 
       {/* Middle section: bulk selection actions */}
       <div className="flex flex-1 justify-center min-w-[1rem]">
-        <CasesSelectionActionsBar />
+        {isCasesListPage && <CasesSelectionActionsBar enabled />}
       </div>
 
       {/* Right section: actions / timestamp / chat toggle */}

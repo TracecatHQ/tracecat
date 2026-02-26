@@ -6274,6 +6274,7 @@ export type WorkflowDirectoryItem = {
   error_handler?: string | null
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
+  trigger_summary?: WorkflowTriggerSummary | null
   type: "workflow"
 }
 
@@ -6780,6 +6781,7 @@ export type WorkflowReadMinimal = {
   error_handler?: string | null
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
+  trigger_summary?: WorkflowTriggerSummary | null
 }
 
 /**
@@ -6816,6 +6818,14 @@ export type WorkflowSyncPullRequest = {
 
 export type WorkflowTagCreate = {
   tag_id: string
+}
+
+export type WorkflowTriggerSummary = {
+  schedule_count_online?: number
+  schedule_cron?: string | null
+  schedule_natural?: string | null
+  webhook_active?: boolean
+  case_trigger_events?: Array<CaseEventType>
 }
 
 export type WorkflowUpdate = {

@@ -241,6 +241,10 @@ class AgentSessionService(BaseWorkspaceService):
             session_stmt = session_stmt.where(
                 AgentSession.parent_session_id == parent_session_id
             )
+        # Bound query cost at the database layer; we still merge+sort below.
+        session_stmt = session_stmt.order_by(AgentSession.created_at.desc()).limit(
+            limit
+        )
 
         session_result = await self.session.execute(session_stmt)
         sessions = list(session_result.scalars().all())
@@ -256,6 +260,8 @@ class AgentSessionService(BaseWorkspaceService):
             chat_stmt = chat_stmt.where(Chat.entity_type == entity_type.value)
         if entity_id is not None:
             chat_stmt = chat_stmt.where(Chat.entity_id == entity_id)
+        # Bound query cost at the database layer; we still merge+sort below.
+        chat_stmt = chat_stmt.order_by(Chat.created_at.desc()).limit(limit)
 
         chat_result = await self.session.execute(chat_stmt)
         legacy_chats = list(chat_result.scalars().all())

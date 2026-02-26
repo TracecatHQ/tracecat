@@ -59,6 +59,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select"
 import type {
   CaseDateFilterValue,
   CaseDatePreset,
@@ -277,6 +283,43 @@ interface FilterOption<T extends string = string> {
 
 export type FilterMode = "include" | "exclude"
 export type SortDirection = "asc" | "desc" | null
+export type CaseSortField =
+  | "updated_at"
+  | "created_at"
+  | "priority"
+  | "severity"
+  | "status"
+  | "tasks"
+
+export interface CaseSortValue {
+  field: CaseSortField
+  direction: "asc" | "desc"
+}
+
+export const DEFAULT_CASE_SORT: CaseSortValue = {
+  field: "updated_at",
+  direction: "desc",
+}
+
+const CASE_SORT_OPTIONS: Array<{
+  value: CaseSortField
+  label: string
+  icon: ComponentType<{ className?: string }>
+}> = [
+  { value: "updated_at", label: "Updated", icon: ClockIcon },
+  { value: "created_at", label: "Created", icon: CalendarIcon },
+  { value: "priority", label: "Priority", icon: SignalHighIcon },
+  { value: "severity", label: "Severity", icon: ShieldAlertIcon },
+  { value: "status", label: "Status", icon: SignalIcon },
+  { value: "tasks", label: "Tasks", icon: ListIcon },
+]
+
+function isDefaultCaseSort(value: CaseSortValue): boolean {
+  return (
+    value.field === DEFAULT_CASE_SORT.field &&
+    value.direction === DEFAULT_CASE_SORT.direction
+  )
+}
 
 interface FilterMultiSelectProps<T extends string> {
   placeholder: string
@@ -500,9 +543,73 @@ function FilterMultiSelect<T extends string>({
   )
 }
 
+interface CaseSortSelectProps {
+  value: CaseSortValue
+  onChange: (value: CaseSortValue) => void
+}
+
+function CaseSortSelect({ value, onChange }: CaseSortSelectProps) {
+  const selectedLabel =
+    CASE_SORT_OPTIONS.find((option) => option.value === value.field)?.label ??
+    "Updated"
+
+  return (
+    <div className="inline-flex items-center rounded-md border border-input bg-transparent">
+      <Select
+        value={value.field}
+        onValueChange={(nextField) =>
+          onChange({
+            field: nextField as CaseSortField,
+            direction: value.direction,
+          })
+        }
+      >
+        <SelectTrigger className="h-6 w-[140px] rounded-r-none border-0 bg-transparent px-2 text-xs font-medium shadow-none focus:ring-0">
+          <span className="text-muted-foreground">Sort by</span>
+          <span className="text-foreground">{selectedLabel}</span>
+        </SelectTrigger>
+        <SelectContent align="start">
+          {CASE_SORT_OPTIONS.map((option) => {
+            const Icon = option.icon
+            return (
+              <SelectItem key={option.value} value={option.value}>
+                <span className="flex items-center gap-2">
+                  <Icon className="size-3.5 text-muted-foreground" />
+                  <span>{option.label}</span>
+                </span>
+              </SelectItem>
+            )
+          })}
+        </SelectContent>
+      </Select>
+      <button
+        type="button"
+        className="flex h-6 w-7 items-center justify-center border-l border-input text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+        onClick={() =>
+          onChange({
+            field: value.field,
+            direction: value.direction === "asc" ? "desc" : "asc",
+          })
+        }
+        aria-label={
+          value.direction === "asc" ? "Sort ascending" : "Sort descending"
+        }
+      >
+        {value.direction === "asc" ? (
+          <ArrowUpIcon className="size-3.5" />
+        ) : (
+          <ArrowDownIcon className="size-3.5" />
+        )}
+      </button>
+    </div>
+  )
+}
+
 interface CasesHeaderProps {
   searchQuery: string
   onSearchChange: (query: string) => void
+  sortBy: CaseSortValue
+  onSortByChange: (value: CaseSortValue) => void
   statusFilter: CaseStatus[]
   onStatusChange: (value: CaseStatus[]) => void
   statusMode: FilterMode
@@ -553,6 +660,8 @@ interface CasesHeaderProps {
 export function CasesHeader({
   searchQuery,
   onSearchChange,
+  sortBy,
+  onSortByChange,
   statusFilter,
   onStatusChange,
   statusMode,
@@ -687,6 +796,7 @@ export function CasesHeader({
 
   const hasFilters =
     searchQuery.trim().length > 0 ||
+    !isDefaultCaseSort(sortBy) ||
     statusFilter.length > 0 ||
     priorityFilter.length > 0 ||
     severityFilter.length > 0 ||
@@ -698,16 +808,21 @@ export function CasesHeader({
 
   const handleReset = () => {
     onSearchChange("")
+    onSortByChange(DEFAULT_CASE_SORT)
     onStatusChange([])
     onStatusModeChange("include")
     onPriorityChange([])
     onPriorityModeChange("include")
+    onPrioritySortDirectionChange?.(null)
     onSeverityChange([])
     onSeverityModeChange("include")
+    onSeveritySortDirectionChange?.(null)
     onAssigneeChange([])
     onAssigneeModeChange("include")
+    onAssigneeSortDirectionChange?.(null)
     onTagChange([])
     onTagModeChange("include")
+    onTagSortDirectionChange?.(null)
     // Reset dropdown filters
     const refs = dropdownDefinitions
       ? dropdownDefinitions.map((d) => d.ref)
@@ -943,6 +1058,8 @@ export function CasesHeader({
           value={createdAfter}
           onChange={onCreatedAfterChange}
         />
+
+        <CaseSortSelect value={sortBy} onChange={onSortByChange} />
 
         {hasFilters && (
           <button

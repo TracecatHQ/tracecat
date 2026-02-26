@@ -1732,7 +1732,7 @@ async def list_workflows(
         async with WorkflowsManagementService.with_session(role=role) as svc:
             page = await svc.list_workflows(CursorPaginationParams(limit=limit))
             workflows: list[dict[str, Any]] = []
-            for workflow, latest_defn in page.items:
+            for workflow, latest_defn, _trigger_summary in page.items:
                 if status and workflow.status != status:
                     continue
                 if search:
