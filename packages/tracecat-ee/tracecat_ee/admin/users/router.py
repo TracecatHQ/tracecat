@@ -108,3 +108,32 @@ async def demote_from_superuser(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    role: SuperuserRole,
+    session: AsyncDBSession,
+    user_id: uuid.UUID,
+) -> None:
+    """Delete a platform user."""
+    if role.user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete user without authenticated user context",
+        )
+
+    service = AdminUserService(session, role)
+    try:
+        await service.delete_user(user_id, current_user_id=role.user_id)
+    except ValueError as e:
+        detail = str(e)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        ) from e

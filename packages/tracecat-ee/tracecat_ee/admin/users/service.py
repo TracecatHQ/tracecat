@@ -124,3 +124,39 @@ class AdminUserService(BasePlatformService):
         await self.session.commit()
         await self.session.refresh(user)
         return AdminUserRead.model_validate(user)
+
+    async def delete_user(self, user_id: uuid.UUID, current_user_id: uuid.UUID) -> None:
+        """Delete a platform user."""
+        # Safety: cannot delete yourself
+        if user_id == current_user_id:
+            raise ValueError("Cannot delete yourself")
+
+        stmt = select(User).where(cast(Mapped[uuid.UUID], User.id) == user_id)
+        result = await self.session.execute(stmt)
+        user = result.scalar_one_or_none()
+        if not user:
+            raise ValueError(f"User {user_id} not found")
+
+        # Safety: cannot delete last superuser
+        if user.is_superuser:
+            count_stmt = (
+                select(func.count())
+                .select_from(User)
+                .where(cast(Mapped[bool], User.is_superuser) == True)  # noqa: E712
+            )
+            count_result = await self.session.execute(count_stmt)
+            superuser_count = count_result.scalar_one()
+            if superuser_count <= 1:
+                raise ValueError("Cannot delete the last superuser")
+
+        await self.session.delete(user)
+        await self.session.commit()
+
+        async with AuditService.with_session(
+            role=self.role, session=self.session
+        ) as svc:
+            await svc.create_event(
+                resource_type="user",
+                action="delete",
+                resource_id=user_id,
+            )
