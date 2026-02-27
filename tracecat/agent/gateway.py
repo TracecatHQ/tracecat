@@ -81,6 +81,7 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
             "use_workspace_credentials": claims.use_workspace_credentials,
             "model": claims.model,
             "provider": claims.provider,
+            "base_url": claims.base_url,
             "model_settings": claims.model_settings,
         },
     )
@@ -148,6 +149,11 @@ class TracecatCallbackHandler(CustomLogger):
 
         # Inject credentials based on provider type
         _inject_provider_credentials(data, provider, creds)
+        if (
+            model_base_url := user_api_key_dict.metadata.get("base_url")
+        ) and provider in {"openai", "anthropic", "custom-model-provider"}:
+            # Preset/config base_url should override provider credential base URL
+            data["api_base"] = model_base_url
 
         # Inject model settings from token (only allowed non-sensitive keys)
         model_settings = user_api_key_dict.metadata.get("model_settings", {})
@@ -206,6 +212,8 @@ def _inject_provider_credentials(
                     code=401,
                 )
             data["api_key"] = api_key
+            if base_url := creds.get("OPENAI_BASE_URL"):
+                data["api_base"] = base_url
 
         case "anthropic":
             api_key = creds.get("ANTHROPIC_API_KEY")
@@ -220,6 +228,8 @@ def _inject_provider_credentials(
                     code=401,
                 )
             data["api_key"] = api_key
+            if base_url := creds.get("ANTHROPIC_BASE_URL"):
+                data["api_base"] = base_url
 
         case "gemini":
             api_key = creds.get("GEMINI_API_KEY")

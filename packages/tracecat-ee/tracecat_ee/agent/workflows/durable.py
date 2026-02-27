@@ -310,6 +310,7 @@ class DurableAgentWorkflow:
             session_id=self.session_id,
             model=cfg.model_name,
             provider=cfg.model_provider,
+            base_url=cfg.base_url,
             model_settings=cfg.model_settings,
             use_workspace_credentials=args.agent_args.use_workspace_credentials,
         )

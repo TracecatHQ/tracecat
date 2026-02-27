@@ -238,6 +238,10 @@ class LLMTokenClaims(BaseModel):
     provider: str = Field(
         ..., description="The provider for the model (e.g., openai, anthropic, bedrock)"
     )
+    base_url: str | None = Field(
+        default=None,
+        description="Optional provider base URL override from the agent config/preset",
+    )
 
     # Model settings - passed through to LLM provider as-is
     # Supports: temperature, max_tokens, reasoning_effort, etc.
@@ -260,6 +264,7 @@ def mint_llm_token(
     session_id: uuid.UUID,
     model: str,
     provider: str,
+    base_url: str | None = None,
     model_settings: dict[str, Any] | None = None,
     use_workspace_credentials: bool = False,
     ttl_seconds: int | None = None,
@@ -275,6 +280,7 @@ def mint_llm_token(
         session_id: The agent session UUID
         model: The model to use for this run
         provider: The provider for the model (e.g., openai, anthropic, bedrock)
+        base_url: Optional provider base URL override from the agent config/preset
         model_settings: Model-specific settings (temperature, max_tokens,
             reasoning_effort, etc.) passed through to LLM provider
         use_workspace_credentials: Whether to use workspace-level creds
@@ -303,6 +309,7 @@ def mint_llm_token(
         # Model configuration
         "model": model,
         "provider": provider,
+        "base_url": base_url,
         "model_settings": model_settings or {},
         # Credential scope
         "use_workspace_credentials": use_workspace_credentials,
