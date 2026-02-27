@@ -387,6 +387,43 @@ class TestRBACServiceGroups:
         )
         assert remaining_member is not None
 
+    async def test_list_group_members_excludes_cross_org_group(
+        self,
+        session: AsyncSession,
+        role: Role,
+    ):
+        """Listing members should not return rows for groups in another org."""
+        service = RBACService(session, role=role)
+
+        other_org_id = uuid.uuid4()
+        other_org = Organization(
+            id=other_org_id,
+            name="Other List Org",
+            slug=f"other-list-org-{other_org_id.hex[:8]}",
+        )
+        other_user = User(
+            id=uuid.uuid4(),
+            email="other-list-rbac-user@example.com",
+            hashed_password="test",
+        )
+        other_group = Group(
+            name="Other List Group",
+            organization_id=other_org.id,
+            created_by=other_user.id,
+        )
+        session.add_all([other_org, other_user, other_group])
+        await session.flush()
+        session.add(
+            GroupMember(
+                group_id=other_group.id,
+                user_id=other_user.id,
+            )
+        )
+        await session.commit()
+
+        members = await service.list_group_members(other_group.id)
+        assert members == []
+
 
 @pytest.mark.anyio
 class TestRBACServiceAssignments:
