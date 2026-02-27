@@ -375,22 +375,22 @@ resource "helm_release" "tracecat" {
 
   set {
     name  = "mcp.resources.requests.cpu"
-    value = "4000m"
+    value = "1000m"
   }
 
   set {
     name  = "mcp.resources.requests.memory"
-    value = "4096Mi"
+    value = "1024Mi"
   }
 
   set {
     name  = "mcp.resources.limits.cpu"
-    value = "4000m"
+    value = "1000m"
   }
 
   set {
     name  = "mcp.resources.limits.memory"
-    value = "4096Mi"
+    value = "1024Mi"
   }
 
   # External PostgreSQL (RDS)
