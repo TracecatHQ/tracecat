@@ -105,7 +105,6 @@ with workflow.unsafe.imports_passed_through():
         TracecatNotFoundError,
     )
     from tracecat.expressions.eval import is_template_only
-    from tracecat.identifiers import WorkspaceID
     from tracecat.identifiers.workflow import (
         WorkflowExecutionID,
         WorkflowID,
@@ -144,6 +143,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.workflow.schedules.schemas import GetScheduleActivityInputs
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
+    from tracecat.workspaces.activities import get_workspace_organization_id_activity
 
 
 def _inherit_search_attributes_with_alias(
@@ -211,6 +211,9 @@ class DSLWorkflow:
         self.wf_exec_id = wf_info.workflow_id
         # Tracecat wf run id == Temporal wf run id
         self.wf_run_id = wf_info.run_id
+        if self.role.workspace_id is None:
+            raise ApplicationError("Workspace ID is required", non_retryable=True)
+        self.workspace_id = self.role.workspace_id
         self.logger = get_workflow_logger(
             wf_id=args.wf_id,
             wf_exec_id=self.wf_exec_id,
@@ -254,40 +257,19 @@ class DSLWorkflow:
         sid = stream_id or ctx_stream_id.get()
         return self.scheduler.streams[sid]
 
-    @property
-    def workspace_id(self) -> WorkspaceID:
-        """Get the workspace ID."""
-        if self.role.workspace_id is None:
-            raise ValueError("Workspace ID is required")
-        return self.role.workspace_id
-
-    async def _heal_role_organization_id_if_missing(self) -> None:
-        """Recover missing organization_id for legacy scheduled workflow roles."""
+    async def _resolve_organization_id(self) -> identifiers.OrganizationID:
+        """Resolve organization_id for the role."""
         if self.role.organization_id is not None:
-            return
-
-        if self.role.workspace_id is None:
-            self.logger.warning(
-                "Role is missing organization_id and workspace_id; skipping auto-heal"
-            )
-            return
-
+            return self.role.organization_id
         self.logger.warning(
             "Role missing organization_id; attempting workspace-based auto-heal",
             workspace_id=self.role.workspace_id,
         )
         organization_id = await workflow.execute_activity(
-            WorkflowSchedulesService.get_workspace_organization_id_activity,
-            arg=self.role.workspace_id,
-            start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=RETRY_POLICIES["activity:fail_slow"],
+            get_workspace_organization_id_activity,
+            arg=self.workspace_id,
+            start_to_close_timeout=timedelta(seconds=30),
         )
-        if organization_id is None:
-            self.logger.warning(
-                "Auto-heal could not resolve organization_id from workspace",
-                workspace_id=self.role.workspace_id,
-            )
-            return
 
         self.role = self.role.model_copy(update={"organization_id": organization_id})
         self.logger = self.logger.bind(role=self.role)
@@ -297,10 +279,11 @@ class DSLWorkflow:
             organization_id=organization_id,
             workspace_id=self.role.workspace_id,
         )
+        return organization_id
 
     @workflow.run
     async def run(self, args: DSLRunArgs) -> StoredObject:
-        await self._heal_role_organization_id_if_missing()
+        self.organization_id = await self._resolve_organization_id()
 
         # Set DSL and registry_lock
         registry_lock = None

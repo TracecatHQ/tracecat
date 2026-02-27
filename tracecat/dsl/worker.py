@@ -34,6 +34,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.workflow.management.management import WorkflowsManagementService
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
+    from tracecat.workspaces.activities import get_workspace_organization_id_activity
 
 
 # Due to known issues with Pydantic's use of issubclass and our inability to
@@ -84,6 +85,7 @@ def get_activities() -> list[Callable]:
         *CollectionActivities.get_activities(),
         get_workflow_definition_activity,
         resolve_registry_lock_activity,
+        get_workspace_organization_id_activity,
         *WorkflowSchedulesService.get_activities(),
         resolve_time_anchor_activity,
         *WorkflowsManagementService.get_activities(),

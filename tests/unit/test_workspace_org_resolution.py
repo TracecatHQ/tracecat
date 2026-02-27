@@ -6,12 +6,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
 from tracecat.auth.types import Role
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.workflow.schedules.service import WorkflowSchedulesService
+from tracecat.workspaces.activities import get_workspace_organization_id_activity
 
 
 @pytest.mark.anyio
@@ -29,19 +30,17 @@ async def test_get_workspace_organization_id_activity_returns_match(monkeypatch)
         yield mock_session
 
     monkeypatch.setattr(
-        "tracecat.workflow.schedules.service.get_async_session_context_manager",
+        "tracecat.workspaces.activities.get_async_session_context_manager",
         fake_session_manager,
     )
 
-    result = await WorkflowSchedulesService.get_workspace_organization_id_activity(
-        workspace_id
-    )
+    result = await get_workspace_organization_id_activity(workspace_id)
 
     assert result == organization_id
 
 
 @pytest.mark.anyio
-async def test_get_workspace_organization_id_activity_returns_none_when_missing(
+async def test_get_workspace_organization_id_activity_raises_when_missing(
     monkeypatch,
 ):
     workspace_id = uuid.uuid4()
@@ -56,15 +55,12 @@ async def test_get_workspace_organization_id_activity_returns_none_when_missing(
         yield mock_session
 
     monkeypatch.setattr(
-        "tracecat.workflow.schedules.service.get_async_session_context_manager",
+        "tracecat.workspaces.activities.get_async_session_context_manager",
         fake_session_manager,
     )
 
-    result = await WorkflowSchedulesService.get_workspace_organization_id_activity(
-        workspace_id
-    )
-
-    assert result is None
+    with pytest.raises(ApplicationError, match="not found or has no organization"):
+        await get_workspace_organization_id_activity(workspace_id)
 
 
 @pytest.mark.anyio
@@ -97,13 +93,13 @@ async def test_dsl_workflow_auto_heals_missing_organization_id():
         ),
     ):
         dsl_workflow = DSLWorkflow(args)
-        await dsl_workflow._heal_role_organization_id_if_missing()
+        await dsl_workflow._resolve_organization_id()
 
     assert dsl_workflow.role.organization_id == organization_id
 
 
 @pytest.mark.anyio
-async def test_dsl_workflow_auto_heal_skips_when_workspace_missing():
+async def test_dsl_workflow_init_raises_when_workspace_missing():
     role = Role(type="service", service_id="tracecat-schedule-runner")
     args = DSLRunArgs(role=role, wf_id=WorkflowUUID.new_uuid4())
 
@@ -117,17 +113,9 @@ async def test_dsl_workflow_auto_heal_skips_when_workspace_missing():
         get_current_history_length=lambda: 0,
         get_current_history_size=lambda: 0,
     )
-    mock_execute_activity = AsyncMock()
 
     with (
         patch("tracecat.dsl.workflow.workflow.info", return_value=fake_wf_info),
-        patch(
-            "tracecat.dsl.workflow.workflow.execute_activity",
-            new=mock_execute_activity,
-        ),
+        pytest.raises(ApplicationError, match="Workspace ID is required"),
     ):
-        dsl_workflow = DSLWorkflow(args)
-        await dsl_workflow._heal_role_organization_id_if_missing()
-
-    assert dsl_workflow.role.organization_id is None
-    mock_execute_activity.assert_not_called()
+        DSLWorkflow(args)
