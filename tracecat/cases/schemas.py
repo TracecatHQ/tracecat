@@ -223,11 +223,6 @@ class CaseTaskUpdate(Schema):
     default_trigger_values: dict[str, Any] | None = Field(default=None)
 
 
-class CaseTaskRun(Schema):
-    inputs: dict[str, Any] | None = Field(default=None)
-    time_anchor: datetime | None = Field(default=None)
-
-
 # Case Events
 
 

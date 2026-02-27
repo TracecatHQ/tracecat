@@ -55,10 +55,7 @@ export function WorkflowTriggerDialog({
   const workspaceId = useWorkspaceId()
 
   const { createExecution, createExecutionIsPending } =
-    useCreateManualWorkflowExecution(
-      workflowId || "",
-      taskId ? { caseId: caseData.id, taskId } : undefined
-    )
+    useCreateManualWorkflowExecution(workflowId || "")
 
   const {
     caseFieldsRecord,
@@ -110,6 +107,15 @@ export function WorkflowTriggerDialog({
   const selectedWorkflowName =
     selectedWorkflowDetail?.title ?? workflowTitle ?? "this workflow"
 
+  const withTaskContextInputs = useCallback(
+    (values: Record<string, unknown>) => ({
+      ...values,
+      case_id: caseData.id,
+      ...(taskId ? { task_id: taskId } : {}),
+    }),
+    [caseData.id, taskId]
+  )
+
   const showExecutionStartedToast = useCallback(() => {
     if (!workflowId || !selectedWorkflowUrl) {
       return
@@ -136,19 +142,25 @@ export function WorkflowTriggerDialog({
       if (!workflowId) return
       await createExecution({
         workflow_id: workflowId,
-        inputs: values,
+        inputs: withTaskContextInputs(values),
       })
       showExecutionStartedToast()
       onOpenChange(false)
     },
-    [createExecution, onOpenChange, showExecutionStartedToast, workflowId]
+    [
+      createExecution,
+      onOpenChange,
+      showExecutionStartedToast,
+      withTaskContextInputs,
+      workflowId,
+    ]
   )
 
   const handleTriggerWithoutSchema = useCallback(async () => {
     if (!workflowId) return
     await createExecution({
       workflow_id: workflowId,
-      inputs: fallbackInputs,
+      inputs: withTaskContextInputs(fallbackInputs),
     })
     showExecutionStartedToast()
     onOpenChange(false)
@@ -157,6 +169,7 @@ export function WorkflowTriggerDialog({
     fallbackInputs,
     onOpenChange,
     showExecutionStartedToast,
+    withTaskContextInputs,
     workflowId,
   ])
 

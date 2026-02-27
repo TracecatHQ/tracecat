@@ -4,7 +4,6 @@ from typing import Annotated, Literal, TypedDict
 
 from asyncpg import DuplicateColumnError
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError, NoResultFound, ProgrammingError
 from starlette.status import (
     HTTP_200_OK,
@@ -41,7 +40,6 @@ from tracecat.cases.schemas import (
     CaseSearchAggregateRead,
     CaseTaskCreate,
     CaseTaskRead,
-    CaseTaskRun,
     CaseTaskUpdate,
     CaseUpdate,
     TaskAssigneeChangedEventRead,
@@ -55,8 +53,6 @@ from tracecat.cases.service import (
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import WorkflowDefinition
-from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
@@ -64,10 +60,7 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.registry.lock.types import RegistryLock
 from tracecat.tiers.enums import Entitlement
-from tracecat.workflow.executions.schemas import WorkflowExecutionCreateResponse
-from tracecat.workflow.executions.service import WorkflowExecutionsService
 
 cases_router = APIRouter(prefix="/cases", tags=["cases"])
 case_fields_router = APIRouter(prefix="/case-fields", tags=["cases"])
@@ -936,72 +929,6 @@ async def update_task(
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail="Failed to update task",
-        ) from e
-
-
-@cases_router.post(
-    "/{case_id}/tasks/{task_id}/run",
-    status_code=HTTP_201_CREATED,
-)
-@require_scope("workflow:execute")
-async def run_task_workflow(
-    *,
-    role: WorkspaceUser,
-    session: AsyncDBSession,
-    case_id: uuid.UUID,
-    task_id: uuid.UUID,
-    params: CaseTaskRun,
-) -> WorkflowExecutionCreateResponse:
-    """Run a task's linked workflow with server-enforced case/task context."""
-    service = CaseTasksService(session, role)
-
-    try:
-        task = await service.get_task(task_id)
-        if task.case_id != case_id:
-            raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail="Task not found")
-
-        if not task.workflow_id:
-            raise HTTPException(
-                status_code=HTTP_400_BAD_REQUEST,
-                detail="Task has no workflow configured",
-            )
-
-        result = await session.execute(
-            select(WorkflowDefinition)
-            .where(WorkflowDefinition.workflow_id == task.workflow_id)
-            .order_by(WorkflowDefinition.version.desc())
-        )
-        defn = result.scalars().first()
-        if not defn:
-            raise HTTPException(
-                status_code=HTTP_404_NOT_FOUND,
-                detail="No workflow definition found for task workflow",
-            )
-
-        dsl_input = DSLInput.model_validate(defn.content)
-        workflow_service = await WorkflowExecutionsService.connect(role=role)
-
-        merged_inputs = dict(task.default_trigger_values or {})
-        if params.inputs:
-            merged_inputs.update(params.inputs)
-        merged_inputs["case_id"] = str(case_id)
-        merged_inputs["task_id"] = str(task_id)
-
-        return workflow_service.create_workflow_execution_nowait(
-            dsl=dsl_input,
-            wf_id=WorkflowUUID.new(task.workflow_id),
-            payload=merged_inputs,
-            time_anchor=params.time_anchor,
-            registry_lock=(
-                RegistryLock.model_validate(defn.registry_lock)
-                if defn.registry_lock
-                else None
-            ),
-        )
-    except TracecatNotFoundError as e:
-        raise HTTPException(
-            status_code=HTTP_404_NOT_FOUND,
-            detail="Task not found",
         ) from e
 
 
