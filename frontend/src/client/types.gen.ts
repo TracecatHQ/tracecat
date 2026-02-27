@@ -6456,6 +6456,8 @@ export type WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_ = {
   child_wf_exec_id?: string | null
   child_wf_count?: number
   loop_index?: number | null
+  while_iteration?: number | null
+  while_continue?: boolean | null
   child_wf_wait_strategy?: WaitStrategy | null
   session?: Session_Any_ | null
 }

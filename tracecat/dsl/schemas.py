@@ -14,7 +14,7 @@ from pydantic import (
 )
 from pydantic_core import CoreSchema, core_schema
 
-from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
+from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT, MAX_DO_WHILE_ITERATIONS
 from tracecat.dsl.enums import JoinStrategy, StreamErrorHandlingStrategy
 from tracecat.exceptions import TracecatValidationError
 from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
@@ -595,4 +595,29 @@ class GatherArgs(BaseModel):
     )
     error_strategy: StreamErrorHandlingStrategy = Field(
         default=StreamErrorHandlingStrategy.PARTITION
+    )
+
+
+class LoopEndArgs(BaseModel):
+    """Arguments for loop end control-flow actions."""
+
+    condition: ExpressionStr = Field(
+        ...,
+        description=(
+            "The condition expression to evaluate for do-while continuation. "
+            "This can reference `${{ ACTIONS.<loop_start_ref>.result.iteration }}`. "
+            "Loop action results are overwritten when actions run in later iterations; "
+            "if an action is skipped in an iteration, its previous result is retained."
+        ),
+    )
+    max_iterations: int = Field(
+        default=100,
+        ge=1,
+        le=MAX_DO_WHILE_ITERATIONS,
+        description=(
+            "Maximum number of loop body executions allowed. "
+            "With zero-based iteration index, execution fails when continuing would "
+            "produce index >= max_iterations. "
+            f"Platform hard cap: {MAX_DO_WHILE_ITERATIONS}."
+        ),
     )

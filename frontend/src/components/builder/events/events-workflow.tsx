@@ -11,6 +11,7 @@ import {
   EyeOffIcon,
   LayoutListIcon,
   LoaderIcon,
+  Repeat2Icon,
   ScanEyeIcon,
   SquareArrowOutUpRightIcon,
   UserIcon,
@@ -46,6 +47,8 @@ import {
 } from "@/components/ui/tooltip"
 import {
   executionId,
+  getLatestLoopEventMeta,
+  getLoopEventMeta,
   groupEventsByActionRef,
   refToLabel,
   WF_COMPLETED_EVENT_REF,
@@ -310,20 +313,73 @@ export function WorkflowEvents({
     [workspaceId]
   )
 
-  const rows: WorkflowEventsListRow[] = Object.entries(groupedEvents).map(
+  const getLatestEvent = useCallback(
+    (relatedEvents: WorkflowExecutionEventCompact[]) =>
+      [...relatedEvents].sort((a, b) => {
+        const dateA = new Date(a.start_time || a.schedule_time).getTime()
+        const dateB = new Date(b.start_time || b.schedule_time).getTime()
+        return dateB - dateA
+      })[0],
+    []
+  )
+
+  const eventRows = Object.entries(groupedEvents).map(
     ([actionRef, relatedEvents]) => {
+      const latestEvent = getLatestEvent(relatedEvents)
+      return {
+        actionRef,
+        relatedEvents,
+        latestEvent,
+      }
+    }
+  )
+  const rows: WorkflowEventsListRow[] = eventRows.map(
+    ({ actionRef, relatedEvents, latestEvent }) => {
       const aggregateStatus = getAggregateWorkflowEventStatus(relatedEvents)
       const latestStartTime = getLatestStartTime(relatedEvents)
+      const isLoopAction =
+        latestEvent?.action_name === "core.loop.start" ||
+        latestEvent?.action_name === "core.loop.end"
+      const loopMeta =
+        getLoopEventMeta(latestEvent) ?? getLatestLoopEventMeta(relatedEvents)
+      const loopBadge =
+        latestEvent?.action_name === "core.loop.start" ? loopMeta : undefined
+      const loopTooltip =
+        latestEvent?.action_name === "core.loop.start" && loopMeta
+          ? `Iteration ${loopMeta}`
+          : loopMeta
       const instanceCount = relatedEvents.length
       const childWorkflowRunLink = getChildWorkflowRunLink(relatedEvents)
 
       return {
         key: actionRef,
         label: refToLabel(actionRef),
+        meta: loopBadge,
         time: latestStartTime
           ? new Date(latestStartTime).toLocaleTimeString()
           : "-",
-        icon: <WorkflowEventStatusIcon status={aggregateStatus} />,
+        icon: isLoopAction ? (
+          loopTooltip ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="relative flex size-5 items-center justify-center">
+                  {getWorkflowEventIcon(aggregateStatus, "size-5")}
+                  <Repeat2Icon className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-sm bg-orange-100 text-orange-700 ring-1 ring-orange-200" />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                <span>{loopTooltip}</span>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <div className="relative flex size-5 items-center justify-center">
+              <WorkflowEventStatusIcon status={aggregateStatus} />
+              <Repeat2Icon className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-sm bg-orange-100 text-orange-700 ring-1 ring-orange-200" />
+            </div>
+          )
+        ) : (
+          <WorkflowEventStatusIcon status={aggregateStatus} />
+        ),
         selected: selectedActionEventRef === actionRef,
         count: instanceCount,
         subflowLink: childWorkflowRunLink,

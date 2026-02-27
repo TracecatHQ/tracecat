@@ -302,6 +302,21 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <MergeIcon style={{ transform: "rotate(90deg)" }} {...rest} />
       </div>
     ),
+    "core.loop": ({ className, ...rest }) => (
+      <div className={cn(basicIconsCommon, "bg-orange-200/70", className)}>
+        <RefreshCcw {...rest} />
+      </div>
+    ),
+    "core.loop.start": ({ className, ...rest }) => (
+      <div className={cn(basicIconsCommon, "bg-orange-200/70", className)}>
+        <SplitIcon style={{ transform: "rotate(90deg)" }} {...rest} />
+      </div>
+    ),
+    "core.loop.end": ({ className, ...rest }) => (
+      <div className={cn(basicIconsCommon, "bg-orange-200/70", className)}>
+        <MergeIcon style={{ transform: "rotate(90deg)" }} {...rest} />
+      </div>
+    ),
     "core.cases": ({ className, ...rest }) => (
       <div className={cn(basicIconsCommon, "bg-rose-100", className)}>
         <ShieldAlert {...rest} />

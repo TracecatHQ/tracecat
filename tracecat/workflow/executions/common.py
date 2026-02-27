@@ -82,10 +82,13 @@ HISTORY_TO_WF_EVENT_TYPE = {
 # Activities that use action schemas (allowlist approach)
 # These activities can be associated with action_ref in event history
 # - execute_action_activity and noop_gather_action_activity use RunActionInput
+# - noop_loop_start_activity and noop_loop_end_activity use RunActionInput
 # - handle_scatter_input_activity uses ScatterActionInput
 ACTION_ACTIVITIES = {
     ExecutorActivities.execute_action_activity.__name__,
     DSLActivities.noop_gather_action_activity.__name__,
+    DSLActivities.noop_loop_start_activity.__name__,
+    DSLActivities.noop_loop_end_activity.__name__,
     DSLActivities.handle_scatter_input_activity.__name__,
 }
 

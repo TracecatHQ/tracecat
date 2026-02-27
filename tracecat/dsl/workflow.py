@@ -691,6 +691,8 @@ class DSLWorkflow:
         """Execute a task and manage the results."""
         if task.action == PlatformAction.TRANSFORM_GATHER:
             return await self._noop_gather_action(task)
+        if task.action in (PlatformAction.LOOP_START, PlatformAction.LOOP_END):
+            return await self._noop_loop_action(task)
         if task.retry_policy.retry_until:
             return await self._execute_task_until_condition(task)
         return await self._execute_task(task)
@@ -1741,6 +1743,46 @@ class DSLWorkflow:
 
         return await workflow.execute_activity(
             DSLActivities.noop_gather_action_activity,
+            args=(arg, self.role),
+            start_to_close_timeout=timedelta(
+                seconds=task.start_delay + task.retry_policy.timeout
+            ),
+            retry_policy=RetryPolicy(
+                maximum_attempts=task.retry_policy.max_attempts,
+            ),
+        )
+
+    async def _noop_loop_action(self, task: ActionStatement) -> Any:
+        """Record a no-op activity for loop start/end interface actions."""
+        stream_id = ctx_stream_id.get()
+        self.logger.debug("Noop loop action", action_ref=task.ref, stream_id=stream_id)
+        new_context = self._build_action_context(task, stream_id)
+        # build_stream_aware_context is sparse and only includes referenced ACTIONS.
+        # Loop control actions store scheduler metadata on their own ref
+        # (iteration/continue), so we must explicitly include that self result.
+        own_result = self.scheduler.get_stream_aware_action_result(task.ref, stream_id)
+        if own_result is not None:
+            actions = dict(new_context.get("ACTIONS", {}))
+            actions[task.ref] = own_result
+            new_context["ACTIONS"] = actions
+
+        arg = RunActionInput(
+            task=task,
+            run_context=self.run_context,
+            exec_context=new_context,
+            interaction_context=ctx_interaction.get(),
+            stream_id=stream_id,
+            registry_lock=self.registry_lock,
+        )
+
+        activity_fn = (
+            DSLActivities.noop_loop_start_activity
+            if task.action == PlatformAction.LOOP_START
+            else DSLActivities.noop_loop_end_activity
+        )
+
+        return await workflow.execute_activity(
+            activity_fn,
             args=(arg, self.role),
             start_to_close_timeout=timedelta(
                 seconds=task.start_delay + task.retry_policy.timeout

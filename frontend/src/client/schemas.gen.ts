@@ -20848,6 +20848,28 @@ export const $WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_ =
         ],
         title: "Loop Index",
       },
+      while_iteration: {
+        anyOf: [
+          {
+            type: "integer",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "While Iteration",
+      },
+      while_continue: {
+        anyOf: [
+          {
+            type: "boolean",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "While Continue",
+      },
       child_wf_wait_strategy: {
         anyOf: [
           {

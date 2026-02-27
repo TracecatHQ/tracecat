@@ -158,3 +158,92 @@ Under the `If condition / Loops` tab, you can specify loop expressions to iterat
     ![Run workflow](/img/quickstart/tutorial/run-loop-workflow.png)
   </Step>
 </Steps>
+
+### Do-while loops (`core.loop.start` + `core.loop.end`)
+
+Tracecat also supports explicit do-while control flow with `core.loop.start` and
+`core.loop.end`.
+
+- `core.loop.start` opens the loop region and seeds the current iteration.
+- `core.loop.end` closes the loop region and decides whether to continue.
+
+**Shape**
+
+```mermaid
+flowchart TD
+  LoopStart([loop_start])
+  LoopBody["loop body actions"]
+  LoopEnd([loop_end])
+  After([after])
+
+  LoopStart --> LoopBody
+  LoopBody --> LoopEnd
+  LoopEnd -->|continue = true| LoopStart
+  LoopEnd -->|continue = false| After
+```
+
+**Iteration value**
+
+- Iteration is 0-based.
+- Access it via `${{ ACTIONS.<loop_start_ref>.result.iteration }}`.
+
+**Condition behavior**
+
+- `core.loop.end` evaluates `condition` only when reached in normal execution.
+- If `core.loop.end` is reached in skip propagation mode, condition is not
+  evaluated and the loop exits (`continue = false`).
+
+
+**Condition reference scope**
+
+- `core.loop.end.condition` can only reference actions in the loop scope that
+  the `core.loop.end` closes.
+- Referencing sibling or nested per-item scatter actions is invalid.
+- If condition logic depends on scatter work inside the loop, reference the
+  synchronized `gather` output (in loop scope), not the per-item action.
+
+```mermaid
+flowchart TD
+  subgraph "Valid"
+    ValidStart([loop_start])
+    ValidScatter["scatter"]
+    ValidPerItem["per_item"]
+    ValidGather["gather"]
+    ValidEnd([loop_end])
+
+    ValidStart --> ValidScatter --> ValidPerItem --> ValidGather --> ValidEnd
+    ValidEnd -->|"loop_end.condition uses"| ValidCondition1["ACTIONS.gather.result"]
+  end
+
+  subgraph "Invalid"
+    InvalidStart([loop_start])
+    InvalidScatter["scatter"]
+    InvalidPerItem["per_item"]
+    InvalidGather["gather"]
+    InvalidEnd([loop_end])
+
+    InvalidStart --> InvalidScatter --> InvalidPerItem --> InvalidGather --> InvalidEnd
+    InvalidEnd -->|"loop_end.condition uses"| InvalidCondition["ACTIONS.per_item.result"]
+  end
+```
+
+**Skip propagation edge cases**
+
+1. Skip reaches `loop_start` from outside the loop region:
+   - The loop unit (`loop_start -> ... -> loop_end`) is treated as skipped.
+   - Skip propagation continues downstream from `loop_end`.
+2. Skip starts inside the loop region, but another dependency still reaches
+   `loop_end`:
+   - `loop_end` executes normally.
+   - `condition` is evaluated as usual.
+3. Skip starts inside the loop region and all paths into `loop_end` are skipped:
+   - `loop_end` acts as a skip boundary (break-like behavior).
+   - Condition is not evaluated.
+   - Execution continues to downstream nodes after `loop_end`.
+
+**Other loop semantics**
+
+- Results in the loop body are overwritten when an action runs again.
+- If an action is skipped in an iteration, its previous result is retained.
+- `max_iterations` protects against unbounded loops and fails the run when the
+  limit is exceeded (platform hard cap: `2048`).

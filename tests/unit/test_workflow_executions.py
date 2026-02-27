@@ -23,6 +23,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import Workspace
 from tracecat.dsl.common import DSLInput
+from tracecat.dsl.schemas import StreamID
 from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowUUID
 from tracecat.workflow.executions.enums import (
     TriggerType,
@@ -783,6 +784,490 @@ class TestWorkflowExecutionEvents:
             assert event.curr_event_type == WorkflowEventType.ACTIVITY_TASK_SCHEDULED
             assert event.status == WorkflowExecutionEventStatus.SCHEDULED
             assert event.start_time is None
+
+    async def test_compact_duplicate_actions_use_latest_source_event_id(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Repeated non-child actions in a stream should keep the latest event."""
+        scheduled_1 = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="body-1",
+            activity_name="execute_action_activity",
+        )
+        scheduled_2 = create_mock_history_event(
+            event_id=2,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="body-2",
+            activity_name="execute_action_activity",
+        )
+        completed_1 = create_mock_history_event(
+            event_id=11,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,  # type: ignore
+            scheduled_event_id=1,
+        )
+        completed_2 = create_mock_history_event(
+            event_id=12,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,  # type: ignore
+            scheduled_event_id=2,
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield scheduled_1
+            yield scheduled_2
+            yield completed_1
+            yield completed_2
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+        root_stream = StreamID.new("<root>", 0)
+
+        source_1 = WorkflowExecutionEventCompact(
+            source_event_id=1,
+            schedule_time=datetime.datetime.fromtimestamp(1640995200, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.transform.reshape",
+            action_ref="body",
+            stream_id=root_stream,
+        )
+        source_2 = WorkflowExecutionEventCompact(
+            source_event_id=2,
+            schedule_time=datetime.datetime.fromtimestamp(1640995201, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.transform.reshape",
+            action_ref="body",
+            stream_id=root_stream,
+        )
+
+        with patch(
+            "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event"
+        ) as mock_from_source:
+            mock_from_source.side_effect = [source_1, source_2]
+            with patch(
+                "tracecat.workflow.executions.service.get_result"
+            ) as mock_get_result:
+                mock_get_result.side_effect = [0, 1]
+
+                events = await workflow_executions_service.list_workflow_execution_events_compact(
+                    workflow_exec_id
+                )
+
+                assert len(events) == 1
+                event = events[0]
+                assert event.source_event_id == 2
+                assert event.action_result == 1
+                assert event.status == WorkflowExecutionEventStatus.COMPLETED
+                assert (
+                    event.curr_event_type == WorkflowEventType.ACTIVITY_TASK_COMPLETED
+                )
+
+    async def test_compact_duplicate_actions_latest_failure_wins(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Latest failed iteration should replace an earlier successful iteration."""
+        scheduled_1 = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="body-1",
+            activity_name="execute_action_activity",
+        )
+        scheduled_2 = create_mock_history_event(
+            event_id=2,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="body-2",
+            activity_name="execute_action_activity",
+        )
+        completed_1 = create_mock_history_event(
+            event_id=11,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,  # type: ignore
+            scheduled_event_id=1,
+        )
+        failed_2 = create_mock_history_event(
+            event_id=12,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED,  # type: ignore
+            scheduled_event_id=2,
+            failure_message="Body failed on latest iteration",
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield scheduled_1
+            yield scheduled_2
+            yield completed_1
+            yield failed_2
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+        root_stream = StreamID.new("<root>", 0)
+
+        source_1 = WorkflowExecutionEventCompact(
+            source_event_id=1,
+            schedule_time=datetime.datetime.fromtimestamp(1640995200, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.transform.reshape",
+            action_ref="body",
+            stream_id=root_stream,
+        )
+        source_2 = WorkflowExecutionEventCompact(
+            source_event_id=2,
+            schedule_time=datetime.datetime.fromtimestamp(1640995201, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.transform.reshape",
+            action_ref="body",
+            stream_id=root_stream,
+        )
+
+        with patch(
+            "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event"
+        ) as mock_from_source:
+            mock_from_source.side_effect = [source_1, source_2]
+            with patch(
+                "tracecat.workflow.executions.service.get_result"
+            ) as mock_get_result:
+                mock_get_result.return_value = "ok"
+                with patch(
+                    "tracecat.workflow.executions.service.EventFailure.from_history_event"
+                ) as mock_event_failure:
+                    mock_event_failure.return_value = EventFailure(
+                        message="Body failed on latest iteration",
+                        cause=None,
+                    )
+
+                    events = await workflow_executions_service.list_workflow_execution_events_compact(
+                        workflow_exec_id
+                    )
+
+                    assert len(events) == 1
+                    event = events[0]
+                    assert event.source_event_id == 2
+                    assert event.status == WorkflowExecutionEventStatus.FAILED
+                    assert event.action_error is not None
+                    assert (
+                        event.action_error.message == "Body failed on latest iteration"
+                    )
+
+    async def test_compact_duplicate_actions_in_different_streams_are_distinct(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Same action ref in different streams should keep separate events."""
+        scheduled_1 = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="body-root",
+            activity_name="execute_action_activity",
+        )
+        scheduled_2 = create_mock_history_event(
+            event_id=2,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="body-stream",
+            activity_name="execute_action_activity",
+        )
+        completed_1 = create_mock_history_event(
+            event_id=11,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,  # type: ignore
+            scheduled_event_id=1,
+        )
+        completed_2 = create_mock_history_event(
+            event_id=12,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,  # type: ignore
+            scheduled_event_id=2,
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield scheduled_1
+            yield scheduled_2
+            yield completed_1
+            yield completed_2
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+        root_stream = StreamID.new("<root>", 0)
+        scatter_stream = StreamID.new("scatter", 0)
+
+        source_1 = WorkflowExecutionEventCompact(
+            source_event_id=1,
+            schedule_time=datetime.datetime.fromtimestamp(1640995200, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.transform.reshape",
+            action_ref="body",
+            stream_id=root_stream,
+        )
+        source_2 = WorkflowExecutionEventCompact(
+            source_event_id=2,
+            schedule_time=datetime.datetime.fromtimestamp(1640995201, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.transform.reshape",
+            action_ref="body",
+            stream_id=scatter_stream,
+        )
+
+        with patch(
+            "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event"
+        ) as mock_from_source:
+            mock_from_source.side_effect = [source_1, source_2]
+            with patch(
+                "tracecat.workflow.executions.service.get_result"
+            ) as mock_get_result:
+                mock_get_result.side_effect = [10, 20]
+
+                events = await workflow_executions_service.list_workflow_execution_events_compact(
+                    workflow_exec_id
+                )
+
+                assert len(events) == 2
+                stream2result = {
+                    event.stream_id: event.action_result for event in events
+                }
+                assert stream2result[root_stream] == 10
+                assert stream2result[scatter_stream] == 20
+
+    async def test_compact_loop_start_exposes_while_iteration(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Do-while metadata should be exposed separately from child-workflow loop_index."""
+        scheduled = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="loop-start-1",
+            activity_name="noop_loop_start_activity",
+        )
+        completed = create_mock_history_event(
+            event_id=11,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,  # type: ignore
+            scheduled_event_id=1,
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield scheduled
+            yield completed
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+        root_stream = StreamID.new("<root>", 0)
+
+        source = WorkflowExecutionEventCompact(
+            source_event_id=1,
+            schedule_time=datetime.datetime.fromtimestamp(1640995200, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.loop.start",
+            action_ref="loop_start",
+            stream_id=root_stream,
+            loop_index=None,
+        )
+
+        with patch(
+            "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event"
+        ) as mock_from_source:
+            mock_from_source.return_value = source
+            with patch(
+                "tracecat.workflow.executions.service.get_result"
+            ) as mock_get_result:
+                mock_get_result.return_value = {"result": {"data": {"iteration": 3}}}
+
+                events = await workflow_executions_service.list_workflow_execution_events_compact(
+                    workflow_exec_id
+                )
+
+                assert len(events) == 1
+                event = events[0]
+                assert event.action_name == "core.loop.start"
+                assert event.while_iteration == 3
+                assert event.while_continue is None
+                assert event.loop_index is None
+
+    async def test_compact_loop_end_exposes_while_continue(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Loop end continue/exit metadata is available in compact payload."""
+        scheduled = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="loop-end-1",
+            activity_name="noop_loop_end_activity",
+        )
+        completed = create_mock_history_event(
+            event_id=11,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,  # type: ignore
+            scheduled_event_id=1,
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield scheduled
+            yield completed
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+        root_stream = StreamID.new("<root>", 0)
+
+        source = WorkflowExecutionEventCompact(
+            source_event_id=1,
+            schedule_time=datetime.datetime.fromtimestamp(1640995200, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.loop.end",
+            action_ref="loop_end",
+            stream_id=root_stream,
+            loop_index=None,
+        )
+
+        with patch(
+            "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event"
+        ) as mock_from_source:
+            mock_from_source.return_value = source
+            with patch(
+                "tracecat.workflow.executions.service.get_result"
+            ) as mock_get_result:
+                mock_get_result.return_value = {"result": {"data": {"continue": False}}}
+
+                events = await workflow_executions_service.list_workflow_execution_events_compact(
+                    workflow_exec_id
+                )
+
+                assert len(events) == 1
+                event = events[0]
+                assert event.action_name == "core.loop.end"
+                assert event.while_iteration is None
+                assert event.while_continue is False
+                assert event.loop_index is None
+
+    async def test_compact_looped_child_workflow_results_still_aggregate(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Looped child workflow events remain list-aggregated in compact view."""
+        scheduled_1 = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="subflow-1",
+            activity_name="execute_action_activity",
+        )
+        scheduled_2 = create_mock_history_event(
+            event_id=2,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="subflow-2",
+            activity_name="execute_action_activity",
+        )
+        completed_1 = create_mock_history_event(
+            event_id=11,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,  # type: ignore
+            scheduled_event_id=1,
+        )
+        completed_2 = create_mock_history_event(
+            event_id=12,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,  # type: ignore
+            scheduled_event_id=2,
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield scheduled_1
+            yield scheduled_2
+            yield completed_1
+            yield completed_2
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+        root_stream = StreamID.new("<root>", 0)
+
+        source_1 = WorkflowExecutionEventCompact(
+            source_event_id=1,
+            schedule_time=datetime.datetime.fromtimestamp(1640995200, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.workflow.execute",
+            action_ref="run_subflow",
+            stream_id=root_stream,
+            loop_index=0,
+        )
+        source_2 = WorkflowExecutionEventCompact(
+            source_event_id=2,
+            schedule_time=datetime.datetime.fromtimestamp(1640995201, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name="core.workflow.execute",
+            action_ref="run_subflow",
+            stream_id=root_stream,
+            loop_index=1,
+        )
+
+        with patch(
+            "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event"
+        ) as mock_from_source:
+            mock_from_source.side_effect = [source_1, source_2]
+            with patch(
+                "tracecat.workflow.executions.service.get_result"
+            ) as mock_get_result:
+                mock_get_result.side_effect = ["subflow-0", "subflow-1"]
+
+                events = await workflow_executions_service.list_workflow_execution_events_compact(
+                    workflow_exec_id
+                )
+
+                assert len(events) == 1
+                event = events[0]
+                assert event.action_result == ["subflow-0", "subflow-1"]
+                assert event.child_wf_count == 1
+                assert event.loop_index == 0
+                assert event.while_iteration is None
+                assert event.while_continue is None
 
 
 # === Timeout Resolution Tests ===

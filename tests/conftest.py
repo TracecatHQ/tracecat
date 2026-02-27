@@ -631,6 +631,38 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                 "implementation": gather_impl,
             }
 
+            # core.loop.start (interface action)
+            loop_start_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.loop",
+                "name": "start",
+            }
+            manifest_actions["core.loop.start"] = {
+                "namespace": "core.loop",
+                "name": "start",
+                "action_type": "udf",
+                "description": "Open do-while loop scope",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": loop_start_impl,
+            }
+
+            # core.loop.end (interface action)
+            loop_end_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.loop",
+                "name": "end",
+            }
+            manifest_actions["core.loop.end"] = {
+                "namespace": "core.loop",
+                "name": "end",
+                "action_type": "udf",
+                "description": "Evaluate do-while loop condition",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": loop_end_impl,
+            }
+
             manifest = {"schema_version": "1.0", "actions": manifest_actions}
 
             # Create RegistryVersion with manifest

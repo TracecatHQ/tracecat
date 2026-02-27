@@ -579,6 +579,11 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
     child_wf_exec_id: WorkflowExecutionID | None = None
     child_wf_count: int = 0
     loop_index: int | None = None
+    """Loop index for `for_each` child workflow executions."""
+    while_iteration: int | None = None
+    """Iteration index for `core.loop.start` do-while control actions."""
+    while_continue: bool | None = None
+    """Continue decision for `core.loop.end` do-while control actions."""
     child_wf_wait_strategy: WaitStrategy | None = None
     # SSE streaming for agents
     session: Session[TSessionEvent] | None = None

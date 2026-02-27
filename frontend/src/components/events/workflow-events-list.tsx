@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils"
 export type WorkflowEventsListRow = {
   key: string
   label: string
+  meta?: React.ReactNode
   time: string
   icon: React.ReactNode
   selected?: boolean
@@ -36,6 +37,11 @@ export function WorkflowEventsList({
       )}
       {rows.map((row) => {
         const isInteractive = Boolean(row.onSelect)
+        const metaText =
+          typeof row.meta === "string" || typeof row.meta === "number"
+            ? String(row.meta)
+            : null
+        const isIterationMeta = metaText !== null && /^\d+$/.test(metaText)
         return (
           <div key={row.key}>
             <div
@@ -65,6 +71,18 @@ export function WorkflowEventsList({
               <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2 text-xs">
                   <div className="truncate text-foreground/70">{row.label}</div>
+                  {row.meta && (
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "h-4 px-1.5 text-[10px] font-medium text-foreground/60",
+                        isIterationMeta &&
+                          "h-4 min-w-4 rounded-full border border-zinc-300 bg-zinc-200 px-1 font-semibold tabular-nums text-[9px] text-zinc-800"
+                      )}
+                    >
+                      {row.meta}
+                    </Badge>
+                  )}
                   {(row.count ?? 0) > 1 && (
                     <Badge
                       variant="secondary"
