@@ -58,7 +58,7 @@ export function OrganizationSidebar({
       locked: !customRegistryEnabled,
     },
     {
-      title: "Single sign-on",
+      title: "SAML (SSO)",
       url: "/organization/settings/sso",
       icon: LockIcon,
       isActive: pathname?.includes("/organization/settings/sso"),

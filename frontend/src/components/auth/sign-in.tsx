@@ -115,8 +115,8 @@ export function SignIn({
   const showGenericOidcAuth = allowedAuthTypes.includes("oidc")
   const showGoogleOauthAuth = allowedAuthTypes.includes("google_oauth")
   const showOidcAuth = showGenericOidcAuth || showGoogleOauthAuth
-  const oidcProviderLabel = showGenericOidcAuth ? "Single sign-on" : "Google"
-  const oidcProviderIcon = showGenericOidcAuth ? "saml" : "google"
+  const oidcProviderLabel = showGenericOidcAuth ? "Social login" : "Google"
+  const oidcProviderIcon = showGenericOidcAuth ? "login" : "google"
   // Keep a manual SAML entry point for single-tenant self-hosted setups.
   // In multi-tenant mode, SAML login requires org context and should only be
   // initiated from org-scoped discovery `next_url` links.

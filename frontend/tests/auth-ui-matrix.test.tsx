@@ -155,6 +155,15 @@ describe("Auth UI matrix", () => {
     )
   })
 
+  it("uses Social login label for generic OIDC auth button", () => {
+    setAuthTypes(["oidc"])
+    render(<SignIn />)
+
+    expect(
+      screen.getByRole("button", { name: "Social login" })
+    ).toBeInTheDocument()
+  })
+
   it("does not render password login UI when basic auth is disabled, even if discovery suggests basic", async () => {
     setAuthTypes(["oidc"])
     mockDiscoverAuthMethod.mockResolvedValue({

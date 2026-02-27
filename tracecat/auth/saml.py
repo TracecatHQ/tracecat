@@ -77,6 +77,7 @@ from tracecat.config import (
     SAML_SIGNED_RESPONSES,
     SAML_VERIFY_SSL_ENTITY,
     SAML_VERIFY_SSL_METADATA,
+    TRACECAT__AUTH_ALLOWED_DOMAINS,
     TRACECAT__AUTH_SUPERADMIN_EMAIL,
     TRACECAT__EE_MULTI_TENANT,
     TRACECAT__PUBLIC_API_URL,
@@ -321,7 +322,15 @@ async def get_org_saml_metadata_url(
 async def should_allow_email_for_org(
     session: AsyncSession, organization_id: OrganizationID, email: str
 ) -> bool:
-    """Allow SAML email only when it matches an active org allowlisted domain."""
+    """Check whether a SAML email satisfies domain policy for the org.
+
+    Policy:
+    - Multi-tenant: require active org domain allowlist match.
+    - Single-tenant:
+      - If active org domains exist, require active org domain match.
+      - Else if env allowed domains are configured, require env domain match.
+      - Else allow any valid email domain.
+    """
     if "@" not in email:
         return False
     raw_domain = email.split("@", 1)[1].strip().lower()
@@ -331,9 +340,10 @@ async def should_allow_email_for_org(
         return False
 
     active_domains = await _get_active_org_domains(session, organization_id)
-    if not active_domains:
-        return False
-    return normalized_domain in active_domains
+    return _is_normalized_domain_allowed_for_org(
+        normalized_domain=normalized_domain,
+        active_domains=active_domains,
+    )
 
 
 async def _get_active_org_domains(
@@ -344,6 +354,38 @@ async def _get_active_org_domains(
         OrganizationDomain.is_active.is_(True),
     )
     return set((await session.execute(domains_stmt)).scalars().all())
+
+
+def _get_env_allowed_domains_for_saml() -> set[str]:
+    """Return normalized env-domain allowlist for SAML checks."""
+    normalized_domains: set[str] = set()
+    for raw_domain in TRACECAT__AUTH_ALLOWED_DOMAINS:
+        domain = raw_domain.strip().lower()
+        if not domain:
+            continue
+        try:
+            normalized_domains.add(normalize_domain(domain).normalized_domain)
+        except ValueError:
+            continue
+    return normalized_domains
+
+
+def _is_normalized_domain_allowed_for_org(
+    *,
+    normalized_domain: str,
+    active_domains: set[str],
+) -> bool:
+    """Apply runtime SAML domain policy for a normalized email domain."""
+    if active_domains:
+        return normalized_domain in active_domains
+
+    if TRACECAT__EE_MULTI_TENANT:
+        return False
+
+    env_allowed_domains = _get_env_allowed_domains_for_saml()
+    if env_allowed_domains:
+        return normalized_domain in env_allowed_domains
+    return True
 
 
 def _extract_candidate_emails(parser: SAMLParser) -> list[str]:
@@ -422,7 +464,10 @@ async def _select_authorized_email(
             normalized_domain = normalize_domain(raw_domain).normalized_domain
         except ValueError:
             continue
-        if normalized_domain not in active_domains:
+        if not _is_normalized_domain_allowed_for_org(
+            normalized_domain=normalized_domain,
+            active_domains=active_domains,
+        ):
             continue
 
         pending_invitation = await get_pending_org_invitation(

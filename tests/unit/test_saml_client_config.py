@@ -92,9 +92,13 @@ class _FakeResult:
 
 
 @pytest.mark.anyio
-async def test_should_allow_email_for_org_denies_no_domains_in_multi_tenant() -> None:
+async def test_should_allow_email_for_org_denies_no_domains_in_multi_tenant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     fake_session = AsyncMock()
     fake_session.execute.return_value = _FakeResult([])
+    monkeypatch.setattr(saml, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(saml, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
 
     allowed = await saml.should_allow_email_for_org(
         fake_session, uuid.uuid4(), "user@example.com"
@@ -104,15 +108,39 @@ async def test_should_allow_email_for_org_denies_no_domains_in_multi_tenant() ->
 
 
 @pytest.mark.anyio
-async def test_should_allow_email_for_org_denies_no_domains_in_single_tenant() -> None:
+async def test_should_allow_email_for_org_allows_no_domains_in_single_tenant_when_env_not_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     fake_session = AsyncMock()
     fake_session.execute.return_value = _FakeResult([])
+    monkeypatch.setattr(saml, "TRACECAT__EE_MULTI_TENANT", False)
+    monkeypatch.setattr(saml, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
 
     allowed = await saml.should_allow_email_for_org(
         fake_session, uuid.uuid4(), "user@example.com"
     )
 
-    assert allowed is False
+    assert allowed is True
+
+
+@pytest.mark.anyio
+async def test_should_allow_email_for_org_enforces_env_domains_in_single_tenant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_session = AsyncMock()
+    fake_session.execute.return_value = _FakeResult([])
+    monkeypatch.setattr(saml, "TRACECAT__EE_MULTI_TENANT", False)
+    monkeypatch.setattr(saml, "TRACECAT__AUTH_ALLOWED_DOMAINS", {"acme.com"})
+
+    allowed_matching = await saml.should_allow_email_for_org(
+        fake_session, uuid.uuid4(), "user@acme.com"
+    )
+    allowed_non_matching = await saml.should_allow_email_for_org(
+        fake_session, uuid.uuid4(), "user@example.com"
+    )
+
+    assert allowed_matching is True
+    assert allowed_non_matching is False
 
 
 @pytest.mark.anyio
@@ -264,6 +292,8 @@ async def test_select_authorized_email_rejects_invitation_without_domains(
     invitation = SimpleNamespace(token="inv-123")
     get_invitation_mock = AsyncMock(return_value=invitation)
     monkeypatch.setattr(saml, "_get_active_org_domains", AsyncMock(return_value=set()))
+    monkeypatch.setattr(saml, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(saml, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
     monkeypatch.setattr(
         saml,
         "is_superadmin_saml_bootstrap_allowed_for_org",
@@ -278,6 +308,32 @@ async def test_select_authorized_email_rejects_invitation_without_domains(
     assert email is None
     assert pending_invitation is None
     get_invitation_mock.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_select_authorized_email_allows_invitation_without_domains_in_single_tenant_when_env_not_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_session = AsyncMock()
+    invitation = SimpleNamespace(token="inv-123")
+    get_invitation_mock = AsyncMock(return_value=invitation)
+    monkeypatch.setattr(saml, "_get_active_org_domains", AsyncMock(return_value=set()))
+    monkeypatch.setattr(saml, "TRACECAT__EE_MULTI_TENANT", False)
+    monkeypatch.setattr(saml, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
+    monkeypatch.setattr(
+        saml,
+        "is_superadmin_saml_bootstrap_allowed_for_org",
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(saml, "get_pending_org_invitation", get_invitation_mock)
+
+    email, pending_invitation = await saml._select_authorized_email(
+        fake_session, uuid.uuid4(), ["invitee@example.com"]
+    )
+
+    assert email == "invitee@example.com"
+    assert pending_invitation is invitation
+    assert get_invitation_mock.await_count == 1
 
 
 @pytest.mark.anyio
@@ -309,6 +365,8 @@ async def test_select_authorized_email_rejects_superadmin_without_domains_when_n
 ) -> None:
     fake_session = AsyncMock()
     monkeypatch.setattr(saml, "_get_active_org_domains", AsyncMock(return_value=set()))
+    monkeypatch.setattr(saml, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(saml, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
     monkeypatch.setattr(
         saml,
         "is_superadmin_saml_bootstrap_allowed_for_org",

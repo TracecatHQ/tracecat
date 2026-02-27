@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.auth import discovery as auth_discovery_module
 from tracecat.auth.discovery import AuthDiscoveryMethod, AuthDiscoveryService
 from tracecat.auth.enums import AuthType
 from tracecat.db.models import Organization, OrganizationDomain
@@ -100,6 +102,7 @@ async def test_discovery_falls_back_when_mapped_org_is_inactive(
         "TRACECAT__AUTH_TYPES",
         {AuthType.BASIC, AuthType.GOOGLE_OAUTH, AuthType.SAML},
     )
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
     service = AuthDiscoveryService(session)
 
     response = await service.discover("user@acme.dev")
@@ -112,10 +115,53 @@ async def test_discovery_returns_safe_platform_fallback_for_unknown_domains(
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
     monkeypatch.setattr(
         config,
         "TRACECAT__AUTH_TYPES",
         {AuthType.BASIC, AuthType.GOOGLE_OAUTH},
+    )
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover("user@unknown-domain.example")
+
+    assert response.method == AuthDiscoveryMethod.OIDC
+
+
+@pytest.mark.anyio
+async def test_discovery_prefers_default_org_saml_for_unknown_domains_in_single_tenant(
+    session: AsyncSession,
+    organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.GOOGLE_OAUTH, AuthType.SAML},
+    )
+    monkeypatch.setattr(
+        auth_discovery_module,
+        "get_default_organization_id",
+        AsyncMock(return_value=organization.id),
+    )
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover("user@unknown-domain.example")
+
+    assert response.method == AuthDiscoveryMethod.SAML
+
+
+@pytest.mark.anyio
+async def test_discovery_unknown_domains_fallback_to_oidc_in_multi_tenant_with_saml_enabled(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.GOOGLE_OAUTH, AuthType.SAML},
     )
     service = AuthDiscoveryService(session)
 
