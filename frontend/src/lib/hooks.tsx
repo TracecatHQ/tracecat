@@ -322,6 +322,7 @@ import {
   type WebhookUpdate,
   type WorkflowDirectoryItem,
   type WorkflowExecutionCreate,
+  type WorkflowExecutionCreateResponse,
   type WorkflowExecutionRead,
   type WorkflowExecutionReadMinimal,
   type WorkflowFolderCreate,
@@ -1077,7 +1078,10 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
   }
 }
 
-export function useCreateManualWorkflowExecution(workflowId: string) {
+export function useCreateManualWorkflowExecution(
+  workflowId: string,
+  taskContext?: { caseId: string; taskId: string }
+) {
   const queryClient = useQueryClient()
   const workspaceId = useWorkspaceId()
 
@@ -1087,6 +1091,18 @@ export function useCreateManualWorkflowExecution(workflowId: string) {
     error: createExecutionError,
   } = useMutation({
     mutationFn: async (params: WorkflowExecutionCreate) => {
+      if (taskContext) {
+        const response = await apiClient.post<WorkflowExecutionCreateResponse>(
+          `/cases/${taskContext.caseId}/tasks/${taskContext.taskId}/run`,
+          {
+            inputs: params.inputs,
+            time_anchor: params.time_anchor,
+          },
+          { params: { workspace_id: workspaceId } }
+        )
+        return response.data
+      }
+
       return await workflowExecutionsCreateWorkflowExecution({
         workspaceId,
         requestBody: params,
