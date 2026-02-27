@@ -45,10 +45,10 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any
+from typing import Any
 
 import defusedxml.ElementTree as ET
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
+from fastapi import APIRouter, Form, HTTPException, Request, Response, status
 from fastapi_users.exceptions import UserAlreadyExists
 from pydantic import BaseModel
 from saml2 import BINDING_HTTP_POST
@@ -83,7 +83,7 @@ from tracecat.config import (
     TRACECAT__PUBLIC_API_URL,
     XMLSEC_BINARY_PATH,
 )
-from tracecat.db.engine import get_async_session
+from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
     OrganizationDomain,
     OrganizationInvitation,
@@ -632,7 +632,7 @@ async def create_saml_client(
 )
 async def login(
     request: Request,
-    db_session: Annotated[AsyncSession, Depends(get_async_session)],
+    db_session: AsyncDBSessionBypass,
 ) -> SAMLDatabaseLoginResponse:
     """Initiate SAML login flow"""
     # Org resolution is explicit in multi-tenant mode and default-org in
@@ -683,7 +683,7 @@ async def sso_acs(
     relay_state: str = Form(..., alias="RelayState"),
     user_manager: UserManagerDep,
     strategy: AuthBackendStrategyDep,
-    db_session: Annotated[AsyncSession, Depends(get_async_session)],
+    db_session: AsyncDBSession,
     role: ServiceRole,
 ) -> Response:
     """Handle the SAML SSO response from the IdP post-authentication."""

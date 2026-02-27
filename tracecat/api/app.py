@@ -79,7 +79,7 @@ from tracecat.cases.tags.internal_router import router as internal_case_tags_rou
 from tracecat.cases.tags.router import router as case_tags_router
 from tracecat.cases.triggers.consumer import start_case_trigger_consumer
 from tracecat.contexts import ctx_role
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
 )
@@ -609,7 +609,7 @@ class AppInfo(BaseModel):
 
 
 @app.get("/info", include_in_schema=False)
-async def info(session: AsyncDBSession) -> AppInfo:
+async def info(session: AsyncDBSessionBypass) -> AppInfo:
     """Non-sensitive information about the platform, for frontend configuration."""
 
     keys = {"saml_enabled", "saml_enforced"}
