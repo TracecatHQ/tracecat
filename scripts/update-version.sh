@@ -182,12 +182,14 @@ update_version() {
             echo "✓ Updated $file" || echo "✗ Failed to update $file"
         fi
     elif [[ "$basename" == "variables.tf" ]]; then
-        # Targeted: update the tracecat_image_tag variable's default value
+        # Targeted: update the tracecat_image_tag and tracecat_chart_version variable defaults
         if [[ "$(uname)" == "Darwin" ]]; then
             sed -i '' -E '/variable "tracecat_image_tag"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$NEW_VERSION"'"/' "$file" && \
+            sed -i '' -E '/variable "tracecat_chart_version"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$CHART_NEW_VERSION"'"/' "$file" && \
             echo "✓ Updated $file" || echo "✗ Failed to update $file"
         else
             sed -i -E '/variable "tracecat_image_tag"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$NEW_VERSION"'"/' "$file" && \
+            sed -i -E '/variable "tracecat_chart_version"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$CHART_NEW_VERSION"'"/' "$file" && \
             echo "✓ Updated $file" || echo "✗ Failed to update $file"
         fi
     else

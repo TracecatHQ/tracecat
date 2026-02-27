@@ -43,6 +43,7 @@ module "eks" {
   domain_name            = var.domain_name
   hosted_zone_id         = var.hosted_zone_id
   tracecat_image_tag     = var.tracecat_image_tag
+  tracecat_chart_version = var.tracecat_chart_version
   tracecat_ingress_split = var.tracecat_ingress_split
   tracecat_mcp_enabled   = var.tracecat_mcp_enabled
   tracecat_mcp_replicas  = var.tracecat_mcp_replicas

@@ -159,6 +159,12 @@ variable "tracecat_image_tag" {
   default     = "1.0.0-beta.22"
 }
 
+variable "tracecat_chart_version" {
+  description = "Helm chart version for Tracecat (from OCI registry)"
+  type        = string
+  default     = "0.3.32"
+}
+
 variable "tracecat_ingress_split" {
   description = "Split Tracecat ingress into separate UI and API ingresses."
   type        = bool

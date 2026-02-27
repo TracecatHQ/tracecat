@@ -73,9 +73,11 @@ locals {
 
 # Tracecat Helm Release
 resource "helm_release" "tracecat" {
-  name      = "tracecat"
-  chart     = "${path.module}/../../../helm/tracecat"
-  namespace = kubernetes_namespace.tracecat.metadata[0].name
+  name       = "tracecat"
+  repository = "oci://ghcr.io/tracecathq/tracecat-helm-chart"
+  chart      = "tracecat"
+  version    = var.tracecat_chart_version
+  namespace  = kubernetes_namespace.tracecat.metadata[0].name
 
   wait            = true
   wait_for_jobs   = true
