@@ -469,7 +469,11 @@ class RBACService(BaseOrgService):
         stmt = (
             select(User, GroupMember)
             .join(GroupMember, GroupMember.user_id == User.id)
-            .where(GroupMember.group_id == group_id)
+            .join(Group, Group.id == GroupMember.group_id)
+            .where(
+                GroupMember.group_id == group_id,
+                Group.organization_id == self.organization_id,
+            )
             .order_by(User.email)
         )
         result = await self.session.execute(stmt)
