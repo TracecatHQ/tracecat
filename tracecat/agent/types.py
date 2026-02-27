@@ -156,6 +156,7 @@ class AgentConfig:
     # MCP
     model_settings: dict[str, Any] | None = None
     mcp_servers: list[MCPServerConfig] | None = None
+    tool_execution_scopes: list[str] | None = None
     retries: int = TRACECAT__AGENT_MAX_RETRIES
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None

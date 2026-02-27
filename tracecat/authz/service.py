@@ -3,13 +3,19 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import and_, delete, func, literal, select
+from sqlalchemy import and_, asc, delete, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role
-from tracecat.db.models import Membership, User, UserRoleAssignment, Workspace
+from tracecat.db.models import (
+    AgentPreset,
+    Membership,
+    User,
+    UserRoleAssignment,
+    Workspace,
+)
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
@@ -18,6 +24,8 @@ from tracecat.workspaces.schemas import (
     WorkspaceMember,
     WorkspaceMembershipCreate,
 )
+
+AGENT_PRESET_EMAIL_DOMAIN = "agent-presets.example.com"
 
 
 @dataclass
@@ -52,7 +60,7 @@ class MembershipService(BaseService):
         self, workspace_id: WorkspaceID
     ) -> list[WorkspaceMember]:
         """List all workspace members with their workspace roles from RBAC."""
-        statement = (
+        user_statement = (
             select(
                 User,
                 func.coalesce(DBRole.name, literal("Workspace Editor")).label(
@@ -72,9 +80,10 @@ class MembershipService(BaseService):
             )
             .outerjoin(DBRole, DBRole.id == UserRoleAssignment.role_id)
             .where(Membership.workspace_id == workspace_id)
+            .order_by(asc(User.email))
         )
-        rows = (await self.session.execute(statement)).all()
-        return [
+        user_rows = (await self.session.execute(user_statement)).all()
+        members = [
             WorkspaceMember(
                 user_id=user.id,
                 first_name=user.first_name,
@@ -82,8 +91,34 @@ class MembershipService(BaseService):
                 email=user.email,
                 role_name=role_name,
             )
-            for user, role_name in rows
+            for user, role_name in user_rows
         ]
+
+        preset_statement = (
+            select(
+                AgentPreset.id,
+                AgentPreset.name,
+                func.coalesce(DBRole.name, literal("Default preset role")).label(
+                    "role_name"
+                ),
+            )
+            .select_from(AgentPreset)
+            .outerjoin(DBRole, DBRole.id == AgentPreset.assigned_role_id)
+            .where(AgentPreset.workspace_id == workspace_id)
+            .order_by(asc(AgentPreset.name))
+        )
+        preset_rows = (await self.session.execute(preset_statement)).all()
+        members.extend(
+            WorkspaceMember(
+                user_id=preset_id,
+                first_name="Agent preset",
+                last_name=preset_name,
+                email=f"preset-{preset_id.hex}@{AGENT_PRESET_EMAIL_DOMAIN}",
+                role_name=role_name,
+            )
+            for preset_id, preset_name, role_name in preset_rows
+        )
+        return members
 
     async def get_membership(
         self, workspace_id: WorkspaceID, user_id: UserID

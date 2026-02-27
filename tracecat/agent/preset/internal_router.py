@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
@@ -39,6 +40,7 @@ class PresetCreateRequest(BaseModel):
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
+    assigned_role_id: uuid.UUID | None = Field(default=None)
 
 
 class PresetUpdateRequest(BaseModel):
@@ -53,10 +55,11 @@ class PresetUpdateRequest(BaseModel):
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
+    assigned_role_id: uuid.UUID | None = Field(default=None)
 
 
 @router.get("", response_model=list[AgentPresetReadMinimal])
-@require_scope("agent:read")
+@require_scope("agent:preset:*:read")
 async def list_presets(
     *,
     role: ExecutorWorkspaceRole,
@@ -91,7 +94,7 @@ async def create_preset(
 
 
 @router.get("/by-slug/{slug}")
-@require_scope("agent:read")
+@require_scope("agent:preset:*:read")
 async def get_preset_by_slug(
     *,
     role: ExecutorWorkspaceRole,
@@ -110,7 +113,7 @@ async def get_preset_by_slug(
 
 
 @router.patch("/by-slug/{slug}")
-@require_scope("agent:update")
+@require_scope("agent:preset:*:update")
 async def update_preset_by_slug(
     *,
     role: ExecutorWorkspaceRole,
@@ -120,7 +123,7 @@ async def update_preset_by_slug(
 ) -> dict[str, Any]:
     """Update an agent preset by slug."""
     service = AgentPresetService(session, role=role)
-    preset = await service.get_preset_by_slug(slug)
+    preset = await service.get_preset_by_slug(slug, required_action="update")
     if not preset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -139,7 +142,7 @@ async def update_preset_by_slug(
 
 
 @router.delete("/by-slug/{slug}", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("agent:delete")
+@require_scope("agent:preset:*:delete")
 async def delete_preset_by_slug(
     *,
     role: ExecutorWorkspaceRole,
@@ -148,7 +151,7 @@ async def delete_preset_by_slug(
 ) -> None:
     """Delete an agent preset by slug."""
     service = AgentPresetService(session, role=role)
-    preset = await service.get_preset_by_slug(slug)
+    preset = await service.get_preset_by_slug(slug, required_action="delete")
     if not preset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

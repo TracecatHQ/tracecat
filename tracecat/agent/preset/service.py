@@ -5,28 +5,176 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Sequence
-from typing import cast
+from dataclasses import dataclass
+from typing import Literal, cast
 
 from slugify import slugify
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
+from tracecat.agent.preset.scopes import ensure_preset_scopes, preset_scope_name
 from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
 from tracecat.audit.logger import audit_log
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import has_scope, require_scope
+from tracecat.cases.prompts import CASE_COPILOT_BASE_INSTRUCTIONS
 from tracecat.db.models import (
     AgentPreset,
     OAuthIntegration,
+    RoleScope,
+    Scope,
+    Workspace,
 )
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.db.models import (
+    Role as DBRole,
+)
+from tracecat.exceptions import (
+    ScopeDeniedError,
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.encryption import decrypt_value
 from tracecat.service import BaseWorkspaceService, requires_entitlement
+from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
+from tracecat.workspaces.prompts import WORKSPACE_COPILOT_BASE_INSTRUCTIONS
+
+
+@dataclass(frozen=True, slots=True)
+class SystemPresetDefinition:
+    name: str
+    slug: str
+    description: str
+    instructions: str
+    model_name: str = "gpt-4o-mini"
+    model_provider: str = "openai"
+    actions: list[str] | None = None
+
+
+SYSTEM_PRESET_SLUG_WORKSPACE_COPILOT = "system-workspace-copilot"
+SYSTEM_PRESET_SLUG_CASE_COPILOT = "system-case-copilot"
+WORKSPACE_COPILOT_DEFAULT_TOOLS = [
+    "core.table.list_tables",
+    "core.table.get_table_metadata",
+    "core.table.lookup",
+    "core.table.search_rows",
+    "core.cases.list_cases",
+    "core.cases.get_case",
+    "core.cases.search_cases",
+]
+CASE_COPILOT_DEFAULT_TOOLS = [
+    "core.cases.get_case",
+    "core.cases.list_cases",
+    "core.cases.update_case",
+    "core.cases.create_comment",
+    "core.cases.list_comments",
+]
+
+
+SYSTEM_PRESET_DEFINITIONS: tuple[SystemPresetDefinition, ...] = (
+    SystemPresetDefinition(
+        name="General assistant",
+        slug="system-general-assistant",
+        description="General-purpose assistant for workspace operations.",
+        instructions=(
+            "You are a concise assistant for security and IT operations. "
+            "Use available tools when needed and explain outcomes clearly."
+        ),
+    ),
+    SystemPresetDefinition(
+        name="Workspace copilot",
+        slug=SYSTEM_PRESET_SLUG_WORKSPACE_COPILOT,
+        description="Default workspace assistant with copilot prompt and tools.",
+        instructions=WORKSPACE_COPILOT_BASE_INSTRUCTIONS,
+        actions=WORKSPACE_COPILOT_DEFAULT_TOOLS,
+    ),
+    SystemPresetDefinition(
+        name="Case copilot",
+        slug=SYSTEM_PRESET_SLUG_CASE_COPILOT,
+        description="Default case assistant with case copilot guidance and tools.",
+        instructions=CASE_COPILOT_BASE_INSTRUCTIONS,
+        actions=CASE_COPILOT_DEFAULT_TOOLS,
+    ),
+    SystemPresetDefinition(
+        name="Incident triage",
+        slug="system-incident-triage",
+        description="Triage incidents and recommend next actions.",
+        instructions=(
+            "You are an incident triage assistant. Prioritize fast triage, "
+            "risk assessment, and actionable remediation steps."
+        ),
+    ),
+    SystemPresetDefinition(
+        name="Automation advisor",
+        slug="system-automation-advisor",
+        description="Help design and improve workflow automation.",
+        instructions=(
+            "You are an automation advisor. Focus on practical playbook design, "
+            "safe rollout strategy, and measurable operational impact."
+        ),
+    ),
+)
+
+type PresetScopeAction = Literal["read", "execute", "update", "delete"]
+
+
+async def seed_system_presets_for_workspace(
+    *,
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+) -> None:
+    """Ensure default system presets exist for a workspace."""
+    # Consider all existing slugs in the workspace so we don't attempt inserts
+    # that would violate the workspace+slug uniqueness constraint.
+    stmt = select(AgentPreset.slug).where(AgentPreset.workspace_id == workspace_id)
+    existing = set((await session.execute(stmt)).scalars().all())
+
+    inserts: list[AgentPreset] = []
+    for definition in SYSTEM_PRESET_DEFINITIONS:
+        if definition.slug in existing:
+            continue
+        inserts.append(
+            AgentPreset(
+                workspace_id=workspace_id,
+                name=definition.name,
+                slug=definition.slug,
+                description=definition.description,
+                instructions=definition.instructions,
+                model_name=definition.model_name,
+                model_provider=definition.model_provider,
+                is_system=True,
+                actions=definition.actions,
+                namespaces=None,
+                tool_approvals=None,
+                mcp_integrations=None,
+                retries=3,
+                enable_internet_access=False,
+            )
+        )
+    if inserts:
+        session.add_all(inserts)
+    await ensure_preset_scopes(
+        session,
+        [definition.slug for definition in SYSTEM_PRESET_DEFINITIONS],
+    )
+
+
+async def seed_system_presets_for_all_workspaces(session: AsyncSession) -> int:
+    """Ensure default system presets exist for all workspaces."""
+    stmt = select(Workspace.id)
+    workspace_ids = list((await session.execute(stmt)).scalars().all())
+    for workspace_id in workspace_ids:
+        await seed_system_presets_for_workspace(
+            session=session,
+            workspace_id=workspace_id,
+        )
+    return len(workspace_ids)
 
 
 class AgentPresetService(BaseWorkspaceService):
@@ -44,7 +192,36 @@ class AgentPresetService(BaseWorkspaceService):
             .order_by(AgentPreset.created_at.desc())
         )
         result = await self.session.execute(stmt)
-        return result.scalars().all()
+        presets = result.scalars().all()
+        return [preset for preset in presets if self.can_access_preset(preset, "read")]
+
+    def can_access_preset(
+        self,
+        preset: AgentPreset,
+        action: PresetScopeAction,
+    ) -> bool:
+        """Check whether the current role can access a preset for a specific action."""
+        if self.role.is_platform_superuser:
+            return True
+        if self.role.scopes is None:
+            return False
+        required_scope = preset_scope_name(preset.slug, action)
+        return has_scope(self.role.scopes, required_scope)
+
+    def require_preset_scope(
+        self,
+        preset: AgentPreset,
+        action: PresetScopeAction,
+    ) -> None:
+        """Require a preset-specific scope."""
+        required_scope = preset_scope_name(preset.slug, action)
+        scopes = self.role.scopes or frozenset()
+        if self.role.is_platform_superuser or has_scope(scopes, required_scope):
+            return
+        raise ScopeDeniedError(
+            required_scopes=[required_scope],
+            missing_scopes=[required_scope],
+        )
 
     @require_scope("agent:create")
     @audit_log(resource_type="agent_preset", action="create")
@@ -60,6 +237,10 @@ class AgentPresetService(BaseWorkspaceService):
             await self._validate_actions(params.actions)
         if params.mcp_integrations:
             await self._validate_mcp_integrations(params.mcp_integrations)
+        assigned_role_id = await self._validate_assigned_role_id(
+            params.assigned_role_id
+        )
+        await ensure_preset_scopes(self.session, [slug])
         preset = AgentPreset(
             workspace_id=self.workspace_id,
             slug=slug,
@@ -76,6 +257,7 @@ class AgentPresetService(BaseWorkspaceService):
             mcp_integrations=params.mcp_integrations,
             enable_internet_access=params.enable_internet_access,
             retries=params.retries,
+            assigned_role_id=assigned_role_id,
         )
         self.session.add(preset)
         await self.session.commit()
@@ -97,13 +279,51 @@ class AgentPresetService(BaseWorkspaceService):
                 f"{len(missing_actions)} actions were not found in the registry: {sorted(missing_actions)}"
             )
 
-    @require_scope("agent:update")
+    async def _validate_assigned_role_id(
+        self,
+        assigned_role_id: uuid.UUID | None,
+    ) -> uuid.UUID | None:
+        """Validate preset assigned-role selection."""
+        if assigned_role_id is None:
+            return None
+
+        # Custom assigned roles are only available with RBAC addons.
+        await check_entitlement(self.session, self.role, Entitlement.RBAC_ADDONS)
+
+        stmt = select(DBRole.id).where(
+            DBRole.id == assigned_role_id,
+            DBRole.organization_id == self.organization_id,
+        )
+        role_id = (await self.session.execute(stmt)).scalar_one_or_none()
+        if role_id is None:
+            raise TracecatValidationError(
+                "Assigned role must belong to the current organization"
+            )
+        return assigned_role_id
+
+    async def _resolve_assigned_role_scopes(
+        self,
+        assigned_role_id: uuid.UUID | None,
+    ) -> list[str] | None:
+        """Resolve granted scopes for a preset assigned role."""
+        if assigned_role_id is None:
+            return None
+        stmt = (
+            select(Scope.name)
+            .join(RoleScope, RoleScope.scope_id == Scope.id)
+            .where(RoleScope.role_id == assigned_role_id)
+        )
+        scope_names = sorted((await self.session.execute(stmt)).scalars().all())
+        return scope_names
+
+    @require_scope("agent:preset:*:update")
     @audit_log(resource_type="agent_preset", action="update")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def update_preset(
         self, preset: AgentPreset, params: AgentPresetUpdate
     ) -> AgentPreset:
         """Update an existing preset."""
+        self.require_preset_scope(preset, "update")
         set_fields = params.model_dump(exclude_unset=True)
 
         # Handle name first as it may be needed for slug fallback
@@ -112,10 +332,24 @@ class AgentPresetService(BaseWorkspaceService):
 
         # Handle slug with validation
         if "slug" in set_fields:
-            preset.slug = await self._normalize_and_validate_slug(
-                proposed_slug=set_fields.pop("slug"),
-                fallback_name=preset.name,
-                exclude_id=preset.id,
+            proposed_slug = set_fields.pop("slug")
+            if preset.is_system:
+                normalized = slugify(proposed_slug or "", separator="-")
+                if normalized != preset.slug:
+                    raise TracecatAuthorizationError(
+                        "Cannot modify slug for system presets"
+                    )
+            else:
+                preset.slug = await self._normalize_and_validate_slug(
+                    proposed_slug=proposed_slug,
+                    fallback_name=preset.name,
+                    exclude_id=preset.id,
+                )
+                await ensure_preset_scopes(self.session, [preset.slug])
+        if "assigned_role_id" in set_fields:
+            assigned_role_id = set_fields.pop("assigned_role_id")
+            preset.assigned_role_id = await self._validate_assigned_role_id(
+                assigned_role_id
             )
 
         # Validate actions if provided
@@ -140,25 +374,28 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.refresh(preset)
         return preset
 
-    @require_scope("agent:delete")
+    @require_scope("agent:preset:*:delete")
     @audit_log(resource_type="agent_preset", action="delete")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def delete_preset(self, preset: AgentPreset) -> None:
         """Delete a preset."""
+        self.require_preset_scope(preset, "delete")
+        if preset.is_system:
+            raise TracecatAuthorizationError("Cannot delete system presets")
         await self.session.delete(preset)
         await self.session.commit()
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_agent_config_by_slug(self, slug: str) -> AgentConfig:
         """Get the agent configuration for a preset by slug."""
-        if preset := await self.get_preset_by_slug(slug):
+        if preset := await self.get_preset_by_slug(slug, required_action="execute"):
             return await self._preset_to_agent_config(preset)
         raise TracecatNotFoundError(f"Agent preset with slug '{slug}' not found")
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_agent_config(self, preset_id: uuid.UUID) -> AgentConfig:
         """Get the agent configuration for a preset by ID."""
-        if preset := await self.get_preset(preset_id):
+        if preset := await self.get_preset(preset_id, required_action="execute"):
             return await self._preset_to_agent_config(preset)
         raise TracecatNotFoundError(f"Agent preset with ID '{preset_id}' not found")
 
@@ -417,27 +654,46 @@ class AgentPresetService(BaseWorkspaceService):
         return slug
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_preset(self, preset_id: uuid.UUID) -> AgentPreset | None:
+    async def get_preset(
+        self,
+        preset_id: uuid.UUID,
+        *,
+        required_action: PresetScopeAction = "read",
+    ) -> AgentPreset | None:
         """Get an agent preset by ID with proper error handling."""
         stmt = select(AgentPreset).where(
             AgentPreset.workspace_id == self.workspace_id,
             AgentPreset.id == preset_id,
         )
         result = await self.session.execute(stmt)
-        return result.scalars().first()
+        preset = result.scalars().first()
+        if preset is not None:
+            self.require_preset_scope(preset, required_action)
+        return preset
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_preset_by_slug(self, slug: str) -> AgentPreset | None:
+    async def get_preset_by_slug(
+        self,
+        slug: str,
+        *,
+        required_action: PresetScopeAction = "read",
+    ) -> AgentPreset | None:
         """Get an agent preset by slug with proper error handling."""
         stmt = select(AgentPreset).where(
             AgentPreset.workspace_id == self.workspace_id,
             AgentPreset.slug == slug,
         )
         result = await self.session.execute(stmt)
-        return result.scalars().first()
+        preset = result.scalars().first()
+        if preset is not None:
+            self.require_preset_scope(preset, required_action)
+        return preset
 
     async def _preset_to_agent_config(self, preset: AgentPreset) -> AgentConfig:
         mcp_servers = await self._resolve_mcp_integrations(preset.mcp_integrations)
+        assigned_role_scopes = await self._resolve_assigned_role_scopes(
+            preset.assigned_role_id
+        )
         # Only disable parallel tool calls if tools will be present
         model_settings = {}
         if preset.actions or mcp_servers:
@@ -455,4 +711,5 @@ class AgentPresetService(BaseWorkspaceService):
             retries=preset.retries,
             model_settings=model_settings,
             enable_internet_access=preset.enable_internet_access,
+            tool_execution_scopes=assigned_role_scopes,
         )

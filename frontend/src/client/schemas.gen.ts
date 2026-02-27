@@ -1148,6 +1148,18 @@ export const $AgentPresetCreate = {
       title: "Enable Internet Access",
       default: false,
     },
+    assigned_role_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assigned Role Id",
+    },
     name: {
       type: "string",
       maxLength: 120,
@@ -1300,6 +1312,18 @@ export const $AgentPresetRead = {
       title: "Enable Internet Access",
       default: false,
     },
+    assigned_role_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assigned Role Id",
+    },
     id: {
       type: "string",
       format: "uuid",
@@ -1317,6 +1341,11 @@ export const $AgentPresetRead = {
     slug: {
       type: "string",
       title: "Slug",
+    },
+    is_system: {
+      type: "boolean",
+      title: "Is System",
+      default: false,
     },
     created_at: {
       type: "string",
@@ -1374,6 +1403,11 @@ export const $AgentPresetReadMinimal = {
         },
       ],
       title: "Description",
+    },
+    is_system: {
+      type: "boolean",
+      title: "Is System",
+      default: false,
     },
     created_at: {
       type: "string",
@@ -1577,6 +1611,18 @@ export const $AgentPresetUpdate = {
         },
       ],
       title: "Enable Internet Access",
+    },
+    assigned_role_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assigned Role Id",
     },
   },
   type: "object",

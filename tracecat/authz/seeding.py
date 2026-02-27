@@ -15,9 +15,10 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.preset.scopes import ensure_preset_scopes
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.scopes import PRESET_ROLE_SCOPES
-from tracecat.db.models import Organization, Role, RoleScope, Scope
+from tracecat.db.models import AgentPreset, Organization, Role, RoleScope, Scope
 from tracecat.logger import logger
 
 # =============================================================================
@@ -255,6 +256,30 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
     ScopeDefinition("agent:update", "agent", "update", "Modify existing agents"),
     ScopeDefinition("agent:delete", "agent", "delete", "Delete agents"),
     ScopeDefinition("agent:execute", "agent", "execute", "Run/trigger agents"),
+    ScopeDefinition(
+        "agent:preset:*:read",
+        "agent:preset",
+        "read",
+        "View all agent presets",
+    ),
+    ScopeDefinition(
+        "agent:preset:*:execute",
+        "agent:preset",
+        "execute",
+        "Execute all agent presets",
+    ),
+    ScopeDefinition(
+        "agent:preset:*:update",
+        "agent:preset",
+        "update",
+        "Update all agent presets",
+    ),
+    ScopeDefinition(
+        "agent:preset:*:delete",
+        "agent:preset",
+        "delete",
+        "Delete all agent presets",
+    ),
     # Secret scopes
     ScopeDefinition("secret:read", "secret", "read", "View secrets"),
     ScopeDefinition("secret:create", "secret", "create", "Create new secrets"),
@@ -607,6 +632,20 @@ async def seed_system_roles_for_all_orgs(session: AsyncSession) -> list[UUID]:
     return org_ids
 
 
+async def seed_agent_preset_scopes(session: AsyncSession) -> int:
+    """Seed per-preset platform scopes for all existing agent presets."""
+    slug_stmt = select(AgentPreset.slug).distinct()
+    slugs = [
+        slug for slug in (await session.execute(slug_stmt)).scalars().all() if slug
+    ]
+    if not slugs:
+        return 0
+    await ensure_preset_scopes(session, slugs)
+    await session.commit()
+    logger.info("Preset scopes seeded", num_presets=len(slugs))
+    return len(slugs)
+
+
 async def seed_all_system_data(session: AsyncSession) -> dict[str, int]:
     """Seed all system scopes and roles.
 
@@ -625,12 +664,14 @@ async def seed_all_system_data(session: AsyncSession) -> dict[str, int]:
 
     # Seed system scopes first (roles reference scopes)
     scopes_created = await seed_system_scopes(session)
+    preset_scopes_seeded = await seed_agent_preset_scopes(session)
 
     # Seed system roles for all existing organizations
     processed_org_ids = await seed_system_roles_for_all_orgs(session)
 
     result = {
         "scopes_created": scopes_created,
+        "preset_scopes_seeded": preset_scopes_seeded,
         "orgs_processed": len(processed_org_ids),
     }
 

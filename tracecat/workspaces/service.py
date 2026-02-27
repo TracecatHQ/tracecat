@@ -10,6 +10,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only, noload, selectinload
 
+from tracecat.agent.preset.service import seed_system_presets_for_workspace
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
@@ -139,6 +140,10 @@ class WorkspaceService(BaseOrgService):
             session=self.session, role=bootstrap_role
         )
         await case_fields_service.initialize_workspace_schema()
+        await seed_system_presets_for_workspace(
+            session=self.session,
+            workspace_id=workspace.id,
+        )
 
         await self.session.commit()
         await self.session.refresh(workspace)
