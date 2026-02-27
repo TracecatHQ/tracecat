@@ -1,0 +1,31 @@
+tests/unit/test_tier_activities.py
+  8e499112c44d35f5 16-17,24-30,35-37,44-47,51-57,63-64,68-71,73-74,77-78
+tests/unit/test_tier_permits.py
+  8e499112c44d35f5 1-148
+tracecat/tiers/exceptions.py
+  8e499112c44d35f5 64-76
+tracecat/tiers/activities.py
+  8e499112c44d35f5 11-12,14,94-96,98-105,112-115,118,130-131,155-156,167-169,171-178,185-188,190,198-199,216-217
+tracecat/tiers/permits.py
+  8e499112c44d35f5 1-194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "7c9b83b95b143ac087e8ede3899b4bb03d6babbd",
+  "prompts": {
+    "8e499112c44d35f5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c9ae6-0876-7100-a7ee-29efcf49961e",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 436,
+      "total_deletions": 215,
+      "accepted_lines": 431,
+      "overriden_lines": 0
+    }
+  }
+}
