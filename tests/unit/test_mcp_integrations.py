@@ -11,7 +11,7 @@ This test suite covers MCP integration functionality including:
 import uuid
 
 import pytest
-from pydantic import SecretStr
+from pydantic import SecretStr, TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +26,9 @@ from tracecat.integrations.providers.base import (
 )
 from tracecat.integrations.schemas import (
     MCPHttpIntegrationCreate,
+    MCPIntegrationCreate,
     MCPIntegrationUpdate,
+    MCPStdioIntegrationCreate,
     ProviderConfig,
     ProviderKey,
     ProviderMetadata,
@@ -595,6 +597,65 @@ class TestMCPIntegrationAuthTypeSwapping:
 @pytest.mark.anyio
 class TestMCPIntegrationValidation:
     """Test validation constraints and error handling."""
+
+    async def test_legacy_http_payload_without_server_type_is_accepted(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Test legacy HTTP create payloads still parse without server_type."""
+        params = TypeAdapter(MCPIntegrationCreate).validate_python(
+            {
+                "name": "Legacy HTTP MCP",
+                "server_uri": "https://api.example.com/mcp",
+                "auth_type": MCPAuthType.NONE,
+            }
+        )
+
+        assert isinstance(params, MCPHttpIntegrationCreate)
+        assert params.server_type == "http"
+
+        created = await integration_service.create_mcp_integration(params=params)
+        assert created.server_type == "http"
+        assert created.server_uri == "https://api.example.com/mcp"
+
+    async def test_create_stdio_rejects_disallowed_command(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Test stdio create rejects commands outside allowlist."""
+        params = MCPStdioIntegrationCreate(
+            name="Unsafe Stdio MCP",
+            stdio_command="bash",
+            stdio_args=["-lc", "echo test"],
+        )
+
+        with pytest.raises(ValueError, match="is not allowed"):
+            await integration_service.create_mcp_integration(params=params)
+
+    async def test_update_stdio_rejects_unsafe_args(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Test stdio update rejects unsafe argument values."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Safe Stdio MCP",
+                stdio_command="npx",
+                stdio_args=["@modelcontextprotocol/server-github"],
+            )
+        )
+
+        with pytest.raises(ValueError, match="dangerous pattern"):
+            await integration_service.update_mcp_integration(
+                mcp_integration_id=created.id,
+                params=MCPIntegrationUpdate(stdio_args=["$(whoami)"]),
+            )
+
+        refreshed = await integration_service.get_mcp_integration(
+            mcp_integration_id=created.id
+        )
+        assert refreshed is not None
+        assert refreshed.stdio_args == ["@modelcontextprotocol/server-github"]
 
     async def test_oauth2_requires_oauth_integration_id(
         self,

@@ -23,7 +23,11 @@ from tracecat.db.models import (
 )
 from tracecat.identifiers import UserID
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
-from tracecat.integrations.mcp_validation import MAX_SERVER_NAME_LENGTH
+from tracecat.integrations.mcp_validation import (
+    MAX_SERVER_NAME_LENGTH,
+    MCPValidationError,
+    validate_mcp_command_config,
+)
 from tracecat.integrations.providers import get_provider_class
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
@@ -81,6 +85,26 @@ class IntegrationService(BaseWorkspaceService):
             if value and value not in normalized:
                 normalized.append(value)
         return normalized
+
+    @staticmethod
+    def _validate_stdio_server_config(
+        *,
+        command: str | None,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
+    ) -> None:
+        """Validate stdio server command configuration before persistence."""
+        normalized_command = command.strip() if command else ""
+        if not normalized_command:
+            raise ValueError("stdio_command is required for stdio-type servers")
+        try:
+            validate_mcp_command_config(
+                command=normalized_command,
+                args=args,
+                env=env,
+            )
+        except MCPValidationError as exc:
+            raise ValueError(str(exc)) from exc
 
     async def _provider_identifier_taken(
         self, provider_id: str, grant_type: OAuthGrantType
@@ -1143,6 +1167,11 @@ class IntegrationService(BaseWorkspaceService):
                     params.custom_credentials.get_secret_value()
                 )
         else:
+            self._validate_stdio_server_config(
+                command=params.stdio_command,
+                args=params.stdio_args,
+                env=params.stdio_env,
+            )
             stdio_command = params.stdio_command
             stdio_args = params.stdio_args
             if params.stdio_env:
@@ -1245,6 +1274,21 @@ class IntegrationService(BaseWorkspaceService):
             mcp_integration.auth_type = params.auth_type
         if params.oauth_integration_id is not None:
             mcp_integration.oauth_integration_id = params.oauth_integration_id
+
+        if mcp_integration.server_type == "stdio" and (
+            params.stdio_command is not None
+            or params.stdio_args is not None
+            or params.stdio_env is not None
+        ):
+            self._validate_stdio_server_config(
+                command=(
+                    params.stdio_command
+                    if params.stdio_command is not None
+                    else mcp_integration.stdio_command
+                ),
+                args=params.stdio_args,
+                env=params.stdio_env,
+            )
 
         # Update stdio-type server fields
         if params.stdio_command is not None:

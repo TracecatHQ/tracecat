@@ -1,7 +1,7 @@
 """add_mcp_stdio_server_fields
 
 Revision ID: 2bedc5514ca9
-Revises: c9e4f54f0a2b
+Revises: 8f4f1bd13e9c
 Create Date: 2026-02-02 14:42:10.977157
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "2bedc5514ca9"
-down_revision: str | None = "c9e4f54f0a2b"
+down_revision: str | None = "8f4f1bd13e9c"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
