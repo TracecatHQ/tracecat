@@ -5,15 +5,24 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import func, select
 
+from tracecat.agent.preset.scopes import preset_scope_names
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.seeding import (
     PRESET_ROLE_DEFINITIONS,
     SYSTEM_SCOPE_DEFINITIONS,
+    seed_agent_preset_scopes,
     seed_registry_scopes,
     seed_system_roles_for_all_orgs,
     seed_system_scopes,
 )
-from tracecat.db.models import Organization, Role, RoleScope, Scope
+from tracecat.db.models import (
+    AgentPreset,
+    Organization,
+    Role,
+    RoleScope,
+    Scope,
+    Workspace,
+)
 
 
 @pytest.mark.anyio
@@ -220,3 +229,42 @@ async def test_system_scope_definitions_cover_all_preset_role_scopes(session):
 
     missing = preset_scope_names - system_scope_names
     assert not missing, f"Missing system scope definitions for preset scopes: {missing}"
+
+
+@pytest.mark.anyio
+async def test_seed_agent_preset_scopes(session, svc_workspace: Workspace):
+    """Seed per-preset scopes for existing preset slugs."""
+    preset_a = AgentPreset(
+        workspace_id=svc_workspace.id,
+        name="Preset A",
+        slug="preset-a",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+    )
+    preset_b = AgentPreset(
+        workspace_id=svc_workspace.id,
+        name="Preset B",
+        slug="preset-b",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+    )
+    session.add(preset_a)
+    session.add(preset_b)
+    await session.commit()
+
+    inserted_presets = await seed_agent_preset_scopes(session)
+    assert inserted_presets == 2
+
+    result = await session.execute(
+        select(Scope.name).where(
+            Scope.organization_id.is_(None),
+            Scope.source == ScopeSource.PLATFORM,
+            Scope.resource == "agent:preset",
+        )
+    )
+    scope_names = set(result.scalars().all())
+
+    expected = set(preset_scope_names("preset-a").values()) | set(
+        preset_scope_names("preset-b").values()
+    )
+    assert expected.issubset(scope_names)

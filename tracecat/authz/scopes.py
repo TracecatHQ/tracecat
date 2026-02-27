@@ -40,6 +40,7 @@ VIEWER_SCOPES: frozenset[str] = frozenset(
         "variable:read",
         "workspace:read",
         "workspace:member:read",
+        "agent:preset:*:read",
     }
 )
 
@@ -65,6 +66,7 @@ EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
         "variable:create",
         "variable:update",
         "action:*:execute",
+        "agent:preset:*:execute",
     }
 )
 
@@ -89,6 +91,8 @@ ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
         # Workspace RBAC (delegated admin)
         "workspace:rbac:read",
         "workspace:rbac:manage",
+        "agent:preset:*:update",
+        "agent:preset:*:delete",
         # Full action execution
         "action:*:execute",
     }
@@ -182,6 +186,10 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "agent:update",
         "agent:delete",
         "agent:execute",
+        "agent:preset:*:read",
+        "agent:preset:*:execute",
+        "agent:preset:*:update",
+        "agent:preset:*:delete",
         "secret:read",
         "secret:create",
         "secret:update",
@@ -273,6 +281,10 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "agent:update",
         "agent:delete",
         "agent:execute",
+        "agent:preset:*:read",
+        "agent:preset:*:execute",
+        "agent:preset:*:update",
+        "agent:preset:*:delete",
         "secret:read",
         "secret:create",
         "secret:update",
@@ -361,6 +373,10 @@ WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
         "workspace:create",
         "workspace:delete",
         "workspace:member:read",
+        "agent:preset:*:read",
+        "agent:preset:*:execute",
+        "agent:preset:*:update",
+        "agent:preset:*:delete",
         "action:*:execute",
         "org:secret:read",
     }

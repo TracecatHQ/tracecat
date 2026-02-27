@@ -4,20 +4,40 @@ import uuid
 from typing import cast
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
-from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.preset.service import (
+    SYSTEM_PRESET_DEFINITIONS,
+    SYSTEM_PRESET_SLUG_CASE_COPILOT,
+    SYSTEM_PRESET_SLUG_WORKSPACE_COPILOT,
+    AgentPresetService,
+    seed_system_presets_for_workspace,
+)
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
+from tracecat.authz.enums import ScopeSource
+from tracecat.authz.scopes import VIEWER_SCOPES
 from tracecat.db.models import (
+    AgentPreset,
     RegistryAction,
     RegistryIndex,
     RegistryRepository,
     RegistryVersion,
+    RoleScope,
+    Scope,
     Workspace,
 )
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.db.models import (
+    Role as DBRole,
+)
+from tracecat.exceptions import (
+    ScopeDeniedError,
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.registry.actions.schemas import RegistryActionType
 from tracecat.registry.versions.schemas import (
     RegistryVersionManifest,
@@ -732,3 +752,307 @@ class TestAgentPresetService:
         update_params = AgentPresetUpdate(tool_approvals=None)
         updated_preset = await agent_preset_service.update_preset(preset, update_params)
         assert updated_preset.tool_approvals is None
+
+    async def test_delete_system_preset_forbidden(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        preset.is_system = True
+        agent_preset_service.session.add(preset)
+        await agent_preset_service.session.commit()
+
+        with pytest.raises(
+            TracecatAuthorizationError, match="Cannot delete system presets"
+        ):
+            await agent_preset_service.delete_preset(preset)
+
+    async def test_update_system_preset_allows_noop_slug(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        preset.is_system = True
+        agent_preset_service.session.add(preset)
+        await agent_preset_service.session.commit()
+
+        updated = await agent_preset_service.update_preset(
+            preset,
+            AgentPresetUpdate(
+                slug=preset.slug,
+                instructions="Updated instructions",
+            ),
+        )
+
+        assert updated.slug == preset.slug
+        assert updated.instructions == "Updated instructions"
+
+    async def test_seed_system_presets_skips_reserved_slug_collisions(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        reserved_slug = SYSTEM_PRESET_DEFINITIONS[0].slug
+        agent_preset_create_params.slug = reserved_slug
+        colliding_user_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        assert colliding_user_preset.is_system is False
+
+        await seed_system_presets_for_workspace(
+            session=session,
+            workspace_id=agent_preset_service.workspace_id,
+        )
+        await session.commit()
+
+        stmt = select(AgentPreset).where(
+            AgentPreset.workspace_id == agent_preset_service.workspace_id,
+            AgentPreset.slug.in_(
+                [definition.slug for definition in SYSTEM_PRESET_DEFINITIONS]
+            ),
+        )
+        system_slug_presets = list((await session.execute(stmt)).scalars().all())
+
+        assert len(system_slug_presets) == len(SYSTEM_PRESET_DEFINITIONS)
+        reserved_rows = [
+            preset for preset in system_slug_presets if preset.slug == reserved_slug
+        ]
+        assert len(reserved_rows) == 1
+        assert reserved_rows[0].is_system is False
+
+    async def test_seed_system_presets_include_assistant_defaults(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        await seed_system_presets_for_workspace(
+            session=session,
+            workspace_id=agent_preset_service.workspace_id,
+        )
+        await session.commit()
+
+        stmt = select(AgentPreset).where(
+            AgentPreset.workspace_id == agent_preset_service.workspace_id
+        )
+        presets = list((await session.execute(stmt)).scalars().all())
+        by_slug = {preset.slug: preset for preset in presets}
+
+        workspace_copilot = by_slug[SYSTEM_PRESET_SLUG_WORKSPACE_COPILOT]
+        case_copilot = by_slug[SYSTEM_PRESET_SLUG_CASE_COPILOT]
+
+        assert workspace_copilot.is_system is True
+        assert workspace_copilot.actions is not None
+        assert "core.table.list_tables" in workspace_copilot.actions
+
+        assert case_copilot.is_system is True
+        assert case_copilot.actions is not None
+        assert "core.cases.get_case" in case_copilot.actions
+
+    async def test_list_presets_filters_by_preset_scope(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        preset1 = await agent_preset_service.create_preset(agent_preset_create_params)
+        params2 = agent_preset_create_params.model_copy(deep=True)
+        params2.name = "Second Preset"
+        preset2 = await agent_preset_service.create_preset(params2)
+
+        limited_role = Role(
+            type="user",
+            user_id=svc_role.user_id,
+            workspace_id=svc_role.workspace_id,
+            organization_id=svc_role.organization_id,
+            service_id=svc_role.service_id,
+            scopes=frozenset(
+                {
+                    "agent:read",
+                    f"agent:preset:{preset1.slug}:read",
+                }
+            ),
+        )
+        limited_service = AgentPresetService(session=session, role=limited_role)
+
+        presets = await limited_service.list_presets()
+        preset_ids = {preset.id for preset in presets}
+
+        assert preset1.id in preset_ids
+        assert preset2.id not in preset_ids
+
+    async def test_get_agent_config_blocks_other_preset_execute_scope(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        preset1 = await agent_preset_service.create_preset(agent_preset_create_params)
+        params2 = agent_preset_create_params.model_copy(deep=True)
+        params2.name = "Second Preset"
+        preset2 = await agent_preset_service.create_preset(params2)
+
+        scoped_role = Role(
+            type="user",
+            user_id=svc_role.user_id,
+            workspace_id=svc_role.workspace_id,
+            organization_id=svc_role.organization_id,
+            service_id=svc_role.service_id,
+            scopes=frozenset({f"agent:preset:{preset1.slug}:execute"}),
+        )
+        scoped_service = AgentPresetService(session=session, role=scoped_role)
+
+        with pytest.raises(ScopeDeniedError) as exc_info:
+            await scoped_service.get_agent_config(preset2.id)
+        assert exc_info.value.missing_scopes == [f"agent:preset:{preset2.slug}:execute"]
+
+    async def test_update_preset_blocks_other_preset_update_scope(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        preset1 = await agent_preset_service.create_preset(agent_preset_create_params)
+        params2 = agent_preset_create_params.model_copy(deep=True)
+        params2.name = "Second Preset"
+        preset2 = await agent_preset_service.create_preset(params2)
+
+        scoped_role = Role(
+            type="user",
+            user_id=svc_role.user_id,
+            workspace_id=svc_role.workspace_id,
+            organization_id=svc_role.organization_id,
+            service_id=svc_role.service_id,
+            scopes=frozenset({f"agent:preset:{preset1.slug}:update"}),
+        )
+        scoped_service = AgentPresetService(session=session, role=scoped_role)
+
+        with pytest.raises(ScopeDeniedError) as exc_info:
+            await scoped_service.update_preset(
+                preset2,
+                AgentPresetUpdate(description="Attempted cross-preset update"),
+            )
+        assert exc_info.value.missing_scopes == [f"agent:preset:{preset2.slug}:update"]
+
+    async def test_get_agent_config_requires_execute_scope(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        viewer_role = Role(
+            type="user",
+            user_id=svc_role.user_id,
+            workspace_id=svc_role.workspace_id,
+            organization_id=svc_role.organization_id,
+            service_id=svc_role.service_id,
+            scopes=VIEWER_SCOPES,
+        )
+        viewer_service = AgentPresetService(session=session, role=viewer_role)
+
+        with pytest.raises(ScopeDeniedError):
+            await viewer_service.get_agent_config(preset.id)
+
+    async def test_update_preset_accepts_specific_preset_update_scope(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        scoped_role = Role(
+            type="user",
+            user_id=svc_role.user_id,
+            workspace_id=svc_role.workspace_id,
+            organization_id=svc_role.organization_id,
+            service_id=svc_role.service_id,
+            scopes=frozenset({f"agent:preset:{preset.slug}:update"}),
+        )
+        scoped_service = AgentPresetService(session=session, role=scoped_role)
+
+        updated = await scoped_service.update_preset(
+            preset,
+            AgentPresetUpdate(description="Scoped update"),
+        )
+        assert updated.description == "Scoped update"
+
+    async def test_preset_execution_role_scopes_are_resolved(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        org_id = svc_role.organization_id
+        assert org_id is not None
+
+        custom_role = DBRole(
+            id=uuid.uuid4(),
+            name="Preset executor",
+            slug=None,
+            description="Custom execution role",
+            organization_id=org_id,
+        )
+        custom_scope = Scope(
+            id=uuid.uuid4(),
+            name="action:tools.test.test_action:execute",
+            resource="action",
+            action="execute",
+            description="Execute test action",
+            source=ScopeSource.CUSTOM,
+            source_ref="tools.test.test_action",
+            organization_id=org_id,
+        )
+        session.add(custom_role)
+        session.add(custom_scope)
+        await session.flush()
+
+        session.add(
+            RoleScope(
+                role_id=custom_role.id,
+                scope_id=custom_scope.id,
+            )
+        )
+        preset.assigned_role_id = custom_role.id
+        session.add(preset)
+        await session.commit()
+
+        config = await agent_preset_service.get_agent_config(preset.id)
+        assert config.tool_execution_scopes == ["action:tools.test.test_action:execute"]
+
+    async def test_preset_execution_role_with_no_scopes_resolves_to_empty_list(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        org_id = svc_role.organization_id
+        assert org_id is not None
+
+        custom_role = DBRole(
+            id=uuid.uuid4(),
+            name="Preset executor (empty)",
+            slug=None,
+            description="Preset role without scopes",
+            organization_id=org_id,
+        )
+        session.add(custom_role)
+        await session.flush()
+
+        preset.assigned_role_id = custom_role.id
+        session.add(preset)
+        await session.commit()
+
+        config = await agent_preset_service.get_agent_config(preset.id)
+        assert config.tool_execution_scopes == []
