@@ -56,6 +56,8 @@ class UserMCPServerClaim(BaseModel):
     """Transport type: 'http' or 'sse'."""
     headers: dict[str, str] = Field(default_factory=dict)
     """Auth headers."""
+    timeout: int | None = None
+    """Optional request timeout in seconds."""
 
 
 class InternalToolContext(BaseModel):

@@ -214,20 +214,21 @@ class ToolFilters(BaseModel):
 # ============================================================================
 
 
-class MCPUrlServerConfigSchema(TypedDict):
-    """URL MCP server configuration for request validation."""
+class MCPHttpServerConfigSchema(TypedDict):
+    """HTTP/SSE MCP server configuration for request validation."""
 
-    type: Literal["url"]
+    type: Literal["http"]
     name: str
     url: str
     headers: NotRequired[dict[str, str]]
     transport: NotRequired[Literal["http", "sse"]]
+    timeout: NotRequired[int]
 
 
-class MCPCommandServerConfigSchema(TypedDict):
-    """Command MCP server configuration for request validation."""
+class MCPStdioServerConfigSchema(TypedDict):
+    """Stdio MCP server configuration for request validation."""
 
-    type: Literal["command"]
+    type: Literal["stdio"]
     name: str
     command: str
     args: NotRequired[list[str]]
@@ -235,7 +236,7 @@ class MCPCommandServerConfigSchema(TypedDict):
     timeout: NotRequired[int]
 
 
-type MCPServerConfigSchema = MCPUrlServerConfigSchema | MCPCommandServerConfigSchema
+type MCPServerConfigSchema = MCPHttpServerConfigSchema | MCPStdioServerConfigSchema
 
 
 class AgentConfigSchema(BaseModel):

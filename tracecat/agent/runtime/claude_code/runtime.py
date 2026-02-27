@@ -16,7 +16,7 @@ import os
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any, TypeGuard
+from typing import Any
 
 import orjson
 from claude_agent_sdk import (
@@ -48,8 +48,6 @@ from tracecat.agent.common.stream_types import (
     UnifiedStreamEvent,
 )
 from tracecat.agent.common.types import (
-    MCPCommandServerConfig,
-    MCPServerConfig,
     MCPToolDefinition,
 )
 from tracecat.agent.mcp.proxy_server import create_proxy_mcp_server
@@ -102,12 +100,6 @@ INTERNET_TOOLS = [
     "WebSearch",
     "WebFetch",
 ]
-
-
-def _is_command_server(
-    config: MCPServerConfig,
-) -> TypeGuard[MCPCommandServerConfig]:
-    return config["type"] == "command"
 
 
 class ClaudeAgentRuntime:
@@ -467,7 +459,7 @@ class ClaudeAgentRuntime:
                 self._last_seen_line_index = len(payload.sdk_session_data.splitlines())
 
         try:
-            # Build MCP servers config for registry actions and command servers
+            # Build MCP servers config for registry actions and stdio servers
             mcp_servers: dict[str, Any] = {}
             if self.registry_tools:
                 proxy_config = await create_proxy_mcp_server(
@@ -479,7 +471,7 @@ class ClaudeAgentRuntime:
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
             if payload.config.mcp_servers:
                 for config in payload.config.mcp_servers:
-                    if not _is_command_server(config):
+                    if config["type"] != "stdio":
                         continue
 
                     base_name = config["name"]

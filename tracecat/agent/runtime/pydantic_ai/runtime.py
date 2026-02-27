@@ -176,7 +176,7 @@ async def run_agent(
             if mcp_servers is None:
                 mcp_servers = []
             legacy_mcp_server: MCPServerConfig = {
-                "type": "url",
+                "type": "http",
                 "name": "legacy",
                 "url": mcp_server_url,
                 "headers": mcp_server_headers or {},

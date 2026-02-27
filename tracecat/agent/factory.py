@@ -9,7 +9,7 @@ from pydantic_ai.mcp import MCPServerStreamableHTTP
 from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai.tools import Tool as PATool
 
-from tracecat.agent.common.types import MCPServerConfig, MCPUrlServerConfig
+from tracecat.agent.common.types import MCPHttpServerConfig, MCPServerConfig
 from tracecat.agent.parsers import parse_output_type
 from tracecat.agent.prompts import ToolCallPrompt, VerbosityPrompt
 from tracecat.agent.providers import get_model
@@ -20,8 +20,8 @@ from tracecat.agent.types import AgentConfig
 type AgentFactory = Callable[[AgentConfig], Awaitable[AbstractAgent[Any, Any]]]
 
 
-def _is_url_server(config: MCPServerConfig) -> TypeGuard[MCPUrlServerConfig]:
-    return config["type"] == "url"
+def _is_http_server(config: MCPServerConfig) -> TypeGuard[MCPHttpServerConfig]:
+    return config["type"] == "http"
 
 
 async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
@@ -61,16 +61,27 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
 
     toolsets = None
     if config.mcp_servers:
-        url_servers = [
-            server for server in config.mcp_servers if _is_url_server(server)
+        http_servers = [
+            server for server in config.mcp_servers if _is_http_server(server)
         ]
-        toolsets = [
-            MCPServerStreamableHTTP(
-                url=server["url"],
-                headers=server.get("headers", {}),
-            )
-            for server in url_servers
-        ]
+        toolsets = []
+        for server in http_servers:
+            server_timeout = server.get("timeout")
+            if server_timeout is None:
+                toolsets.append(
+                    MCPServerStreamableHTTP(
+                        url=server["url"],
+                        headers=server.get("headers", {}),
+                    )
+                )
+            else:
+                toolsets.append(
+                    MCPServerStreamableHTTP(
+                        url=server["url"],
+                        headers=server.get("headers", {}),
+                        timeout=float(server_timeout),
+                    )
+                )
 
     output_type_for_agent: type[Any] | list[type[Any]]
     # If any tool requires approval, include DeferredToolRequests in output types

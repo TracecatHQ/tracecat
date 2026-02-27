@@ -237,7 +237,7 @@ def build_agent_nsjail_config(
             Only specific subdirectories are mounted for minimal cold start.
         llm_socket_path: Path to the LLM socket for proxied LiteLLM access.
         enable_internet_access: If True, disables network isolation to allow
-            direct internet access. Required for MCP command servers that need
+            direct internet access. Required for MCP stdio servers that need
             to call external APIs. Default is False (network isolated).
 
     Returns:

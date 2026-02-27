@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from typing import Any, Literal, NotRequired, TypedDict
 
 
-class MCPUrlServerConfig(TypedDict):
-    """Configuration for a user-defined MCP server.
+class MCPHttpServerConfig(TypedDict):
+    """Configuration for a user-defined MCP server over HTTP/SSE.
 
     Users can connect custom MCP servers to their agents - whether running as
     Docker containers, local processes, or remote services. The server must
@@ -25,8 +25,8 @@ class MCPUrlServerConfig(TypedDict):
         }
     """
 
-    type: Literal["url"]
-    """Discriminator for URL-based MCP configs."""
+    type: Literal["http"]
+    """Discriminator for HTTP-based MCP configs."""
 
     name: str
     """Required: Unique identifier for the server. Tools will be prefixed with mcp__{name}__."""
@@ -40,11 +40,14 @@ class MCPUrlServerConfig(TypedDict):
     transport: NotRequired[Literal["http", "sse"]]
     """Optional: Transport type. Defaults to 'http'."""
 
+    timeout: NotRequired[int]
+    """Optional: Request timeout in seconds."""
 
-class MCPCommandServerConfig(TypedDict):
-    """Configuration for a command-based MCP server (stdio)."""
 
-    type: Literal["command"]
+class MCPStdioServerConfig(TypedDict):
+    """Configuration for a stdio MCP server."""
+
+    type: Literal["stdio"]
     name: str
     command: str
     args: NotRequired[list[str]]
@@ -52,7 +55,7 @@ class MCPCommandServerConfig(TypedDict):
     timeout: NotRequired[int]
 
 
-type MCPServerConfig = MCPUrlServerConfig | MCPCommandServerConfig
+type MCPServerConfig = MCPHttpServerConfig | MCPStdioServerConfig
 
 
 @dataclass(kw_only=True, slots=True)
