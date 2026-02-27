@@ -29,17 +29,17 @@ TRACECAT__LOOP_MAX_BATCH_SIZE = int(
 """Maximum number of parallel requests to the worker service."""
 
 TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS = int(
-    os.environ.get("TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS", 16)
+    os.environ.get("TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS") or 16
 )
 """Maximum number of scheduler task coroutines allowed in-flight."""
 
 TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT = int(
-    os.environ.get("TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT", 8)
+    os.environ.get("TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT") or 8
 )
 """Hard cap on concurrent child workflows for looped subflow execution."""
 
 TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS = int(
-    os.environ.get("TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS", 300)
+    os.environ.get("TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS") or 300
 )
 """Maximum seconds to wait for a workflow concurrency permit before failing."""
 
@@ -58,16 +58,18 @@ TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS = float(
 )
 """Interval in seconds between workflow permit heartbeat refreshes."""
 
-TRACECAT__PERMIT_TTL_SECONDS = int(os.environ.get("TRACECAT__PERMIT_TTL_SECONDS", 300))
+TRACECAT__PERMIT_TTL_SECONDS = int(
+    os.environ.get("TRACECAT__PERMIT_TTL_SECONDS") or 300
+)
 """TTL in seconds for workflow/action concurrency permits before stale pruning."""
 
 TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS = int(
-    os.environ.get("TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS", 120)
+    os.environ.get("TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS") or 120
 )
 """Maximum seconds to wait for an action concurrency permit before failing."""
 
 TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS = int(
-    os.environ.get("TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS", 30)
+    os.environ.get("TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS") or 30
 )
 """TTL in seconds for cached per-organization effective tier limits."""
 
