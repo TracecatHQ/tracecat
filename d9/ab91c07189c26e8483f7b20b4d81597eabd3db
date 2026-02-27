@@ -1,0 +1,23 @@
+tracecat/config.py
+  96c65c34d3c11158 47,52,57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "d9ab91c07189c26e8483f7b20b4d81597eabd3db",
+  "prompts": {
+    "96c65c34d3c11158": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "874e8c6b-a57a-4af7-baa0-ed0e91f7a85e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 3,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  }
+}
