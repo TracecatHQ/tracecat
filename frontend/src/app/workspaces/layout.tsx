@@ -165,16 +165,13 @@ export default function WorkspaceLayout({
 }
 
 function WorkspaceChildren({ children }: { children: React.ReactNode }) {
-  const params = useParams<{
-    workflowId?: string
-    caseId?: string
-  }>()
+  const params = useParams<{ workflowId?: string }>()
   const canReadWorkspace = useScopeCheck("workspace:read")
   const pathname = usePathname()
   const isWorkflowBuilder = !!params?.workflowId
-  const isCaseDetail = !!params?.caseId
+  const isCasesPage = Boolean(pathname?.match(/\/cases(\/|$)/))
   const isInboxPage = pathname?.includes("/inbox")
-  const isTableDetailPage = pathname?.match(/\/tables\/[^/]+/)
+  const isTablesPage = Boolean(pathname?.match(/\/tables(\/|$)/))
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
   const isRegistryPage = pathname?.includes("/registry")
@@ -202,8 +199,8 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
-  // Case detail pages have their own layout with dual SidebarInset
-  if (isCaseDetail) {
+  // Cases pages have their own layout with an optional chat sidebar.
+  if (isCasesPage) {
     return <>{children}</>
   }
 
@@ -212,8 +209,8 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
-  // Table detail pages have their own layout with side panel
-  if (isTableDetailPage) {
+  // Tables pages have their own layout with side panels.
+  if (isTablesPage) {
     return <>{children}</>
   }
 

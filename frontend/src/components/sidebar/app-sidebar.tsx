@@ -2,14 +2,13 @@
 
 import {
   BlocksIcon,
-  Bot,
   ChevronDown,
   InboxIcon,
   KeyRound,
   LayersIcon,
   LayersPlus,
   type LucideIcon,
-  SquarePen,
+  Plus,
   Table2Icon,
   UsersIcon,
   VariableIcon,
@@ -31,21 +30,11 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import {
-  Command,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
-import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
@@ -81,14 +70,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { hasEntitlement } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
   const [createCaseDialogOpen, setCreateCaseDialogOpen] = useState(false)
-  const canExecuteAgents = useScopeCheck("agent:execute")
-
-  const handleNewChat = () => {
-    if (canExecuteAgents !== true) {
-      return
-    }
-    router.push(`${basePath}/copilot`)
-  }
 
   useEffect(() => {
     setSidebarOpenRef.current = setSidebarOpen
@@ -128,18 +109,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewCases = useScopeCheck("case:read")
   const canCreateCase = useScopeCheck("case:create")
-  const [newAgentPrompt, setNewAgentPrompt] = useState("")
-  const [newAgentPromptOpen, setNewAgentPromptOpen] = useState(false)
   const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
     enabled: agentAddonsEnabled && canViewAgents === true,
   })
 
   const openNewAgentBuilder = () => {
-    const prompt = newAgentPrompt.trim()
-    const params = prompt ? `?builderPrompt=${encodeURIComponent(prompt)}` : ""
-    router.push(`${basePath}/agents/new${params}`)
-    setNewAgentPrompt("")
-    setNewAgentPromptOpen(false)
+    router.push(`${basePath}/agents/new`)
   }
 
   const navWorkspace: NavItem[] = [
@@ -196,14 +171,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {canExecuteAgents === true && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton onClick={handleNewChat}>
-                    <SquarePen />
-                    <span>New chat</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
               {canCreateCase === true && (
                 <SidebarMenuItem>
                   <SidebarMenuButton
@@ -212,38 +179,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     <LayersPlus />
                     <span>Add case</span>
                   </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
-              {agentAddonsEnabled && canViewAgents === true && (
-                <SidebarMenuItem>
-                  <Popover
-                    open={newAgentPromptOpen}
-                    onOpenChange={setNewAgentPromptOpen}
-                  >
-                    <PopoverTrigger asChild>
-                      <SidebarMenuButton>
-                        <Bot />
-                        <span>New agent</span>
-                      </SidebarMenuButton>
-                    </PopoverTrigger>
-                    <PopoverContent align="start" className="w-80 p-0">
-                      <Command>
-                        <CommandInput
-                          value={newAgentPrompt}
-                          onValueChange={setNewAgentPrompt}
-                          placeholder="Describe the builder task..."
-                        />
-                        <CommandList>
-                          <CommandItem
-                            onSelect={openNewAgentBuilder}
-                            className="py-2"
-                          >
-                            Start builder assistant
-                          </CommandItem>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
                 </SidebarMenuItem>
               )}
               {canViewInbox === true && (
@@ -270,7 +205,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           <Collapsible defaultOpen className="group/collapsible">
             <SidebarGroup>
               <SidebarGroupLabel asChild>
-                <CollapsibleTrigger>
+                <CollapsibleTrigger className="w-full">
                   Workspace
                   <ChevronDown className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
                 </CollapsibleTrigger>
@@ -325,13 +260,24 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
         {agentAddonsEnabled && canViewAgents === true && (
           <Collapsible defaultOpen className="group/collapsible">
-            <SidebarGroup>
+            <SidebarGroup className="group/agents relative">
               <SidebarGroupLabel asChild>
-                <CollapsibleTrigger>
+                <CollapsibleTrigger className="w-full">
                   Agents
                   <ChevronDown className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
                 </CollapsibleTrigger>
               </SidebarGroupLabel>
+              <SidebarGroupAction
+                aria-label="Create agent"
+                onClick={openNewAgentBuilder}
+                className={[
+                  "right-10 opacity-0 pointer-events-none transition-opacity",
+                  "group-hover/agents:opacity-100 group-hover/agents:pointer-events-auto",
+                  "group-focus-within/agents:opacity-100 group-focus-within/agents:pointer-events-auto",
+                ].join(" ")}
+              >
+                <Plus />
+              </SidebarGroupAction>
               <CollapsibleContent>
                 <SidebarGroupContent>
                   {presetsIsLoading ? (
