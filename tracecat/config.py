@@ -29,7 +29,7 @@ TRACECAT__LOOP_MAX_BATCH_SIZE = int(
 """Maximum number of parallel requests to the worker service."""
 
 TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS = int(
-    os.environ.get("TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS") or 16
+    os.environ.get("TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS") or 128
 )
 """Maximum number of scheduler task coroutines allowed in-flight."""
 
