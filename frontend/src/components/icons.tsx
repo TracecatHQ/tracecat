@@ -3,7 +3,7 @@
  *
  * Categories:
  * - `Icons`: general UI/brand glyphs.
- * - `UDFIcons`: action icons keyed by registry action (trigger/core/tools/llm/ai).
+ * - `UDFIcons`: action icons keyed by registry action (trigger/core/tools/ai).
  * - `providerIcons`: provider badges.
  * - `secretIcons`: credential type badges.
  *
@@ -431,10 +431,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       GoogleSecOpsDetectionIcon
     ),
     "tools.google_secops_soar": createIconRenderer(GoogleSecOpsIcon),
-    // AI / LLM namespace
-    "llm.openai": createIconRenderer(OpenAIIcon),
-    "llm.ollama": createIconRenderer(OllamaIcon),
-    "llm.anthropic": createIconRenderer(ClaudeIcon),
+    // AI namespace
     "ai.slackbot": createIconRenderer(SlackIcon),
   }
 
