@@ -24,7 +24,7 @@ Rollout note (intentional):
 - This migration enables RLS but does not force it.
 - Phase 1 relies on application-controlled rollout via TRACECAT__RLS_MODE
   (off|shadow|enforce) and explicit bypass paths.
-- FORCE ROW LEVEL SECURITY is deferred to a later phase once deployments are
+- Full RLS forcing is deferred to a later phase once deployments are
   ready to run with stricter runtime role separation.
 """
 
