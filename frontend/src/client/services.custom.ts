@@ -143,6 +143,10 @@ export type AdminDeleteOrganizationWithConfirmationData = {
   confirm: string
 }
 
+export type AdminDeleteUserData = {
+  userId: string
+}
+
 export const adminDeleteOrganizationWithConfirmation = (
   data: AdminDeleteOrganizationWithConfirmationData
 ): CancelablePromise<void> =>
@@ -154,6 +158,22 @@ export const adminDeleteOrganizationWithConfirmation = (
     },
     query: {
       confirm: data.confirm,
+    },
+    errors: {
+      400: "Bad Request",
+      404: "Not Found",
+      422: "Validation Error",
+    },
+  })
+
+export const adminDeleteUser = (
+  data: AdminDeleteUserData
+): CancelablePromise<void> =>
+  request(OpenAPI, {
+    method: "DELETE",
+    url: "/admin/users/{user_id}",
+    path: {
+      user_id: data.userId,
     },
     errors: {
       400: "Bad Request",

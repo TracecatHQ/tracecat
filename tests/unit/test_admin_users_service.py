@@ -110,3 +110,36 @@ async def test_create_user_rejects_duplicate_email(
 
     with pytest.raises(ValueError, match="already exists"):
         await service.create_user(params)
+
+
+@pytest.mark.anyio
+async def test_delete_user_removes_user(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminUserService(session, role=platform_role)
+    params = AdminUserCreate(
+        email="delete-me@example.com",
+        password="this-is-a-strong-password",
+    )
+    created = await service.create_user(params)
+
+    await service.delete_user(created.id, current_user_id=platform_role.user_id)
+
+    user_result = await session.execute(
+        select(User).where(cast(Mapped[uuid.UUID], User.id) == created.id)
+    )
+    assert user_result.scalar_one_or_none() is None
+
+
+@pytest.mark.anyio
+async def test_delete_user_rejects_self(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminUserService(session, role=platform_role)
+
+    with pytest.raises(ValueError, match="Cannot delete yourself"):
+        await service.delete_user(
+            platform_role.user_id, current_user_id=platform_role.user_id
+        )

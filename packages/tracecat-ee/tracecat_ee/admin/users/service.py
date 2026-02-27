@@ -4,14 +4,14 @@ import uuid
 from collections.abc import Sequence
 from typing import cast
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped
 
 from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import UserCreate, UserRole
 from tracecat.auth.users import get_user_db_context, get_user_manager_context
-from tracecat.db.models import User
+from tracecat.db.models import Membership, OrganizationMembership, User
 from tracecat.service import BasePlatformService
 
 from .schemas import AdminUserCreate, AdminUserRead
@@ -124,3 +124,38 @@ class AdminUserService(BasePlatformService):
         await self.session.commit()
         await self.session.refresh(user)
         return AdminUserRead.model_validate(user)
+
+    async def delete_user(self, user_id: uuid.UUID, current_user_id: uuid.UUID) -> None:
+        """Delete a platform user."""
+        if user_id == current_user_id:
+            raise ValueError("Cannot delete yourself")
+
+        stmt = select(User).where(cast(Mapped[uuid.UUID], User.id) == user_id)
+        result = await self.session.execute(stmt)
+        user = result.scalar_one_or_none()
+        if not user:
+            raise ValueError(f"User {user_id} not found")
+
+        await self.session.execute(
+            delete(Membership).where(
+                cast(Mapped[uuid.UUID], Membership.user_id) == user_id
+            )
+        )
+        await self.session.execute(
+            delete(OrganizationMembership).where(
+                cast(Mapped[uuid.UUID], OrganizationMembership.user_id) == user_id
+            )
+        )
+
+        async with get_user_db_context(self.session) as user_db:
+            async with get_user_manager_context(user_db) as user_manager:
+                await user_manager.delete(user)
+
+        async with AuditService.with_session(
+            role=self.role, session=self.session
+        ) as svc:
+            await svc.create_event(
+                resource_type="user",
+                action="delete",
+                resource_id=user_id,
+            )

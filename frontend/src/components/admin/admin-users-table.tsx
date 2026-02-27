@@ -69,9 +69,9 @@ type CreateUserFormValues = z.infer<typeof createUserFormSchema>
 export function AdminUsersTable() {
   const [selectedUser, setSelectedUser] = useState<AdminUserRead | null>(null)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const [actionType, setActionType] = useState<"promote" | "demote" | null>(
-    null
-  )
+  const [actionType, setActionType] = useState<
+    "promote" | "demote" | "delete" | null
+  >(null)
   const { user: currentUser } = useAuth()
   const {
     users,
@@ -81,6 +81,8 @@ export function AdminUsersTable() {
     promotePending,
     demoteFromSuperuser,
     demotePending,
+    deleteUser,
+    deletePending,
   } = useAdminUsers()
   const createUserForm = useForm<CreateUserFormValues>({
     resolver: zodResolver(createUserFormSchema),
@@ -137,11 +139,17 @@ export function AdminUsersTable() {
           title: "User promoted",
           description: `${selectedUser.email} is now a superuser.`,
         })
-      } else {
+      } else if (actionType === "demote") {
         await demoteFromSuperuser(selectedUser.id)
         toast({
           title: "User demoted",
           description: `${selectedUser.email} is no longer a superuser.`,
+        })
+      } else {
+        await deleteUser(selectedUser.id)
+        toast({
+          title: "User deleted",
+          description: `${selectedUser.email} was deleted successfully.`,
         })
       }
     } catch (error) {
@@ -491,6 +499,18 @@ export function AdminUsersTable() {
                           </DropdownMenuItem>
                         </AlertDialogTrigger>
                       )}
+                      <AlertDialogTrigger asChild>
+                        <DropdownMenuItem
+                          className="text-rose-500 focus:text-rose-600"
+                          disabled={isSelf || !currentUser?.isSuperuser}
+                          onSelect={() => {
+                            setSelectedUser(rowUser)
+                            setActionType("delete")
+                          }}
+                        >
+                          {isSelf ? "Cannot delete yourself" : "Delete user"}
+                        </DropdownMenuItem>
+                      </AlertDialogTrigger>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )
@@ -504,7 +524,9 @@ export function AdminUsersTable() {
             <AlertDialogTitle>
               {actionType === "promote"
                 ? "Promote to superuser"
-                : "Demote from superuser"}
+                : actionType === "demote"
+                  ? "Demote from superuser"
+                  : "Delete user"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {actionType === "promote" ? (
@@ -512,10 +534,15 @@ export function AdminUsersTable() {
                   Are you sure you want to promote {selectedUser?.email} to
                   superuser? They will have full access to all admin functions.
                 </>
-              ) : (
+              ) : actionType === "demote" ? (
                 <>
                   Are you sure you want to demote {selectedUser?.email} from
                   superuser? They will lose access to admin functions.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to delete {selectedUser?.email}? This
+                  action cannot be undone.
                 </>
               )}
             </AlertDialogDescription>
@@ -523,11 +550,15 @@ export function AdminUsersTable() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              variant={actionType === "demote" ? "destructive" : "default"}
-              disabled={promotePending || demotePending}
+              variant={actionType === "promote" ? "default" : "destructive"}
+              disabled={promotePending || demotePending || deletePending}
               onClick={handleConfirmAction}
             >
-              {actionType === "promote" ? "Promote" : "Demote"}
+              {actionType === "promote"
+                ? "Promote"
+                : actionType === "demote"
+                  ? "Demote"
+                  : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
