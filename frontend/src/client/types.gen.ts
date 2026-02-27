@@ -3415,7 +3415,7 @@ export type MCPHttpIntegrationCreate = {
  * }
  */
 export type MCPHttpServerConfig = {
-  type: "http"
+  type?: "http"
   name: string
   url: string
   headers?: {

@@ -16,7 +16,7 @@ import os
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import orjson
 from claude_agent_sdk import (
@@ -48,6 +48,7 @@ from tracecat.agent.common.stream_types import (
     UnifiedStreamEvent,
 )
 from tracecat.agent.common.types import (
+    MCPStdioServerConfig,
     MCPToolDefinition,
 )
 from tracecat.agent.mcp.proxy_server import create_proxy_mcp_server
@@ -471,10 +472,11 @@ class ClaudeAgentRuntime:
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
             if payload.config.mcp_servers:
                 for config in payload.config.mcp_servers:
-                    if config["type"] != "stdio":
+                    if config.get("type", "http") != "stdio":
                         continue
+                    stdio_config = cast(MCPStdioServerConfig, config)
 
-                    base_name = config["name"]
+                    base_name = stdio_config["name"]
                     server_name = base_name
                     suffix = 2
                     while server_name in mcp_servers:
@@ -482,13 +484,13 @@ class ClaudeAgentRuntime:
                         suffix += 1
 
                     server_config: dict[str, Any] = {
-                        "command": config["command"],
+                        "command": stdio_config["command"],
                     }
-                    if args := config.get("args"):
+                    if args := stdio_config.get("args"):
                         server_config["args"] = args
-                    if env := config.get("env"):
+                    if env := stdio_config.get("env"):
                         server_config["env"] = env
-                    if timeout := config.get("timeout"):
+                    if timeout := stdio_config.get("timeout"):
                         server_config["timeout"] = timeout
 
                     mcp_servers[server_name] = server_config

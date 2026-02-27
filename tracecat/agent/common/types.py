@@ -25,8 +25,8 @@ class MCPHttpServerConfig(TypedDict):
         }
     """
 
-    type: Literal["http"]
-    """Discriminator for HTTP-based MCP configs."""
+    type: NotRequired[Literal["http"]]
+    """Discriminator for HTTP-based MCP configs. Defaults to 'http' when omitted."""
 
     name: str
     """Required: Unique identifier for the server. Tools will be prefixed with mcp__{name}__."""

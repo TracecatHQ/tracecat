@@ -217,7 +217,7 @@ class ToolFilters(BaseModel):
 class MCPHttpServerConfigSchema(TypedDict):
     """HTTP/SSE MCP server configuration for request validation."""
 
-    type: Literal["http"]
+    type: NotRequired[Literal["http"]]
     name: str
     url: str
     headers: NotRequired[dict[str, str]]
