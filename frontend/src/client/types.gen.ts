@@ -3855,6 +3855,7 @@ export type MCPHttpIntegrationCreate = {
 export type MCPHttpServerConfig = {
   type?: "http"
   name: string
+  display_name?: string
   url: string
   headers?: {
     [key: string]: string
@@ -3964,6 +3965,7 @@ export type MCPStdioIntegrationCreate = {
 export type MCPStdioServerConfig = {
   type: "stdio"
   name: string
+  display_name?: string
   command: string
   args?: Array<string>
   env?: {

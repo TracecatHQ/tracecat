@@ -12125,6 +12125,10 @@ export const $MCPHttpServerConfig = {
       type: "string",
       title: "Name",
     },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
     url: {
       type: "string",
       title: "Url",
@@ -12549,6 +12553,10 @@ export const $MCPStdioServerConfig = {
     name: {
       type: "string",
       title: "Name",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
     },
     command: {
       type: "string",

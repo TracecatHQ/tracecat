@@ -123,6 +123,11 @@ class AgentActivities:
             for action in actions_to_build
             if UserMCPClient.parse_user_mcp_tool_name(action)
         }
+        approved_mcp_action_names = {
+            mcp_tool_name_to_canonical(tool_name)
+            for tool_name in (args.tool_approvals or {})
+            if UserMCPClient.parse_user_mcp_tool_name(tool_name)
+        }
         registry_actions = [
             action
             for action in actions_to_build
@@ -170,12 +175,50 @@ class AgentActivities:
                 f"{sorted(selected_mcp_action_names)}"
             )
         if args.mcp_servers:
-            http_servers = [
-                cfg for cfg in args.mcp_servers if is_http_server(cfg)
-            ]
-            if not http_servers:
-                logger.info("No HTTP MCP servers configured for discovery")
-                http_servers = []
+            http_servers = [cfg for cfg in args.mcp_servers if is_http_server(cfg)]
+            known_server_names = {cfg["name"] for cfg in args.mcp_servers}
+            stdio_server_names = {
+                cfg["name"] for cfg in args.mcp_servers if not is_http_server(cfg)
+            }
+            if selected_mcp_action_names:
+                selected_stdio_tools = {
+                    name
+                    for name in selected_mcp_action_names
+                    if (
+                        parsed := UserMCPClient.parse_user_mcp_tool_name(
+                            name,
+                            known_server_names=known_server_names,
+                        )
+                    )
+                    and parsed[0] in stdio_server_names
+                }
+                if selected_stdio_tools:
+                    raise TracecatValidationError(
+                        "Stdio MCP tools cannot be allowlisted individually in the "
+                        "Claude runtime because stdio integrations are mounted as "
+                        "whole servers: "
+                        f"{sorted(selected_stdio_tools)}"
+                    )
+
+            if args.tool_approvals:
+                stdio_approval_tools = {
+                    tool_name
+                    for tool_name in args.tool_approvals
+                    if (
+                        parsed := UserMCPClient.parse_user_mcp_tool_name(
+                            tool_name,
+                            known_server_names=known_server_names,
+                        )
+                    )
+                    and parsed[0] in stdio_server_names
+                }
+                if stdio_approval_tools:
+                    raise TracecatValidationError(
+                        "Stdio MCP tool approvals are not supported in the Claude "
+                        "runtime because approved stdio calls cannot be replayed "
+                        "through the executor: "
+                        f"{sorted(stdio_approval_tools)}"
+                    )
 
             try:
                 user_mcp_tools = await discover_user_mcp_tools(http_servers)
@@ -199,7 +242,20 @@ class AgentActivities:
                         if mcp_tool_name_to_canonical(tool_name)
                         in selected_mcp_action_names
                     }
+                else:
+                    canonical_mcp_names = {
+                        mcp_tool_name_to_canonical(tool_name)
+                        for tool_name in user_mcp_tools
+                    }
 
+                missing_mcp_approval_tools = (
+                    approved_mcp_action_names - canonical_mcp_names
+                )
+                if missing_mcp_approval_tools:
+                    raise TracecatValidationError(
+                        "Some MCP tool approvals did not match configured integrations: "
+                        f"{sorted(missing_mcp_approval_tools)}"
+                    )
 
                 # Add user MCP tools to definitions
                 for tool_name, tool_def in user_mcp_tools.items():

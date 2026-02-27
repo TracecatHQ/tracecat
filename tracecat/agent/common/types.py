@@ -31,6 +31,9 @@ class MCPHttpServerConfig(TypedDict):
     name: str
     """Required: Unique identifier for the server. Tools will be prefixed with mcp__{name}__."""
 
+    display_name: NotRequired[str]
+    """Optional human-readable label for UI display."""
+
     url: str
     """Required: HTTP/SSE endpoint URL for the MCP server."""
 
@@ -49,6 +52,7 @@ class MCPStdioServerConfig(TypedDict):
 
     type: Literal["stdio"]
     name: str
+    display_name: NotRequired[str]
     command: str
     args: NotRequired[list[str]]
     env: NotRequired[dict[str, str]]

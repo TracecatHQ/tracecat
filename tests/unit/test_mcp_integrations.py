@@ -346,7 +346,7 @@ class TestMCPIntegrationCRUD:
         assert updated is not None
         assert updated.name == "Updated MCP"
         assert updated.description == "Updated description"
-        assert updated.slug == "updated-mcp"  # Slug regenerated when name changes
+        assert updated.slug == created.slug  # Slug remains stable when name changes
         assert updated.server_uri == created.server_uri  # Unchanged
 
     async def test_update_mcp_integration_partial(
@@ -1029,6 +1029,29 @@ class TestMCPIntegrationValidation:
             mcp_integration_id=non_existent_id, params=update_params
         )
         assert result is None
+
+    async def test_rename_preserves_existing_slug(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Renaming an MCP integration should not change its stable slug."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Linear MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+
+        original_slug = created.slug
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=created.id,
+            params=MCPIntegrationUpdate(name="Renamed MCP"),
+        )
+
+        assert updated is not None
+        assert updated.name == "Renamed MCP"
+        assert updated.slug == original_slug
 
 
 @pytest.mark.anyio

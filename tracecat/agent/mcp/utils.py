@@ -24,6 +24,8 @@ def is_http_server(config: MCPServerConfig) -> TypeGuard[MCPHttpServerConfig]:
     Legacy HTTP configs may omit "type"; treat missing as HTTP for compatibility.
     """
     return config.get("type", "http") == "http"
+
+
 LEGACY_REGISTRY_MCP_SERVER_NAME = "tracecat_registry"
 
 
@@ -60,7 +62,7 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
     - mcp.tracecat-registry.mcp.Linear.list_issues -> mcp.Linear.list_issues
     - mcp.tracecat_registry.mcp.Linear.list_issues -> mcp.Linear.list_issues
 
-    Other MCP tool names are returned as-is.
+    Other canonical user MCP names are returned as-is.
 
     Args:
         mcp_tool_name: The MCP tool name to normalize
@@ -106,13 +108,10 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
         ).replace(f"mcp__{LEGACY_REGISTRY_MCP_SERVER_NAME}__", "")
         return mcp_tool_name_to_action_name(tool_part)
 
-    # Generic MCP prefix stripping for any other servers
-    # Handle pattern: mcp.{server-name}.{tool_name}
+    # Canonical user MCP names are already normalized. Keep the server segment
+    # so approval/history flows remain unambiguous across integrations.
     if mcp_tool_name.startswith("mcp."):
-        parts = mcp_tool_name.split(".", 2)
-        if len(parts) >= 3:
-            # Return everything after mcp.{server-name}.
-            return parts[2]
+        return mcp_tool_name
 
     # Handle pattern: mcp__{server-name}__{tool_name}
     if mcp_tool_name.startswith("mcp__"):
@@ -120,6 +119,10 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
         if len(parts) >= 3:
             # Return user MCP tool as canonical form: mcp.{server}.{tool_name}
             return f"mcp.{parts[1]}.{mcp_tool_name_to_action_name(parts[2])}"
+
+    # Handle runtime registry/internal tool names (e.g. core__http_request)
+    if "__" in mcp_tool_name:
+        return mcp_tool_name_to_action_name(mcp_tool_name)
 
     # Other tool names returned as-is
     return mcp_tool_name

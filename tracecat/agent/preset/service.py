@@ -100,7 +100,20 @@ class AgentPresetService(BaseWorkspaceService):
             fallback_name=params.name,
         )
         if params.actions:
-            await self._validate_actions(params.actions)
+            await self._validate_actions(
+                params.actions, mcp_integrations=params.mcp_integrations
+            )
+        if params.tool_approvals:
+            mcp_approval_tools = {
+                tool_name
+                for tool_name in params.tool_approvals
+                if UserMCPClient.parse_user_mcp_tool_name(tool_name)
+            }
+            await self._validate_mcp_tool_configuration(
+                mcp_action_names=mcp_approval_tools,
+                mcp_integrations=params.mcp_integrations,
+                mode="tool_approvals",
+            )
         if params.mcp_integrations:
             await self._validate_mcp_integrations(params.mcp_integrations)
         preset = AgentPreset(
@@ -146,20 +159,40 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.refresh(preset)
         return preset
 
-    async def _validate_actions(self, actions: list[str]) -> None:
+    async def _validate_actions(
+        self,
+        actions: list[str],
+        *,
+        mcp_integrations: list[str] | None = None,
+    ) -> None:
         """Validate registry actions in ``actions`` against the registry index.
 
-        User MCP actions (for example ``mcp.Linear.list_issues``) are filtered
-        out here and are not validated at preset-save time. They are resolved
-        when MCP integrations are discovered/used at execution time.
+        User MCP actions (for example ``mcp.Linear.list_issues``) are validated
+        to ensure at least one MCP integration is configured.  The exact tool
+        name is resolved at execution time via ``build_tool_definitions()``.
         """
         normalized_actions = {s for action in actions if (s := action.strip())}
         # Separate MCP tools from registry actions
-        registry_actions = {
+        mcp_actions = {
             action
             for action in normalized_actions
-            if not UserMCPClient.parse_user_mcp_tool_name(action)
+            if UserMCPClient.parse_user_mcp_tool_name(action)
         }
+        registry_actions = normalized_actions - mcp_actions
+
+        # Cross-check: MCP tool actions require at least one MCP integration
+        if mcp_actions and not mcp_integrations:
+            raise TracecatValidationError(
+                "Actions reference MCP tools but no MCP integrations are configured: "
+                f"{sorted(mcp_actions)}"
+            )
+        if mcp_actions:
+            await self._validate_mcp_tool_configuration(
+                mcp_action_names=mcp_actions,
+                mcp_integrations=mcp_integrations,
+                mode="actions",
+            )
+
         if not registry_actions:
             return
         registry_service = RegistryActionsService(self.session, role=self.role)
@@ -172,6 +205,69 @@ class AgentPresetService(BaseWorkspaceService):
         if missing_actions := registry_actions - available_identifiers:
             raise TracecatValidationError(
                 f"{len(missing_actions)} actions were not found in the registry: {sorted(missing_actions)}"
+            )
+
+    async def _validate_mcp_tool_configuration(
+        self,
+        *,
+        mcp_action_names: set[str],
+        mcp_integrations: list[str] | None,
+        mode: str,
+    ) -> None:
+        """Reject MCP configs the current runtimes cannot enforce safely."""
+        if not mcp_action_names:
+            return
+        if not mcp_integrations:
+            raise TracecatValidationError(
+                "MCP tools were referenced but no MCP integrations are configured: "
+                f"{sorted(mcp_action_names)}"
+            )
+
+        mcp_servers = await self._resolve_mcp_integrations(mcp_integrations)
+        if not mcp_servers:
+            raise TracecatValidationError(
+                "No matching MCP integrations found for this preset in the workspace"
+            )
+
+        known_server_names = {cfg["name"] for cfg in mcp_servers}
+        stdio_server_names = {
+            cfg["name"] for cfg in mcp_servers if not is_http_server(cfg)
+        }
+        http_servers = [cfg for cfg in mcp_servers if is_http_server(cfg)]
+        unsupported_stdio_tools = {
+            action_name
+            for action_name in mcp_action_names
+            if (
+                parsed := UserMCPClient.parse_user_mcp_tool_name(
+                    action_name,
+                    known_server_names=known_server_names,
+                )
+            )
+            and parsed[0] in stdio_server_names
+        }
+        if unsupported_stdio_tools:
+            if mode == "actions":
+                raise TracecatValidationError(
+                    "Stdio MCP tools cannot be allowlisted individually because the "
+                    "Claude runtime mounts stdio integrations as whole servers: "
+                    f"{sorted(unsupported_stdio_tools)}"
+                )
+            if mode == "tool_approvals":
+                raise TracecatValidationError(
+                    "Stdio MCP tool approvals are not supported because approved "
+                    "stdio calls cannot be replayed through the executor: "
+                    f"{sorted(unsupported_stdio_tools)}"
+                )
+            raise ValueError(f"Unknown MCP validation mode: {mode}")
+
+        discovered_mcp_tools = await discover_user_mcp_tools(http_servers)
+        available_mcp_tool_names = {
+            mcp_tool_name_to_canonical(tool_name) for tool_name in discovered_mcp_tools
+        }
+        if missing_mcp_tools := mcp_action_names - available_mcp_tool_names:
+            raise TracecatValidationError(
+                "Some MCP tools were not found in configured integrations: "
+                f"{sorted(missing_mcp_tools)}"
             )
 
     @require_scope("agent:update")
@@ -200,7 +296,11 @@ class AgentPresetService(BaseWorkspaceService):
         if "actions" in set_fields:
             # Select in RegistryAction actions that are in the list of actions
             if actions := set_fields.pop("actions"):
-                await self._validate_actions(actions)
+                # Use the effective mcp_integrations (update value or existing)
+                effective_mcp = set_fields.get(
+                    "mcp_integrations", preset.mcp_integrations
+                )
+                await self._validate_actions(actions, mcp_integrations=effective_mcp)
             # If we reach this point, all actions are valid or was empty
             if preset.actions != actions:
                 preset.actions = actions
@@ -209,9 +309,57 @@ class AgentPresetService(BaseWorkspaceService):
         if "mcp_integrations" in set_fields:
             if mcp_integrations := set_fields.pop("mcp_integrations"):
                 await self._validate_mcp_integrations(mcp_integrations)
+            # Re-validate existing actions against the new mcp_integrations
+            # to prevent removing integrations that are still referenced.
+            effective_actions = preset.actions
+            if effective_actions:
+                mcp_actions = [
+                    a
+                    for a in effective_actions
+                    if UserMCPClient.parse_user_mcp_tool_name(a)
+                ]
+                if mcp_actions and not mcp_integrations:
+                    raise TracecatValidationError(
+                        "Cannot remove MCP integrations while actions still "
+                        f"reference MCP tools: {sorted(mcp_actions)}"
+                    )
+                await self._validate_mcp_tool_configuration(
+                    mcp_action_names=set(mcp_actions),
+                    mcp_integrations=mcp_integrations,
+                    mode="actions",
+                )
+            existing_tool_approvals = preset.tool_approvals or {}
+            if existing_tool_approvals:
+                mcp_approval_tools = {
+                    tool_name
+                    for tool_name in existing_tool_approvals
+                    if UserMCPClient.parse_user_mcp_tool_name(tool_name)
+                }
+                await self._validate_mcp_tool_configuration(
+                    mcp_action_names=mcp_approval_tools,
+                    mcp_integrations=mcp_integrations,
+                    mode="tool_approvals",
+                )
             if preset.mcp_integrations != mcp_integrations:
                 preset.mcp_integrations = mcp_integrations
                 execution_changed = True
+
+        if "tool_approvals" in set_fields:
+            tool_approvals = set_fields["tool_approvals"]
+            if tool_approvals:
+                effective_mcp = set_fields.get(
+                    "mcp_integrations", preset.mcp_integrations
+                )
+                mcp_approval_tools = {
+                    tool_name
+                    for tool_name in tool_approvals
+                    if UserMCPClient.parse_user_mcp_tool_name(tool_name)
+                }
+                await self._validate_mcp_tool_configuration(
+                    mcp_action_names=mcp_approval_tools,
+                    mcp_integrations=effective_mcp,
+                    mode="tool_approvals",
+                )
 
         # Update remaining fields
         for field, value in set_fields.items():
@@ -529,6 +677,7 @@ class AgentPresetService(BaseWorkspaceService):
                 command_config: MCPServerConfig = {
                     "type": "stdio",
                     "name": mcp_integration.slug,
+                    "display_name": mcp_integration.name,
                     "command": mcp_integration.stdio_command,
                 }
                 if mcp_integration.stdio_args:
@@ -685,7 +834,8 @@ class AgentPresetService(BaseWorkspaceService):
             # Build MCP server config
             http_config: MCPHttpServerConfig = {
                 "type": "http",
-                "name": mcp_integration.name,
+                "name": mcp_integration.slug,
+                "display_name": mcp_integration.name,
                 "url": mcp_integration.server_uri,
                 "headers": headers,
             }
@@ -1141,12 +1291,18 @@ class AgentPresetService(BaseWorkspaceService):
         tools = await discover_user_mcp_tools(http_servers)
         if not tools:
             return []
+        display_names_by_server = {
+            cfg["name"]: cfg.get("display_name", cfg["name"]) for cfg in http_servers
+        }
 
         return [
             DiscoveredMCPTool(
                 name=mcp_tool_name_to_canonical(name),
                 description=defn.description,
-                server_name=name.split("__")[1] if "__" in name else "unknown",
+                server_name=display_names_by_server.get(
+                    name.split("__")[1] if "__" in name else "",
+                    "unknown",
+                ),
             )
             for name, defn in tools.items()
         ]

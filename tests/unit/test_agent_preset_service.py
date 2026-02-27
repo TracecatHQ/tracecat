@@ -1052,12 +1052,19 @@ class TestAgentPresetService:
         async def _resolve_mcp_integrations(
             _mcp_integration_ids: list[str],
         ) -> list[dict[str, object]]:
-            return [{"name": "Linear", "url": "https://mcp.example.com", "headers": {}}]
+            return [
+                {
+                    "name": "custom_linear",
+                    "display_name": "Linear",
+                    "url": "https://mcp.example.com",
+                    "headers": {},
+                }
+            ]
 
         async def _discover_user_mcp_tools(
             _mcp_servers: list[dict[str, object]],
         ) -> dict[str, _ToolDef]:
-            return {"mcp__Linear__issues__list": _ToolDef()}
+            return {"mcp__custom_linear__issues__list": _ToolDef()}
 
         commit_mock = AsyncMock()
         monkeypatch.setattr(
@@ -1076,9 +1083,147 @@ class TestAgentPresetService:
 
         assert discovered == [
             preset_service_module.DiscoveredMCPTool(
-                name="mcp.Linear.issues.list",
+                name="mcp.custom_linear.issues.list",
                 description="List issues",
                 server_name="Linear",
             )
         ]
         commit_mock.assert_not_awaited()
+
+    async def test_update_preset_rejects_mcp_integration_change_breaking_approval_rules(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        agent_preset_create_params.mcp_integrations = ["linear-integration"]
+        agent_preset_create_params.tool_approvals = {
+            "mcp.custom_linear.list_issues": True
+        }
+
+        async def _resolve_mcp_integrations(
+            mcp_integration_ids: list[str] | None,
+        ) -> list[dict[str, object]]:
+            if mcp_integration_ids == ["linear-integration"]:
+                return [
+                    {
+                        "name": "custom_linear",
+                        "display_name": "Linear",
+                        "url": "https://linear.example.com/mcp",
+                        "headers": {},
+                    }
+                ]
+            return [
+                {
+                    "name": "custom_github",
+                    "display_name": "GitHub",
+                    "url": "https://github.example.com/mcp",
+                    "headers": {},
+                }
+            ]
+
+        async def _discover_user_mcp_tools(
+            mcp_servers: list[dict[str, object]],
+        ) -> dict[str, object]:
+            if mcp_servers[0]["name"] == "custom_linear":
+                return {
+                    "mcp__custom_linear__list_issues": type(
+                        "_ToolDef", (), {"description": "List issues"}
+                    )()
+                }
+            return {
+                "mcp__custom_github__list_pull_requests": type(
+                    "_ToolDef", (), {"description": "List pull requests"}
+                )()
+            }
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_validate_mcp_integrations",
+            AsyncMock(),
+        )
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_resolve_mcp_integrations",
+            _resolve_mcp_integrations,
+        )
+        monkeypatch.setattr(
+            preset_service_module,
+            "discover_user_mcp_tools",
+            _discover_user_mcp_tools,
+        )
+
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="Some MCP tools were not found in configured integrations",
+        ):
+            await agent_preset_service.update_preset(
+                preset,
+                AgentPresetUpdate(mcp_integrations=["github-integration"]),
+            )
+
+    async def test_create_preset_rejects_selected_stdio_mcp_tools(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        agent_preset_create_params.actions = ["mcp.acme.com.list_issues"]
+        agent_preset_create_params.mcp_integrations = ["stdio-integration"]
+
+        async def _resolve_mcp_integrations(
+            _mcp_integration_ids: list[str],
+        ) -> list[dict[str, object]]:
+            return [
+                {
+                    "type": "stdio",
+                    "name": "acme.com",
+                    "command": "acme-mcp",
+                }
+            ]
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_resolve_mcp_integrations",
+            _resolve_mcp_integrations,
+        )
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="Stdio MCP tools cannot be allowlisted individually",
+        ):
+            await agent_preset_service.create_preset(agent_preset_create_params)
+
+    async def test_create_preset_rejects_stdio_mcp_tool_approvals(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        agent_preset_create_params.mcp_integrations = ["stdio-integration"]
+        agent_preset_create_params.tool_approvals = {"mcp.acme.com.list_issues": True}
+
+        async def _resolve_mcp_integrations(
+            _mcp_integration_ids: list[str],
+        ) -> list[dict[str, object]]:
+            return [
+                {
+                    "type": "stdio",
+                    "name": "acme.com",
+                    "command": "acme-mcp",
+                }
+            ]
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_resolve_mcp_integrations",
+            _resolve_mcp_integrations,
+        )
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="Stdio MCP tool approvals are not supported",
+        ):
+            await agent_preset_service.create_preset(agent_preset_create_params)
