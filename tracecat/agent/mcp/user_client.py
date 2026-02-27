@@ -201,7 +201,8 @@ class UserMCPClient:
         #   mcp.{server_name}.{tool_name}
         if tool_name.startswith("mcp."):
             canonical_name = tool_name.removeprefix("mcp.")
-            parts = canonical_name.rsplit(".", 1)
+            # Split on the first separator so tool names can contain dots.
+            parts = canonical_name.split(".", 1)
             if len(parts) == 2 and parts[0] and parts[1]:
                 return (parts[0], parts[1])
 

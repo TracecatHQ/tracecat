@@ -89,12 +89,13 @@ class AgentPresetService(BaseWorkspaceService):
         return preset
 
     async def _validate_actions(self, actions: list[str]) -> None:
-        """Validate that all actions are in the registry index.
+        """Validate registry actions in ``actions`` against the registry index.
 
-        MCP tool keys (``mcp.*``) are validated separately against MCP
-        integrations and may be mixed with registry actions.
+        User MCP actions (for example ``mcp.Linear.list_issues``) are filtered
+        out here and are not validated at preset-save time. They are resolved
+        when MCP integrations are discovered/used at execution time.
         """
-        normalized_actions = {action.strip() for action in actions if action.strip()}
+        normalized_actions = {s for action in actions if (s := action.strip())}
         # Separate MCP tools from registry actions
         registry_actions = {
             action
@@ -479,11 +480,7 @@ class AgentPresetService(BaseWorkspaceService):
     async def discover_mcp_tools(
         self, mcp_integration_ids: list[str]
     ) -> list[DiscoveredMCPTool]:
-        """Discover tools from MCP integrations for the approval selector.
-
-        Also seeds RBAC scopes for discovered MCP tools so they appear
-        in the role scope assignment UI.
-        """
+        """Discover tools from MCP integrations for the approval selector."""
         mcp_servers = await self._resolve_mcp_integrations(mcp_integration_ids)
         if not mcp_servers:
             return []
@@ -491,10 +488,6 @@ class AgentPresetService(BaseWorkspaceService):
         tools = await discover_user_mcp_tools(mcp_servers)
         if not tools:
             return []
-
-        # Seed RBAC scopes for discovered MCP tools
-        mcp_action_keys = [mcp_tool_name_to_canonical(name) for name in tools]
-        await self._seed_mcp_tool_scopes(mcp_action_keys)
 
         return [
             DiscoveredMCPTool(
@@ -504,22 +497,3 @@ class AgentPresetService(BaseWorkspaceService):
             )
             for name, defn in tools.items()
         ]
-
-    async def _seed_mcp_tool_scopes(self, mcp_action_keys: list[str]) -> None:
-        """Seed RBAC scopes for MCP tools using existing registry scope infra."""
-        if not mcp_action_keys:
-            return
-
-        from tracecat.authz.seeding import seed_registry_scopes
-
-        try:
-            await seed_registry_scopes(self.session, mcp_action_keys)
-            await self.session.commit()
-            logger.info(
-                "Seeded MCP tool scopes",
-                tool_count=len(mcp_action_keys),
-                tools=mcp_action_keys,
-            )
-        except Exception:
-            logger.exception("Failed to seed MCP tool scopes")
-            await self.session.rollback()

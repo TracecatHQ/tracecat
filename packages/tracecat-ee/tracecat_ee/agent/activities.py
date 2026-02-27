@@ -13,7 +13,7 @@ from tracecat.agent.mcp.internal_tools import (
     BUILDER_INTERNAL_TOOL_NAMES,
     get_builder_internal_tool_definitions,
 )
-from tracecat.agent.mcp.user_client import UserMCPClient
+from tracecat.agent.mcp.user_client import UserMCPClient, discover_user_mcp_tools
 from tracecat.agent.mcp.utils import mcp_tool_name_to_canonical
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.tokens import InternalToolContext, UserMCPServerClaim
@@ -109,9 +109,7 @@ class AgentActivities:
 
         # For builder sessions, add bundled actions to the tool filters
         actions_to_build = [
-            action.strip()
-            for action in (args.tool_filters.actions or [])
-            if action.strip()
+            s for action in (args.tool_filters.actions or []) if (s := action.strip())
         ]
         selected_mcp_action_names = {
             mcp_tool_name_to_canonical(action)
@@ -165,8 +163,6 @@ class AgentActivities:
                 f"{sorted(selected_mcp_action_names)}"
             )
         if args.mcp_servers:
-            from tracecat.agent.mcp.user_client import discover_user_mcp_tools
-
             try:
                 user_mcp_tools = await discover_user_mcp_tools(args.mcp_servers)
 
