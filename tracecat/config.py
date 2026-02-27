@@ -9,6 +9,45 @@ from tracecat.feature_flags.enums import FeatureFlag
 # === Logger === #
 logger = logging.getLogger(__name__)
 
+
+def _coerce_env_numeric[T: int | float](*, var: str, value: str, default: T) -> T:
+    if isinstance(default, int):
+        try:
+            return cast(T, int(value))
+        except ValueError as e:
+            raise ValueError(f"{var} must be an integer (got {value!r})") from e
+    try:
+        return cast(T, float(value))
+    except ValueError as e:
+        raise ValueError(f"{var} must be a float (got {value!r})") from e
+
+
+def bound_env[T: int | float](
+    var: str,
+    default: T,
+    *,
+    lower: T | None = None,
+    upper: T | None = None,
+) -> T:
+    """Read a numeric env var with default and optional clamped bounds."""
+    if lower is not None and upper is not None and lower > upper:
+        raise ValueError(
+            f"Invalid bounds for {var}: lower ({lower}) cannot be greater than upper ({upper})"
+        )
+
+    env_value = os.environ.get(var)
+    if env_value is None or env_value == "":
+        bounded = default
+    else:
+        bounded = _coerce_env_numeric(var=var, value=env_value, default=default)
+
+    if lower is not None and bounded < lower:
+        bounded = lower
+    if upper is not None and bounded > upper:
+        bounded = upper
+    return bounded
+
+
 # === Internal Services === #
 TRACECAT__APP_ENV: Literal["development", "staging", "production"] = cast(
     Literal["development", "staging", "production"],
@@ -33,10 +72,13 @@ TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS = int(
 )
 """Maximum number of scheduler task coroutines allowed in-flight."""
 
-TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT = int(
-    os.environ.get("TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT") or 8
+TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW = bound_env(
+    "TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW",
+    16,
+    lower=8,
+    upper=128,
 )
-"""Hard cap on concurrent child workflows for looped subflow execution."""
+"""Hard cap on concurrent child workflow dispatches for looped subflow execution."""
 
 TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS = int(
     os.environ.get("TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS") or 300

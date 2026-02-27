@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, patch
@@ -11,18 +12,23 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.dsl.common import DSLEntrypoint, DSLInput
+from tracecat.dsl.enums import FailStrategy, WaitStrategy
 from tracecat.dsl.schemas import (
     ROOT_STREAM,
     ActionRetryPolicy,
     ActionStatement,
     DSLConfig,
     ExecutionContext,
+    RunContext,
     TaskResult,
 )
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.dsl.workflow_logging import get_workflow_logger
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.storage.object import InlineObject
 from tracecat.tiers.schemas import EffectiveLimits
+from tracecat.workflow.executions.enums import ExecutionType
 
 
 def _effective_limits(
@@ -53,6 +59,14 @@ def _build_workflow(*, limits: EffectiveLimits | None = None) -> DSLWorkflow:
     workflow._workflow_permit_acquired = False
     workflow._workflow_permit_heartbeat_task = None
     workflow._action_execution_count = 0
+    workflow.execution_type = ExecutionType.PUBLISHED
+    workflow.run_context = RunContext(
+        wf_id=WorkflowUUID.new("wf-00000000000000000000000000000001"),
+        wf_exec_id="wf-00000000000000000000000000000001:exec-00000000000000000000000000000001",
+        wf_run_id=uuid.uuid4(),
+        environment="__TEST__",
+        logical_time=datetime.now(UTC),
+    )
     context = ExecutionContext(ACTIONS={}, TRIGGER=None)
     workflow.context = context
     workflow.scheduler = cast(Any, SimpleNamespace(streams={ROOT_STREAM: context}))
@@ -168,45 +182,125 @@ async def test_execute_task_handles_timers_before_action_permit_acquisition() ->
     assert result.get_data() == {"ok": True}
 
 
-def test_resolve_child_loop_batch_size_rejects_non_positive_max_in_flight(
+def test_resolve_child_loop_batch_plan_applies_dispatch_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workflow = _build_workflow()
-    monkeypatch.setattr(config, "TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT", 0)
+    monkeypatch.setattr(config, "TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW", 12)
 
-    with pytest.raises(
-        ApplicationError,
-        match="TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT must be greater than 0",
-    ):
-        workflow._resolve_child_loop_batch_size(total_count=3, requested_batch_size=3)
-
-
-def test_resolve_child_loop_batch_size_rejects_non_positive_tier_action_cap(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workflow = _build_workflow(limits=_effective_limits(max_concurrent_actions=0))
-    monkeypatch.setattr(config, "TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT", 5)
-
-    with pytest.raises(
-        ApplicationError,
-        match="max_concurrent_actions must be greater than 0",
-    ):
-        workflow._resolve_child_loop_batch_size(total_count=3, requested_batch_size=3)
-
-
-def test_resolve_child_loop_batch_size_applies_caps(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workflow = _build_workflow(limits=_effective_limits(max_concurrent_actions=2))
-    monkeypatch.setattr(config, "TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT", 4)
-
-    strategy_batch_size, batch_size = workflow._resolve_child_loop_batch_size(
+    logical_batch_size, dispatch_window = workflow._resolve_child_loop_batch_plan(
         total_count=10,
         requested_batch_size=6,
     )
 
-    assert strategy_batch_size == 6
-    assert batch_size == 2
+    assert logical_batch_size == 6
+    assert dispatch_window == 12
+
+
+def test_resolve_child_loop_batch_plan_is_independent_of_tier_action_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _build_workflow(limits=_effective_limits(max_concurrent_actions=1))
+    monkeypatch.setattr(config, "TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW", 13)
+
+    logical_batch_size, dispatch_window = workflow._resolve_child_loop_batch_plan(
+        total_count=8,
+        requested_batch_size=8,
+    )
+
+    assert logical_batch_size == 8
+    assert dispatch_window == 13
+
+
+@pytest.mark.anyio
+async def test_execute_child_workflow_batch_prepared_limits_dispatch_window() -> None:
+    workflow = _build_workflow()
+    task = ActionStatement(ref="run_child", action="core.workflow.execute", args={})
+    dsl = DSLInput(
+        title="Child",
+        description="child workflow for unit test",
+        entrypoint=DSLEntrypoint(ref="noop", expects={}),
+        actions=[
+            ActionStatement(
+                ref="noop",
+                action="core.transform.reshape",
+                args={"value": "ok"},
+            )
+        ],
+        triggers=[],
+    )
+    prepared = cast(
+        Any,
+        SimpleNamespace(
+            dsl=dsl,
+            wf_id="wf-00000000000000000000000000000001",
+            registry_lock=None,
+            get_config=lambda _idx: DSLConfig(),
+            get_trigger_input_at=lambda idx: InlineObject(data={"index": idx}),
+        ),
+    )
+
+    dispatch_in_flight = 0
+    max_dispatch_in_flight = 0
+    child_runs_in_flight = 0
+    max_child_runs_in_flight = 0
+    dispatch_lock = asyncio.Lock()
+    child_runs_lock = asyncio.Lock()
+
+    async def child_run(loop_index: int) -> InlineObject:
+        nonlocal child_runs_in_flight, max_child_runs_in_flight
+        async with child_runs_lock:
+            child_runs_in_flight += 1
+            max_child_runs_in_flight = max(
+                max_child_runs_in_flight,
+                child_runs_in_flight,
+            )
+        try:
+            await asyncio.sleep(0.05)
+            return InlineObject(data={"index": loop_index})
+        finally:
+            async with child_runs_lock:
+                child_runs_in_flight -= 1
+
+    async def dispatch_child_mock(
+        _: ActionStatement,
+        __: Any,
+        *,
+        wait_strategy: Any,
+        loop_index: int | None = None,
+    ) -> asyncio.Task[InlineObject]:
+        del wait_strategy
+        nonlocal dispatch_in_flight, max_dispatch_in_flight
+        assert loop_index is not None
+        async with dispatch_lock:
+            dispatch_in_flight += 1
+            max_dispatch_in_flight = max(max_dispatch_in_flight, dispatch_in_flight)
+        try:
+            await asyncio.sleep(0.01)
+            return asyncio.create_task(child_run(loop_index))
+        finally:
+            async with dispatch_lock:
+                dispatch_in_flight -= 1
+
+    with patch.object(
+        workflow,
+        "_dispatch_child_workflow",
+        new=AsyncMock(side_effect=dispatch_child_mock),
+    ):
+        result = await workflow._execute_child_workflow_batch_prepared(
+            task=task,
+            prepared=prepared,
+            batch_start=0,
+            batch_size=6,
+            dispatch_window=2,
+            wait_strategy=WaitStrategy.WAIT,
+            fail_strategy=FailStrategy.ISOLATED,
+            child_time_anchor=datetime.now(UTC),
+        )
+
+    assert max_dispatch_in_flight == 2
+    assert max_child_runs_in_flight > 2
+    assert [cast(InlineObject, val).data["index"] for val in result] == list(range(6))
 
 
 def test_next_permit_heartbeat_sleep_seconds_applies_jitter() -> None:
