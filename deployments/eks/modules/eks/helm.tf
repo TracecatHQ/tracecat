@@ -117,10 +117,21 @@ resource "helm_release" "tracecat" {
             "alb.ingress.kubernetes.io/healthcheck-path" = "/api/health"
           }
         }
+        mcp = {
+          annotations = {
+            "alb.ingress.kubernetes.io/group.order"      = "15"
+            "alb.ingress.kubernetes.io/healthcheck-path" = "/mcp"
+          }
+        }
       }
       urls = {
         publicApp = "https://${var.domain_name}"
         publicApi = "https://${var.domain_name}/api"
+        publicMcp = "https://${var.domain_name}/mcp"
+      }
+      mcp = {
+        enabled  = var.tracecat_mcp_enabled
+        replicas = var.tracecat_mcp_replicas
       }
       scheduling = local.tracecat_scheduling
       tracecat = {
