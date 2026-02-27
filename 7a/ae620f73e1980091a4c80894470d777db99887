@@ -1,0 +1,25 @@
+tracecat/workflow/tags/router.py
+  e92d2af802378183 40,42-46
+tracecat/workflow/tags/service.py
+  e92d2af802378183 4,7,18,20-22,24,26-28,30,34,36,38-44,53-56,59-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "7aae620f73e1980091a4c80894470d777db99887",
+  "prompts": {
+    "e92d2af802378183": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c9821-83b0-7de0-b295-1f419c406774",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 48,
+      "total_deletions": 8,
+      "accepted_lines": 34,
+      "overriden_lines": 8
+    }
+  }
+}
