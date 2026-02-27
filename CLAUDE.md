@@ -303,6 +303,7 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - Prefer `TypedDict` over raw `dict` types for structured dictionaries; use `dataclass` when the structure warrants it
 - Avoid adding re-exports to `__init__.py` files; import directly from submodules (e.g., `from tracecat.agent.schemas import RunAgentArgs` not `from tracecat.agent import RunAgentArgs`). This keeps imports explicit, avoids circular import issues, and improves import performance. Exception: re-exports make sense for versioned external packages where you need to hide internal structure—rare for internal code.
 - Always use the explicit `default=` keyword in `pydantic.Field()` (e.g., `Field(default=None)`, `Field(default="value")`) instead of a positional argument (e.g., `Field(None)`). Static type checkers like basedpyright do not recognize positional defaults and will report the field as required.
+- In `tracecat/config.py`, use `int(os.environ.get("VAR") or default)` instead of `int(os.environ.get("VAR", default))`. The latter fails with `int("")` when the env var is set to an empty string, which commonly happens in deployed environments.
 
 ### Type Organization Guidelines
 When adding new types, follow this pattern:
