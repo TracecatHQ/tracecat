@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from pydantic import SecretStr
+
+type MCPServerType = Literal["http", "stdio"]
 
 
 @dataclass(slots=True)

@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from typing import Any, Literal, NotRequired, TypedDict
 
 
-class MCPServerConfig(TypedDict):
-    """Configuration for a user-defined MCP server.
+class MCPHttpServerConfig(TypedDict):
+    """Configuration for a user-defined MCP server over HTTP/SSE.
 
     Users can connect custom MCP servers to their agents - whether running as
     Docker containers, local processes, or remote services. The server must
@@ -25,6 +25,9 @@ class MCPServerConfig(TypedDict):
         }
     """
 
+    type: NotRequired[Literal["http"]]
+    """Discriminator for HTTP-based MCP configs. Defaults to 'http' when omitted."""
+
     name: str
     """Required: Unique identifier for the server. Tools will be prefixed with mcp__{name}__."""
 
@@ -36,6 +39,23 @@ class MCPServerConfig(TypedDict):
 
     transport: NotRequired[Literal["http", "sse"]]
     """Optional: Transport type. Defaults to 'http'."""
+
+    timeout: NotRequired[int]
+    """Optional: Request timeout in seconds."""
+
+
+class MCPStdioServerConfig(TypedDict):
+    """Configuration for a stdio MCP server."""
+
+    type: Literal["stdio"]
+    name: str
+    command: str
+    args: NotRequired[list[str]]
+    env: NotRequired[dict[str, str]]
+    timeout: NotRequired[int]
+
+
+type MCPServerConfig = MCPHttpServerConfig | MCPStdioServerConfig
 
 
 @dataclass(kw_only=True, slots=True)

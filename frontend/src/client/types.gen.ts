@@ -3311,9 +3311,9 @@ export type JoinStrategy = "any" | "all"
 export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
 
 /**
- * Request model for creating an MCP integration.
+ * Request model for creating an HTTP MCP integration.
  */
-export type MCPIntegrationCreate = {
+export type MCPHttpIntegrationCreate = {
   /**
    * MCP integration name
    */
@@ -3323,13 +3323,18 @@ export type MCPIntegrationCreate = {
    */
   description?: string | null
   /**
-   * MCP server endpoint URL
+   * Timeout in seconds
+   */
+  timeout?: number | null
+  server_type?: "http"
+  /**
+   * MCP server endpoint URL (required for http type)
    */
   server_uri: string
   /**
-   * Authentication type
+   * Authentication type (for http type)
    */
-  auth_type: MCPAuthType
+  auth_type?: MCPAuthType
   /**
    * OAuth integration ID (required for oauth2 auth_type)
    */
@@ -3341,6 +3346,38 @@ export type MCPIntegrationCreate = {
 }
 
 /**
+ * Configuration for a user-defined MCP server over HTTP/SSE.
+ *
+ * Users can connect custom MCP servers to their agents - whether running as
+ * Docker containers, local processes, or remote services. The server must
+ * expose an HTTP or SSE endpoint.
+ *
+ * Example:
+ * {
+ * "name": "internal-tools",
+ * "url": "http://host.docker.internal:8080",
+ * "transport": "http",
+ * "headers": {"Authorization": "Bearer ${{ SECRETS.internal.API_KEY }}"}
+ * }
+ */
+export type MCPHttpServerConfig = {
+  type?: "http"
+  name: string
+  url: string
+  headers?: {
+    [key: string]: string
+  }
+  transport?: "http" | "sse"
+  timeout?: number
+}
+
+export type transport = "http" | "sse"
+
+export type MCPIntegrationCreate =
+  | MCPHttpIntegrationCreate
+  | MCPStdioIntegrationCreate
+
+/**
  * Response model for MCP integration.
  */
 export type MCPIntegrationRead = {
@@ -3349,9 +3386,14 @@ export type MCPIntegrationRead = {
   name: string
   description: string | null
   slug: string
-  server_uri: string
+  server_type: MCPServerType
+  server_uri: string | null
   auth_type: MCPAuthType
   oauth_integration_id: string | null
+  stdio_command: string | null
+  stdio_args: Array<string> | null
+  has_stdio_env?: boolean
+  timeout: number | null
   created_at: string
   updated_at: string
 }
@@ -3369,33 +3411,76 @@ export type MCPIntegrationUpdate = {
    * Custom credentials (API key, bearer token, or JSON headers) for custom auth_type
    */
   custom_credentials?: string | null
+  /**
+   * Stdio command to run for stdio-type servers (e.g., 'npx')
+   */
+  stdio_command?: string | null
+  /**
+   * Arguments for the stdio command
+   */
+  stdio_args?: Array<string> | null
+  /**
+   * Environment variables for stdio-type servers
+   */
+  stdio_env?: {
+    [key: string]: string
+  } | null
+  /**
+   * Timeout in seconds
+   */
+  timeout?: number | null
+}
+
+export type MCPServerConfig = MCPHttpServerConfig | MCPStdioServerConfig
+
+export type MCPServerType = "http" | "stdio"
+
+/**
+ * Request model for creating a stdio MCP integration.
+ */
+export type MCPStdioIntegrationCreate = {
+  /**
+   * MCP integration name
+   */
+  name: string
+  /**
+   * Optional description
+   */
+  description?: string | null
+  /**
+   * Timeout in seconds
+   */
+  timeout?: number | null
+  server_type?: "stdio"
+  /**
+   * Stdio command to run for stdio-type servers (e.g., 'npx')
+   */
+  stdio_command: string
+  /**
+   * Arguments for the stdio command (e.g., ['@modelcontextprotocol/server-github'])
+   */
+  stdio_args?: Array<string> | null
+  /**
+   * Environment variables for stdio-type servers (can reference secrets)
+   */
+  stdio_env?: {
+    [key: string]: string
+  } | null
 }
 
 /**
- * Configuration for a user-defined MCP server.
- *
- * Users can connect custom MCP servers to their agents - whether running as
- * Docker containers, local processes, or remote services. The server must
- * expose an HTTP or SSE endpoint.
- *
- * Example:
- * {
- * "name": "internal-tools",
- * "url": "http://host.docker.internal:8080",
- * "transport": "http",
- * "headers": {"Authorization": "Bearer ${{ SECRETS.internal.API_KEY }}"}
- * }
+ * Configuration for a stdio MCP server.
  */
-export type MCPServerConfig = {
+export type MCPStdioServerConfig = {
+  type: "stdio"
   name: string
-  url: string
-  headers?: {
+  command: string
+  args?: Array<string>
+  env?: {
     [key: string]: string
   }
-  transport?: "http" | "sse"
+  timeout?: number
 }
-
-export type transport = "http" | "sse"
 
 /**
  * The type/kind of message stored in the chat.

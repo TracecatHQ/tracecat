@@ -2873,10 +2873,19 @@ class MCPIntegration(TimestampMixin, Base):
         nullable=False,
         doc="Slug of the MCP integration",
     )
-    server_uri: Mapped[str] = mapped_column(
-        String,
+    # Server type: 'http' (HTTP/SSE) or 'stdio' (stdio)
+    server_type: Mapped[str] = mapped_column(
+        String(20),
+        default="http",
+        server_default="http",
         nullable=False,
-        doc="URL of the MCP server",
+        doc="Server type: 'http' (HTTP/SSE) or 'stdio' (stdio)",
+    )
+    # HTTP-type server fields
+    server_uri: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        doc="URL of the MCP server (for http-type servers)",
     )
     auth_type: Mapped[MCPAuthType] = mapped_column(
         MCP_AUTH_TYPE_ENUM,
@@ -2893,6 +2902,28 @@ class MCPIntegration(TimestampMixin, Base):
         LargeBinary,
         nullable=True,
         doc="Encrypted custom credentials (API key, bearer token, or JSON headers) for custom auth type",
+    )
+    # Stdio-type server fields
+    stdio_command: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        doc="Stdio command to run for stdio-type servers (e.g., 'npx')",
+    )
+    stdio_args: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Arguments for the stdio command (e.g., ['@modelcontextprotocol/server-github'])",
+    )
+    encrypted_stdio_env: Mapped[bytes | None] = mapped_column(
+        LargeBinary,
+        nullable=True,
+        doc="Encrypted environment variables for stdio-type servers (JSON dict encrypted at rest)",
+    )
+    # General fields
+    timeout: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="Timeout in seconds (HTTP timeout for http type, process timeout for stdio type)",
     )
 
     oauth_integration: Mapped[OAuthIntegration | None] = relationship(

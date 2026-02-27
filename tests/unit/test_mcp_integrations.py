@@ -11,7 +11,7 @@ This test suite covers MCP integration functionality including:
 import uuid
 
 import pytest
-from pydantic import SecretStr
+from pydantic import SecretStr, TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,8 +25,10 @@ from tracecat.integrations.providers.base import (
     OAuthDiscoveryResult,
 )
 from tracecat.integrations.schemas import (
+    MCPHttpIntegrationCreate,
     MCPIntegrationCreate,
     MCPIntegrationUpdate,
+    MCPStdioIntegrationCreate,
     ProviderConfig,
     ProviderKey,
     ProviderMetadata,
@@ -73,7 +75,7 @@ class TestMCPIntegrationCRUD:
         oauth_integration: OAuthIntegration,
     ) -> None:
         """Test creating an MCP integration with OAuth2 authentication."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test OAuth MCP",
             description="Test description",
             server_uri="https://api.example.com/mcp",
@@ -102,7 +104,7 @@ class TestMCPIntegrationCRUD:
     ) -> None:
         """Test creating an MCP integration with custom authentication."""
         custom_creds = '{"Authorization": "Bearer token123"}'
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test Custom MCP",
             server_uri="https://api.example.com/mcp",
             auth_type=MCPAuthType.CUSTOM,
@@ -126,7 +128,7 @@ class TestMCPIntegrationCRUD:
         integration_service: IntegrationService,
     ) -> None:
         """Test creating an MCP integration with no authentication."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test No Auth MCP",
             server_uri="https://api.example.com/mcp",
             auth_type=MCPAuthType.NONE,
@@ -147,7 +149,7 @@ class TestMCPIntegrationCRUD:
         oauth_integration: OAuthIntegration,
     ) -> None:
         """Test retrieving an MCP integration by ID."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test MCP",
             server_uri="https://api.example.com/mcp",
             auth_type=MCPAuthType.OAUTH2,
@@ -184,10 +186,10 @@ class TestMCPIntegrationCRUD:
     ) -> None:
         """Test listing all MCP integrations in a workspace."""
         # Create multiple integrations
-        for i in range(3):
-            params = MCPIntegrationCreate(
-                name=f"Test MCP {i}",
-                server_uri=f"https://api{i}.example.com/mcp",
+        for idx in range(3):
+            params = MCPHttpIntegrationCreate(
+                name=f"Test MCP {idx}",
+                server_uri=f"https://api{idx}.example.com/mcp",
                 auth_type=MCPAuthType.OAUTH2,
                 oauth_integration_id=oauth_integration.id,
             )
@@ -206,7 +208,7 @@ class TestMCPIntegrationCRUD:
         oauth_integration: OAuthIntegration,
     ) -> None:
         """Test updating an MCP integration."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test MCP",
             description="Original description",
             server_uri="https://api.example.com/mcp",
@@ -235,7 +237,7 @@ class TestMCPIntegrationCRUD:
         oauth_integration: OAuthIntegration,
     ) -> None:
         """Test that partial updates work correctly."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test MCP",
             description="Original description",
             server_uri="https://api.example.com/mcp",
@@ -262,7 +264,7 @@ class TestMCPIntegrationCRUD:
         oauth_integration: OAuthIntegration,
     ) -> None:
         """Test deleting an MCP integration."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test MCP",
             server_uri="https://api.example.com/mcp",
             auth_type=MCPAuthType.OAUTH2,
@@ -289,7 +291,7 @@ class TestMCPIntegrationCRUD:
     ) -> None:
         """Test deleting one MCP integration keeps shared OAuth tokens."""
         first = await integration_service.create_mcp_integration(
-            params=MCPIntegrationCreate(
+            params=MCPHttpIntegrationCreate(
                 name="First MCP",
                 server_uri="https://api.example.com/mcp-1",
                 auth_type=MCPAuthType.OAUTH2,
@@ -297,7 +299,7 @@ class TestMCPIntegrationCRUD:
             )
         )
         second = await integration_service.create_mcp_integration(
-            params=MCPIntegrationCreate(
+            params=MCPHttpIntegrationCreate(
                 name="Second MCP",
                 server_uri="https://api.example.com/mcp-2",
                 auth_type=MCPAuthType.OAUTH2,
@@ -328,7 +330,7 @@ class TestMCPIntegrationCRUD:
     ) -> None:
         """Test deleting last reference does not clear non-MCP provider tokens."""
         created = await integration_service.create_mcp_integration(
-            params=MCPIntegrationCreate(
+            params=MCPHttpIntegrationCreate(
                 name="Regular OAuth MCP",
                 server_uri="https://api.example.com/mcp",
                 auth_type=MCPAuthType.OAUTH2,
@@ -392,7 +394,7 @@ class TestMCPIntegrationCRUD:
     ) -> None:
         """Test delete rollback preserves MCP and preset references on DB failure."""
         created = await integration_service.create_mcp_integration(
-            params=MCPIntegrationCreate(
+            params=MCPHttpIntegrationCreate(
                 name="Rollback MCP",
                 server_uri="https://api.example.com/mcp",
                 auth_type=MCPAuthType.OAUTH2,
@@ -456,7 +458,7 @@ class TestMCPIntegrationAuthTypeSwapping:
         oauth_integration: OAuthIntegration,
     ) -> None:
         """Test switching from no auth to OAuth2."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test MCP",
             server_uri="https://api.example.com/mcp",
             auth_type=MCPAuthType.NONE,
@@ -483,7 +485,7 @@ class TestMCPIntegrationAuthTypeSwapping:
         oauth_integration: OAuthIntegration,
     ) -> None:
         """Test switching from OAuth2 to custom auth."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test MCP",
             server_uri="https://api.example.com/mcp",
             auth_type=MCPAuthType.OAUTH2,
@@ -511,7 +513,7 @@ class TestMCPIntegrationAuthTypeSwapping:
         integration_service: IntegrationService,
     ) -> None:
         """Test switching from custom auth to no auth."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test MCP",
             server_uri="https://api.example.com/mcp",
             auth_type=MCPAuthType.CUSTOM,
@@ -535,7 +537,7 @@ class TestMCPIntegrationAuthTypeSwapping:
     ) -> None:
         """Test updating custom credentials without changing auth type."""
         old_creds = '{"Authorization": "Bearer old_token"}'
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test MCP",
             server_uri="https://api.example.com/mcp",
             auth_type=MCPAuthType.CUSTOM,
@@ -562,7 +564,7 @@ class TestMCPIntegrationAuthTypeSwapping:
         oauth_integration: OAuthIntegration,
     ) -> None:
         """Test swapping OAuth integration reference."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test MCP",
             server_uri="https://api.example.com/mcp",
             auth_type=MCPAuthType.OAUTH2,
@@ -596,12 +598,71 @@ class TestMCPIntegrationAuthTypeSwapping:
 class TestMCPIntegrationValidation:
     """Test validation constraints and error handling."""
 
+    async def test_legacy_http_payload_without_server_type_is_accepted(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Test legacy HTTP create payloads still parse without server_type."""
+        params = TypeAdapter(MCPIntegrationCreate).validate_python(
+            {
+                "name": "Legacy HTTP MCP",
+                "server_uri": "https://api.example.com/mcp",
+                "auth_type": MCPAuthType.NONE,
+            }
+        )
+
+        assert isinstance(params, MCPHttpIntegrationCreate)
+        assert params.server_type == "http"
+
+        created = await integration_service.create_mcp_integration(params=params)
+        assert created.server_type == "http"
+        assert created.server_uri == "https://api.example.com/mcp"
+
+    async def test_create_stdio_rejects_disallowed_command(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Test stdio create rejects commands outside allowlist."""
+        params = MCPStdioIntegrationCreate(
+            name="Unsafe Stdio MCP",
+            stdio_command="bash",
+            stdio_args=["-lc", "echo test"],
+        )
+
+        with pytest.raises(ValueError, match="is not allowed"):
+            await integration_service.create_mcp_integration(params=params)
+
+    async def test_update_stdio_rejects_unsafe_args(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Test stdio update rejects unsafe argument values."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Safe Stdio MCP",
+                stdio_command="npx",
+                stdio_args=["@modelcontextprotocol/server-github"],
+            )
+        )
+
+        with pytest.raises(ValueError, match="dangerous pattern"):
+            await integration_service.update_mcp_integration(
+                mcp_integration_id=created.id,
+                params=MCPIntegrationUpdate(stdio_args=["$(whoami)"]),
+            )
+
+        refreshed = await integration_service.get_mcp_integration(
+            mcp_integration_id=created.id
+        )
+        assert refreshed is not None
+        assert refreshed.stdio_args == ["@modelcontextprotocol/server-github"]
+
     async def test_oauth2_requires_oauth_integration_id(
         self,
         integration_service: IntegrationService,
     ) -> None:
         """Test that OAuth2 auth requires oauth_integration_id."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test MCP",
             server_uri="https://api.example.com/mcp",
             auth_type=MCPAuthType.OAUTH2,
@@ -616,7 +677,7 @@ class TestMCPIntegrationValidation:
         integration_service: IntegrationService,
     ) -> None:
         """Test that OAuth2 validates oauth_integration_id exists."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test MCP",
             server_uri="https://api.example.com/mcp",
             auth_type=MCPAuthType.OAUTH2,
@@ -635,7 +696,7 @@ class TestMCPIntegrationValidation:
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError, match="Server URI must"):
-            MCPIntegrationCreate(
+            MCPHttpIntegrationCreate(
                 name="Test MCP",
                 server_uri="api.example.com/mcp",  # Missing http://
                 auth_type=MCPAuthType.OAUTH2,
@@ -651,7 +712,7 @@ class TestMCPIntegrationValidation:
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError, match="Server URI must use HTTP or HTTPS"):
-            MCPIntegrationCreate(
+            MCPHttpIntegrationCreate(
                 name="Test MCP",
                 server_uri="ftp://api.example.com/mcp",  # Wrong scheme
                 auth_type=MCPAuthType.OAUTH2,
@@ -664,7 +725,7 @@ class TestMCPIntegrationValidation:
         oauth_integration: OAuthIntegration,
     ) -> None:
         """Test that HTTP is allowed for server URI (e.g., localhost)."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test MCP",
             server_uri="http://localhost:8000/mcp",
             auth_type=MCPAuthType.OAUTH2,
@@ -685,7 +746,7 @@ class TestMCPIntegrationValidation:
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError):
-            MCPIntegrationCreate(
+            MCPHttpIntegrationCreate(
                 name="AB",  # Less than 3 characters
                 server_uri="https://api.example.com/mcp",
                 auth_type=MCPAuthType.OAUTH2,
@@ -698,7 +759,7 @@ class TestMCPIntegrationValidation:
         oauth_integration: OAuthIntegration,
     ) -> None:
         """Test minimum valid name length."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="ABC",  # Exactly 3 characters
             server_uri="https://api.example.com/mcp",
             auth_type=MCPAuthType.OAUTH2,
@@ -716,7 +777,7 @@ class TestMCPIntegrationValidation:
         oauth_integration: OAuthIntegration,
     ) -> None:
         """Test that slug uniqueness is enforced within a workspace."""
-        params1 = MCPIntegrationCreate(
+        params1 = MCPHttpIntegrationCreate(
             name="Test MCP",
             server_uri="https://api1.example.com/mcp",
             auth_type=MCPAuthType.OAUTH2,
@@ -726,7 +787,7 @@ class TestMCPIntegrationValidation:
         assert mcp1.slug == "test-mcp"
 
         # Same name should generate unique slug
-        params2 = MCPIntegrationCreate(
+        params2 = MCPHttpIntegrationCreate(
             name="Test MCP",
             server_uri="https://api2.example.com/mcp",
             auth_type=MCPAuthType.OAUTH2,
@@ -750,7 +811,7 @@ class TestMCPIntegrationValidation:
         ]
 
         for name, expected_slug in test_cases:
-            params = MCPIntegrationCreate(
+            params = MCPHttpIntegrationCreate(
                 name=name,
                 server_uri="https://api.example.com/mcp",
                 auth_type=MCPAuthType.OAUTH2,
@@ -828,7 +889,7 @@ class TestMCPIntegrationWorkspaceIsolation:
         )
 
         # Create MCP integration in workspace 1
-        params1 = MCPIntegrationCreate(
+        params1 = MCPHttpIntegrationCreate(
             name="Workspace 1 MCP",
             server_uri="https://api1.example.com/mcp",
             auth_type=MCPAuthType.OAUTH2,
@@ -909,7 +970,7 @@ class TestMCPIntegrationWorkspaceIsolation:
         service2 = IntegrationService(session=session, role=role2)
 
         # Try to create MCP integration in workspace 2 using OAuth from workspace 1
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Workspace 2 MCP",
             server_uri="https://api2.example.com/mcp",
             auth_type=MCPAuthType.OAUTH2,
@@ -934,7 +995,7 @@ class TestMCPIntegrationEdgeCases:
         oauth_integration: OAuthIntegration,
     ) -> None:
         """Test creating MCP integration with empty description."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test MCP",
             description="",  # Empty string
             server_uri="https://api.example.com/mcp",
@@ -953,7 +1014,7 @@ class TestMCPIntegrationEdgeCases:
         oauth_integration: OAuthIntegration,
     ) -> None:
         """Test that whitespace is stripped from inputs."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="  Test MCP  ",
             description="  Test description  ",
             server_uri="  https://api.example.com/mcp  ",
@@ -974,7 +1035,7 @@ class TestMCPIntegrationEdgeCases:
         integration_service: IntegrationService,
     ) -> None:
         """Test that switching to OAuth2 without providing oauth_integration_id fails."""
-        params = MCPIntegrationCreate(
+        params = MCPHttpIntegrationCreate(
             name="Test MCP",
             server_uri="https://api.example.com/mcp",
             auth_type=MCPAuthType.NONE,

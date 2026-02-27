@@ -7,19 +7,22 @@ Terminology:
 
 import uuid
 from datetime import datetime
-from typing import Any, Self, TypedDict
+from typing import Annotated, Any, Literal, Self, TypedDict
 from urllib.parse import urlparse
 
 from pydantic import (
     UUID4,
     BaseModel,
+    Discriminator,
     Field,
     SecretStr,
+    Tag,
     field_validator,
 )
 
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
+from tracecat.integrations.types import MCPServerType
 
 
 # Pydantic models for API responses
@@ -349,8 +352,8 @@ class ProviderRead(BaseModel):
     redirect_uri: str | None = None
 
 
-class MCPIntegrationCreate(BaseModel):
-    """Request model for creating an MCP integration."""
+class _MCPIntegrationCreateBase(BaseModel):
+    """Shared request fields for creating an MCP integration."""
 
     name: str = Field(
         ..., min_length=3, max_length=255, description="MCP integration name"
@@ -358,8 +361,24 @@ class MCPIntegrationCreate(BaseModel):
     description: str | None = Field(
         default=None, max_length=512, description="Optional description"
     )
-    server_uri: str = Field(..., description="MCP server endpoint URL")
-    auth_type: MCPAuthType = Field(..., description="Authentication type")
+    timeout: int | None = Field(
+        default=30,
+        ge=1,
+        le=300,
+        description="Timeout in seconds",
+    )
+
+
+class MCPHttpIntegrationCreate(_MCPIntegrationCreateBase):
+    """Request model for creating an HTTP MCP integration."""
+
+    server_type: Literal["http"] = Field(default="http")
+    server_uri: str = Field(
+        ..., description="MCP server endpoint URL (required for http type)"
+    )
+    auth_type: MCPAuthType = Field(
+        default=MCPAuthType.NONE, description="Authentication type (for http type)"
+    )
     oauth_integration_id: uuid.UUID | None = Field(
         default=None, description="OAuth integration ID (required for oauth2 auth_type)"
     )
@@ -370,16 +389,15 @@ class MCPIntegrationCreate(BaseModel):
 
     @field_validator("server_uri", mode="before")
     @classmethod
-    def _validate_server_uri(cls, value: str | None) -> str | None:
+    def _validate_server_uri(cls, value: str | None) -> str:
         """Validate and sanitize MCP server URI."""
         if value is None:
-            return None
+            raise ValueError("server_uri is required for http-type servers")
         if isinstance(value, str):
             value = value.strip()
         if not value:
-            return None
+            raise ValueError("server_uri is required for http-type servers")
 
-        # Validate it's a valid URL
         parsed = urlparse(value)
         if not parsed.netloc:
             raise ValueError("Server URI must include a hostname")
@@ -389,17 +407,94 @@ class MCPIntegrationCreate(BaseModel):
         return value
 
 
+class MCPStdioIntegrationCreate(_MCPIntegrationCreateBase):
+    """Request model for creating a stdio MCP integration."""
+
+    server_type: Literal["stdio"] = Field(default="stdio")
+    stdio_command: str = Field(
+        ...,
+        max_length=500,
+        description="Stdio command to run for stdio-type servers (e.g., 'npx')",
+    )
+    stdio_args: list[str] | None = Field(
+        default=None,
+        description="Arguments for the stdio command (e.g., ['@modelcontextprotocol/server-github'])",
+    )
+    stdio_env: dict[str, str] | None = Field(
+        default=None,
+        description="Environment variables for stdio-type servers (can reference secrets)",
+    )
+
+    @field_validator("stdio_command", mode="before")
+    @classmethod
+    def _validate_stdio_command(cls, value: str | None) -> str:
+        """Validate and sanitize stdio command."""
+        if value is None:
+            raise ValueError("stdio_command is required for stdio-type servers")
+        if isinstance(value, str):
+            value = value.strip()
+        if not value:
+            raise ValueError("stdio_command is required for stdio-type servers")
+        return value
+
+
+def _discriminate_mcp_integration_create_server_type(value: Any) -> str:
+    """Infer MCP create server type, defaulting legacy payloads to HTTP."""
+    if isinstance(value, MCPHttpIntegrationCreate):
+        return "http"
+    if isinstance(value, MCPStdioIntegrationCreate):
+        return "stdio"
+    if isinstance(value, dict):
+        if "server_type" in value:
+            server_type = value.get("server_type")
+            if isinstance(server_type, str):
+                return server_type
+        if "stdio_command" in value and "server_uri" not in value:
+            return "stdio"
+    return "http"
+
+
+type MCPIntegrationCreate = Annotated[
+    Annotated[MCPHttpIntegrationCreate, Tag("http")]
+    | Annotated[MCPStdioIntegrationCreate, Tag("stdio")],
+    Discriminator(_discriminate_mcp_integration_create_server_type),
+]
+
+
 class MCPIntegrationUpdate(BaseModel):
     """Request model for updating an MCP integration."""
 
     name: str | None = Field(default=None, min_length=3, max_length=255)
     description: str | None = Field(default=None, max_length=512)
+    # Server type cannot be changed after creation (would require migrating fields)
+    # HTTP-type server fields
     server_uri: str | None = None
     auth_type: MCPAuthType | None = None
     oauth_integration_id: uuid.UUID | None = None
     custom_credentials: SecretStr | None = Field(
         default=None,
         description="Custom credentials (API key, bearer token, or JSON headers) for custom auth_type",
+    )
+    # Stdio-type server fields
+    stdio_command: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Stdio command to run for stdio-type servers (e.g., 'npx')",
+    )
+    stdio_args: list[str] | None = Field(
+        default=None,
+        description="Arguments for the stdio command",
+    )
+    stdio_env: dict[str, str] | None = Field(
+        default=None,
+        description="Environment variables for stdio-type servers",
+    )
+    # General fields
+    timeout: int | None = Field(
+        default=None,
+        ge=1,
+        le=300,
+        description="Timeout in seconds",
     )
 
     @field_validator("server_uri", mode="before")
@@ -427,12 +522,23 @@ class MCPIntegrationRead(BaseModel):
     """Response model for MCP integration."""
 
     id: UUID4
-    workspace_id: UUID4
+    workspace_id: WorkspaceID
     name: str
     description: str | None
     slug: str
-    server_uri: str
+    # Server type
+    server_type: MCPServerType
+    # HTTP-type server fields
+    server_uri: str | None
     auth_type: MCPAuthType
     oauth_integration_id: UUID4 | None
+    # Stdio-type server fields
+    stdio_command: str | None
+    stdio_args: list[str] | None
+    # NOTE: stdio_env is write-only to avoid exposing secrets in API responses
+    has_stdio_env: bool = False
+    """Whether stdio_env is configured (actual values are not exposed)."""
+    # General fields
+    timeout: int | None
     created_at: datetime
     updated_at: datetime

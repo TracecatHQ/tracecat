@@ -8,6 +8,7 @@ from typing import cast
 from urllib.parse import urlparse
 from uuid import uuid4
 
+import orjson
 from pydantic import SecretStr
 from slugify import slugify
 from sqlalchemy import and_, or_, select, update
@@ -22,6 +23,11 @@ from tracecat.db.models import (
 )
 from tracecat.identifiers import UserID
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
+from tracecat.integrations.mcp_validation import (
+    MAX_SERVER_NAME_LENGTH,
+    MCPValidationError,
+    validate_mcp_command_config,
+)
 from tracecat.integrations.providers import get_provider_class
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
@@ -79,6 +85,26 @@ class IntegrationService(BaseWorkspaceService):
             if value and value not in normalized:
                 normalized.append(value)
         return normalized
+
+    @staticmethod
+    def _validate_stdio_server_config(
+        *,
+        command: str | None,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
+    ) -> None:
+        """Validate stdio server command configuration before persistence."""
+        normalized_command = command.strip() if command else ""
+        if not normalized_command:
+            raise ValueError("stdio_command is required for stdio-type servers")
+        try:
+            validate_mcp_command_config(
+                command=normalized_command,
+                args=args,
+                env=env,
+            )
+        except MCPValidationError as exc:
+            raise ValueError(str(exc)) from exc
 
     async def _provider_identifier_taken(
         self, provider_id: str, grant_type: OAuthGrantType
@@ -754,6 +780,20 @@ class IntegrationService(BaseWorkspaceService):
             "utf-8"
         )
 
+    @require_scope("integration:read")
+    def decrypt_stdio_env(
+        self, mcp_integration: MCPIntegration
+    ) -> dict[str, str] | None:
+        """Decrypt and return stdio_env for an MCP integration."""
+        if not mcp_integration.encrypted_stdio_env:
+            return None
+        if not is_set(mcp_integration.encrypted_stdio_env):
+            return None
+        decrypted = self._decrypt_token(mcp_integration.encrypted_stdio_env)
+        if not decrypted:
+            return None
+        return orjson.loads(decrypted)
+
     @require_scope("integration:create", "integration:update", require_all=False)
     async def store_provider_config(
         self,
@@ -1052,6 +1092,11 @@ class IntegrationService(BaseWorkspaceService):
         else:
             slug = slugify(name, separator="-") or uuid4().hex[:8]
 
+        # Truncate to max length, leaving room for suffix if needed
+        max_base_length = MAX_SERVER_NAME_LENGTH - 4  # Reserve space for "-999"
+        if len(slug) > max_base_length:
+            slug = slug[:max_base_length].rstrip("-")
+
         candidate = slug
         suffix = 1
         while await self._mcp_integration_slug_taken(candidate):
@@ -1085,42 +1130,69 @@ class IntegrationService(BaseWorkspaceService):
         self, *, params: MCPIntegrationCreate
     ) -> MCPIntegration:
         """Create a new MCP integration."""
-        # Validate OAuth integration if auth_type is oauth2
-        if params.auth_type == MCPAuthType.OAUTH2:
-            if not params.oauth_integration_id:
-                raise ValueError(
-                    "oauth_integration_id is required for OAuth 2.0 authentication"
-                )
-            # Verify OAuth integration exists and belongs to workspace
-            oauth_integration = await self.session.get(
-                OAuthIntegration, params.oauth_integration_id
-            )
-            if (
-                not oauth_integration
-                or oauth_integration.workspace_id != self.workspace_id
-            ):
-                raise ValueError(
-                    "OAuth integration not found or does not belong to workspace"
-                )
-
         slug = await self._generate_mcp_integration_slug(name=params.name)
 
-        # Encrypt custom credentials if provided (for CUSTOM auth type)
-        encrypted_custom_credentials = None
-        if params.auth_type == MCPAuthType.CUSTOM and params.custom_credentials:
-            encrypted_custom_credentials = self._encrypt_token(
-                params.custom_credentials.get_secret_value()
+        # Normalize server-type specific fields using discriminator narrowing.
+        server_uri: str | None = None
+        auth_type = MCPAuthType.NONE
+        oauth_integration_id: uuid.UUID | None = None
+        encrypted_custom_credentials: bytes | None = None
+        stdio_command: str | None = None
+        stdio_args: list[str] | None = None
+        encrypted_stdio_env: bytes | None = None
+
+        if params.server_type == "http":
+            # Validate OAuth integration if auth_type is oauth2
+            if params.auth_type == MCPAuthType.OAUTH2:
+                if not params.oauth_integration_id:
+                    raise ValueError(
+                        "oauth_integration_id is required for OAuth 2.0 authentication"
+                    )
+                oauth_integration = await self.session.get(
+                    OAuthIntegration, params.oauth_integration_id
+                )
+                if (
+                    not oauth_integration
+                    or oauth_integration.workspace_id != self.workspace_id
+                ):
+                    raise ValueError(
+                        "OAuth integration not found or does not belong to workspace"
+                    )
+
+            server_uri = params.server_uri.strip()
+            auth_type = params.auth_type
+            oauth_integration_id = params.oauth_integration_id
+            if params.auth_type == MCPAuthType.CUSTOM and params.custom_credentials:
+                encrypted_custom_credentials = self._encrypt_token(
+                    params.custom_credentials.get_secret_value()
+                )
+        else:
+            self._validate_stdio_server_config(
+                command=params.stdio_command,
+                args=params.stdio_args,
+                env=params.stdio_env,
             )
+            stdio_command = params.stdio_command
+            stdio_args = params.stdio_args
+            if params.stdio_env:
+                encrypted_stdio_env = self._encrypt_token(
+                    orjson.dumps(params.stdio_env).decode()
+                )
 
         mcp_integration = MCPIntegration(
             workspace_id=self.workspace_id,
             name=params.name.strip(),
             description=params.description.strip() if params.description else None,
             slug=slug,
-            server_uri=params.server_uri.strip(),
-            auth_type=params.auth_type,
-            oauth_integration_id=params.oauth_integration_id,
+            server_uri=server_uri,
+            auth_type=auth_type,
+            oauth_integration_id=oauth_integration_id,
             encrypted_headers=encrypted_custom_credentials,  # Reuse field for custom credentials
+            server_type=params.server_type,
+            stdio_command=stdio_command,
+            stdio_args=stdio_args,
+            encrypted_stdio_env=encrypted_stdio_env,
+            timeout=params.timeout,
         )
 
         self.session.add(mcp_integration)
@@ -1131,7 +1203,8 @@ class IntegrationService(BaseWorkspaceService):
             "Created MCP integration",
             mcp_integration_id=mcp_integration.id,
             name=params.name,
-            auth_type=params.auth_type,
+            auth_type=auth_type,
+            server_type=params.server_type,
         )
 
         return mcp_integration
@@ -1201,6 +1274,39 @@ class IntegrationService(BaseWorkspaceService):
             mcp_integration.auth_type = params.auth_type
         if params.oauth_integration_id is not None:
             mcp_integration.oauth_integration_id = params.oauth_integration_id
+
+        if mcp_integration.server_type == "stdio" and (
+            params.stdio_command is not None
+            or params.stdio_args is not None
+            or params.stdio_env is not None
+        ):
+            self._validate_stdio_server_config(
+                command=(
+                    params.stdio_command
+                    if params.stdio_command is not None
+                    else mcp_integration.stdio_command
+                ),
+                args=params.stdio_args,
+                env=params.stdio_env,
+            )
+
+        # Update stdio-type server fields
+        if params.stdio_command is not None:
+            mcp_integration.stdio_command = (
+                params.stdio_command.strip() if params.stdio_command else None
+            )
+        if params.stdio_args is not None:
+            mcp_integration.stdio_args = params.stdio_args
+        if params.stdio_env is not None:
+            if params.stdio_env:
+                mcp_integration.encrypted_stdio_env = self._encrypt_token(
+                    orjson.dumps(params.stdio_env).decode()
+                )
+            else:
+                # Empty dict means clear the env vars
+                mcp_integration.encrypted_stdio_env = None
+        if params.timeout is not None:
+            mcp_integration.timeout = params.timeout
 
         # Handle custom credentials encryption/update (for CUSTOM auth type)
         if params.custom_credentials is not None:

@@ -7,9 +7,7 @@ from typing import (
     Annotated,
     Any,
     Literal,
-    NotRequired,
     Protocol,
-    TypedDict,
     runtime_checkable,
 )
 
@@ -18,6 +16,7 @@ from claude_agent_sdk.types import Message as ClaudeSDKMessage
 from pydantic import Discriminator, TypeAdapter
 
 from tracecat.agent.common.stream_types import ToolCallContent
+from tracecat.agent.common.types import MCPServerConfig
 from tracecat.config import TRACECAT__AGENT_MAX_RETRIES
 
 if TYPE_CHECKING:
@@ -31,35 +30,6 @@ else:
     # Runtime fallbacks for types only used in annotations
     ModelMessage = Any
     CustomToolList = list[Any]
-
-
-class MCPServerConfig(TypedDict):
-    """Configuration for a user-defined MCP server.
-
-    Users can connect custom MCP servers to their agents - whether running as
-    Docker containers, local processes, or remote services. The server must
-    expose an HTTP or SSE endpoint.
-
-    Example:
-        {
-            "name": "internal-tools",
-            "url": "http://host.docker.internal:8080",
-            "transport": "http",
-            "headers": {"Authorization": "Bearer ${{ SECRETS.internal.API_KEY }}"}
-        }
-    """
-
-    name: str
-    """Required: Unique identifier for the server. Tools will be prefixed with mcp__{name}__."""
-
-    url: str
-    """Required: HTTP/SSE endpoint URL for the MCP server."""
-
-    headers: NotRequired[dict[str, str]]
-    """Optional: Auth headers (can reference Tracecat secrets)."""
-
-    transport: NotRequired[Literal["http", "sse"]]
-    """Optional: Transport type. Defaults to 'http'."""
 
 
 class StreamKey(str):

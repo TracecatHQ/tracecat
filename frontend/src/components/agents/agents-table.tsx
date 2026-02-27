@@ -77,8 +77,25 @@ function getMcpProviderId(slug: string): string | undefined {
     return slugMap[normalized]
   }
 
+  // Normalize "<name>[-_]mcp" into "<normalized_name>_mcp".
+  // Examples:
+  // - github_mcp -> github_mcp
+  // - secure_annex_mcp -> secureannex_mcp
+  // - secure-annex-mcp -> secureannex_mcp
+  const mcpMatch = normalized.match(/^(.*?)(?:[_-]?mcp)$/)
+  if (mcpMatch && mcpMatch[1]) {
+    const compactBase = mcpMatch[1].replace(/[^a-z0-9]/g, "")
+    if (compactBase) {
+      return `${compactBase}_mcp`
+    }
+  }
+
   if (normalized.endsWith("_mcp")) {
     return normalized
+  }
+
+  if (normalized.endsWith("-mcp")) {
+    return normalized.replace(/-/g, "_")
   }
 
   return undefined
