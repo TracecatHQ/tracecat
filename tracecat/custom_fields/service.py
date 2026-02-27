@@ -13,7 +13,16 @@ from tracecat.custom_fields.schemas import CustomFieldCreate, CustomFieldUpdate
 from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_lock
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.service import BaseWorkspaceService
-from tracecat.tables.service import TableEditorService, sanitize_identifier
+from tracecat.tables.service import (
+    DYNAMIC_WORKSPACE_RLS_POLICY,
+    DYNAMIC_WORKSPACE_TENANT_COLUMN,
+    RLS_BYPASS_ON,
+    RLS_BYPASS_VAR,
+    RLS_WORKSPACE_VAR,
+    TableEditorService,
+    is_internal_column_name,
+    sanitize_identifier,
+)
 
 
 class CustomFieldsService(BaseWorkspaceService, ABC):
@@ -50,6 +59,49 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
 
         return f"{self._schema_prefix}{self._workspace_uuid.short()}"
 
+    def _full_table_name(self) -> str:
+        """Get the fully-qualified workspace table name."""
+        return f'"{self.schema_name}".{self.sanitized_table_name}'
+
+    def _workspace_tenant_default_sql(self) -> sa.TextClause:
+        """Build the server default expression for the tenant column."""
+        return sa.text(f"'{self._workspace_uuid}'::uuid")
+
+    async def _enable_workspace_rls_for_base_table(self) -> None:
+        """Enable workspace RLS policy on the workspace base table."""
+        conn = await self.session.connection()
+        policy_expr = (
+            f"current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}' "
+            f'OR "{DYNAMIC_WORKSPACE_TENANT_COLUMN}" = '
+            f"NULLIF(current_setting('{RLS_WORKSPACE_VAR}', true), '')::uuid"
+        )
+        full_table_name = self._full_table_name()
+        await conn.execute(
+            sa.DDL("ALTER TABLE %s ENABLE ROW LEVEL SECURITY", full_table_name)
+        )
+        await conn.execute(
+            sa.DDL(
+                f"DROP POLICY IF EXISTS {DYNAMIC_WORKSPACE_RLS_POLICY} ON %s",
+                full_table_name,
+            )
+        )
+        await conn.execute(
+            sa.DDL(
+                f"""
+                CREATE POLICY {DYNAMIC_WORKSPACE_RLS_POLICY} ON %s
+                    FOR ALL
+                    USING ({policy_expr})
+                    WITH CHECK ({policy_expr})
+                """,
+                full_table_name,
+            )
+        )
+
+    def _assert_user_field_name_allowed(self, field_name: str) -> None:
+        """Reject operations on internal/system-managed field names."""
+        if is_internal_column_name(field_name):
+            raise ValueError(f"Field {field_name} is reserved for internal use")
+
     @abstractmethod
     def _table_definition(self) -> sa.Table:
         """Return the SQLAlchemy Table definition for the workspace table.
@@ -74,6 +126,7 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
             await self.session.execute(
                 CreateTable(self._table_definition(), if_not_exists=True)
             )
+            await self._enable_workspace_rls_for_base_table()
         self._schema_initialized = True
 
     async def _ensure_schema_ready(self) -> None:
@@ -108,12 +161,14 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         """List all custom fields for the workspace."""
 
         await self._ensure_schema_ready()
-        return await self.editor.get_columns()
+        columns = await self.editor.get_columns()
+        return [col for col in columns if not is_internal_column_name(col["name"])]
 
     async def create_field(self, params: CustomFieldCreate) -> None:
         """Create a new custom field column."""
 
         await self._ensure_schema_ready()
+        self._assert_user_field_name_allowed(params.name)
         params.nullable = True  # Custom fields remain nullable by default
         await self.editor.create_column(params)
         await self.session.commit()
@@ -122,6 +177,9 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         """Update a custom field column."""
 
         await self._ensure_schema_ready()
+        self._assert_user_field_name_allowed(field_id)
+        if params.name is not None:
+            self._assert_user_field_name_allowed(params.name)
         await self.editor.update_column(field_id, params)
         await self.session.commit()
 
@@ -136,6 +194,7 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         """
 
         await self._ensure_schema_ready()
+        self._assert_user_field_name_allowed(field_id)
         if field_id in self._reserved_columns:
             raise ValueError(f"Field {field_id} is a reserved field")
         await self.editor.delete_column(field_id)
