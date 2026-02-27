@@ -374,6 +374,15 @@ class DSLWorkflow:
             dispatch_type=self.dispatch_type,
         )
 
+        # Snapshot flag value in workflow history for deterministic replay behavior.
+        self.workflow_concurrency_limits_enabled = (
+            await workflow.execute_local_activity(
+                resolve_workflow_concurrency_limits_enabled_activity,
+                start_to_close_timeout=timedelta(seconds=5),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        )
+
         # Fetch tier limits for this organization
         if (
             self.workflow_concurrency_limits_enabled
@@ -599,15 +608,6 @@ class DSLWorkflow:
                 start_to_close_timeout=timedelta(seconds=5),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
-
-        # Snapshot flag value in workflow history for deterministic replay behavior.
-        self.workflow_concurrency_limits_enabled = (
-            await workflow.execute_local_activity(
-                resolve_workflow_concurrency_limits_enabled_activity,
-                start_to_close_timeout=timedelta(seconds=5),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
-        )
 
         # Prepare user facing context
         # trigger_inputs is already a StoredObject from args or normalize_trigger_inputs_activity
