@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from collections.abc import Awaitable, Coroutine, Generator, Iterator
+from collections.abc import Awaitable, Coroutine, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -51,11 +51,9 @@ with workflow.unsafe.imports_passed_through():
         BuildAgentArgsActivityInput,
         BuildPresetAgentArgsActivityInput,
         DSLActivities,
-        EvaluateLoopedSubflowInputActivityInput,
         EvaluateTemplatedObjectActivityInput,
         NormalizeTriggerInputsActivityInputs,
         PrepareSubflowActivityInput,
-        ResolveSubflowBatchActivityInput,
         SynchronizeCollectionObjectActivityInput,
     )
     from tracecat.dsl.common import (
@@ -64,11 +62,7 @@ with workflow.unsafe.imports_passed_through():
         ChildWorkflowMemo,
         DSLInput,
         DSLRunArgs,
-        ExecuteSubflowArgs,
         PreparedSubflowResult,
-        ResolvedSubflowBatch,
-        ResolvedSubflowInput,
-        SubflowContext,
         dsl_execution_error_from_exception,
         get_trigger_type,
     )
@@ -158,7 +152,6 @@ with workflow.unsafe.imports_passed_through():
         GetErrorHandlerWorkflowIDActivityInputs,
         GetWorkflowDefinitionActivityInputs,
         ResolveRegistryLockActivityInputs,
-        ResolveWorkflowAliasActivityInputs,
         WorkflowDefinitionActivityResult,
     )
     from tracecat.workflow.schedules.schemas import GetScheduleActivityInputs
@@ -901,7 +894,7 @@ class DSLWorkflow:
                     stored_result = await self._execute_child_workflow_prepared(
                         task=task, prepared=prepared
                     )
-                    # _execute_child_workflow returns StoredObject directly
+                    # _execute_child_workflow_prepared returns StoredObject directly
                     # Infer result_typename from the stored data
                     match stored_result:
                         case InlineObject(data=data) as inline:
@@ -1229,106 +1222,6 @@ class DSLWorkflow:
         ValidationError.__name__: "Runtime validation error",
     }
 
-    async def _execute_child_workflow(
-        self,
-        task: ActionStatement,
-        sf_context: SubflowContext,
-    ) -> StoredObject:
-        """Execute a child workflow (single or looped).
-
-        For single execution: evaluates args and builds DSLRunArgs directly.
-        For loops: delegates to _execute_child_workflow_loop for batched resolution.
-        """
-        self.logger.debug("Execute child workflow", subflow_context=sf_context)
-        if task.for_each:
-            return await self._execute_child_workflow_loop(
-                task=task, sf_context=sf_context
-            )
-        else:
-            # Single execution: evaluate args and build DSLRunArgs
-            stream_id = ctx_stream_id.get()
-            key = action_key(
-                str(self.workspace_id), self.wf_exec_id, stream_id, task.ref
-            )
-            evaluated_args = await workflow.execute_activity(
-                DSLActivities.evaluate_templated_object_activity,
-                arg=EvaluateTemplatedObjectActivityInput(
-                    obj=dict(task.args),
-                    operand=self.get_context(),
-                    key=key,
-                ),
-                start_to_close_timeout=timedelta(seconds=60),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
-
-            # Evaluate task.environment if present (takes precedence over args.environment)
-            task_environment = None
-            if task.environment:
-                task_environment = await workflow.execute_activity(
-                    DSLActivities.evaluate_single_expression_activity,
-                    args=[task.environment, self.get_context()],
-                    start_to_close_timeout=timedelta(seconds=60),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                )
-
-            # Get args.environment from the stored evaluated args
-            # Note: evaluated_args is a StoredObject, we need to get the raw value
-            # For now, we evaluate environment/timeout separately since they're DSL config
-            args_environment = task.args.get("environment")
-            args_timeout = task.args.get("timeout")
-
-            # Evaluate environment/timeout from args if they contain expressions
-            if args_environment and isinstance(args_environment, str):
-                args_environment = await workflow.execute_activity(
-                    DSLActivities.evaluate_single_expression_activity,
-                    args=[args_environment, self.get_context()],
-                    start_to_close_timeout=timedelta(seconds=60),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                )
-
-            if args_timeout and isinstance(args_timeout, str):
-                args_timeout = await workflow.execute_activity(
-                    DSLActivities.evaluate_single_expression_activity,
-                    args=[str(args_timeout), self.get_context()],
-                    start_to_close_timeout=timedelta(seconds=60),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                )
-
-            # Environment precedence: task.environment > args.environment > dsl.config
-            resolved_environment = (
-                task_environment
-                or args_environment
-                or sf_context.dsl.config.environment
-            )
-            resolved_timeout = args_timeout or sf_context.dsl.config.timeout
-
-            self.logger.trace(
-                "Executing child workflow",
-                subflow_context=sf_context,
-                task_environment=task_environment,
-                args_environment=args_environment,
-                resolved_environment=resolved_environment,
-            )
-
-            runtime_config = DSLConfig(
-                environment=resolved_environment,
-                timeout=resolved_timeout,
-            )
-
-            sf_run_args = DSLRunArgs(
-                role=self.role,
-                dsl=sf_context.dsl,
-                wf_id=sf_context.wf_id,
-                trigger_inputs=evaluated_args,
-                parent_run_context=sf_context.run_context,
-                runtime_config=runtime_config,
-                execution_type=sf_context.execution_type,
-                time_anchor=sf_context.time_anchor,
-                registry_lock=sf_context.registry_lock,
-            )
-
-            return await self._run_child_workflow(task, sf_run_args)
-
     async def _execute_child_workflow_prepared(
         self,
         task: ActionStatement,
@@ -1397,6 +1290,7 @@ class DSLWorkflow:
         fail_strategy = FailStrategy(
             task.args.get("fail_strategy", FailStrategy.ISOLATED)
         )
+        wait_strategy = WaitStrategy(task.args.get("wait_strategy", WaitStrategy.WAIT))
         total_count = prepared.count
 
         self.logger.trace(
@@ -1406,44 +1300,48 @@ class DSLWorkflow:
             fail_strategy=fail_strategy,
         )
 
-        # Determine batch size based on strategy and enforce caps.
+        # Determine logical batch size from strategy and resolve dispatch window.
         requested_batch_size = {
             LoopStrategy.SEQUENTIAL: 1,
             LoopStrategy.BATCH: int(task.args.get("batch_size", 32)),
             LoopStrategy.PARALLEL: total_count,
         }[loop_strategy]
-        strategy_batch_size, batch_size = self._resolve_child_loop_batch_size(
+        logical_batch_size, dispatch_window = self._resolve_child_loop_batch_plan(
             total_count=total_count,
             requested_batch_size=requested_batch_size,
         )
 
-        if batch_size < strategy_batch_size:
+        self.logger.debug(
+            "Child workflow loop execution plan",
+            total_count=total_count,
+            requested_batch_size=requested_batch_size,
+            logical_batch_size=logical_batch_size,
+            dispatch_window=dispatch_window,
+            loop_strategy=loop_strategy,
+        )
+        if dispatch_window < logical_batch_size:
             self.logger.info(
-                "Child workflow loop batch size capped",
+                "Child workflow loop dispatch window capped",
                 total_count=total_count,
                 requested_batch_size=requested_batch_size,
-                effective_batch_size=batch_size,
-            )
-        else:
-            self.logger.debug(
-                "Child workflow loop batch size resolved",
-                total_count=total_count,
-                requested_batch_size=requested_batch_size,
-                effective_batch_size=batch_size,
+                logical_batch_size=logical_batch_size,
+                dispatch_window=dispatch_window,
             )
 
-        # Process in batches for concurrency control
+        # Process in logical batches and bound per-batch dispatch concurrency.
         all_results: list[StoredObject] = []
         batch_start = 0
 
         while batch_start < total_count:
-            current_batch_size = min(batch_size, total_count - batch_start)
+            current_batch_size = min(logical_batch_size, total_count - batch_start)
             batch_results = await self._execute_child_workflow_batch_prepared(
                 task=task,
                 prepared=prepared,
                 batch_start=batch_start,
                 batch_size=current_batch_size,
+                dispatch_window=dispatch_window,
                 fail_strategy=fail_strategy,
+                wait_strategy=wait_strategy,
                 child_time_anchor=child_time_anchor,
             )
             all_results.extend(batch_results)
@@ -1470,6 +1368,8 @@ class DSLWorkflow:
         prepared: PreparedSubflowResult,
         batch_start: int,
         batch_size: int,
+        dispatch_window: int,
+        wait_strategy: WaitStrategy,
         fail_strategy: FailStrategy,
         child_time_anchor: datetime,
     ) -> list[StoredObject]:
@@ -1503,7 +1403,22 @@ class DSLWorkflow:
                     ),
                 )
 
-        coros: list[Awaitable[StoredObject]] = []
+        dispatch_semaphore = asyncio.Semaphore(dispatch_window)
+
+        async def dispatch_child(
+            *, loop_index: int, run_args: DSLRunArgs
+        ) -> workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]:
+            async with dispatch_semaphore:
+                return await self._dispatch_child_workflow(
+                    task,
+                    run_args,
+                    loop_index=loop_index,
+                    wait_strategy=wait_strategy,
+                )
+
+        coros: list[
+            Awaitable[workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]]
+        ] = []
         async for loop_index, run_args in cooperative(
             iter_run_args(),
             delay=0.1,
@@ -1513,10 +1428,14 @@ class DSLWorkflow:
                 loop_index=loop_index,
                 fail_strategy=fail_strategy,
             )
-            coro = self._run_child_workflow(task, run_args, loop_index=loop_index)
+            coro = dispatch_child(loop_index=loop_index, run_args=run_args)
             coros.append(coro)
 
-        gather_result = await asyncio.gather(*coros, return_exceptions=True)
+        launched_handles = await asyncio.gather(*coros, return_exceptions=True)
+        gather_result = await self._gather_dispatched_child_results(
+            launched_handles=launched_handles,
+            wait_strategy=wait_strategy,
+        )
 
         if fail_strategy == FailStrategy.ALL:
             if any(isinstance(val, BaseException) for val in gather_result):
@@ -1533,196 +1452,35 @@ class DSLWorkflow:
                     result.append(StoredObjectValidator.validate_python(val))
         return result
 
-    async def _execute_child_workflow_loop(
+    async def _gather_dispatched_child_results(
         self,
-        task: ActionStatement,
-        sf_context: SubflowContext,
-    ) -> StoredObject:
-        """Execute child workflow in a loop with per-batch resolution.
+        launched_handles: list[
+            workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject] | BaseException
+        ],
+        wait_strategy: WaitStrategy,
+    ) -> list[StoredObject | BaseException]:
+        """Resolve dispatched child handles into ordered results."""
+        # For detached workflows, return immediately with workflow IDs
+        # instead of waiting for completion
+        if wait_strategy == WaitStrategy.DETACH:
+            return [
+                handle_or_exc
+                if isinstance(handle_or_exc, BaseException)
+                else InlineObject(data=handle_or_exc.id)
+                for handle_or_exc in launched_handles
+            ]
 
-        Uses resolve_subflow_batch_activity to evaluate args (including
-        environment/timeout overrides) per iteration with var context.
-        """
-        if not task.for_each:
-            raise ApplicationError(
-                "for_each expression is required for looped subflows",
-                non_retryable=True,
-            )
-        loop_strategy = LoopStrategy(task.args.get("loop_strategy", LoopStrategy.BATCH))
-        fail_strategy = FailStrategy(
-            task.args.get("fail_strategy", FailStrategy.ISOLATED)
+        # Await successful handles and pass through dispatch-time failures,
+        # preserving the original order in a single gather call.
+        async def _resolve(
+            h: workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject] | BaseException,
+        ) -> StoredObject | BaseException:
+            return h if isinstance(h, BaseException) else await h
+
+        return await asyncio.gather(
+            *(_resolve(h) for h in launched_handles),
+            return_exceptions=True,
         )
-        self.logger.trace(
-            "Executing child workflow in loop",
-            sf_context=sf_context,
-            loop_strategy=loop_strategy,
-            fail_strategy=fail_strategy,
-        )
-
-        # First, get total count by evaluating for_each expression
-        # We need this to know how many iterations to process
-        total_count = await workflow.execute_activity(
-            DSLActivities.handle_looped_subflow_input_activity,
-            arg=EvaluateLoopedSubflowInputActivityInput(
-                for_each=task.for_each,
-                operand=self.get_context(),
-            ),
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-        )
-
-        # Determine batch size based on strategy and enforce caps.
-        requested_batch_size = {
-            LoopStrategy.SEQUENTIAL: 1,
-            LoopStrategy.BATCH: sf_context.batch_size,
-            LoopStrategy.PARALLEL: total_count,  # All at once
-        }[loop_strategy]
-        strategy_batch_size, batch_size = self._resolve_child_loop_batch_size(
-            total_count=total_count,
-            requested_batch_size=requested_batch_size,
-        )
-
-        self.logger.debug(
-            "Loop execution batch plan",
-            total_count=total_count,
-            requested_batch_size=requested_batch_size,
-            effective_batch_size=batch_size,
-            loop_strategy=loop_strategy,
-        )
-        if batch_size < strategy_batch_size:
-            self.logger.info(
-                "Child workflow loop batch size capped",
-                total_count=total_count,
-                requested_batch_size=requested_batch_size,
-                effective_batch_size=batch_size,
-            )
-
-        # Process in batches
-        all_results: list[StoredObject] = []
-        batch_start = 0
-        stream_id = ctx_stream_id.get()
-        key_prefix = action_collection_prefix(
-            str(self.workspace_id), self.wf_exec_id, stream_id, task.ref
-        )
-
-        while batch_start < total_count:
-            current_batch_size = min(batch_size, total_count - batch_start)
-
-            # Resolve args for this batch using the new activity
-            resolved_batch = await workflow.execute_activity(
-                DSLActivities.resolve_subflow_batch_activity,
-                arg=ResolveSubflowBatchActivityInput(
-                    task=task,
-                    operand=self.get_context(),
-                    batch_start=batch_start,
-                    batch_size=current_batch_size,
-                    key=f"{key_prefix}/batch_{batch_start}.json",
-                ),
-                start_to_close_timeout=timedelta(seconds=60),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
-
-            # Execute this batch
-            batch_results = await self._execute_child_workflow_batch(
-                resolved_batch=resolved_batch,
-                task=task,
-                sf_context=sf_context,
-                batch_start=batch_start,
-                fail_strategy=fail_strategy,
-            )
-            all_results.extend(batch_results)
-
-            batch_start += current_batch_size
-
-        # Synchronize by converting Sequence[StoredObject] -> CollectionObject
-        collection = await workflow.execute_activity(
-            DSLActivities.synchronize_collection_object_activity,
-            SynchronizeCollectionObjectActivityInput(
-                collection=all_results,
-                key=key_prefix,
-            ),
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-        )
-        return collection
-
-    async def _execute_child_workflow_batch(
-        self,
-        resolved_batch: ResolvedSubflowBatch,
-        task: ActionStatement,
-        sf_context: SubflowContext,
-        batch_start: int,
-        *,
-        fail_strategy: FailStrategy = FailStrategy.ISOLATED,
-    ) -> list[StoredObject]:
-        """Execute a batch of child workflows with resolved args.
-
-        Args:
-            resolved_batch: Pre-resolved configs and trigger_inputs for this batch
-            task: The ActionStatement being executed
-            sf_context: Shared subflow context (workflow definition, registry lock, etc.)
-            batch_start: Global index offset for this batch (for loop_index calculation)
-            fail_strategy: How to handle failures in the batch
-        """
-        batch_count = resolved_batch.count
-
-        def iter_run_args() -> Generator[tuple[int, DSLRunArgs]]:
-            for i in range(batch_count):
-                config = resolved_batch.get_config(i)
-
-                # Build runtime_config with per-iteration overrides
-                # Precedence: resolved config > dsl.config default
-                runtime_config = DSLConfig(
-                    environment=config.environment or sf_context.dsl.config.environment,
-                    timeout=config.timeout or sf_context.dsl.config.timeout,
-                )
-
-                # Each iteration gets its own trigger_inputs StoredObject
-                yield (
-                    batch_start + i,  # Global loop index
-                    DSLRunArgs(
-                        role=self.role,
-                        dsl=sf_context.dsl,
-                        wf_id=sf_context.wf_id,
-                        trigger_inputs=resolved_batch.trigger_inputs[i],
-                        parent_run_context=sf_context.run_context,
-                        runtime_config=runtime_config,
-                        execution_type=sf_context.execution_type,
-                        time_anchor=sf_context.time_anchor,
-                        registry_lock=sf_context.registry_lock,
-                    ),
-                )
-
-        coros: list[Awaitable[StoredObject]] = []
-        async for loop_index, run_args in cooperative(
-            iter_run_args(),
-            delay=0.1,
-        ):
-            self.logger.trace(
-                "Run child workflow batch",
-                loop_index=loop_index,
-                fail_strategy=fail_strategy,
-                environment=run_args.runtime_config.environment,
-            )
-            coro = self._run_child_workflow(task, run_args, loop_index=loop_index)
-            coros.append(coro)
-
-        gather_result = await asyncio.gather(*coros, return_exceptions=True)
-
-        if fail_strategy == FailStrategy.ALL:
-            if any(isinstance(val, BaseException) for val in gather_result):
-                raise RuntimeError("One or more child workflows failed")
-
-        result: list[StoredObject] = []
-        for val in gather_result:
-            match val:
-                case BaseException():
-                    result.append(
-                        InlineObject(data=dsl_execution_error_from_exception(val))
-                    )
-                case _:
-                    result.append(StoredObjectValidator.validate_python(val))
-        return result
 
     async def _handle_return(self) -> StoredObject:
         self.logger.debug("Handling return", context=self.context)
@@ -1747,24 +1505,6 @@ class DSLWorkflow:
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
-
-    async def _resolve_workflow_alias(self, wf_alias: str) -> identifiers.WorkflowID:
-        # Evaluate the workflow alias as a templated expression
-        # For draft executions, use draft aliases; for published executions, use committed aliases
-        activity_inputs = ResolveWorkflowAliasActivityInputs(
-            workflow_alias=wf_alias,
-            role=self.role,
-            use_committed=self.execution_type == ExecutionType.PUBLISHED,
-        )
-        wf_id = await workflow.execute_activity(
-            WorkflowsManagementService.resolve_workflow_alias_activity,
-            args=(self.run_context, self.get_context(), activity_inputs),
-            start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-        )
-        if not wf_id:
-            raise ValueError(f"Workflow alias {wf_alias!r} not found")
-        return wf_id
 
     async def _get_workflow_definition(
         self, workflow_id: identifiers.WorkflowID, version: int | None = None
@@ -1821,49 +1561,6 @@ class DSLWorkflow:
             return wf_info.typed_search_attributes.get(key)
         except Exception:
             return None
-
-    async def _prepare_child_workflow(self, args: ExecuteSubflowArgs) -> SubflowContext:
-        """Grab a workflow definition and create shared child workflow context.
-
-        Returns SubflowContext with shared data (workflow definition, registry lock, etc.).
-        Per-iteration config (environment, timeout) is resolved separately via
-        ResolvedSubflowBatch for loops, or directly from args for single execution.
-        """
-        if args.workflow_id:
-            child_wf_id = args.workflow_id
-        elif args.workflow_alias:
-            child_wf_id = await self._resolve_workflow_alias(args.workflow_alias)
-        else:
-            raise ValueError("Either workflow_id or workflow_alias must be provided")
-
-        result = await self._get_workflow_definition(child_wf_id, version=args.version)
-        dsl = result.dsl
-
-        self.logger.debug(
-            "Got workflow definition",
-            dsl=dsl,
-            args=args,
-            dsl_config=dsl.config,
-            self_config=self.runtime_config,
-        )
-
-        # Propagate time_anchor: use child's override if set, otherwise use parent's
-        # current logical time so child continues from parent's elapsed position
-        child_time_anchor = (
-            args.time_anchor
-            if args.time_anchor is not None
-            else self._compute_logical_time()
-        )
-
-        return SubflowContext(
-            wf_id=child_wf_id,
-            dsl=dsl,
-            registry_lock=result.registry_lock,
-            run_context=self.run_context,
-            execution_type=self.execution_type,
-            time_anchor=child_time_anchor,
-            batch_size=args.batch_size,
-        )
 
     async def _noop_gather_action(self, task: ActionStatement) -> Any:
         # Parent stream
@@ -2022,59 +1719,74 @@ class DSLWorkflow:
         - Single InlineObject / ExternalObject
 
         """
+        wait_strategy = WaitStrategy(
+            task.args.get("wait_strategy") or WaitStrategy.DETACH
+        )
+        self.logger.debug(
+            "Running child workflow",
+            wait_strategy=wait_strategy,
+        )
+        child_wf_handle = await self._dispatch_child_workflow(
+            task,
+            run_args,
+            wait_strategy=wait_strategy,
+            loop_index=loop_index,
+        )
+        match wait_strategy:
+            case WaitStrategy.DETACH:
+                return InlineObject(data=child_wf_handle.id)
+            case WaitStrategy.WAIT:
+                result = await child_wf_handle
+                return StoredObjectValidator.validate_python(result)
+            case _:
+                raise ApplicationError(
+                    (
+                        "Invalid wait strategy: "
+                        f"wait_strategy must be one of {WaitStrategy.values()}"
+                    ),
+                    non_retryable=True,
+                    type="InvalidWaitStrategy",
+                )
+
+    async def _dispatch_child_workflow(
+        self,
+        task: ActionStatement,
+        run_args: DSLRunArgs,
+        *,
+        wait_strategy: WaitStrategy,
+        loop_index: int | None = None,
+    ) -> workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]:
         wf_exec_id = identifiers.workflow.generate_exec_id(run_args.wf_id)
         wf_info = workflow.info()
-        # XXX(safety): This has been validated in prepare_child_workflow
-        args = ResolvedSubflowInput.model_construct(**task.args)
-        # Use Temporal memo to store the action ref in the child workflow run
         stream_id = ctx_stream_id.get()
         memo = ChildWorkflowMemo(
             action_ref=task.ref,
             loop_index=loop_index,
-            wait_strategy=args.wait_strategy,
+            wait_strategy=wait_strategy,
             stream_id=stream_id,
         ).model_dump()
         self.logger.debug(
-            "Running child workflow",
-            wait_strategy=args.wait_strategy,
+            "Dispatching child workflow",
+            wait_strategy=wait_strategy,
             memo=memo,
         )
-
-        match args.wait_strategy:
-            case WaitStrategy.DETACH:
-                child_wf_handle = await workflow.start_child_workflow(
-                    DSLWorkflow.run,
-                    run_args,
-                    id=wf_exec_id,
-                    retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                    # Propagate the parent workflow attributes to the child workflow
-                    task_queue=wf_info.task_queue,
-                    execution_timeout=wf_info.execution_timeout,
-                    task_timeout=wf_info.task_timeout,
-                    memo=memo,
-                    search_attributes=wf_info.typed_search_attributes,
-                    # DETACH specific options
-                    # Abandon the child workflow if the parent is cancelled
-                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                )
-                # Wrap workflow ID in InlineObject for uniform envelope
-                return InlineObject(data=child_wf_handle.id)
-            case _:
-                # WAIT and all other strategies
-                # execute_child_workflow returns StoredObject (from DSLWorkflow.run)
-                result = await workflow.execute_child_workflow(
-                    DSLWorkflow.run,
-                    run_args,
-                    id=wf_exec_id,
-                    retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                    # Propagate the parent workflow attributes to the child workflow
-                    task_queue=wf_info.task_queue,
-                    execution_timeout=wf_info.execution_timeout,
-                    task_timeout=wf_info.task_timeout,
-                    memo=memo,
-                    search_attributes=wf_info.typed_search_attributes,
-                )
-                return StoredObjectValidator.validate_python(result)
+        return await workflow.start_child_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=wf_exec_id,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            # Propagate the parent workflow attributes to the child workflow
+            task_queue=wf_info.task_queue,
+            execution_timeout=wf_info.execution_timeout,
+            task_timeout=wf_info.task_timeout,
+            memo=memo,
+            search_attributes=wf_info.typed_search_attributes,
+            parent_close_policy=(
+                workflow.ParentClosePolicy.ABANDON
+                if wait_strategy == WaitStrategy.DETACH
+                else workflow.ParentClosePolicy.TERMINATE  # Default is TERMINATE
+            ),
+        )
 
     async def _get_error_handler_workflow_id(
         self, args: DSLRunArgs
@@ -2196,55 +1908,16 @@ class DSLWorkflow:
             PlatformAction.TRANSFORM_GATHER,
         )
 
-    def _resolve_child_loop_batch_size(
+    def _resolve_child_loop_batch_plan(
         self,
         *,
         total_count: int,
         requested_batch_size: int,
     ) -> tuple[int, int]:
-        """Resolve effective child-loop batch size from strategy and caps."""
-        strategy_batch_size = max(1, min(requested_batch_size, total_count))
-        max_in_flight = config.TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT
-        if total_count > 0 and max_in_flight <= 0:
-            raise ApplicationError(
-                (
-                    "Invalid child workflow concurrency cap: "
-                    "TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT must be greater than 0 "
-                    f"(got {max_in_flight})"
-                ),
-                non_retryable=True,
-                type="InvalidChildWorkflowConcurrencyCap",
-            )
-        batch_size = min(strategy_batch_size, max_in_flight)
-
-        tier_cap = (
-            self._tier_limits.max_concurrent_actions
-            if self._tier_limits is not None
-            else None
-        )
-        if tier_cap is not None:
-            if total_count > 0 and tier_cap <= 0:
-                raise ApplicationError(
-                    (
-                        "Invalid organization action concurrency cap: "
-                        "max_concurrent_actions must be greater than 0 "
-                        f"(got {tier_cap})"
-                    ),
-                    non_retryable=True,
-                    type="InvalidOrganizationActionConcurrencyCap",
-                )
-            batch_size = min(batch_size, tier_cap)
-
-        if total_count > 0 and batch_size <= 0:
-            raise ApplicationError(
-                (
-                    "Invalid child workflow batch size resolved from concurrency caps: "
-                    f"batch_size={batch_size}"
-                ),
-                non_retryable=True,
-                type="InvalidChildWorkflowBatchSize",
-            )
-        return strategy_batch_size, batch_size
+        """Resolve logical batch size and dispatch window for child loops."""
+        logical_batch_size = max(1, min(requested_batch_size, total_count))
+        dispatch_window = config.TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW
+        return logical_batch_size, dispatch_window
 
     def _action_permit_id(self, *, task: ActionStatement, stream_id: StreamID) -> str:
         return f"{workflow.info().workflow_id}:{stream_id}:{task.ref}"
