@@ -1,0 +1,29 @@
+tracecat/custom_fields/service.py
+  c70c23b0ccc73333 16-21,23-25,62-104,129,164-165,171,180-182,197
+tracecat/cases/service.py
+  c70c23b0ccc73333 104,979-980,1002-1006
+alembic/versions/b5fc4168fe22_apply_model_a_rls_to_dynamic_workspace_.py
+  c70c23b0ccc73333 1-215
+tracecat/tables/service.py
+  c70c23b0ccc73333 3,19,75-80,110-142,362-366,377-379,727,810,839,908,1024,1381,2017,2059,2103,2161,2179-2190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "91943620a4397720c558f324c126631d1bcafe1f",
+  "prompts": {
+    "c70c23b0ccc73333": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c9ffd-f52f-7683-ba15-727f6960afbb",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 369,
+      "total_deletions": 16,
+      "accepted_lines": 358,
+      "overriden_lines": 0
+    }
+  }
+}
