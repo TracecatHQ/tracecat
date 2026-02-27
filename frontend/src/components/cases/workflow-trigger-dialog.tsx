@@ -38,6 +38,7 @@ interface WorkflowTriggerDialogProps {
   workflowId: string | null
   workflowTitle?: string | null
   defaultTriggerValues?: Record<string, unknown> | null
+  taskId?: string
   open: boolean
   onOpenChange: (open: boolean) => void
 }
@@ -47,6 +48,7 @@ export function WorkflowTriggerDialog({
   workflowId,
   workflowTitle,
   defaultTriggerValues,
+  taskId,
   open,
   onOpenChange,
 }: WorkflowTriggerDialogProps) {
@@ -60,7 +62,7 @@ export function WorkflowTriggerDialog({
     fallbackInputs,
     groupCaseFields,
     setGroupCaseFields,
-  } = useWorkflowTriggerInputs(caseData)
+  } = useWorkflowTriggerInputs(caseData, taskId)
 
   const { data: selectedWorkflowDetail } = useQuery<
     WorkflowWithSchema | null,
@@ -181,6 +183,7 @@ export function WorkflowTriggerDialog({
             caseFields={caseFieldsRecord}
             groupCaseFields={effectiveGroupCaseFields}
             defaultTriggerValues={defaultTriggerValues}
+            taskId={taskId}
             onSubmit={handleSchemaSubmit}
             isSubmitting={createExecutionIsPending}
           />
