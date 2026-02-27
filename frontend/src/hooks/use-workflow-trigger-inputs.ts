@@ -4,7 +4,7 @@ import { useMemo } from "react"
 import type { CaseRead } from "@/client"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 
-export function useWorkflowTriggerInputs(caseData: CaseRead) {
+export function useWorkflowTriggerInputs(caseData: CaseRead, taskId?: string) {
   const [groupCaseFields, setGroupCaseFields] = useLocalStorage(
     "groupCaseFields",
     false
@@ -24,14 +24,16 @@ export function useWorkflowTriggerInputs(caseData: CaseRead) {
     if (groupCaseFields) {
       return {
         case_id: caseData.id,
+        ...(taskId ? { task_id: taskId } : {}),
         case_fields: caseFieldsRecord,
       }
     }
     return {
       case_id: caseData.id,
+      ...(taskId ? { task_id: taskId } : {}),
       ...caseFieldsRecord,
     }
-  }, [caseData.id, caseFieldsRecord, groupCaseFields])
+  }, [caseData.id, caseFieldsRecord, groupCaseFields, taskId])
 
   return {
     caseFieldsRecord,
