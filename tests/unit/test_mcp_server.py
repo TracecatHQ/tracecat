@@ -140,6 +140,33 @@ async def test_validate_workflow_returns_expression_details(monkeypatch):
     assert payload["errors"][0]["details"][0]["loc"] == ["step_a", "inputs", "field"]
 
 
+@pytest.mark.anyio
+async def test_validate_template_action_does_not_accept_template_path_arg(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+    with pytest.raises(TypeError, match="template_path"):
+        await _tool(mcp_server.validate_template_action)(
+            workspace_id=str(uuid.uuid4()),
+            template_path="/tmp/secrets.yaml",
+        )
+
+
+@pytest.mark.anyio
+async def test_validate_template_action_requires_template_yaml(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+    with pytest.raises(ToolError, match="template_yaml is required"):
+        await _tool(mcp_server.validate_template_action)(
+            workspace_id=str(uuid.uuid4()),
+        )
+
+
 def test_auto_generate_layout_handles_cycles():
     actions = [
         {"ref": "start", "depends_on": []},
