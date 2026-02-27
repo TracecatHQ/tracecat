@@ -16,6 +16,7 @@ from tracecat.agent.executor.loopback import LoopbackHandler
 from tracecat.api.app import info, lifespan
 from tracecat.auth.credentials import _role_dependency
 from tracecat.auth.discovery import AuthDiscoveryService
+from tracecat.auth.saml import login as saml_login
 from tracecat.auth.types import Role
 from tracecat.auth.users import UserManager
 from tracecat.cases.triggers.consumer import CaseTriggerConsumer
@@ -392,6 +393,16 @@ def test_schedule_workspace_org_lookup_activity_uses_bypass_session_manager() ->
         WorkflowSchedulesService.get_workspace_organization_id_activity
     )
     assert "get_async_session_bypass_rls_context_manager" in source
+
+
+def test_info_endpoint_uses_bypass_session_dependency() -> None:
+    source = inspect.getsource(info)
+    assert "session: AsyncDBSessionBypass" in source
+
+
+def test_saml_login_uses_bypass_session_dependency() -> None:
+    source = inspect.getsource(saml_login)
+    assert "db_session: AsyncDBSessionBypass" in source
 
 
 @pytest.mark.anyio
