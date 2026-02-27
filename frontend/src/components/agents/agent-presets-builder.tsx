@@ -152,7 +152,16 @@ function getMcpProviderId(slug: string): string | undefined {
     secureannex: "secureannex_mcp",
   }
 
-  return slugMap[slug.toLowerCase()]
+  const normalized = slug.toLowerCase()
+  if (slugMap[normalized]) {
+    return slugMap[normalized]
+  }
+
+  if (normalized.endsWith("_mcp")) {
+    return normalized
+  }
+
+  return undefined
 }
 
 const agentPresetSchema = z
