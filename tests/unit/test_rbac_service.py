@@ -14,6 +14,8 @@ from tracecat.authz.enums import ScopeSource
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
+    Group,
+    GroupMember,
     Organization,
     OrganizationMembership,
     Scope,
@@ -339,6 +341,51 @@ class TestRBACServiceGroups:
 
         members = await service.list_group_members(group.id)
         assert len(members) == 0
+
+    async def test_remove_member_rejects_cross_org_group(
+        self,
+        session: AsyncSession,
+        role: Role,
+    ):
+        """Removing a member should not affect groups outside the caller org."""
+        service = RBACService(session, role=role)
+
+        other_org_id = uuid.uuid4()
+        other_org = Organization(
+            id=other_org_id,
+            name="Other Org",
+            slug=f"other-org-{other_org_id.hex[:8]}",
+        )
+        other_user = User(
+            id=uuid.uuid4(),
+            email="other-rbac-user@example.com",
+            hashed_password="test",
+        )
+        other_group = Group(
+            name="Other Org Group",
+            organization_id=other_org.id,
+            created_by=other_user.id,
+        )
+        session.add_all([other_org, other_user, other_group])
+        await session.flush()
+        session.add(
+            GroupMember(
+                group_id=other_group.id,
+                user_id=other_user.id,
+            )
+        )
+        await session.commit()
+
+        with pytest.raises(TracecatNotFoundError):
+            await service.remove_group_member(other_group.id, other_user.id)
+
+        remaining_member = await session.scalar(
+            select(GroupMember).where(
+                GroupMember.group_id == other_group.id,
+                GroupMember.user_id == other_user.id,
+            )
+        )
+        assert remaining_member is not None
 
 
 @pytest.mark.anyio
