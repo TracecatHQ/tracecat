@@ -16,7 +16,7 @@ from tenacity import RetryError
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import Case, CaseEvent, CaseTrigger, Workspace
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -148,7 +148,7 @@ class CaseTriggerConsumer:
             logger.warning("Invalid IDs in case trigger message", fields=fields)
             return True
 
-        async with get_async_session_context_manager() as session:
+        async with get_async_session_bypass_rls_context_manager() as session:
             event = await self._load_event(
                 session, event_uuid, case_uuid, workspace_uuid
             )

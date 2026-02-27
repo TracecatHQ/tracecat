@@ -13,7 +13,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.authz.seeding import seed_registry_scopes
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.locks import (
     derive_lock_key_from_parts,
     pg_advisory_unlock,
@@ -56,7 +56,7 @@ async def sync_platform_registry_on_startup() -> None:
     logger.info("Attempting platform registry sync", target_version=target_version)
 
     try:
-        async with get_async_session_context_manager() as session:
+        async with get_async_session_bypass_rls_context_manager() as session:
             # Leader election: try to acquire lock (non-blocking)
             acquired = await try_pg_advisory_lock(session, PLATFORM_SYNC_LOCK_KEY)
             if not acquired:

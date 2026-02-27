@@ -44,7 +44,10 @@ from tracecat.auth.enums import AuthType
 from tracecat.auth.schemas import UserCreate, UserUpdate
 from tracecat.auth.types import PlatformRole
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session, get_async_session_context_manager
+from tracecat.db.engine import (
+    get_async_session,
+    get_async_session_bypass_rls_context_manager,
+)
 from tracecat.db.models import (
     AccessToken,
     OAuthAccount,
@@ -124,7 +127,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self, email: str, *, organization_id: uuid.UUID | None = None
     ) -> None:
         # Check if this is attempting to be the first user (superadmin)
-        async with get_async_session_context_manager() as session:
+        async with get_async_session_bypass_rls_context_manager() as session:
             users = await list_users(session=session)
             if len(users) == 0:  # This would be the first user
                 # Only allow registration if this is the designated superadmin email
@@ -189,8 +192,9 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         statement = select(OrganizationMembership.organization_id).where(
             OrganizationMembership.user_id == user_id
         )
-        result = await self._user_db.session.execute(statement)
-        return set(result.scalars().all())
+        async with get_async_session_bypass_rls_context_manager() as session:
+            result = await session.execute(statement)
+            return set(result.scalars().all())
 
     async def _resolve_target_org_for_email(
         self, email: str, org_ids: set[OrganizationID]
@@ -208,8 +212,9 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             OrganizationDomain.normalized_domain == normalized_domain,
             OrganizationDomain.is_active.is_(True),
         )
-        result = await self._user_db.session.execute(statement)
-        organization_id = result.scalar_one_or_none()
+        async with get_async_session_bypass_rls_context_manager() as session:
+            result = await session.execute(statement)
+            organization_id = result.scalar_one_or_none()
         if organization_id is None or organization_id not in org_ids:
             return None
         return organization_id
@@ -222,7 +227,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             await get_setting(
                 "saml_enabled",
                 role=bootstrap_role(org_id),
-                session=self._user_db.session,
                 default=True,
             )
         )
@@ -232,7 +236,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         saml_enforced = await get_setting(
             "saml_enforced",
             role=bootstrap_role(org_id),
-            session=self._user_db.session,
             default=False,
         )
         return bool(saml_enforced)
@@ -402,7 +405,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             return
 
         try:
-            async with get_async_session_context_manager() as session:
+            async with get_async_session_bypass_rls_context_manager() as session:
                 membership = await accept_invitation_for_user(
                     session, user_id=user.id, token=token
                 )
@@ -646,7 +649,7 @@ def is_unprivileged(user: User) -> bool:
 
 
 async def get_or_create_user(params: UserCreate, exist_ok: bool = True) -> User:
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         async with get_user_db_context(session) as user_db:
             async with get_user_manager_context(user_db) as user_manager:
                 try:

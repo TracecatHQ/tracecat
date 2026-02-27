@@ -36,7 +36,7 @@ from tracecat.agent.common.types import (
 )
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.types import AgentConfig
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import AgentSession, AgentSessionHistory
 from tracecat.logger import logger
 
@@ -369,7 +369,7 @@ class LoopbackHandler:
             uuid=line_uuid,
         )
 
-        async with get_async_session_context_manager() as session:
+        async with get_async_session_bypass_rls_context_manager() as session:
             # On first session line, update AgentSession with sdk_session_id
             if self._sdk_session_id is None:
                 self._sdk_session_id = sdk_session_id

@@ -79,8 +79,11 @@ from tracecat.cases.tags.internal_router import router as internal_case_tags_rou
 from tracecat.cases.tags.router import router as case_tags_router
 from tracecat.cases.triggers.consumer import start_case_trigger_consumer
 from tracecat.contexts import ctx_role
-from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
+from tracecat.db.engine import (
+    get_async_session_bypass_rls_context_manager,
+)
+from tracecat.db.rls import set_rls_context_from_role
 from tracecat.editor.router import router as editor_router
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
 from tracecat.feature_flags import FlagLike, is_feature_enabled
@@ -157,7 +160,7 @@ async def lifespan(app: FastAPI):
 
     await ensure_default_organization()
 
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         await setup_rbac_defaults(session)
 
     # Spawn platform registry sync as background task (non-blocking)
@@ -179,6 +182,7 @@ async def lifespan(app: FastAPI):
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
     )
+    logger.info("RLS mode", rls_mode=config.TRACECAT__RLS_MODE.value)
     logger.info("API startup complete")
 
     yield
@@ -605,7 +609,7 @@ class AppInfo(BaseModel):
 
 
 @app.get("/info", include_in_schema=False)
-async def info(session: AsyncDBSession) -> AppInfo:
+async def info(session: AsyncDBSessionBypass) -> AppInfo:
     """Non-sensitive information about the platform, for frontend configuration."""
 
     keys = {"saml_enabled", "saml_enforced"}
@@ -613,11 +617,17 @@ async def info(session: AsyncDBSession) -> AppInfo:
     # Use default organization for platform-level settings.
     # Org-specific auth routing is handled by the /auth/discover endpoint.
     org_id = await get_default_organization_id(session)
-    service = SettingsService(session, role=bootstrap_role(org_id))
+    role = bootstrap_role(org_id)
+    await set_rls_context_from_role(session, role)
+    service = SettingsService(session, role=role)
     settings = await service.list_org_settings(keys=keys)
     keyvalues = {s.key: service.get_value(s) for s in settings}
     for key in keys:
-        keyvalues[key] = get_setting_override(key) or keyvalues[key]
+        override_val = get_setting_override(key)
+        if override_val is not None:
+            keyvalues[key] = override_val
+        else:
+            keyvalues[key] = keyvalues.get(key, False)
     return AppInfo(
         version=APP_VERSION,
         public_app_url=config.TRACECAT__PUBLIC_APP_URL,

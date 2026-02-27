@@ -46,8 +46,9 @@ async def test_get_org_saml_metadata_url_uses_db_settings_in_multi_tenant(
 
     assert result == db_metadata_url
     assert get_setting_mock.await_count == 1
-    assert get_setting_mock.await_args is not None
-    assert get_setting_mock.await_args.kwargs["default"] is None
+    await_args = get_setting_mock.await_args
+    assert await_args is not None
+    assert await_args.kwargs["default"] is None
 
 
 @pytest.mark.anyio

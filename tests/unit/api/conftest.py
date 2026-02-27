@@ -21,7 +21,7 @@ from tracecat.auth.dependencies import (
 from tracecat.auth.types import Role
 from tracecat.cases.router import WorkspaceUser
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session
+from tracecat.db.engine import get_async_session, get_async_session_bypass_rls
 from tracecat.secrets.router import (
     WorkspaceUser as SecretsWorkspaceUser,
 )
@@ -83,6 +83,7 @@ def client() -> Generator[TestClient, None, None]:
         return mock_session
 
     app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_async_session_bypass_rls] = override_get_async_session
 
     client = TestClient(app, raise_server_exceptions=False)
     yield client

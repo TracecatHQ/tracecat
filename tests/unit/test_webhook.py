@@ -249,7 +249,7 @@ class TestValidateIncomingWebhook:
         token = ctx_role.set(None)
         try:
             with patch(
-                "tracecat.webhooks.dependencies.get_async_session_context_manager",
+                "tracecat.webhooks.dependencies.get_async_session_bypass_rls_context_manager",
                 return_value=mock_session_cm,
             ):
                 await validate_incoming_webhook(workflow_id, webhook_secret, request)
@@ -298,7 +298,7 @@ class TestValidateIncomingWebhook:
         token = ctx_role.set(None)
         try:
             with patch(
-                "tracecat.webhooks.dependencies.get_async_session_context_manager",
+                "tracecat.webhooks.dependencies.get_async_session_bypass_rls_context_manager",
                 return_value=mock_session_cm,
             ):
                 with pytest.raises(HTTPException) as exc_info:

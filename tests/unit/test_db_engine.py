@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import base64
+import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 from loguru import logger
 
 from tracecat import config
-from tracecat.db.engine import _get_db_uri
+from tracecat.auth.types import Role
+from tracecat.contexts import ctx_role
+from tracecat.db.engine import (
+    _get_db_uri,
+    get_async_session,
+    get_async_session_bypass_rls,
+)
 
 
 class DummySecretsClient:
@@ -48,4 +56,139 @@ def test_get_db_uri_logs_decode_error(monkeypatch: pytest.MonkeyPatch) -> None:
     assert any(
         "SecretBinary must be UTF-8 encoded text or JSON." in message
         for message in messages
+    )
+
+
+@pytest.mark.anyio
+async def test_get_async_session_applies_role_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = AsyncMock()
+    session_cm = AsyncMock()
+    session_cm.__aenter__.return_value = session
+    session_cm.__aexit__.return_value = None
+    set_from_role = AsyncMock()
+
+    monkeypatch.setattr(
+        "tracecat.db.engine.AsyncSession", lambda *args, **kwargs: session_cm
+    )
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context_from_role", set_from_role)
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context", AsyncMock())
+    monkeypatch.setattr(config, "TRACECAT__RLS_MODE", config.RLSMode.ENFORCE)
+    monkeypatch.setattr("tracecat.db.engine.get_async_engine", lambda: object())
+
+    generator = get_async_session()
+    yielded = await anext(generator)
+    await generator.aclose()
+
+    assert yielded is session
+    set_from_role.assert_awaited_once_with(session)
+
+
+@pytest.mark.anyio
+async def test_get_async_session_off_mode_sets_bypass_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = AsyncMock()
+    session_cm = AsyncMock()
+    session_cm.__aenter__.return_value = session
+    session_cm.__aexit__.return_value = None
+    set_context = AsyncMock()
+    set_from_role = AsyncMock()
+
+    monkeypatch.setattr(
+        "tracecat.db.engine.AsyncSession", lambda *args, **kwargs: session_cm
+    )
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context", set_context)
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context_from_role", set_from_role)
+    monkeypatch.setattr(config, "TRACECAT__RLS_MODE", config.RLSMode.OFF)
+    monkeypatch.setattr("tracecat.db.engine.get_async_engine", lambda: object())
+
+    generator = get_async_session()
+    yielded = await anext(generator)
+    await generator.aclose()
+
+    assert yielded is session
+    set_context.assert_awaited_once_with(
+        session,
+        org_id=None,
+        workspace_id=None,
+        user_id=None,
+        bypass=True,
+    )
+    set_from_role.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_get_async_session_shadow_mode_sets_bypass_context_with_user_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = AsyncMock()
+    session_cm = AsyncMock()
+    session_cm.__aenter__.return_value = session
+    session_cm.__aexit__.return_value = None
+    set_context = AsyncMock()
+    set_from_role = AsyncMock()
+    role = Role(
+        type="user",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+    )
+
+    monkeypatch.setattr(
+        "tracecat.db.engine.AsyncSession", lambda *args, **kwargs: session_cm
+    )
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context", set_context)
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context_from_role", set_from_role)
+    monkeypatch.setattr(config, "TRACECAT__RLS_MODE", config.RLSMode.SHADOW)
+    monkeypatch.setattr("tracecat.db.engine.get_async_engine", lambda: object())
+
+    token = ctx_role.set(role)
+    try:
+        generator = get_async_session()
+        yielded = await anext(generator)
+        await generator.aclose()
+    finally:
+        ctx_role.reset(token)
+
+    assert yielded is session
+    set_context.assert_awaited_once_with(
+        session,
+        org_id=None,
+        workspace_id=None,
+        user_id=role.user_id,
+        bypass=True,
+    )
+    set_from_role.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_get_async_session_bypass_sets_explicit_bypass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = AsyncMock()
+    session_cm = AsyncMock()
+    session_cm.__aenter__.return_value = session
+    session_cm.__aexit__.return_value = None
+    set_context = AsyncMock()
+
+    monkeypatch.setattr(
+        "tracecat.db.engine.AsyncSession", lambda *args, **kwargs: session_cm
+    )
+    monkeypatch.setattr("tracecat.db.engine.set_rls_context", set_context)
+    monkeypatch.setattr("tracecat.db.engine.get_async_engine", lambda: object())
+
+    generator = get_async_session_bypass_rls()
+    yielded = await anext(generator)
+    await generator.aclose()
+
+    assert yielded is session
+    set_context.assert_awaited_once_with(
+        session,
+        org_id=None,
+        workspace_id=None,
+        user_id=None,
+        bypass=True,
     )

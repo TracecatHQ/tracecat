@@ -12,7 +12,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistrySecretType
 
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import (
+    get_async_session_bypass_rls_context_manager,
+    get_async_session_context_manager,
+)
 from tracecat.db.models import (
     PlatformRegistryRepository,
     PlatformRegistryVersion,
@@ -148,7 +151,7 @@ async def _get_manifest_entry(
 
     This function handles its own DB session and caching via aiocache.
     """
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         manifest = await _fetch_manifest(session, origin, version, organization_id)
         impl_index = _build_impl_index(manifest, origin)
 

@@ -35,7 +35,7 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import MembershipService, MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
@@ -50,6 +50,7 @@ from tracecat.db.models import (
 from tracecat.db.models import (
     Role as DBRole,
 )
+from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 from tracecat.organization.management import get_default_organization_id
@@ -68,7 +69,7 @@ async def _get_workspace_org_id(workspace_id: uuid.UUID) -> uuid.UUID | None:
     The workspace→organization mapping is immutable, so this can be cached
     indefinitely without TTL.
     """
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
@@ -151,7 +152,7 @@ async def _compute_effective_scopes_cached(
     organization_id: uuid.UUID,
     workspace_id: uuid.UUID | None,
 ) -> frozenset[str]:
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         user_workspace_condition = (
             or_(
                 UserRoleAssignment.workspace_id.is_(None),
@@ -169,7 +170,6 @@ async def _compute_effective_scopes_cached(
             if workspace_id is not None
             else GroupRoleAssignment.workspace_id.is_(None)
         )
-
         # Direct user role assignments → Role → RoleScope → Scope
         user_scopes = (
             select(Scope.name)
@@ -685,12 +685,30 @@ async def _role_dependency(
     role: Role | None = None
 
     if user and allow_user:
-        role = await _authenticate_user(
-            request=request,
-            session=session,
-            user=user,
-            workspace_id=workspace_id,
+        # Membership and org resolution happen before we know the final role.
+        # Use an auth-safe context for this phase so deny-default RLS does not
+        # block legitimate membership checks.
+        await set_rls_context(
+            session,
+            org_id=None,
+            workspace_id=None,
+            user_id=user.id,
+            bypass=True,
         )
+        try:
+            role = await _authenticate_user(
+                request=request,
+                session=session,
+                user=user,
+                workspace_id=workspace_id,
+            )
+        except Exception:
+            # Preserve the original auth error if cleanup cannot run.
+            try:
+                await set_rls_context_from_role(session, None)
+            except Exception:
+                logger.warning("Failed to clear RLS context after auth failure")
+            raise
     elif api_key and allow_service:
         role = await _authenticate_service(request, api_key)
     elif allow_executor:
@@ -716,6 +734,7 @@ async def _role_dependency(
     )
 
     ctx_role.set(role)
+    await set_rls_context_from_role(session, role)
     return role
 
 

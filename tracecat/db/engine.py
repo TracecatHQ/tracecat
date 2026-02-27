@@ -10,14 +10,48 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from tracecat import config
+from tracecat.contexts import ctx_role
 from tracecat.db import (
     session_events,  # noqa: F401  # pyright: ignore[reportUnusedImport] - side effect import to register listeners
 )
+from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 
 # Global so we don't create more than one engine per process.
 # Outside of being best practice, this is needed so we can properly pool
 # connections and not create a new pool on every request
 _async_engine: AsyncEngine | None = None
+
+
+async def _initialize_session_rls_context(session: AsyncSession) -> None:
+    """Initialize RLS context for a newly opened request session."""
+    rls_mode = config.TRACECAT__RLS_MODE
+
+    if rls_mode == config.RLSMode.ENFORCE:
+        # Enforce mode applies role-based context with deny-default fallback.
+        await set_rls_context_from_role(session)
+        return
+
+    role = ctx_role.get()
+    user_id = role.user_id if role is not None else None
+
+    if rls_mode == config.RLSMode.SHADOW:
+        logger.trace(
+            "RLS shadow mode active (bypass context with telemetry)",
+            has_role=role is not None,
+            role_type=role.type if role is not None else None,
+            has_org_context=bool(role and role.organization_id),
+            has_workspace_context=bool(role and role.workspace_id),
+            is_platform_superuser=bool(role and role.is_platform_superuser),
+        )
+
+    # Off/shadow modes use bypass by default so rollout is app-controlled.
+    await set_rls_context(
+        session,
+        org_id=None,
+        workspace_id=None,
+        user_id=user_id,
+        bypass=True,
+    )
 
 
 def get_connection_string(
@@ -185,13 +219,52 @@ def reset_async_engine() -> None:
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
-    """Get an async SQLAlchemy database session."""
+    """Get an async SQLAlchemy database session with RLS context.
+
+    Behavior depends on TRACECAT__RLS_MODE:
+    - off: bypass context by default
+    - shadow: bypass context + rollout telemetry
+    - enforce: role-derived context with deny-default fallback
+    """
     async with AsyncSession(get_async_engine(), expire_on_commit=False) as session:
+        await _initialize_session_rls_context(session)
+        yield session
+
+
+async def get_async_session_bypass_rls() -> AsyncGenerator[AsyncSession, None]:
+    """Get an async SQLAlchemy database session with explicit RLS bypass context.
+
+    Use this only for system operations that need unrestricted access:
+    - Database migrations
+    - Background jobs without user context
+    - Administrative operations
+
+    WARNING: Use sparingly and only when necessary. Prefer get_async_session()
+    with proper role context for most operations.
+    """
+    async with AsyncSession(get_async_engine(), expire_on_commit=False) as session:
+        await set_rls_context(
+            session,
+            org_id=None,
+            workspace_id=None,
+            user_id=None,
+            bypass=True,
+        )
         yield session
 
 
 def get_async_session_context_manager() -> contextlib.AbstractAsyncContextManager[
     AsyncSession
 ]:
-    """Get a context manager for an async SQLAlchemy database session."""
+    """Get a context manager for an async SQLAlchemy database session with RLS context."""
     return contextlib.asynccontextmanager(get_async_session)()
+
+
+def get_async_session_bypass_rls_context_manager() -> (
+    contextlib.AbstractAsyncContextManager[AsyncSession]
+):
+    """Get a context manager for an async session with explicit RLS bypass.
+
+    Use this for system operations that need unrestricted database access.
+    """
+    return contextlib.asynccontextmanager(get_async_session_bypass_rls)()
