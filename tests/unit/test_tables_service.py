@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import EDITOR_SCOPES, VIEWER_SCOPES
-from tracecat.db.models import Table
+from tracecat.db.models import Table, Workspace
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginationParams
@@ -32,6 +32,39 @@ pytestmark = pytest.mark.usefixtures("db")
 async def tables_service(session: AsyncSession, svc_admin_role: Role) -> TablesService:
     """Fixture to create a TablesService instance using an admin role."""
     return TablesService(session=session, role=svc_admin_role)
+
+
+@pytest.fixture(scope="function")
+async def other_workspace(session: AsyncSession, svc_workspace: Workspace) -> Workspace:
+    """Secondary workspace for cross-workspace isolation tests."""
+    workspace = Workspace(
+        name="other-tables-workspace",
+        organization_id=svc_workspace.organization_id,
+    )
+    session.add(workspace)
+    await session.commit()
+    await session.refresh(workspace)
+    return workspace
+
+
+@pytest.fixture(scope="function")
+async def other_admin_role(svc_admin_role: Role, other_workspace: Workspace) -> Role:
+    """Org admin role scoped to the secondary workspace."""
+    return svc_admin_role.model_copy(
+        update={
+            "workspace_id": other_workspace.id,
+            "organization_id": other_workspace.organization_id,
+            "user_id": uuid4(),
+        }
+    )
+
+
+@pytest.fixture(scope="function")
+async def other_tables_service(
+    session: AsyncSession, other_admin_role: Role
+) -> TablesService:
+    """TablesService instance scoped to the secondary workspace."""
+    return TablesService(session=session, role=other_admin_role)
 
 
 @pytest.fixture(scope="function")
@@ -517,6 +550,23 @@ class TestTableColumns:
         assert retrieved_column.nullable is False
         assert retrieved_column.default == "default_value"
         assert retrieved_column.type == SqlType.TEXT
+
+    async def test_get_column_rejects_cross_workspace_lookup(
+        self,
+        tables_service: TablesService,
+        other_tables_service: TablesService,
+    ) -> None:
+        """Column lookup should fail when table belongs to another workspace."""
+        other_table = await other_tables_service.create_table(
+            TableCreate(name="other_workspace_table")
+        )
+        other_column = await other_tables_service.create_column(
+            other_table,
+            TableColumnCreate(name="external_col", type=SqlType.TEXT),
+        )
+
+        with pytest.raises(TracecatNotFoundError):
+            await tables_service.get_column(other_table.id, other_column.id)
 
     async def test_create_single_column_unique_index(
         self, tables_service: TablesService, table: Table
