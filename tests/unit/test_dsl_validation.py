@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from tracecat import config
-from tracecat.dsl.validation import (
+from tracecat.dsl.init_activities import (
     resolve_workflow_concurrency_limits_enabled_activity,
 )
 from tracecat.feature_flags import FeatureFlag
