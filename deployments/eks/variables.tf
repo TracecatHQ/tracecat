@@ -165,6 +165,18 @@ variable "tracecat_ingress_split" {
   default     = true
 }
 
+variable "tracecat_mcp_enabled" {
+  description = "Enable the Tracecat MCP server deployment and /mcp ingress routing."
+  type        = bool
+  default     = false
+}
+
+variable "tracecat_mcp_replicas" {
+  description = "Replica count for the Tracecat MCP deployment when enabled."
+  type        = number
+  default     = 1
+}
+
 variable "superadmin_email" {
   description = "Email address for the Tracecat superadmin"
   type        = string

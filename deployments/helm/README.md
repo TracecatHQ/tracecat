@@ -77,6 +77,11 @@ helm install tracecat ./tracecat \
   --set ingress.enabled=false \
   --set urls.publicApp=https://tracecat.example.com \
   --set urls.publicApi=https://tracecat.example.com/api \
+  --set urls.publicMcp=https://tracecat.example.com/mcp \
+  --set mcp.enabled=true \
+  --set tracecat.oidc.issuer=https://issuer.example.com \
+  --set tracecat.oidc.clientId=tracecat-mcp \
+  --set tracecat.oidc.clientSecret=replace-me \
   --set secrets.existingSecret=tracecat-secrets \
   --set externalPostgres.host=your-db-host.example.com \
   --set externalPostgres.auth.existingSecret=tracecat-postgres-credentials \
@@ -184,7 +189,7 @@ Use this when ingress is disabled and traffic is managed by Istio gateways.
 |-----------|---------|-------------|
 | `virtualService.enabled` | `false` | Enable VirtualService rendering |
 | `virtualService.apiVersion` | `networking.istio.io/v1beta1` | Istio API version |
-| `virtualService.tracecat.enabled` | `true` | Render Tracecat UI/API VirtualServices |
+| `virtualService.tracecat.enabled` | `true` | Render Tracecat API/UI VirtualServices (and MCP routes when `mcp.enabled=true`) |
 | `virtualService.tracecat.configs` | `[]` | Required list of `{name, hosts, gateways}` entries |
 | `virtualService.webhooks.enabled` | `false` | Render webhook-only VirtualServices |
 | `virtualService.webhooks.timeout` | `5s` | Timeout for webhook routes |
@@ -224,6 +229,20 @@ virtualService:
           - temporal.example.com
         gateways:
           - istio-system/private-gateway
+
+mcp:
+  enabled: true
+
+tracecat:
+  oidc:
+    issuer: https://issuer.example.com
+    clientId: tracecat-mcp
+    clientSecret: replace-me
+
+urls:
+  publicApp: https://tracecat.example.com
+  publicApi: https://tracecat.example.com/api
+  publicMcp: https://tracecat.example.com/mcp
 ```
 
 ### Public URLs
