@@ -319,33 +319,6 @@ async def get_org_saml_metadata_url(
     return value
 
 
-async def should_allow_email_for_org(
-    session: AsyncSession, organization_id: OrganizationID, email: str
-) -> bool:
-    """Check whether a SAML email satisfies domain policy for the org.
-
-    Policy:
-    - Multi-tenant: require active org domain allowlist match.
-    - Single-tenant:
-      - If active org domains exist, require active org domain match.
-      - Else if env allowed domains are configured, require env domain match.
-      - Else allow any valid email domain.
-    """
-    if "@" not in email:
-        return False
-    raw_domain = email.split("@", 1)[1].strip().lower()
-    try:
-        normalized_domain = normalize_domain(raw_domain).normalized_domain
-    except ValueError:
-        return False
-
-    active_domains = await _get_active_org_domains(session, organization_id)
-    return _is_normalized_domain_allowed_for_org(
-        normalized_domain=normalized_domain,
-        active_domains=active_domains,
-    )
-
-
 async def _get_active_org_domains(
     session: AsyncSession, organization_id: OrganizationID
 ) -> set[str]:

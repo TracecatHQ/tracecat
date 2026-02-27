@@ -91,77 +91,60 @@ class _FakeResult:
         return self._values[0]
 
 
-@pytest.mark.anyio
-async def test_should_allow_email_for_org_denies_no_domains_in_multi_tenant(
+def test_is_normalized_domain_allowed_for_org_denies_no_domains_in_multi_tenant(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake_session = AsyncMock()
-    fake_session.execute.return_value = _FakeResult([])
     monkeypatch.setattr(saml, "TRACECAT__EE_MULTI_TENANT", True)
     monkeypatch.setattr(saml, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
 
-    allowed = await saml.should_allow_email_for_org(
-        fake_session, uuid.uuid4(), "user@example.com"
+    allowed = saml._is_normalized_domain_allowed_for_org(
+        normalized_domain="example.com", active_domains=set()
     )
 
     assert allowed is False
 
 
-@pytest.mark.anyio
-async def test_should_allow_email_for_org_allows_no_domains_in_single_tenant_when_env_not_set(
+def test_is_normalized_domain_allowed_for_org_allows_no_domains_in_single_tenant_when_env_not_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake_session = AsyncMock()
-    fake_session.execute.return_value = _FakeResult([])
     monkeypatch.setattr(saml, "TRACECAT__EE_MULTI_TENANT", False)
     monkeypatch.setattr(saml, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
 
-    allowed = await saml.should_allow_email_for_org(
-        fake_session, uuid.uuid4(), "user@example.com"
+    allowed = saml._is_normalized_domain_allowed_for_org(
+        normalized_domain="example.com", active_domains=set()
     )
 
     assert allowed is True
 
 
-@pytest.mark.anyio
-async def test_should_allow_email_for_org_enforces_env_domains_in_single_tenant(
+def test_is_normalized_domain_allowed_for_org_enforces_env_domains_in_single_tenant(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake_session = AsyncMock()
-    fake_session.execute.return_value = _FakeResult([])
     monkeypatch.setattr(saml, "TRACECAT__EE_MULTI_TENANT", False)
     monkeypatch.setattr(saml, "TRACECAT__AUTH_ALLOWED_DOMAINS", {"acme.com"})
 
-    allowed_matching = await saml.should_allow_email_for_org(
-        fake_session, uuid.uuid4(), "user@acme.com"
+    allowed_matching = saml._is_normalized_domain_allowed_for_org(
+        normalized_domain="acme.com", active_domains=set()
     )
-    allowed_non_matching = await saml.should_allow_email_for_org(
-        fake_session, uuid.uuid4(), "user@example.com"
+    allowed_non_matching = saml._is_normalized_domain_allowed_for_org(
+        normalized_domain="example.com", active_domains=set()
     )
 
     assert allowed_matching is True
     assert allowed_non_matching is False
 
 
-@pytest.mark.anyio
-async def test_should_allow_email_for_org_allows_allowlisted_domain() -> None:
-    fake_session = AsyncMock()
-    fake_session.execute.return_value = _FakeResult(["example.com"])
-
-    allowed = await saml.should_allow_email_for_org(
-        fake_session, uuid.uuid4(), "user@example.com"
+def test_is_normalized_domain_allowed_for_org_allows_allowlisted_domain() -> None:
+    allowed = saml._is_normalized_domain_allowed_for_org(
+        normalized_domain="example.com", active_domains={"example.com"}
     )
 
     assert allowed is True
 
 
-@pytest.mark.anyio
-async def test_should_allow_email_for_org_denies_non_allowlisted_domain() -> None:
-    fake_session = AsyncMock()
-    fake_session.execute.return_value = _FakeResult(["example.com"])
-
-    allowed = await saml.should_allow_email_for_org(
-        fake_session, uuid.uuid4(), "user@other.com"
+def test_is_normalized_domain_allowed_for_org_denies_non_allowlisted_domain() -> None:
+    allowed = saml._is_normalized_domain_allowed_for_org(
+        normalized_domain="other.com", active_domains={"example.com"}
     )
 
     assert allowed is False
