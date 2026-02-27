@@ -1,0 +1,42 @@
+tracecat/tiers/semaphore.py
+  e9db6cc7f58a5410 101-106,110,140,210
+  8e499112c44d35f5 19-20,169-170
+tests/temporal/test_workflow_concurrency_limits.py
+  e9db6cc7f58a5410 94
+tests/unit/test_tiers_semaphore.py
+  e9db6cc7f58a5410 73,100,107
+  8e499112c44d35f5 131-150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.5",
+  "base_commit_sha": "891502ee87e766998a9580f57aca61f39e933548",
+  "prompts": {
+    "8e499112c44d35f5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c9ae6-0876-7100-a7ee-29efcf49961e",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 24,
+      "total_deletions": 2,
+      "accepted_lines": 24,
+      "overriden_lines": 0
+    },
+    "e9db6cc7f58a5410": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "327e51aa-0ace-4800-892c-00518c9099c5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 26,
+      "accepted_lines": 13,
+      "overriden_lines": 0
+    }
+  }
+}
