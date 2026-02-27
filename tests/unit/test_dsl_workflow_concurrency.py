@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from types import SimpleNamespace
 from typing import Any, cast
@@ -206,3 +207,62 @@ def test_resolve_child_loop_batch_size_applies_caps(
 
     assert strategy_batch_size == 6
     assert batch_size == 2
+
+
+def test_next_permit_heartbeat_sleep_seconds_applies_jitter() -> None:
+    workflow = _build_workflow()
+
+    with patch("tracecat.dsl.workflow.workflow.random") as random_mock:
+        random_mock.return_value.uniform.return_value = 1.05
+        sleep_seconds = workflow._next_permit_heartbeat_sleep_seconds(
+            heartbeat_interval=60.0
+        )
+
+    assert sleep_seconds == pytest.approx(63.0)
+
+
+@pytest.mark.anyio
+async def test_run_cancellation_safe_cleanup_completes_after_cancellation() -> None:
+    workflow = _build_workflow()
+    started = asyncio.Event()
+    completed = asyncio.Event()
+
+    async def cleanup() -> None:
+        started.set()
+        await asyncio.sleep(0)
+        completed.set()
+
+    cleanup_task = asyncio.create_task(
+        workflow._run_cancellation_safe_cleanup(
+            cleanup(),
+            operation="test_cleanup",
+        )
+    )
+    await started.wait()
+    cleanup_task.cancel()
+    await cleanup_task
+
+    assert completed.is_set()
+
+
+@pytest.mark.anyio
+async def test_release_workflow_permit_is_idempotent() -> None:
+    workflow = _build_workflow()
+    workflow._workflow_permit_acquired = True
+    execute_activity_mock = AsyncMock(return_value=None)
+
+    with (
+        patch(
+            "tracecat.dsl.workflow.workflow.execute_activity",
+            new=execute_activity_mock,
+        ),
+        patch(
+            "tracecat.dsl.workflow.workflow.info",
+            return_value=SimpleNamespace(workflow_id="wf-id"),
+        ),
+    ):
+        await workflow._release_workflow_permit()
+        await workflow._release_workflow_permit()
+
+    assert execute_activity_mock.await_count == 1
+    assert workflow._workflow_permit_acquired is False

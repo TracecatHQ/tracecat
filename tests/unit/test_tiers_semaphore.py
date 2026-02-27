@@ -70,7 +70,7 @@ async def test_semaphore_uses_distinct_scope_keys_for_acquire() -> None:
         limit=5,
     )
 
-    assert client.acquire_calls[0][0] == [f"tier:org:{ORG_ID}:semaphore"]
+    assert client.acquire_calls[0][0] == [f"tier:org:{ORG_ID}:workflow-semaphore"]
     assert client.acquire_calls[1][0] == [f"tier:org:{ORG_ID}:action-semaphore"]
 
 
@@ -97,14 +97,14 @@ async def test_semaphore_uses_distinct_scope_keys_for_release_and_heartbeat() ->
     )
 
     assert client.zrem.await_args_list[0].args == (
-        f"tier:org:{ORG_ID}:semaphore",
+        f"tier:org:{ORG_ID}:workflow-semaphore",
         "wf-123",
     )
     assert client.zrem.await_args_list[1].args == (
         f"tier:org:{ORG_ID}:action-semaphore",
         "wf-123:root:step",
     )
-    assert client.heartbeat_calls[0][0] == [f"tier:org:{ORG_ID}:semaphore"]
+    assert client.heartbeat_calls[0][0] == [f"tier:org:{ORG_ID}:workflow-semaphore"]
     assert client.heartbeat_calls[1][0] == [f"tier:org:{ORG_ID}:action-semaphore"]
 
 
@@ -126,6 +126,26 @@ async def test_heartbeat_returns_false_when_permit_missing() -> None:
     refreshed = await semaphore.heartbeat_workflow(org_id=ORG_ID, workflow_id="wf-123")
 
     assert refreshed is False
+
+
+@pytest.mark.anyio
+async def test_release_is_idempotent_when_permit_missing() -> None:
+    client = _FakeRedisClient()
+    client.zrem = AsyncMock(return_value=0)
+    semaphore = RedisSemaphore(cast(redis.Redis, client))
+
+    await semaphore.release_workflow(org_id=ORG_ID, workflow_id="wf-123")
+    await semaphore.release_workflow(org_id=ORG_ID, workflow_id="wf-123")
+
+    assert client.zrem.await_count == 2
+    assert client.zrem.await_args_list[0].args == (
+        f"tier:org:{ORG_ID}:workflow-semaphore",
+        "wf-123",
+    )
+    assert client.zrem.await_args_list[1].args == (
+        f"tier:org:{ORG_ID}:workflow-semaphore",
+        "wf-123",
+    )
 
 
 def test_tier_activities_include_action_permit_activities() -> None:

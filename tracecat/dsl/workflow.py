@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from collections.abc import Awaitable, Generator, Iterator
+from collections.abc import Awaitable, Coroutine, Generator, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -18,6 +18,7 @@ from temporalio.exceptions import (
     ApplicationError,
     ChildWorkflowError,
     FailureError,
+    is_cancelled_exception,
 )
 
 with workflow.unsafe.imports_passed_through():
@@ -462,17 +463,27 @@ class DSLWorkflow:
             raise e
         except Exception as e:
             # Platform error
-            self.logger.error(
-                "Unexpected error running workflow",
-                type=e.__class__.__name__,
-                error=e,
-            )
+            if is_cancelled_exception(e):
+                self.logger.info("Workflow cancelled, skipping error logging")
+            else:
+                self.logger.error(
+                    "Unexpected error running workflow",
+                    type=e.__class__.__name__,
+                    error=e,
+                )
             raise e
         finally:
-            await self._stop_workflow_permit_heartbeat()
+            await self._run_cancellation_safe_cleanup(
+                self._stop_workflow_permit_heartbeat(),
+                operation="stop_workflow_permit_heartbeat",
+            )
             # Release workflow permit if acquired
             if self._workflow_permit_acquired:
-                await self._release_workflow_permit()
+                self.logger.warning("Releasing workflow permit")
+                await self._run_cancellation_safe_cleanup(
+                    self._release_workflow_permit(),
+                    operation="release_workflow_permit",
+                )
 
     async def _run_workflow(self, args: DSLRunArgs) -> StoredObject:
         """Actual workflow execution logic."""
@@ -1192,7 +1203,10 @@ class DSLWorkflow:
                     action_permit_heartbeat_task, return_exceptions=True
                 )
             if action_permit_id is not None:
-                await self._release_action_permit(action_id=action_permit_id)
+                await self._run_cancellation_safe_cleanup(
+                    self._release_action_permit(action_id=action_permit_id),
+                    operation="release_action_permit",
+                )
             self.logger.trace("Setting action result", task_result=task_result)
             context = self.get_context(stream_id)
             context["ACTIONS"][task.ref] = task_result
@@ -2233,6 +2247,32 @@ class DSLWorkflow:
         jitter = workflow.random().uniform(0.8, 1.2)
         return exponential * jitter
 
+    def _next_permit_heartbeat_sleep_seconds(
+        self, *, heartbeat_interval: float
+    ) -> float:
+        """Compute deterministic heartbeat sleep interval with jitter."""
+        jitter = workflow.random().uniform(0.9, 1.1)
+        return max(heartbeat_interval * jitter, 0.1)
+
+    async def _run_cancellation_safe_cleanup(
+        self,
+        cleanup: Coroutine[Any, Any, None],
+        *,
+        operation: str,
+    ) -> None:
+        """Run cleanup to completion even if workflow cancellation is requested."""
+        cleanup_task = asyncio.create_task(cleanup)
+        try:
+            await asyncio.shield(cleanup_task)
+        except BaseException as e:
+            if not is_cancelled_exception(e):
+                raise
+            self.logger.info(
+                "Cancellation requested during cleanup, waiting for cleanup step",
+                operation=operation,
+            )
+            await asyncio.shield(cleanup_task)
+
     async def _workflow_permit_heartbeat_loop(self) -> None:
         if self.role.organization_id is None:
             return
@@ -2244,7 +2284,11 @@ class DSLWorkflow:
         wf_id = workflow.info().workflow_id
         org_id = self.role.organization_id
         while self._workflow_permit_acquired:
-            await asyncio.sleep(heartbeat_interval)
+            await asyncio.sleep(
+                self._next_permit_heartbeat_sleep_seconds(
+                    heartbeat_interval=heartbeat_interval
+                )
+            )
             if not self._workflow_permit_acquired:
                 return
             try:
@@ -2274,7 +2318,11 @@ class DSLWorkflow:
             return
         org_id = self.role.organization_id
         while True:
-            await asyncio.sleep(heartbeat_interval)
+            await asyncio.sleep(
+                self._next_permit_heartbeat_sleep_seconds(
+                    heartbeat_interval=heartbeat_interval
+                )
+            )
             try:
                 refreshed = await workflow.execute_activity(
                     heartbeat_action_permit_activity,

@@ -91,7 +91,7 @@ async def concurrency_limits_enabled(
 
 def _workflow_semaphore_key(org_id: uuid.UUID) -> str:
     """Build the Redis key used for workflow permit tracking for an org."""
-    return f"tier:org:{org_id}:semaphore"
+    return f"tier:org:{org_id}:workflow-semaphore"
 
 
 def _action_semaphore_key(org_id: uuid.UUID) -> str:

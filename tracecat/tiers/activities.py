@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from tracecat import config
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
@@ -104,10 +105,7 @@ async def acquire_workflow_permit_activity(
         scope="workflow",
     )
 
-    redis_client = await get_redis_client()
-    # Get the underlying redis.Redis client for the semaphore
-    client = await redis_client._get_client()
-    semaphore = RedisSemaphore(client)
+    semaphore = await _get_redis_semaphore()
 
     result = await semaphore.acquire_workflow(
         org_id=input.org_id,
@@ -138,9 +136,7 @@ async def release_workflow_permit_activity(
     Args:
         input: Contains org_id and workflow_id.
     """
-    redis_client = await get_redis_client()
-    client = await redis_client._get_client()
-    semaphore = RedisSemaphore(client)
+    semaphore = await _get_redis_semaphore()
 
     await semaphore.release_workflow(
         org_id=input.org_id,
@@ -267,7 +263,7 @@ async def _get_redis_semaphore() -> RedisSemaphore:
     """Return a configured Redis semaphore for this process."""
     redis_client = await get_redis_client()
     client = await redis_client._get_client()
-    return RedisSemaphore(client)
+    return RedisSemaphore(client, ttl_seconds=config.TRACECAT__PERMIT_TTL_SECONDS)
 
 
 def _normalize_concurrency_limit(
