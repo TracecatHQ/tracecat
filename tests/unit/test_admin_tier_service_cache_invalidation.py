@@ -116,3 +116,29 @@ async def test_update_tier_invalidates_assigned_organization_caches(
     assert invalidate_many_mock.await_args is not None
     invalidated_org_ids = set(invalidate_many_mock.await_args.args[0])
     assert invalidated_org_ids == {org_a_id, org_b.id}
+
+
+@pytest.mark.anyio
+async def test_update_tier_explicit_null_clears_limit(
+    session: AsyncSession,
+    test_admin_role: Role,
+) -> None:
+    tier = _tier(is_default=False)
+    tier.max_concurrent_workflows = 5
+    session.add(tier)
+    await session.commit()
+
+    service = AdminTierService(session, cast(PlatformRole, test_admin_role))
+
+    result = await service.update_tier(
+        tier.id,
+        TierUpdate(
+            display_name=tier.display_name,
+            max_concurrent_workflows=None,
+        ),
+    )
+
+    assert result.max_concurrent_workflows is None
+
+    await session.refresh(tier)
+    assert tier.max_concurrent_workflows is None
