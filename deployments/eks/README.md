@@ -357,6 +357,23 @@ export TF_VAR_temporal_cluster_namespace="my-temporal-namespace"
 export TF_VAR_temporal_secret_arn="arn:aws:secretsmanager:us-east-1:123456789012:secret:tracecat/temporal-api-key-AbCdEf"
 ```
 
+## Enable Tracecat MCP on EKS
+
+The EKS Terraform stack can enable the MCP service and ALB routing for `/mcp` and OIDC endpoints.
+
+```bash
+export TF_VAR_tracecat_mcp_enabled=true
+export TF_VAR_tracecat_mcp_replicas=1
+
+# Required by Helm validation when MCP is enabled.
+export TF_VAR_auth_types="oidc"
+export TF_VAR_oidc_issuer="https://issuer.example.com"
+export TF_VAR_oidc_client_id="tracecat-mcp"
+export TF_VAR_oidc_client_secret="replace-me"
+```
+
+When enabled, the module sets `urls.publicMcp=https://<domain>/mcp`, enables the chart `mcp` workload, and configures ALB ingress annotations for MCP in split-ingress mode.
+
 ## Observability (Grafana Cloud)
 
 The stack includes an optional observability pipeline that deploys:

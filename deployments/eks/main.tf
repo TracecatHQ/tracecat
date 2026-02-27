@@ -44,6 +44,8 @@ module "eks" {
   hosted_zone_id         = var.hosted_zone_id
   tracecat_image_tag     = var.tracecat_image_tag
   tracecat_ingress_split = var.tracecat_ingress_split
+  tracecat_mcp_enabled   = var.tracecat_mcp_enabled
+  tracecat_mcp_replicas  = var.tracecat_mcp_replicas
   superadmin_email       = var.superadmin_email
 
   # Tracecat Secrets (AWS Secrets Manager ARN)

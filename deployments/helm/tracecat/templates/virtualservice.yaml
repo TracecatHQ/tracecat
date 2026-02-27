@@ -50,6 +50,30 @@ spec:
             host: {{ include "tracecat.fullname" $ }}-api
             port:
               number: 8000
+    {{- if $.Values.mcp.enabled }}
+    - match:
+        - uri:
+            prefix: /mcp
+        - uri:
+            exact: /.well-known/oauth-authorization-server
+        - uri:
+            exact: /.well-known/oauth-protected-resource
+        - uri:
+            prefix: /authorize
+        - uri:
+            exact: /token
+        - uri:
+            exact: /register
+        - uri:
+            prefix: /consent
+        - uri:
+            prefix: /auth/callback
+      route:
+        - destination:
+            host: {{ include "tracecat.fullname" $ }}-mcp
+            port:
+              number: {{ $.Values.mcp.port }}
+    {{- end }}
     - match:
         - uri:
             prefix: /
