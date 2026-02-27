@@ -14,7 +14,6 @@ import uuid
 from collections import deque
 from datetime import datetime, timedelta
 from io import StringIO
-from pathlib import Path
 from typing import Any, Literal, cast
 
 import yaml
@@ -2107,7 +2106,6 @@ async def validate_workflow(
 async def validate_template_action(
     workspace_id: str,
     template_yaml: str | None = None,
-    template_path: str | None = None,
     check_db: bool = False,
 ) -> str:
     """Validate a template action YAML payload.
@@ -2118,7 +2116,6 @@ async def validate_template_action(
     Args:
         workspace_id: The workspace ID.
         template_yaml: Full template action YAML content.
-        template_path: Path to a local .yml/.yaml template file.
         check_db: When True, also resolve missing actions from registry DB.
             Defaults to False for local-only validation.
 
@@ -2128,21 +2125,9 @@ async def validate_template_action(
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         action_name: str | None = None
-        source_count = int(template_yaml is not None) + int(template_path is not None)
-        if source_count != 1:
-            raise ToolError("Provide exactly one of template_yaml or template_path")
-
-        if template_path is not None:
-            path = Path(template_path).expanduser()
-            if path.suffix.lower() not in {".yml", ".yaml"}:
-                raise ToolError("template_path must point to a .yml or .yaml file")
-            try:
-                template_yaml = path.read_text(encoding="utf-8")
-            except OSError as exc:
-                raise ToolError(f"Failed to read template file: {exc}") from exc
 
         if template_yaml is None:
-            raise ToolError("template_yaml is required when template_path is not set")
+            raise ToolError("template_yaml is required")
 
         try:
             raw_template = yaml.safe_load(template_yaml)

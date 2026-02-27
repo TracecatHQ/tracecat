@@ -678,8 +678,8 @@ async def list_user_workspaces(
                 Workspace.organization_id.in_(org_admin_ids)
             )
             admin_result = await session.execute(admin_stmt)
-            for row in admin_result.all():
-                workspace_map[row.id] = row.name
+            for workspace_id, workspace_name in admin_result.tuples().all():
+                workspace_map[workspace_id] = workspace_name
 
         # For other orgs, list only direct workspace memberships.
         member_org_ids = org_ids - org_admin_ids
@@ -693,8 +693,8 @@ async def list_user_workspaces(
                 )
             )
             member_result = await session.execute(member_stmt)
-            for row in member_result.all():
-                workspace_map[row.id] = row.name
+            for workspace_id, workspace_name in member_result.tuples().all():
+                workspace_map[workspace_id] = workspace_name
 
         ordered = sorted(
             workspace_map.items(), key=lambda item: (item[1], str(item[0]))
