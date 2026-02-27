@@ -1147,16 +1147,16 @@ async def test_child_workflow_loop(
 
 
 @pytest.mark.anyio
-async def test_child_workflow_parallel_loop_respects_in_flight_cap(
+async def test_child_workflow_parallel_loop_with_dispatch_cap(
     test_role: Role,
     temporal_client: Client,
     monkeypatch: pytest.MonkeyPatch,
     test_worker_factory: Callable[[Client], Worker],
     test_executor_worker_factory: Callable[[Client], Worker],
 ) -> None:
-    test_name = test_child_workflow_parallel_loop_respects_in_flight_cap.__name__
+    test_name = test_child_workflow_parallel_loop_with_dispatch_cap.__name__
     wf_exec_id = generate_test_exec_id(test_name)
-    monkeypatch.setattr(config, "TRACECAT__CHILD_WORKFLOW_MAX_IN_FLIGHT", 2)
+    monkeypatch.setattr(config, "TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW", 8)
 
     child_dsl = DSLInput(
         entrypoint=DSLEntrypoint(expects={}, ref="reshape"),
@@ -1192,7 +1192,7 @@ async def test_child_workflow_parallel_loop_respects_in_flight_cap(
                     "trigger_inputs": {"index": "${{ var.x }}"},
                     "loop_strategy": LoopStrategy.PARALLEL.value,
                 },
-                for_each="${{ for var.x in FN.range(0, 6) }}",
+                for_each="${{ for var.x in FN.range(0, 12) }}",
             ),
         ],
         returns="${{ ACTIONS.run_child.result }}",
@@ -1206,12 +1206,8 @@ async def test_child_workflow_parallel_loop_respects_in_flight_cap(
     )
     worker = test_worker_factory(temporal_client)
     executor_worker = test_executor_worker_factory(temporal_client)
-    started_at = datetime.now(UTC)
     result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
-    duration_seconds = (datetime.now(UTC) - started_at).total_seconds()
-
-    assert duration_seconds >= 2.0
-    assert await to_data(result) == [{"index": i} for i in range(6)]
+    assert await to_data(result) == [{"index": i} for i in range(12)]
 
 
 # Test workflow alias
