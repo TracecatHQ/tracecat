@@ -146,12 +146,22 @@ function getMcpProviderId(slug: string): string | undefined {
     sentry: "sentry_mcp",
     notion: "notion_mcp",
     linear: "linear_mcp",
+    jira: "jira_mcp",
     runreveal: "runreveal_mcp",
     "secure-annex": "secureannex_mcp",
     secureannex: "secureannex_mcp",
   }
 
-  return slugMap[slug.toLowerCase()]
+  const normalized = slug.toLowerCase()
+  if (slugMap[normalized]) {
+    return slugMap[normalized]
+  }
+
+  if (normalized.endsWith("_mcp")) {
+    return normalized
+  }
+
+  return undefined
 }
 
 const agentPresetSchema = z

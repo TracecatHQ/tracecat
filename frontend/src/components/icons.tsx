@@ -542,6 +542,7 @@ export const providerIcons: Record<
   sentry_mcp: (props) => <SentryIcon {...props} />,
   notion_mcp: (props) => <NotionIcon {...props} />,
   linear_mcp: (props) => <LinearIcon {...props} />,
+  jira_mcp: (props) => <JiraIcon {...props} />,
   runreveal_mcp: (props) => <RunRevealIcon {...props} />,
   secureannex_mcp: (props) => <SecureAnnexIcon {...props} />,
   github_mcp: ({ className, ...rest }) => (
