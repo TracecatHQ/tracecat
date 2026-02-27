@@ -67,6 +67,7 @@ function getMcpProviderId(slug: string): string | undefined {
     sentry: "sentry_mcp",
     notion: "notion_mcp",
     linear: "linear_mcp",
+    jira: "jira_mcp",
     runreveal: "runreveal_mcp",
     "secure-annex": "secureannex_mcp",
     secureannex: "secureannex_mcp",
