@@ -439,9 +439,14 @@ class BaseTablesService(BaseWorkspaceService):
         self, table_id: TableID, column_id: TableColumnID
     ) -> TableColumn:
         """Get a column by ID."""
-        statement = select(TableColumn).where(
-            TableColumn.table_id == table_id,
-            TableColumn.id == column_id,
+        statement = (
+            select(TableColumn)
+            .join(Table, Table.id == TableColumn.table_id)
+            .where(
+                TableColumn.table_id == table_id,
+                TableColumn.id == column_id,
+                Table.workspace_id == self.workspace_id,
+            )
         )
         result = await self.session.execute(statement)
         column = result.scalars().first()

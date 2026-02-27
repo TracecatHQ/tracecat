@@ -232,9 +232,15 @@ class CaseTagsService(BaseWorkspaceService):
 
     async def list_tags_for_case(self, case_id: uuid.UUID) -> Sequence[CaseTag]:
         """List all tags attached to a specific case."""
-        onclause = CaseTagLink.tag_id == CaseTag.id
-        condition = CaseTagLink.case_id == case_id
-        stmt = select(CaseTag).join(CaseTagLink, onclause).where(condition)
+        stmt = (
+            select(CaseTag)
+            .join(CaseTagLink, CaseTagLink.tag_id == CaseTag.id)
+            .join(Case, Case.id == CaseTagLink.case_id)
+            .where(
+                CaseTagLink.case_id == case_id,
+                Case.workspace_id == self.workspace_id,
+            )
+        )
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
