@@ -106,7 +106,7 @@ def mcp_tool_name_to_canonical(discovered_name: str) -> str:
     if discovered_name.startswith("mcp__"):
         parts = discovered_name.split("__", 2)
         if len(parts) >= 3:
-            return f"mcp.{parts[1]}.{parts[2]}"
+            return f"mcp.{parts[1]}.{mcp_tool_name_to_action_name(parts[2])}"
     return discovered_name
 
 
