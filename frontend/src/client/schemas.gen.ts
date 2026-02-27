@@ -10455,7 +10455,7 @@ export const $MCPHttpServerConfig = {
     },
   },
   type: "object",
-  required: ["type", "name", "url"],
+  required: ["name", "url"],
   title: "MCPHttpServerConfig",
   description: `Configuration for a user-defined MCP server over HTTP/SSE.
 
@@ -10481,6 +10481,13 @@ export const $MCPIntegrationCreate = {
       $ref: "#/components/schemas/MCPStdioIntegrationCreate",
     },
   ],
+  discriminator: {
+    propertyName: "server_type",
+    mapping: {
+      http: "#/components/schemas/MCPHttpIntegrationCreate",
+      stdio: "#/components/schemas/MCPStdioIntegrationCreate",
+    },
+  },
 } as const
 
 export const $MCPIntegrationRead = {

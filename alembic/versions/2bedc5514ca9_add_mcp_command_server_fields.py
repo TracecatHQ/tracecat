@@ -43,14 +43,23 @@ def upgrade() -> None:
     op.alter_column(
         "mcp_integration", "server_uri", existing_type=sa.VARCHAR(), nullable=True
     )
+    # Explicitly backfill pre-migration integrations (remote HTTP only) to HTTP type.
+    op.execute(sa.text("UPDATE mcp_integration SET server_type = 'http'"))
 
 
 def downgrade() -> None:
-    op.alter_column(
-        "mcp_integration", "server_uri", existing_type=sa.VARCHAR(), nullable=False
+    # Downgrade target schema has no stdio representation and requires non-null server_uri.
+    # Remove rows that cannot be represented before tightening the constraint.
+    op.execute(
+        sa.text(
+            "DELETE FROM mcp_integration WHERE server_type = 'stdio' OR server_uri IS NULL"
+        )
     )
     op.drop_column("mcp_integration", "timeout")
     op.drop_column("mcp_integration", "encrypted_stdio_env")
     op.drop_column("mcp_integration", "stdio_args")
     op.drop_column("mcp_integration", "stdio_command")
     op.drop_column("mcp_integration", "server_type")
+    op.alter_column(
+        "mcp_integration", "server_uri", existing_type=sa.VARCHAR(), nullable=False
+    )

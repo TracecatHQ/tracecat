@@ -80,7 +80,7 @@ class AgentActivities:
 
     @staticmethod
     def _is_http_server(config: MCPServerConfig) -> TypeGuard[MCPHttpServerConfig]:
-        return config["type"] == "http"
+        return config.get("type", "http") == "http"
 
     def get_activities(self) -> list[Callable[..., Any]]:
         return all_activities(self)

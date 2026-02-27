@@ -21,7 +21,8 @@ type AgentFactory = Callable[[AgentConfig], Awaitable[AbstractAgent[Any, Any]]]
 
 
 def _is_http_server(config: MCPServerConfig) -> TypeGuard[MCPHttpServerConfig]:
-    return config["type"] == "http"
+    # Legacy HTTP configs may omit "type"; treat missing as HTTP for compatibility.
+    return config.get("type", "http") == "http"
 
 
 async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
