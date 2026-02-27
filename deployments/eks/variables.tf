@@ -156,7 +156,7 @@ variable "spot_node_max_size" {
 variable "tracecat_image_tag" {
   description = "Docker image tag for Tracecat services"
   type        = string
-  default     = "1.0.0-beta.21"
+  default     = "1.0.0-beta.22"
 }
 
 variable "tracecat_ingress_split" {
