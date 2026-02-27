@@ -11,6 +11,7 @@ from tracecat.expressions.expectations import (
     ExpectedField,
     create_expectation_model,
 )
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.validation.schemas import ValidationDetail
 from tracecat.workflow.executions.enums import TriggerType
 
@@ -88,3 +89,9 @@ def resolve_time_anchor_activity(
     if inputs.trigger_type == TriggerType.SCHEDULED and inputs.scheduled_start_time:
         return inputs.scheduled_start_time
     return inputs.start_time
+
+
+@activity.defn
+def resolve_workflow_concurrency_limits_enabled_activity() -> bool:
+    """Resolve and freeze concurrency-limit flag state in workflow history."""
+    return is_feature_enabled(FeatureFlag.WORKFLOW_CONCURRENCY_LIMITS)

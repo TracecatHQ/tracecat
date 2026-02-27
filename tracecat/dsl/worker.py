@@ -23,7 +23,10 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor
     from tracecat.dsl.plugins import TracecatPydanticAIPlugin
-    from tracecat.dsl.validation import resolve_time_anchor_activity
+    from tracecat.dsl.validation import (
+        resolve_time_anchor_activity,
+        resolve_workflow_concurrency_limits_enabled_activity,
+    )
     from tracecat.dsl.workflow import DSLWorkflow
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
@@ -89,6 +92,7 @@ def get_activities() -> list[Callable]:
         get_workspace_organization_id_activity,
         *WorkflowSchedulesService.get_activities(),
         resolve_time_anchor_activity,
+        resolve_workflow_concurrency_limits_enabled_activity,
         *WorkflowsManagementService.get_activities(),
         *InteractionService.get_activities(),
         *TierActivities.get_activities(),

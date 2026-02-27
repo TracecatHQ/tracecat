@@ -95,6 +95,7 @@ with workflow.unsafe.imports_passed_through():
         ResolveTimeAnchorActivityInputs,
         format_input_schema_validation_error,
         resolve_time_anchor_activity,
+        resolve_workflow_concurrency_limits_enabled_activity,
     )
     from tracecat.dsl.workflow_logging import get_workflow_logger
     from tracecat.ee.interactions.decorators import maybe_interactive
@@ -106,7 +107,6 @@ with workflow.unsafe.imports_passed_through():
         TracecatNotFoundError,
     )
     from tracecat.expressions.eval import is_template_only
-    from tracecat.feature_flags import FeatureFlag, is_feature_enabled
     from tracecat.identifiers import WorkspaceID
     from tracecat.identifiers.workflow import (
         WorkflowExecutionID,
@@ -221,6 +221,7 @@ class DSLWorkflow:
 
     # Tier limit tracking
     _tier_limits: EffectiveLimits | None = None
+    workflow_concurrency_limits_enabled: bool
     _workflow_permit_acquired: bool = False
     _workflow_permit_heartbeat_task: asyncio.Task[None] | None = None
     _action_execution_count: int = 0
@@ -375,7 +376,7 @@ class DSLWorkflow:
 
         # Fetch tier limits for this organization
         if (
-            is_feature_enabled(FeatureFlag.WORKFLOW_CONCURRENCY_LIMITS)
+            self.workflow_concurrency_limits_enabled
             and self.role.organization_id is not None
         ):
             self._tier_limits = await workflow.execute_activity(
@@ -598,6 +599,15 @@ class DSLWorkflow:
                 start_to_close_timeout=timedelta(seconds=5),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
+
+        # Snapshot flag value in workflow history for deterministic replay behavior.
+        self.workflow_concurrency_limits_enabled = (
+            await workflow.execute_local_activity(
+                resolve_workflow_concurrency_limits_enabled_activity,
+                start_to_close_timeout=timedelta(seconds=5),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        )
 
         # Prepare user facing context
         # trigger_inputs is already a StoredObject from args or normalize_trigger_inputs_activity
