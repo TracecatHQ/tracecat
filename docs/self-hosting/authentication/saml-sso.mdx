@@ -20,6 +20,22 @@ TRACECAT__AUTH_TYPES=saml
 SAML_IDP_METADATA_URL=https://<your-idp-metadata-url>
 ```
 
+## Access policy
+
+After SAML authentication succeeds, Tracecat allows organization access when at least one of the following is true:
+
+- The user already has membership in the organization.
+- The user has a pending invitation for the organization.
+- The user is the first-user superadmin bootstrap account in the default organization.
+- The user is a platform superadmin (owner).
+
+Tracecat only auto-provisions SAML user accounts for:
+
+- Pending organization invitations.
+- First-user superadmin bootstrap (default organization only).
+
+If this is a new deployment, make sure `TRACECAT__AUTH_SUPERADMIN_EMAIL` exactly matches the email claim sent by your IdP for the owner account.
+
 ## Instructions
 
 <Note>

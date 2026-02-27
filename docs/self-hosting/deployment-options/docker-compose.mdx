@@ -142,8 +142,8 @@ To access the Tracecat GUI, visit `http://localhost:${PUBLIC_APP_PORT}`.
   docs](/self-hosting/authentication/overview).
 </Note>
 
-For each new Tracecat deployment, the super admin role is assigned to the first user who logs into the Tracecat instance.
-This user owns the organization and has admin rights to every workspace in the Tracecat deployment.
+For each new Tracecat deployment, the super admin role is assigned to the first account created with `TRACECAT__AUTH_SUPERADMIN_EMAIL`.
+This account owns the organization and has admin rights to every workspace in the Tracecat deployment.
 
 **Important:** Only the email address you specified during the `env.sh` setup can become super admin.
 You must sign up using exactly that email address to gain super admin privileges.

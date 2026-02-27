@@ -481,23 +481,33 @@ async def test_is_superadmin_saml_bootstrap_allowed_for_org_false_for_non_defaul
         "has_existing_membership",
         "has_pending_invitation",
         "is_first_superadmin_bootstrap",
+        "is_platform_superuser",
         "expected",
     ),
     [
-        (False, False, False, False),
-        (True, False, False, True),
-        (False, True, False, True),
-        (False, False, True, True),
-        (True, True, False, True),
-        (True, False, True, True),
-        (False, True, True, True),
-        (True, True, True, True),
+        (False, False, False, False, False),
+        (True, False, False, False, True),
+        (False, True, False, False, True),
+        (False, False, True, False, True),
+        (False, False, False, True, True),
+        (True, True, False, False, True),
+        (True, False, True, False, True),
+        (False, True, True, False, True),
+        (True, True, True, False, True),
+        (True, False, False, True, True),
+        (False, True, False, True, True),
+        (False, False, True, True, True),
+        (True, True, False, True, True),
+        (True, False, True, True, True),
+        (False, True, True, True, True),
+        (True, True, True, True, True),
     ],
 )
 def test_should_allow_saml_org_access_matrix(
     has_existing_membership: bool,
     has_pending_invitation: bool,
     is_first_superadmin_bootstrap: bool,
+    is_platform_superuser: bool,
     expected: bool,
 ) -> None:
     pending_invitation = (
@@ -511,6 +521,7 @@ def test_should_allow_saml_org_access_matrix(
             has_existing_membership=has_existing_membership,
             pending_invitation=pending_invitation,
             is_first_superadmin_bootstrap=is_first_superadmin_bootstrap,
+            is_platform_superuser=is_platform_superuser,
         )
         is expected
     )

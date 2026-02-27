@@ -498,12 +498,14 @@ def should_allow_saml_org_access(
     has_existing_membership: bool,
     pending_invitation: OrganizationInvitation | None,
     is_first_superadmin_bootstrap: bool,
+    is_platform_superuser: bool,
 ) -> bool:
     """Allow org access after SAML auth when at least one trusted path exists."""
     return (
         has_existing_membership
         or pending_invitation is not None
         or is_first_superadmin_bootstrap
+        or is_platform_superuser
     )
 
 
@@ -915,6 +917,7 @@ async def sso_acs(
         has_existing_membership=has_existing_membership,
         pending_invitation=pending_invitation,
         is_first_superadmin_bootstrap=is_first_superadmin_bootstrap,
+        is_platform_superuser=bool(user.is_superuser),
     )
     if not can_access_org:
         logger.warning(

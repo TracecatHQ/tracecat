@@ -31,7 +31,7 @@ Tracecat has a two-level permission system:
 
 ## Organization owner
 
-The first user who logs into Tracecat is automatically assigned both `superadmin` and an organization admin role.
+The first account created with the `TRACECAT__AUTH_SUPERADMIN_EMAIL` email is automatically assigned both `superadmin` and an organization admin role.
 **Important:** Only the email address you specified during the initial setup (via `env.sh`) can become the first superadmin.
 Currently, the `superadmin` role does not have any additional permissions beyond the organization admin role.
 
