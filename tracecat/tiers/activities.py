@@ -6,20 +6,13 @@ from pydantic import BaseModel
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from tracecat import config
-from tracecat.db.engine import get_async_session_context_manager
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
-from tracecat.redis.client import get_redis_client
-from tracecat.tiers.limits_cache import (
-    get_effective_limits_cached,
-    set_effective_limits_cached,
-)
+from tracecat.tiers.exceptions import InvalidOrganizationConcurrencyCapError
+from tracecat.tiers.permits import TierPermitService
 from tracecat.tiers.schemas import EffectiveLimits
-from tracecat.tiers.semaphore import AcquireResult, RedisSemaphore
+from tracecat.tiers.semaphore import AcquireResult
 from tracecat.tiers.service import TierService
-
-_UNBOUNDED_CONCURRENCY_LIMIT = 2_147_483_647
 
 
 class AcquireWorkflowPermitInput(BaseModel):
@@ -98,33 +91,31 @@ async def acquire_workflow_permit_activity(
     Returns:
         AcquireResult with acquired status and current count.
     """
-    limits, cap_source = await _get_effective_limits_for_org(input.org_id)
-    effective_limit = _normalize_concurrency_limit(
-        limit=limits.max_concurrent_workflows,
-        org_id=input.org_id,
-        scope="workflow",
-    )
-
-    semaphore = await _get_redis_semaphore()
-
-    result = await semaphore.acquire_workflow(
-        org_id=input.org_id,
-        workflow_id=input.workflow_id,
-        limit=effective_limit,
-    )
+    permit_svc = await TierPermitService.create()
+    try:
+        outcome = await permit_svc.acquire_workflow_permit(
+            org_id=input.org_id,
+            workflow_id=input.workflow_id,
+        )
+    except InvalidOrganizationConcurrencyCapError as e:
+        raise ApplicationError(
+            str(e),
+            non_retryable=True,
+            type="InvalidOrganizationConcurrencyCap",
+        ) from e
 
     logger.info(
         "Workflow permit acquire attempt",
         org_id=input.org_id,
         workflow_id=input.workflow_id,
         requested_limit=input.limit,
-        effective_limit=effective_limit,
-        cap_source=cap_source,
-        acquired=result.acquired,
-        current_count=result.current_count,
+        effective_limit=outcome.effective_limit,
+        cap_source=outcome.cap_source,
+        acquired=outcome.result.acquired,
+        current_count=outcome.result.current_count,
     )
 
-    return result
+    return outcome.result
 
 
 @activity.defn
@@ -136,9 +127,8 @@ async def release_workflow_permit_activity(
     Args:
         input: Contains org_id and workflow_id.
     """
-    semaphore = await _get_redis_semaphore()
-
-    await semaphore.release_workflow(
+    permit_svc = await TierPermitService.create()
+    await permit_svc.release_workflow_permit(
         org_id=input.org_id,
         workflow_id=input.workflow_id,
     )
@@ -162,9 +152,8 @@ async def heartbeat_workflow_permit_activity(
     Returns:
         True if the permit was found and updated, False otherwise.
     """
-    semaphore = await _get_redis_semaphore()
-
-    return await semaphore.heartbeat_workflow(
+    permit_svc = await TierPermitService.create()
+    return await permit_svc.heartbeat_workflow_permit(
         org_id=input.org_id,
         workflow_id=input.workflow_id,
     )
@@ -175,32 +164,30 @@ async def acquire_action_permit_activity(
     input: AcquireActionPermitInput,
 ) -> AcquireResult:
     """Try to acquire an action execution permit."""
-    limits, cap_source = await _get_effective_limits_for_org(input.org_id)
-    effective_limit = _normalize_concurrency_limit(
-        limit=limits.max_concurrent_actions,
-        org_id=input.org_id,
-        scope="action",
-    )
-
-    semaphore = await _get_redis_semaphore()
-
-    result = await semaphore.acquire_action(
-        org_id=input.org_id,
-        action_id=input.action_id,
-        limit=effective_limit,
-    )
+    permit_svc = await TierPermitService.create()
+    try:
+        outcome = await permit_svc.acquire_action_permit(
+            org_id=input.org_id,
+            action_id=input.action_id,
+        )
+    except InvalidOrganizationConcurrencyCapError as e:
+        raise ApplicationError(
+            str(e),
+            non_retryable=True,
+            type="InvalidOrganizationConcurrencyCap",
+        ) from e
 
     logger.info(
         "Action permit acquire attempt",
         org_id=input.org_id,
         action_id=input.action_id,
         requested_limit=input.limit,
-        effective_limit=effective_limit,
-        cap_source=cap_source,
-        acquired=result.acquired,
-        current_count=result.current_count,
+        effective_limit=outcome.effective_limit,
+        cap_source=outcome.cap_source,
+        acquired=outcome.result.acquired,
+        current_count=outcome.result.current_count,
     )
-    return result
+    return outcome.result
 
 
 @activity.defn
@@ -208,9 +195,8 @@ async def release_action_permit_activity(
     input: ReleaseActionPermitInput,
 ) -> None:
     """Release an action execution permit."""
-    semaphore = await _get_redis_semaphore()
-
-    await semaphore.release_action(
+    permit_svc = await TierPermitService.create()
+    await permit_svc.release_action_permit(
         org_id=input.org_id,
         action_id=input.action_id,
     )
@@ -227,9 +213,8 @@ async def heartbeat_action_permit_activity(
     input: HeartbeatActionPermitInput,
 ) -> bool:
     """Refresh TTL for an action execution permit."""
-    semaphore = await _get_redis_semaphore()
-
-    return await semaphore.heartbeat_action(
+    permit_svc = await TierPermitService.create()
+    return await permit_svc.heartbeat_action_permit(
         org_id=input.org_id,
         action_id=input.action_id,
     )
@@ -257,60 +242,6 @@ async def get_tier_limits_activity(
     )
 
     return limits
-
-
-async def _get_redis_semaphore() -> RedisSemaphore:
-    """Return a configured Redis semaphore for this process."""
-    redis_client = await get_redis_client()
-    client = await redis_client._get_client()
-    return RedisSemaphore(client, ttl_seconds=config.TRACECAT__PERMIT_TTL_SECONDS)
-
-
-def _normalize_concurrency_limit(
-    *, limit: int | None, org_id: OrganizationID, scope: str
-) -> int:
-    if limit is None:
-        return _UNBOUNDED_CONCURRENCY_LIMIT
-    if limit <= 0:
-        raise ApplicationError(
-            (
-                "Invalid organization concurrency cap: "
-                f"scope={scope} org_id={org_id} limit={limit}"
-            ),
-            non_retryable=True,
-            type="InvalidOrganizationConcurrencyCap",
-        )
-    return limit
-
-
-async def _get_effective_limits_for_org(
-    org_id: OrganizationID,
-) -> tuple[EffectiveLimits, str]:
-    try:
-        limits = await get_effective_limits_cached(org_id)
-    except Exception as e:
-        logger.warning(
-            "Failed to read effective limits cache",
-            org_id=org_id,
-            error=e,
-        )
-        limits = None
-    if limits is not None:
-        return limits, "cache"
-
-    async with get_async_session_context_manager() as session:
-        service = TierService(session)
-        limits = await service.get_effective_limits(org_id)
-
-    try:
-        await set_effective_limits_cached(org_id, limits)
-    except Exception as e:
-        logger.warning(
-            "Failed to update effective limits cache",
-            org_id=org_id,
-            error=e,
-        )
-    return limits, "db"
 
 
 class TierActivities:

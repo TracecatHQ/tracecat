@@ -61,6 +61,19 @@ class TierLimitExceeded(TierError):
         self.limit = limit
 
 
+class InvalidOrganizationConcurrencyCapError(TierError):
+    """Raised when an effective concurrency cap is configured as non-positive."""
+
+    def __init__(self, *, scope: str, org_id: OrganizationID, limit: int):
+        super().__init__(
+            "Invalid organization concurrency cap: "
+            f"scope={scope} org_id={org_id} limit={limit}"
+        )
+        self.scope = scope
+        self.org_id = org_id
+        self.limit = limit
+
+
 class ConcurrentWorkflowLimitExceeded(TierLimitExceeded):
     """Raised when max_concurrent_workflows limit is exceeded."""
 
