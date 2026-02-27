@@ -445,9 +445,14 @@ class RBACService(BaseOrgService):
     )
     async def remove_group_member(self, group_id: UUID, user_id: UUID) -> None:
         """Remove a user from a group."""
-        stmt = select(GroupMember).where(
-            GroupMember.group_id == group_id,
-            GroupMember.user_id == user_id,
+        stmt = (
+            select(GroupMember)
+            .join(Group, Group.id == GroupMember.group_id)
+            .where(
+                GroupMember.group_id == group_id,
+                GroupMember.user_id == user_id,
+                Group.organization_id == self.organization_id,
+            )
         )
         result = await self.session.execute(stmt)
         member = result.scalar_one_or_none()
