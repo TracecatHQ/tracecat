@@ -55,10 +55,7 @@ export function WorkflowTriggerDialog({
   const workspaceId = useWorkspaceId()
 
   const { createExecution, createExecutionIsPending } =
-    useCreateManualWorkflowExecution(
-      workflowId || "",
-      taskId ? { caseId: caseData.id, taskId } : undefined
-    )
+    useCreateManualWorkflowExecution(workflowId || "")
 
   const {
     caseFieldsRecord,
