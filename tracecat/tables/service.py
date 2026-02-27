@@ -1,6 +1,6 @@
 import csv
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
@@ -16,7 +16,7 @@ from asyncpg.exceptions import (
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -72,6 +72,13 @@ _RETRYABLE_DB_EXCEPTIONS = (
     InFailedSQLTransactionError,
 )
 
+INTERNAL_COLUMN_PREFIX = "__tc_"
+DYNAMIC_WORKSPACE_TENANT_COLUMN = "__tc_workspace_id"
+DYNAMIC_WORKSPACE_RLS_POLICY = "rls_policy_dynamic_workspace"
+RLS_WORKSPACE_VAR = "app.current_workspace_id"
+RLS_BYPASS_VAR = "app.rls_bypass"
+RLS_BYPASS_ON = "on"
+
 
 class BaseTablesService(BaseWorkspaceService):
     """Service for managing user-defined tables."""
@@ -99,6 +106,40 @@ class BaseTablesService(BaseWorkspaceService):
         schema_name = self._get_schema_name(workspace_id)
         sanitized_table_name = self._sanitize_identifier(table_name)
         return f'"{schema_name}".{sanitized_table_name}'
+
+    def _workspace_tenant_default_sql(self) -> sa.TextClause:
+        """Build the server default expression for the tenant column."""
+        return sa.text(f"'{self.ws_uuid}'::uuid")
+
+    async def _enable_workspace_rls_for_physical_table(
+        self, conn: AsyncConnection, full_table_name: str
+    ) -> None:
+        """Enable workspace RLS policy on a dynamic physical table."""
+        policy_expr = (
+            f"current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}' "
+            f'OR "{DYNAMIC_WORKSPACE_TENANT_COLUMN}" = '
+            f"NULLIF(current_setting('{RLS_WORKSPACE_VAR}', true), '')::uuid"
+        )
+        await conn.execute(
+            sa.DDL("ALTER TABLE %s ENABLE ROW LEVEL SECURITY", full_table_name)
+        )
+        await conn.execute(
+            sa.DDL(
+                f"DROP POLICY IF EXISTS {DYNAMIC_WORKSPACE_RLS_POLICY} ON %s",
+                full_table_name,
+            )
+        )
+        await conn.execute(
+            sa.DDL(
+                f"""
+                CREATE POLICY {DYNAMIC_WORKSPACE_RLS_POLICY} ON %s
+                    FOR ALL
+                    USING ({policy_expr})
+                    WITH CHECK ({policy_expr})
+                """,
+                full_table_name,
+            )
+        )
 
     async def _find_unique_table_name(self, base_name: str) -> str:
         """Find a unique table name by appending numeric suffixes if required."""
@@ -318,6 +359,12 @@ class BaseTablesService(BaseWorkspaceService):
                 nullable=False,
                 server_default=sa.text("now()"),
             ),
+            sa.Column(
+                DYNAMIC_WORKSPACE_TENANT_COLUMN,
+                sa.UUID,
+                nullable=False,
+                server_default=self._workspace_tenant_default_sql(),
+            ),
             schema=schema_name,
         )
 
@@ -327,6 +374,9 @@ class BaseTablesService(BaseWorkspaceService):
 
         # Create the physical table
         await conn.run_sync(new_table.create)
+        await self._enable_workspace_rls_for_physical_table(
+            conn, self._full_table_name(table_name)
+        )
 
         # Create metadata entry
         table = Table(workspace_id=self.ws_uuid, name=table_name)
@@ -674,7 +724,7 @@ class BaseTablesService(BaseWorkspaceService):
         row = result.mappings().first()
         if row is None:
             raise TracecatNotFoundError(f"Row {row_id} not found in table {table.name}")
-        return row
+        return strip_internal_columns(dict(row))
 
     async def insert_row(
         self,
@@ -757,7 +807,7 @@ class BaseTablesService(BaseWorkspaceService):
                 result = await conn.execute(stmt)
                 await self.session.flush()
                 row = result.mappings().one()
-                return dict(row)
+                return strip_internal_columns(dict(row))
             except ProgrammingError as e:
                 # Drill down to the root cause
                 original_error = e
@@ -786,7 +836,7 @@ class BaseTablesService(BaseWorkspaceService):
             result = await conn.execute(stmt)
             await self.session.flush()
             row = result.mappings().one()
-            return dict(row)
+            return strip_internal_columns(dict(row))
         except IntegrityError as e:
             # Drill down to the root cause
             original_error = e
@@ -855,7 +905,7 @@ class BaseTablesService(BaseWorkspaceService):
                 f"Row {row_id} not found in table {table.name}"
             ) from None
 
-        return dict(row)
+        return strip_internal_columns(dict(row))
 
     async def delete_row(self, table: Table, row_id: UUID) -> None:
         """Delete a row from the table."""
@@ -970,7 +1020,9 @@ class BaseTablesService(BaseWorkspaceService):
                         "isolation_level": "READ COMMITTED",
                     },
                 )
-                return [dict(row) for row in result.mappings().all()]
+                return [
+                    strip_internal_columns(dict(row)) for row in result.mappings().all()
+                ]
             except _RETRYABLE_DB_EXCEPTIONS as e:
                 # Log the error for debugging
                 # Note: Context manager handles rollback (savepoint or full) automatically
@@ -1325,7 +1377,9 @@ class BaseTablesService(BaseWorkspaceService):
 
         try:
             result = await conn.execute(stmt)
-            rows = [dict(row) for row in result.mappings().all()]
+            rows = [
+                strip_internal_columns(dict(row)) for row in result.mappings().all()
+            ]
         except ProgrammingError as e:
             while (cause := e.__cause__) is not None:
                 e = cause
@@ -1960,7 +2014,7 @@ class TableEditorService(BaseWorkspaceService):
 
         stmt = stmt.limit(limit + 1)
         result = await conn.execute(stmt)
-        rows = [dict(row) for row in result.mappings().all()]
+        rows = [strip_internal_columns(dict(row)) for row in result.mappings().all()]
 
         has_more = len(rows) > limit
         if has_more:
@@ -2002,7 +2056,7 @@ class TableEditorService(BaseWorkspaceService):
             raise TracecatNotFoundError(
                 f"Row {row_id} not found in table {self.table_name}"
             )
-        return dict(row)
+        return strip_internal_columns(dict(row))
 
     async def insert_row(self, params: TableRowInsert) -> dict[str, Any]:
         """Insert a new row into the table.
@@ -2046,7 +2100,7 @@ class TableEditorService(BaseWorkspaceService):
         result = await conn.execute(stmt)
         await self.session.flush()
         row = result.mappings().one()
-        return dict(row)
+        return strip_internal_columns(dict(row))
 
     async def update_row(self, row_id: UUID, data: dict[str, Any]) -> dict[str, Any]:
         """Update an existing row in the table.
@@ -2104,7 +2158,7 @@ class TableEditorService(BaseWorkspaceService):
                 f"Row {row_id} not found in table {self.table_name}"
             ) from None
 
-        return dict(row)
+        return strip_internal_columns(dict(row))
 
     async def delete_row(self, row_id: UUID) -> None:
         """Delete a row from the table."""
@@ -2122,3 +2176,15 @@ def sanitize_identifier(identifier: str) -> str:
     if not sanitized[0].isalpha():
         raise ValueError("Identifier must start with a letter")
     return sanitized.lower()
+
+
+def is_internal_column_name(column_name: str) -> bool:
+    """Check whether a column is internal/system-managed for dynamic schemas."""
+    return column_name.startswith(INTERNAL_COLUMN_PREFIX)
+
+
+def strip_internal_columns(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Remove internal/system-managed columns from API-facing payloads."""
+    return {
+        key: value for key, value in row.items() if not is_internal_column_name(key)
+    }
