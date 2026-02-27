@@ -72,6 +72,7 @@ from tracecat.mcp.config import (
     TRACECAT_MCP__RATE_LIMIT_BURST,
     TRACECAT_MCP__RATE_LIMIT_RPS,
 )
+from tracecat.mcp.exceptions import MCPNonRetryableStartupError
 from tracecat.mcp.middleware import (
     MCPInputSizeLimitMiddleware,
     MCPTimeoutMiddleware,
@@ -668,7 +669,15 @@ async def _apply_case_trigger_payload(
         )
 
 
-auth = create_mcp_auth()
+def _create_mcp_auth_or_raise() -> Any:
+    """Create MCP auth provider and surface config errors as non-retryable."""
+    try:
+        return create_mcp_auth()
+    except ValueError as exc:
+        raise MCPNonRetryableStartupError(str(exc)) from exc
+
+
+auth = _create_mcp_auth_or_raise()
 
 # ---------------------------------------------------------------------------
 # Server instructions — sent to every MCP client on connection

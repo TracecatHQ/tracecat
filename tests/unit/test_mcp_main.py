@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from tracecat.mcp import __main__ as mcp_main
+from tracecat.mcp.exceptions import MCPNonRetryableStartupError
 
 
 def test_main_retries_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -11,7 +12,7 @@ def test_main_retries_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
     def _run_mcp_server() -> None:
         attempts.append(1)
         if len(attempts) < 3:
-            raise ValueError("missing oidc config")
+            raise RuntimeError("temporary startup failure")
 
     monkeypatch.setattr(mcp_main, "_run_mcp_server", _run_mcp_server)
     monkeypatch.setattr(mcp_main, "TRACECAT_MCP__STARTUP_MAX_ATTEMPTS", 3)
@@ -52,5 +53,23 @@ def test_main_stops_on_keyboard_interrupt(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(mcp_main, "TRACECAT_MCP__STARTUP_MAX_ATTEMPTS", 3)
 
     mcp_main.main()
+
+    assert len(attempts) == 1
+
+
+def test_main_exits_immediately_for_non_retryable_startup_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts: list[int] = []
+
+    def _run_mcp_server() -> None:
+        attempts.append(1)
+        raise MCPNonRetryableStartupError("OIDC_ISSUER must be configured")
+
+    monkeypatch.setattr(mcp_main, "_run_mcp_server", _run_mcp_server)
+    monkeypatch.setattr(mcp_main, "TRACECAT_MCP__STARTUP_MAX_ATTEMPTS", 3)
+
+    with pytest.raises(SystemExit, match="1"):
+        mcp_main.main()
 
     assert len(attempts) == 1
