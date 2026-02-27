@@ -373,6 +373,26 @@ resource "helm_release" "tracecat" {
     value = "${var.ui_memory_request_mib}Mi"
   }
 
+  set {
+    name  = "mcp.resources.requests.cpu"
+    value = "1000m"
+  }
+
+  set {
+    name  = "mcp.resources.requests.memory"
+    value = "1024Mi"
+  }
+
+  set {
+    name  = "mcp.resources.limits.cpu"
+    value = "1000m"
+  }
+
+  set {
+    name  = "mcp.resources.limits.memory"
+    value = "1024Mi"
+  }
+
   # External PostgreSQL (RDS)
   set {
     name  = "externalPostgres.host"

@@ -316,15 +316,15 @@ agentExecutor:
 
 mcp:
   enabled: false
-  replicas: 1
+  replicas: 2
   port: 8099
   resources:
     requests:
-      cpu: "500m"
-      memory: "256Mi"
+      cpu: "1000m"
+      memory: "1024Mi"
     limits:
       cpu: "1000m"
-      memory: "512Mi"
+      memory: "1024Mi"
 
 temporal:
   enabled: true

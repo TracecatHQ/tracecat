@@ -27,11 +27,11 @@ Network hardening:
 
 ## Default deployment profile (~100 concurrent users)
 
-- Nodes: `10 x m7g.2xlarge` (`8` on-demand + `2` spot by default)
+- Nodes: `13 x m7g.2xlarge` (`10` on-demand + `3` spot by default)
 - Guardrail requirement (rollout peak + reserved headroom): `46.5 vCPU`, `95.5 GiB RAM`
-- Scheduled capacity (on-demand only): `64 vCPU`, `256 GiB RAM`
-- Scheduled capacity (on-demand + spot): `80 vCPU`, `320 GiB RAM`
-- Percent headroom (on-demand only): `~27% CPU`, `~63% RAM` (`17.5 vCPU`, `160.5 GiB RAM`)
+- Scheduled capacity (on-demand only): `80 vCPU`, `320 GiB RAM`
+- Scheduled capacity (on-demand + spot): `104 vCPU`, `416 GiB RAM`
+- Percent headroom (on-demand only): `~42% CPU`, `~70% RAM` (`33.5 vCPU`, `224.5 GiB RAM`)
 - Estimated cost: `$4500/month`
 
 Definitions used above:
@@ -59,18 +59,18 @@ agent_executor_memory_request_mib=8192
 ui_cpu_request_millicores=500
 ui_memory_request_mib=512
 
-# Node groups: 8 on-demand + 2 spot, all m7g.2xlarge
+# Node groups: 10 on-demand + 3 spot, all m7g.2xlarge
 node_instance_types='["m7g.2xlarge"]'
 node_architecture="arm64"
 node_ami_type="AL2023_ARM_64_STANDARD"
-node_min_size=8
-node_desired_size=8
-node_max_size=12
+node_min_size=10
+node_desired_size=10
+node_max_size=16
 spot_node_group_enabled=true
 spot_node_instance_types='["m7g.2xlarge"]'
-spot_node_min_size=2
-spot_node_desired_size=2
-spot_node_max_size=4
+spot_node_min_size=3
+spot_node_desired_size=3
+spot_node_max_size=6
 
 # Capacity guardrail inputs
 node_schedulable_cpu_millicores_per_node=8000

@@ -75,19 +75,19 @@ variable "node_ami_type" {
 variable "node_desired_size" {
   description = "Desired number of nodes in the node group"
   type        = number
-  default     = 8
+  default     = 10
 }
 
 variable "node_min_size" {
   description = "Minimum number of nodes in the node group"
   type        = number
-  default     = 8
+  default     = 10
 }
 
 variable "node_max_size" {
   description = "Maximum number of nodes in the node group"
   type        = number
-  default     = 12
+  default     = 16
 }
 
 variable "node_disk_size" {
@@ -111,19 +111,19 @@ variable "spot_node_instance_types" {
 variable "spot_node_desired_size" {
   description = "Desired number of nodes in the spot managed node group."
   type        = number
-  default     = 2
+  default     = 3
 }
 
 variable "spot_node_min_size" {
   description = "Minimum number of nodes in the spot managed node group."
   type        = number
-  default     = 2
+  default     = 3
 }
 
 variable "spot_node_max_size" {
   description = "Maximum number of nodes in the spot managed node group."
   type        = number
-  default     = 4
+  default     = 6
 }
 
 # Tracecat Configuration
@@ -158,7 +158,7 @@ variable "tracecat_mcp_enabled" {
 variable "tracecat_mcp_replicas" {
   description = "Replica count for the Tracecat MCP deployment when enabled."
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "superadmin_email" {
