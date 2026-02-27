@@ -44,17 +44,17 @@ TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS = int(
 """Maximum seconds to wait for a workflow concurrency permit before failing."""
 
 TRACECAT__WORKFLOW_PERMIT_BACKOFF_BASE_SECONDS = float(
-    os.environ.get("TRACECAT__WORKFLOW_PERMIT_BACKOFF_BASE_SECONDS", 1)
+    os.environ.get("TRACECAT__WORKFLOW_PERMIT_BACKOFF_BASE_SECONDS") or 1
 )
 """Base backoff in seconds when retrying workflow permit acquisition."""
 
 TRACECAT__WORKFLOW_PERMIT_BACKOFF_MAX_SECONDS = float(
-    os.environ.get("TRACECAT__WORKFLOW_PERMIT_BACKOFF_MAX_SECONDS", 30)
+    os.environ.get("TRACECAT__WORKFLOW_PERMIT_BACKOFF_MAX_SECONDS") or 30
 )
 """Maximum backoff in seconds when retrying workflow permit acquisition."""
 
 TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS = float(
-    os.environ.get("TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS", 60)
+    os.environ.get("TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS") or 60
 )
 """Interval in seconds between workflow permit heartbeat refreshes."""
 
