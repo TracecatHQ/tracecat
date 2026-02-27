@@ -399,8 +399,15 @@ async def get_pending_org_invitation(
 async def _select_authorized_email(
     session: AsyncSession, organization_id: OrganizationID, candidates: list[str]
 ) -> tuple[str | None, OrganizationInvitation | None]:
-    """Pick the first SAML email candidate allowed by domain policy or invitation."""
+    """Pick the best SAML email candidate allowed by org policy.
+
+    Selection order:
+    1. First-user superadmin bootstrap candidate (default org only).
+    2. First allowlisted candidate that has a pending invitation.
+    3. First allowlisted candidate without invitation (fallback).
+    """
     active_domains = await _get_active_org_domains(session, organization_id)
+    fallback_allowlisted_candidate: str | None = None
 
     for candidate in candidates:
         if await is_superadmin_saml_bootstrap_allowed_for_org(
@@ -421,7 +428,13 @@ async def _select_authorized_email(
         pending_invitation = await get_pending_org_invitation(
             session, organization_id, candidate
         )
-        return candidate, pending_invitation
+        if pending_invitation is not None:
+            return candidate, pending_invitation
+        if fallback_allowlisted_candidate is None:
+            fallback_allowlisted_candidate = candidate
+
+    if fallback_allowlisted_candidate is not None:
+        return fallback_allowlisted_candidate, None
     return None, None
 
 

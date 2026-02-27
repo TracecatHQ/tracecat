@@ -78,6 +78,7 @@ jest.mock("@/client", () => {
 
   return {
     authDiscoverAuthMethod: jest.fn(),
+    authOauthOidcDatabaseAuthorize: jest.fn(),
     ApiError: MockApiError,
   }
 })
@@ -139,6 +140,20 @@ describe("Auth UI matrix", () => {
       }
     }
   )
+
+  it("preserves org slug in sign-up link from sign-in", () => {
+    render(
+      <SignIn
+        returnUrl="/invitations/accept?token=test-token"
+        organizationSlug="acme"
+      />
+    )
+
+    expect(screen.getByRole("link", { name: "Sign up" })).toHaveAttribute(
+      "href",
+      "/sign-up?returnUrl=%2Finvitations%2Faccept%3Ftoken%3Dtest-token&org=acme"
+    )
+  })
 
   it("does not render password login UI when basic auth is disabled, even if discovery suggests basic", async () => {
     setAuthTypes(["oidc"])

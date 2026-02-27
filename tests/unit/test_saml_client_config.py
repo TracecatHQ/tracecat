@@ -179,6 +179,34 @@ async def test_select_authorized_email_prefers_pending_invitation(
 
 
 @pytest.mark.anyio
+async def test_select_authorized_email_prefers_later_invited_candidate_over_first_allowlisted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_session = AsyncMock()
+    invitation = SimpleNamespace(token="inv-123")
+    monkeypatch.setattr(
+        saml, "_get_active_org_domains", AsyncMock(return_value={"acme.com"})
+    )
+    monkeypatch.setattr(
+        saml,
+        "is_superadmin_saml_bootstrap_allowed_for_org",
+        AsyncMock(return_value=False),
+    )
+    get_invitation_mock = AsyncMock(side_effect=[None, invitation])
+    monkeypatch.setattr(saml, "get_pending_org_invitation", get_invitation_mock)
+
+    email, pending_invitation = await saml._select_authorized_email(
+        fake_session,
+        uuid.uuid4(),
+        ["primary@acme.com", "invitee@acme.com"],
+    )
+
+    assert email == "invitee@acme.com"
+    assert pending_invitation is invitation
+    assert get_invitation_mock.await_count == 2
+
+
+@pytest.mark.anyio
 async def test_select_authorized_email_falls_back_to_allowlist(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

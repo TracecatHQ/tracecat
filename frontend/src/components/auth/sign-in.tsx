@@ -55,6 +55,21 @@ function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
     : serializeClearPostAuthReturnUrlCookie(secure)
 }
 
+function buildSignUpPath(
+  returnUrl?: string | null,
+  organizationSlug?: string | null
+): string {
+  const params = new URLSearchParams()
+  if (returnUrl) {
+    params.set("returnUrl", returnUrl)
+  }
+  if (organizationSlug) {
+    params.set("org", organizationSlug)
+  }
+  const query = params.toString()
+  return query ? `/sign-up?${query}` : "/sign-up"
+}
+
 async function startSamlLogin(
   returnUrl?: string | null,
   nextUrl?: string | null
@@ -82,6 +97,7 @@ export function SignIn({
   const [discoveredMethod, setDiscoveredMethod] = useState<"basic" | null>(null)
   const [discoveredEmail, setDiscoveredEmail] = useState("")
   const router = useRouter()
+  const signUpPath = buildSignUpPath(returnUrl, organizationSlug)
 
   if (user) {
     router.push("/workspaces")
@@ -213,14 +229,7 @@ export function SignIn({
           <CardFooter className="flex items-center justify-center text-sm text-muted-foreground">
             <div className="mt-4 text-center">
               Don&apos;t have an account?{" "}
-              <Link
-                href={
-                  returnUrl
-                    ? `/sign-up?returnUrl=${encodeURIComponent(returnUrl)}`
-                    : "/sign-up"
-                }
-                className="underline"
-              >
+              <Link href={signUpPath} className="underline">
                 Sign up
               </Link>
             </div>
