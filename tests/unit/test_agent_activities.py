@@ -7,6 +7,7 @@ These tests cover:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,6 +17,7 @@ from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
+    _execute_user_mcp_tool_with_heartbeat,
     run_agent_activity,
 )
 from tracecat.agent.session.activities import (
@@ -380,3 +382,49 @@ class TestRunAgentActivity:
 
             # Should send heartbeat at start and end
             assert mock_activity.heartbeat.call_count >= 2
+
+
+class TestApprovedToolExecutionHeartbeat:
+    """Tests for heartbeat behavior while executing approved tools."""
+
+    @pytest.mark.anyio
+    async def test_user_mcp_execution_sends_periodic_heartbeats(self) -> None:
+        """Send heartbeats while waiting on a long-running user MCP call."""
+
+        async def slow_call_user_mcp_tool(
+            *,
+            configs,
+            server_name,
+            tool_name,
+            args,
+        ):
+            del configs, server_name, tool_name, args
+            await asyncio.sleep(0.03)
+            return {"ok": True}
+
+        with (
+            patch(
+                "tracecat.agent.executor.activity.call_user_mcp_tool",
+                side_effect=slow_call_user_mcp_tool,
+            ) as mock_call_user_mcp_tool,
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch("tracecat.agent.executor.activity.HEARTBEAT_INTERVAL", 0.01),
+        ):
+            mock_activity.heartbeat = MagicMock()
+
+            result = await _execute_user_mcp_tool_with_heartbeat(
+                configs=[{"name": "Linear", "url": "https://mcp.example.com"}],
+                server_name="Linear",
+                tool_name="issues.list",
+                args={"limit": 10},
+                original_tool_name="mcp.Linear.issues.list",
+            )
+
+            assert result == {"ok": True}
+            mock_call_user_mcp_tool.assert_awaited_once()
+            assert mock_activity.heartbeat.call_count >= 1
+            assert any(
+                "Executing tool mcp.Linear.issues.list" in call.args[0]
+                for call in mock_activity.heartbeat.call_args_list
+                if call.args
+            )

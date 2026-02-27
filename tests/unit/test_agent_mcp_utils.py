@@ -12,6 +12,22 @@ def test_parse_user_mcp_tool_name_canonical_splits_on_first_dot() -> None:
     assert parsed == ("Linear", "issues.list")
 
 
+def test_parse_user_mcp_tool_name_canonical_preserves_dotted_server_name() -> None:
+    parsed = UserMCPClient.parse_user_mcp_tool_name(
+        "mcp.acme.com.list_issues",
+        known_server_names={"acme.com"},
+    )
+    assert parsed == ("acme.com", "list_issues")
+
+
+def test_parse_user_mcp_tool_name_prefers_longest_server_match() -> None:
+    parsed = UserMCPClient.parse_user_mcp_tool_name(
+        "mcp.acme.com.issues.list",
+        known_server_names={"acme", "acme.com"},
+    )
+    assert parsed == ("acme.com", "issues.list")
+
+
 def test_parse_user_mcp_tool_name_rejects_registry_tools() -> None:
     assert (
         UserMCPClient.parse_user_mcp_tool_name(
