@@ -334,6 +334,9 @@ services:
       TRACECAT__DB_URI: ${TRACECAT__DB_URI}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
+      TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
+      REDIS_URL: ${REDIS_URL}
       OIDC_ISSUER: ${OIDC_ISSUER}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
@@ -352,6 +355,8 @@ services:
       migrations:
         condition: service_completed_successfully
       temporal:
+        condition: service_healthy
+      redis:
         condition: service_healthy
   ui:
     build:
