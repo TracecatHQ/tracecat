@@ -27,6 +27,7 @@ class AgentPresetBase(Schema):
     mcp_integrations: list[str] | None = Field(default=None)
     retries: int = Field(default=3, ge=0)
     enable_internet_access: bool = Field(default=False)
+    assigned_role_id: uuid.UUID | None = Field(default=None)
 
 
 class AgentPresetCreate(AgentPresetBase):
@@ -53,6 +54,7 @@ class AgentPresetUpdate(BaseModel):
     mcp_integrations: list[str] | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
     enable_internet_access: bool | None = Field(default=None)
+    assigned_role_id: uuid.UUID | None = Field(default=None)
 
 
 class AgentPresetReadMinimal(Schema):
@@ -63,6 +65,7 @@ class AgentPresetReadMinimal(Schema):
     name: str
     slug: str
     description: str | None
+    is_system: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -74,6 +77,7 @@ class AgentPresetRead(AgentPresetBase):
     workspace_id: WorkspaceID
     name: str
     slug: str
+    is_system: bool = False
     created_at: datetime
     updated_at: datetime
 

@@ -73,11 +73,11 @@ async def test_list_org_members_omits_superuser_flag(
     rbac_result = Mock()
     rbac_result.tuples.return_value = rbac_tuples
 
-    # Mock the invitations query result
-    inv_result = Mock()
-    inv_result.scalars.return_value = Mock(all=Mock(return_value=[]))
+    # Mock the agent preset query result
+    agent_result = Mock()
+    agent_result.all.return_value = []
 
-    mock_session.execute = AsyncMock(side_effect=[rbac_result, inv_result])
+    mock_session.execute = AsyncMock(side_effect=[rbac_result, agent_result])
 
     with patch.object(organization_router, "OrgService") as MockService:
         mock_svc = AsyncMock()
@@ -92,6 +92,51 @@ async def test_list_org_members_omits_superuser_flag(
     assert len(data) == 1
     assert data[0]["user_id"] == str(user.id)
     assert "is_superuser" not in data[0]
+
+
+@pytest.mark.anyio
+async def test_list_org_members_includes_agent_presets(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    user = _member_user()
+    preset_id = uuid.uuid4()
+    mock_session = await app.dependency_overrides[get_async_session]()
+
+    rbac_tuples = Mock()
+    rbac_tuples.all.return_value = [(user.id, "Admin", "organization-admin")]
+    rbac_result = Mock()
+    rbac_result.tuples.return_value = rbac_tuples
+
+    agent_result = Mock()
+    agent_result.all.return_value = [
+        (
+            preset_id,
+            "General assistant",
+            "Primary workspace",
+            "Preset Runner",
+        )
+    ]
+
+    mock_session.execute = AsyncMock(side_effect=[rbac_result, agent_result])
+
+    with patch.object(organization_router, "OrgService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.list_members.return_value = [user]
+        mock_svc.list_invitations.return_value = []
+        MockService.return_value = mock_svc
+
+        response = client.get("/organization/members")
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert len(data) == 2
+    agent_member = next(
+        item for item in data if item.get("role_slug") == f"agent-preset:{preset_id}"
+    )
+    assert agent_member["user_id"] == str(preset_id)
+    assert agent_member["email"] == f"preset-{preset_id.hex}@agent-presets.example.com"
+    assert agent_member["role_name"] == "Preset Runner"
+    assert agent_member["first_name"] == "Agent preset"
 
 
 @pytest.mark.anyio

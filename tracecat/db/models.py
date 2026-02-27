@@ -2523,6 +2523,20 @@ class AgentPreset(WorkspaceModel):
         nullable=False,
         doc="Whether to enable direct internet access in the agent sandbox",
     )
+    is_system: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=text("false"),
+        nullable=False,
+        doc="Whether this is a platform-seeded system preset",
+    )
+    assigned_role_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("role.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Optional RBAC role used as the tool execution upper-bound",
+    )
 
     workspace: Mapped[Workspace] = relationship(back_populates="agent_presets")
     chats: Mapped[list[Chat]] = relationship(

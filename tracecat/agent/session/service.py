@@ -24,7 +24,11 @@ import tracecat.agent.adapter.vercel
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
-from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.preset.service import (
+    SYSTEM_PRESET_SLUG_CASE_COPILOT,
+    SYSTEM_PRESET_SLUG_WORKSPACE_COPILOT,
+    AgentPresetService,
+)
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import (
@@ -52,7 +56,13 @@ from tracecat.chat.schemas import (
 )
 from tracecat.chat.service import ChatService
 from tracecat.chat.tools import get_default_tools
-from tracecat.db.models import AgentSession, AgentSessionHistory, Approval, Chat
+from tracecat.db.models import (
+    AgentPreset,
+    AgentSession,
+    AgentSessionHistory,
+    Approval,
+    Chat,
+)
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.exceptions import TracecatNotFoundError
@@ -66,6 +76,10 @@ if TYPE_CHECKING:
     from tracecat.agent.executor.activity import ToolExecutionResult
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
+DEFAULT_SYSTEM_PRESET_SLUGS: dict[AgentSessionEntity, str] = {
+    AgentSessionEntity.CASE: SYSTEM_PRESET_SLUG_CASE_COPILOT,
+    AgentSessionEntity.COPILOT: SYSTEM_PRESET_SLUG_WORKSPACE_COPILOT,
+}
 
 
 @dataclass
@@ -94,9 +108,14 @@ class AgentSessionService(BaseWorkspaceService):
         Returns:
             The created AgentSession model.
         """
-        # Apply default tools based on entity type if tools not provided
+        default_preset_id = (
+            args.agent_preset_id
+            or await self._resolve_default_system_preset_id(args.entity_type)
+        )
+
+        # Apply legacy default tools only if tools not provided and no preset selected.
         tools = args.tools
-        if not tools and args.entity_type:
+        if not tools and args.entity_type and default_preset_id is None:
             tools = get_default_tools(args.entity_type.value)
 
         agent_session = AgentSession(
@@ -107,7 +126,7 @@ class AgentSessionService(BaseWorkspaceService):
             entity_type=args.entity_type.value,
             entity_id=args.entity_id,
             tools=tools,
-            agent_preset_id=args.agent_preset_id,
+            agent_preset_id=default_preset_id,
             # Harness
             harness_type=args.harness_type,
         )
@@ -118,6 +137,21 @@ class AgentSessionService(BaseWorkspaceService):
         await self.session.commit()
         await self.session.refresh(agent_session)
         return agent_session
+
+    async def _resolve_default_system_preset_id(
+        self, entity_type: AgentSessionEntity
+    ) -> uuid.UUID | None:
+        """Resolve the default system preset for sessions without explicit preset."""
+        preset_slug = DEFAULT_SYSTEM_PRESET_SLUGS.get(entity_type)
+        if preset_slug is None:
+            return None
+
+        stmt = select(AgentPreset.id).where(
+            AgentPreset.workspace_id == self.workspace_id,
+            AgentPreset.slug == preset_slug,
+            AgentPreset.is_system.is_(True),
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def get_session(
         self,

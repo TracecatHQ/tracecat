@@ -22,6 +22,7 @@ from tracecat.agent.preset.internal_router import (
     router as internal_agent_preset_router,
 )
 from tracecat.agent.preset.router import router as agent_preset_router
+from tracecat.agent.preset.service import seed_system_presets_for_all_workspaces
 from tracecat.agent.router import router as agent_router
 from tracecat.agent.session.router import router as agent_session_router
 from tracecat.api.common import (
@@ -246,6 +247,9 @@ async def setup_rbac_defaults(session: AsyncSession):
     """Seed system scopes and roles for RBAC."""
     try:
         result = await seed_all_system_data(session)
+        workspaces_seeded = await seed_system_presets_for_all_workspaces(session)
+        await session.commit()
+        result["system_preset_workspaces_processed"] = workspaces_seeded
         logger.info("RBAC defaults seeded", **result)
     except Exception as e:
         logger.warning("Failed to seed RBAC defaults", error=str(e))

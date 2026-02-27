@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogTrigger } from "@radix-ui/react-dialog"
 import { DotsHorizontalIcon, PlusIcon } from "@radix-ui/react-icons"
-import { FolderIcon, GlobeIcon, Trash2Icon } from "lucide-react"
+import { BotIcon, FolderIcon, GlobeIcon, Trash2Icon } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -77,6 +77,11 @@ const invitationFormSchema = z.object({
 })
 
 type InvitationFormValues = z.infer<typeof invitationFormSchema>
+const AGENT_PRESET_ROLE_PREFIX = "agent-preset:"
+
+function isAgentPresetOrgMember(member: OrgMemberRead): boolean {
+  return member.role_slug?.startsWith(AGENT_PRESET_ROLE_PREFIX) ?? false
+}
 
 function InviteMemberDialogButton() {
   const canInviteMembers = useScopeCheck("org:member:invite") === true
@@ -214,7 +219,7 @@ export function OrgMembersTable() {
   const { orgMembers, deleteOrgMember, revokeInvitation } = useOrgMembers()
 
   const handleRemoveMember = async () => {
-    if (selectedMember?.user_id) {
+    if (selectedMember?.user_id && !isAgentPresetOrgMember(selectedMember)) {
       try {
         await deleteOrgMember({
           userId: selectedMember.user_id,
@@ -269,7 +274,9 @@ export function OrgMembersTable() {
                 ),
                 cell: ({ row }) => (
                   <div className="text-xs">
-                    {row.getValue<OrgMemberRead["email"]>("email")}
+                    {isAgentPresetOrgMember(row.original)
+                      ? "-"
+                      : row.getValue<OrgMemberRead["email"]>("email")}
                   </div>
                 ),
                 enableSorting: true,
@@ -285,9 +292,18 @@ export function OrgMembersTable() {
                   />
                 ),
                 cell: ({ row }) => {
-                  const { first_name, last_name } = row.original
+                  const member = row.original
+                  const { first_name, last_name } = member
                   const name = [first_name, last_name].filter(Boolean).join(" ")
-                  return <div className="text-xs">{name || "-"}</div>
+                  const isAgentPreset = isAgentPresetOrgMember(member)
+                  return (
+                    <div className="flex items-center gap-2 text-xs">
+                      {isAgentPreset && (
+                        <BotIcon className="size-3.5 text-muted-foreground" />
+                      )}
+                      <span>{name || "-"}</span>
+                    </div>
+                  )
                 },
                 enableSorting: false,
                 enableHiding: false,
@@ -372,6 +388,7 @@ export function OrgMembersTable() {
                 cell: ({ row }) => {
                   const member = row.original
                   const isInvited = member.status === "invited"
+                  const isAgentPreset = isAgentPresetOrgMember(member)
 
                   return (
                     <DropdownMenu>
@@ -434,38 +451,49 @@ export function OrgMembersTable() {
                                 }
                               }}
                             >
-                              Copy user ID
+                              {isAgentPreset
+                                ? "Copy agent preset ID"
+                                : "Copy user ID"}
                             </DropdownMenuItem>
-                            {(canReadRbac || canRemoveMembers) && (
-                              <DropdownMenuGroup>
-                                {canReadRbac && (
-                                  <DialogTrigger asChild>
-                                    <DropdownMenuItem
-                                      onClick={() => {
-                                        setSelectedMember(member)
-                                        setIsChangeRoleOpen(true)
-                                      }}
-                                    >
-                                      Manage roles
-                                    </DropdownMenuItem>
-                                  </DialogTrigger>
-                                )}
-                                {canRemoveMembers && (
-                                  <>
-                                    {canReadRbac && <DropdownMenuSeparator />}
-                                    <AlertDialogTrigger asChild>
+                            {!isAgentPreset &&
+                              (canReadRbac || canRemoveMembers) && (
+                                <DropdownMenuGroup>
+                                  {canReadRbac && (
+                                    <DialogTrigger asChild>
                                       <DropdownMenuItem
-                                        className="text-rose-500 focus:text-rose-600"
-                                        onClick={() =>
+                                        onClick={() => {
                                           setSelectedMember(member)
-                                        }
+                                          setIsChangeRoleOpen(true)
+                                        }}
                                       >
-                                        Remove from organization
+                                        Manage roles
                                       </DropdownMenuItem>
-                                    </AlertDialogTrigger>
-                                  </>
-                                )}
-                              </DropdownMenuGroup>
+                                    </DialogTrigger>
+                                  )}
+                                  {canRemoveMembers && (
+                                    <>
+                                      {canReadRbac && <DropdownMenuSeparator />}
+                                      <AlertDialogTrigger asChild>
+                                        <DropdownMenuItem
+                                          className="text-rose-500 focus:text-rose-600"
+                                          onClick={() =>
+                                            setSelectedMember(member)
+                                          }
+                                        >
+                                          Remove from organization
+                                        </DropdownMenuItem>
+                                      </AlertDialogTrigger>
+                                    </>
+                                  )}
+                                </DropdownMenuGroup>
+                              )}
+                            {isAgentPreset && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem disabled>
+                                  Manage in workspace members
+                                </DropdownMenuItem>
+                              </>
                             )}
                           </>
                         )}
@@ -505,7 +533,7 @@ export function OrgMembersTable() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-        {selectedMember && (
+        {selectedMember && !isAgentPresetOrgMember(selectedMember) && (
           <ManageUserRolesDialog
             member={selectedMember}
             onOpenChange={setIsChangeRoleOpen}

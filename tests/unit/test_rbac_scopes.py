@@ -181,6 +181,11 @@ class TestHasScope:
         assert has_scope(scopes, "case:read") is True
         assert has_scope(scopes, "case:create") is False
 
+    def test_has_scope_with_wildcard_required(self):
+        scopes = frozenset({"agent:preset:incident-bot:update"})
+        assert has_scope(scopes, "agent:preset:*:update") is True
+        assert has_scope(scopes, "agent:preset:*:delete") is False
+
     def test_has_scope_global_wildcard(self):
         scopes = frozenset({"*"})
         assert has_scope(scopes, "workflow:read") is True
@@ -308,6 +313,15 @@ class TestRequireScopeDecorator:
         _set_role_with_scopes(frozenset({"workflow:*"}))
 
         @require_scope("workflow:read")
+        def protected_func():
+            return "success"
+
+        assert protected_func() == "success"
+
+    def test_require_scope_passes_with_wildcard_required(self):
+        _set_role_with_scopes(frozenset({"agent:preset:incident-bot:update"}))
+
+        @require_scope("agent:preset:*:update")
         def protected_func():
             return "success"
 

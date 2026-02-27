@@ -13,12 +13,14 @@ from tracecat.auth.users import current_active_user
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import (
+    AgentPreset,
     Organization,
     OrganizationDomain,
     OrganizationInvitation,
     OrganizationMembership,
     User,
     UserRoleAssignment,
+    Workspace,
 )
 from tracecat.db.models import (
     Role as DBRole,
@@ -47,6 +49,7 @@ from tracecat.tiers.schemas import EffectiveEntitlements
 from tracecat.tiers.service import TierService
 
 router = APIRouter(prefix="/organization", tags=["organization"])
+AGENT_PRESET_EMAIL_DOMAIN = "agent-presets.example.com"
 
 
 def _get_user_display_name_and_email(
@@ -341,6 +344,37 @@ async def list_org_members(
                     created_at=inv.created_at,
                 )
             )
+
+    agent_stmt = (
+        select(
+            AgentPreset.id,
+            AgentPreset.name,
+            Workspace.name,
+            DBRole.name,
+        )
+        .join(Workspace, Workspace.id == AgentPreset.workspace_id)
+        .outerjoin(DBRole, DBRole.id == AgentPreset.assigned_role_id)
+        .where(Workspace.organization_id == role.organization_id)
+        .order_by(Workspace.name.asc(), AgentPreset.name.asc())
+    )
+    agent_rows = (await session.execute(agent_stmt)).all()
+    for (
+        preset_id,
+        preset_name,
+        workspace_name,
+        assigned_role_name,
+    ) in agent_rows:
+        result.append(
+            OrgMemberRead(
+                user_id=preset_id,
+                email=f"preset-{preset_id.hex}@{AGENT_PRESET_EMAIL_DOMAIN}",
+                role_name=assigned_role_name or "Default preset role",
+                role_slug=f"agent-preset:{preset_id}",
+                status=OrgMemberStatus.ACTIVE,
+                first_name="Agent preset",
+                last_name=f"{preset_name} ({workspace_name})",
+            )
+        )
 
     return result
 

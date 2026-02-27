@@ -29,7 +29,7 @@ WorkspaceEditorRole = Annotated[
 
 
 @router.get("", response_model=list[AgentPresetReadMinimal])
-@require_scope("agent:read")
+@require_scope("agent:preset:*:read")
 async def list_agent_presets(
     *,
     role: WorkspaceEditorRole,
@@ -66,7 +66,7 @@ async def create_agent_preset(
 
 
 @router.get("/{preset_id}", response_model=AgentPresetRead)
-@require_scope("agent:read")
+@require_scope("agent:preset:*:read")
 async def get_agent_preset(
     *,
     preset_id: uuid.UUID,
@@ -84,7 +84,7 @@ async def get_agent_preset(
 
 
 @router.get("/by-slug/{slug}", response_model=AgentPresetRead)
-@require_scope("agent:read")
+@require_scope("agent:preset:*:read")
 async def get_agent_preset_by_slug(
     *,
     slug: str,
@@ -102,7 +102,7 @@ async def get_agent_preset_by_slug(
 
 
 @router.patch("/{preset_id}", response_model=AgentPresetRead)
-@require_scope("agent:update")
+@require_scope("agent:preset:*:update")
 async def update_agent_preset(
     *,
     preset_id: uuid.UUID,
@@ -112,7 +112,7 @@ async def update_agent_preset(
 ) -> AgentPresetRead:
     """Update an existing agent preset."""
     service = AgentPresetService(session, role=role)
-    if not (preset := await service.get_preset(preset_id)):
+    if not (preset := await service.get_preset(preset_id, required_action="update")):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset {preset_id} not found",
@@ -122,7 +122,7 @@ async def update_agent_preset(
 
 
 @router.delete("/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("agent:delete")
+@require_scope("agent:preset:*:delete")
 async def delete_agent_preset(
     *,
     preset_id: uuid.UUID,
@@ -131,7 +131,7 @@ async def delete_agent_preset(
 ) -> None:
     """Delete an agent preset."""
     service = AgentPresetService(session, role=role)
-    if not (preset := await service.get_preset(preset_id)):
+    if not (preset := await service.get_preset(preset_id, required_action="delete")):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset {preset_id} not found",

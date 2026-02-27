@@ -115,9 +115,17 @@ def has_scope(user_scopes: frozenset[str], required_scope: str) -> bool:
         required_scope: The scope required for the operation
 
     Returns:
-        True if any granted scope matches the required scope
+        True if any granted scope matches the required scope.
+
+        If `required_scope` contains a wildcard, a specific granted scope that
+        matches that wildcard also satisfies the check.
     """
-    return any(scope_matches(granted, required_scope) for granted in user_scopes)
+    if "*" not in required_scope:
+        return any(scope_matches(granted, required_scope) for granted in user_scopes)
+    return any(
+        scope_matches(granted, required_scope) or scope_matches(required_scope, granted)
+        for granted in user_scopes
+    )
 
 
 def has_all_scopes(user_scopes: frozenset[str], required_scopes: set[str]) -> bool:
