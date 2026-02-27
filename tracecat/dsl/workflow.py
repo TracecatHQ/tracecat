@@ -78,6 +78,11 @@ with workflow.unsafe.imports_passed_through():
         PlatformAction,
         WaitStrategy,
     )
+    from tracecat.dsl.init_activities import (
+        ResolveTimeAnchorActivityInputs,
+        resolve_time_anchor_activity,
+        resolve_workflow_concurrency_limits_enabled_activity,
+    )
     from tracecat.dsl.scheduler import DSLScheduler
     from tracecat.dsl.schemas import (
         ROOT_STREAM,
@@ -91,12 +96,7 @@ with workflow.unsafe.imports_passed_through():
         TaskResult,
     )
     from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
-    from tracecat.dsl.validation import (
-        ResolveTimeAnchorActivityInputs,
-        format_input_schema_validation_error,
-        resolve_time_anchor_activity,
-        resolve_workflow_concurrency_limits_enabled_activity,
-    )
+    from tracecat.dsl.validation import format_input_schema_validation_error
     from tracecat.dsl.workflow_logging import get_workflow_logger
     from tracecat.ee.interactions.decorators import maybe_interactive
     from tracecat.ee.interactions.schemas import InteractionInput, InteractionResult
