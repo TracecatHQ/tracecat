@@ -22,7 +22,13 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
-import { Fragment, type ReactNode, useCallback, useState } from "react"
+import {
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useState,
+} from "react"
 import { type CaseStatus, casesAddTag } from "@/client"
 import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
@@ -90,7 +96,13 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Kbd } from "@/components/ui/kbd"
 import { SidebarTrigger } from "@/components/ui/sidebar"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
@@ -118,8 +130,6 @@ interface PageConfig {
 }
 
 interface ControlsHeaderProps {
-  /** Whether the right-hand chat sidebar is currently open */
-  isChatOpen?: boolean
   /** Callback to toggle the chat sidebar */
   onToggleChat?: () => void
 }
@@ -133,6 +143,8 @@ const CASE_STATUS_TINTS: Record<CaseStatus, string> = {
   other: "bg-muted/5 dark:bg-muted/[0.12]",
   unknown: "bg-slate-500/[0.03] dark:bg-slate-500/[0.08]",
 }
+
+const CHAT_TOGGLE_KEY = "c"
 
 function WorkflowsActions() {
   const pathname = usePathname()
@@ -1277,10 +1289,7 @@ function getPageConfig(
   return null
 }
 
-export function ControlsHeader({
-  isChatOpen,
-  onToggleChat,
-}: ControlsHeaderProps = {}) {
+export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const workspaceId = useWorkspaceId()
@@ -1300,6 +1309,62 @@ export function ControlsHeader({
     { caseId: caseId ?? "", workspaceId },
     { enabled: Boolean(caseId) }
   )
+
+  useEffect(() => {
+    if (!onToggleChat) {
+      return
+    }
+    const DOUBLE_TAP_WINDOW_MS = 1200
+    let pendingAt: number | null = null
+
+    const isEditableTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) {
+        return false
+      }
+      const tagName = target.tagName
+      return (
+        target.isContentEditable ||
+        tagName === "INPUT" ||
+        tagName === "TEXTAREA" ||
+        tagName === "SELECT" ||
+        target.getAttribute("role") === "textbox"
+      )
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.repeat ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.shiftKey
+      ) {
+        pendingAt = null
+        return
+      }
+      if (event.key.toLowerCase() !== CHAT_TOGGLE_KEY) {
+        pendingAt = null
+        return
+      }
+      if (isEditableTarget(event.target)) {
+        pendingAt = null
+        return
+      }
+
+      const now = Date.now()
+      if (pendingAt === null || now - pendingAt > DOUBLE_TAP_WINDOW_MS) {
+        pendingAt = now
+        return
+      }
+
+      pendingAt = null
+      event.preventDefault()
+      onToggleChat()
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [onToggleChat])
 
   if (!pageConfig) {
     return null
@@ -1359,15 +1424,35 @@ export function ControlsHeader({
             )}
 
         {onToggleChat && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={onToggleChat}
-          >
-            <PanelRight className="h-4 w-4 text-muted-foreground" />
-            <span className="sr-only">Toggle Chat</span>
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={onToggleChat}
+              >
+                <PanelRight className="h-4 w-4 text-muted-foreground" />
+                <span className="sr-only">Toggle Chat</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="bottom"
+              align="end"
+              alignOffset={-10}
+              collisionPadding={16}
+              className="border-0 bg-transparent p-0 shadow-none"
+              sideOffset={8}
+            >
+              <span className="inline-flex items-center gap-1">
+                <Kbd>C</Kbd>
+                <span className="inline-flex h-5 items-center rounded border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
+                  then
+                </span>
+                <Kbd>C</Kbd>
+              </span>
+            </TooltipContent>
+          </Tooltip>
         )}
       </div>
     </header>

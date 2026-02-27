@@ -42,7 +42,6 @@ export default function WorkspacePage() {
   const canViewIntegrations = useScopeCheck("integration:read")
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewInbox = useScopeCheck("inbox:read")
-  const canExecuteAgents = useScopeCheck("agent:execute")
 
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
@@ -59,7 +58,6 @@ export default function WorkspacePage() {
       canViewIntegrations,
       canViewMembers,
       canViewInbox,
-      canExecuteAgents,
     ].some((value) => value === undefined)
 
   const landingPath = useMemo(() => {
@@ -94,13 +92,9 @@ export default function WorkspacePage() {
     if (canViewInbox === true) {
       return `${basePath}/inbox`
     }
-    if (canExecuteAgents === true) {
-      return `${basePath}/copilot`
-    }
     return null
   }, [
     agentAddonsEnabled,
-    canExecuteAgents,
     canViewAgents,
     canViewCases,
     canViewInbox,
