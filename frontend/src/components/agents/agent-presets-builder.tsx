@@ -1,6 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import { useQuery } from "@tanstack/react-query"
 import {
   AlertCircle,
   Box,
@@ -39,6 +40,7 @@ import type {
   AgentPresetRead,
   AgentPresetUpdate,
 } from "@/client"
+import { agentPresetsDiscoverMcpTools } from "@/client"
 import { ActionSelect } from "@/components/chat/action-select"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
@@ -139,16 +141,24 @@ const DEFAULT_RETRIES = 3
  * This handles both built-in MCP providers and custom integrations.
  */
 function getMcpProviderId(slug: string): string | undefined {
-  // Map common slugs to provider IDs
+  // Map common slugs to provider IDs.
+  // Slugs from built-in providers already equal the provider ID (e.g. "linear_mcp"),
+  // so we include both short names and the full provider IDs as keys.
   const slugMap: Record<string, string> = {
     "github-copilot": "github_mcp",
     github: "github_mcp",
+    github_mcp: "github_mcp",
     sentry: "sentry_mcp",
+    sentry_mcp: "sentry_mcp",
     notion: "notion_mcp",
+    notion_mcp: "notion_mcp",
     linear: "linear_mcp",
+    linear_mcp: "linear_mcp",
     runreveal: "runreveal_mcp",
+    runreveal_mcp: "runreveal_mcp",
     "secure-annex": "secureannex_mcp",
     secureannex: "secureannex_mcp",
+    secureannex_mcp: "secureannex_mcp",
   }
 
   return slugMap[slug.toLowerCase()]
@@ -1283,6 +1293,54 @@ function AgentPresetConfigurationPanel({
   const providerValue = form.watch("model_provider")
   const internetAccessEnabled = form.watch("enableInternetAccess")
   const modelOptions = modelOptionsByProvider[providerValue] ?? []
+  const watchedMcpIntegrations = form.watch("mcpIntegrations")
+  const workspaceId = useWorkspaceId()
+
+  // Discover MCP tools when integrations are selected (for approval selector)
+  const { data: mcpToolSuggestions } = useQuery({
+    queryKey: ["mcp-tools", workspaceId, watchedMcpIntegrations],
+    queryFn: () =>
+      agentPresetsDiscoverMcpTools({
+        workspaceId,
+        requestBody: { mcp_integration_ids: watchedMcpIntegrations },
+      }),
+    enabled: watchedMcpIntegrations.length > 0,
+  })
+
+  // Build server name → provider ID lookup for MCP tool icons
+  const mcpProviderByName = useMemo(() => {
+    const map = new Map<string, string | undefined>()
+    for (const integration of mcpIntegrations) {
+      map.set(integration.name, integration.providerId)
+    }
+    return map
+  }, [mcpIntegrations])
+
+  // Merge registry action suggestions with MCP tool suggestions for the approval selector
+  const approvalSuggestions: Suggestion[] = useMemo(() => {
+    const suggestions = [...actionSuggestions]
+    if (mcpToolSuggestions) {
+      for (const tool of mcpToolSuggestions) {
+        // Strip "mcp.ServerName." prefix for a clean display label
+        const toolName = tool.name.replace(/^mcp\.[^.]+\./, "")
+        const providerId = mcpProviderByName.get(tool.server_name)
+        suggestions.push({
+          id: tool.name,
+          label: toolName,
+          value: tool.name,
+          description: tool.description,
+          group: tool.server_name,
+          icon: (
+            <ProviderIcon
+              providerId={providerId || "custom"}
+              className="size-6 p-[3px] border-[0.5px]"
+            />
+          ),
+        })
+      }
+    }
+    return suggestions
+  }, [actionSuggestions, mcpToolSuggestions, mcpProviderByName])
 
   return (
     <ScrollArea className="h-full">
@@ -1432,7 +1490,7 @@ function AgentPresetConfigurationPanel({
                   <MultiTagCommandInput
                     value={field.value}
                     onChange={field.onChange}
-                    suggestions={actionSuggestions}
+                    suggestions={approvalSuggestions}
                     placeholder="+ Add tool"
                     searchKeys={["label", "value", "description", "group"]}
                     allowCustomTags
@@ -1548,7 +1606,7 @@ function AgentPresetConfigurationPanel({
                             <FormControl>
                               <ActionSelect
                                 field={field}
-                                suggestions={[...actionSuggestions]}
+                                suggestions={[...approvalSuggestions]}
                                 searchKeys={[
                                   "label",
                                   "value",
