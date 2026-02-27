@@ -1,7 +1,6 @@
 "use client"
 
 import { type ComponentPropsWithoutRef, useState } from "react"
-import { authOauthOidcDatabaseAuthorize } from "@/client"
 import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import {
@@ -68,9 +67,15 @@ export function OidcOAuthButton({
   const handleClick = async () => {
     try {
       setIsLoading(true)
-      const { authorization_url } = await authOauthOidcDatabaseAuthorize({
-        scopes: ["openid", "email", "profile"],
+      const response = await fetch("/api/auth/oauth/authorize", {
+        credentials: "include",
       })
+      if (!response.ok) {
+        throw new Error(`OAuth authorize request failed: ${response.status}`)
+      }
+      const { authorization_url } = (await response.json()) as {
+        authorization_url: string
+      }
       setPostAuthReturnUrlCookie(returnUrl)
       window.location.href = authorization_url
     } catch (error) {

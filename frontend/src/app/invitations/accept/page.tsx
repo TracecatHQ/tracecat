@@ -191,6 +191,8 @@ function AcceptInvitationContent() {
   // User not authenticated - show sign in prompt
   if (!user) {
     const returnUrl = `/invitations/accept?token=${token}`
+    const signInPath = `/sign-in?returnUrl=${encodeURIComponent(returnUrl)}&org=${encodeURIComponent(invitation.organization_slug)}`
+    const signUpPath = `/sign-up?returnUrl=${encodeURIComponent(returnUrl)}&org=${encodeURIComponent(invitation.organization_slug)}`
     return (
       <Card className="w-full max-w-md">
         <CardHeader className="items-center text-center">
@@ -246,16 +248,11 @@ function AcceptInvitationContent() {
         </CardContent>
         <CardFooter className="flex-col gap-3">
           <Button asChild className="w-full">
-            <Link href={`/sign-in?returnUrl=${encodeURIComponent(returnUrl)}`}>
-              Sign in to accept
-            </Link>
+            <Link href={signInPath}>Sign in to accept</Link>
           </Button>
           <p className="text-center text-sm text-muted-foreground">
             Don&apos;t have an account?{" "}
-            <Link
-              href={`/sign-up?returnUrl=${encodeURIComponent(returnUrl)}`}
-              className="underline hover:text-foreground"
-            >
+            <Link href={signUpPath} className="underline hover:text-foreground">
               Sign up
             </Link>
           </p>
@@ -297,7 +294,9 @@ function AcceptInvitationContent() {
             className="w-full"
             onClick={() => {
               const returnUrl = `/invitations/accept?token=${token}`
-              logout(`/sign-in?returnUrl=${encodeURIComponent(returnUrl)}`)
+              logout(
+                `/sign-in?returnUrl=${encodeURIComponent(returnUrl)}&org=${encodeURIComponent(invitation.organization_slug)}`
+              )
             }}
           >
             Sign in with a different account

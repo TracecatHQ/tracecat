@@ -704,6 +704,7 @@ async def get_invitation_by_token(
         return OrgInvitationReadMinimal(
             organization_id=invitation.organization_id,
             organization_name=org.name,
+            organization_slug=org.slug,
             inviter_name=inviter_name,
             inviter_email=inviter_email,
             role_name=role_obj.name,

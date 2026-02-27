@@ -3548,6 +3548,7 @@ export type OrgInvitationRead = {
 export type OrgInvitationReadMinimal = {
   organization_id: string
   organization_name: string
+  organization_slug: string
   inviter_name: string | null
   inviter_email: string | null
   role_name: string
@@ -4668,7 +4669,6 @@ export type SAMLDatabaseLoginResponse = {
 export type SAMLSettingsRead = {
   saml_enabled: boolean
   saml_enforced: boolean
-  saml_auto_provisioning?: boolean
   saml_idp_metadata_url?: string | null
   saml_sp_acs_url: string
   /**
@@ -4686,10 +4686,6 @@ export type SAMLSettingsUpdate = {
    * Whether SAML is enforced. If true, users can only use SAML to authenticate. Requires SAML to be enabled.
    */
   saml_enforced?: boolean
-  /**
-   * Whether to automatically create user accounts and org memberships on first SAML login. When disabled, users must be pre-invited.
-   */
-  saml_auto_provisioning?: boolean
   saml_idp_metadata_url?: string | null
 }
 

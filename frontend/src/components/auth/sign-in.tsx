@@ -44,6 +44,7 @@ import { cn } from "@/lib/utils"
 
 interface SignInProps extends React.HTMLProps<HTMLDivElement> {
   returnUrl?: string | null
+  organizationSlug?: string | null
 }
 
 function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
@@ -70,7 +71,11 @@ async function startSamlLogin(
   window.location.href = redirect_url
 }
 
-export function SignIn({ className, returnUrl }: SignInProps) {
+export function SignIn({
+  className,
+  returnUrl,
+  organizationSlug,
+}: SignInProps) {
   const { user } = useAuth()
   const { appInfo, appInfoIsLoading, appInfoError } = useAppInfo()
   const [isDiscovering, setIsDiscovering] = useState(false)
@@ -110,7 +115,10 @@ export function SignIn({ className, returnUrl }: SignInProps) {
     setDiscoveredEmail(email)
     try {
       const data: AuthDiscoverResponse = await authDiscoverAuthMethod({
-        requestBody: { email },
+        requestBody: {
+          email,
+          ...(organizationSlug ? { org: organizationSlug } : {}),
+        },
       })
 
       if (data.method === "basic") {
