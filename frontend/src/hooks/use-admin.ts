@@ -276,7 +276,7 @@ export function useAdminUsers() {
 
 /* ── TIERS ─────────────────────────────────────────────────────────────────── */
 
-export function useAdminTiers(includeInactive = true) {
+export function useAdminTiers(includeInactive = true, enabled = true) {
   const queryClient = useQueryClient()
 
   const {
@@ -286,6 +286,7 @@ export function useAdminTiers(includeInactive = true) {
   } = useQuery<AdminListTiersResponse>({
     queryKey: ["admin", "tiers", { includeInactive }],
     queryFn: () => adminListTiers({ includeInactive }),
+    enabled,
   })
 
   const { mutateAsync: createTier, isPending: createPending } = useMutation<

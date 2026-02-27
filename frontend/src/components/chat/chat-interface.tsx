@@ -40,6 +40,7 @@ import {
   useUpdateChat,
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useChatReadiness } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -65,6 +66,8 @@ export function ChatInterface({
   bodyClassName,
 }: ChatInterfaceProps) {
   const workspaceId = useWorkspaceId()
+  const { hasEntitlement } = useEntitlements()
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
     chatId
   )
@@ -97,7 +100,8 @@ export function ChatInterface({
   })
   const { updateChat, isUpdating } = useUpdateChat(workspaceId)
 
-  const presetsEnabled = entityType === "case" || entityType === "copilot"
+  const presetsEnabled =
+    agentAddonsEnabled && (entityType === "case" || entityType === "copilot")
 
   const {
     presets: presetOptions,

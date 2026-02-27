@@ -30,10 +30,7 @@ export default function CaseDetailLayout({
       {/* Case content inset */}
       <SidebarInset className="flex-1 min-w-0 mr-px">
         <div className="flex h-full flex-col">
-          <ControlsHeader
-            isChatOpen={chatOpen}
-            onToggleChat={() => setChatOpen((prev) => !prev)}
-          />
+          <ControlsHeader onToggleChat={() => setChatOpen((prev) => !prev)} />
           <div className="flex-1 overflow-y-auto">{children}</div>
         </div>
       </SidebarInset>
@@ -41,7 +38,7 @@ export default function CaseDetailLayout({
       {/* Chat sidebar */}
       {chatOpen && (
         <ResizableSidebar>
-          <CaseChat caseId={caseId} isChatOpen />
+          <CaseChat caseId={caseId} />
         </ResizableSidebar>
       )}
     </SidebarProvider>

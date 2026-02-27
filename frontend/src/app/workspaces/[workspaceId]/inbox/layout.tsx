@@ -65,7 +65,6 @@ export default function InboxLayout({
         <SidebarInset className="min-w-0 flex-1 mr-px">
           <div className="flex h-full flex-col">
             <ControlsHeader
-              isChatOpen={chatOpen}
               onToggleChat={
                 selectedSession ? () => setChatOpen((prev) => !prev) : undefined
               }

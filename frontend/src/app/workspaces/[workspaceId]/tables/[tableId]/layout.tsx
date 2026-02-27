@@ -4,7 +4,6 @@ import { XIcon } from "lucide-react"
 import type React from "react"
 import { useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { ChatInterface } from "@/components/chat/chat-interface"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import {
@@ -16,7 +15,8 @@ import { TableSidePanelContent } from "@/components/tables/table-side-panel"
 import { Button } from "@/components/ui/button"
 import { ResizableSidebar } from "@/components/ui/resizable-sidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
-import { useWorkspaceId } from "@/providers/workspace-id"
+import { WorkspaceCopilotSidebar } from "@/components/workspaces/workspace-copilot-sidebar"
+import { useEntitlements } from "@/hooks/use-entitlements"
 
 const PANEL_TITLES: Record<string, string> = {
   "view-json": "View JSON",
@@ -29,10 +29,11 @@ export default function TableDetailLayout({
 }: {
   children: React.ReactNode
 }) {
-  const workspaceId = useWorkspaceId()
   const canExecuteAgents = useScopeCheck("agent:execute")
+  const { hasEntitlement } = useEntitlements()
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
   const [chatOpen, setChatOpen] = useState(true)
-  const canShowChat = canExecuteAgents === true
+  const canShowChat = canExecuteAgents === true && agentAddonsEnabled
 
   return (
     <TableSelectionProvider>
@@ -42,7 +43,6 @@ export default function TableDetailLayout({
           <SidebarInset className="min-w-0 flex-1 mr-px">
             <div className="flex h-full flex-col">
               <ControlsHeader
-                isChatOpen={chatOpen}
                 onToggleChat={
                   canShowChat ? () => setChatOpen((prev) => !prev) : undefined
                 }
@@ -51,13 +51,7 @@ export default function TableDetailLayout({
             </div>
           </SidebarInset>
           <TableSidePanel />
-          {canShowChat && chatOpen && (
-            <ResizableSidebar initial={450} min={350} max={700}>
-              <div className="flex h-full flex-col">
-                <ChatInterface entityType="copilot" entityId={workspaceId} />
-              </div>
-            </ResizableSidebar>
-          )}
+          {canShowChat && chatOpen && <WorkspaceCopilotSidebar />}
         </SidebarProvider>
       </TablePanelProvider>
     </TableSelectionProvider>

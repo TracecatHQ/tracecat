@@ -130,8 +130,6 @@ interface PageConfig {
 }
 
 interface ControlsHeaderProps {
-  /** Whether the right-hand chat sidebar is currently open */
-  isChatOpen?: boolean
   /** Callback to toggle the chat sidebar */
   onToggleChat?: () => void
 }
@@ -1291,10 +1289,7 @@ function getPageConfig(
   return null
 }
 
-export function ControlsHeader({
-  isChatOpen,
-  onToggleChat,
-}: ControlsHeaderProps = {}) {
+export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const workspaceId = useWorkspaceId()
@@ -1352,6 +1347,7 @@ export function ControlsHeader({
         return
       }
       if (isEditableTarget(event.target)) {
+        pendingAt = null
         return
       }
 
