@@ -13,8 +13,10 @@ from urllib.parse import urlparse
 from pydantic import (
     UUID4,
     BaseModel,
+    Discriminator,
     Field,
     SecretStr,
+    Tag,
     field_validator,
 )
 
@@ -436,9 +438,26 @@ class MCPStdioIntegrationCreate(_MCPIntegrationCreateBase):
         return value
 
 
+def _discriminate_mcp_integration_create_server_type(value: Any) -> str:
+    """Infer MCP create server type, defaulting legacy payloads to HTTP."""
+    if isinstance(value, MCPHttpIntegrationCreate):
+        return "http"
+    if isinstance(value, MCPStdioIntegrationCreate):
+        return "stdio"
+    if isinstance(value, dict):
+        if "server_type" in value:
+            server_type = value.get("server_type")
+            if isinstance(server_type, str):
+                return server_type
+        if "stdio_command" in value and "server_uri" not in value:
+            return "stdio"
+    return "http"
+
+
 type MCPIntegrationCreate = Annotated[
-    MCPHttpIntegrationCreate | MCPStdioIntegrationCreate,
-    Field(discriminator="server_type"),
+    Annotated[MCPHttpIntegrationCreate, Tag("http")]
+    | Annotated[MCPStdioIntegrationCreate, Tag("stdio")],
+    Discriminator(_discriminate_mcp_integration_create_server_type),
 ]
 
 

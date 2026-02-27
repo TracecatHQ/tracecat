@@ -10481,13 +10481,6 @@ export const $MCPIntegrationCreate = {
       $ref: "#/components/schemas/MCPStdioIntegrationCreate",
     },
   ],
-  discriminator: {
-    propertyName: "server_type",
-    mapping: {
-      http: "#/components/schemas/MCPHttpIntegrationCreate",
-      stdio: "#/components/schemas/MCPStdioIntegrationCreate",
-    },
-  },
 } as const
 
 export const $MCPIntegrationRead = {
