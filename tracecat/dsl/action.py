@@ -36,11 +36,14 @@ from tracecat.dsl.schemas import (
 from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
 from tracecat.dsl.validation import normalize_trigger_inputs
 from tracecat.exceptions import TracecatExpressionError
+from tracecat.executor.service import get_workspace_variables
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import (
+    collect_expressions,
     eval_templated_object,
     get_iterables_from_expression,
+    is_template_only,
 )
 from tracecat.expressions.schemas import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -62,6 +65,36 @@ from tracecat.storage.object import (
 from tracecat.validation.schemas import ValidationDetail
 
 _thread_local = threading.local()
+
+
+def _strip_string_values(args: dict[str, Any]) -> dict[str, Any]:
+    """Strip leading/trailing whitespace from string values in args.
+
+    This ensures expressions like ``  ${{ VARS.x }}  `` are recognized as
+    template-only (rather than inline interpolation) so the resolved value
+    is returned without surrounding spaces.
+    """
+    return {k: v.strip() if isinstance(v, str) else v for k, v in args.items()}
+
+
+def _resolve_environment(
+    task_environment: str | None,
+    default_environment: str,
+    materialized: MaterializedExecutionContext,
+) -> str:
+    """Resolve effective environment for an agent action.
+
+    Precedence: task_environment > default_environment.
+    If task_environment is a template expression it is evaluated against the
+    materialized operand.
+    """
+    if task_environment is None:
+        return default_environment
+    env = task_environment.strip()
+    if is_template_only(env):
+        expr = TemplateExpression(env, operand=materialized)
+        return expr.result()
+    return env
 
 
 class ScatterActionInput(BaseModel):
@@ -119,11 +152,17 @@ class FinalizeGatherActivityResult(BaseModel):
 class BuildAgentArgsActivityInput(BaseModel):
     args: dict[str, Any]
     operand: ExecutionContext
+    role: Role
+    task_environment: str | None
+    default_environment: str
 
 
 class BuildPresetAgentArgsActivityInput(BaseModel):
     args: dict[str, Any]
     operand: ExecutionContext
+    role: Role
+    task_environment: str | None
+    default_environment: str
 
 
 class EvaluateTemplatedObjectActivityInput(BaseModel):
@@ -583,30 +622,74 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
-    def build_agent_args_activity(
+    async def build_agent_args_activity(
         input: BuildAgentArgsActivityInput,
     ) -> AgentActionArgs:
         """Build an AgentActionArgs from a dictionary of arguments.
 
-        Materializes any StoredObjects in operand before evaluation. This ensures
-        that expressions evaluate against raw values even when results are externalized.
+        Resolves the effective environment, fetches workspace VARS,
+        materializes any StoredObjects in operand, then evaluates templated
+        args. CPU-bound work is offloaded via asyncio.to_thread to avoid
+        blocking the Temporal event loop.
         """
-        materialized = run_sync(materialize_context(input.operand))
-        evaled_args = eval_templated_object(input.args, operand=materialized)
+        operand = input.operand
+        materialized = await materialize_context(operand)
+        environment = await asyncio.to_thread(
+            _resolve_environment,
+            input.task_environment,
+            input.default_environment,
+            materialized,
+        )
+        collected = await asyncio.to_thread(collect_expressions, input.args)
+        if collected.variables:
+            workspace_variables = await get_workspace_variables(
+                variable_exprs=collected.variables,
+                environment=environment,
+                role=input.role,
+            )
+            if workspace_variables:
+                operand["VARS"] = workspace_variables
+                materialized = await materialize_context(operand)
+        args = _strip_string_values(input.args)
+        evaled_args = await asyncio.to_thread(
+            eval_templated_object, args, operand=materialized
+        )
         return AgentActionArgs(**evaled_args)
 
     @staticmethod
     @activity.defn
-    def build_preset_agent_args_activity(
+    async def build_preset_agent_args_activity(
         input: BuildPresetAgentArgsActivityInput,
     ) -> PresetAgentActionArgs:
         """Build a PresetAgentActionArgs from a dictionary of arguments.
 
-        Materializes any StoredObjects in operand before evaluation. This ensures
-        that expressions evaluate against raw values even when results are externalized.
+        Resolves the effective environment, fetches workspace VARS,
+        materializes any StoredObjects in operand, then evaluates templated
+        args. CPU-bound work is offloaded via asyncio.to_thread to avoid
+        blocking the Temporal event loop.
         """
-        materialized = run_sync(materialize_context(input.operand))
-        evaled_args = eval_templated_object(input.args, operand=materialized)
+        operand = input.operand
+        materialized = await materialize_context(operand)
+        environment = await asyncio.to_thread(
+            _resolve_environment,
+            input.task_environment,
+            input.default_environment,
+            materialized,
+        )
+        collected = await asyncio.to_thread(collect_expressions, input.args)
+        if collected.variables:
+            workspace_variables = await get_workspace_variables(
+                variable_exprs=collected.variables,
+                environment=environment,
+                role=input.role,
+            )
+            if workspace_variables:
+                operand["VARS"] = workspace_variables
+                materialized = await materialize_context(operand)
+        args = _strip_string_values(input.args)
+        evaled_args = await asyncio.to_thread(
+            eval_templated_object, args, operand=materialized
+        )
         return PresetAgentActionArgs(**evaled_args)
 
     @staticmethod
@@ -919,7 +1002,10 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
     materialized = await materialize_context(input.operand)
 
     # Evaluate task args to get workflow_id or workflow_alias
-    evaluated_args = eval_templated_object(task.args, operand=materialized)
+    # Run CPU-bound expression evaluation in thread to avoid blocking event loop
+    evaluated_args = await asyncio.to_thread(
+        eval_templated_object, task.args, operand=materialized
+    )
     val_args = ExecuteSubflowArgs.model_validate(evaluated_args)
 
     # Resolve workflow ID
@@ -962,7 +1048,9 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
 
     # For single subflows (no for_each), evaluate args and return
     if not task.for_each:
-        evaluated_args = eval_templated_object(dict(task.args), operand=materialized)
+        evaluated_args = await asyncio.to_thread(
+            eval_templated_object, dict(task.args), operand=materialized
+        )
         val_args = ExecuteSubflowArgs.model_validate(evaluated_args)
 
         runtime_config = DSLConfig(
