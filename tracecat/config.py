@@ -854,13 +854,16 @@ TRACECAT__REGISTRY_SYNC_DISCOVER_TIMEOUT = int(
 """Timeout for action discovery during registry sync in seconds. Defaults to 300 (5 min)."""
 
 TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES = os.environ.get(
-    "TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES", "true"
+    "TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES", "false"
 ).lower() in ("true", "1")
 """Use installed site-packages for builtin registry tarball builds.
 
-When True (default), builtin tracecat_registry sync packages the current
+When True, builtin tracecat_registry sync packages the current
 interpreter's installed site-packages into a tarball. This avoids creating
 a fresh venv and re-installing dependencies from package indexes at runtime.
+
+When False (default), builtin sync builds artifacts from source so wheels are
+resolved for the executing runtime architecture.
 """
 
 TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH = os.environ.get(

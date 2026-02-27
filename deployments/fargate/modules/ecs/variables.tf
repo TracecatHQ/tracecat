@@ -222,6 +222,12 @@ variable "result_externalization_threshold_bytes" {
   default     = 128000
 }
 
+variable "registry_sync_builtin_use_installed_site_packages" {
+  type        = bool
+  description = "Use installed site-packages for builtin registry sync artifacts"
+  default     = false
+}
+
 variable "workflow_artifact_retention_days" {
   type        = number
   description = "Retention period in days for workflow artifacts in blob storage (0 disables expiration)"

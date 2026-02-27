@@ -596,3 +596,9 @@ variable "feature_flags" {
   type        = string
   default     = ""
 }
+
+variable "registry_sync_builtin_use_installed_site_packages" {
+  description = "Use installed site-packages for builtin registry sync artifacts"
+  type        = bool
+  default     = false
+}

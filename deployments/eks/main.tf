@@ -132,4 +132,6 @@ module "eks" {
 
   # Feature flags (maps to enterprise.featureFlags)
   feature_flags = var.feature_flags
+
+  registry_sync_builtin_use_installed_site_packages = var.registry_sync_builtin_use_installed_site_packages
 }
