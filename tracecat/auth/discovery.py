@@ -11,7 +11,7 @@ from pydantic import EmailStr
 from sqlalchemy import select
 
 from tracecat import config
-from tracecat.api.common import bootstrap_role
+from tracecat.api.common import bootstrap_role, get_default_organization_id
 from tracecat.auth.enums import AuthType
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSession
@@ -77,7 +77,7 @@ class AuthDiscoveryService(BaseService):
         email_domain = self._extract_domain(email)
         resolution = await self._resolve_organization(email_domain)
         if resolution is None:
-            method = self._platform_fallback_method()
+            method = await self._unmapped_domain_fallback_method()
             return AuthDiscoverResponse(
                 method=method,
                 next_url=self._build_next_url(method=method, email=str(email)),
@@ -155,6 +155,16 @@ class AuthDiscoveryService(BaseService):
 
     async def _org_basic_enabled(self, _org_id: OrganizationID) -> bool:
         return AuthType.BASIC in config.TRACECAT__AUTH_TYPES
+
+    async def _unmapped_domain_fallback_method(self) -> AuthDiscoveryMethod:
+        """Resolve fallback auth method when no org domain mapping is found."""
+        if config.TRACECAT__EE_MULTI_TENANT:
+            return self._platform_fallback_method()
+        try:
+            default_org_id = await get_default_organization_id(self.session)
+        except ValueError:
+            return self._platform_fallback_method()
+        return await self._organization_discovery_method(default_org_id)
 
     @staticmethod
     def _extract_domain(email: str) -> str:

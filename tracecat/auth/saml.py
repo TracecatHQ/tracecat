@@ -24,11 +24,12 @@ Security and policy gates:
   and is not expired, validates `InResponseTo`, and deletes used request rows to
   prevent replay.
 - Assertion email is selected from known claims and then validated against the
-  org-domain allowlist. In multi-tenant mode, at least one active org domain is
-  required for successful SAML login.
-- Membership enforcement is org-scoped: with auto-provisioning off, only
-  existing org members can complete login; with it on, membership is provisioned
-  just-in-time for the resolved organization.
+  org-domain allowlist. SAML sign-in is denied when an org has no active
+  allowlisted domains, except for first-user superadmin bootstrap in the
+  default organization.
+- Membership enforcement is org-scoped: users can complete login when they are
+  already members, have a pending invitation in the resolved org, or are the
+  configured superadmin bootstrap account.
 
 IDOR hardening note:
 - ACS organization context is derived from server-issued RelayState and matched
@@ -53,15 +54,18 @@ from pydantic import BaseModel
 from saml2 import BINDING_HTTP_POST
 from saml2.client import Saml2Client
 from saml2.config import Config as Saml2Config
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import bootstrap_role, get_default_organization_id
 from tracecat.auth.dependencies import ServiceRole, require_auth_type_enabled
 from tracecat.auth.enums import AuthType
 from tracecat.auth.org_context import resolve_auth_organization_id
-from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
-from tracecat.authz.enums import OrgRole
+from tracecat.auth.users import (
+    AuthBackendStrategyDep,
+    UserManagerDep,
+    auth_backend,
+)
 from tracecat.config import (
     SAML_ACCEPTED_TIME_DIFF,
     SAML_ALLOW_UNSOLICITED,
@@ -73,6 +77,8 @@ from tracecat.config import (
     SAML_SIGNED_RESPONSES,
     SAML_VERIFY_SSL_ENTITY,
     SAML_VERIFY_SSL_METADATA,
+    TRACECAT__AUTH_ALLOWED_DOMAINS,
+    TRACECAT__AUTH_SUPERADMIN_EMAIL,
     TRACECAT__EE_MULTI_TENANT,
     TRACECAT__PUBLIC_API_URL,
     XMLSEC_BINARY_PATH,
@@ -80,10 +86,13 @@ from tracecat.config import (
 from tracecat.db.engine import get_async_session
 from tracecat.db.models import (
     OrganizationDomain,
+    OrganizationInvitation,
     OrganizationMembership,
     SAMLRequestData,
+    User,
 )
 from tracecat.identifiers import OrganizationID
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
 from tracecat.settings.service import get_setting
@@ -310,29 +319,46 @@ async def get_org_saml_metadata_url(
     return value
 
 
-async def should_allow_email_for_org(
-    session: AsyncSession, organization_id: OrganizationID, email: str
-) -> bool:
-    """Apply org-domain allowlist with multi-tenant safety defaults."""
-    if "@" not in email:
-        return False
-    raw_domain = email.split("@", 1)[1].strip().lower()
-    try:
-        normalized_domain = normalize_domain(raw_domain).normalized_domain
-    except ValueError:
-        return False
-
+async def _get_active_org_domains(
+    session: AsyncSession, organization_id: OrganizationID
+) -> set[str]:
     domains_stmt = select(OrganizationDomain.normalized_domain).where(
         OrganizationDomain.organization_id == organization_id,
         OrganizationDomain.is_active.is_(True),
     )
-    active_domains = set((await session.execute(domains_stmt)).scalars().all())
-    # Single-tenant compatibility: no domains means allow any domain.
-    # Multi-tenant hardening: require at least one active domain to avoid
-    # admitting identities from arbitrary domains into the selected org.
-    if not active_domains:
-        return not TRACECAT__EE_MULTI_TENANT
-    return normalized_domain in active_domains
+    return set((await session.execute(domains_stmt)).scalars().all())
+
+
+def _get_env_allowed_domains_for_saml() -> set[str]:
+    """Return normalized env-domain allowlist for SAML checks."""
+    normalized_domains: set[str] = set()
+    for raw_domain in TRACECAT__AUTH_ALLOWED_DOMAINS:
+        domain = raw_domain.strip().lower()
+        if not domain:
+            continue
+        try:
+            normalized_domains.add(normalize_domain(domain).normalized_domain)
+        except ValueError:
+            continue
+    return normalized_domains
+
+
+def _is_normalized_domain_allowed_for_org(
+    *,
+    normalized_domain: str,
+    active_domains: set[str],
+) -> bool:
+    """Apply runtime SAML domain policy for a normalized email domain."""
+    if active_domains:
+        return normalized_domain in active_domains
+
+    if TRACECAT__EE_MULTI_TENANT:
+        return False
+
+    env_allowed_domains = _get_env_allowed_domains_for_saml()
+    if env_allowed_domains:
+        return normalized_domain in env_allowed_domains
+    return True
 
 
 def _extract_candidate_emails(parser: SAMLParser) -> list[str]:
@@ -364,14 +390,121 @@ def _extract_candidate_emails(parser: SAMLParser) -> list[str]:
     return deduped
 
 
-async def _select_allowlisted_email(
+async def get_pending_org_invitation(
+    session: AsyncSession, organization_id: OrganizationID, email: str
+) -> OrganizationInvitation | None:
+    """Return a pending, unexpired org invitation for the email if one exists."""
+    normalized_email = email.strip().lower()
+    if not normalized_email:
+        return None
+    statement = (
+        select(OrganizationInvitation)
+        .where(
+            OrganizationInvitation.organization_id == organization_id,
+            func.lower(OrganizationInvitation.email) == normalized_email,
+            OrganizationInvitation.status == InvitationStatus.PENDING,
+            OrganizationInvitation.expires_at > datetime.now(UTC),
+        )
+        .order_by(OrganizationInvitation.created_at.desc())
+    )
+    result = await session.execute(statement)
+    return result.scalars().first()
+
+
+async def _select_authorized_email(
     session: AsyncSession, organization_id: OrganizationID, candidates: list[str]
-) -> str | None:
-    """Return the first candidate that satisfies org-domain allowlist."""
+) -> tuple[str | None, OrganizationInvitation | None]:
+    """Pick the best SAML email candidate allowed by org policy.
+
+    Selection order:
+    1. First-user superadmin bootstrap candidate (default org only).
+    2. First allowlisted candidate that has a pending invitation.
+    3. First allowlisted candidate without invitation (fallback).
+    """
+    active_domains = await _get_active_org_domains(session, organization_id)
+    fallback_allowlisted_candidate: str | None = None
+
     for candidate in candidates:
-        if await should_allow_email_for_org(session, organization_id, candidate):
-            return candidate
-    return None
+        if await is_superadmin_saml_bootstrap_allowed_for_org(
+            session, organization_id, candidate
+        ):
+            return candidate, None
+
+        if "@" not in candidate:
+            continue
+        raw_domain = candidate.split("@", 1)[1].strip().lower()
+        try:
+            normalized_domain = normalize_domain(raw_domain).normalized_domain
+        except ValueError:
+            continue
+        if not _is_normalized_domain_allowed_for_org(
+            normalized_domain=normalized_domain,
+            active_domains=active_domains,
+        ):
+            continue
+
+        pending_invitation = await get_pending_org_invitation(
+            session, organization_id, candidate
+        )
+        if pending_invitation is not None:
+            return candidate, pending_invitation
+        if fallback_allowlisted_candidate is None:
+            fallback_allowlisted_candidate = candidate
+
+    if fallback_allowlisted_candidate is not None:
+        return fallback_allowlisted_candidate, None
+    return None, None
+
+
+def _is_superadmin_bootstrap_email(email: str) -> bool:
+    superadmin_email = TRACECAT__AUTH_SUPERADMIN_EMAIL
+    return bool(superadmin_email and email == superadmin_email)
+
+
+async def is_first_superadmin_bootstrap_user(session: AsyncSession, email: str) -> bool:
+    """Allow superadmin bootstrap bypass only for first-user registration."""
+    if not _is_superadmin_bootstrap_email(email):
+        return False
+
+    users_count_stmt = select(func.count()).select_from(User)
+    user_count = (await session.execute(users_count_stmt)).scalar_one()
+    return user_count == 0
+
+
+async def is_superadmin_saml_bootstrap_allowed_for_org(
+    session: AsyncSession, organization_id: OrganizationID, email: str
+) -> bool:
+    """Allow superadmin SAML bootstrap only in default org and for first user."""
+    if not await is_first_superadmin_bootstrap_user(session, email):
+        return False
+    try:
+        default_org_id = await get_default_organization_id(session=session)
+    except ValueError:
+        return False
+    return organization_id == default_org_id
+
+
+def should_allow_saml_user_auto_provisioning(
+    *,
+    pending_invitation: OrganizationInvitation | None,
+    is_first_superadmin_bootstrap: bool,
+) -> bool:
+    """Allow SAML user creation only for invitees and first superadmin bootstrap."""
+    return pending_invitation is not None or is_first_superadmin_bootstrap
+
+
+def should_allow_saml_org_access(
+    *,
+    has_existing_membership: bool,
+    pending_invitation: OrganizationInvitation | None,
+    is_first_superadmin_bootstrap: bool,
+) -> bool:
+    """Allow org access after SAML auth when at least one trusted path exists."""
+    return (
+        has_existing_membership
+        or pending_invitation is not None
+        or is_first_superadmin_bootstrap
+    )
 
 
 async def create_saml_client(
@@ -723,11 +856,11 @@ async def sso_acs(
             detail="Authentication failed",
         )
 
-    email = await _select_allowlisted_email(
+    email, pending_invitation = await _select_authorized_email(
         db_session, organization_id, candidate_emails
     )
     if email is None:
-        logger.warning("SAML login denied by org domain allowlist")
+        logger.warning("SAML login denied by org domain allowlist/invitation checks")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Authentication failed",
@@ -735,11 +868,16 @@ async def sso_acs(
 
     logger.info("SAML authentication successful")
 
-    auto_provisioning = await get_setting(
-        "saml_auto_provisioning",
-        role=bootstrap_role(organization_id),
-        session=db_session,
-        default=True,
+    # Org-wide SAML auto-provisioning has been removed.
+    # We only auto-provision user accounts for:
+    # 1) The first-user superadmin bootstrap flow in the default org
+    # 2) Users with a pending invitation in the target organization
+    is_first_superadmin_bootstrap = await is_superadmin_saml_bootstrap_allowed_for_org(
+        db_session, organization_id, email
+    )
+    allow_user_auto_provisioning = should_allow_saml_user_auto_provisioning(
+        pending_invitation=pending_invitation,
+        is_first_superadmin_bootstrap=is_first_superadmin_bootstrap,
     )
 
     try:
@@ -748,7 +886,7 @@ async def sso_acs(
             organization_id=organization_id,
             associate_by_email=True,
             is_verified_by_default=True,
-            allow_auto_provisioning=bool(auto_provisioning),
+            allow_auto_provisioning=allow_user_auto_provisioning,
         )
     except UserAlreadyExists as e:
         logger.error("User already exists during SAML authentication")
@@ -764,7 +902,7 @@ async def sso_acs(
             detail="Authentication failed",
         )
 
-    # Ensure user belongs to this organization (JIT membership provisioning).
+    # Ensure user can access this organization.
     membership_stmt = select(OrganizationMembership).where(
         OrganizationMembership.user_id == user.id,  # pyright: ignore[reportArgumentType]
         OrganizationMembership.organization_id == organization_id,
@@ -772,25 +910,30 @@ async def sso_acs(
     existing_membership = (
         await db_session.execute(membership_stmt)
     ).scalar_one_or_none()
-    if existing_membership is None:
-        if not auto_provisioning:
-            logger.warning(
-                "SAML login denied: user has no org membership and auto-provisioning is disabled",
-                email=email,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Authentication failed",
-            )
-        # JIT membership creation is always scoped to the RelayState-resolved org.
-        db_session.add(
-            OrganizationMembership(
-                user_id=user.id,  # pyright: ignore[reportArgumentType]
-                organization_id=organization_id,
-                role=OrgRole.MEMBER,
-            )
+    has_existing_membership = existing_membership is not None
+    can_access_org = should_allow_saml_org_access(
+        has_existing_membership=has_existing_membership,
+        pending_invitation=pending_invitation,
+        is_first_superadmin_bootstrap=is_first_superadmin_bootstrap,
+    )
+    if not can_access_org:
+        logger.warning(
+            "SAML login denied: user has no org membership and no pending invitation",
+            email=email,
         )
-        await db_session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Authentication failed",
+        )
+    if (
+        not has_existing_membership
+        and pending_invitation is None
+        and is_first_superadmin_bootstrap
+    ):
+        logger.info(
+            "Allowing SAML login for first-user superadmin bootstrap without org membership",
+            email=email,
+        )
 
     response = await auth_backend.login(strategy, user)
     await user_manager.on_after_login(user, request, response)

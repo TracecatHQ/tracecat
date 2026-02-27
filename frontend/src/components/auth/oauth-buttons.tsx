@@ -14,7 +14,7 @@ type OAuthButtonProps = ComponentPropsWithoutRef<typeof Button> & {
   returnUrl?: string | null
 }
 
-type OidcProviderIcon = "google" | "saml"
+type OidcProviderIcon = "google" | "login"
 
 type OidcOAuthButtonProps = OAuthButtonProps & {
   providerLabel?: string
@@ -58,19 +58,17 @@ export function GithubOAuthButton({
 
 export function OidcOAuthButton({
   returnUrl,
-  providerLabel = "Single sign-on",
-  providerIcon = "saml",
+  providerLabel = "Social login",
+  providerIcon = "login",
   ...props
 }: OidcOAuthButtonProps) {
   const [isLoading, setIsLoading] = useState<boolean>(false)
-  const ProviderIcon = providerIcon === "google" ? Icons.google : Icons.saml
+  const ProviderIcon = providerIcon === "google" ? Icons.google : Icons.login
 
   const handleClick = async () => {
     try {
       setIsLoading(true)
-      const { authorization_url } = await authOauthOidcDatabaseAuthorize({
-        scopes: ["openid", "email", "profile"],
-      })
+      const { authorization_url } = await authOauthOidcDatabaseAuthorize()
       setPostAuthReturnUrlCookie(returnUrl)
       window.location.href = authorization_url
     } catch (error) {

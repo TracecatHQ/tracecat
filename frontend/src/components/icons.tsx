@@ -24,6 +24,7 @@ import {
   Globe,
   KeyRound,
   ListChecks,
+  LogInIcon,
   MailIcon,
   MergeIcon,
   MessageCircleMore,
@@ -193,6 +194,7 @@ export const Icons = {
     </svg>
   ),
   saml: (props: IconProps) => <Building2Icon {...props} />,
+  login: (props: IconProps) => <LogInIcon {...props} />,
 }
 
 export function getFlairSize(size: "sm" | "md" | "lg"): string {

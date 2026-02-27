@@ -11,6 +11,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { ApiError } from "@/client"
 import { Icons } from "@/components/icons"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
   CardContent,
@@ -29,6 +30,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
 import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
+import { useAppInfo } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
 // Move type definition outside the function for reuse
@@ -55,11 +57,33 @@ function isEmailLoginValidationError(
 
 interface SignUpProps extends React.HTMLProps<HTMLDivElement> {
   returnUrl?: string | null
+  organizationSlug?: string | null
 }
 
-export function SignUp({ className, returnUrl }: SignUpProps) {
+function buildSignInPath(
+  returnUrl?: string | null,
+  organizationSlug?: string | null
+): string {
+  const params = new URLSearchParams()
+  if (returnUrl) {
+    params.set("returnUrl", returnUrl)
+  }
+  if (organizationSlug) {
+    params.set("org", organizationSlug)
+  }
+  const query = params.toString()
+  return query ? `/sign-in?${query}` : "/sign-in"
+}
+
+export function SignUp({
+  className,
+  returnUrl,
+  organizationSlug,
+}: SignUpProps) {
   const { user } = useAuth()
+  const { appInfo, appInfoIsLoading, appInfoError } = useAppInfo()
   const router = useRouter()
+  const signInPath = buildSignInPath(returnUrl, organizationSlug)
 
   useEffect(() => {
     if (user) {
@@ -68,6 +92,42 @@ export function SignUp({ className, returnUrl }: SignUpProps) {
       router.push("/workspaces")
     }
   }, [user, router])
+
+  if (appInfoIsLoading) {
+    return <CenteredSpinner />
+  }
+  if (appInfoError) {
+    throw appInfoError
+  }
+
+  const allowedAuthTypes: string[] = appInfo?.auth_allowed_types ?? []
+  const showBasicAuth = allowedAuthTypes.includes("basic")
+
+  if (!showBasicAuth) {
+    return (
+      <div
+        className={cn(
+          "container flex size-full items-center justify-center",
+          className
+        )}
+      >
+        <div className="flex w-full flex-1 flex-col justify-center gap-2 px-8 sm:max-w-md">
+          <CardHeader className="items-center space-y-2 text-center">
+            <Image src={TracecatIcon} alt="Tracecat" className="mb-8 size-16" />
+            <CardTitle className="text-2xl">Sign up unavailable</CardTitle>
+            <CardDescription>
+              Password sign-up is disabled. Continue with sign in.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild className="w-full">
+              <Link href={signInPath}>Back to sign in</Link>
+            </Button>
+          </CardContent>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -90,14 +150,7 @@ export function SignUp({ className, returnUrl }: SignUpProps) {
           </div>
           <div className="mt-4 text-center text-sm text-muted-foreground">
             Already have an account?{" "}
-            <Link
-              href={
-                returnUrl
-                  ? `/sign-in?returnUrl=${encodeURIComponent(returnUrl)}`
-                  : "/sign-in"
-              }
-              className="underline"
-            >
+            <Link href={signInPath} className="underline">
               Sign in
             </Link>
           </div>

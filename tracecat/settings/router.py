@@ -72,19 +72,16 @@ async def check_saml_domain_prerequisites(
 ) -> None:
     """Enforce domain guardrails for multi-tenant SAML enablement.
 
-    In multi-tenant mode, enabling SAML and enabling SAML auto-provisioning must
-    require at least one active organization domain. This prevents org
-    enrollment on arbitrary email domains when SAML assertions are accepted.
+    In multi-tenant mode, enabling SAML must require at least one active
+    organization domain. This prevents org enrollment on arbitrary email domains
+    when SAML assertions are accepted.
     """
     if not config.TRACECAT__EE_MULTI_TENANT:
         return
 
     fields_set = params.model_fields_set
     enabling_saml = "saml_enabled" in fields_set and params.saml_enabled
-    enabling_auto_provisioning = (
-        "saml_auto_provisioning" in fields_set and params.saml_auto_provisioning
-    )
-    if not (enabling_saml or enabling_auto_provisioning):
+    if not enabling_saml:
         return
 
     organization_id = role.organization_id
@@ -103,7 +100,7 @@ async def check_saml_domain_prerequisites(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail=(
             "At least one active organization domain is required before enabling "
-            "SAML or SAML auto-provisioning in multi-tenant mode"
+            "SAML in multi-tenant mode"
         ),
     )
 

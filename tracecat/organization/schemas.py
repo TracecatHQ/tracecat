@@ -101,6 +101,7 @@ class OrgInvitationReadMinimal(BaseModel):
 
     organization_id: OrganizationID
     organization_name: str
+    organization_slug: str
     inviter_name: str | None
     inviter_email: str | None
     role_name: str

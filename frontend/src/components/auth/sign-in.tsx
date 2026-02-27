@@ -44,6 +44,7 @@ import { cn } from "@/lib/utils"
 
 interface SignInProps extends React.HTMLProps<HTMLDivElement> {
   returnUrl?: string | null
+  organizationSlug?: string | null
 }
 
 function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
@@ -52,6 +53,21 @@ function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
   document.cookie = sanitizedReturnUrl
     ? serializePostAuthReturnUrlCookie(sanitizedReturnUrl, secure)
     : serializeClearPostAuthReturnUrlCookie(secure)
+}
+
+function buildSignUpPath(
+  returnUrl?: string | null,
+  organizationSlug?: string | null
+): string {
+  const params = new URLSearchParams()
+  if (returnUrl) {
+    params.set("returnUrl", returnUrl)
+  }
+  if (organizationSlug) {
+    params.set("org", organizationSlug)
+  }
+  const query = params.toString()
+  return query ? `/sign-up?${query}` : "/sign-up"
 }
 
 async function startSamlLogin(
@@ -70,13 +86,18 @@ async function startSamlLogin(
   window.location.href = redirect_url
 }
 
-export function SignIn({ className, returnUrl }: SignInProps) {
+export function SignIn({
+  className,
+  returnUrl,
+  organizationSlug,
+}: SignInProps) {
   const { user } = useAuth()
   const { appInfo, appInfoIsLoading, appInfoError } = useAppInfo()
   const [isDiscovering, setIsDiscovering] = useState(false)
   const [discoveredMethod, setDiscoveredMethod] = useState<"basic" | null>(null)
   const [discoveredEmail, setDiscoveredEmail] = useState("")
   const router = useRouter()
+  const signUpPath = buildSignUpPath(returnUrl, organizationSlug)
 
   if (user) {
     router.push("/workspaces")
@@ -94,8 +115,8 @@ export function SignIn({ className, returnUrl }: SignInProps) {
   const showGenericOidcAuth = allowedAuthTypes.includes("oidc")
   const showGoogleOauthAuth = allowedAuthTypes.includes("google_oauth")
   const showOidcAuth = showGenericOidcAuth || showGoogleOauthAuth
-  const oidcProviderLabel = showGenericOidcAuth ? "Single sign-on" : "Google"
-  const oidcProviderIcon = showGenericOidcAuth ? "saml" : "google"
+  const oidcProviderLabel = showGenericOidcAuth ? "Social login" : "Google"
+  const oidcProviderIcon = showGenericOidcAuth ? "login" : "google"
   // Keep a manual SAML entry point for single-tenant self-hosted setups.
   // In multi-tenant mode, SAML login requires org context and should only be
   // initiated from org-scoped discovery `next_url` links.
@@ -110,7 +131,10 @@ export function SignIn({ className, returnUrl }: SignInProps) {
     setDiscoveredEmail(email)
     try {
       const data: AuthDiscoverResponse = await authDiscoverAuthMethod({
-        requestBody: { email },
+        requestBody: {
+          email,
+          ...(organizationSlug ? { org: organizationSlug } : {}),
+        },
       })
 
       if (data.method === "basic") {
@@ -205,14 +229,7 @@ export function SignIn({ className, returnUrl }: SignInProps) {
           <CardFooter className="flex items-center justify-center text-sm text-muted-foreground">
             <div className="mt-4 text-center">
               Don&apos;t have an account?{" "}
-              <Link
-                href={
-                  returnUrl
-                    ? `/sign-up?returnUrl=${encodeURIComponent(returnUrl)}`
-                    : "/sign-up"
-                }
-                className="underline"
-              >
+              <Link href={signUpPath} className="underline">
                 Sign up
               </Link>
             </div>
