@@ -1168,16 +1168,19 @@ export default function IntegrationsPage() {
           grantType={detailsProvider.grantType}
         />
       )}
-      <MCPIntegrationDialog
-        open={Boolean(activeMcpIntegrationId)}
-        onOpenChange={(nextOpen) => {
-          if (!nextOpen) {
-            setActiveMcpIntegrationId(null)
-          }
-        }}
-        mcpIntegrationId={activeMcpIntegrationId}
-        hideTrigger
-      />
+      {activeMcpIntegrationId ? (
+        <MCPIntegrationDialog
+          key={activeMcpIntegrationId}
+          open
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) {
+              setActiveMcpIntegrationId(null)
+            }
+          }}
+          mcpIntegrationId={activeMcpIntegrationId}
+          hideTrigger
+        />
+      ) : null}
       <CreateCredentialDialog
         open={Boolean(activeCredentialTemplate)}
         onOpenChange={(nextOpen) => {

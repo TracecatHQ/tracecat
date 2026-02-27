@@ -1,4 +1,4 @@
-"""add_mcp_command_server_fields
+"""add_mcp_stdio_server_fields
 
 Revision ID: 2bedc5514ca9
 Revises: c9e4f54f0a2b
@@ -24,21 +24,20 @@ def upgrade() -> None:
     op.add_column(
         "mcp_integration",
         sa.Column(
-            "server_type", sa.String(length=20), server_default="url", nullable=False
-        ),
-    )
-    op.add_column(
-        "mcp_integration", sa.Column("command", sa.String(length=500), nullable=True)
-    )
-    op.add_column(
-        "mcp_integration",
-        sa.Column(
-            "command_args", postgresql.JSONB(astext_type=sa.Text()), nullable=True
+            "server_type", sa.String(length=20), server_default="http", nullable=False
         ),
     )
     op.add_column(
         "mcp_integration",
-        sa.Column("encrypted_command_env", sa.LargeBinary(), nullable=True),
+        sa.Column("stdio_command", sa.String(length=500), nullable=True),
+    )
+    op.add_column(
+        "mcp_integration",
+        sa.Column("stdio_args", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    )
+    op.add_column(
+        "mcp_integration",
+        sa.Column("encrypted_stdio_env", sa.LargeBinary(), nullable=True),
     )
     op.add_column("mcp_integration", sa.Column("timeout", sa.Integer(), nullable=True))
     op.alter_column(
@@ -51,7 +50,7 @@ def downgrade() -> None:
         "mcp_integration", "server_uri", existing_type=sa.VARCHAR(), nullable=False
     )
     op.drop_column("mcp_integration", "timeout")
-    op.drop_column("mcp_integration", "encrypted_command_env")
-    op.drop_column("mcp_integration", "command_args")
-    op.drop_column("mcp_integration", "command")
+    op.drop_column("mcp_integration", "encrypted_stdio_env")
+    op.drop_column("mcp_integration", "stdio_args")
+    op.drop_column("mcp_integration", "stdio_command")
     op.drop_column("mcp_integration", "server_type")

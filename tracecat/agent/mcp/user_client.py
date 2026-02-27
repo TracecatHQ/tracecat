@@ -14,7 +14,7 @@ from typing import Any, Literal
 from fastmcp import Client
 from fastmcp.client.transports import SSETransport, StreamableHttpTransport
 
-from tracecat.agent.common.types import MCPToolDefinition, MCPUrlServerConfig
+from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.logger import logger
 
 
@@ -22,12 +22,13 @@ def _create_transport(
     url: str,
     transport_type: Literal["http", "sse"],
     headers: dict[str, str] | None = None,
+    timeout: int | None = None,
 ) -> StreamableHttpTransport | SSETransport:
     """Create the appropriate transport for the MCP server."""
     if transport_type == "sse":
-        return SSETransport(url=url, headers=headers)
+        return SSETransport(url=url, headers=headers, sse_read_timeout=timeout)
     # Default to HTTP (Streamable HTTP transport)
-    return StreamableHttpTransport(url=url, headers=headers)
+    return StreamableHttpTransport(url=url, headers=headers, sse_read_timeout=timeout)
 
 
 class UserMCPClient:
@@ -41,7 +42,7 @@ class UserMCPClient:
     full network access to reach user-provided endpoints.
     """
 
-    def __init__(self, configs: list[MCPUrlServerConfig]):
+    def __init__(self, configs: list[MCPHttpServerConfig]):
         """Initialize with user MCP server configurations.
 
         Args:
@@ -84,7 +85,7 @@ class UserMCPClient:
     async def _discover_server_tools(
         self,
         server_name: str,
-        config: MCPUrlServerConfig,
+        config: MCPHttpServerConfig,
     ) -> dict[str, MCPToolDefinition]:
         """Discover tools from a single MCP server.
 
@@ -99,8 +100,9 @@ class UserMCPClient:
         url = config["url"]
         transport_type: Literal["http", "sse"] = config.get("transport", "http")
         headers = config.get("headers")
+        timeout = config.get("timeout")
 
-        transport = _create_transport(url, transport_type, headers)
+        transport = _create_transport(url, transport_type, headers, timeout)
         tools: dict[str, MCPToolDefinition] = {}
 
         async with Client(transport) as client:
@@ -155,8 +157,9 @@ class UserMCPClient:
         url = config["url"]
         transport_type: Literal["http", "sse"] = config.get("transport", "http")
         headers = config.get("headers")
+        timeout = config.get("timeout")
 
-        transport = _create_transport(url, transport_type, headers)
+        transport = _create_transport(url, transport_type, headers, timeout)
 
         logger.info(
             "Calling user MCP tool",
@@ -205,7 +208,7 @@ class UserMCPClient:
 
 
 async def discover_user_mcp_tools(
-    configs: list[MCPUrlServerConfig],
+    configs: list[MCPHttpServerConfig],
 ) -> dict[str, MCPToolDefinition]:
     """Discover tools from all configured user MCP servers.
 
@@ -226,7 +229,7 @@ async def discover_user_mcp_tools(
 
 
 async def call_user_mcp_tool(
-    configs: list[MCPUrlServerConfig],
+    configs: list[MCPHttpServerConfig],
     server_name: str,
     tool_name: str,
     args: dict[str, Any],

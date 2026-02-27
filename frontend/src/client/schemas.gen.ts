@@ -10334,47 +10334,7 @@ export const $MCPAuthType = {
   description: "Authentication type for MCP integrations.",
 } as const
 
-export const $MCPCommandServerConfig = {
-  properties: {
-    type: {
-      type: "string",
-      const: "command",
-      title: "Type",
-    },
-    name: {
-      type: "string",
-      title: "Name",
-    },
-    command: {
-      type: "string",
-      title: "Command",
-    },
-    args: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Args",
-    },
-    env: {
-      additionalProperties: {
-        type: "string",
-      },
-      type: "object",
-      title: "Env",
-    },
-    timeout: {
-      type: "integer",
-      title: "Timeout",
-    },
-  },
-  type: "object",
-  required: ["type", "name", "command"],
-  title: "MCPCommandServerConfig",
-  description: "Configuration for a command-based MCP server (stdio).",
-} as const
-
-export const $MCPIntegrationCreate = {
+export const $MCPHttpIntegrationCreate = {
   properties: {
     name: {
       type: "string",
@@ -10396,28 +10356,35 @@ export const $MCPIntegrationCreate = {
       title: "Description",
       description: "Optional description",
     },
-    server_type: {
-      type: "string",
-      enum: ["url", "command"],
-      title: "Server Type",
-      description: "Server type: 'url' (HTTP/SSE) or 'command' (stdio)",
-      default: "url",
-    },
-    server_uri: {
+    timeout: {
       anyOf: [
         {
-          type: "string",
+          type: "integer",
+          maximum: 300,
+          minimum: 1,
         },
         {
           type: "null",
         },
       ],
+      title: "Timeout",
+      description: "Timeout in seconds",
+      default: 30,
+    },
+    server_type: {
+      type: "string",
+      const: "http",
+      title: "Server Type",
+      default: "http",
+    },
+    server_uri: {
+      type: "string",
       title: "Server Uri",
-      description: "MCP server endpoint URL (required for url type)",
+      description: "MCP server endpoint URL (required for http type)",
     },
     auth_type: {
       $ref: "#/components/schemas/MCPAuthType",
-      description: "Authentication type (for url type)",
+      description: "Authentication type (for http type)",
       default: "NONE",
     },
     oauth_integration_id: {
@@ -10448,71 +10415,72 @@ export const $MCPIntegrationCreate = {
       description:
         "Custom credentials (API key, bearer token, or JSON headers) for custom auth_type",
     },
-    command: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 500,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Command",
-      description: "Command to run for command-type servers (e.g., 'npx')",
+  },
+  type: "object",
+  required: ["name", "server_uri"],
+  title: "MCPHttpIntegrationCreate",
+  description: "Request model for creating an HTTP MCP integration.",
+} as const
+
+export const $MCPHttpServerConfig = {
+  properties: {
+    type: {
+      type: "string",
+      const: "http",
+      title: "Type",
     },
-    command_args: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Command Args",
-      description:
-        "Arguments for the command (e.g., ['@modelcontextprotocol/server-github'])",
+    name: {
+      type: "string",
+      title: "Name",
     },
-    command_env: {
-      anyOf: [
-        {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Command Env",
-      description:
-        "Environment variables for command-type servers (can reference secrets)",
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    headers: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Headers",
+    },
+    transport: {
+      type: "string",
+      enum: ["http", "sse"],
+      title: "Transport",
     },
     timeout: {
-      anyOf: [
-        {
-          type: "integer",
-          maximum: 300,
-          minimum: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "integer",
       title: "Timeout",
-      description: "Timeout in seconds",
-      default: 30,
     },
   },
   type: "object",
-  required: ["name"],
-  title: "MCPIntegrationCreate",
-  description: "Request model for creating an MCP integration.",
+  required: ["type", "name", "url"],
+  title: "MCPHttpServerConfig",
+  description: `Configuration for a user-defined MCP server over HTTP/SSE.
+
+Users can connect custom MCP servers to their agents - whether running as
+Docker containers, local processes, or remote services. The server must
+expose an HTTP or SSE endpoint.
+
+Example:
+    {
+        "name": "internal-tools",
+        "url": "http://host.docker.internal:8080",
+        "transport": "http",
+        "headers": {"Authorization": "Bearer \${{ SECRETS.internal.API_KEY }}"}
+    }`,
+} as const
+
+export const $MCPIntegrationCreate = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/MCPHttpIntegrationCreate",
+    },
+    {
+      $ref: "#/components/schemas/MCPStdioIntegrationCreate",
+    },
+  ],
 } as const
 
 export const $MCPIntegrationRead = {
@@ -10575,7 +10543,7 @@ export const $MCPIntegrationRead = {
       ],
       title: "Oauth Integration Id",
     },
-    command: {
+    stdio_command: {
       anyOf: [
         {
           type: "string",
@@ -10584,9 +10552,9 @@ export const $MCPIntegrationRead = {
           type: "null",
         },
       ],
-      title: "Command",
+      title: "Stdio Command",
     },
-    command_args: {
+    stdio_args: {
       anyOf: [
         {
           items: {
@@ -10598,11 +10566,11 @@ export const $MCPIntegrationRead = {
           type: "null",
         },
       ],
-      title: "Command Args",
+      title: "Stdio Args",
     },
-    has_command_env: {
+    has_stdio_env: {
       type: "boolean",
-      title: "Has Command Env",
+      title: "Has Stdio Env",
       default: false,
     },
     timeout: {
@@ -10638,8 +10606,8 @@ export const $MCPIntegrationRead = {
     "server_uri",
     "auth_type",
     "oauth_integration_id",
-    "command",
-    "command_args",
+    "stdio_command",
+    "stdio_args",
     "timeout",
     "created_at",
     "updated_at",
@@ -10723,7 +10691,7 @@ export const $MCPIntegrationUpdate = {
       description:
         "Custom credentials (API key, bearer token, or JSON headers) for custom auth_type",
     },
-    command: {
+    stdio_command: {
       anyOf: [
         {
           type: "string",
@@ -10733,10 +10701,10 @@ export const $MCPIntegrationUpdate = {
           type: "null",
         },
       ],
-      title: "Command",
-      description: "Command to run for command-type servers (e.g., 'npx')",
+      title: "Stdio Command",
+      description: "Stdio command to run for stdio-type servers (e.g., 'npx')",
     },
-    command_args: {
+    stdio_args: {
       anyOf: [
         {
           items: {
@@ -10748,10 +10716,10 @@ export const $MCPIntegrationUpdate = {
           type: "null",
         },
       ],
-      title: "Command Args",
-      description: "Arguments for the command",
+      title: "Stdio Args",
+      description: "Arguments for the stdio command",
     },
-    command_env: {
+    stdio_env: {
       anyOf: [
         {
           additionalProperties: {
@@ -10763,8 +10731,8 @@ export const $MCPIntegrationUpdate = {
           type: "null",
         },
       ],
-      title: "Command Env",
-      description: "Environment variables for command-type servers",
+      title: "Stdio Env",
+      description: "Environment variables for stdio-type servers",
     },
     timeout: {
       anyOf: [
@@ -10789,65 +10757,145 @@ export const $MCPIntegrationUpdate = {
 export const $MCPServerConfig = {
   anyOf: [
     {
-      $ref: "#/components/schemas/MCPUrlServerConfig",
+      $ref: "#/components/schemas/MCPHttpServerConfig",
     },
     {
-      $ref: "#/components/schemas/MCPCommandServerConfig",
+      $ref: "#/components/schemas/MCPStdioServerConfig",
     },
   ],
 } as const
 
 export const $MCPServerType = {
   type: "string",
-  enum: ["url", "command"],
-  title: "MCPServerType",
-  description: "Server type for MCP integrations.",
+  enum: ["http", "stdio"],
 } as const
 
-export const $MCPUrlServerConfig = {
+export const $MCPStdioIntegrationCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 3,
+      title: "Name",
+      description: "MCP integration name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 512,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Optional description",
+    },
+    timeout: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 300,
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Timeout",
+      description: "Timeout in seconds",
+      default: 30,
+    },
+    server_type: {
+      type: "string",
+      const: "stdio",
+      title: "Server Type",
+      default: "stdio",
+    },
+    stdio_command: {
+      type: "string",
+      maxLength: 500,
+      title: "Stdio Command",
+      description: "Stdio command to run for stdio-type servers (e.g., 'npx')",
+    },
+    stdio_args: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stdio Args",
+      description:
+        "Arguments for the stdio command (e.g., ['@modelcontextprotocol/server-github'])",
+    },
+    stdio_env: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stdio Env",
+      description:
+        "Environment variables for stdio-type servers (can reference secrets)",
+    },
+  },
+  type: "object",
+  required: ["name", "stdio_command"],
+  title: "MCPStdioIntegrationCreate",
+  description: "Request model for creating a stdio MCP integration.",
+} as const
+
+export const $MCPStdioServerConfig = {
   properties: {
     type: {
       type: "string",
-      const: "url",
+      const: "stdio",
       title: "Type",
     },
     name: {
       type: "string",
       title: "Name",
     },
-    url: {
+    command: {
       type: "string",
-      title: "Url",
+      title: "Command",
     },
-    headers: {
+    args: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Args",
+    },
+    env: {
       additionalProperties: {
         type: "string",
       },
       type: "object",
-      title: "Headers",
+      title: "Env",
     },
-    transport: {
-      type: "string",
-      enum: ["http", "sse"],
-      title: "Transport",
+    timeout: {
+      type: "integer",
+      title: "Timeout",
     },
   },
   type: "object",
-  required: ["type", "name", "url"],
-  title: "MCPUrlServerConfig",
-  description: `Configuration for a user-defined MCP server.
-
-Users can connect custom MCP servers to their agents - whether running as
-Docker containers, local processes, or remote services. The server must
-expose an HTTP or SSE endpoint.
-
-Example:
-    {
-        "name": "internal-tools",
-        "url": "http://host.docker.internal:8080",
-        "transport": "http",
-        "headers": {"Authorization": "Bearer \${{ SECRETS.internal.API_KEY }}"}
-    }`,
+  required: ["type", "name", "command"],
+  title: "MCPStdioServerConfig",
+  description: "Configuration for a stdio MCP server.",
 } as const
 
 export const $MessageKind = {

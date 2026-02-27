@@ -27,10 +27,3 @@ class MCPAuthType(StrEnum):
     OAUTH2 = "OAUTH2"
     CUSTOM = "CUSTOM"
     NONE = "NONE"
-
-
-class MCPServerType(StrEnum):
-    """Server type for MCP integrations."""
-
-    URL = "url"
-    COMMAND = "command"

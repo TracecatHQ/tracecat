@@ -1,6 +1,6 @@
-"""Validation for MCP command-type server configurations.
+"""Validation for MCP stdio server configurations.
 
-This module provides security validation for command-based MCP servers to prevent
+This module provides security validation for stdio MCP servers to prevent
 command injection and other security vulnerabilities.
 """
 

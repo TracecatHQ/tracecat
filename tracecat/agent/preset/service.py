@@ -11,6 +11,7 @@ from slugify import slugify
 from sqlalchemy import select
 
 from tracecat import config
+from tracecat.agent.common.types import MCPHttpServerConfig
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.types import (
     AgentConfig,
@@ -23,7 +24,10 @@ from tracecat.db.models import (
     AgentPreset,
     OAuthIntegration,
 )
+from tracecat.dsl.common import create_default_execution_context
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.executor.service import get_workspace_variables
+from tracecat.expressions.eval import collect_expressions, eval_templated_object
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.integrations.mcp_validation import (
     MCPValidationError,
@@ -32,6 +36,7 @@ from tracecat.integrations.mcp_validation import (
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.secrets import secrets_manager
 from tracecat.secrets.encryption import decrypt_value
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
@@ -263,11 +268,11 @@ class AgentPresetService(BaseWorkspaceService):
 
             mcp_integration = by_id[mcp_integration_id]
 
-            # Handle command-type servers
-            if mcp_integration.server_type == "command":
-                if not mcp_integration.command:
+            # Handle stdio-type servers
+            if mcp_integration.server_type == "stdio":
+                if not mcp_integration.stdio_command:
                     logger.warning(
-                        "Command-type MCP integration %r has no command specified",
+                        "Stdio-type MCP integration %r has no stdio_command specified",
                         mcp_integration.name,
                         extra={
                             "workspace_id": str(self.workspace_id),
@@ -276,20 +281,40 @@ class AgentPresetService(BaseWorkspaceService):
                     )
                     continue
 
-                # Decrypt command_env if present
-                command_env = integrations_service.decrypt_command_env(mcp_integration)
+                # Decrypt stdio_env if present
+                stdio_env = integrations_service.decrypt_stdio_env(mcp_integration)
+                if stdio_env:
+                    try:
+                        stdio_env = await self._resolve_stdio_env(
+                            stdio_env=stdio_env,
+                            mcp_integration_id=mcp_integration.id,
+                            mcp_integration_slug=mcp_integration.slug,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Stdio env resolution failed for MCP integration %r: %s",
+                            mcp_integration.name,
+                            str(e),
+                            extra={
+                                "workspace_id": str(self.workspace_id),
+                                "mcp_integration_id": str(mcp_integration.id),
+                                "mcp_integration_slug": mcp_integration.slug,
+                                "env_keys": sorted(stdio_env.keys()),
+                            },
+                        )
+                        continue
 
                 # Re-validate command config at resolution time
                 try:
                     validate_mcp_command_config(
-                        command=mcp_integration.command,
-                        args=mcp_integration.command_args,
-                        env=command_env,
+                        command=mcp_integration.stdio_command,
+                        args=mcp_integration.stdio_args,
+                        env=stdio_env,
                         name=mcp_integration.slug,
                     )
                 except MCPValidationError as e:
                     logger.warning(
-                        "Command-type MCP integration %r failed validation: %s",
+                        "Stdio-type MCP integration %r failed validation: %s",
                         mcp_integration.name,
                         str(e),
                         extra={
@@ -300,24 +325,24 @@ class AgentPresetService(BaseWorkspaceService):
                     continue
 
                 command_config: MCPServerConfig = {
-                    "type": "command",
+                    "type": "stdio",
                     "name": mcp_integration.slug,
-                    "command": mcp_integration.command,
+                    "command": mcp_integration.stdio_command,
                 }
-                if mcp_integration.command_args:
-                    command_config["args"] = mcp_integration.command_args
-                if command_env:
-                    command_config["env"] = command_env
+                if mcp_integration.stdio_args:
+                    command_config["args"] = mcp_integration.stdio_args
+                if stdio_env:
+                    command_config["env"] = stdio_env
                 if mcp_integration.timeout:
                     command_config["timeout"] = mcp_integration.timeout
 
                 mcp_servers.append(command_config)
                 continue
 
-            # Handle URL-type servers (default)
+            # Handle HTTP-type servers (default)
             if not mcp_integration.server_uri:
                 logger.warning(
-                    "URL-type MCP integration %r has no server_uri specified",
+                    "HTTP-type MCP integration %r has no server_uri specified",
                     mcp_integration.name,
                     extra={
                         "workspace_id": str(self.workspace_id),
@@ -447,14 +472,15 @@ class AgentPresetService(BaseWorkspaceService):
                 continue
 
             # Build MCP server config
-            mcp_servers.append(
-                {
-                    "type": "url",
-                    "name": mcp_integration.name,
-                    "url": mcp_integration.server_uri,
-                    "headers": headers,
-                }
-            )
+            http_config: MCPHttpServerConfig = {
+                "type": "http",
+                "name": mcp_integration.name,
+                "url": mcp_integration.server_uri,
+                "headers": headers,
+            }
+            if mcp_integration.timeout is not None:
+                http_config["timeout"] = mcp_integration.timeout
+            mcp_servers.append(http_config)
 
         if not mcp_servers:
             raise TracecatValidationError(
@@ -462,6 +488,58 @@ class AgentPresetService(BaseWorkspaceService):
             )
 
         return mcp_servers
+
+    async def _resolve_stdio_env(
+        self,
+        *,
+        stdio_env: dict[str, str],
+        mcp_integration_id: uuid.UUID,
+        mcp_integration_slug: str,
+    ) -> dict[str, str]:
+        """Resolve template expressions in stdio_env using workspace secrets/vars."""
+        collected = collect_expressions(stdio_env)
+        if not collected.secrets and not collected.variables:
+            return stdio_env
+
+        secrets = await secrets_manager.get_action_secrets(
+            secret_exprs=collected.secrets,
+            action_secrets=set(),
+        )
+        vars_map = await get_workspace_variables(
+            variable_exprs=collected.variables,
+            role=self.role,
+        )
+
+        context = create_default_execution_context()
+        context["SECRETS"] = secrets
+        context["VARS"] = vars_map
+
+        resolved = eval_templated_object(stdio_env, operand=context)
+        if not isinstance(resolved, dict):
+            raise TracecatValidationError(
+                "Resolved stdio_env must be a JSON object with string values"
+            )
+
+        non_string_keys = [
+            key for key, value in resolved.items() if not isinstance(value, str)
+        ]
+        if non_string_keys:
+            raise TracecatValidationError(
+                "Resolved stdio_env values must be strings "
+                f"(invalid keys: {sorted(non_string_keys)})"
+            )
+
+        logger.info(
+            "Resolved stdio_env template expressions",
+            workspace_id=str(self.workspace_id),
+            mcp_integration_id=str(mcp_integration_id),
+            mcp_integration_slug=mcp_integration_slug,
+            env_key_count=len(resolved),
+            secret_ref_count=len(collected.secrets),
+            var_ref_count=len(collected.variables),
+        )
+
+        return cast(dict[str, str], resolved)
 
     async def _normalize_and_validate_slug(
         self,

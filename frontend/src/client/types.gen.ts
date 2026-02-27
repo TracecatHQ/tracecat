@@ -3311,23 +3311,9 @@ export type JoinStrategy = "any" | "all"
 export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
 
 /**
- * Configuration for a command-based MCP server (stdio).
+ * Request model for creating an HTTP MCP integration.
  */
-export type MCPCommandServerConfig = {
-  type: "command"
-  name: string
-  command: string
-  args?: Array<string>
-  env?: {
-    [key: string]: string
-  }
-  timeout?: number
-}
-
-/**
- * Request model for creating an MCP integration.
- */
-export type MCPIntegrationCreate = {
+export type MCPHttpIntegrationCreate = {
   /**
    * MCP integration name
    */
@@ -3337,15 +3323,16 @@ export type MCPIntegrationCreate = {
    */
   description?: string | null
   /**
-   * Server type: 'url' (HTTP/SSE) or 'command' (stdio)
+   * Timeout in seconds
    */
-  server_type?: "url" | "command"
+  timeout?: number | null
+  server_type?: "http"
   /**
-   * MCP server endpoint URL (required for url type)
+   * MCP server endpoint URL (required for http type)
    */
-  server_uri?: string | null
+  server_uri: string
   /**
-   * Authentication type (for url type)
+   * Authentication type (for http type)
    */
   auth_type?: MCPAuthType
   /**
@@ -3356,30 +3343,39 @@ export type MCPIntegrationCreate = {
    * Custom credentials (API key, bearer token, or JSON headers) for custom auth_type
    */
   custom_credentials?: string | null
-  /**
-   * Command to run for command-type servers (e.g., 'npx')
-   */
-  command?: string | null
-  /**
-   * Arguments for the command (e.g., ['@modelcontextprotocol/server-github'])
-   */
-  command_args?: Array<string> | null
-  /**
-   * Environment variables for command-type servers (can reference secrets)
-   */
-  command_env?: {
-    [key: string]: string
-  } | null
-  /**
-   * Timeout in seconds
-   */
-  timeout?: number | null
 }
 
 /**
- * Server type: 'url' (HTTP/SSE) or 'command' (stdio)
+ * Configuration for a user-defined MCP server over HTTP/SSE.
+ *
+ * Users can connect custom MCP servers to their agents - whether running as
+ * Docker containers, local processes, or remote services. The server must
+ * expose an HTTP or SSE endpoint.
+ *
+ * Example:
+ * {
+ * "name": "internal-tools",
+ * "url": "http://host.docker.internal:8080",
+ * "transport": "http",
+ * "headers": {"Authorization": "Bearer ${{ SECRETS.internal.API_KEY }}"}
+ * }
  */
-export type server_type = "url" | "command"
+export type MCPHttpServerConfig = {
+  type: "http"
+  name: string
+  url: string
+  headers?: {
+    [key: string]: string
+  }
+  transport?: "http" | "sse"
+  timeout?: number
+}
+
+export type transport = "http" | "sse"
+
+export type MCPIntegrationCreate =
+  | MCPHttpIntegrationCreate
+  | MCPStdioIntegrationCreate
 
 /**
  * Response model for MCP integration.
@@ -3394,9 +3390,9 @@ export type MCPIntegrationRead = {
   server_uri: string | null
   auth_type: MCPAuthType
   oauth_integration_id: string | null
-  command: string | null
-  command_args: Array<string> | null
-  has_command_env?: boolean
+  stdio_command: string | null
+  stdio_args: Array<string> | null
+  has_stdio_env?: boolean
   timeout: number | null
   created_at: string
   updated_at: string
@@ -3416,17 +3412,17 @@ export type MCPIntegrationUpdate = {
    */
   custom_credentials?: string | null
   /**
-   * Command to run for command-type servers (e.g., 'npx')
+   * Stdio command to run for stdio-type servers (e.g., 'npx')
    */
-  command?: string | null
+  stdio_command?: string | null
   /**
-   * Arguments for the command
+   * Arguments for the stdio command
    */
-  command_args?: Array<string> | null
+  stdio_args?: Array<string> | null
   /**
-   * Environment variables for command-type servers
+   * Environment variables for stdio-type servers
    */
-  command_env?: {
+  stdio_env?: {
     [key: string]: string
   } | null
   /**
@@ -3435,39 +3431,56 @@ export type MCPIntegrationUpdate = {
   timeout?: number | null
 }
 
-export type MCPServerConfig = MCPUrlServerConfig | MCPCommandServerConfig
+export type MCPServerConfig = MCPHttpServerConfig | MCPStdioServerConfig
+
+export type MCPServerType = "http" | "stdio"
 
 /**
- * Server type for MCP integrations.
+ * Request model for creating a stdio MCP integration.
  */
-export type MCPServerType = "url" | "command"
-
-/**
- * Configuration for a user-defined MCP server.
- *
- * Users can connect custom MCP servers to their agents - whether running as
- * Docker containers, local processes, or remote services. The server must
- * expose an HTTP or SSE endpoint.
- *
- * Example:
- * {
- * "name": "internal-tools",
- * "url": "http://host.docker.internal:8080",
- * "transport": "http",
- * "headers": {"Authorization": "Bearer ${{ SECRETS.internal.API_KEY }}"}
- * }
- */
-export type MCPUrlServerConfig = {
-  type: "url"
+export type MCPStdioIntegrationCreate = {
+  /**
+   * MCP integration name
+   */
   name: string
-  url: string
-  headers?: {
+  /**
+   * Optional description
+   */
+  description?: string | null
+  /**
+   * Timeout in seconds
+   */
+  timeout?: number | null
+  server_type?: "stdio"
+  /**
+   * Stdio command to run for stdio-type servers (e.g., 'npx')
+   */
+  stdio_command: string
+  /**
+   * Arguments for the stdio command (e.g., ['@modelcontextprotocol/server-github'])
+   */
+  stdio_args?: Array<string> | null
+  /**
+   * Environment variables for stdio-type servers (can reference secrets)
+   */
+  stdio_env?: {
     [key: string]: string
-  }
-  transport?: "http" | "sse"
+  } | null
 }
 
-export type transport = "http" | "sse"
+/**
+ * Configuration for a stdio MCP server.
+ */
+export type MCPStdioServerConfig = {
+  type: "stdio"
+  name: string
+  command: string
+  args?: Array<string>
+  env?: {
+    [key: string]: string
+  }
+  timeout?: number
+}
 
 /**
  * The type/kind of message stored in the chat.

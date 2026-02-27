@@ -2873,19 +2873,19 @@ class MCPIntegration(TimestampMixin, Base):
         nullable=False,
         doc="Slug of the MCP integration",
     )
-    # Server type: 'url' (HTTP/SSE) or 'command' (stdio)
+    # Server type: 'http' (HTTP/SSE) or 'stdio' (stdio)
     server_type: Mapped[str] = mapped_column(
         String(20),
-        default="url",
-        server_default="url",
+        default="http",
+        server_default="http",
         nullable=False,
-        doc="Server type: 'url' (HTTP/SSE) or 'command' (stdio)",
+        doc="Server type: 'http' (HTTP/SSE) or 'stdio' (stdio)",
     )
-    # URL-type server fields
+    # HTTP-type server fields
     server_uri: Mapped[str | None] = mapped_column(
         String,
         nullable=True,
-        doc="URL of the MCP server (for url-type servers)",
+        doc="URL of the MCP server (for http-type servers)",
     )
     auth_type: Mapped[MCPAuthType] = mapped_column(
         MCP_AUTH_TYPE_ENUM,
@@ -2903,27 +2903,27 @@ class MCPIntegration(TimestampMixin, Base):
         nullable=True,
         doc="Encrypted custom credentials (API key, bearer token, or JSON headers) for custom auth type",
     )
-    # Command-type server fields
-    command: Mapped[str | None] = mapped_column(
+    # Stdio-type server fields
+    stdio_command: Mapped[str | None] = mapped_column(
         String(500),
         nullable=True,
-        doc="Command to run for command-type servers (e.g., 'npx')",
+        doc="Stdio command to run for stdio-type servers (e.g., 'npx')",
     )
-    command_args: Mapped[list[str] | None] = mapped_column(
+    stdio_args: Mapped[list[str] | None] = mapped_column(
         JSONB,
         nullable=True,
-        doc="Arguments for the command (e.g., ['@modelcontextprotocol/server-github'])",
+        doc="Arguments for the stdio command (e.g., ['@modelcontextprotocol/server-github'])",
     )
-    encrypted_command_env: Mapped[bytes | None] = mapped_column(
+    encrypted_stdio_env: Mapped[bytes | None] = mapped_column(
         LargeBinary,
         nullable=True,
-        doc="Encrypted environment variables for command-type servers (JSON dict encrypted at rest)",
+        doc="Encrypted environment variables for stdio-type servers (JSON dict encrypted at rest)",
     )
     # General fields
     timeout: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
-        doc="Timeout in seconds (HTTP timeout for URL type, process timeout for command type)",
+        doc="Timeout in seconds (HTTP timeout for http type, process timeout for stdio type)",
     )
 
     oauth_integration: Mapped[OAuthIntegration | None] = relationship(
