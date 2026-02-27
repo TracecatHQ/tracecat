@@ -10,7 +10,7 @@ from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.service import CaseCreate, CasesService
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.models import Case, CaseTrigger, Workflow
+from tracecat.db.models import Case, CaseTrigger, Workflow, Workspace
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.tags.schemas import TagCreate, TagUpdate
 
@@ -35,6 +35,45 @@ async def case_tags_service(session: AsyncSession, svc_role: Role) -> CaseTagsSe
 
 
 @pytest.fixture
+async def other_workspace(session: AsyncSession, svc_workspace: Workspace) -> Workspace:
+    """Create a second workspace in the same organization."""
+    workspace = Workspace(
+        name="other-case-tags-workspace",
+        organization_id=svc_workspace.organization_id,
+    )
+    session.add(workspace)
+    await session.commit()
+    await session.refresh(workspace)
+    return workspace
+
+
+@pytest.fixture
+async def other_role(svc_role: Role, other_workspace: Workspace) -> Role:
+    """Clone the service role for a secondary workspace."""
+    return svc_role.model_copy(
+        update={
+            "workspace_id": other_workspace.id,
+            "organization_id": other_workspace.organization_id,
+            "user_id": uuid.uuid4(),
+        }
+    )
+
+
+@pytest.fixture
+async def other_cases_service(session: AsyncSession, other_role: Role) -> CasesService:
+    """Return a cases service for the secondary workspace."""
+    return CasesService(session=session, role=other_role)
+
+
+@pytest.fixture
+async def other_case_tags_service(
+    session: AsyncSession, other_role: Role
+) -> CaseTagsService:
+    """Return a case tags service for the secondary workspace."""
+    return CaseTagsService(session=session, role=other_role)
+
+
+@pytest.fixture
 async def case_id(cases_service: CasesService) -> AsyncGenerator[uuid.UUID, None]:
     """Create a temporary case for testing and yield its ID."""
     params = CaseCreate(
@@ -50,6 +89,25 @@ async def case_id(cases_service: CasesService) -> AsyncGenerator[uuid.UUID, None
     finally:
         # Clean up case after test
         await cases_service.delete_case(case)
+
+
+@pytest.fixture
+async def other_case_id(
+    other_cases_service: CasesService,
+) -> AsyncGenerator[uuid.UUID, None]:
+    """Create a temporary case in the secondary workspace and yield its ID."""
+    params = CaseCreate(
+        summary="Other Case w/ Tags",
+        description="Cross-workspace isolation test case",
+        status=CaseStatus.NEW,
+        priority=CasePriority.MEDIUM,
+        severity=CaseSeverity.LOW,
+    )
+    case: Case = await other_cases_service.create_case(params)
+    try:
+        yield case.id
+    finally:
+        await other_cases_service.delete_case(case)
 
 
 @pytest.fixture
@@ -353,3 +411,19 @@ class TestCaseTagsService:  # noqa: D101
 
         await session.refresh(case_trigger)
         assert case_trigger.tag_filters == [updated.ref]
+
+    @pytest.mark.anyio
+    async def test_list_tags_for_case_does_not_leak_cross_workspace_tags(
+        self,
+        case_tags_service: CaseTagsService,
+        other_case_tags_service: CaseTagsService,
+        other_case_id: uuid.UUID,
+    ) -> None:
+        """Listing tags should be empty when the case belongs to another workspace."""
+        other_tag = await other_case_tags_service.create_tag(
+            TagCreate(name="Other Workspace Tag", color="#12AB34")
+        )
+        await other_case_tags_service.add_case_tag(other_case_id, str(other_tag.id))
+
+        leaked_tags = await case_tags_service.list_tags_for_case(other_case_id)
+        assert leaked_tags == []
