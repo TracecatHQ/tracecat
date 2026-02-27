@@ -16,8 +16,8 @@ if TYPE_CHECKING:
 
     from tracecat.identifiers import OrganizationID
 
-# Default TTL for semaphore entries (1 hour)
-DEFAULT_TTL_SECONDS = 3600
+# Default TTL for semaphore entries (5 minutes)
+DEFAULT_TTL_SECONDS = 300
 
 
 @dataclass(frozen=True)
@@ -98,27 +98,16 @@ class RedisSemaphore:
         """
         self._client = client
         self._ttl_seconds = ttl_seconds
-        self._acquire_script: AsyncScript | None = None
-        self._heartbeat_script: AsyncScript | None = None
+        self._acquire_script: AsyncScript = self._client.register_script(
+            _ACQUIRE_SCRIPT
+        )
+        self._heartbeat_script: AsyncScript = self._client.register_script(
+            _HEARTBEAT_SCRIPT
+        )
 
     def _semaphore_key(self, org_id: OrganizationID, scope: PermitScope) -> str:
         """Get the Redis key for an organization's semaphore."""
-        if scope == PermitScope.WORKFLOW:
-            # Keep workflow key stable for backward compatibility.
-            return f"tier:org:{org_id}:semaphore"
-        return f"tier:org:{org_id}:action-semaphore"
-
-    async def _get_acquire_script(self) -> AsyncScript:
-        """Get or create the acquire Lua script."""
-        if self._acquire_script is None:
-            self._acquire_script = self._client.register_script(_ACQUIRE_SCRIPT)
-        return self._acquire_script
-
-    async def _get_heartbeat_script(self) -> AsyncScript:
-        """Get or create the heartbeat Lua script."""
-        if self._heartbeat_script is None:
-            self._heartbeat_script = self._client.register_script(_HEARTBEAT_SCRIPT)
-        return self._heartbeat_script
+        return f"tier:org:{org_id}:{scope}-semaphore"
 
     async def _acquire(
         self,
@@ -148,8 +137,7 @@ class RedisSemaphore:
         key = self._semaphore_key(org_id, scope)
         now = int(time.time())
 
-        script = await self._get_acquire_script()
-        result = await script(
+        result = await self._acquire_script(
             keys=[key],
             args=[permit_id, limit, now, self._ttl_seconds],
         )
@@ -177,6 +165,8 @@ class RedisSemaphore:
         scope: PermitScope,
     ) -> None:
         """Release a permit.
+
+        Idempotent: removing a missing permit is treated as success.
 
         Args:
             org_id: Organization ID.
@@ -217,8 +207,7 @@ class RedisSemaphore:
         key = self._semaphore_key(org_id, scope)
         now = int(time.time())
 
-        script = await self._get_heartbeat_script()
-        result = await script(keys=[key], args=[permit_id, now])
+        result = await self._heartbeat_script(keys=[key], args=[permit_id, now])
         updated = bool(result)
 
         logger.debug(

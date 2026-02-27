@@ -58,6 +58,9 @@ TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS = float(
 )
 """Interval in seconds between workflow permit heartbeat refreshes."""
 
+TRACECAT__PERMIT_TTL_SECONDS = int(os.environ.get("TRACECAT__PERMIT_TTL_SECONDS", 300))
+"""TTL in seconds for workflow/action concurrency permits before stale pruning."""
+
 TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS = int(
     os.environ.get("TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS", 120)
 )
