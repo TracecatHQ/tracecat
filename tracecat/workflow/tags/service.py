@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 
 from sqlalchemy import exists, select
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Workflow, WorkflowTag, WorkflowTagLink
@@ -72,7 +72,11 @@ class WorkflowTagsService(BaseWorkspaceService):
         await self._require_workflow_and_tag_in_workspace(wf_id, tag_id)
         wf_tag = WorkflowTagLink(workflow_id=wf_id, tag_id=tag_id)
         self.session.add(wf_tag)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as e:
+            await self.session.rollback()
+            raise ValueError("Tag already assigned to workflow") from e
         return wf_tag
 
     @require_scope("workflow:update")

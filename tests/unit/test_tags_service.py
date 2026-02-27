@@ -43,14 +43,14 @@ async def other_workspace(session: AsyncSession, svc_workspace: Workspace) -> Wo
 
 
 @pytest.fixture
-async def other_role(other_workspace: Workspace) -> Role:
-    """Role scoped to the secondary workspace."""
-    return Role(
-        type="user",
-        workspace_id=other_workspace.id,
-        organization_id=other_workspace.organization_id,
-        user_id=uuid4(),
-        service_id="tracecat-api",
+async def other_role(svc_role: Role, other_workspace: Workspace) -> Role:
+    """Clone base service role for the secondary workspace."""
+    return svc_role.model_copy(
+        update={
+            "workspace_id": other_workspace.id,
+            "organization_id": other_workspace.organization_id,
+            "user_id": uuid4(),
+        }
     )
 
 
@@ -371,6 +371,20 @@ class TestWorkflowTagsService:
         # Verify tag was removed
         workflow_tags = await workflow_tags_service.list_tags_for_workflow(workflow_id)
         assert len(workflow_tags) == 0
+
+    async def test_add_workflow_tag_duplicate_raises_value_error(
+        self,
+        workflow_tags_service: WorkflowTagsService,
+        tags_service: TagsService,
+        tag_create_params: TagCreate,
+        workflow_id: WorkflowID,
+    ) -> None:
+        """Adding the same tag twice to a workflow should raise a conflict error."""
+        tag = await tags_service.create_tag(tag_create_params)
+        await workflow_tags_service.add_workflow_tag(workflow_id, tag.id)
+
+        with pytest.raises(ValueError, match="already assigned"):
+            await workflow_tags_service.add_workflow_tag(workflow_id, tag.id)
 
     async def test_list_tags_for_workflow_enforces_workspace_scope(
         self,

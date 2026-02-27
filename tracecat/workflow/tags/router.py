@@ -39,6 +39,11 @@ async def add_tag(
     service = WorkflowTagsService(session, role=role)
     try:
         await service.add_workflow_tag(workflow_id, params.tag_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
