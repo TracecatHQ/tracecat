@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from collections.abc import Awaitable, Generator, Iterator
+from collections.abc import Awaitable, Coroutine, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -18,6 +18,7 @@ from temporalio.exceptions import (
     ApplicationError,
     ChildWorkflowError,
     FailureError,
+    is_cancelled_exception,
 )
 
 with workflow.unsafe.imports_passed_through():
@@ -50,11 +51,9 @@ with workflow.unsafe.imports_passed_through():
         BuildAgentArgsActivityInput,
         BuildPresetAgentArgsActivityInput,
         DSLActivities,
-        EvaluateLoopedSubflowInputActivityInput,
         EvaluateTemplatedObjectActivityInput,
         NormalizeTriggerInputsActivityInputs,
         PrepareSubflowActivityInput,
-        ResolveSubflowBatchActivityInput,
         SynchronizeCollectionObjectActivityInput,
     )
     from tracecat.dsl.common import (
@@ -63,11 +62,7 @@ with workflow.unsafe.imports_passed_through():
         ChildWorkflowMemo,
         DSLInput,
         DSLRunArgs,
-        ExecuteSubflowArgs,
         PreparedSubflowResult,
-        ResolvedSubflowBatch,
-        ResolvedSubflowInput,
-        SubflowContext,
         dsl_execution_error_from_exception,
         get_trigger_type,
     )
@@ -76,6 +71,11 @@ with workflow.unsafe.imports_passed_through():
         LoopStrategy,
         PlatformAction,
         WaitStrategy,
+    )
+    from tracecat.dsl.init_activities import (
+        ResolveTimeAnchorActivityInputs,
+        resolve_time_anchor_activity,
+        resolve_workflow_concurrency_limits_enabled_activity,
     )
     from tracecat.dsl.scheduler import DSLScheduler
     from tracecat.dsl.schemas import (
@@ -90,11 +90,7 @@ with workflow.unsafe.imports_passed_through():
         TaskResult,
     )
     from tracecat.dsl.types import ActionErrorInfo, ActionErrorInfoAdapter
-    from tracecat.dsl.validation import (
-        ResolveTimeAnchorActivityInputs,
-        format_input_schema_validation_error,
-        resolve_time_anchor_activity,
-    )
+    from tracecat.dsl.validation import format_input_schema_validation_error
     from tracecat.dsl.workflow_logging import get_workflow_logger
     from tracecat.ee.interactions.decorators import maybe_interactive
     from tracecat.ee.interactions.schemas import InteractionInput, InteractionResult
@@ -122,6 +118,23 @@ with workflow.unsafe.imports_passed_through():
         return_key,
         trigger_key,
     )
+    from tracecat.tiers.activities import (
+        AcquireActionPermitInput,
+        AcquireWorkflowPermitInput,
+        GetTierLimitsInput,
+        HeartbeatActionPermitInput,
+        HeartbeatWorkflowPermitInput,
+        ReleaseActionPermitInput,
+        ReleaseWorkflowPermitInput,
+        acquire_action_permit_activity,
+        acquire_workflow_permit_activity,
+        get_tier_limits_activity,
+        heartbeat_action_permit_activity,
+        heartbeat_workflow_permit_activity,
+        release_action_permit_activity,
+        release_workflow_permit_activity,
+    )
+    from tracecat.tiers.schemas import EffectiveLimits
     from tracecat.validation.schemas import ValidationDetailListTA
     from tracecat.workflow.executions.enums import (
         ExecutionType,
@@ -138,7 +151,6 @@ with workflow.unsafe.imports_passed_through():
         GetErrorHandlerWorkflowIDActivityInputs,
         GetWorkflowDefinitionActivityInputs,
         ResolveRegistryLockActivityInputs,
-        ResolveWorkflowAliasActivityInputs,
         WorkflowDefinitionActivityResult,
     )
     from tracecat.workflow.schedules.schemas import GetScheduleActivityInputs
@@ -198,6 +210,13 @@ class DSLWorkflow:
     run_context: RunContext
     dep_list: dict[str, list[str]]
     scheduler: DSLScheduler
+
+    # Tier limit tracking
+    _tier_limits: EffectiveLimits | None = None
+    workflow_concurrency_limits_enabled: bool
+    _workflow_permit_acquired: bool = False
+    _workflow_permit_heartbeat_task: asyncio.Task[None] | None = None
+    _action_execution_count: int = 0
 
     @workflow.init
     def __init__(self, args: DSLRunArgs) -> None:
@@ -347,6 +366,40 @@ class DSLWorkflow:
             dispatch_type=self.dispatch_type,
         )
 
+        # Snapshot flag value in workflow history for deterministic replay behavior.
+        self.workflow_concurrency_limits_enabled = (
+            await workflow.execute_local_activity(
+                resolve_workflow_concurrency_limits_enabled_activity,
+                start_to_close_timeout=timedelta(seconds=5),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        )
+
+        # Fetch tier limits for this organization
+        if (
+            self.workflow_concurrency_limits_enabled
+            and self.role.organization_id is not None
+        ):
+            self._tier_limits = await workflow.execute_activity(
+                get_tier_limits_activity,
+                arg=GetTierLimitsInput(org_id=self.role.organization_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            self.logger.debug(
+                "Fetched tier limits",
+                limits=self._tier_limits.model_dump() if self._tier_limits else None,
+            )
+
+            # Acquire workflow permit if limit is set
+            if (
+                self._tier_limits is not None
+                and self._tier_limits.max_concurrent_workflows is not None
+            ):
+                await self._acquire_workflow_permit(
+                    self._tier_limits.max_concurrent_workflows
+                )
+
         # Note that we can't run the error handler above this
         # Run the workflow with error handling
         try:
@@ -412,12 +465,27 @@ class DSLWorkflow:
             raise e
         except Exception as e:
             # Platform error
-            self.logger.error(
-                "Unexpected error running workflow",
-                type=e.__class__.__name__,
-                error=e,
-            )
+            if is_cancelled_exception(e):
+                self.logger.info("Workflow cancelled, skipping error logging")
+            else:
+                self.logger.error(
+                    "Unexpected error running workflow",
+                    type=e.__class__.__name__,
+                    error=e,
+                )
             raise e
+        finally:
+            await self._run_cancellation_safe_cleanup(
+                self._stop_workflow_permit_heartbeat(),
+                operation="stop_workflow_permit_heartbeat",
+            )
+            # Release workflow permit if acquired
+            if self._workflow_permit_acquired:
+                self.logger.warning("Releasing workflow permit")
+                await self._run_cancellation_safe_cleanup(
+                    self._release_workflow_permit(),
+                    operation="release_workflow_permit",
+                )
 
     async def _run_workflow(self, args: DSLRunArgs) -> StoredObject:
         """Actual workflow execution logic."""
@@ -576,6 +644,7 @@ class DSLWorkflow:
         self.scheduler = DSLScheduler(
             executor=self.execute_task,
             dsl=self.dsl,
+            max_pending_tasks=config.TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS,
             context=self.context,
             role=self.role,
             run_context=self.run_context,
@@ -678,6 +747,9 @@ class DSLWorkflow:
             return await self._noop_loop_action(task)
         if task.retry_policy.retry_until:
             return await self._execute_task_until_condition(task)
+        if self._is_executable_action(task):
+            # Non-retry-until actions perform one execution attempt.
+            self._check_action_execution_limit()
         return await self._execute_task(task)
 
     async def _execute_task_until_condition(self, task: ActionStatement) -> TaskResult:
@@ -688,6 +760,9 @@ class DSLWorkflow:
         ctx = self.context.copy()
         result = None
         while True:
+            if self._is_executable_action(task):
+                # retry_until executes the action repeatedly; enforce per attempt.
+                self._check_action_execution_limit()
             # NOTE: This only works with successful results
             result = await self._execute_task(task)
             ctx["ACTIONS"][task.ref] = result
@@ -765,10 +840,29 @@ class DSLWorkflow:
             "Begin task execution", task_ref=task.ref, stream_id=stream_id
         )
         task_result = TaskResult.from_result(None)
+        action_permit_id: str | None = None
+        action_permit_heartbeat_task: asyncio.Task[None] | None = None
 
         try:
-            # Handle timing control flow logic
+            # Handle timing control flow logic before consuming action permits.
             await self._handle_timers(task)
+
+            max_concurrent_actions = (
+                self._tier_limits.max_concurrent_actions
+                if self._tier_limits is not None
+                else None
+            )
+            if max_concurrent_actions is not None and self._is_executable_action(task):
+                action_permit_id = self._action_permit_id(
+                    task=task, stream_id=stream_id
+                )
+                await self._acquire_action_permit(
+                    action_id=action_permit_id,
+                    limit=max_concurrent_actions,
+                )
+                action_permit_heartbeat_task = asyncio.create_task(
+                    self._action_permit_heartbeat_loop(action_id=action_permit_id)
+                )
 
             # Do action stuff
             match task.action:
@@ -799,7 +893,7 @@ class DSLWorkflow:
                     stored_result = await self._execute_child_workflow_prepared(
                         task=task, prepared=prepared
                     )
-                    # _execute_child_workflow returns StoredObject directly
+                    # _execute_child_workflow_prepared returns StoredObject directly
                     # Infer result_typename from the stored data
                     match stored_result:
                         case InlineObject(data=data) as inline:
@@ -1102,6 +1196,19 @@ class DSLWorkflow:
             task_result = task_result.with_error(msg, err_type)
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
         finally:
+            if (
+                action_permit_heartbeat_task is not None
+                and not action_permit_heartbeat_task.done()
+            ):
+                action_permit_heartbeat_task.cancel()
+                await asyncio.gather(
+                    action_permit_heartbeat_task, return_exceptions=True
+                )
+            if action_permit_id is not None:
+                await self._run_cancellation_safe_cleanup(
+                    self._release_action_permit(action_id=action_permit_id),
+                    operation="release_action_permit",
+                )
             self.logger.trace("Setting action result", task_result=task_result)
             context = self.get_context(stream_id)
             context["ACTIONS"][task.ref] = task_result
@@ -1113,106 +1220,6 @@ class DSLWorkflow:
         FailureError.__name__: "Workflow execution failed",
         ValidationError.__name__: "Runtime validation error",
     }
-
-    async def _execute_child_workflow(
-        self,
-        task: ActionStatement,
-        sf_context: SubflowContext,
-    ) -> StoredObject:
-        """Execute a child workflow (single or looped).
-
-        For single execution: evaluates args and builds DSLRunArgs directly.
-        For loops: delegates to _execute_child_workflow_loop for batched resolution.
-        """
-        self.logger.debug("Execute child workflow", subflow_context=sf_context)
-        if task.for_each:
-            return await self._execute_child_workflow_loop(
-                task=task, sf_context=sf_context
-            )
-        else:
-            # Single execution: evaluate args and build DSLRunArgs
-            stream_id = ctx_stream_id.get()
-            key = action_key(
-                str(self.workspace_id), self.wf_exec_id, stream_id, task.ref
-            )
-            evaluated_args = await workflow.execute_activity(
-                DSLActivities.evaluate_templated_object_activity,
-                arg=EvaluateTemplatedObjectActivityInput(
-                    obj=dict(task.args),
-                    operand=self.get_context(),
-                    key=key,
-                ),
-                start_to_close_timeout=timedelta(seconds=60),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
-
-            # Evaluate task.environment if present (takes precedence over args.environment)
-            task_environment = None
-            if task.environment:
-                task_environment = await workflow.execute_activity(
-                    DSLActivities.evaluate_single_expression_activity,
-                    args=[task.environment, self.get_context()],
-                    start_to_close_timeout=timedelta(seconds=60),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                )
-
-            # Get args.environment from the stored evaluated args
-            # Note: evaluated_args is a StoredObject, we need to get the raw value
-            # For now, we evaluate environment/timeout separately since they're DSL config
-            args_environment = task.args.get("environment")
-            args_timeout = task.args.get("timeout")
-
-            # Evaluate environment/timeout from args if they contain expressions
-            if args_environment and isinstance(args_environment, str):
-                args_environment = await workflow.execute_activity(
-                    DSLActivities.evaluate_single_expression_activity,
-                    args=[args_environment, self.get_context()],
-                    start_to_close_timeout=timedelta(seconds=60),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                )
-
-            if args_timeout and isinstance(args_timeout, str):
-                args_timeout = await workflow.execute_activity(
-                    DSLActivities.evaluate_single_expression_activity,
-                    args=[str(args_timeout), self.get_context()],
-                    start_to_close_timeout=timedelta(seconds=60),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
-                )
-
-            # Environment precedence: task.environment > args.environment > dsl.config
-            resolved_environment = (
-                task_environment
-                or args_environment
-                or sf_context.dsl.config.environment
-            )
-            resolved_timeout = args_timeout or sf_context.dsl.config.timeout
-
-            self.logger.trace(
-                "Executing child workflow",
-                subflow_context=sf_context,
-                task_environment=task_environment,
-                args_environment=args_environment,
-                resolved_environment=resolved_environment,
-            )
-
-            runtime_config = DSLConfig(
-                environment=resolved_environment,
-                timeout=resolved_timeout,
-            )
-
-            sf_run_args = DSLRunArgs(
-                role=self.role,
-                dsl=sf_context.dsl,
-                wf_id=sf_context.wf_id,
-                trigger_inputs=evaluated_args,
-                parent_run_context=sf_context.run_context,
-                runtime_config=runtime_config,
-                execution_type=sf_context.execution_type,
-                time_anchor=sf_context.time_anchor,
-                registry_lock=sf_context.registry_lock,
-            )
-
-            return await self._run_child_workflow(task, sf_run_args)
 
     async def _execute_child_workflow_prepared(
         self,
@@ -1282,6 +1289,7 @@ class DSLWorkflow:
         fail_strategy = FailStrategy(
             task.args.get("fail_strategy", FailStrategy.ISOLATED)
         )
+        wait_strategy = WaitStrategy(task.args.get("wait_strategy", WaitStrategy.WAIT))
         total_count = prepared.count
 
         self.logger.trace(
@@ -1291,25 +1299,48 @@ class DSLWorkflow:
             fail_strategy=fail_strategy,
         )
 
-        # Determine batch size based on strategy
-        batch_size = {
+        # Determine logical batch size from strategy and resolve dispatch window.
+        requested_batch_size = {
             LoopStrategy.SEQUENTIAL: 1,
             LoopStrategy.BATCH: int(task.args.get("batch_size", 32)),
             LoopStrategy.PARALLEL: total_count,
         }[loop_strategy]
+        logical_batch_size, dispatch_window = self._resolve_child_loop_batch_plan(
+            total_count=total_count,
+            requested_batch_size=requested_batch_size,
+        )
 
-        # Process in batches for concurrency control
+        self.logger.debug(
+            "Child workflow loop execution plan",
+            total_count=total_count,
+            requested_batch_size=requested_batch_size,
+            logical_batch_size=logical_batch_size,
+            dispatch_window=dispatch_window,
+            loop_strategy=loop_strategy,
+        )
+        if dispatch_window < logical_batch_size:
+            self.logger.info(
+                "Child workflow loop dispatch window capped",
+                total_count=total_count,
+                requested_batch_size=requested_batch_size,
+                logical_batch_size=logical_batch_size,
+                dispatch_window=dispatch_window,
+            )
+
+        # Process in logical batches and bound per-batch dispatch concurrency.
         all_results: list[StoredObject] = []
         batch_start = 0
 
         while batch_start < total_count:
-            current_batch_size = min(batch_size, total_count - batch_start)
+            current_batch_size = min(logical_batch_size, total_count - batch_start)
             batch_results = await self._execute_child_workflow_batch_prepared(
                 task=task,
                 prepared=prepared,
                 batch_start=batch_start,
                 batch_size=current_batch_size,
+                dispatch_window=dispatch_window,
                 fail_strategy=fail_strategy,
+                wait_strategy=wait_strategy,
                 child_time_anchor=child_time_anchor,
             )
             all_results.extend(batch_results)
@@ -1336,6 +1367,8 @@ class DSLWorkflow:
         prepared: PreparedSubflowResult,
         batch_start: int,
         batch_size: int,
+        dispatch_window: int,
+        wait_strategy: WaitStrategy,
         fail_strategy: FailStrategy,
         child_time_anchor: datetime,
     ) -> list[StoredObject]:
@@ -1369,7 +1402,22 @@ class DSLWorkflow:
                     ),
                 )
 
-        coros: list[Awaitable[StoredObject]] = []
+        dispatch_semaphore = asyncio.Semaphore(dispatch_window)
+
+        async def dispatch_child(
+            *, loop_index: int, run_args: DSLRunArgs
+        ) -> workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]:
+            async with dispatch_semaphore:
+                return await self._dispatch_child_workflow(
+                    task,
+                    run_args,
+                    loop_index=loop_index,
+                    wait_strategy=wait_strategy,
+                )
+
+        coros: list[
+            Awaitable[workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]]
+        ] = []
         async for loop_index, run_args in cooperative(
             iter_run_args(),
             delay=0.1,
@@ -1379,10 +1427,14 @@ class DSLWorkflow:
                 loop_index=loop_index,
                 fail_strategy=fail_strategy,
             )
-            coro = self._run_child_workflow(task, run_args, loop_index=loop_index)
+            coro = dispatch_child(loop_index=loop_index, run_args=run_args)
             coros.append(coro)
 
-        gather_result = await asyncio.gather(*coros, return_exceptions=True)
+        launched_handles = await asyncio.gather(*coros, return_exceptions=True)
+        gather_result = await self._gather_dispatched_child_results(
+            launched_handles=launched_handles,
+            wait_strategy=wait_strategy,
+        )
 
         if fail_strategy == FailStrategy.ALL:
             if any(isinstance(val, BaseException) for val in gather_result):
@@ -1399,184 +1451,35 @@ class DSLWorkflow:
                     result.append(StoredObjectValidator.validate_python(val))
         return result
 
-    async def _execute_child_workflow_loop(
+    async def _gather_dispatched_child_results(
         self,
-        task: ActionStatement,
-        sf_context: SubflowContext,
-    ) -> StoredObject:
-        """Execute child workflow in a loop with per-batch resolution.
+        launched_handles: list[
+            workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject] | BaseException
+        ],
+        wait_strategy: WaitStrategy,
+    ) -> list[StoredObject | BaseException]:
+        """Resolve dispatched child handles into ordered results."""
+        # For detached workflows, return immediately with workflow IDs
+        # instead of waiting for completion
+        if wait_strategy == WaitStrategy.DETACH:
+            return [
+                handle_or_exc
+                if isinstance(handle_or_exc, BaseException)
+                else InlineObject(data=handle_or_exc.id)
+                for handle_or_exc in launched_handles
+            ]
 
-        Uses resolve_subflow_batch_activity to evaluate args (including
-        environment/timeout overrides) per iteration with var context.
-        """
-        if not task.for_each:
-            raise ApplicationError(
-                "for_each expression is required for looped subflows",
-                non_retryable=True,
-            )
-        loop_strategy = LoopStrategy(task.args.get("loop_strategy", LoopStrategy.BATCH))
-        fail_strategy = FailStrategy(
-            task.args.get("fail_strategy", FailStrategy.ISOLATED)
+        # Await successful handles and pass through dispatch-time failures,
+        # preserving the original order in a single gather call.
+        async def _resolve(
+            h: workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject] | BaseException,
+        ) -> StoredObject | BaseException:
+            return h if isinstance(h, BaseException) else await h
+
+        return await asyncio.gather(
+            *(_resolve(h) for h in launched_handles),
+            return_exceptions=True,
         )
-        self.logger.trace(
-            "Executing child workflow in loop",
-            sf_context=sf_context,
-            loop_strategy=loop_strategy,
-            fail_strategy=fail_strategy,
-        )
-
-        # First, get total count by evaluating for_each expression
-        # We need this to know how many iterations to process
-        total_count = await workflow.execute_activity(
-            DSLActivities.handle_looped_subflow_input_activity,
-            arg=EvaluateLoopedSubflowInputActivityInput(
-                for_each=task.for_each,
-                operand=self.get_context(),
-            ),
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-        )
-
-        # Determine batch size based on strategy
-        batch_size = {
-            LoopStrategy.SEQUENTIAL: 1,
-            LoopStrategy.BATCH: sf_context.batch_size,
-            LoopStrategy.PARALLEL: total_count,  # All at once
-        }[loop_strategy]
-
-        self.logger.trace(
-            "Loop execution plan",
-            total_count=total_count,
-            batch_size=batch_size,
-            loop_strategy=loop_strategy,
-        )
-
-        # Process in batches
-        all_results: list[StoredObject] = []
-        batch_start = 0
-        stream_id = ctx_stream_id.get()
-        key_prefix = action_collection_prefix(
-            str(self.workspace_id), self.wf_exec_id, stream_id, task.ref
-        )
-
-        while batch_start < total_count:
-            current_batch_size = min(batch_size, total_count - batch_start)
-
-            # Resolve args for this batch using the new activity
-            resolved_batch = await workflow.execute_activity(
-                DSLActivities.resolve_subflow_batch_activity,
-                arg=ResolveSubflowBatchActivityInput(
-                    task=task,
-                    operand=self.get_context(),
-                    batch_start=batch_start,
-                    batch_size=current_batch_size,
-                    key=f"{key_prefix}/batch_{batch_start}.json",
-                ),
-                start_to_close_timeout=timedelta(seconds=60),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
-            )
-
-            # Execute this batch
-            batch_results = await self._execute_child_workflow_batch(
-                resolved_batch=resolved_batch,
-                task=task,
-                sf_context=sf_context,
-                batch_start=batch_start,
-                fail_strategy=fail_strategy,
-            )
-            all_results.extend(batch_results)
-
-            batch_start += current_batch_size
-
-        # Synchronize by converting Sequence[StoredObject] -> CollectionObject
-        collection = await workflow.execute_activity(
-            DSLActivities.synchronize_collection_object_activity,
-            SynchronizeCollectionObjectActivityInput(
-                collection=all_results,
-                key=key_prefix,
-            ),
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-        )
-        return collection
-
-    async def _execute_child_workflow_batch(
-        self,
-        resolved_batch: ResolvedSubflowBatch,
-        task: ActionStatement,
-        sf_context: SubflowContext,
-        batch_start: int,
-        *,
-        fail_strategy: FailStrategy = FailStrategy.ISOLATED,
-    ) -> list[StoredObject]:
-        """Execute a batch of child workflows with resolved args.
-
-        Args:
-            resolved_batch: Pre-resolved configs and trigger_inputs for this batch
-            task: The ActionStatement being executed
-            sf_context: Shared subflow context (workflow definition, registry lock, etc.)
-            batch_start: Global index offset for this batch (for loop_index calculation)
-            fail_strategy: How to handle failures in the batch
-        """
-        batch_count = resolved_batch.count
-
-        def iter_run_args() -> Generator[tuple[int, DSLRunArgs]]:
-            for i in range(batch_count):
-                config = resolved_batch.get_config(i)
-
-                # Build runtime_config with per-iteration overrides
-                # Precedence: resolved config > dsl.config default
-                runtime_config = DSLConfig(
-                    environment=config.environment or sf_context.dsl.config.environment,
-                    timeout=config.timeout or sf_context.dsl.config.timeout,
-                )
-
-                # Each iteration gets its own trigger_inputs StoredObject
-                yield (
-                    batch_start + i,  # Global loop index
-                    DSLRunArgs(
-                        role=self.role,
-                        dsl=sf_context.dsl,
-                        wf_id=sf_context.wf_id,
-                        trigger_inputs=resolved_batch.trigger_inputs[i],
-                        parent_run_context=sf_context.run_context,
-                        runtime_config=runtime_config,
-                        execution_type=sf_context.execution_type,
-                        time_anchor=sf_context.time_anchor,
-                        registry_lock=sf_context.registry_lock,
-                    ),
-                )
-
-        coros: list[Awaitable[StoredObject]] = []
-        async for loop_index, run_args in cooperative(
-            iter_run_args(),
-            delay=0.1,
-        ):
-            self.logger.trace(
-                "Run child workflow batch",
-                loop_index=loop_index,
-                fail_strategy=fail_strategy,
-                environment=run_args.runtime_config.environment,
-            )
-            coro = self._run_child_workflow(task, run_args, loop_index=loop_index)
-            coros.append(coro)
-
-        gather_result = await asyncio.gather(*coros, return_exceptions=True)
-
-        if fail_strategy == FailStrategy.ALL:
-            if any(isinstance(val, BaseException) for val in gather_result):
-                raise RuntimeError("One or more child workflows failed")
-
-        result: list[StoredObject] = []
-        for val in gather_result:
-            match val:
-                case BaseException():
-                    result.append(
-                        InlineObject(data=dsl_execution_error_from_exception(val))
-                    )
-                case _:
-                    result.append(StoredObjectValidator.validate_python(val))
-        return result
 
     async def _handle_return(self) -> StoredObject:
         self.logger.debug("Handling return", context=self.context)
@@ -1601,24 +1504,6 @@ class DSLWorkflow:
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
-
-    async def _resolve_workflow_alias(self, wf_alias: str) -> identifiers.WorkflowID:
-        # Evaluate the workflow alias as a templated expression
-        # For draft executions, use draft aliases; for published executions, use committed aliases
-        activity_inputs = ResolveWorkflowAliasActivityInputs(
-            workflow_alias=wf_alias,
-            role=self.role,
-            use_committed=self.execution_type == ExecutionType.PUBLISHED,
-        )
-        wf_id = await workflow.execute_activity(
-            WorkflowsManagementService.resolve_workflow_alias_activity,
-            args=(self.run_context, self.get_context(), activity_inputs),
-            start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-        )
-        if not wf_id:
-            raise ValueError(f"Workflow alias {wf_alias!r} not found")
-        return wf_id
 
     async def _get_workflow_definition(
         self, workflow_id: identifiers.WorkflowID, version: int | None = None
@@ -1675,49 +1560,6 @@ class DSLWorkflow:
             return wf_info.typed_search_attributes.get(key)
         except Exception:
             return None
-
-    async def _prepare_child_workflow(self, args: ExecuteSubflowArgs) -> SubflowContext:
-        """Grab a workflow definition and create shared child workflow context.
-
-        Returns SubflowContext with shared data (workflow definition, registry lock, etc.).
-        Per-iteration config (environment, timeout) is resolved separately via
-        ResolvedSubflowBatch for loops, or directly from args for single execution.
-        """
-        if args.workflow_id:
-            child_wf_id = args.workflow_id
-        elif args.workflow_alias:
-            child_wf_id = await self._resolve_workflow_alias(args.workflow_alias)
-        else:
-            raise ValueError("Either workflow_id or workflow_alias must be provided")
-
-        result = await self._get_workflow_definition(child_wf_id, version=args.version)
-        dsl = result.dsl
-
-        self.logger.debug(
-            "Got workflow definition",
-            dsl=dsl,
-            args=args,
-            dsl_config=dsl.config,
-            self_config=self.runtime_config,
-        )
-
-        # Propagate time_anchor: use child's override if set, otherwise use parent's
-        # current logical time so child continues from parent's elapsed position
-        child_time_anchor = (
-            args.time_anchor
-            if args.time_anchor is not None
-            else self._compute_logical_time()
-        )
-
-        return SubflowContext(
-            wf_id=child_wf_id,
-            dsl=dsl,
-            registry_lock=result.registry_lock,
-            run_context=self.run_context,
-            execution_type=self.execution_type,
-            time_anchor=child_time_anchor,
-            batch_size=args.batch_size,
-        )
 
     async def _noop_gather_action(self, task: ActionStatement) -> Any:
         # Parent stream
@@ -1876,59 +1718,74 @@ class DSLWorkflow:
         - Single InlineObject / ExternalObject
 
         """
+        wait_strategy = WaitStrategy(
+            task.args.get("wait_strategy") or WaitStrategy.DETACH
+        )
+        self.logger.debug(
+            "Running child workflow",
+            wait_strategy=wait_strategy,
+        )
+        child_wf_handle = await self._dispatch_child_workflow(
+            task,
+            run_args,
+            wait_strategy=wait_strategy,
+            loop_index=loop_index,
+        )
+        match wait_strategy:
+            case WaitStrategy.DETACH:
+                return InlineObject(data=child_wf_handle.id)
+            case WaitStrategy.WAIT:
+                result = await child_wf_handle
+                return StoredObjectValidator.validate_python(result)
+            case _:
+                raise ApplicationError(
+                    (
+                        "Invalid wait strategy: "
+                        f"wait_strategy must be one of {WaitStrategy.values()}"
+                    ),
+                    non_retryable=True,
+                    type="InvalidWaitStrategy",
+                )
+
+    async def _dispatch_child_workflow(
+        self,
+        task: ActionStatement,
+        run_args: DSLRunArgs,
+        *,
+        wait_strategy: WaitStrategy,
+        loop_index: int | None = None,
+    ) -> workflow.ChildWorkflowHandle[DSLWorkflow, StoredObject]:
         wf_exec_id = identifiers.workflow.generate_exec_id(run_args.wf_id)
         wf_info = workflow.info()
-        # XXX(safety): This has been validated in prepare_child_workflow
-        args = ResolvedSubflowInput.model_construct(**task.args)
-        # Use Temporal memo to store the action ref in the child workflow run
         stream_id = ctx_stream_id.get()
         memo = ChildWorkflowMemo(
             action_ref=task.ref,
             loop_index=loop_index,
-            wait_strategy=args.wait_strategy,
+            wait_strategy=wait_strategy,
             stream_id=stream_id,
         ).model_dump()
         self.logger.debug(
-            "Running child workflow",
-            wait_strategy=args.wait_strategy,
+            "Dispatching child workflow",
+            wait_strategy=wait_strategy,
             memo=memo,
         )
-
-        match args.wait_strategy:
-            case WaitStrategy.DETACH:
-                child_wf_handle = await workflow.start_child_workflow(
-                    DSLWorkflow.run,
-                    run_args,
-                    id=wf_exec_id,
-                    retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                    # Propagate the parent workflow attributes to the child workflow
-                    task_queue=wf_info.task_queue,
-                    execution_timeout=wf_info.execution_timeout,
-                    task_timeout=wf_info.task_timeout,
-                    memo=memo,
-                    search_attributes=wf_info.typed_search_attributes,
-                    # DETACH specific options
-                    # Abandon the child workflow if the parent is cancelled
-                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                )
-                # Wrap workflow ID in InlineObject for uniform envelope
-                return InlineObject(data=child_wf_handle.id)
-            case _:
-                # WAIT and all other strategies
-                # execute_child_workflow returns StoredObject (from DSLWorkflow.run)
-                result = await workflow.execute_child_workflow(
-                    DSLWorkflow.run,
-                    run_args,
-                    id=wf_exec_id,
-                    retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                    # Propagate the parent workflow attributes to the child workflow
-                    task_queue=wf_info.task_queue,
-                    execution_timeout=wf_info.execution_timeout,
-                    task_timeout=wf_info.task_timeout,
-                    memo=memo,
-                    search_attributes=wf_info.typed_search_attributes,
-                )
-                return StoredObjectValidator.validate_python(result)
+        return await workflow.start_child_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=wf_exec_id,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            # Propagate the parent workflow attributes to the child workflow
+            task_queue=wf_info.task_queue,
+            execution_timeout=wf_info.execution_timeout,
+            task_timeout=wf_info.task_timeout,
+            memo=memo,
+            search_attributes=wf_info.typed_search_attributes,
+            parent_close_policy=(
+                workflow.ParentClosePolicy.ABANDON
+                if wait_strategy == WaitStrategy.DETACH
+                else workflow.ParentClosePolicy.TERMINATE  # Default is TERMINATE
+            ),
+        )
 
     async def _get_error_handler_workflow_id(
         self, args: DSLRunArgs
@@ -2040,3 +1897,345 @@ class DSLWorkflow:
             memo=memo.model_dump(),
             search_attributes=wf_info.typed_search_attributes,
         )
+
+    # ==================== Tier Limit Enforcement ====================
+
+    @staticmethod
+    def _is_executable_action(task: ActionStatement) -> bool:
+        return task.action not in (
+            PlatformAction.TRANSFORM_SCATTER,
+            PlatformAction.TRANSFORM_GATHER,
+        )
+
+    def _resolve_child_loop_batch_plan(
+        self,
+        *,
+        total_count: int,
+        requested_batch_size: int,
+    ) -> tuple[int, int]:
+        """Resolve logical batch size and dispatch window for child loops."""
+        logical_batch_size = max(1, min(requested_batch_size, total_count))
+        dispatch_window = config.TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW
+        return logical_batch_size, dispatch_window
+
+    def _action_permit_id(self, *, task: ActionStatement, stream_id: StreamID) -> str:
+        return f"{workflow.info().workflow_id}:{stream_id}:{task.ref}"
+
+    def _next_permit_backoff_seconds(self, *, attempt: int) -> float:
+        """Compute deterministic exponential backoff with jitter."""
+        base = max(config.TRACECAT__WORKFLOW_PERMIT_BACKOFF_BASE_SECONDS, 0.1)
+        max_backoff = max(config.TRACECAT__WORKFLOW_PERMIT_BACKOFF_MAX_SECONDS, base)
+        exponential = min(base * (2**attempt), max_backoff)
+        jitter = workflow.random().uniform(0.8, 1.2)
+        return exponential * jitter
+
+    def _next_permit_heartbeat_sleep_seconds(
+        self, *, heartbeat_interval: float
+    ) -> float:
+        """Compute deterministic heartbeat sleep interval with jitter."""
+        jitter = workflow.random().uniform(0.9, 1.1)
+        return max(heartbeat_interval * jitter, 0.1)
+
+    async def _run_cancellation_safe_cleanup(
+        self,
+        cleanup: Coroutine[Any, Any, None],
+        *,
+        operation: str,
+    ) -> None:
+        """Run cleanup to completion even if workflow cancellation is requested."""
+        cleanup_task = asyncio.create_task(cleanup)
+        try:
+            await asyncio.shield(cleanup_task)
+        except BaseException as e:
+            if not is_cancelled_exception(e):
+                raise
+            self.logger.info(
+                "Cancellation requested during cleanup, waiting for cleanup step",
+                operation=operation,
+            )
+            await asyncio.shield(cleanup_task)
+
+    async def _workflow_permit_heartbeat_loop(self) -> None:
+        if self.role.organization_id is None:
+            return
+        heartbeat_interval = config.TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS
+        if heartbeat_interval <= 0:
+            self.logger.info("Workflow permit heartbeat disabled")
+            return
+
+        wf_id = workflow.info().workflow_id
+        org_id = self.role.organization_id
+        while self._workflow_permit_acquired:
+            await asyncio.sleep(
+                self._next_permit_heartbeat_sleep_seconds(
+                    heartbeat_interval=heartbeat_interval
+                )
+            )
+            if not self._workflow_permit_acquired:
+                return
+            try:
+                refreshed = await workflow.execute_activity(
+                    heartbeat_workflow_permit_activity,
+                    arg=HeartbeatWorkflowPermitInput(
+                        org_id=org_id,
+                        workflow_id=wf_id,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                )
+                if not refreshed:
+                    self.logger.warning(
+                        "Workflow permit heartbeat did not find active permit",
+                        workflow_id=wf_id,
+                        org_id=org_id,
+                    )
+            except Exception as e:
+                self.logger.warning("Workflow permit heartbeat failed", error=e)
+
+    async def _action_permit_heartbeat_loop(self, *, action_id: str) -> None:
+        if self.role.organization_id is None:
+            return
+        heartbeat_interval = config.TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS
+        if heartbeat_interval <= 0:
+            return
+        org_id = self.role.organization_id
+        while True:
+            await asyncio.sleep(
+                self._next_permit_heartbeat_sleep_seconds(
+                    heartbeat_interval=heartbeat_interval
+                )
+            )
+            try:
+                refreshed = await workflow.execute_activity(
+                    heartbeat_action_permit_activity,
+                    arg=HeartbeatActionPermitInput(
+                        org_id=org_id,
+                        action_id=action_id,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                )
+                if not refreshed:
+                    self.logger.warning(
+                        "Action permit heartbeat did not find active permit",
+                        action_id=action_id,
+                        org_id=org_id,
+                    )
+            except Exception as e:
+                self.logger.warning(
+                    "Action permit heartbeat failed",
+                    error=e,
+                    action_id=action_id,
+                )
+
+    def _start_workflow_permit_heartbeat(self) -> None:
+        task = self._workflow_permit_heartbeat_task
+        if task is not None and not task.done():
+            return
+        self._workflow_permit_heartbeat_task = asyncio.create_task(
+            self._workflow_permit_heartbeat_loop()
+        )
+
+    async def _stop_workflow_permit_heartbeat(self) -> None:
+        task = self._workflow_permit_heartbeat_task
+        if task is None:
+            return
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        self._workflow_permit_heartbeat_task = None
+
+    async def _acquire_workflow_permit(self, limit: int) -> None:
+        """Acquire a workflow execution permit or wait with exponential backoff.
+
+        Retries until a permit is acquired or max wait time is exceeded.
+        """
+        if self.role.organization_id is None:
+            raise ValueError("Organization ID is required to acquire workflow permit")
+        wf_id = workflow.info().workflow_id
+        org_id = self.role.organization_id
+        attempt = 0
+        started_at = workflow.now()
+
+        while True:
+            result = await workflow.execute_activity(
+                acquire_workflow_permit_activity,
+                arg=AcquireWorkflowPermitInput(
+                    org_id=org_id,
+                    workflow_id=wf_id,
+                    limit=limit,
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+
+            if result.acquired:
+                self._workflow_permit_acquired = True
+                self._start_workflow_permit_heartbeat()
+                self.logger.info(
+                    "Workflow permit acquired",
+                    current_count=result.current_count,
+                    limit=limit,
+                )
+                return
+
+            elapsed_seconds = (workflow.now() - started_at).total_seconds()
+            max_wait_seconds = config.TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS
+            if elapsed_seconds >= max_wait_seconds:
+                raise ApplicationError(
+                    (
+                        "Timed out waiting for workflow concurrency permit "
+                        f"({elapsed_seconds:.1f}s/{max_wait_seconds}s)"
+                    ),
+                    non_retryable=True,
+                    type="WorkflowPermitTimeoutExceeded",
+                )
+
+            sleep_duration = min(
+                self._next_permit_backoff_seconds(attempt=attempt),
+                max_wait_seconds - elapsed_seconds,
+            )
+
+            self.logger.info(
+                "Waiting for workflow permit",
+                current_count=result.current_count,
+                limit=limit,
+                attempt=attempt,
+                elapsed_seconds=elapsed_seconds,
+                sleep_seconds=sleep_duration,
+            )
+
+            # Use asyncio.sleep which becomes a durable timer in Temporal
+            await asyncio.sleep(sleep_duration)
+            attempt += 1
+
+    async def _acquire_action_permit(self, *, action_id: str, limit: int) -> None:
+        """Acquire an action execution permit or wait with exponential backoff."""
+        if self.role.organization_id is None:
+            raise ValueError("Organization ID is required to acquire action permit")
+        org_id = self.role.organization_id
+        attempt = 0
+        started_at = workflow.now()
+
+        while True:
+            result = await workflow.execute_activity(
+                acquire_action_permit_activity,
+                arg=AcquireActionPermitInput(
+                    org_id=org_id,
+                    action_id=action_id,
+                    limit=limit,
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+
+            if result.acquired:
+                self.logger.info(
+                    "Action permit acquired",
+                    action_id=action_id,
+                    current_count=result.current_count,
+                    limit=limit,
+                )
+                return
+
+            elapsed_seconds = (workflow.now() - started_at).total_seconds()
+            max_wait_seconds = config.TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS
+            if elapsed_seconds >= max_wait_seconds:
+                raise ApplicationError(
+                    (
+                        "Timed out waiting for action concurrency permit "
+                        f"({elapsed_seconds:.1f}s/{max_wait_seconds}s)"
+                    ),
+                    non_retryable=True,
+                    type="ActionPermitTimeoutExceeded",
+                )
+
+            sleep_duration = min(
+                self._next_permit_backoff_seconds(attempt=attempt),
+                max_wait_seconds - elapsed_seconds,
+            )
+            self.logger.info(
+                "Waiting for action permit",
+                action_id=action_id,
+                current_count=result.current_count,
+                limit=limit,
+                attempt=attempt,
+                elapsed_seconds=elapsed_seconds,
+                sleep_seconds=sleep_duration,
+            )
+            await asyncio.sleep(sleep_duration)
+            attempt += 1
+
+    async def _release_workflow_permit(self) -> None:
+        """Release the workflow execution permit."""
+        if not self._workflow_permit_acquired:
+            return
+        if self.role.organization_id is None:
+            return
+
+        wf_id = workflow.info().workflow_id
+        org_id = self.role.organization_id
+
+        try:
+            await workflow.execute_activity(
+                release_workflow_permit_activity,
+                arg=ReleaseWorkflowPermitInput(
+                    org_id=org_id,
+                    workflow_id=wf_id,
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            self._workflow_permit_acquired = False
+            self.logger.info("Workflow permit released")
+        except Exception as e:
+            # Log but don't fail - permit will expire via TTL
+            self.logger.error(
+                "Failed to release workflow permit",
+                error=e,
+            )
+
+    async def _release_action_permit(self, *, action_id: str) -> None:
+        """Release an action execution permit."""
+        if self.role.organization_id is None:
+            return
+
+        org_id = self.role.organization_id
+        try:
+            await workflow.execute_activity(
+                release_action_permit_activity,
+                arg=ReleaseActionPermitInput(
+                    org_id=org_id,
+                    action_id=action_id,
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            self.logger.info("Action permit released", action_id=action_id)
+        except Exception as e:
+            self.logger.error(
+                "Failed to release action permit",
+                error=e,
+                action_id=action_id,
+            )
+
+    def _check_action_execution_limit(self) -> None:
+        """Check if action execution limit has been exceeded.
+
+        Raises ApplicationError if the limit is exceeded.
+        """
+        if self._tier_limits is None:
+            return
+
+        max_actions = self._tier_limits.max_action_executions_per_workflow
+        if max_actions is None:
+            return
+
+        self._action_execution_count += 1
+
+        if self._action_execution_count > max_actions:
+            raise ApplicationError(
+                f"Action execution limit exceeded ({self._action_execution_count}/{max_actions})",
+                non_retryable=True,
+                type="ActionExecutionLimitExceeded",
+            )

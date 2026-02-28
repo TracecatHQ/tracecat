@@ -947,6 +947,7 @@ async def test_child_workflow_context_passing(
                     "action": "core.workflow.execute",
                     "args": {
                         "workflow_id": child_workflow.id,
+                        "wait_strategy": WaitStrategy.WAIT.value,
                         "trigger_inputs": {
                             "data_from_parent": "Parent sent child ${{ ACTIONS.parent_first_action.result.reshaped_data }}",  # This is the parent's trigger data
                         },
@@ -1146,6 +1147,70 @@ async def test_child_workflow_loop(
     await assert_context_equal(result, expected)
 
 
+@pytest.mark.anyio
+async def test_child_workflow_parallel_loop_with_dispatch_cap(
+    test_role: Role,
+    temporal_client: Client,
+    monkeypatch: pytest.MonkeyPatch,
+    test_worker_factory: Callable[[Client], Worker],
+    test_executor_worker_factory: Callable[[Client], Worker],
+) -> None:
+    test_name = test_child_workflow_parallel_loop_with_dispatch_cap.__name__
+    wf_exec_id = generate_test_exec_id(test_name)
+    monkeypatch.setattr(config, "TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW", 8)
+
+    child_dsl = DSLInput(
+        entrypoint=DSLEntrypoint(expects={}, ref="reshape"),
+        actions=[
+            ActionStatement(
+                ref="reshape",
+                action="core.transform.reshape",
+                args={
+                    "value": {
+                        "index": "${{ TRIGGER.index }}",
+                    },
+                },
+                start_delay=1,
+            )
+        ],
+        description="Testing bounded child workflow fanout",
+        returns="${{ ACTIONS.reshape.result }}",
+        title="Child",
+        triggers=[],
+    )
+    child_workflow = await _create_and_commit_workflow(child_dsl, test_role)
+
+    parent_dsl = DSLInput(
+        title="Parent",
+        description="Test bounded child fanout",
+        entrypoint=DSLEntrypoint(ref="run_child", expects={}),
+        actions=[
+            ActionStatement(
+                ref="run_child",
+                action="core.workflow.execute",
+                args={
+                    "workflow_id": child_workflow.id,
+                    "trigger_inputs": {"index": "${{ var.x }}"},
+                    "loop_strategy": LoopStrategy.PARALLEL.value,
+                },
+                for_each="${{ for var.x in FN.range(0, 12) }}",
+            ),
+        ],
+        returns="${{ ACTIONS.run_child.result }}",
+        triggers=[],
+    )
+
+    run_args = DSLRunArgs(
+        dsl=parent_dsl,
+        role=test_role,
+        wf_id=WorkflowUUID.new("wf-00000000000000000000000000000002"),
+    )
+    worker = test_worker_factory(temporal_client)
+    executor_worker = test_executor_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
+    assert await to_data(result) == [{"index": i} for i in range(12)]
+
+
 # Test workflow alias
 @pytest.mark.anyio
 async def test_single_child_workflow_alias(
@@ -1173,6 +1238,7 @@ async def test_single_child_workflow_alias(
                 action="core.workflow.execute",
                 args={
                     "workflow_alias": "the_child",
+                    "wait_strategy": WaitStrategy.WAIT.value,
                     "trigger_inputs": {
                         "data": "Test",
                         "index": 0,
@@ -1404,6 +1470,7 @@ async def test_child_workflow_with_expression_alias(
                 action="core.workflow.execute",
                 args={
                     "workflow_alias": "${{ ACTIONS.get_alias.result }}",  # Use expression
+                    "wait_strategy": WaitStrategy.WAIT.value,
                     "trigger_inputs": {
                         "data": "Test data",
                         "index": 42,
@@ -1481,6 +1548,7 @@ async def test_single_child_workflow_override_environment_correct(
                     "action": "core.workflow.execute",
                     "args": {
                         "workflow_id": child_workflow.id,
+                        "wait_strategy": WaitStrategy.WAIT.value,
                         "trigger_inputs": {},
                         "environment": "__TEST_ENVIRONMENT__",
                     },
@@ -1645,6 +1713,7 @@ async def test_single_child_workflow_environment_has_correct_default(
                     "action": "core.workflow.execute",
                     "args": {
                         "workflow_id": child_workflow.id,
+                        "wait_strategy": WaitStrategy.WAIT.value,
                         "trigger_inputs": {},
                         # No environment set, should default to the child DSL default
                     },
@@ -6291,6 +6360,7 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
                 action="core.workflow.execute",
                 args={
                     "workflow_id": child_workflow.id,
+                    "wait_strategy": WaitStrategy.WAIT.value,
                     "trigger_inputs": {},
                 },
                 depends_on=["parent_time"],

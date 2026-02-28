@@ -8384,7 +8384,7 @@ export const $ExternalObject = {
 
 export const $FeatureFlag = {
   type: "string",
-  enum: ["ai-ranking"],
+  enum: ["ai-ranking", "workflow-concurrency-limits"],
   title: "FeatureFlag",
   description: "Feature flag enum reserved for engineering rollouts.",
 } as const

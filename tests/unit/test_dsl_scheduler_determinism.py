@@ -78,6 +78,7 @@ async def test_queue_tasks_is_deterministic() -> None:
     scheduler = DSLScheduler(
         executor=executor,
         dsl=dsl,
+        max_pending_tasks=16,
         context=ExecutionContext(ACTIONS={}, TRIGGER=None),
         role=test_role,
         run_context=test_run_context,
