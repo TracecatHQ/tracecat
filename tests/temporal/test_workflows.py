@@ -947,6 +947,7 @@ async def test_child_workflow_context_passing(
                     "action": "core.workflow.execute",
                     "args": {
                         "workflow_id": child_workflow.id,
+                        "wait_strategy": WaitStrategy.WAIT.value,
                         "trigger_inputs": {
                             "data_from_parent": "Parent sent child ${{ ACTIONS.parent_first_action.result.reshaped_data }}",  # This is the parent's trigger data
                         },
@@ -1237,6 +1238,7 @@ async def test_single_child_workflow_alias(
                 action="core.workflow.execute",
                 args={
                     "workflow_alias": "the_child",
+                    "wait_strategy": WaitStrategy.WAIT.value,
                     "trigger_inputs": {
                         "data": "Test",
                         "index": 0,
@@ -1468,6 +1470,7 @@ async def test_child_workflow_with_expression_alias(
                 action="core.workflow.execute",
                 args={
                     "workflow_alias": "${{ ACTIONS.get_alias.result }}",  # Use expression
+                    "wait_strategy": WaitStrategy.WAIT.value,
                     "trigger_inputs": {
                         "data": "Test data",
                         "index": 42,
@@ -1545,6 +1548,7 @@ async def test_single_child_workflow_override_environment_correct(
                     "action": "core.workflow.execute",
                     "args": {
                         "workflow_id": child_workflow.id,
+                        "wait_strategy": WaitStrategy.WAIT.value,
                         "trigger_inputs": {},
                         "environment": "__TEST_ENVIRONMENT__",
                     },
@@ -1709,6 +1713,7 @@ async def test_single_child_workflow_environment_has_correct_default(
                     "action": "core.workflow.execute",
                     "args": {
                         "workflow_id": child_workflow.id,
+                        "wait_strategy": WaitStrategy.WAIT.value,
                         "trigger_inputs": {},
                         # No environment set, should default to the child DSL default
                     },
@@ -6355,6 +6360,7 @@ async def test_workflow_time_anchor_inherited_by_child_workflow(
                 action="core.workflow.execute",
                 args={
                     "workflow_id": child_workflow.id,
+                    "wait_strategy": WaitStrategy.WAIT.value,
                     "trigger_inputs": {},
                 },
                 depends_on=["parent_time"],

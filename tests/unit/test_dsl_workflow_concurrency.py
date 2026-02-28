@@ -303,6 +303,68 @@ async def test_execute_child_workflow_batch_prepared_limits_dispatch_window() ->
     assert [cast(InlineObject, val).data["index"] for val in result] == list(range(6))
 
 
+@pytest.mark.anyio
+async def test_run_child_workflow_defaults_wait_strategy_to_detach() -> None:
+    workflow = _build_workflow()
+    task = ActionStatement(ref="run_child", action="core.workflow.execute", args={})
+
+    async def dispatch_child_mock(
+        _: ActionStatement,
+        __: Any,
+        *,
+        wait_strategy: WaitStrategy,
+        loop_index: int | None = None,
+    ) -> Any:
+        del loop_index
+        assert wait_strategy == WaitStrategy.DETACH
+        return SimpleNamespace(id="wf_child/exec_default")
+
+    with patch.object(
+        workflow,
+        "_dispatch_child_workflow",
+        new=AsyncMock(side_effect=dispatch_child_mock),
+    ):
+        result = await workflow._run_child_workflow(task, run_args=cast(Any, object()))
+
+    assert isinstance(result, InlineObject)
+    assert result.data == "wf_child/exec_default"
+
+
+@pytest.mark.anyio
+async def test_run_child_workflow_wait_strategy_wait_returns_child_result() -> None:
+    workflow = _build_workflow()
+    task = ActionStatement(
+        ref="run_child",
+        action="core.workflow.execute",
+        args={"wait_strategy": WaitStrategy.WAIT.value},
+    )
+
+    async def dispatch_child_mock(
+        _: ActionStatement,
+        __: Any,
+        *,
+        wait_strategy: WaitStrategy,
+        loop_index: int | None = None,
+    ) -> asyncio.Task[InlineObject]:
+        del loop_index
+        assert wait_strategy == WaitStrategy.WAIT
+
+        async def child_result() -> InlineObject:
+            return InlineObject(data={"status": "ok"})
+
+        return asyncio.create_task(child_result())
+
+    with patch.object(
+        workflow,
+        "_dispatch_child_workflow",
+        new=AsyncMock(side_effect=dispatch_child_mock),
+    ):
+        result = await workflow._run_child_workflow(task, run_args=cast(Any, object()))
+
+    assert isinstance(result, InlineObject)
+    assert result.data == {"status": "ok"}
+
+
 def test_next_permit_heartbeat_sleep_seconds_applies_jitter() -> None:
     workflow = _build_workflow()
 
