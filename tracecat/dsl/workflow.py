@@ -101,7 +101,6 @@ with workflow.unsafe.imports_passed_through():
         TracecatNotFoundError,
     )
     from tracecat.expressions.eval import is_template_only
-    from tracecat.identifiers import WorkspaceID
     from tracecat.identifiers.workflow import (
         WorkflowExecutionID,
         WorkflowID,
