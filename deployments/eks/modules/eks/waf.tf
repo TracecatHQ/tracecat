@@ -28,7 +28,7 @@ resource "aws_wafv2_regex_pattern_set" "mcp_register_endpoint" {
   scope       = "REGIONAL"
 
   regular_expression {
-    regex_string = "^/mcp/register$"
+    regex_string = "^/(mcp/)?register$"
   }
 
   tags = var.tags
