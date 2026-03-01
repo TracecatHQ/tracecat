@@ -122,7 +122,7 @@ resource "helm_release" "tracecat" {
         mcp = {
           annotations = {
             "alb.ingress.kubernetes.io/group.order"      = "15"
-            "alb.ingress.kubernetes.io/healthcheck-path" = "/mcp"
+            "alb.ingress.kubernetes.io/healthcheck-path" = "/.well-known/oauth-authorization-server"
           }
         }
       }
