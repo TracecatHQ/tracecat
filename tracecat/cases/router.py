@@ -221,15 +221,22 @@ async def list_cases(
             detail="Failed to retrieve cases",
         ) from e
     if include_rows and cases.items:
-        rows_service = CaseTableRowsService(session, role)
-        rows_by_case = await rows_service.hydrate_case_rows(
-            case_ids=[item.id for item in cases.items],
-            include_row_data=True,
-        )
-        cases.items = [
-            item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
-            for item in cases.items
-        ]
+        try:
+            rows_service = CaseTableRowsService(session, role)
+            rows_by_case = await rows_service.hydrate_case_rows(
+                case_ids=[item.id for item in cases.items],
+                include_row_data=True,
+            )
+            cases.items = [
+                item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
+                for item in cases.items
+            ]
+        except Exception as e:
+            logger.error(f"Failed to hydrate case rows: {e}")
+            raise HTTPException(
+                status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to hydrate linked rows",
+            ) from e
     return cases
 
 
@@ -253,7 +260,7 @@ async def search_cases(
     ),
     short_id: str | None = Query(
         None,
-        description="Search by case short ID fragment only (contains match, e.g. 42 or CASE-0042)",
+        description="Search by exact case short ID (e.g. 42 or CASE-0042)",
     ),
     status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
     priority: list[CasePriority] | None = Query(
@@ -346,15 +353,22 @@ async def search_cases(
             detail="Failed to retrieve cases",
         ) from e
     if include_rows and cases.items:
-        rows_service = CaseTableRowsService(session, role)
-        rows_by_case = await rows_service.hydrate_case_rows(
-            case_ids=[item.id for item in cases.items],
-            include_row_data=True,
-        )
-        cases.items = [
-            item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
-            for item in cases.items
-        ]
+        try:
+            rows_service = CaseTableRowsService(session, role)
+            rows_by_case = await rows_service.hydrate_case_rows(
+                case_ids=[item.id for item in cases.items],
+                include_row_data=True,
+            )
+            cases.items = [
+                item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
+                for item in cases.items
+            ]
+        except Exception as e:
+            logger.error(f"Failed to hydrate case rows: {e}")
+            raise HTTPException(
+                status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to hydrate linked rows",
+            ) from e
     return cases
 
 

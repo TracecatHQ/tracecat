@@ -3,12 +3,13 @@ from __future__ import annotations
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
 from asyncpg.exceptions import UndefinedTableError
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy import exc as sa_exc
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -60,11 +61,44 @@ class CaseTableRowsService(BaseWorkspaceService):
         if cursor:
             cursor_data = paginator.decode_cursor(cursor)
             cursor_id = uuid.UUID(cursor_data.id)
+            cursor_created_at: datetime | None = None
+            if cursor_data.sort_column == "created_at" and isinstance(
+                cursor_data.sort_value, datetime
+            ):
+                cursor_created_at = cursor_data.sort_value
+            if cursor_created_at is None:
+                cursor_created_at = await self.session.scalar(
+                    select(CaseTableRow.created_at).where(
+                        CaseTableRow.workspace_id == self.workspace_id,
+                        CaseTableRow.case_id == case_id,
+                        CaseTableRow.id == cursor_id,
+                    )
+                )
+            if cursor_created_at is None:
+                raise ValueError("Invalid cursor for case rows")
             if reverse:
-                stmt = stmt.where(CaseTableRow.id > cursor_id)
-                stmt = stmt.order_by(CaseTableRow.id.asc())
+                stmt = stmt.where(
+                    or_(
+                        CaseTableRow.created_at > cursor_created_at,
+                        and_(
+                            CaseTableRow.created_at == cursor_created_at,
+                            CaseTableRow.id > cursor_id,
+                        ),
+                    )
+                )
+                stmt = stmt.order_by(
+                    CaseTableRow.created_at.asc(), CaseTableRow.id.asc()
+                )
             else:
-                stmt = stmt.where(CaseTableRow.id < cursor_id)
+                stmt = stmt.where(
+                    or_(
+                        CaseTableRow.created_at < cursor_created_at,
+                        and_(
+                            CaseTableRow.created_at == cursor_created_at,
+                            CaseTableRow.id < cursor_id,
+                        ),
+                    )
+                )
 
         stmt = stmt.limit(limit + 1)
         result = await self.session.execute(stmt)
@@ -82,9 +116,17 @@ class CaseTableRowsService(BaseWorkspaceService):
         next_cursor = None
         prev_cursor = None
         if items and has_more:
-            next_cursor = paginator.encode_cursor(items[-1].id)
+            next_cursor = paginator.encode_cursor(
+                items[-1].id,
+                sort_column="created_at",
+                sort_value=items[-1].created_at,
+            )
         if items and cursor:
-            prev_cursor = paginator.encode_cursor(items[0].id)
+            prev_cursor = paginator.encode_cursor(
+                items[0].id,
+                sort_column="created_at",
+                sort_value=items[0].created_at,
+            )
 
         if reverse:
             next_cursor, prev_cursor = prev_cursor, next_cursor
@@ -128,17 +170,28 @@ class CaseTableRowsService(BaseWorkspaceService):
                 f"A case can have at most {MAX_LINKED_ROWS_PER_CASE} linked rows"
             )
 
-        distinct_tables_stmt = select(
-            func.count(sa.distinct(CaseTableRow.table_id))
-        ).where(
+        table_linked_stmt = select(CaseTableRow.id).where(
             CaseTableRow.workspace_id == self.workspace_id,
             CaseTableRow.case_id == case.id,
+            CaseTableRow.table_id == params.table_id,
         )
-        distinct_tables = int((await self.session.scalar(distinct_tables_stmt)) or 0)
-        if distinct_tables >= MAX_TABLES_PER_CASE:
-            raise ValueError(
-                f"A case can link rows from at most {MAX_TABLES_PER_CASE} tables"
+        table_already_linked = (
+            await self.session.execute(table_linked_stmt)
+        ).scalars().first() is not None
+        if not table_already_linked:
+            distinct_tables_stmt = select(
+                func.count(sa.distinct(CaseTableRow.table_id))
+            ).where(
+                CaseTableRow.workspace_id == self.workspace_id,
+                CaseTableRow.case_id == case.id,
             )
+            distinct_tables = int(
+                (await self.session.scalar(distinct_tables_stmt)) or 0
+            )
+            if distinct_tables >= MAX_TABLES_PER_CASE:
+                raise ValueError(
+                    f"A case can link rows from at most {MAX_TABLES_PER_CASE} tables"
+                )
 
         link = CaseTableRow(
             workspace_id=self.workspace_id,

@@ -8917,7 +8917,7 @@ export type CasesSearchCasesData = {
    */
   severity?: Array<CaseSeverity> | null
   /**
-   * Search by case short ID fragment only (contains match, e.g. 42 or CASE-0042)
+   * Search by exact case short ID (e.g. 42 or CASE-0042)
    */
   shortId?: string | null
   /**

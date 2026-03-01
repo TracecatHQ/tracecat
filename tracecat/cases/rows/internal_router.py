@@ -1,7 +1,12 @@
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query
-from starlette.status import HTTP_201_CREATED, HTTP_204_NO_CONTENT, HTTP_404_NOT_FOUND
+from starlette.status import (
+    HTTP_201_CREATED,
+    HTTP_204_NO_CONTENT,
+    HTTP_400_BAD_REQUEST,
+    HTTP_404_NOT_FOUND,
+)
 
 from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
@@ -48,6 +53,8 @@ async def list_case_rows(
         )
     except TracecatNotFoundError as exc:
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post("/{case_id}/rows", status_code=HTTP_201_CREATED)
@@ -60,10 +67,15 @@ async def link_case_row(
     params: CaseTableRowLinkCreate,
 ) -> CaseTableRowRead:
     service = CaseTableRowsService(session, role)
-    case = await service.get_case_or_raise(case_id)
-    link = await service.link_row(case=case, params=params)
-    hydrated = await service._hydrate_links([link], include_row_data=True)
-    return hydrated[0]
+    try:
+        case = await service.get_case_or_raise(case_id)
+        link = await service.link_row(case=case, params=params)
+        hydrated = await service._hydrate_links([link], include_row_data=True)
+        return hydrated[0]
+    except TracecatNotFoundError as exc:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post("/{case_id}/rows/insert", status_code=HTTP_201_CREATED)
@@ -76,10 +88,15 @@ async def insert_case_row(
     params: CaseTableRowInsertCreate,
 ) -> CaseTableRowRead:
     service = CaseTableRowsService(session, role)
-    case = await service.get_case_or_raise(case_id)
-    link = await service.insert_row_to_case(case=case, params=params)
-    hydrated = await service._hydrate_links([link], include_row_data=True)
-    return hydrated[0]
+    try:
+        case = await service.get_case_or_raise(case_id)
+        link = await service.insert_row_to_case(case=case, params=params)
+        hydrated = await service._hydrate_links([link], include_row_data=True)
+        return hydrated[0]
+    except TracecatNotFoundError as exc:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.delete("/{case_id}/rows/{table_id}/{row_id}", status_code=HTTP_204_NO_CONTENT)
@@ -93,9 +110,12 @@ async def unlink_case_row(
     row_id: uuid.UUID,
 ) -> None:
     service = CaseTableRowsService(session, role)
-    case = await service.get_case_or_raise(case_id)
-    deleted = await service.unlink_row(case=case, table_id=table_id, row_id=row_id)
-    if not deleted:
-        raise HTTPException(
-            status_code=HTTP_404_NOT_FOUND, detail="Linked row not found"
-        )
+    try:
+        case = await service.get_case_or_raise(case_id)
+        deleted = await service.unlink_row(case=case, table_id=table_id, row_id=row_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND, detail="Linked row not found"
+            )
+    except TracecatNotFoundError as exc:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc

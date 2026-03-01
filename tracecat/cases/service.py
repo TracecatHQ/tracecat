@@ -246,12 +246,8 @@ class CasesService(BaseWorkspaceService):
             if not match:
                 raise ValueError("Short ID must match CASE-<number> or <number>")
 
-            short_id_fragment = match.group(1)
-            short_id_expr = func.concat(
-                "CASE-", func.lpad(cast(Case.case_number, sa.String), 4, "0")
-            )
-            short_id_pattern = func.concat("%", short_id_fragment, "%")
-            filters.append(short_id_expr.ilike(short_id_pattern))
+            short_id_number = int(match.group(1))
+            filters.append(Case.case_number == short_id_number)
 
         normalized_statuses = _normalize_filter_values(status)
         if normalized_statuses:

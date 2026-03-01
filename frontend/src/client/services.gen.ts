@@ -6524,7 +6524,7 @@ export const casesCreateCase = (
  * @param data.cursor Cursor for pagination
  * @param data.reverse Reverse pagination direction
  * @param data.searchTerm Text to search for in case summary, description, or short ID
- * @param data.shortId Search by case short ID fragment only (contains match, e.g. 42 or CASE-0042)
+ * @param data.shortId Search by exact case short ID (e.g. 42 or CASE-0042)
  * @param data.status Filter by case status
  * @param data.priority Filter by case priority
  * @param data.severity Filter by case severity

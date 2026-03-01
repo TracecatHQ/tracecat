@@ -810,10 +810,10 @@ class TestCasesService:
 
         assert search_response.model_dump() == list_response.model_dump()
 
-    async def test_search_cases_short_id_contains_match(
+    async def test_search_cases_short_id_exact_match(
         self, cases_service: CasesService
     ) -> None:
-        """short_id filtering should support contains matching on case short IDs."""
+        """short_id filtering should match the exact case short ID only."""
         target_case = await cases_service.create_case(
             CaseCreate(
                 summary="Target case",
@@ -834,23 +834,10 @@ class TestCasesService:
             )
         )
 
-        target_digits = target_case.short_id.split("-", 1)[1]
-        other_digits = other_case.short_id.split("-", 1)[1]
-        fragment: str | None = None
-        for length in range(1, len(target_digits)):
-            for start in range(0, len(target_digits) - length + 1):
-                candidate = target_digits[start : start + length]
-                if candidate and candidate not in other_digits:
-                    fragment = candidate
-                    break
-            if fragment is not None:
-                break
-
-        assert fragment is not None
         params = CursorPaginationParams(limit=20, cursor=None, reverse=False)
         response = await cases_service.search_cases(
             params=params,
-            short_id=fragment,
+            short_id=target_case.short_id,
             order_by="created_at",
             sort="asc",
         )
@@ -858,6 +845,21 @@ class TestCasesService:
         result_ids = {item.id for item in response.items}
         assert target_case.id in result_ids
         assert other_case.id not in result_ids
+
+        # Partial strings should not match case short IDs.
+        non_exact_short_id = (
+            str(target_case.case_number * 10)
+            if target_case.case_number < 10
+            else str(target_case.case_number)[:-1]
+        )
+        non_exact_response = await cases_service.search_cases(
+            params=params,
+            short_id=non_exact_short_id,
+            order_by="created_at",
+            sort="asc",
+        )
+        non_exact_ids = {item.id for item in non_exact_response.items}
+        assert target_case.id not in non_exact_ids
 
     async def test_search_cases_short_id_rejects_invalid_value(
         self, cases_service: CasesService

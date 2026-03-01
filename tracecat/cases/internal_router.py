@@ -25,6 +25,7 @@ from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.durations.schemas import CaseDurationMetric
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.rows.schemas import CaseTableRowRead
 from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
@@ -80,6 +81,23 @@ async def _list_case_dropdown_values(
     if not await dropdown_service.has_entitlement(Entitlement.CASE_ADDONS):
         return []
     return await dropdown_service.list_values_for_case(case_id)
+
+
+async def _list_case_rows(
+    *,
+    session: AsyncDBSession,
+    role: ExecutorWorkspaceRole,
+    case_id: uuid.UUID,
+    include_rows: bool,
+) -> list[CaseTableRowRead]:
+    if not include_rows:
+        return []
+    rows_service = CaseTableRowsService(session, role)
+    rows_by_case = await rows_service.hydrate_case_rows(
+        case_ids=[case_id],
+        include_row_data=True,
+    )
+    return rows_by_case.get(case_id, [])
 
 
 @router.get("")
@@ -335,6 +353,12 @@ async def get_case(
     dropdown_reads = await _list_case_dropdown_values(
         session=session, role=role, case_id=case.id
     )
+    rows = await _list_case_rows(
+        session=session,
+        role=role,
+        case_id=case.id,
+        include_rows=include_rows,
+    )
 
     return CaseRead(
         id=case.id,
@@ -353,6 +377,7 @@ async def get_case(
         payload=case.payload,
         tags=tag_reads,
         dropdown_values=dropdown_reads,
+        rows=rows,
     )
 
 
@@ -476,6 +501,12 @@ async def update_case(
     dropdown_reads = await _list_case_dropdown_values(
         session=session, role=role, case_id=updated_case.id
     )
+    rows = await _list_case_rows(
+        session=session,
+        role=role,
+        case_id=updated_case.id,
+        include_rows=include_rows,
+    )
 
     return CaseRead(
         id=updated_case.id,
@@ -494,6 +525,7 @@ async def update_case(
         payload=updated_case.payload,
         tags=tag_reads,
         dropdown_values=dropdown_reads,
+        rows=rows,
     )
 
 
