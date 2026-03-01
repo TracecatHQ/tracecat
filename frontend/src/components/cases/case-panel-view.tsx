@@ -6,6 +6,7 @@ import {
   MessageSquare,
   MoreHorizontal,
   Paperclip,
+  Table2,
   X,
 } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -393,6 +394,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="rows"
                   >
+                    <Table2 className="mr-1.5 h-3.5 w-3.5" />
                     Tables
                   </TabsTrigger>
                   <TabsTrigger
