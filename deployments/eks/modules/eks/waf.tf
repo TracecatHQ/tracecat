@@ -17,6 +17,23 @@ resource "aws_wafv2_regex_pattern_set" "attachments_endpoint" {
   tags = var.tags
 }
 
+# Regex pattern set for MCP OAuth client registration endpoint
+# Local MCP clients (e.g. Claude Code) send redirect_uris containing
+# "http://localhost:..." which triggers the EC2MetaDataSSRF_BODY rule.
+resource "aws_wafv2_regex_pattern_set" "mcp_register_endpoint" {
+  count = var.enable_waf ? 1 : 0
+
+  name        = "${var.cluster_name}-mcp-register-endpoint"
+  description = "Matches MCP OAuth client registration endpoints"
+  scope       = "REGIONAL"
+
+  regular_expression {
+    regex_string = "^/mcp/register$"
+  }
+
+  tags = var.tags
+}
+
 resource "aws_wafv2_web_acl" "main" {
   count = var.enable_waf ? 1 : 0
 
@@ -88,6 +105,13 @@ resource "aws_wafv2_web_acl" "main" {
 
         rule_action_override {
           name = "GenericLFI_BODY"
+          action_to_use {
+            count {}
+          }
+        }
+
+        rule_action_override {
+          name = "EC2MetaDataSSRF_BODY"
           action_to_use {
             count {}
           }
@@ -267,10 +291,60 @@ resource "aws_wafv2_web_acl" "main" {
     }
   }
 
-  # Priority 7: IP Reputation List - blocks known bad IPs (botnets, scanners)
+  # Priority 7: Block SSRF except on MCP OAuth registration endpoint
+  # The CommonRuleSet sets EC2MetaDataSSRF_BODY to count mode above,
+  # and this rule re-blocks it unless the request is to the MCP register
+  # endpoint. Local MCP clients legitimately send localhost redirect URIs
+  # during OAuth dynamic client registration.
+  rule {
+    name     = "BlockSSRFExceptMcpRegister"
+    priority = 7
+
+    action {
+      block {}
+    }
+
+    statement {
+      and_statement {
+        statement {
+          label_match_statement {
+            scope = "LABEL"
+            key   = "awswaf:managed:aws:core-rule-set:EC2MetaDataSSRF_Body"
+          }
+        }
+
+        statement {
+          not_statement {
+            statement {
+              regex_pattern_set_reference_statement {
+                arn = aws_wafv2_regex_pattern_set.mcp_register_endpoint[0].arn
+
+                field_to_match {
+                  uri_path {}
+                }
+
+                text_transformation {
+                  priority = 0
+                  type     = "NONE"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${var.cluster_name}-ssrf-except-mcp-register"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # Priority 8: IP Reputation List - blocks known bad IPs (botnets, scanners)
   rule {
     name     = "AWSManagedRulesAmazonIpReputationList"
-    priority = 7
+    priority = 8
 
     override_action {
       none {}
