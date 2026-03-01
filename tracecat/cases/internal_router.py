@@ -25,6 +25,7 @@ from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.durations.schemas import CaseDurationMetric
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
     CaseCommentCreate,
@@ -105,6 +106,7 @@ async def list_cases(
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
     ),
+    include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     service = CasesService(session, role)
 
@@ -130,6 +132,16 @@ async def list_cases(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve cases",
         ) from e
+    if include_rows and cases.items:
+        rows_service = CaseTableRowsService(session, role)
+        rows_by_case = await rows_service.hydrate_case_rows(
+            case_ids=[item.id for item in cases.items],
+            include_row_data=True,
+        )
+        cases.items = [
+            item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
+            for item in cases.items
+        ]
     return cases
 
 
@@ -189,6 +201,7 @@ async def search_cases(
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
     ),
+    include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     service = CasesService(session, role)
 
@@ -236,7 +249,7 @@ async def search_cases(
             parsed_dropdown_filters.setdefault(def_ref, []).append(opt_ref)
 
     try:
-        return await service.search_cases(
+        cases = await service.search_cases(
             pagination_params,
             search_term=search_term,
             status=status,
@@ -253,6 +266,18 @@ async def search_cases(
             order_by=order_by,
             sort=sort,
         )
+        if include_rows and cases.items:
+            rows_service = CaseTableRowsService(session, role)
+            rows_by_case = await rows_service.hydrate_case_rows(
+                case_ids=[item.id for item in cases.items],
+                include_row_data=True,
+            )
+            cases.items = [
+                item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
+                for item in cases.items
+            ]
+        return cases
+
     except ValueError as e:
         logger.warning(f"Invalid request for search cases: {e}")
         raise HTTPException(
@@ -276,6 +301,7 @@ async def get_case(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
+    include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CaseRead:
     service = CasesService(session, role)
     case = await service.get_case(case_id, track_view=True)
@@ -401,6 +427,7 @@ async def update_case(
     session: AsyncDBSession,
     params: CaseUpdate,
     case_id: uuid.UUID,
+    include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CaseRead:
     service = CasesService(session, role)
     case = await service.get_case(case_id)

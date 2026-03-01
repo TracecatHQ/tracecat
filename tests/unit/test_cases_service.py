@@ -810,6 +810,68 @@ class TestCasesService:
 
         assert search_response.model_dump() == list_response.model_dump()
 
+    async def test_search_cases_short_id_contains_match(
+        self, cases_service: CasesService
+    ) -> None:
+        """short_id filtering should support contains matching on case short IDs."""
+        target_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Target case",
+                description="Contains search target",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        await asyncio.sleep(0.01)
+        other_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Other case",
+                description="Should not match target fragment",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+        target_digits = target_case.short_id.split("-", 1)[1]
+        other_digits = other_case.short_id.split("-", 1)[1]
+        fragment: str | None = None
+        for length in range(1, len(target_digits)):
+            for start in range(0, len(target_digits) - length + 1):
+                candidate = target_digits[start : start + length]
+                if candidate and candidate not in other_digits:
+                    fragment = candidate
+                    break
+            if fragment is not None:
+                break
+
+        assert fragment is not None
+        params = CursorPaginationParams(limit=20, cursor=None, reverse=False)
+        response = await cases_service.search_cases(
+            params=params,
+            short_id=fragment,
+            order_by="created_at",
+            sort="asc",
+        )
+
+        result_ids = {item.id for item in response.items}
+        assert target_case.id in result_ids
+        assert other_case.id not in result_ids
+
+    async def test_search_cases_short_id_rejects_invalid_value(
+        self, cases_service: CasesService
+    ) -> None:
+        """short_id filtering should reject non-numeric case identifiers."""
+        params = CursorPaginationParams(limit=20, cursor=None, reverse=False)
+        with pytest.raises(
+            ValueError, match="Short ID must match CASE-<number> or <number>"
+        ):
+            await cases_service.search_cases(
+                params=params,
+                short_id="CASE-ABCD",
+            )
+
     async def test_get_search_case_aggregates_applies_enum_filters(
         self, cases_service: CasesService, session: AsyncSession
     ) -> None:

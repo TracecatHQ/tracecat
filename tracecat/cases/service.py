@@ -1,3 +1,4 @@
+import re
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -124,6 +125,7 @@ def _normalize_filter_values(values: Any) -> list[Any]:
 CASE_PRIORITY_SORT_ORDER = tuple(priority.value for priority in CasePriority)
 CASE_SEVERITY_SORT_ORDER = tuple(severity.value for severity in CaseSeverity)
 CASE_STATUS_SORT_ORDER = tuple(status.value for status in CaseStatus)
+SHORT_ID_PATTERN = re.compile(r"^(?:CASE-)?(\d{1,10})$", re.IGNORECASE)
 
 
 def _enum_sort_expr(column: Any, ordered_values: Sequence[str]) -> ColumnElement[int]:
@@ -200,6 +202,7 @@ class CasesService(BaseWorkspaceService):
         self,
         *,
         search_term: str | None = None,
+        short_id: str | None = None,
         status: CaseStatus | Sequence[CaseStatus] | None = None,
         priority: CasePriority | Sequence[CasePriority] | None = None,
         severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
@@ -231,6 +234,24 @@ class CasesService(BaseWorkspaceService):
                     short_id_expr.ilike(search_pattern),
                 )
             )
+
+        if short_id:
+            normalized_short_id = short_id.strip().upper()
+            if len(normalized_short_id) > 1000:
+                raise ValueError("Short ID cannot exceed 1000 characters")
+            if "\x00" in normalized_short_id:
+                raise ValueError("Short ID cannot contain null bytes")
+
+            match = SHORT_ID_PATTERN.match(normalized_short_id)
+            if not match:
+                raise ValueError("Short ID must match CASE-<number> or <number>")
+
+            short_id_fragment = match.group(1)
+            short_id_expr = func.concat(
+                "CASE-", func.lpad(cast(Case.case_number, sa.String), 4, "0")
+            )
+            short_id_pattern = func.concat("%", short_id_fragment, "%")
+            filters.append(short_id_expr.ilike(short_id_pattern))
 
         normalized_statuses = _normalize_filter_values(status)
         if normalized_statuses:
@@ -307,6 +328,7 @@ class CasesService(BaseWorkspaceService):
         self,
         params: CursorPaginationParams,
         search_term: str | None = None,
+        short_id: str | None = None,
         status: CaseStatus | Sequence[CaseStatus] | None = None,
         priority: CasePriority | Sequence[CasePriority] | None = None,
         severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
@@ -328,6 +350,7 @@ class CasesService(BaseWorkspaceService):
         paginator = BaseCursorPaginator(self.session)
         filters = self._build_search_filters(
             search_term=search_term,
+            short_id=short_id,
             status=status,
             priority=priority,
             severity=severity,

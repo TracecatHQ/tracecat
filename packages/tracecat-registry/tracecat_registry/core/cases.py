@@ -869,3 +869,57 @@ async def get_attachment_download_url(
         attachment_uuid,
         expiry=expiry,
     )
+
+
+@registry.register(
+    default_title="Link case row",
+    display_group="Cases",
+    description="Link an existing table row to a case.",
+    namespace="core.cases",
+)
+async def link_row(
+    case_id: Annotated[str, Doc("Case ID")],
+    table_id: Annotated[str, Doc("Table ID")],
+    row_id: Annotated[str, Doc("Row ID")],
+) -> types.CaseTableRowRead:
+    return await get_context().cases.link_case_row(
+        case_id,
+        table_id=table_id,
+        row_id=row_id,
+    )
+
+
+@registry.register(
+    default_title="Unlink case row",
+    display_group="Cases",
+    description="Remove a linked table row from a case.",
+    namespace="core.cases",
+)
+async def unlink_row(
+    case_id: Annotated[str, Doc("Case ID")],
+    table_id: Annotated[str, Doc("Table ID")],
+    row_id: Annotated[str, Doc("Row ID")],
+) -> None:
+    await get_context().cases.unlink_case_row(
+        case_id,
+        table_id=table_id,
+        row_id=row_id,
+    )
+
+
+@registry.register(
+    default_title="Insert case row",
+    display_group="Cases",
+    description="Insert a row into a table and link it to a case.",
+    namespace="core.cases",
+)
+async def insert_row(
+    case_id: Annotated[str, Doc("Case ID")],
+    table_id: Annotated[str, Doc("Table ID")],
+    row: Annotated[dict[str, Any], Doc("Row values")],
+) -> types.CaseTableRowRead:
+    return await get_context().cases.insert_case_row(
+        case_id,
+        table_id=table_id,
+        row=row,
+    )

@@ -20,6 +20,7 @@ import type {
 } from "@/client"
 import { CaseAttachmentsSection } from "@/components/cases/case-attachments-section"
 import { CommentSection } from "@/components/cases/case-comments-section"
+import { CaseLinkedRowsSection } from "@/components/cases/case-linked-rows-section"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
 import {
@@ -71,7 +72,7 @@ import {
 import { undoSlugify } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-type CasePanelTab = "comments" | "activity" | "attachments" | "payload"
+type CasePanelTab = "comments" | "activity" | "attachments" | "rows" | "payload"
 
 function isCustomFieldValueEmpty(value: unknown): boolean {
   if (value === null || value === undefined) return true
@@ -149,7 +150,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   // Get active tab from URL query params, default to "comments"
   const activeTab = (
     searchParams &&
-    ["comments", "activity", "attachments", "payload"].includes(
+    ["comments", "activity", "attachments", "rows", "payload"].includes(
       searchParams.get("tab") || ""
     )
       ? (searchParams.get("tab") ?? "comments")
@@ -390,6 +391,12 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                   </TabsTrigger>
                   <TabsTrigger
                     className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    value="rows"
+                  >
+                    Tables
+                  </TabsTrigger>
+                  <TabsTrigger
+                    className="ml-6 flex h-full items-center justify-center rounded-none py-0 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="payload"
                   >
                     <Braces className="mr-1.5 h-3.5 w-3.5" />
@@ -411,6 +418,10 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     caseId={caseId}
                     workspaceId={workspaceId}
                   />
+                </TabsContent>
+
+                <TabsContent value="rows" className="mt-4">
+                  <CaseLinkedRowsSection caseData={caseData} />
                 </TabsContent>
 
                 <TabsContent value="payload" className="mt-4">

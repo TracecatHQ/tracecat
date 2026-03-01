@@ -20,6 +20,7 @@ from tracecat.cases.enums import (
     CaseStatus,
     CaseTaskStatus,
 )
+from tracecat.cases.rows.schemas import CaseTableRowRead
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.core.schemas import Schema
 from tracecat.custom_fields.schemas import (
@@ -46,6 +47,7 @@ class CaseReadMinimal(Schema):
     assignee: UserRead | None = None
     tags: list[CaseTagRead] = Field(default_factory=list)
     dropdown_values: list[CaseDropdownValueRead]
+    rows: list[CaseTableRowRead] = Field(default_factory=list)
     num_tasks_completed: int = Field(default=0)
     num_tasks_total: int = Field(default=0)
 
@@ -78,6 +80,7 @@ class CaseRead(Schema):
     payload: dict[str, Any] | None
     tags: list[CaseTagRead] = Field(default_factory=list)
     dropdown_values: list[CaseDropdownValueRead]
+    rows: list[CaseTableRowRead] = Field(default_factory=list)
 
 
 class CaseCreate(Schema):
@@ -311,6 +314,20 @@ class PayloadChangedEvent(CaseEventBase):
     type: Literal[CaseEventType.PAYLOAD_CHANGED] = CaseEventType.PAYLOAD_CHANGED
 
 
+class TableRowLinkedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TABLE_ROW_LINKED] = CaseEventType.TABLE_ROW_LINKED
+    table_id: uuid.UUID
+    table_name: str | None = None
+    row_id: uuid.UUID
+
+
+class TableRowUnlinkedEvent(CaseEventBase):
+    type: Literal[CaseEventType.TABLE_ROW_UNLINKED] = CaseEventType.TABLE_ROW_UNLINKED
+    table_id: uuid.UUID
+    table_name: str | None = None
+    row_id: uuid.UUID
+
+
 # Read Models (for API responses) - keep the original names for backward compatibility
 class CreatedEventRead(CaseEventReadBase, CreatedEvent):
     """Event for when a case is created."""
@@ -398,6 +415,14 @@ class TagAddedEventRead(CaseEventReadBase, TagAddedEvent):
 
 class TagRemovedEventRead(CaseEventReadBase, TagRemovedEvent):
     """Event for when a tag is removed from a case."""
+
+
+class TableRowLinkedEventRead(CaseEventReadBase, TableRowLinkedEvent):
+    """Event for when a table row is linked to a case."""
+
+
+class TableRowUnlinkedEventRead(CaseEventReadBase, TableRowUnlinkedEvent):
+    """Event for when a table row is unlinked from a case."""
 
 
 # Dropdown Events
@@ -520,7 +545,9 @@ type CaseEventVariant = Annotated[
     | TaskAssigneeChangedEvent
     | TaskPriorityChangedEvent
     | TaskWorkflowChangedEvent
-    | DropdownValueChangedEvent,
+    | DropdownValueChangedEvent
+    | TableRowLinkedEvent
+    | TableRowUnlinkedEvent,
     Field(discriminator="type"),
 ]
 
@@ -552,6 +579,8 @@ class CaseEventRead(RootModel):
         | TaskDeletedEventRead
         | TaskAssigneeChangedEventRead
         | DropdownValueChangedEventRead
+        | TableRowLinkedEventRead
+        | TableRowUnlinkedEventRead
     ) = Field(discriminator="type")
 
 

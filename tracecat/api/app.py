@@ -69,6 +69,10 @@ from tracecat.cases.internal_router import (
 )
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
+from tracecat.cases.rows.internal_router import (
+    router as internal_case_rows_router,
+)
+from tracecat.cases.rows.router import router as case_rows_router
 from tracecat.cases.tag_definitions.internal_router import (
     router as internal_case_tag_definitions_router,
 )
@@ -426,6 +430,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(org_secrets_router)
     app.include_router(tables_router)
     app.include_router(cases_router)
+    app.include_router(case_rows_router)
     app.include_router(case_fields_router)
     app.include_router(case_tags_router)
     app.include_router(case_tag_definitions_router)
@@ -473,6 +478,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(internal_agent_preset_router)
     app.include_router(internal_case_attachments_router)
     app.include_router(internal_cases_router)
+    app.include_router(internal_case_rows_router)
     app.include_router(internal_comments_router)
     app.include_router(internal_case_tags_router)
     app.include_router(internal_case_tag_definitions_router)

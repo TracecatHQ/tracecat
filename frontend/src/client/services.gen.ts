@@ -218,8 +218,14 @@ import type {
   CasesDeleteTaskResponse,
   CasesGetCaseData,
   CasesGetCaseResponse,
+  CasesInsertCaseRowData,
+  CasesInsertCaseRowResponse,
+  CasesLinkCaseRowData,
+  CasesLinkCaseRowResponse,
   CasesListCaseDropdownValuesData,
   CasesListCaseDropdownValuesResponse,
+  CasesListCaseRowsData,
+  CasesListCaseRowsResponse,
   CasesListCasesData,
   CasesListCasesResponse,
   CasesListCommentsData,
@@ -240,6 +246,8 @@ import type {
   CasesSearchCasesResponse,
   CasesSetCaseDropdownValueData,
   CasesSetCaseDropdownValueResponse,
+  CasesUnlinkCaseRowData,
+  CasesUnlinkCaseRowResponse,
   CasesUpdateCaseData,
   CasesUpdateCaseResponse,
   CasesUpdateCommentData,
@@ -6456,6 +6464,7 @@ export const tablesImportCsv = (
  * @param data.reverse Reverse pagination direction
  * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
+ * @param data.includeRows Include linked table rows
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -6471,6 +6480,7 @@ export const casesListCases = (
       reverse: data.reverse,
       order_by: data.orderBy,
       sort: data.sort,
+      include_rows: data.includeRows,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -6514,6 +6524,7 @@ export const casesCreateCase = (
  * @param data.cursor Cursor for pagination
  * @param data.reverse Reverse pagination direction
  * @param data.searchTerm Text to search for in case summary, description, or short ID
+ * @param data.shortId Search by case short ID fragment only (contains match, e.g. 42 or CASE-0042)
  * @param data.status Filter by case status
  * @param data.priority Filter by case priority
  * @param data.severity Filter by case severity
@@ -6526,6 +6537,7 @@ export const casesCreateCase = (
  * @param data.assigneeId Filter by assignee ID or 'unassigned'
  * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
+ * @param data.includeRows Include linked table rows
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -6540,6 +6552,7 @@ export const casesSearchCases = (
       cursor: data.cursor,
       reverse: data.reverse,
       search_term: data.searchTerm,
+      short_id: data.shortId,
       status: data.status,
       priority: data.priority,
       severity: data.severity,
@@ -6552,6 +6565,7 @@ export const casesSearchCases = (
       assignee_id: data.assigneeId,
       order_by: data.orderBy,
       sort: data.sort,
+      include_rows: data.includeRows,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -6611,6 +6625,7 @@ export const casesSearchCaseAggregates = (
  * @param data The data for the request.
  * @param data.caseId
  * @param data.workspaceId
+ * @param data.includeRows Include linked table rows
  * @returns CaseRead Successful Response
  * @throws ApiError
  */
@@ -6624,6 +6639,7 @@ export const casesGetCase = (
       case_id: data.caseId,
     },
     query: {
+      include_rows: data.includeRows,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -6942,6 +6958,126 @@ export const casesDeleteTask = (
     path: {
       case_id: data.caseId,
       task_id: data.taskId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Case Rows
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_CaseTableRowRead_ Successful Response
+ * @throws ApiError
+ */
+export const casesListCaseRows = (
+  data: CasesListCaseRowsData
+): CancelablePromise<CasesListCaseRowsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/rows",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Link Case Row
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseTableRowRead Successful Response
+ * @throws ApiError
+ */
+export const casesLinkCaseRow = (
+  data: CasesLinkCaseRowData
+): CancelablePromise<CasesLinkCaseRowResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/cases/{case_id}/rows",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Insert Case Row
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseTableRowRead Successful Response
+ * @throws ApiError
+ */
+export const casesInsertCaseRow = (
+  data: CasesInsertCaseRowData
+): CancelablePromise<CasesInsertCaseRowResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/cases/{case_id}/rows/insert",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Unlink Case Row
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.tableId
+ * @param data.rowId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const casesUnlinkCaseRow = (
+  data: CasesUnlinkCaseRowData
+): CancelablePromise<CasesUnlinkCaseRowResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/cases/{case_id}/rows/{table_id}/{row_id}",
+    path: {
+      case_id: data.caseId,
+      table_id: data.tableId,
+      row_id: data.rowId,
     },
     query: {
       workspace_id: data.workspaceId,

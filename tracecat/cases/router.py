@@ -23,6 +23,7 @@ from tracecat.auth.users import search_users
 from tracecat.authz.controls import require_scope
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
     CaseCommentCreate,
@@ -192,6 +193,7 @@ async def list_cases(
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
     ),
+    include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """List cases with default filtering and sorting options."""
     service = CasesService(session, role)
@@ -218,6 +220,16 @@ async def list_cases(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve cases",
         ) from e
+    if include_rows and cases.items:
+        rows_service = CaseTableRowsService(session, role)
+        rows_by_case = await rows_service.hydrate_case_rows(
+            case_ids=[item.id for item in cases.items],
+            include_row_data=True,
+        )
+        cases.items = [
+            item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
+            for item in cases.items
+        ]
     return cases
 
 
@@ -238,6 +250,10 @@ async def search_cases(
     search_term: str | None = Query(
         None,
         description="Text to search for in case summary, description, or short ID",
+    ),
+    short_id: str | None = Query(
+        None,
+        description="Search by case short ID fragment only (contains match, e.g. 42 or CASE-0042)",
     ),
     status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
     priority: list[CasePriority] | None = Query(
@@ -278,6 +294,7 @@ async def search_cases(
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
     ),
+    include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """Search cases with cursor-based pagination, filtering, and sorting."""
     service = CasesService(session, role)
@@ -299,6 +316,7 @@ async def search_cases(
         cases = await service.search_cases(
             pagination_params,
             search_term=search_term,
+            short_id=short_id,
             status=status,
             priority=priority,
             severity=severity,
@@ -327,6 +345,16 @@ async def search_cases(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve cases",
         ) from e
+    if include_rows and cases.items:
+        rows_service = CaseTableRowsService(session, role)
+        rows_by_case = await rows_service.hydrate_case_rows(
+            case_ids=[item.id for item in cases.items],
+            include_row_data=True,
+        )
+        cases.items = [
+            item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
+            for item in cases.items
+        ]
     return cases
 
 
@@ -418,6 +446,7 @@ async def get_case(
     role: WorkspaceUser,
     session: AsyncDBSession,
     case_id: uuid.UUID,
+    include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CaseRead:
     """Get a specific case."""
     service = CasesService(session, role)
@@ -475,6 +504,13 @@ async def get_case(
         payload=case.payload,
         tags=tag_reads,
         dropdown_values=dropdown_reads,
+        rows=(
+            await CaseTableRowsService(session, role).hydrate_case_rows(
+                case_ids=[case.id], include_row_data=True
+            )
+        ).get(case.id, [])
+        if include_rows
+        else [],
     )
 
 

@@ -66,6 +66,7 @@ import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actio
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
+import { TableLinkRowsToCaseCommand } from "@/components/tables/table-link-rows-to-case-command"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1094,6 +1095,7 @@ function TableDetailsActions() {
   return (
     <>
       <TableSelectionActionsBar />
+      <TableLinkRowsToCaseCommand />
       <TableInsertButton />
     </>
   )

@@ -1321,6 +1321,8 @@ export type CaseEventRead =
   | TaskDeletedEventRead
   | TaskAssigneeChangedEventRead
   | DropdownValueChangedEventRead
+  | TableRowLinkedEventRead
+  | TableRowUnlinkedEventRead
 
 /**
  * Case activity type values.
@@ -1348,6 +1350,8 @@ export type CaseEventType =
   | "task_workflow_changed"
   | "task_assignee_changed"
   | "dropdown_value_changed"
+  | "table_row_linked"
+  | "table_row_unlinked"
 
 export type CaseEventsWithUsers = {
   /**
@@ -1467,6 +1471,7 @@ export type CaseRead = {
   } | null
   tags?: Array<CaseTagRead>
   dropdown_values: Array<CaseDropdownValueRead>
+  rows?: Array<CaseTableRowRead>
 }
 
 export type CaseReadMinimal = {
@@ -1481,6 +1486,7 @@ export type CaseReadMinimal = {
   assignee?: UserRead | null
   tags?: Array<CaseTagRead>
   dropdown_values: Array<CaseDropdownValueRead>
+  rows?: Array<CaseTableRowRead>
   num_tasks_completed?: number
   num_tasks_total?: number
 }
@@ -1531,6 +1537,30 @@ export type CaseStatusGroupCounts = {
   on_hold?: number
   resolved?: number
   other?: number
+}
+
+export type CaseTableRowInsertCreate = {
+  table_id: string
+  row: TableRowInsert
+}
+
+export type CaseTableRowLinkCreate = {
+  table_id: string
+  row_id: string
+}
+
+export type CaseTableRowRead = {
+  id: string
+  case_id: string
+  table_id: string
+  table_name?: string | null
+  row_id: string
+  row_data?: {
+    [key: string]: unknown
+  } | null
+  is_row_available?: boolean
+  created_at: string
+  updated_at: string
 }
 
 export type CaseTagCreate = {
@@ -1931,6 +1961,30 @@ export type CreatedEventRead = {
 
 export type CursorPaginatedResponse_CaseReadMinimal_ = {
   items: Array<CaseReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_CaseTableRowRead_ = {
+  items: Array<CaseTableRowRead>
   /**
    * Cursor for next page
    */
@@ -5231,6 +5285,28 @@ export type TableRowInsertBatchResponse = {
 }
 
 /**
+ * Event for when a table row is linked to a case.
+ */
+export type TableRowLinkedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "table_row_linked"
+  table_id: string
+  table_name?: string | null
+  row_id: string
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
  * Read model for a table row.
  */
 export type TableRowRead = {
@@ -5238,6 +5314,28 @@ export type TableRowRead = {
   created_at: string
   updated_at: string
   [key: string]: unknown | string
+}
+
+/**
+ * Event for when a table row is unlinked from a case.
+ */
+export type TableRowUnlinkedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "table_row_unlinked"
+  table_id: string
+  table_name?: string | null
+  row_id: string
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 /**
@@ -8728,6 +8826,10 @@ export type CasesListCasesData = {
    */
   cursor?: string | null
   /**
+   * Include linked table rows
+   */
+  includeRows?: boolean
+  /**
    * Maximum items per page
    */
   limit?: number
@@ -8780,6 +8882,10 @@ export type CasesSearchCasesData = {
    */
   endTime?: string | null
   /**
+   * Include linked table rows
+   */
+  includeRows?: boolean
+  /**
    * Maximum items per page
    */
   limit?: number
@@ -8810,6 +8916,10 @@ export type CasesSearchCasesData = {
    * Filter by case severity
    */
   severity?: Array<CaseSeverity> | null
+  /**
+   * Search by case short ID fragment only (contains match, e.g. 42 or CASE-0042)
+   */
+  shortId?: string | null
   /**
    * Direction to sort (asc or desc)
    */
@@ -8891,6 +9001,10 @@ export type CasesSearchCaseAggregatesResponse = CaseSearchAggregateRead
 
 export type CasesGetCaseData = {
   caseId: string
+  /**
+   * Include linked table rows
+   */
+  includeRows?: boolean
   workspaceId: string
 }
 
@@ -8981,6 +9095,42 @@ export type CasesDeleteTaskData = {
 }
 
 export type CasesDeleteTaskResponse = void
+
+export type CasesListCaseRowsData = {
+  caseId: string
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type CasesListCaseRowsResponse =
+  CursorPaginatedResponse_CaseTableRowRead_
+
+export type CasesLinkCaseRowData = {
+  caseId: string
+  requestBody: CaseTableRowLinkCreate
+  workspaceId: string
+}
+
+export type CasesLinkCaseRowResponse = CaseTableRowRead
+
+export type CasesInsertCaseRowData = {
+  caseId: string
+  requestBody: CaseTableRowInsertCreate
+  workspaceId: string
+}
+
+export type CasesInsertCaseRowResponse = CaseTableRowRead
+
+export type CasesUnlinkCaseRowData = {
+  caseId: string
+  rowId: string
+  tableId: string
+  workspaceId: string
+}
+
+export type CasesUnlinkCaseRowResponse = void
 
 export type CasesListFieldsData = {
   workspaceId: string
@@ -13095,6 +13245,64 @@ export type $OpenApiTs = {
     }
     delete: {
       req: CasesDeleteTaskData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/rows": {
+    get: {
+      req: CasesListCaseRowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_CaseTableRowRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesLinkCaseRowData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseTableRowRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/rows/insert": {
+    post: {
+      req: CasesInsertCaseRowData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseTableRowRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/rows/{table_id}/{row_id}": {
+    delete: {
+      req: CasesUnlinkCaseRowData
       res: {
         /**
          * Successful Response
