@@ -260,13 +260,16 @@ Public API URL - used for external API access
 {{- end }}
 
 {{/*
-Public MCP URL - used by MCP server for OIDC auth callbacks and connect links
+Public MCP URL - base URL for MCP OAuth metadata and auth routes.
+Must NOT include the /mcp path: FastMCP mounts auth routes (register,
+token, authorize) at the server root, so the base_url that drives the
+OAuth discovery document must point there.
 */}}
 {{- define "tracecat.publicMcpUrl" -}}
 {{- if .Values.urls.publicMcp }}
 {{- .Values.urls.publicMcp }}
 {{- else }}
-{{- printf "%s://%s/mcp" (include "tracecat.urlScheme" .) .Values.ingress.host }}
+{{- printf "%s://%s" (include "tracecat.urlScheme" .) .Values.ingress.host }}
 {{- end }}
 {{- end }}
 

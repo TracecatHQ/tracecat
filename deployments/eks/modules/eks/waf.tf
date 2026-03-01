@@ -17,18 +17,19 @@ resource "aws_wafv2_regex_pattern_set" "attachments_endpoint" {
   tags = var.tags
 }
 
-# Regex pattern set for MCP OAuth client registration endpoint
-# Local MCP clients (e.g. Claude Code) send redirect_uris containing
-# "http://localhost:..." which triggers the EC2MetaDataSSRF_BODY rule.
-resource "aws_wafv2_regex_pattern_set" "mcp_register_endpoint" {
+# Regex pattern set for MCP OAuth endpoints that carry localhost redirect URIs.
+# Local MCP clients (e.g. Claude Code) include "http://localhost:..." in
+# register bodies and authorize/consent query strings, which triggers the
+# EC2MetaDataSSRF rules. This pattern set covers all affected OAuth paths.
+resource "aws_wafv2_regex_pattern_set" "mcp_oauth_endpoints" {
   count = var.enable_waf ? 1 : 0
 
-  name        = "${var.cluster_name}-mcp-register-endpoint"
-  description = "Matches MCP OAuth client registration endpoints"
+  name        = "${var.cluster_name}-mcp-oauth-endpoints"
+  description = "Matches MCP OAuth endpoints that carry localhost redirect URIs"
   scope       = "REGIONAL"
 
   regular_expression {
-    regex_string = "^/(mcp/)?register$"
+    regex_string = "^/(mcp/)?(register|authorize|consent|token|auth/callback)$"
   }
 
   tags = var.tags
@@ -112,6 +113,13 @@ resource "aws_wafv2_web_acl" "main" {
 
         rule_action_override {
           name = "EC2MetaDataSSRF_BODY"
+          action_to_use {
+            count {}
+          }
+        }
+
+        rule_action_override {
+          name = "EC2MetaDataSSRF_QUERYARGUMENTS"
           action_to_use {
             count {}
           }
@@ -291,13 +299,13 @@ resource "aws_wafv2_web_acl" "main" {
     }
   }
 
-  # Priority 7: Block SSRF except on MCP OAuth registration endpoint
-  # The CommonRuleSet sets EC2MetaDataSSRF_BODY to count mode above,
-  # and this rule re-blocks it unless the request is to the MCP register
-  # endpoint. Local MCP clients legitimately send localhost redirect URIs
-  # during OAuth dynamic client registration.
+  # Priority 7: Block SSRF except on MCP OAuth endpoints
+  # The CommonRuleSet sets EC2MetaDataSSRF_BODY and _QUERYARGUMENTS to count
+  # mode above, and this rule re-blocks them unless the request targets an MCP
+  # OAuth endpoint. Local MCP clients legitimately send localhost redirect URIs
+  # in register bodies and authorize/consent query strings.
   rule {
-    name     = "BlockSSRFExceptMcpRegister"
+    name     = "BlockSSRFExceptMcpOAuth"
     priority = 7
 
     action {
@@ -307,9 +315,20 @@ resource "aws_wafv2_web_acl" "main" {
     statement {
       and_statement {
         statement {
-          label_match_statement {
-            scope = "LABEL"
-            key   = "awswaf:managed:aws:core-rule-set:EC2MetaDataSSRF_Body"
+          or_statement {
+            statement {
+              label_match_statement {
+                scope = "LABEL"
+                key   = "awswaf:managed:aws:core-rule-set:EC2MetaDataSSRF_Body"
+              }
+            }
+
+            statement {
+              label_match_statement {
+                scope = "LABEL"
+                key   = "awswaf:managed:aws:core-rule-set:EC2MetaDataSSRF_QueryArguments"
+              }
+            }
           }
         }
 
@@ -317,7 +336,7 @@ resource "aws_wafv2_web_acl" "main" {
           not_statement {
             statement {
               regex_pattern_set_reference_statement {
-                arn = aws_wafv2_regex_pattern_set.mcp_register_endpoint[0].arn
+                arn = aws_wafv2_regex_pattern_set.mcp_oauth_endpoints[0].arn
 
                 field_to_match {
                   uri_path {}
@@ -336,7 +355,7 @@ resource "aws_wafv2_web_acl" "main" {
 
     visibility_config {
       cloudwatch_metrics_enabled = true
-      metric_name                = "${var.cluster_name}-ssrf-except-mcp-register"
+      metric_name                = "${var.cluster_name}-ssrf-except-mcp-oauth"
       sampled_requests_enabled   = true
     }
   }

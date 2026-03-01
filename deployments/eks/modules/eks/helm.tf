@@ -121,15 +121,16 @@ resource "helm_release" "tracecat" {
         }
         mcp = {
           annotations = {
-            "alb.ingress.kubernetes.io/group.order"      = "15"
-            "alb.ingress.kubernetes.io/healthcheck-path" = "/.well-known/oauth-authorization-server"
+            "alb.ingress.kubernetes.io/group.order"             = "15"
+            "alb.ingress.kubernetes.io/healthcheck-path"        = "/.well-known/oauth-authorization-server"
+            "alb.ingress.kubernetes.io/target-group-attributes" = "stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=86400"
           }
         }
       }
       urls = {
         publicApp = "https://${var.domain_name}"
         publicApi = "https://${var.domain_name}/api"
-        publicMcp = "https://${var.domain_name}/mcp"
+        publicMcp = "https://${var.domain_name}"
       }
       mcp = {
         enabled  = var.tracecat_mcp_enabled
