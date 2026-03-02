@@ -282,18 +282,49 @@ def default_org(db: None, env_sandbox: None) -> Iterator[None]:
         Base.metadata.create_all(sync_engine)
 
         with Session(sync_engine) as session:
-            org_slug = f"test-org-{TEST_ORG_ID.hex[:8]}"
-            existing_slug_owner = session.execute(
-                text("SELECT id FROM organization WHERE slug = :slug"),
-                {"slug": org_slug},
-            ).scalar_one_or_none()
+            base_org_slug = f"test-org-{TEST_ORG_ID.hex[:8]}"
+            org_slug = base_org_slug
+
+            insert_org_stmt = text(
+                """
+                INSERT INTO organization (id, name, slug, is_active, created_at, updated_at)
+                VALUES (
+                    :org_id,
+                    'Test Organization',
+                    :org_slug,
+                    true,
+                    now(),
+                    now()
+                )
+                ON CONFLICT (id) DO NOTHING
+                """
+            )
+
+            def _slug_owner(slug: str) -> str | None:
+                owner = session.execute(
+                    text("SELECT id FROM organization WHERE slug = :slug"),
+                    {"slug": slug},
+                ).scalar_one_or_none()
+                return str(owner) if owner is not None else None
+
+            def _insert_org(slug: str) -> None:
+                session.execute(
+                    insert_org_stmt,
+                    {
+                        "org_id": str(TEST_ORG_ID),
+                        "org_slug": slug,
+                    },
+                )
+                session.commit()
+
+            existing_slug_owner = _slug_owner(base_org_slug)
 
             # Handle stale/shared DB state where the canonical slug already exists
             # with a different org ID (for example from previous CI runs).
             if existing_slug_owner is not None and str(existing_slug_owner) != str(
                 TEST_ORG_ID
             ):
-                fallback_slug = f"{org_slug}-{TEST_DB_CONFIG.test_db_name[:8]}"
+                fallback_slug = f"{base_org_slug}-{TEST_DB_CONFIG.test_db_name[:8]}"
                 logger.warning(
                     "Default test org slug is already in use by another org; "
                     "using fallback slug",
@@ -303,27 +334,34 @@ def default_org(db: None, env_sandbox: None) -> Iterator[None]:
                 )
                 org_slug = fallback_slug
 
-            session.execute(
-                text(
-                    """
-                    INSERT INTO organization (id, name, slug, is_active, created_at, updated_at)
-                    VALUES (
-                        :org_id,
-                        'Test Organization',
-                        :org_slug,
-                        true,
-                        now(),
-                        now()
+            try:
+                _insert_org(org_slug)
+            except IntegrityError:
+                # Handle select->insert races where another session claims the canonical
+                # slug after our pre-check and before our insert/commit.
+                session.rollback()
+                existing_slug_owner = _slug_owner(base_org_slug)
+                if existing_slug_owner is not None and existing_slug_owner != str(
+                    TEST_ORG_ID
+                ):
+                    fallback_slug = f"{base_org_slug}-{TEST_DB_CONFIG.test_db_name[:8]}"
+                    logger.warning(
+                        "Default test org slug became occupied during insert; "
+                        "retrying with fallback slug",
+                        org_id=str(TEST_ORG_ID),
+                        existing_slug_owner=existing_slug_owner,
+                        fallback_slug=fallback_slug,
                     )
-                    ON CONFLICT (id) DO NOTHING
-                    """
-                ),
-                {
-                    "org_id": str(TEST_ORG_ID),
-                    "org_slug": org_slug,
-                },
-            )
-            session.commit()
+                    _insert_org(fallback_slug)
+                else:
+                    # If the canonical org now exists (likely inserted concurrently),
+                    # this fixture's intent is satisfied; re-raise otherwise.
+                    org_exists = session.execute(
+                        text("SELECT 1 FROM organization WHERE id = :org_id"),
+                        {"org_id": str(TEST_ORG_ID)},
+                    ).scalar_one_or_none()
+                    if org_exists is None:
+                        raise
 
         sync_engine.dispose()
 
