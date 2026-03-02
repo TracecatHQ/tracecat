@@ -21,6 +21,7 @@ spec:
         {{- include "tracecat.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: mcp
         tracecat.com/access-postgres: "true"
+        tracecat.com/access-redis: "true"
       {{- if .Values.reloader.enabled }}
       annotations:
         reloader.stakater.com/auto: "true"
