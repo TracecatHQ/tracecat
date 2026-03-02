@@ -305,6 +305,13 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - Always use the explicit `default=` keyword in `pydantic.Field()` (e.g., `Field(default=None)`, `Field(default="value")`) instead of a positional argument (e.g., `Field(None)`). Static type checkers like basedpyright do not recognize positional defaults and will report the field as required.
 - In `tracecat/config.py`, use `int(os.environ.get("VAR") or default)` instead of `int(os.environ.get("VAR", default))`. The latter fails with `int("")` when the env var is set to an empty string, which commonly happens in deployed environments.
 
+### SQLAlchemy Query Guidelines
+- **Push logic to the database**: Avoid fetching rows and post-processing in Python when the same operation can be expressed in SQL via SQLAlchemy. PostgreSQL is capable of filtering, aggregating, sorting, JSONB manipulation, and window functions — use them.
+- **JSONB operations**: Use PostgreSQL JSONB operators and functions (`->`, `->>`, `jsonb_extract_path`, `jsonb_build_object`, `jsonb_agg`, `func.jsonb_set`, `cast(..., JSONB)`, etc.) in SQLAlchemy queries instead of loading full rows and manipulating dicts in Python.
+- **Reduce round-trips when beneficial**: Consolidate multiple database calls into a single query (e.g., using joins, subqueries, CTEs, or `RETURNING` clauses) *only when it meaningfully reduces latency, simplifies the code, or avoids consistency issues*. Do not force everything into one query if it sacrifices readability or correctness — multiple clear queries are preferable to one convoluted one.
+- **Prefer `select()` projections**: Select only the columns you need rather than loading entire ORM models when only a few fields are required, especially for list/search endpoints.
+- **Use `RETURNING`**: For insert/update/delete operations that need the resulting row, use the `RETURNING` clause instead of issuing a separate SELECT.
+
 ### Type Organization Guidelines
 When adding new types, follow this pattern:
 - **Database tables**: Add to `tracecat/db/models.py` (SQLAlchemy classes)
