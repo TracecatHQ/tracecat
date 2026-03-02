@@ -9,6 +9,7 @@ import { useEffect, useRef } from "react"
 import { Streamdown } from "streamdown"
 import { Dots } from "@/components/loading/dots"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
+import { sanitizeMarkdownContent } from "@/lib/sanitize-markdown"
 
 /**
  * Model message part types for the legacy chat messages component.
@@ -202,7 +203,7 @@ export function Messages({
             className={`${assistantMarkdownStyle} flex-1`}
             parseIncompleteMarkdown
           >
-            {streamingText}
+            {sanitizeMarkdownContent(streamingText)}
           </Streamdown>
         </motion.div>
       )}
@@ -262,7 +263,7 @@ function AgentChatMessage({ message }: { message: ModelResponse }) {
       <div className="flex flex-1 flex-col gap-3 text-sm text-foreground">
         {textContent && (
           <Streamdown className={assistantMarkdownStyle}>
-            {textContent}
+            {sanitizeMarkdownContent(textContent)}
           </Streamdown>
         )}
 
