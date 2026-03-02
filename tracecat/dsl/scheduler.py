@@ -121,6 +121,7 @@ class DSLScheduler:
         *,
         executor: Callable[[ActionStatement], Awaitable[Any]],
         dsl: DSLInput,
+        max_pending_tasks: int,
         skip_strategy: SkipStrategy = SkipStrategy.PROPAGATE,
         context: ExecutionContext,
         role: Role,
@@ -130,6 +131,9 @@ class DSLScheduler:
         # Static
         self.dsl = dsl
         self.executor = executor
+        if max_pending_tasks < 1:
+            raise ValueError("max_pending_tasks must be greater than 0")
+        self.max_pending_tasks = max_pending_tasks
         self.skip_strategy = skip_strategy
         self.role = role
         self.run_context = run_context
@@ -202,6 +206,7 @@ class DSLScheduler:
             adj=self.adj,
             indegrees=self.indegrees,
             task_count=len(self.tasks),
+            max_pending_tasks=self.max_pending_tasks,
         )
 
     @staticmethod
@@ -737,11 +742,21 @@ class DSLScheduler:
             done_tasks = {t for t in pending_tasks if t.done()}
             pending_tasks.difference_update(done_tasks)
 
-            if not self.queue.empty():
+            while (
+                not self.queue.empty() and len(pending_tasks) < self.max_pending_tasks
+            ):
                 task_instance = await self.queue.get()
                 self.logger.debug("Scheduling task", task=task_instance)
                 task = asyncio.create_task(self._schedule_task(task_instance))
                 pending_tasks.add(task)
+            if not self.queue.empty() and len(pending_tasks) >= self.max_pending_tasks:
+                self.logger.debug(
+                    "Scheduler throttled by max pending task cap",
+                    pending_tasks=len(pending_tasks),
+                    max_pending_tasks=self.max_pending_tasks,
+                    queue_size=self.queue.qsize(),
+                )
+                await workflow.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)
             elif pending_tasks:
                 # Wait for at least one pending task to complete
                 await workflow.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)

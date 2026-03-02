@@ -9,6 +9,45 @@ from tracecat.feature_flags.enums import FeatureFlag
 # === Logger === #
 logger = logging.getLogger(__name__)
 
+
+def _coerce_env_numeric[T: int | float](*, var: str, value: str, default: T) -> T:
+    if isinstance(default, int):
+        try:
+            return cast(T, int(value))
+        except ValueError as e:
+            raise ValueError(f"{var} must be an integer (got {value!r})") from e
+    try:
+        return cast(T, float(value))
+    except ValueError as e:
+        raise ValueError(f"{var} must be a float (got {value!r})") from e
+
+
+def bound_env[T: int | float](
+    var: str,
+    default: T,
+    *,
+    lower: T | None = None,
+    upper: T | None = None,
+) -> T:
+    """Read a numeric env var with default and optional clamped bounds."""
+    if lower is not None and upper is not None and lower > upper:
+        raise ValueError(
+            f"Invalid bounds for {var}: lower ({lower}) cannot be greater than upper ({upper})"
+        )
+
+    env_value = os.environ.get(var)
+    if env_value is None or env_value == "":
+        bounded = default
+    else:
+        bounded = _coerce_env_numeric(var=var, value=env_value, default=default)
+
+    if lower is not None and bounded < lower:
+        bounded = lower
+    if upper is not None and bounded > upper:
+        bounded = upper
+    return bounded
+
+
 # === Internal Services === #
 TRACECAT__APP_ENV: Literal["development", "staging", "production"] = cast(
     Literal["development", "staging", "production"],
@@ -27,6 +66,54 @@ TRACECAT__LOOP_MAX_BATCH_SIZE = int(
     os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE") or 64
 )
 """Maximum number of parallel requests to the worker service."""
+
+TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS = int(
+    os.environ.get("TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS") or 64
+)
+"""Maximum number of scheduler task coroutines allowed in-flight."""
+
+TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW = bound_env(
+    "TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW",
+    16,
+    lower=8,
+    upper=128,
+)
+"""Hard cap on concurrent child workflow dispatches for looped subflow execution."""
+
+TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS = int(
+    os.environ.get("TRACECAT__WORKFLOW_PERMIT_MAX_WAIT_SECONDS") or 300
+)
+"""Maximum seconds to wait for a workflow concurrency permit before failing."""
+
+TRACECAT__WORKFLOW_PERMIT_BACKOFF_BASE_SECONDS = float(
+    os.environ.get("TRACECAT__WORKFLOW_PERMIT_BACKOFF_BASE_SECONDS") or 1
+)
+"""Base backoff in seconds when retrying workflow permit acquisition."""
+
+TRACECAT__WORKFLOW_PERMIT_BACKOFF_MAX_SECONDS = float(
+    os.environ.get("TRACECAT__WORKFLOW_PERMIT_BACKOFF_MAX_SECONDS") or 30
+)
+"""Maximum backoff in seconds when retrying workflow permit acquisition."""
+
+TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS = float(
+    os.environ.get("TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS") or 60
+)
+"""Interval in seconds between workflow permit heartbeat refreshes."""
+
+TRACECAT__PERMIT_TTL_SECONDS = int(
+    os.environ.get("TRACECAT__PERMIT_TTL_SECONDS") or 300
+)
+"""TTL in seconds for workflow/action concurrency permits before stale pruning."""
+
+TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS = int(
+    os.environ.get("TRACECAT__ACTION_PERMIT_MAX_WAIT_SECONDS") or 120
+)
+"""Maximum seconds to wait for an action concurrency permit before failing."""
+
+TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS = int(
+    os.environ.get("TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS") or 30
+)
+"""TTL in seconds for cached per-organization effective tier limits."""
 
 TRACECAT__EXECUTOR_QUEUE = os.environ.get(
     "TRACECAT__EXECUTOR_QUEUE", "shared-action-queue"
