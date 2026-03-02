@@ -43,8 +43,6 @@ def upgrade() -> None:
     op.alter_column(
         "mcp_integration", "server_uri", existing_type=sa.VARCHAR(), nullable=True
     )
-    # Explicitly backfill pre-migration integrations (remote HTTP only) to HTTP type.
-    op.execute(sa.text("UPDATE mcp_integration SET server_type = 'http'"))
 
 
 def downgrade() -> None:

@@ -792,7 +792,16 @@ class IntegrationService(BaseWorkspaceService):
         decrypted = self._decrypt_token(mcp_integration.encrypted_stdio_env)
         if not decrypted:
             return None
-        return orjson.loads(decrypted)
+        loaded = orjson.loads(decrypted)
+        if not isinstance(loaded, dict):
+            return None
+
+        env: dict[str, str] = {}
+        for key, value in loaded.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                return None
+            env[key] = value
+        return env
 
     @require_scope("integration:create", "integration:update", require_all=False)
     async def store_provider_config(
