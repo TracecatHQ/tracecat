@@ -7,6 +7,7 @@ import {
   KeyRound,
   LayersIcon,
   LayersPlus,
+  ListVideoIcon,
   type LucideIcon,
   Plus,
   Table2Icon,
@@ -123,6 +124,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/workflows`,
       icon: WorkflowIcon,
       isActive: pathname?.startsWith(`${basePath}/workflows`),
+      visible: canViewWorkflows === true,
+    },
+    {
+      title: "Runs",
+      url: `${basePath}/runs`,
+      icon: ListVideoIcon,
+      isActive: pathname?.startsWith(`${basePath}/runs`),
       visible: canViewWorkflows === true,
     },
     {

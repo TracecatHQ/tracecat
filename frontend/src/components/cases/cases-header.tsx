@@ -340,9 +340,10 @@ interface FilterMultiSelectProps<T extends string> {
   /** Callback when sort direction changes */
   onSortDirectionChange?: (direction: SortDirection) => void
   allowExclude?: boolean
+  modeLabel?: string
 }
 
-function FilterMultiSelect<T extends string>({
+export function FilterMultiSelect<T extends string>({
   placeholder,
   icon: Icon,
   renderTriggerIcon,
@@ -357,6 +358,7 @@ function FilterMultiSelect<T extends string>({
   sortDirection = null,
   onSortDirectionChange,
   allowExclude = true,
+  modeLabel,
 }: FilterMultiSelectProps<T>) {
   const [open, setOpen] = useState(false)
   const valueSet = useMemo(() => new Set(value), [value])
@@ -409,7 +411,7 @@ function FilterMultiSelect<T extends string>({
       >
         <div className="flex items-center justify-between border-b px-2 py-1.5">
           <span className="text-[11px] font-medium tracking-wide text-muted-foreground">
-            {mode === "exclude" ? "Excluding" : "Including"}
+            {modeLabel ?? (mode === "exclude" ? "Excluding" : "Including")}
           </span>
           <div className="flex items-center gap-0.5">
             {(allowExclude
@@ -531,10 +533,11 @@ function FilterMultiSelect<T extends string>({
           <div className="border-t p-1">
             <button
               type="button"
-              className="flex h-7 w-full items-center justify-center rounded text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="flex h-7 w-full items-center justify-center gap-1 rounded text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               onClick={() => onChange([])}
             >
               Clear selection
+              <Cross2Icon className="size-3" />
             </button>
           </div>
         )}
