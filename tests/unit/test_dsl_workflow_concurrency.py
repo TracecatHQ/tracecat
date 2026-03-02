@@ -184,6 +184,59 @@ async def test_execute_task_handles_timers_before_action_permit_acquisition() ->
     assert result.get_data() == {"ok": True}
 
 
+@pytest.mark.anyio
+async def test_execute_task_releases_action_permit_when_cancelled_during_heartbeat_stop() -> (
+    None
+):
+    workflow = _build_workflow(limits=_effective_limits(max_concurrent_actions=1))
+    task = ActionStatement(ref="limited_action", action="core.transform.reshape")
+    gather_started = asyncio.Event()
+    unblock_gather = asyncio.Event()
+    release_mock = AsyncMock(return_value=None)
+    original_gather = asyncio.gather
+
+    async def heartbeat_loop(*, action_id: str) -> None:
+        del action_id
+        await asyncio.sleep(3600)
+
+    async def delayed_gather(*args: Any, **kwargs: Any) -> list[Any]:
+        gather_started.set()
+        await unblock_gather.wait()
+        return cast(list[Any], await original_gather(*args, **kwargs))
+
+    with (
+        patch.object(workflow, "_handle_timers", new=AsyncMock(return_value=None)),
+        patch.object(workflow, "_action_permit_id", return_value="permit-id"),
+        patch.object(
+            workflow, "_acquire_action_permit", new=AsyncMock(return_value=None)
+        ),
+        patch.object(
+            workflow,
+            "_action_permit_heartbeat_loop",
+            new=heartbeat_loop,
+        ),
+        patch.object(
+            workflow,
+            "_run_action",
+            new=AsyncMock(return_value=InlineObject(data={"ok": True})),
+        ),
+        patch.object(workflow, "_release_action_permit", new=release_mock),
+        patch("tracecat.dsl.workflow.asyncio.gather", new=delayed_gather),
+    ):
+
+        async def run_execute_task() -> TaskResult:
+            return await workflow._execute_task(task)
+
+        execute_task = asyncio.create_task(run_execute_task())
+        await gather_started.wait()
+        execute_task.cancel()
+        unblock_gather.set()
+        result = await execute_task
+
+    assert result.get_data() == {"ok": True}
+    release_mock.assert_awaited_once_with(action_id="permit-id")
+
+
 def test_resolve_child_loop_batch_plan_applies_dispatch_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1194,13 +1194,10 @@ class DSLWorkflow:
             task_result = task_result.with_error(msg, err_type)
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
         finally:
-            if (
-                action_permit_heartbeat_task is not None
-                and not action_permit_heartbeat_task.done()
-            ):
-                action_permit_heartbeat_task.cancel()
-                await asyncio.gather(
-                    action_permit_heartbeat_task, return_exceptions=True
+            if action_permit_heartbeat_task is not None:
+                await self._run_cancellation_safe_cleanup(
+                    self._stop_action_permit_heartbeat(action_permit_heartbeat_task),
+                    operation="stop_action_permit_heartbeat",
                 )
             if action_permit_id is not None:
                 await self._run_cancellation_safe_cleanup(
@@ -2029,6 +2026,11 @@ class DSLWorkflow:
         self._workflow_permit_heartbeat_task = asyncio.create_task(
             self._workflow_permit_heartbeat_loop()
         )
+
+    async def _stop_action_permit_heartbeat(self, task: asyncio.Task[None]) -> None:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
     async def _stop_workflow_permit_heartbeat(self) -> None:
         task = self._workflow_permit_heartbeat_task
