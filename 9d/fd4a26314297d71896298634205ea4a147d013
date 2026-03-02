@@ -1,0 +1,23 @@
+tests/conftest.py
+  b11e84700b37c726 285-286,288,298-315,319-320,327,337-353,355-364
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "9dfd4a26314297d71896298634205ea4a147d013",
+  "prompts": {
+    "b11e84700b37c726": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb024-e27b-7ea3-817f-d89ef6c68905",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 64,
+      "total_deletions": 26,
+      "accepted_lines": 52,
+      "overriden_lines": 0
+    }
+  }
+}
