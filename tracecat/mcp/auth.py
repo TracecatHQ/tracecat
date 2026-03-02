@@ -9,9 +9,13 @@ import uuid
 from base64 import urlsafe_b64decode
 from typing import Any
 
+from cryptography.fernet import Fernet
 from fastmcp.server.auth import AuthProvider
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.dependencies import get_access_token
+from key_value.aio.stores.redis import RedisStore
+from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
+from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
 from mcp.server.auth.provider import TokenError
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -22,6 +26,7 @@ from tracecat.auth.credentials import compute_effective_scopes
 from tracecat.auth.oidc import get_platform_oidc_config
 from tracecat.auth.types import Role
 from tracecat.authz.enums import OrgRole, WorkspaceRole
+from tracecat.config import REDIS_URL, TRACECAT__DB_ENCRYPTION_KEY
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
@@ -484,12 +489,29 @@ def create_mcp_auth() -> AuthProvider:
             response.headers["content-length"] = str(len(response.body))
             return response
 
+    # Build Redis-backed storage for OAuth state (client registrations,
+    # auth codes, tokens, transactions) so state survives restarts and
+    # is shared across MCP replicas.
+    redis_store = RedisStore(url=REDIS_URL)
+    prefixed_store = PrefixCollectionsWrapper(redis_store, prefix="mcp")
+    if TRACECAT__DB_ENCRYPTION_KEY:
+        client_storage = FernetEncryptionWrapper(
+            prefixed_store, fernet=Fernet(TRACECAT__DB_ENCRYPTION_KEY)
+        )
+    else:
+        logger.warning(
+            "TRACECAT__DB_ENCRYPTION_KEY is not set; "
+            "MCP OAuth state will be stored unencrypted in Redis"
+        )
+        client_storage = prefixed_store
+
     config_url = f"{oidc_config.issuer}/.well-known/openid-configuration"
     return TracecatOIDCProxy(
         config_url=config_url,
         client_id=oidc_config.client_id,
         client_secret=oidc_config.client_secret,
         base_url=base_url,
+        client_storage=client_storage,
     )
 
 
