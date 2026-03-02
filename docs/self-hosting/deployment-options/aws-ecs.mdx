@@ -9,28 +9,6 @@ icon: aws
   Default `auth_types` is `saml`, so configure SAML before first login.
 </Warning>
 
-
-<Warning>
-## ⚠️ Critical security requirement for code execution
-
-If you run untrusted or third-party code in production, you **must enable `nsjail`**.
-
-This includes both:
-
-- `core.script.run_python` actions
-- Custom registry actions that execute code pulled from third-party sources
-
-AWS Fargate deployments have `nsjail` **disabled by default**. In that mode, script execution falls back to `unsafe_pid_executor` subprocess isolation.
-
-`unsafe_pid_executor` uses PID namespace isolation only when `unshare --pid` is permitted. On Fargate this is typically unavailable, so scripts generally run without PID namespace isolation.
-
-Additionally, in fallback mode `allow_network` is not OS-enforced and should be treated as best-effort only.
-
-Fargate does not provide the required permissions model for `nsjail`. For production workloads that execute untrusted code, we still recommend Kubernetes (Helm chart), where `nsjail` is enabled by default.
-
-For comparison: Helm chart / Kubernetes deployments have `nsjail` enabled by default.
-</Warning>
-
 ## Prerequisites
 
 - [Terraform](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli)
@@ -108,6 +86,15 @@ attachments, registry, and workflow artifacts.
     - API docs: `https://<domain>/api/docs`
   </Step>
 </Steps>
+
+## Security
+
+This deployment option does not enable `nsjail` by default.
+Untrusted code should not be executed in production, in particular within:
+- Custom registry actions that execute code pulled from third-party sources
+- `core.script.run_python` actions
+
+Fargate does not provide the required permissions model for `nsjail`. For production workloads that execute untrusted code, we still recommend Kubernetes (Helm chart), where `nsjail` is enabled by default.
 
 ## Deployment behavior
 

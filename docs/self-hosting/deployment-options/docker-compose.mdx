@@ -12,22 +12,6 @@ import BasicAuthWarning from "/snippets/basic-auth-warning.mdx";
 
 <BasicAuthWarning />
 
-
-<Warning>
-## ⚠️ Critical security requirement for code execution
-
-If you run untrusted or third-party code in production, you **must enable `nsjail`**.
-
-This includes both:
-
-- `core.script.run_python` actions
-- Custom registry actions that execute code pulled from third-party sources
-
-`docker compose` deployments have `nsjail` **disabled by default**. Do **not** run these workloads in production until you explicitly enable it.
-
-For comparison: Helm chart / Kubernetes deployments have `nsjail` enabled by default.
-</Warning>
-
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/engine/install/) version 26.0.0+
@@ -168,6 +152,13 @@ Within the docker network, the following env variables are used to configure net
 - `INTERNAL_API_URL` - Tracecat API URL (defaults to `http://api:8000`)
 - `INTERNAL_EXECUTOR_URL` - Tracecat executor URL (defaults to `http://executor:8000`)
 - `NEXT_SERVER_API_URL` - Tracecat API URL (defaults to `INTERNAL_API_URL`)
+
+## Security
+
+This deployment option does not enable `nsjail` by default.
+Untrusted code should not be executed in production, in particular within:
+- Custom registry actions that execute code pulled from third-party sources
+- `core.script.run_python` actions
 
 ## Troubleshooting
 
