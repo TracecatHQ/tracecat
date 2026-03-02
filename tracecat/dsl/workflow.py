@@ -208,6 +208,7 @@ class DSLWorkflow:
     time_anchor: datetime
     context: ExecutionContext
     run_context: RunContext
+    organization_id: identifiers.OrganizationID
     dep_list: dict[str, list[str]]
     scheduler: DSLScheduler
 
@@ -376,13 +377,10 @@ class DSLWorkflow:
         )
 
         # Fetch tier limits for this organization
-        if (
-            self.workflow_concurrency_limits_enabled
-            and self.role.organization_id is not None
-        ):
+        if self.workflow_concurrency_limits_enabled:
             self._tier_limits = await workflow.execute_activity(
                 get_tier_limits_activity,
-                arg=GetTierLimitsInput(org_id=self.role.organization_id),
+                arg=GetTierLimitsInput(org_id=self.organization_id),
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
@@ -1956,15 +1954,13 @@ class DSLWorkflow:
             await asyncio.shield(cleanup_task)
 
     async def _workflow_permit_heartbeat_loop(self) -> None:
-        if self.role.organization_id is None:
-            return
         heartbeat_interval = config.TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS
         if heartbeat_interval <= 0:
             self.logger.info("Workflow permit heartbeat disabled")
             return
 
         wf_id = workflow.info().workflow_id
-        org_id = self.role.organization_id
+        org_id = self.organization_id
         while self._workflow_permit_acquired:
             await asyncio.sleep(
                 self._next_permit_heartbeat_sleep_seconds(
@@ -1993,12 +1989,10 @@ class DSLWorkflow:
                 self.logger.warning("Workflow permit heartbeat failed", error=e)
 
     async def _action_permit_heartbeat_loop(self, *, action_id: str) -> None:
-        if self.role.organization_id is None:
-            return
         heartbeat_interval = config.TRACECAT__WORKFLOW_PERMIT_HEARTBEAT_SECONDS
         if heartbeat_interval <= 0:
             return
-        org_id = self.role.organization_id
+        org_id = self.organization_id
         while True:
             await asyncio.sleep(
                 self._next_permit_heartbeat_sleep_seconds(
@@ -2050,10 +2044,8 @@ class DSLWorkflow:
 
         Retries until a permit is acquired or max wait time is exceeded.
         """
-        if self.role.organization_id is None:
-            raise ValueError("Organization ID is required to acquire workflow permit")
         wf_id = workflow.info().workflow_id
-        org_id = self.role.organization_id
+        org_id = self.organization_id
         attempt = 0
         started_at = workflow.now()
 
@@ -2111,9 +2103,7 @@ class DSLWorkflow:
 
     async def _acquire_action_permit(self, *, action_id: str, limit: int) -> None:
         """Acquire an action execution permit or wait with exponential backoff."""
-        if self.role.organization_id is None:
-            raise ValueError("Organization ID is required to acquire action permit")
-        org_id = self.role.organization_id
+        org_id = self.organization_id
         attempt = 0
         started_at = workflow.now()
 
@@ -2170,11 +2160,9 @@ class DSLWorkflow:
         """Release the workflow execution permit."""
         if not self._workflow_permit_acquired:
             return
-        if self.role.organization_id is None:
-            return
 
         wf_id = workflow.info().workflow_id
-        org_id = self.role.organization_id
+        org_id = self.organization_id
 
         try:
             await workflow.execute_activity(
@@ -2197,10 +2185,7 @@ class DSLWorkflow:
 
     async def _release_action_permit(self, *, action_id: str) -> None:
         """Release an action execution permit."""
-        if self.role.organization_id is None:
-            return
-
-        org_id = self.role.organization_id
+        org_id = self.organization_id
         try:
             await workflow.execute_activity(
                 release_action_permit_activity,

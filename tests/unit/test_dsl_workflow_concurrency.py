@@ -53,6 +53,8 @@ def _build_workflow(*, limits: EffectiveLimits | None = None) -> DSLWorkflow:
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
     )
+    assert workflow.role.organization_id is not None
+    workflow.organization_id = workflow.role.organization_id
     workflow.logger = get_workflow_logger()
     workflow.runtime_config = DSLConfig()
     workflow._tier_limits = limits
