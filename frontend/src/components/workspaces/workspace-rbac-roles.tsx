@@ -1,7 +1,7 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { InfoIcon, PlusIcon, SearchIcon, ShieldIcon } from "lucide-react"
+import { PlusIcon, SearchIcon, ShieldIcon } from "lucide-react"
 import { type MouseEvent, useMemo, useState } from "react"
 import type { RoleReadWithScopes } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -189,18 +189,6 @@ export function WorkspaceRbacRoles({
               )
             }
           />
-
-          <div className="flex items-start gap-3 rounded-md border border-muted bg-muted/30 p-3 text-sm text-muted-foreground">
-            <InfoIcon className="mt-0.5 size-4 shrink-0" />
-            <div>
-              <p className="font-medium text-foreground">How roles work</p>
-              <p className="mt-1">
-                Roles define permissions and are shared across your
-                organization. To grant access in this workspace, assign roles to
-                groups in the Groups tab.
-              </p>
-            </div>
-          </div>
 
           {isLoading ? (
             <RbacListContainer>

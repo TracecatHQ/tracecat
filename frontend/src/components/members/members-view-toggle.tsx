@@ -1,6 +1,10 @@
 "use client"
 
-import { Layers, Shield, Users } from "lucide-react"
+import {
+  BookUserIcon,
+  UserLockIcon as UserKeyIcon,
+  UsersIcon,
+} from "lucide-react"
 import Link from "next/link"
 import { ScopeGuard } from "@/components/auth/scope-guard"
 import {
@@ -45,21 +49,21 @@ export function MembersViewToggle({
   const toggleItems = [
     {
       mode: MembersViewMode.Members,
-      icon: Users,
+      icon: UsersIcon,
       tooltip: "Members",
       href: membersHref,
       ariaLabel: "Members view",
     },
     {
       mode: MembersViewMode.Roles,
-      icon: Shield,
+      icon: UserKeyIcon,
       tooltip: "Roles",
       href: rolesHref,
       ariaLabel: "Roles view",
     },
     {
       mode: MembersViewMode.Groups,
-      icon: Layers,
+      icon: BookUserIcon,
       tooltip: "Groups",
       href: groupsHref,
       ariaLabel: "Groups view",

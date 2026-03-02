@@ -43,15 +43,7 @@ export default function WorkspaceGroupsPage() {
   return (
     <ScopeGuard scope="org:rbac:read" fallback={null} loading={null}>
       <div className="size-full overflow-auto">
-        <div className="container flex h-full max-w-[1200px] flex-col space-y-8 py-6">
-          <div className="flex w-full">
-            <div className="items-start space-y-3 text-left">
-              <h2 className="text-2xl font-semibold tracking-tight">Groups</h2>
-              <p className="text-md text-muted-foreground">
-                Manage workspace groups and their members.
-              </p>
-            </div>
-          </div>
+        <div className="container flex h-full flex-col space-y-12 py-8">
           <WorkspaceRbacGroups workspaceId={workspace.id} hideCreateButton />
         </div>
       </div>
