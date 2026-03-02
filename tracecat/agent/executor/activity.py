@@ -10,7 +10,7 @@ The main executor activity:
 1. Creates job directory with sockets
 2. Starts Unix socket server
 3. Spawns NSJail runtime process
-4. Uses LoopbackHandler to forward events to Redis
+4. Uses LoopbackHandler to forward events to session stream sinks
 5. Cleans up resources on completion
 
 The approved tools activity:

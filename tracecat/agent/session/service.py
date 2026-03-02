@@ -106,6 +106,7 @@ class AgentSessionService(BaseWorkspaceService):
             created_by=self.role.user_id,
             entity_type=args.entity_type.value,
             entity_id=args.entity_id,
+            channel_context=args.channel_context,
             tools=tools,
             agent_preset_id=args.agent_preset_id,
             # Harness
@@ -652,7 +653,7 @@ class AgentSessionService(BaseWorkspaceService):
     async def run_turn(
         self,
         session_id: uuid.UUID,
-        request: ChatRequest | ContinueRunRequest,
+        request: ChatRequest | ContinueRunRequest | BasicChatRequest,
     ) -> ChatResponse | None:
         """Run a session turn by spawning a DurableAgentWorkflow.
 
@@ -926,6 +927,14 @@ class AgentSessionService(BaseWorkspaceService):
             # Live chat uses workspace-level credentials
             async with agent_svc.with_preset_config(
                 preset_id=agent_session.entity_id, use_workspace_credentials=True
+            ) as preset_config:
+                yield preset_config
+        elif session_entity is AgentSessionEntity.EXTERNAL_CHANNEL:
+            # External channels always execute against the linked preset.
+            preset_id = agent_session.agent_preset_id or agent_session.entity_id
+            async with agent_svc.with_preset_config(
+                preset_id=preset_id,
+                use_workspace_credentials=True,
             ) as preset_config:
                 yield preset_config
         elif session_entity is AgentSessionEntity.AGENT_PRESET_BUILDER:
@@ -1437,6 +1446,7 @@ class AgentSessionService(BaseWorkspaceService):
             created_by=self.role.user_id,
             entity_type=entity_type.value if entity_type else parent.entity_type,
             entity_id=parent.entity_id,
+            channel_context=parent.channel_context,
             tools=[],
             agent_preset_id=None,
             # Harness - inherit from parent

@@ -21,6 +21,7 @@ import {
   ToggleLeft,
   Trash2,
   Type,
+  Webhook,
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -39,6 +40,7 @@ import type {
   AgentPresetRead,
   AgentPresetUpdate,
 } from "@/client"
+import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
 import { ActionSelect } from "@/components/chat/action-select"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
@@ -781,6 +783,7 @@ type AgentPresetSideTab =
   | "live-chat"
   | "assistant"
   | "configuration"
+  | "channels"
   | "structured-output"
 
 type McpIntegrationOption = {
@@ -1239,6 +1242,13 @@ function AgentPresetRightPanel({
                 <Box className="mr-2 size-4" />
                 <span>Output</span>
               </TabsTrigger>
+              <TabsTrigger
+                className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="channels"
+              >
+                <Webhook className="mr-2 size-4" />
+                <span>Channels</span>
+              </TabsTrigger>
             </TabsList>
           </div>
           <Separator />
@@ -1275,6 +1285,10 @@ function AgentPresetRightPanel({
 
           <TabsContent value="structured-output" className="mt-0 h-full">
             <AgentPresetStructuredOutputPanel form={form} isSaving={isSaving} />
+          </TabsContent>
+
+          <TabsContent value="channels" className="mt-0 h-full">
+            <SlackChannelPanel workspaceId={workspaceId} preset={preset} />
           </TabsContent>
         </div>
       </Tabs>

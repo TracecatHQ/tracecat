@@ -251,6 +251,58 @@ export type AdminUserRead = {
   last_login_at?: string | null
 }
 
+/**
+ * Request schema for creating an external channel token.
+ */
+export type AgentChannelTokenCreate = {
+  /**
+   * Preset to link this channel token to
+   */
+  agent_preset_id: string
+  /**
+   * External channel type
+   */
+  channel_type: ChannelType
+  /**
+   * Channel-specific configuration payload
+   */
+  config: SlackChannelTokenConfig
+  /**
+   * Whether this token is active
+   */
+  is_active?: boolean
+}
+
+/**
+ * Response schema for an external channel token.
+ */
+export type AgentChannelTokenRead = {
+  id: string
+  workspace_id: string
+  agent_preset_id: string
+  channel_type: ChannelType
+  config: SlackChannelTokenConfig
+  is_active: boolean
+  public_token: string
+  endpoint_url: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Request schema for updating an external channel token.
+ */
+export type AgentChannelTokenUpdate = {
+  /**
+   * Updated channel configuration payload
+   */
+  config?: SlackChannelTokenConfig | null
+  /**
+   * Activation state
+   */
+  is_active?: boolean | null
+}
+
 export type AgentOutput = {
   output: unknown
   message_history?: Array<ChatMessage> | null
@@ -371,6 +423,12 @@ export type AgentSessionCreate = {
    */
   entity_id: string
   /**
+   * External channel metadata used to resume a session thread
+   */
+  channel_context?: {
+    [key: string]: unknown
+  } | null
+  /**
    * Tools available to the agent for this session
    */
   tools?: Array<string> | null
@@ -394,6 +452,7 @@ export type AgentSessionCreate = {
  * - COPILOT: Workspace-level copilot assistant
  * - WORKFLOW: Workflow-initiated agent run (from action)
  * - APPROVAL: Inbox approval continuation (hidden from main chat list)
+ * - EXTERNAL_CHANNEL: External channel session (e.g. Slack thread)
  */
 export type AgentSessionEntity =
   | "case"
@@ -402,6 +461,7 @@ export type AgentSessionEntity =
   | "copilot"
   | "workflow"
   | "approval"
+  | "external_channel"
 
 /**
  * Request schema for forking an agent session.
@@ -423,6 +483,9 @@ export type AgentSessionRead = {
   created_by: string | null
   entity_type: string
   entity_id: string
+  channel_context: {
+    [key: string]: unknown
+  } | null
   tools: Array<string> | null
   agent_preset_id: string | null
   harness_type: string | null
@@ -442,6 +505,9 @@ export type AgentSessionReadVercel = {
   created_by: string | null
   entity_type: string
   entity_id: string
+  channel_context: {
+    [key: string]: unknown
+  } | null
   tools: Array<string> | null
   agent_preset_id: string | null
   harness_type: string | null
@@ -465,6 +531,9 @@ export type AgentSessionReadWithMessages = {
   created_by: string | null
   entity_type: string
   entity_id: string
+  channel_context: {
+    [key: string]: unknown
+  } | null
   tools: Array<string> | null
   agent_preset_id: string | null
   harness_type: string | null
@@ -1679,6 +1748,11 @@ export type CaseViewedEventRead = {
 }
 
 /**
+ * Supported external channel types.
+ */
+export type ChannelType = "slack"
+
+/**
  * Model for a chat message with typed message payload.
  *
  * This model supports both regular messages and approval bubbles:
@@ -2639,7 +2713,7 @@ export type ExternalObject = {
 /**
  * Feature flag enum reserved for engineering rollouts.
  */
-export type FeatureFlag = "ai-ranking" | "workflow-concurrency-limits"
+export type FeatureFlag = "ai-ranking" | "workflow-concurrency-limits" | "agent-channels"
 
 /**
  * Response model for feature flags.
@@ -5140,6 +5214,20 @@ export type SeverityChangedEventRead = {
 }
 
 /**
+ * Slack channel token configuration.
+ */
+export type SlackChannelTokenConfig = {
+  /**
+   * Slack bot token used for API calls
+   */
+  slack_bot_token: string
+  /**
+   * Slack signing secret used for request verification
+   */
+  slack_signing_secret: string
+}
+
+/**
  * A document source part of a message.
  */
 export type SourceDocumentUIPart = {
@@ -7626,6 +7714,13 @@ export type PublicReceiveInteractionData = {
 
 export type PublicReceiveInteractionResponse = ReceiveInteractionResponse
 
+export type PublicHandleChannelEventData = {
+  channelType: ChannelType
+  token: string
+}
+
+export type PublicHandleChannelEventResponse = unknown
+
 export type WorkspacesListWorkspacesResponse = Array<WorkspaceReadMinimal>
 
 export type WorkspacesCreateWorkspaceData = {
@@ -8509,6 +8604,50 @@ export type AgentGetWorkspaceProvidersStatusData = {
 export type AgentGetWorkspaceProvidersStatusResponse = {
   [key: string]: boolean
 }
+
+export type AgentChannelsCreateChannelTokenData = {
+  requestBody: AgentChannelTokenCreate
+  workspaceId: string
+}
+
+export type AgentChannelsCreateChannelTokenResponse = AgentChannelTokenRead
+
+export type AgentChannelsListChannelTokensData = {
+  /**
+   * Filter by agent preset
+   */
+  agentPresetId?: string | null
+  /**
+   * Filter by channel type
+   */
+  channelType?: ChannelType | null
+  workspaceId: string
+}
+
+export type AgentChannelsListChannelTokensResponse =
+  Array<AgentChannelTokenRead>
+
+export type AgentChannelsUpdateChannelTokenData = {
+  requestBody: AgentChannelTokenUpdate
+  tokenId: string
+  workspaceId: string
+}
+
+export type AgentChannelsUpdateChannelTokenResponse = AgentChannelTokenRead
+
+export type AgentChannelsDeleteChannelTokenData = {
+  tokenId: string
+  workspaceId: string
+}
+
+export type AgentChannelsDeleteChannelTokenResponse = void
+
+export type AgentChannelsRotateChannelTokenData = {
+  tokenId: string
+  workspaceId: string
+}
+
+export type AgentChannelsRotateChannelTokenResponse = AgentChannelTokenRead
 
 export type AgentPresetsListAgentPresetsData = {
   workspaceId: string
@@ -10495,6 +10634,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/agent/channels/{channel_type}/{token}": {
+    post: {
+      req: PublicHandleChannelEventData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces": {
     get: {
       res: {
@@ -12124,6 +12278,77 @@ export type $OpenApiTs = {
         200: {
           [key: string]: boolean
         }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/channels/tokens": {
+    post: {
+      req: AgentChannelsCreateChannelTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentChannelTokenRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: AgentChannelsListChannelTokensData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentChannelTokenRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/channels/tokens/{token_id}": {
+    patch: {
+      req: AgentChannelsUpdateChannelTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentChannelTokenRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentChannelsDeleteChannelTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/channels/tokens/{token_id}/rotate": {
+    post: {
+      req: AgentChannelsRotateChannelTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentChannelTokenRead
         /**
          * Validation Error
          */

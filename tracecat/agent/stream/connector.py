@@ -190,6 +190,13 @@ class AgentStream:
             logger.info("Chat stream ended", stream_key=self._stream_key)
             await self._set_last_stream_id(current_id)
 
+    async def stream_events(
+        self, stop_condition: Callable[[], Awaitable[bool]], last_id: str
+    ) -> AsyncIterator[StreamEvent]:
+        """Public stream-events iterator for external stream consumers."""
+        async for event in self._stream_events(stop_condition, last_id):
+            yield event
+
     def sse(
         self,
         stop_condition: Callable[[], Awaitable[bool]],
@@ -200,7 +207,7 @@ class AgentStream:
             case "vercel":
                 from tracecat.agent.adapter.vercel import sse_vercel
 
-                return sse_vercel(self._stream_events(stop_condition, last_id))
+                return sse_vercel(self.stream_events(stop_condition, last_id))
             case "basic":
                 return self.simple_sse(stop_condition, last_id)
             case _:
@@ -211,7 +218,7 @@ class AgentStream:
     ) -> AsyncIterable[str]:
         try:
             yield StreamConnected(id=last_id).sse()
-            async for event in self._stream_events(stop_condition, last_id):
+            async for event in self.stream_events(stop_condition, last_id):
                 match event:
                     case StreamKeepAlive():
                         yield event.sse()

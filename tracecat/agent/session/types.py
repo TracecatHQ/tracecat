@@ -13,6 +13,7 @@ class AgentSessionEntity(StrEnum):
     - COPILOT: Workspace-level copilot assistant
     - WORKFLOW: Workflow-initiated agent run (from action)
     - APPROVAL: Inbox approval continuation (hidden from main chat list)
+    - EXTERNAL_CHANNEL: External channel session (e.g. Slack thread)
     """
 
     CASE = "case"
@@ -21,3 +22,4 @@ class AgentSessionEntity(StrEnum):
     COPILOT = "copilot"
     WORKFLOW = "workflow"
     APPROVAL = "approval"
+    EXTERNAL_CHANNEL = "external_channel"

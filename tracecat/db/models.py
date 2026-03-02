@@ -2386,6 +2386,11 @@ class AgentSession(WorkspaceModel):
         nullable=False,
         doc="The ID of the associated entity",
     )
+    channel_context: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="External channel metadata used for session resolution and routing",
+    )
     tools: Mapped[list[str] | None] = mapped_column(
         JSONB,
         default=None,
@@ -2845,6 +2850,58 @@ class WatchtowerAgentToolCall(OrganizationModel):
 
     agent: Mapped[WatchtowerAgent] = relationship("WatchtowerAgent")
     session: Mapped[WatchtowerAgentSession] = relationship("WatchtowerAgentSession")
+
+
+class AgentChannelToken(WorkspaceModel):
+    """Token-backed external channel configuration for an agent preset."""
+
+    __tablename__ = "agent_channel_token"
+    __table_args__ = (
+        Index(
+            "ix_agent_channel_token_workspace_id_channel_type",
+            "workspace_id",
+            "channel_type",
+        ),
+        Index(
+            "ix_agent_channel_token_agent_preset_id_channel_type_active",
+            "agent_preset_id",
+            "channel_type",
+            unique=True,
+            postgresql_where=text("is_active IS TRUE"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    agent_preset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_preset.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    channel_type: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        doc="External channel type, e.g. slack",
+    )
+    config: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        default=dict,
+        nullable=False,
+        doc="Channel-specific configuration payload",
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default=text("true"),
+        nullable=False,
+        doc="Whether this token is active and can receive events",
+    )
 
 
 class AgentPreset(WorkspaceModel):

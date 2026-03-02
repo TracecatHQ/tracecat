@@ -39,6 +39,10 @@ class AgentSessionCreate(BaseModel):
         ...,
         description="ID of the associated entity",
     )
+    channel_context: dict[str, Any] | None = Field(
+        default=None,
+        description="External channel metadata used to resume a session thread",
+    )
     tools: list[str] | None = Field(
         default=None,
         description="Tools available to the agent for this session",
@@ -97,6 +101,7 @@ class AgentSessionRead(BaseModel):
     created_by: uuid.UUID | None
     entity_type: str
     entity_id: uuid.UUID
+    channel_context: dict[str, Any] | None
     tools: list[str] | None
     agent_preset_id: uuid.UUID | None
     # Harness

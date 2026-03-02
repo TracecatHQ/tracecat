@@ -965,6 +965,129 @@ export const $AdminUserRead = {
   description: "Admin view of a user.",
 } as const
 
+export const $AgentChannelTokenCreate = {
+  properties: {
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+      description: "Preset to link this channel token to",
+    },
+    channel_type: {
+      $ref: "#/components/schemas/ChannelType",
+      description: "External channel type",
+    },
+    config: {
+      $ref: "#/components/schemas/SlackChannelTokenConfig",
+      description: "Channel-specific configuration payload",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+      description: "Whether this token is active",
+      default: true,
+    },
+  },
+  type: "object",
+  required: ["agent_preset_id", "channel_type", "config"],
+  title: "AgentChannelTokenCreate",
+  description: "Request schema for creating an external channel token.",
+} as const
+
+export const $AgentChannelTokenRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+    channel_type: {
+      $ref: "#/components/schemas/ChannelType",
+    },
+    config: {
+      $ref: "#/components/schemas/SlackChannelTokenConfig",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    public_token: {
+      type: "string",
+      title: "Public Token",
+    },
+    endpoint_url: {
+      type: "string",
+      title: "Endpoint Url",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "agent_preset_id",
+    "channel_type",
+    "config",
+    "is_active",
+    "public_token",
+    "endpoint_url",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentChannelTokenRead",
+  description: "Response schema for an external channel token.",
+} as const
+
+export const $AgentChannelTokenUpdate = {
+  properties: {
+    config: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SlackChannelTokenConfig",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Updated channel configuration payload",
+    },
+    is_active: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Is Active",
+      description: "Activation state",
+    },
+  },
+  type: "object",
+  title: "AgentChannelTokenUpdate",
+  description: "Request schema for updating an external channel token.",
+} as const
+
 export const $AgentOutput = {
   properties: {
     output: {
@@ -1630,6 +1753,19 @@ export const $AgentSessionCreate = {
       title: "Entity Id",
       description: "ID of the associated entity",
     },
+    channel_context: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Channel Context",
+      description: "External channel metadata used to resume a session thread",
+    },
     tools: {
       anyOf: [
         {
@@ -1680,6 +1816,7 @@ export const $AgentSessionEntity = {
     "copilot",
     "workflow",
     "approval",
+    "external_channel",
   ],
   title: "AgentSessionEntity",
   description: `The type of entity associated with an agent session.
@@ -1690,7 +1827,8 @@ Determines the context and behavior of the session:
 - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
 - COPILOT: Workspace-level copilot assistant
 - WORKFLOW: Workflow-initiated agent run (from action)
-- APPROVAL: Inbox approval continuation (hidden from main chat list)`,
+- APPROVAL: Inbox approval continuation (hidden from main chat list)
+- EXTERNAL_CHANNEL: External channel session (e.g. Slack thread)`,
 } as const
 
 export const $AgentSessionForkRequest = {
@@ -1749,6 +1887,18 @@ export const $AgentSessionRead = {
       type: "string",
       format: "uuid",
       title: "Entity Id",
+    },
+    channel_context: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Channel Context",
     },
     tools: {
       anyOf: [
@@ -1829,6 +1979,7 @@ export const $AgentSessionRead = {
     "created_by",
     "entity_type",
     "entity_id",
+    "channel_context",
     "tools",
     "agent_preset_id",
     "harness_type",
@@ -1875,6 +2026,18 @@ export const $AgentSessionReadVercel = {
       type: "string",
       format: "uuid",
       title: "Entity Id",
+    },
+    channel_context: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Channel Context",
     },
     tools: {
       anyOf: [
@@ -1963,6 +2126,7 @@ export const $AgentSessionReadVercel = {
     "created_by",
     "entity_type",
     "entity_id",
+    "channel_context",
     "tools",
     "agent_preset_id",
     "harness_type",
@@ -2009,6 +2173,18 @@ export const $AgentSessionReadWithMessages = {
       type: "string",
       format: "uuid",
       title: "Entity Id",
+    },
+    channel_context: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Channel Context",
     },
     tools: {
       anyOf: [
@@ -2095,6 +2271,7 @@ export const $AgentSessionReadWithMessages = {
     "created_by",
     "entity_type",
     "entity_id",
+    "channel_context",
     "tools",
     "agent_preset_id",
     "harness_type",
@@ -6100,6 +6277,13 @@ export const $CaseViewedEventRead = {
   description: "Event for when a case is viewed.",
 } as const
 
+export const $ChannelType = {
+  type: "string",
+  enum: ["slack"],
+  title: "ChannelType",
+  description: "Supported external channel types.",
+} as const
+
 export const $ChatMessage = {
   properties: {
     id: {
@@ -8640,7 +8824,7 @@ export const $ExternalObject = {
 
 export const $FeatureFlag = {
   type: "string",
-  enum: ["ai-ranking", "workflow-concurrency-limits"],
+  enum: ["ai-ranking", "workflow-concurrency-limits", "agent-channels"],
   title: "FeatureFlag",
   description: "Feature flag enum reserved for engineering rollouts.",
 } as const
@@ -16385,6 +16569,27 @@ export const $SeverityChangedEventRead = {
   required: ["old", "new", "created_at"],
   title: "SeverityChangedEventRead",
   description: "Event for when a case severity is changed.",
+} as const
+
+export const $SlackChannelTokenConfig = {
+  properties: {
+    slack_bot_token: {
+      type: "string",
+      minLength: 1,
+      title: "Slack Bot Token",
+      description: "Slack bot token used for API calls",
+    },
+    slack_signing_secret: {
+      type: "string",
+      minLength: 1,
+      title: "Slack Signing Secret",
+      description: "Slack signing secret used for request verification",
+    },
+  },
+  type: "object",
+  required: ["slack_bot_token", "slack_signing_secret"],
+  title: "SlackChannelTokenConfig",
+  description: "Slack channel token configuration.",
 } as const
 
 export const $SourceDocumentUIPart = {

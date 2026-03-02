@@ -81,6 +81,16 @@ import type {
   AdminUpdateRegistrySettingsResponse,
   AdminUpdateTierData,
   AdminUpdateTierResponse,
+  AgentChannelsCreateChannelTokenData,
+  AgentChannelsCreateChannelTokenResponse,
+  AgentChannelsDeleteChannelTokenData,
+  AgentChannelsDeleteChannelTokenResponse,
+  AgentChannelsListChannelTokensData,
+  AgentChannelsListChannelTokensResponse,
+  AgentChannelsRotateChannelTokenData,
+  AgentChannelsRotateChannelTokenResponse,
+  AgentChannelsUpdateChannelTokenData,
+  AgentChannelsUpdateChannelTokenResponse,
   AgentCreateProviderCredentialsData,
   AgentCreateProviderCredentialsResponse,
   AgentDeleteProviderCredentialsData,
@@ -365,6 +375,8 @@ import type {
   ProvidersListProvidersResponse,
   PublicCheckHealthResponse,
   PublicCheckReadyResponse,
+  PublicHandleChannelEventData,
+  PublicHandleChannelEventResponse,
   PublicIncomingWebhookDraftData,
   PublicIncomingWebhookDraftResponse,
   PublicIncomingWebhookGetData,
@@ -882,6 +894,31 @@ export const publicReceiveInteraction = (
     },
     headers: {
       "content-type": data.contentType,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Handle Channel Event
+ * Receive public external channel events.
+ * @param data The data for the request.
+ * @param data.channelType
+ * @param data.token
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const publicHandleChannelEvent = (
+  data: PublicHandleChannelEventData
+): CancelablePromise<PublicHandleChannelEventResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/channels/{channel_type}/{token}",
+    path: {
+      channel_type: data.channelType,
+      token: data.token,
     },
     errors: {
       422: "Validation Error",
@@ -3919,6 +3956,138 @@ export const agentGetWorkspaceProvidersStatus = (
   return __request(OpenAPI, {
     method: "GET",
     url: "/agent/workspace/providers/status",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Channel Token
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentChannelTokenRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelsCreateChannelToken = (
+  data: AgentChannelsCreateChannelTokenData
+): CancelablePromise<AgentChannelsCreateChannelTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/channels/tokens",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Channel Tokens
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.agentPresetId Filter by agent preset
+ * @param data.channelType Filter by channel type
+ * @returns AgentChannelTokenRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelsListChannelTokens = (
+  data: AgentChannelsListChannelTokensData
+): CancelablePromise<AgentChannelsListChannelTokensResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/channels/tokens",
+    query: {
+      agent_preset_id: data.agentPresetId,
+      channel_type: data.channelType,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Channel Token
+ * @param data The data for the request.
+ * @param data.tokenId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentChannelTokenRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelsUpdateChannelToken = (
+  data: AgentChannelsUpdateChannelTokenData
+): CancelablePromise<AgentChannelsUpdateChannelTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/agent/channels/tokens/{token_id}",
+    path: {
+      token_id: data.tokenId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Channel Token
+ * @param data The data for the request.
+ * @param data.tokenId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentChannelsDeleteChannelToken = (
+  data: AgentChannelsDeleteChannelTokenData
+): CancelablePromise<AgentChannelsDeleteChannelTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/channels/tokens/{token_id}",
+    path: {
+      token_id: data.tokenId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Rotate Channel Token
+ * @param data The data for the request.
+ * @param data.tokenId
+ * @param data.workspaceId
+ * @returns AgentChannelTokenRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelsRotateChannelToken = (
+  data: AgentChannelsRotateChannelTokenData
+): CancelablePromise<AgentChannelsRotateChannelTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/channels/tokens/{token_id}/rotate",
+    path: {
+      token_id: data.tokenId,
+    },
     query: {
       workspace_id: data.workspaceId,
     },
