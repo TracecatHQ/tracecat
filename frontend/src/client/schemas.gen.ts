@@ -5410,6 +5410,11 @@ export const $CaseStatusGroupCounts = {
       title: "Resolved",
       default: 0,
     },
+    closed: {
+      type: "integer",
+      title: "Closed",
+      default: 0,
+    },
     other: {
       type: "integer",
       title: "Other",

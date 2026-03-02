@@ -668,16 +668,14 @@ class CasesService(BaseWorkspaceService):
             ).label("on_hold"),
             func.coalesce(
                 func.sum(
-                    sa.case(
-                        (
-                            Case.status.in_([CaseStatus.RESOLVED, CaseStatus.CLOSED]),
-                            1,
-                        ),
-                        else_=0,
-                    )
+                    sa.case((Case.status == CaseStatus.RESOLVED, 1), else_=0)
                 ),
                 0,
             ).label("resolved"),
+            func.coalesce(
+                func.sum(sa.case((Case.status == CaseStatus.CLOSED, 1), else_=0)),
+                0,
+            ).label("closed"),
             func.coalesce(
                 func.sum(
                     sa.case(
@@ -704,6 +702,7 @@ class CasesService(BaseWorkspaceService):
                 in_progress=int(row.in_progress or 0),
                 on_hold=int(row.on_hold or 0),
                 resolved=int(row.resolved or 0),
+                closed=int(row.closed or 0),
                 other=int(row.other or 0),
             ),
         )

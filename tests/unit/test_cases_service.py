@@ -946,6 +946,7 @@ class TestCasesService:
         assert aggregates.status_groups.in_progress == 1
         assert aggregates.status_groups.on_hold == 0
         assert aggregates.status_groups.resolved == 1
+        assert aggregates.status_groups.closed == 0
         assert aggregates.status_groups.other == 0
 
     async def test_create_case_with_nonexistent_field(
