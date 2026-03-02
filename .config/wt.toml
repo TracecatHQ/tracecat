@@ -1,0 +1,7 @@
+# Worktrunk Project Configuration
+# Shared hooks for all developers using `wt` on this repo.
+# See: https://worktrunk.dev/hook/
+
+# Post-Create: Install dependencies after worktree creation
+[post-create]
+deps = "uv sync --group admin & pnpm -C frontend i & wait"
