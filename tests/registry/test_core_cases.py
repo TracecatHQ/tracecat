@@ -627,6 +627,45 @@ class TestCoreSearchCases:
         assert result["items"] == [mock_case_dict]
         assert result["next_cursor"] == "cursor-1"
 
+    async def test_search_cases_returns_structured_shape_for_aggregation(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ):
+        """Aggregation requests should return the full response object."""
+        mock_cases_client.search_cases.return_value = {
+            "items": [mock_case_dict],
+            "next_cursor": None,
+            "prev_cursor": None,
+            "has_more": False,
+            "has_previous": False,
+            "aggregation": {
+                "agg": "mean",
+                "agg_field": "field:duration_ms",
+                "group_by": ["status"],
+                "value": 12.5,
+                "buckets": [{"key": {"status": "new"}, "value": 12.5}],
+                "bucket_limit": 100,
+                "truncated": False,
+            },
+        }
+
+        result = await search_cases(
+            agg="avg",
+            agg_field="field:duration_ms",
+            group_by=["status"],
+            limit=5,
+        )
+
+        mock_cases_client.search_cases.assert_called_once_with(
+            agg="avg",
+            agg_field="field:duration_ms",
+            group_by=["status"],
+            limit=5,
+        )
+        assert isinstance(result, dict)
+        aggregation = result.get("aggregation")
+        assert aggregation is not None
+        assert aggregation["agg"] == "mean"
+
     async def test_search_cases_with_ordering(
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):

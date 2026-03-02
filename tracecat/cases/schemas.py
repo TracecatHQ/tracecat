@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 import sqlalchemy as sa
 from pydantic import ConfigDict, Field, RootModel, field_validator
 
+from tracecat import config
 from tracecat.auth.schemas import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.dropdowns.schemas import (
@@ -33,6 +34,12 @@ from tracecat.identifiers.workflow import (
     WorkflowIDShort,
     WorkflowUUID,
 )
+from tracecat.pagination import CursorPaginatedResponse
+from tracecat.search.schemas import (
+    DEFAULT_BUCKET_LIMIT,
+    MAX_BUCKET_LIMIT,
+    SearchAggregationResult,
+)
 
 
 class CaseReadMinimal(Schema):
@@ -52,17 +59,44 @@ class CaseReadMinimal(Schema):
     num_tasks_total: int = Field(default=0)
 
 
-class CaseStatusGroupCounts(Schema):
-    new: int = 0
-    in_progress: int = 0
-    on_hold: int = 0
-    resolved: int = 0
-    other: int = 0
+class CaseSearchRequest(Schema):
+    limit: int = Field(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    )
+    cursor: str | None = Field(default=None)
+    reverse: bool = Field(default=False)
+    search_term: str | None = Field(default=None)
+    short_id: str | None = Field(default=None)
+    status: list[CaseStatus] | None = Field(default=None)
+    priority: list[CasePriority] | None = Field(default=None)
+    severity: list[CaseSeverity] | None = Field(default=None)
+    tags: list[str] | None = Field(default=None)
+    dropdown: list[str] | None = Field(default=None)
+    start_time: datetime | None = Field(default=None)
+    end_time: datetime | None = Field(default=None)
+    updated_after: datetime | None = Field(default=None)
+    updated_before: datetime | None = Field(default=None)
+    assignee_id: list[str] | None = Field(default=None)
+    order_by: (
+        Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
+        | None
+    ) = Field(default=None)
+    sort: Literal["asc", "desc"] | None = Field(default=None)
+    include_rows: bool = Field(default=False)
+    group_by: list[str] | None = Field(default=None)
+    agg: str | None = Field(default=None)
+    agg_field: str | None = Field(default=None)
+    bucket_limit: int = Field(
+        default=DEFAULT_BUCKET_LIMIT,
+        ge=1,
+        le=MAX_BUCKET_LIMIT,
+    )
 
 
-class CaseSearchAggregateRead(Schema):
-    total: int
-    status_groups: CaseStatusGroupCounts
+class CaseSearchResponse(CursorPaginatedResponse[CaseReadMinimal]):
+    aggregation: SearchAggregationResult | None = None
 
 
 class CaseRead(Schema):

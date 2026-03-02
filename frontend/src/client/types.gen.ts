@@ -1491,9 +1491,61 @@ export type CaseReadMinimal = {
   num_tasks_total?: number
 }
 
-export type CaseSearchAggregateRead = {
-  total: number
-  status_groups: CaseStatusGroupCounts
+export type CaseSearchRequest = {
+  limit?: number
+  cursor?: string | null
+  reverse?: boolean
+  search_term?: string | null
+  short_id?: string | null
+  status?: Array<CaseStatus> | null
+  priority?: Array<CasePriority> | null
+  severity?: Array<CaseSeverity> | null
+  tags?: Array<string> | null
+  dropdown?: Array<string> | null
+  start_time?: string | null
+  end_time?: string | null
+  updated_after?: string | null
+  updated_before?: string | null
+  assignee_id?: Array<string> | null
+  order_by?:
+    | "created_at"
+    | "updated_at"
+    | "priority"
+    | "severity"
+    | "status"
+    | "tasks"
+    | null
+  sort?: "asc" | "desc" | null
+  include_rows?: boolean
+  group_by?: Array<string> | null
+  agg?: string | null
+  agg_field?: string | null
+  bucket_limit?: number
+}
+
+export type CaseSearchResponse = {
+  items: Array<CaseReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+  aggregation?: SearchAggregationResult | null
 }
 
 /**
@@ -1530,14 +1582,6 @@ export type CaseStatus =
   | "resolved"
   | "closed"
   | "other"
-
-export type CaseStatusGroupCounts = {
-  new?: number
-  in_progress?: number
-  on_hold?: number
-  resolved?: number
-  other?: number
-}
 
 export type CaseTableRowInsertCreate = {
   table_id: string
@@ -4865,6 +4909,35 @@ export type ScopeRead = {
  * Source/ownership of a scope definition.
  */
 export type ScopeSource = "platform" | "custom"
+
+export type SearchAggFunction =
+  | "count"
+  | "sum"
+  | "min"
+  | "max"
+  | "mean"
+  | "median"
+  | "mode"
+  | "n_unique"
+
+export type SearchAggregationBucket = {
+  key: {
+    [key: string]: unknown
+  }
+  value: SearchAggregationValue
+}
+
+export type SearchAggregationResult = {
+  agg: SearchAggFunction
+  agg_field?: string | null
+  group_by?: Array<string>
+  value: SearchAggregationValue
+  buckets?: Array<SearchAggregationBucket>
+  bucket_limit?: number
+  truncated?: boolean
+}
+
+export type SearchAggregationValue = number | string | boolean | null
 
 /**
  * Create a new secret.
@@ -8865,139 +8938,11 @@ export type CasesCreateCaseData = {
 export type CasesCreateCaseResponse = unknown
 
 export type CasesSearchCasesData = {
-  /**
-   * Filter by assignee ID or 'unassigned'
-   */
-  assigneeId?: Array<string> | null
-  /**
-   * Cursor for pagination
-   */
-  cursor?: string | null
-  /**
-   * Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
-   */
-  dropdown?: Array<string> | null
-  /**
-   * Return cases created at or before this timestamp
-   */
-  endTime?: string | null
-  /**
-   * Include linked table rows
-   */
-  includeRows?: boolean
-  /**
-   * Maximum items per page
-   */
-  limit?: number
-  /**
-   * Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
-   */
-  orderBy?:
-    | "created_at"
-    | "updated_at"
-    | "priority"
-    | "severity"
-    | "status"
-    | "tasks"
-    | null
-  /**
-   * Filter by case priority
-   */
-  priority?: Array<CasePriority> | null
-  /**
-   * Reverse pagination direction
-   */
-  reverse?: boolean
-  /**
-   * Text to search for in case summary, description, or short ID
-   */
-  searchTerm?: string | null
-  /**
-   * Filter by case severity
-   */
-  severity?: Array<CaseSeverity> | null
-  /**
-   * Search by exact case short ID (e.g. 42 or CASE-0042)
-   */
-  shortId?: string | null
-  /**
-   * Direction to sort (asc or desc)
-   */
-  sort?: "asc" | "desc" | null
-  /**
-   * Return cases created at or after this timestamp
-   */
-  startTime?: string | null
-  /**
-   * Filter by case status
-   */
-  status?: Array<CaseStatus> | null
-  /**
-   * Filter by tag IDs or slugs (AND logic)
-   */
-  tags?: Array<string> | null
-  /**
-   * Return cases updated at or after this timestamp
-   */
-  updatedAfter?: string | null
-  /**
-   * Return cases updated at or before this timestamp
-   */
-  updatedBefore?: string | null
+  requestBody: CaseSearchRequest
   workspaceId: string
 }
 
-export type CasesSearchCasesResponse = CursorPaginatedResponse_CaseReadMinimal_
-
-export type CasesSearchCaseAggregatesData = {
-  /**
-   * Filter by assignee ID or 'unassigned'
-   */
-  assigneeId?: Array<string> | null
-  /**
-   * Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
-   */
-  dropdown?: Array<string> | null
-  /**
-   * Return cases created at or before this timestamp
-   */
-  endTime?: string | null
-  /**
-   * Filter by case priority
-   */
-  priority?: Array<CasePriority> | null
-  /**
-   * Text to search for in case summary, description, or short ID
-   */
-  searchTerm?: string | null
-  /**
-   * Filter by case severity
-   */
-  severity?: Array<CaseSeverity> | null
-  /**
-   * Return cases created at or after this timestamp
-   */
-  startTime?: string | null
-  /**
-   * Filter by case status
-   */
-  status?: Array<CaseStatus> | null
-  /**
-   * Filter by tag IDs or slugs (AND logic)
-   */
-  tags?: Array<string> | null
-  /**
-   * Return cases updated at or after this timestamp
-   */
-  updatedAfter?: string | null
-  /**
-   * Return cases updated at or before this timestamp
-   */
-  updatedBefore?: string | null
-  workspaceId: string
-}
-
-export type CasesSearchCaseAggregatesResponse = CaseSearchAggregateRead
+export type CasesSearchCasesResponse = CaseSearchResponse
 
 export type CasesGetCaseData = {
   caseId: string
@@ -13060,28 +13005,13 @@ export type $OpenApiTs = {
     }
   }
   "/cases/search": {
-    get: {
+    post: {
       req: CasesSearchCasesData
       res: {
         /**
          * Successful Response
          */
-        200: CursorPaginatedResponse_CaseReadMinimal_
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/cases/search/aggregate": {
-    get: {
-      req: CasesSearchCaseAggregatesData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CaseSearchAggregateRead
+        200: CaseSearchResponse
         /**
          * Validation Error
          */

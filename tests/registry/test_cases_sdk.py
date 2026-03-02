@@ -79,3 +79,45 @@ async def test_update_case_simple_serializes_and_keeps_null_option(
             ]
         },
     )
+
+
+@pytest.mark.anyio
+async def test_search_cases_uses_post_body_with_aggregation(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    """Case search should use POST body and forward aggregation fields."""
+    mock_tracecat_client.post.return_value = {
+        "items": [],
+        "next_cursor": None,
+        "prev_cursor": None,
+        "has_more": False,
+        "has_previous": False,
+        "aggregation": {
+            "agg": "mean",
+            "agg_field": "field:duration_ms",
+            "group_by": ["status"],
+            "value": 12.5,
+            "buckets": [],
+            "bucket_limit": 100,
+            "truncated": False,
+        },
+    }
+
+    await cases_client.search_cases(
+        limit=5,
+        search_term="incident",
+        agg="avg",
+        agg_field="field:duration_ms",
+        group_by=["status"],
+    )
+
+    mock_tracecat_client.post.assert_called_once_with(
+        "/cases/search",
+        json={
+            "limit": 5,
+            "search_term": "incident",
+            "group_by": ["status"],
+            "agg": "avg",
+            "agg_field": "field:duration_ms",
+        },
+    )

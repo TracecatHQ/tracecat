@@ -25,6 +25,28 @@ export type ProvidersCreateCustomProviderData = {
   requestBody: CustomOAuthProviderCreateRequest
 }
 
+export type OAuth2AuthorizeResponse = {
+  authorization_url: string
+}
+
+export type AuthOauthOidcDatabaseAuthorizeData = {
+  scopes?: string[]
+}
+
+export const authOauthOidcDatabaseAuthorize = (
+  data?: AuthOauthOidcDatabaseAuthorizeData
+): CancelablePromise<OAuth2AuthorizeResponse> =>
+  request(OpenAPI, {
+    method: "GET",
+    url: "/auth/oauth/authorize",
+    query: {
+      scopes: data?.scopes,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+
 export const providersCreateCustomProvider = (
   data: ProvidersCreateCustomProviderData
 ): CancelablePromise<ProviderReadMinimal> =>

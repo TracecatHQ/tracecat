@@ -399,6 +399,22 @@ async def search_cases(
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
     ] = None,
+    group_by: Annotated[
+        list[str] | None,
+        Doc("Optional group-by tokens for aggregation."),
+    ] = None,
+    agg: Annotated[
+        types.SearchAggFunction | Literal["avg", "value_counts"] | None,
+        Doc("Optional aggregation function."),
+    ] = None,
+    agg_field: Annotated[
+        str | None,
+        Doc("Field/token to aggregate over when agg is not count."),
+    ] = None,
+    bucket_limit: Annotated[
+        int | None,
+        Doc("Maximum grouped buckets to return when aggregation is requested."),
+    ] = None,
     paginate: Annotated[
         bool,
         Doc("If true, return cursor pagination metadata along with items."),
@@ -441,8 +457,23 @@ async def search_cases(
         params["order_by"] = order_by
     if sort is not None:
         params["sort"] = sort
+    if group_by is not None:
+        params["group_by"] = group_by
+    if agg is not None:
+        params["agg"] = agg
+    if agg_field is not None:
+        params["agg_field"] = agg_field
+    if bucket_limit is not None:
+        params["bucket_limit"] = bucket_limit
     response = await get_context().cases.search_cases(**params)
-    if paginate:
+    wants_structured = (
+        paginate
+        or agg is not None
+        or agg_field is not None
+        or group_by is not None
+        or bucket_limit is not None
+    )
+    if wants_structured:
         return response
     return response["items"]
 

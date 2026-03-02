@@ -17,13 +17,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
   CaseReadMinimal,
-  CaseSearchAggregateRead,
   CaseStatus,
   CaseTagRead,
   WorkspaceMember,
 } from "@/client"
 import { CaseItem } from "@/components/cases/case-item"
 import type { FilterMode, SortDirection } from "@/components/cases/cases-header"
+import type { CaseStageCounts } from "@/hooks/use-cases"
 import { cn } from "@/lib/utils"
 
 type StatusGroup =
@@ -40,7 +40,7 @@ interface StatusGroupConfig {
   icon: ComponentType<{ className?: string }>
   statuses: CaseStatus[]
   iconColor: string
-  aggregateKey?: keyof CaseSearchAggregateRead["status_groups"]
+  aggregateKey?: keyof CaseStageCounts
 }
 
 const STATUS_GROUPS: Record<StatusGroup, StatusGroupConfig> = {
@@ -125,7 +125,7 @@ interface CasesAccordionProps {
   statusFilter?: CaseStatus[]
   statusMode?: FilterMode
   totalFilteredCaseEstimate?: number | null
-  stageCounts?: CaseSearchAggregateRead["status_groups"] | null
+  stageCounts?: CaseStageCounts | null
   isCountsLoading?: boolean
   isCountsFetching?: boolean
   hasNextPage?: boolean

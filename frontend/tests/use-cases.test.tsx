@@ -7,10 +7,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type {
   CaseReadMinimal,
   CaseStatus,
-  CasesSearchCaseAggregatesResponse,
   CasesSearchCasesResponse,
 } from "@/client"
-import { casesSearchCaseAggregates, casesSearchCases } from "@/client"
+import { casesSearchCases } from "@/client"
 import { useCases } from "@/hooks/use-cases"
 
 jest.mock("@/providers/workspace-id", () => ({
@@ -19,16 +18,17 @@ jest.mock("@/providers/workspace-id", () => ({
 
 jest.mock("@/client", () => ({
   casesSearchCases: jest.fn(),
-  casesSearchCaseAggregates: jest.fn(),
 }))
 
 const mockSearchCases = casesSearchCases as jest.MockedFunction<
   typeof casesSearchCases
 >
-const mockSearchCaseAggregates =
-  casesSearchCaseAggregates as jest.MockedFunction<
-    typeof casesSearchCaseAggregates
-  >
+
+function asCancelableResponse(
+  response: CasesSearchCasesResponse
+): ReturnType<typeof casesSearchCases> {
+  return Promise.resolve(response) as ReturnType<typeof casesSearchCases>
+}
 
 function createCase(index: number): CaseReadMinimal {
   const id = `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`
@@ -145,19 +145,37 @@ describe("useCases", () => {
       total_estimate: 1000,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
-      total: 1000,
-      status_groups: {
-        new: 700,
-        in_progress: 200,
-        on_hold: 50,
-        resolved: 40,
-        other: 10,
+    const aggregate: CasesSearchCasesResponse = {
+      items: [],
+      next_cursor: null,
+      prev_cursor: null,
+      has_more: false,
+      has_previous: false,
+      aggregation: {
+        agg: "count",
+        agg_field: null,
+        group_by: ["status"],
+        value: 1000,
+        buckets: [
+          { key: { status: "new" }, value: 700 },
+          { key: { status: "in_progress" }, value: 200 },
+          { key: { status: "on_hold" }, value: 50 },
+          { key: { status: "resolved" }, value: 30 },
+          { key: { status: "closed" }, value: 10 },
+          { key: { status: "other" }, value: 5 },
+          { key: { status: "unknown" }, value: 5 },
+        ],
+        bucket_limit: 1000,
+        truncated: false,
       },
     }
 
-    mockSearchCases.mockResolvedValue(firstPage)
-    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+    mockSearchCases.mockImplementation(({ requestBody }) => {
+      if (requestBody?.agg === "count") {
+        return asCancelableResponse(aggregate)
+      }
+      return asCancelableResponse(firstPage)
+    })
 
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -181,18 +199,23 @@ describe("useCases", () => {
     expect(screen.getByTestId("new-count")).toHaveTextContent("700")
 
     // Ensure the hook does not walk every cursor page by default.
-    expect(mockSearchCases).toHaveBeenCalledTimes(1)
+    expect(mockSearchCases).toHaveBeenCalledTimes(2)
     expect(mockSearchCases).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
-        limit: 100,
+        requestBody: expect.objectContaining({
+          limit: 100,
+        }),
       })
     )
 
-    expect(mockSearchCaseAggregates).toHaveBeenCalledTimes(1)
-    expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
+    expect(mockSearchCases).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
+        requestBody: expect.objectContaining({
+          agg: "count",
+          group_by: ["status"],
+        }),
       })
     )
   })
@@ -207,19 +230,29 @@ describe("useCases", () => {
       total_estimate: 1,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
-      total: 1,
-      status_groups: {
-        new: 1,
-        in_progress: 0,
-        on_hold: 0,
-        resolved: 0,
-        other: 0,
+    const aggregate: CasesSearchCasesResponse = {
+      items: [],
+      next_cursor: null,
+      prev_cursor: null,
+      has_more: false,
+      has_previous: false,
+      aggregation: {
+        agg: "count",
+        agg_field: null,
+        group_by: ["status"],
+        value: 1,
+        buckets: [{ key: { status: "new" }, value: 1 }],
+        bucket_limit: 1000,
+        truncated: false,
       },
     }
 
-    mockSearchCases.mockResolvedValue(firstPage)
-    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+    mockSearchCases.mockImplementation(({ requestBody }) => {
+      if (requestBody?.agg === "count") {
+        return asCancelableResponse(aggregate)
+      }
+      return asCancelableResponse(firstPage)
+    })
 
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -247,8 +280,7 @@ describe("useCases", () => {
 
     expect(screen.getByTestId("total")).toHaveTextContent("0")
     expect(screen.getByTestId("new-count")).toHaveTextContent("0")
-    expect(mockSearchCases).toHaveBeenCalledTimes(1)
-    expect(mockSearchCaseAggregates).toHaveBeenCalledTimes(1)
+    expect(mockSearchCases).toHaveBeenCalledTimes(2)
   })
 
   it("resets sortBy when clearing priority or severity sorting", async () => {
@@ -261,19 +293,29 @@ describe("useCases", () => {
       total_estimate: 1,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
-      total: 1,
-      status_groups: {
-        new: 1,
-        in_progress: 0,
-        on_hold: 0,
-        resolved: 0,
-        other: 0,
+    const aggregate: CasesSearchCasesResponse = {
+      items: [],
+      next_cursor: null,
+      prev_cursor: null,
+      has_more: false,
+      has_previous: false,
+      aggregation: {
+        agg: "count",
+        agg_field: null,
+        group_by: ["status"],
+        value: 1,
+        buckets: [{ key: { status: "new" }, value: 1 }],
+        bucket_limit: 1000,
+        truncated: false,
       },
     }
 
-    mockSearchCases.mockResolvedValue(firstPage)
-    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+    mockSearchCases.mockImplementation(({ requestBody }) => {
+      if (requestBody?.agg === "count") {
+        return asCancelableResponse(aggregate)
+      }
+      return asCancelableResponse(firstPage)
+    })
 
     const queryClient = new QueryClient({
       defaultOptions: {

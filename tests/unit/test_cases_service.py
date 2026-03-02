@@ -26,9 +26,10 @@ from tracecat.cases.schemas import (
     CaseUpdate,
 )
 from tracecat.cases.service import CaseFieldsService, CasesService
-from tracecat.db.models import Case
+from tracecat.db.models import Case, CaseTag, CaseTagLink
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.pagination import CursorPaginationParams
+from tracecat.search.schemas import SearchRequestValidationError
 from tracecat.tables.enums import SqlType
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -874,10 +875,10 @@ class TestCasesService:
                 short_id="CASE-ABCD",
             )
 
-    async def test_get_search_case_aggregates_applies_enum_filters(
+    async def test_search_cases_aggregation_applies_enum_filters(
         self, cases_service: CasesService, session: AsyncSession
     ) -> None:
-        """Aggregate counts should respect include/exclude enum filters."""
+        """Aggregations should respect enum filter constraints."""
         now = datetime.now(UTC)
         session.add_all(
             [
@@ -935,18 +936,195 @@ class TestCasesService:
         )
         await session.commit()
 
-        aggregates = await cases_service.get_search_case_aggregates(
+        response = await cases_service.search_cases(
+            params=CursorPaginationParams(limit=20, cursor=None, reverse=False),
             status=[CaseStatus.IN_PROGRESS, CaseStatus.RESOLVED],
             priority=[CasePriority.HIGH, CasePriority.CRITICAL],
             severity=[CaseSeverity.MEDIUM, CaseSeverity.HIGH],
+            agg="count",
+            group_by=["status"],
         )
 
-        assert aggregates.total == 2
-        assert aggregates.status_groups.new == 0
-        assert aggregates.status_groups.in_progress == 1
-        assert aggregates.status_groups.on_hold == 0
-        assert aggregates.status_groups.resolved == 1
-        assert aggregates.status_groups.other == 0
+        assert response.aggregation is not None
+        assert response.aggregation.agg == "count"
+        assert response.aggregation.value == 2
+        buckets = {
+            bucket.key.get("status"): bucket.value
+            for bucket in response.aggregation.buckets
+        }
+        assert buckets["in_progress"] == 1
+        assert buckets["resolved"] == 1
+
+    async def test_search_cases_aggregation_normalizes_avg_alias(
+        self, cases_service: CasesService, session: AsyncSession
+    ) -> None:
+        """avg should normalize to mean in responses."""
+        await cases_service.fields.create_field(
+            CaseFieldCreate(
+                name="duration_ms",
+                type=SqlType.NUMERIC,
+            )
+        )
+
+        first_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Case A",
+                description="A",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+                fields={"duration_ms": 10},
+            )
+        )
+        await cases_service.create_case(
+            CaseCreate(
+                summary="Case B",
+                description="B",
+                status=CaseStatus.RESOLVED,
+                priority=CasePriority.HIGH,
+                severity=CaseSeverity.MEDIUM,
+                fields={"duration_ms": 20},
+            )
+        )
+
+        response = await cases_service.search_cases(
+            params=CursorPaginationParams(limit=10, cursor=None, reverse=False),
+            agg="avg",
+            agg_field="field:duration_ms",
+            group_by=["status"],
+        )
+
+        assert response.aggregation is not None
+        assert response.aggregation.agg == "mean"
+        assert response.aggregation.value == 15
+        grouped = {
+            bucket.key.get("status"): bucket.value
+            for bucket in response.aggregation.buckets
+        }
+        assert grouped["new"] == 10
+        assert grouped["resolved"] == 20
+
+        # Ensure rows still return with no regression when aggregation is requested.
+        assert any(item.id == first_case.id for item in response.items)
+
+    async def test_search_cases_rejects_value_counts_aggregation(
+        self, cases_service: CasesService
+    ) -> None:
+        """value_counts is explicitly out of scope and should fail validation."""
+        with pytest.raises(SearchRequestValidationError) as exc_info:
+            await cases_service.search_cases(
+                params=CursorPaginationParams(limit=10, cursor=None, reverse=False),
+                agg="value_counts",
+                agg_field="status",
+            )
+        assert exc_info.value.detail["field"] == "agg"
+
+    async def test_search_cases_group_by_tag_uses_explode_semantics(
+        self, cases_service: CasesService, session: AsyncSession
+    ) -> None:
+        """Cases linked to multiple tags should contribute to multiple buckets."""
+        first_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Case A",
+                description="A",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        second_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Case B",
+                description="B",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+        tag_alpha = CaseTag(
+            workspace_id=cases_service.workspace_id,
+            name="alpha",
+            ref="alpha",
+            color="#111111",
+        )
+        tag_bravo = CaseTag(
+            workspace_id=cases_service.workspace_id,
+            name="bravo",
+            ref="bravo",
+            color="#222222",
+        )
+        session.add_all([tag_alpha, tag_bravo])
+        await session.flush()
+        session.add_all(
+            [
+                CaseTagLink(case_id=first_case.id, tag_id=tag_alpha.id),
+                CaseTagLink(case_id=first_case.id, tag_id=tag_bravo.id),
+                CaseTagLink(case_id=second_case.id, tag_id=tag_alpha.id),
+            ]
+        )
+        await session.commit()
+
+        response = await cases_service.search_cases(
+            params=CursorPaginationParams(limit=20, cursor=None, reverse=False),
+            agg="count",
+            group_by=["tag"],
+        )
+
+        assert response.aggregation is not None
+        assert response.aggregation.value == 2
+        buckets = {
+            bucket.key.get("tag"): bucket.value
+            for bucket in response.aggregation.buckets
+        }
+        assert buckets["alpha"] == 2
+        assert buckets["bravo"] == 1
+
+    async def test_search_cases_group_by_multiselect_field_explodes_values(
+        self, cases_service: CasesService
+    ) -> None:
+        """MULTI_SELECT custom fields should explode into one bucket per option."""
+        await cases_service.fields.create_field(
+            CaseFieldCreate(
+                name="systems",
+                type=SqlType.MULTI_SELECT,
+                options=["db", "api", "cache"],
+            )
+        )
+        await cases_service.create_case(
+            CaseCreate(
+                summary="Case A",
+                description="A",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+                fields={"systems": ["db", "api"]},
+            )
+        )
+        await cases_service.create_case(
+            CaseCreate(
+                summary="Case B",
+                description="B",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+                fields={"systems": ["api"]},
+            )
+        )
+
+        response = await cases_service.search_cases(
+            params=CursorPaginationParams(limit=20, cursor=None, reverse=False),
+            agg="count",
+            group_by=["field:systems"],
+        )
+
+        assert response.aggregation is not None
+        buckets = {
+            bucket.key.get("field:systems"): bucket.value
+            for bucket in response.aggregation.buckets
+        }
+        assert buckets["db"] == 1
+        assert buckets["api"] == 2
 
     async def test_create_case_with_nonexistent_field(
         self, cases_service: CasesService

@@ -407,6 +407,46 @@ class TestCoreSearchRecords:
         assert result["items"][0] == mock_row
         assert result["next_cursor"] == "cursor-1"
 
+    async def test_search_rows_returns_structured_shape_for_aggregation(
+        self, mock_tables_client: AsyncMock, mock_row
+    ):
+        """Aggregation requests should return the full response object."""
+        mock_tables_client.search_rows.return_value = {
+            "items": [mock_row],
+            "next_cursor": None,
+            "prev_cursor": None,
+            "has_more": False,
+            "has_previous": False,
+            "aggregation": {
+                "agg": "count",
+                "agg_field": None,
+                "group_by": ["status"],
+                "value": 1,
+                "buckets": [{"key": {"status": "active"}, "value": 1}],
+                "bucket_limit": 100,
+                "truncated": False,
+            },
+        }
+
+        result = await search_rows(
+            table="test_table",
+            agg="count",
+            group_by=["status"],
+            limit=50,
+        )
+
+        mock_tables_client.search_rows.assert_called_once_with(
+            table="test_table",
+            agg="count",
+            group_by=["status"],
+            limit=50,
+            reverse=False,
+        )
+        assert isinstance(result, dict)
+        aggregation = result.get("aggregation")
+        assert aggregation is not None
+        assert aggregation["value"] == 1
+
     async def test_search_rows_legacy_list_response(
         self, mock_tables_client: AsyncMock
     ):

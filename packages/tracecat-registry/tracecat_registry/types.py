@@ -7,7 +7,7 @@ and datetimes become ISO format strings.
 
 from uuid import UUID
 from datetime import datetime
-from typing import Any, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 
 # ============================================================================
@@ -32,6 +32,33 @@ class UserRead(TypedDict):
 # ============================================================================
 # Cases Types
 # ============================================================================
+
+
+SearchAggFunction = Literal[
+    "count",
+    "sum",
+    "min",
+    "max",
+    "mean",
+    "median",
+    "mode",
+    "n_unique",
+]
+
+
+class SearchAggregationBucket(TypedDict):
+    key: dict[str, Any]
+    value: int | float | str | bool | None
+
+
+class SearchAggregation(TypedDict):
+    agg: SearchAggFunction
+    agg_field: str | None
+    group_by: list[str]
+    value: int | float | str | bool | None
+    buckets: list[SearchAggregationBucket]
+    bucket_limit: int
+    truncated: bool
 
 
 class CaseTagRead(TypedDict):
@@ -165,6 +192,7 @@ class CaseListResponse(TypedDict):
     has_more: bool
     has_previous: bool
     total_estimate: int | None
+    aggregation: NotRequired[SearchAggregation | None]
 
 
 class CaseComment(TypedDict):
@@ -641,6 +669,7 @@ class TableSearchResponse(TypedDict):
     has_more: bool
     has_previous: bool
     total_estimate: NotRequired[int | None]
+    aggregation: NotRequired[SearchAggregation | None]
 
 
 # ============================================================================

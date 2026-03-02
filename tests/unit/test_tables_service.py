@@ -14,6 +14,7 @@ from tracecat.db.models import Table
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginationParams
+from tracecat.search.schemas import SearchRequestValidationError
 from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
@@ -809,6 +810,69 @@ class TestTableRows:
         # - has_previous: there are no older rows before this reverse page
         assert reverse_page.has_more is True
         assert reverse_page.has_previous is False
+
+    async def test_list_rows_with_count_aggregation(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Table search should return scalar + grouped count aggregations."""
+        for data in [
+            {"name": "Alice", "age": 20},
+            {"name": "Alice", "age": 30},
+            {"name": "Bob", "age": 40},
+        ]:
+            await tables_service.insert_row(table, TableRowInsert(data=data))
+
+        response = await tables_service.list_rows(
+            table,
+            params=CursorPaginationParams(limit=20, cursor=None, reverse=False),
+            agg="count",
+            group_by=["name"],
+        )
+
+        assert response.aggregation is not None
+        assert response.aggregation.agg == "count"
+        assert response.aggregation.value == 3
+        grouped = {
+            bucket.key.get("name"): bucket.value
+            for bucket in response.aggregation.buckets
+        }
+        assert grouped["Alice"] == 2
+        assert grouped["Bob"] == 1
+
+    async def test_list_rows_normalizes_avg_alias(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """avg should canonicalize to mean for table aggregations."""
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "A", "age": 10})
+        )
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "B", "age": 20})
+        )
+
+        response = await tables_service.list_rows(
+            table,
+            params=CursorPaginationParams(limit=20, cursor=None, reverse=False),
+            agg="avg",
+            agg_field="age",
+        )
+
+        assert response.aggregation is not None
+        assert response.aggregation.agg == "mean"
+        assert response.aggregation.value == 15
+
+    async def test_list_rows_rejects_value_counts_aggregation(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """value_counts is intentionally unsupported for this release."""
+        with pytest.raises(SearchRequestValidationError) as exc_info:
+            await tables_service.list_rows(
+                table,
+                params=CursorPaginationParams(limit=20, cursor=None, reverse=False),
+                agg="value_counts",
+                agg_field="name",
+            )
+        assert exc_info.value.detail["field"] == "agg"
 
     async def test_table_editor_list_rows_reverse_pagination_flags(
         self, tables_service: TablesService, table: Table

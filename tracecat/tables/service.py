@@ -1,4 +1,5 @@
 import csv
+import decimal
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
@@ -13,7 +14,7 @@ from asyncpg.exceptions import (
     InvalidCachedStatementError,
     UndefinedTableError,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +42,15 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
+from tracecat.search.schemas import (
+    MAX_BUCKET_LIMIT,
+    SearchAggFunction,
+    SearchAggregationBucket,
+    SearchAggregationResult,
+    SearchAggregationValue,
+    SearchRequestValidationError,
+    normalize_agg_function,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.common import (
     coerce_multi_select_value,
@@ -64,6 +74,7 @@ from tracecat.tables.schemas import (
     TableColumnUpdate,
     TableCreate,
     TableRowInsert,
+    TableSearchResponse,
     TableUpdate,
 )
 
@@ -71,6 +82,7 @@ _RETRYABLE_DB_EXCEPTIONS = (
     InvalidCachedStatementError,
     InFailedSQLTransactionError,
 )
+TABLE_NUMERIC_TYPES = {SqlType.INTEGER.value, SqlType.NUMERIC.value}
 
 
 class BaseTablesService(BaseWorkspaceService):
@@ -1076,6 +1088,241 @@ class BaseTablesService(BaseWorkspaceService):
                 )
                 raise
 
+    @staticmethod
+    def _normalize_aggregation_value(value: Any) -> SearchAggregationValue:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int | float | str):
+            return value
+        if isinstance(value, decimal.Decimal):
+            exponent = value.as_tuple().exponent
+            if isinstance(exponent, int) and exponent >= 0:
+                return int(value)
+            return float(value)
+        normalized_enum = getattr(value, "value", None)
+        if isinstance(normalized_enum, str):
+            return normalized_enum
+        return str(value)
+
+    @staticmethod
+    def _requires_numeric_agg_field(agg: SearchAggFunction) -> bool:
+        return agg in {
+            SearchAggFunction.SUM,
+            SearchAggFunction.MEAN,
+            SearchAggFunction.MEDIAN,
+        }
+
+    def _build_table_agg_expression(
+        self,
+        *,
+        agg: SearchAggFunction,
+        value_expr: Any | None,
+    ) -> Any:
+        if agg is SearchAggFunction.COUNT:
+            return func.count()
+        if value_expr is None:
+            raise SearchRequestValidationError(
+                code="missing_agg_field",
+                field="agg_field",
+                message=f"Aggregation '{agg.value}' requires agg_field.",
+            )
+        if agg is SearchAggFunction.SUM:
+            return func.sum(value_expr)
+        if agg is SearchAggFunction.MIN:
+            return func.min(value_expr)
+        if agg is SearchAggFunction.MAX:
+            return func.max(value_expr)
+        if agg is SearchAggFunction.MEAN:
+            return func.avg(value_expr)
+        if agg is SearchAggFunction.MEDIAN:
+            return func.percentile_cont(0.5).within_group(value_expr)
+        if agg is SearchAggFunction.N_UNIQUE:
+            return func.count(sa.distinct(value_expr))
+        raise SearchRequestValidationError(
+            code="invalid_aggregation",
+            field="agg",
+            message=f"Unsupported aggregation function: {agg.value!r}.",
+            value=agg.value,
+        )
+
+    async def _compute_table_scalar_aggregation(
+        self,
+        *,
+        table_clause: Any,
+        where_conditions: list[Any],
+        agg: SearchAggFunction,
+        agg_field_expr: Any | None,
+        agg_field_name: str | None,
+        numeric_columns: set[str],
+    ) -> SearchAggregationValue:
+        if agg is SearchAggFunction.COUNT:
+            count_stmt = select(func.count()).select_from(table_clause)
+            if where_conditions:
+                count_stmt = count_stmt.where(sa.and_(*where_conditions))
+            count_result = await self.session.scalar(count_stmt)
+            return int(count_result or 0)
+
+        if agg_field_expr is None or agg_field_name is None:
+            raise SearchRequestValidationError(
+                code="missing_agg_field",
+                field="agg_field",
+                message=f"Aggregation '{agg.value}' requires agg_field.",
+            )
+        if (
+            self._requires_numeric_agg_field(agg)
+            and agg_field_name not in numeric_columns
+        ):
+            raise SearchRequestValidationError(
+                code="invalid_agg_field_type",
+                field="agg_field",
+                message=f"Aggregation '{agg.value}' requires a numeric agg_field.",
+                value=agg_field_name,
+            )
+
+        if agg is SearchAggFunction.MODE:
+            mode_stmt = (
+                select(
+                    agg_field_expr.label("value"),
+                    func.count().label("frequency"),
+                )
+                .select_from(table_clause)
+                .where(agg_field_expr.is_not(None))
+                .group_by(agg_field_expr)
+                .order_by(func.count().desc(), agg_field_expr.asc())
+                .limit(1)
+            )
+            if where_conditions:
+                mode_stmt = mode_stmt.where(sa.and_(*where_conditions))
+            mode_row = (await self.session.execute(mode_stmt)).first()
+            return (
+                self._normalize_aggregation_value(mode_row.value) if mode_row else None
+            )
+
+        agg_expr = self._build_table_agg_expression(agg=agg, value_expr=agg_field_expr)
+        agg_stmt = select(agg_expr.label("value")).select_from(table_clause)
+        if where_conditions:
+            agg_stmt = agg_stmt.where(sa.and_(*where_conditions))
+        row = (await self.session.execute(agg_stmt)).one()
+        return self._normalize_aggregation_value(row.value)
+
+    async def _compute_table_grouped_aggregation(
+        self,
+        *,
+        table_clause: Any,
+        where_conditions: list[Any],
+        agg: SearchAggFunction,
+        agg_field_expr: Any | None,
+        agg_field_name: str | None,
+        group_by: list[str],
+        bucket_limit: int,
+        numeric_columns: set[str],
+    ) -> tuple[list[SearchAggregationBucket], bool]:
+        if not group_by:
+            return [], False
+
+        group_labels = [f"group_key_{idx}" for idx in range(len(group_by))]
+        group_columns = [
+            sa.column(self._sanitize_identifier(column_name)).label(label)
+            for column_name, label in zip(group_by, group_labels, strict=True)
+        ]
+
+        if agg is SearchAggFunction.MODE:
+            if agg_field_expr is None or agg_field_name is None:
+                raise SearchRequestValidationError(
+                    code="missing_agg_field",
+                    field="agg_field",
+                    message=f"Aggregation '{agg.value}' requires agg_field.",
+                )
+            mode_counts = (
+                select(
+                    *group_columns,
+                    agg_field_expr.label("mode_value"),
+                    func.count().label("frequency"),
+                )
+                .select_from(table_clause)
+                .where(agg_field_expr.is_not(None))
+                .group_by(*group_columns, agg_field_expr)
+            )
+            if where_conditions:
+                mode_counts = mode_counts.where(sa.and_(*where_conditions))
+            mode_counts_subquery = mode_counts.subquery("mode_counts")
+            partition_by = [mode_counts_subquery.c[label] for label in group_labels]
+            ranked_modes = select(
+                *partition_by,
+                mode_counts_subquery.c.mode_value.label("value"),
+                sa.func.row_number()
+                .over(
+                    partition_by=partition_by,
+                    order_by=(
+                        mode_counts_subquery.c.frequency.desc(),
+                        mode_counts_subquery.c.mode_value.asc(),
+                    ),
+                )
+                .label("mode_rank"),
+            ).subquery("ranked_modes")
+            grouped_stmt = (
+                select(
+                    *[ranked_modes.c[label] for label in group_labels],
+                    ranked_modes.c.value.label("value"),
+                )
+                .where(ranked_modes.c.mode_rank == 1)
+                .order_by(sa.desc(ranked_modes.c.value).nulls_last())
+            )
+        else:
+            if agg is not SearchAggFunction.COUNT and (
+                agg_field_expr is None or agg_field_name is None
+            ):
+                raise SearchRequestValidationError(
+                    code="missing_agg_field",
+                    field="agg_field",
+                    message=f"Aggregation '{agg.value}' requires agg_field.",
+                )
+            if (
+                agg_field_name is not None
+                and self._requires_numeric_agg_field(agg)
+                and agg_field_name not in numeric_columns
+            ):
+                raise SearchRequestValidationError(
+                    code="invalid_agg_field_type",
+                    field="agg_field",
+                    message=f"Aggregation '{agg.value}' requires a numeric agg_field.",
+                    value=agg_field_name,
+                )
+            grouped_value_expr = self._build_table_agg_expression(
+                agg=agg,
+                value_expr=agg_field_expr,
+            )
+            grouped_stmt = (
+                select(*group_columns, grouped_value_expr.label("value"))
+                .select_from(table_clause)
+                .group_by(*group_columns)
+                .order_by(sa.desc(sa.column("value")).nulls_last())
+            )
+            if where_conditions:
+                grouped_stmt = grouped_stmt.where(sa.and_(*where_conditions))
+
+        grouped_stmt = grouped_stmt.limit(bucket_limit + 1)
+        rows = (await self.session.execute(grouped_stmt)).all()
+        truncated = len(rows) > bucket_limit
+        rows = rows[:bucket_limit]
+
+        buckets: list[SearchAggregationBucket] = []
+        for row in rows:
+            row_data = row._mapping
+            key = {
+                column_name: self._normalize_aggregation_value(row_data[label])
+                for column_name, label in zip(group_by, group_labels, strict=True)
+            }
+            buckets.append(
+                SearchAggregationBucket(
+                    key=key,
+                    value=self._normalize_aggregation_value(row_data["value"]),
+                )
+            )
+        return buckets, truncated
+
     async def search_rows(
         self,
         table: Table,
@@ -1090,7 +1337,11 @@ class BaseTablesService(BaseWorkspaceService):
         reverse: bool = False,
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
-    ) -> CursorPaginatedResponse[dict[str, Any]]:
+        group_by: list[str] | None = None,
+        agg: str | SearchAggFunction | None = None,
+        agg_field: str | None = None,
+        bucket_limit: int = 100,
+    ) -> TableSearchResponse:
         """Search rows in a table using cursor-based pagination."""
         page_limit = (
             limit if limit is not None else config.TRACECAT__LIMIT_TABLE_SEARCH_DEFAULT
@@ -1110,6 +1361,10 @@ class BaseTablesService(BaseWorkspaceService):
             updated_after=updated_after,
             order_by=order_by,
             sort=sort,
+            group_by=group_by,
+            agg=agg,
+            agg_field=agg_field,
+            bucket_limit=bucket_limit,
         )
 
     async def list_rows(
@@ -1123,7 +1378,11 @@ class BaseTablesService(BaseWorkspaceService):
         updated_after: datetime | None = None,
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
-    ) -> CursorPaginatedResponse[dict[str, Any]]:
+        group_by: list[str] | None = None,
+        agg: str | SearchAggFunction | None = None,
+        agg_field: str | None = None,
+        bucket_limit: int = 100,
+    ) -> TableSearchResponse:
         """List rows in a table with cursor-based pagination.
 
         Args:
@@ -1147,11 +1406,10 @@ class BaseTablesService(BaseWorkspaceService):
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
         conn = await self.session.connection()
+        table_clause = sa.table(sanitized_table_name, schema=schema_name)
 
         # Build the base query
-        stmt = sa.select(sa.text("*")).select_from(
-            sa.table(sanitized_table_name, schema=schema_name)
-        )
+        stmt = sa.select(sa.text("*")).select_from(table_clause)
 
         # Build WHERE conditions
         where_conditions = []
@@ -1230,12 +1488,85 @@ class BaseTablesService(BaseWorkspaceService):
         sort_direction = sort or "desc"
 
         # Validate the sort column exists in the table
-        valid_columns = {col.name for col in table.columns}
-        valid_columns.update(["id", "created_at", "updated_at"])  # Always available
+        valid_columns = {col.name: col.type for col in table.columns}
+        # System columns exist on every workspace table
+        valid_columns.update(
+            {
+                "id": SqlType.UUID.value,
+                "created_at": SqlType.TIMESTAMPTZ.value,
+                "updated_at": SqlType.TIMESTAMPTZ.value,
+            }
+        )
         if sort_column not in valid_columns:
             raise ValueError(f"Invalid order_by column: {sort_column}")
 
         sort_col = sa.column(self._sanitize_identifier(sort_column))
+        if bucket_limit < 1 or bucket_limit > MAX_BUCKET_LIMIT:
+            raise SearchRequestValidationError(
+                code="invalid_bucket_limit",
+                field="bucket_limit",
+                message=f"bucket_limit must be between 1 and {MAX_BUCKET_LIMIT}.",
+                value=bucket_limit,
+            )
+        normalized_agg = normalize_agg_function(agg)
+        has_group_by = bool(group_by)
+        if normalized_agg is None and (has_group_by or agg_field is not None):
+            raise SearchRequestValidationError(
+                code="missing_aggregation",
+                field="agg",
+                message="agg is required when group_by or agg_field is provided.",
+            )
+
+        validated_group_by = list(dict.fromkeys(group_by or []))
+        if validated_group_by:
+            invalid_group_by = [
+                column_name
+                for column_name in validated_group_by
+                if column_name not in valid_columns
+            ]
+            if invalid_group_by:
+                raise SearchRequestValidationError(
+                    code="invalid_group_by",
+                    field="group_by",
+                    message="group_by must reference existing table columns.",
+                    detail={"invalid_columns": invalid_group_by},
+                )
+
+        agg_field_expr: Any | None = None
+        if agg_field is not None:
+            if agg_field not in valid_columns:
+                raise SearchRequestValidationError(
+                    code="invalid_agg_field",
+                    field="agg_field",
+                    message="agg_field must reference an existing table column.",
+                    value=agg_field,
+                )
+            agg_field_expr = sa.column(self._sanitize_identifier(agg_field))
+
+        if normalized_agg is SearchAggFunction.COUNT and agg_field is not None:
+            raise SearchRequestValidationError(
+                code="invalid_agg_field",
+                field="agg_field",
+                message="agg_field is not used with count aggregation.",
+                value=agg_field,
+            )
+
+        if (
+            normalized_agg is not None
+            and normalized_agg is not SearchAggFunction.COUNT
+            and agg_field is None
+        ):
+            raise SearchRequestValidationError(
+                code="missing_agg_field",
+                field="agg_field",
+                message=f"Aggregation '{normalized_agg.value}' requires agg_field.",
+            )
+
+        numeric_columns = {
+            name
+            for name, column_type in valid_columns.items()
+            if column_type in TABLE_NUMERIC_TYPES
+        }
 
         # Apply cursor-based pagination with sort-column-aware filtering
         if params.cursor:
@@ -1379,12 +1710,43 @@ class BaseTablesService(BaseWorkspaceService):
             next_cursor, prev_cursor = prev_cursor, next_cursor
             has_more, has_previous = has_previous, has_more
 
-        return CursorPaginatedResponse(
+        aggregation: SearchAggregationResult | None = None
+        if normalized_agg is not None:
+            scalar_value = await self._compute_table_scalar_aggregation(
+                table_clause=table_clause,
+                where_conditions=where_conditions,
+                agg=normalized_agg,
+                agg_field_expr=agg_field_expr,
+                agg_field_name=agg_field,
+                numeric_columns=numeric_columns,
+            )
+            buckets, truncated = await self._compute_table_grouped_aggregation(
+                table_clause=table_clause,
+                where_conditions=where_conditions,
+                agg=normalized_agg,
+                agg_field_expr=agg_field_expr,
+                agg_field_name=agg_field,
+                group_by=validated_group_by,
+                bucket_limit=bucket_limit,
+                numeric_columns=numeric_columns,
+            )
+            aggregation = SearchAggregationResult(
+                agg=normalized_agg,
+                agg_field=agg_field,
+                group_by=validated_group_by,
+                value=scalar_value,
+                buckets=buckets,
+                bucket_limit=bucket_limit,
+                truncated=truncated,
+            )
+
+        return TableSearchResponse(
             items=rows,
             next_cursor=next_cursor,
             prev_cursor=prev_cursor,
             has_more=has_more,
             has_previous=has_previous,
+            aggregation=aggregation,
         )
 
     async def batch_insert_rows(

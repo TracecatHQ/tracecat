@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -20,7 +19,8 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.expressions.functions import tabulate
 from tracecat.logger import logger
-from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
+from tracecat.pagination import CursorPaginationParams
+from tracecat.search.schemas import SearchRequestValidationError
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
@@ -30,6 +30,8 @@ from tracecat.tables.schemas import (
     TableRead,
     TableRowInsert,
     TableRowInsertBatch,
+    TableSearchRequest,
+    TableSearchResponse,
 )
 from tracecat.tables.service import TablesService
 
@@ -57,21 +59,6 @@ class TableLookupRequest(BaseModel):
 class TableExistsRequest(BaseModel):
     columns: list[str]
     values: list[Any]
-
-
-class TableSearchRequest(BaseModel):
-    search_term: str | None = None
-    start_time: datetime | None = None
-    end_time: datetime | None = None
-    updated_before: datetime | None = None
-    updated_after: datetime | None = None
-    cursor: str | None = None
-    reverse: bool = False
-    limit: int = Field(
-        default=config.TRACECAT__LIMIT_TABLE_SEARCH_DEFAULT,
-        ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CURSOR_MAX,
-    )
 
 
 class TableRowUpdate(BaseModel):
@@ -245,7 +232,7 @@ async def search_rows(
     session: AsyncDBSession,
     table_name: str,
     params: TableSearchRequest,
-) -> CursorPaginatedResponse[dict[str, Any]]:
+) -> TableSearchResponse:
     """Search rows in a table with optional filters."""
     service = TablesService(session, role=role)
     try:
@@ -269,7 +256,16 @@ async def search_rows(
             end_time=coerce_optional_to_utc_datetime(params.end_time),
             updated_before=coerce_optional_to_utc_datetime(params.updated_before),
             updated_after=coerce_optional_to_utc_datetime(params.updated_after),
+            group_by=params.group_by,
+            agg=params.agg,
+            agg_field=params.agg_field,
+            bucket_limit=params.bucket_limit,
         )
+    except SearchRequestValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.detail,
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

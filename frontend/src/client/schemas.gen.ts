@@ -5332,19 +5332,340 @@ export const $CaseReadMinimal = {
   title: "CaseReadMinimal",
 } as const
 
-export const $CaseSearchAggregateRead = {
+export const $CaseSearchRequest = {
   properties: {
-    total: {
+    limit: {
       type: "integer",
-      title: "Total",
+      maximum: 200,
+      minimum: 1,
+      title: "Limit",
+      default: 20,
     },
-    status_groups: {
-      $ref: "#/components/schemas/CaseStatusGroupCounts",
+    cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Cursor",
+    },
+    reverse: {
+      type: "boolean",
+      title: "Reverse",
+      default: false,
+    },
+    search_term: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Term",
+    },
+    short_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Short Id",
+    },
+    status: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseStatus",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Status",
+    },
+    priority: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CasePriority",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Priority",
+    },
+    severity: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseSeverity",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Severity",
+    },
+    tags: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    dropdown: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Dropdown",
+    },
+    start_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Time",
+    },
+    end_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Time",
+    },
+    updated_after: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated After",
+    },
+    updated_before: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated Before",
+    },
+    assignee_id: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+    },
+    order_by: {
+      anyOf: [
+        {
+          type: "string",
+          enum: [
+            "created_at",
+            "updated_at",
+            "priority",
+            "severity",
+            "status",
+            "tasks",
+          ],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Order By",
+    },
+    sort: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["asc", "desc"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Sort",
+    },
+    include_rows: {
+      type: "boolean",
+      title: "Include Rows",
+      default: false,
+    },
+    group_by: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Group By",
+    },
+    agg: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agg",
+    },
+    agg_field: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agg Field",
+    },
+    bucket_limit: {
+      type: "integer",
+      maximum: 1000,
+      minimum: 1,
+      title: "Bucket Limit",
+      default: 100,
     },
   },
   type: "object",
-  required: ["total", "status_groups"],
-  title: "CaseSearchAggregateRead",
+  title: "CaseSearchRequest",
+} as const
+
+export const $CaseSearchResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/CaseReadMinimal",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+    aggregation: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SearchAggregationResult",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CaseSearchResponse",
 } as const
 
 export const $CaseSeverity = {
@@ -5386,38 +5707,6 @@ export const $CaseStatus = {
   ],
   title: "CaseStatus",
   description: "Case status values aligned with OCSF Incident Finding status.",
-} as const
-
-export const $CaseStatusGroupCounts = {
-  properties: {
-    new: {
-      type: "integer",
-      title: "New",
-      default: 0,
-    },
-    in_progress: {
-      type: "integer",
-      title: "In Progress",
-      default: 0,
-    },
-    on_hold: {
-      type: "integer",
-      title: "On Hold",
-      default: 0,
-    },
-    resolved: {
-      type: "integer",
-      title: "Resolved",
-      default: 0,
-    },
-    other: {
-      type: "integer",
-      title: "Other",
-      default: 0,
-    },
-  },
-  type: "object",
-  title: "CaseStatusGroupCounts",
 } as const
 
 export const $CaseTableRowInsertCreate = {
@@ -15451,6 +15740,97 @@ export const $ScopeSource = {
   enum: ["platform", "custom"],
   title: "ScopeSource",
   description: "Source/ownership of a scope definition.",
+} as const
+
+export const $SearchAggFunction = {
+  type: "string",
+  enum: ["count", "sum", "min", "max", "mean", "median", "mode", "n_unique"],
+  title: "SearchAggFunction",
+} as const
+
+export const $SearchAggregationBucket = {
+  properties: {
+    key: {
+      additionalProperties: true,
+      type: "object",
+      title: "Key",
+    },
+    value: {
+      $ref: "#/components/schemas/SearchAggregationValue",
+    },
+  },
+  type: "object",
+  required: ["key", "value"],
+  title: "SearchAggregationBucket",
+} as const
+
+export const $SearchAggregationResult = {
+  properties: {
+    agg: {
+      $ref: "#/components/schemas/SearchAggFunction",
+    },
+    agg_field: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agg Field",
+    },
+    group_by: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Group By",
+    },
+    value: {
+      $ref: "#/components/schemas/SearchAggregationValue",
+    },
+    buckets: {
+      items: {
+        $ref: "#/components/schemas/SearchAggregationBucket",
+      },
+      type: "array",
+      title: "Buckets",
+    },
+    bucket_limit: {
+      type: "integer",
+      title: "Bucket Limit",
+      default: 100,
+    },
+    truncated: {
+      type: "boolean",
+      title: "Truncated",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["agg", "value"],
+  title: "SearchAggregationResult",
+} as const
+
+export const $SearchAggregationValue = {
+  anyOf: [
+    {
+      type: "integer",
+    },
+    {
+      type: "number",
+    },
+    {
+      type: "string",
+    },
+    {
+      type: "boolean",
+    },
+    {
+      type: "null",
+    },
+  ],
 } as const
 
 export const $SecretCreate = {

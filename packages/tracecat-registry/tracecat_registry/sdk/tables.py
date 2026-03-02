@@ -109,6 +109,10 @@ class TablesClient:
         cursor: str | Unset = UNSET,
         reverse: bool | Unset = UNSET,
         limit: int | Unset = UNSET,
+        group_by: list[str] | Unset = UNSET,
+        agg: str | Unset = UNSET,
+        agg_field: str | Unset = UNSET,
+        bucket_limit: int | Unset = UNSET,
     ) -> types.TableSearchResponse | list[dict[str, Any]]:
         """Search rows with optional filters."""
         data: dict[str, Any] = {}
@@ -142,6 +146,14 @@ class TablesClient:
             data["reverse"] = reverse
         if is_set(limit):
             data["limit"] = limit
+        if is_set(group_by):
+            data["group_by"] = group_by
+        if is_set(agg):
+            data["agg"] = agg
+        if is_set(agg_field):
+            data["agg_field"] = agg_field
+        if is_set(bucket_limit):
+            data["bucket_limit"] = bucket_limit
         response = await self._client.post(f"/tables/{table}/search", json=data)
         if isinstance(response, list):
             return cast(list[dict[str, Any]], response)

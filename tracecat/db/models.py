@@ -1670,6 +1670,7 @@ class CaseTagLink(Base):
     """Link table for cases and case tags."""
 
     __tablename__ = "case_tag_link"
+    __table_args__ = (Index("ix_case_tag_link_tag_case", "tag_id", "case_id"),)
 
     case_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -1810,6 +1811,12 @@ class CaseDropdownValue(Base):
             "case_id",
             "definition_id",
             name="uq_case_dropdown_value_case_definition",
+        ),
+        Index(
+            "ix_case_dropdown_value_definition_option_case",
+            "definition_id",
+            "option_id",
+            "case_id",
         ),
     )
 

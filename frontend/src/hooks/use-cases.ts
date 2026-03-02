@@ -6,13 +6,11 @@ import type { DateRange } from "react-day-picker"
 import {
   type CasePriority,
   type CaseReadMinimal,
-  type CaseSearchAggregateRead,
   type CaseSeverity,
   type CaseStatus,
-  type CasesSearchCaseAggregatesResponse,
   type CasesSearchCasesResponse,
-  casesSearchCaseAggregates,
   casesSearchCases,
+  type SearchAggregationResult,
 } from "@/client"
 import {
   type CaseSortValue,
@@ -52,7 +50,15 @@ const ALL_CASE_SEVERITIES: ReadonlyArray<CaseSeverity> = [
   "fatal",
   "other",
 ]
-const EMPTY_STAGE_COUNTS: CaseSearchAggregateRead["status_groups"] = {
+export interface CaseStageCounts {
+  new: number
+  in_progress: number
+  on_hold: number
+  resolved: number
+  other: number
+}
+
+const EMPTY_STAGE_COUNTS: CaseStageCounts = {
   new: 0,
   in_progress: 0,
   on_hold: 0,
@@ -129,7 +135,7 @@ export interface UseCasesResult {
   setUpdatedAfter: (value: CaseDateFilterValue) => void
   setCreatedAfter: (value: CaseDateFilterValue) => void
   totalFilteredCaseEstimate: number | null
-  stageCounts: CaseSearchAggregateRead["status_groups"] | null
+  stageCounts: CaseStageCounts | null
   isCountsLoading: boolean
   isCountsFetching: boolean
   hasNextPage: boolean
@@ -206,6 +212,45 @@ function resolveEnumIncludeFilter<T extends string>(
     return { values: undefined, matchesNone: true }
   }
   return { values: complement, matchesNone: false }
+}
+
+function deriveStageCounts(
+  aggregation: SearchAggregationResult | null | undefined
+): CaseStageCounts | null {
+  if (!aggregation) {
+    return null
+  }
+  const counts: CaseStageCounts = { ...EMPTY_STAGE_COUNTS }
+  const buckets = aggregation.buckets ?? []
+  for (const bucket of buckets) {
+    const rawStatus = bucket.key["status"]
+    const value = typeof bucket.value === "number" ? bucket.value : 0
+    if (typeof rawStatus !== "string") {
+      continue
+    }
+    if (rawStatus === "new") {
+      counts.new += value
+      continue
+    }
+    if (rawStatus === "in_progress") {
+      counts.in_progress += value
+      continue
+    }
+    if (rawStatus === "on_hold") {
+      counts.on_hold += value
+      continue
+    }
+    // Stage mapping: UI "Resolved" includes both resolved + closed statuses.
+    if (rawStatus === "resolved" || rawStatus === "closed") {
+      counts.resolved += value
+      continue
+    }
+    // Stage mapping: UI "Other" includes both other + unknown statuses.
+    if (rawStatus === "other" || rawStatus === "unknown") {
+      counts.other += value
+    }
+  }
+  return counts
 }
 
 export function useCases(options: UseCasesOptions = {}): UseCasesResult {
@@ -366,23 +411,23 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
     return {
       apiQueryParams: {
-        searchTerm: normalizedSearch.length > 0 ? normalizedSearch : undefined,
+        search_term: normalizedSearch.length > 0 ? normalizedSearch : undefined,
         status: resolvedStatus.values,
         priority: resolvedPriority.values,
         severity: resolvedSeverity.values,
-        assigneeId:
+        assignee_id:
           assigneeFilter.length > 0 && assigneeMode === "include"
             ? assigneeFilter
             : undefined,
         tags:
           tagFilter.length > 0 && tagMode === "include" ? tagFilter : undefined,
         dropdown: dropdownIncludes.length > 0 ? dropdownIncludes : undefined,
-        startTime: createdBounds.start?.toISOString(),
-        endTime: createdBounds.end
+        start_time: createdBounds.start?.toISOString(),
+        end_time: createdBounds.end
           ? toEndOfDay(createdBounds.end).toISOString()
           : undefined,
-        updatedAfter: updatedBounds.start?.toISOString(),
-        updatedBefore: updatedBounds.end
+        updated_after: updatedBounds.start?.toISOString(),
+        updated_before: updatedBounds.end
           ? toEndOfDay(updatedBounds.end).toISOString()
           : undefined,
       },
@@ -465,11 +510,13 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     queryFn: ({ pageParam }) =>
       casesSearchCases({
         workspaceId,
-        ...apiQueryParams,
-        orderBy: serverSortParams.orderBy,
-        sort: serverSortParams.sort,
-        limit: CASES_PAGE_SIZE,
-        cursor: (pageParam as string | null) ?? undefined,
+        requestBody: {
+          ...apiQueryParams,
+          order_by: serverSortParams.orderBy,
+          sort: serverSortParams.sort,
+          limit: CASES_PAGE_SIZE,
+          cursor: (pageParam as string | null) ?? undefined,
+        },
       }),
     enabled: enabled && Boolean(workspaceId) && !hasImpossibleEnumFilter,
     initialPageParam: null,
@@ -490,12 +537,18 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     isLoading: isCountsLoading,
     isFetching: isCountsFetching,
     refetch: refetchCounts,
-  } = useQuery<CasesSearchCaseAggregatesResponse, TracecatApiError>({
+  } = useQuery<CasesSearchCasesResponse, TracecatApiError>({
     queryKey: ["cases", "aggregate", workspaceId, filtersKey],
     queryFn: () =>
-      casesSearchCaseAggregates({
+      casesSearchCases({
         workspaceId,
-        ...apiQueryParams,
+        requestBody: {
+          ...apiQueryParams,
+          limit: 1,
+          agg: "count",
+          group_by: ["status"],
+          bucket_limit: 1000,
+        },
       }),
     enabled: enabled && Boolean(workspaceId) && !hasImpossibleEnumFilter,
     retry: retryHandler,
@@ -548,9 +601,12 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
   const cases = hasImpossibleEnumFilter ? [] : sortedCases
 
+  const aggregateTotal = aggregateData?.aggregation?.value
   const totalFilteredCaseEstimate = hasImpossibleEnumFilter
     ? 0
-    : (aggregateData?.total ?? rowsData?.pages[0]?.total_estimate ?? null)
+    : typeof aggregateTotal === "number"
+      ? aggregateTotal
+      : (rowsData?.pages[0]?.total_estimate ?? null)
 
   const refetch = useCallback(() => {
     void refetchRows()
@@ -614,7 +670,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     totalFilteredCaseEstimate,
     stageCounts: hasImpossibleEnumFilter
       ? EMPTY_STAGE_COUNTS
-      : (aggregateData?.status_groups ?? null),
+      : deriveStageCounts(aggregateData?.aggregation),
     isCountsLoading: hasImpossibleEnumFilter ? false : isCountsLoading,
     isCountsFetching: hasImpossibleEnumFilter ? false : isCountsFetching,
     hasNextPage: hasImpossibleEnumFilter ? false : Boolean(hasNextPage),
