@@ -76,12 +76,12 @@ async def test_registry_repository_scope_guards(
 @pytest.mark.parametrize(
     ("endpoint", "required_scope"),
     [
-        (agent_preset_router.list_agent_presets, "agent:read"),
-        (agent_preset_router.get_agent_preset, "agent:read"),
-        (agent_preset_router.get_agent_preset_by_slug, "agent:read"),
+        (agent_preset_router.list_agent_presets, "agent:preset:*:read"),
+        (agent_preset_router.get_agent_preset, "agent:preset:*:read"),
+        (agent_preset_router.get_agent_preset_by_slug, "agent:preset:*:read"),
         (agent_preset_router.create_agent_preset, "agent:create"),
-        (agent_preset_router.update_agent_preset, "agent:update"),
-        (agent_preset_router.delete_agent_preset, "agent:delete"),
+        (agent_preset_router.update_agent_preset, "agent:preset:*:update"),
+        (agent_preset_router.delete_agent_preset, "agent:preset:*:delete"),
     ],
 )
 async def test_agent_preset_scope_guards(

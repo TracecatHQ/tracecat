@@ -281,6 +281,7 @@ export type AgentPresetCreate = {
   mcp_integrations?: Array<string> | null
   retries?: number
   enable_internet_access?: boolean
+  assigned_role_id?: string | null
   name: string
   slug?: string | null
 }
@@ -303,10 +304,12 @@ export type AgentPresetRead = {
   mcp_integrations?: Array<string> | null
   retries?: number
   enable_internet_access?: boolean
+  assigned_role_id?: string | null
   id: string
   workspace_id: string
   name: string
   slug: string
+  is_system?: boolean
   created_at: string
   updated_at: string
 }
@@ -320,6 +323,7 @@ export type AgentPresetReadMinimal = {
   name: string
   slug: string
   description: string | null
+  is_system?: boolean
   created_at: string
   updated_at: string
 }
@@ -344,6 +348,7 @@ export type AgentPresetUpdate = {
   mcp_integrations?: Array<string> | null
   retries?: number | null
   enable_internet_access?: boolean | null
+  assigned_role_id?: string | null
 }
 
 /**

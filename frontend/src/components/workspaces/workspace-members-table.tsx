@@ -5,11 +5,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { WorkspaceMember, WorkspaceRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import {
-  DataTable,
-  DataTableColumnHeader,
-  type DataTableToolbarProps,
-} from "@/components/data-table"
+import { DataTable, DataTableColumnHeader } from "@/components/data-table"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,6 +17,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -45,11 +42,27 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { useUpdateAgentPreset } from "@/hooks/use-agent-presets"
 import {
   useWorkspaceMembers,
   useWorkspaceMutations,
 } from "@/hooks/use-workspace"
 import { useRbacRoles, useRbacUserAssignments } from "@/lib/hooks"
+import { useScopes } from "@/providers/scopes"
+
+const AGENT_PRESET_EMAIL_SUFFIX = "@agent-presets.example.com"
+const DEFAULT_PRESET_ROLE_VALUE = "__default_preset_role__"
+
+function isAgentPresetMember(member: WorkspaceMember): boolean {
+  return member.email.endsWith(AGENT_PRESET_EMAIL_SUFFIX)
+}
+
+function getAgentPresetSlug(member: WorkspaceMember): string | null {
+  if (!isAgentPresetMember(member)) {
+    return null
+  }
+  return member.email.slice(0, -AGENT_PRESET_EMAIL_SUFFIX.length) || null
+}
 
 export function WorkspaceMembersTable({
   workspace,
@@ -57,14 +70,19 @@ export function WorkspaceMembersTable({
   workspace: WorkspaceRead
 }) {
   const queryClient = useQueryClient()
+  const { hasScope } = useScopes()
   const canUpdateMembers = useScopeCheck("workspace:member:update")
+  const canUpdateAnyAgentPreset = useScopeCheck("agent:preset:*:update")
   const canRemoveMembers = useScopeCheck("workspace:member:remove")
   const [selectedUser, setSelectedUser] = useState<WorkspaceMember | null>(null)
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
   const { removeMember } = useWorkspaceMutations()
+  const { updateAgentPreset, updateAgentPresetIsPending } =
+    useUpdateAgentPreset(workspace.id)
   const { members, membersLoading, membersError } = useWorkspaceMembers(
     workspace.id
   )
+  const memberRows = members ?? []
   const {
     userAssignments,
     isLoading: userAssignmentsIsLoading,
@@ -86,40 +104,56 @@ export function WorkspaceMembersTable({
             description: "Please select a user to change role",
           })
         }
-        if (!roleId) {
+        const selectedIsAgentPreset = isAgentPresetMember(selectedUser)
+        if (!selectedIsAgentPreset && !roleId) {
           return toast({
             title: "No role selected",
             description: "Please select a role before continuing.",
           })
         }
-        if (userAssignmentsIsLoading) {
+        if (!selectedIsAgentPreset && userAssignmentsIsLoading) {
           return toast({
             title: "Role data is loading",
             description: "Wait a moment and try changing the role again.",
           })
         }
-        // Find the existing RBAC assignment for this user in this workspace
-        const existingAssignment = userAssignments?.find(
-          (a) =>
-            a.user_id === selectedUser.user_id &&
-            a.workspace_id === workspace.id
-        )
-        if (existingAssignment) {
-          await updateUserAssignment({
-            assignmentId: existingAssignment.id,
-            role_id: roleId,
+        if (selectedIsAgentPreset) {
+          await updateAgentPreset({
+            presetId: selectedUser.user_id,
+            assigned_role_id:
+              roleId === DEFAULT_PRESET_ROLE_VALUE || roleId === ""
+                ? null
+                : roleId,
           })
         } else {
-          // No existing assignment — create one
-          await createUserAssignment({
-            user_id: selectedUser.user_id,
-            role_id: roleId,
-            workspace_id: workspace.id,
-          })
+          // Find the existing RBAC assignment for this user in this workspace
+          const existingAssignment = userAssignments?.find(
+            (a) =>
+              a.user_id === selectedUser.user_id &&
+              a.workspace_id === workspace.id
+          )
+          if (existingAssignment) {
+            await updateUserAssignment({
+              assignmentId: existingAssignment.id,
+              role_id: roleId,
+            })
+          } else {
+            // No existing assignment - create one
+            await createUserAssignment({
+              user_id: selectedUser.user_id,
+              role_id: roleId,
+              workspace_id: workspace.id,
+            })
+          }
         }
-        await queryClient.invalidateQueries({
-          queryKey: ["workspace", workspace.id, "members"],
-        })
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ["workspace", workspace.id, "members"],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ["org-members"],
+          }),
+        ])
       } catch (error) {
         console.log("Failed to change role", error)
       } finally {
@@ -135,11 +169,31 @@ export function WorkspaceMembersTable({
       createUserAssignment,
       userAssignmentsIsLoading,
       queryClient,
+      updateAgentPreset,
     ]
   )
 
   const isRoleMutationPending =
-    updateUserAssignmentIsPending || createUserAssignmentIsPending
+    updateUserAssignmentIsPending ||
+    createUserAssignmentIsPending ||
+    updateAgentPresetIsPending
+
+  const canUpdateAgentPresetMember = useCallback(
+    (member: WorkspaceMember): boolean => {
+      if (canUpdateAnyAgentPreset === true) {
+        return true
+      }
+      if (!isAgentPresetMember(member)) {
+        return false
+      }
+      const presetSlug = getAgentPresetSlug(member)
+      if (!presetSlug) {
+        return false
+      }
+      return hasScope(`agent:preset:${presetSlug}:update`)
+    },
+    [canUpdateAnyAgentPreset, hasScope]
+  )
 
   return (
     <Dialog open={isChangeRoleOpen} onOpenChange={setIsChangeRoleOpen}>
@@ -151,10 +205,29 @@ export function WorkspaceMembersTable({
         }}
       >
         <DataTable
-          data={members}
+          data={memberRows}
           isLoading={membersLoading}
           error={membersError}
           columns={[
+            {
+              id: "type",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Type"
+                />
+              ),
+              accessorFn: (row) =>
+                isAgentPresetMember(row) ? "Agent" : "Member",
+              cell: ({ row }) => (
+                <Badge variant="outline" className="text-[10px]">
+                  {isAgentPresetMember(row.original) ? "Agent" : "Member"}
+                </Badge>
+              ),
+              enableSorting: true,
+              enableHiding: false,
+            },
             {
               accessorKey: "email",
               header: ({ column }) => (
@@ -166,46 +239,38 @@ export function WorkspaceMembersTable({
               ),
               cell: ({ row }) => (
                 <div className="text-xs">
-                  {row.getValue<WorkspaceMember["email"]>("email")}
+                  {isAgentPresetMember(row.original)
+                    ? "Preset account"
+                    : row.getValue<WorkspaceMember["email"]>("email")}
                 </div>
               ),
               enableSorting: true,
               enableHiding: false,
             },
             {
-              accessorKey: "first_name",
+              id: "name",
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="First name"
+                  title="Name"
                 />
               ),
-              cell: ({ row }) => (
-                <div className="text-xs">
-                  {row.getValue<WorkspaceMember["first_name"]>("first_name") ||
-                    "-"}
-                </div>
-              ),
-              enableSorting: true,
-              enableHiding: false,
-            },
-            {
-              accessorKey: "last_name",
-              header: ({ column }) => (
-                <DataTableColumnHeader
-                  className="text-xs"
-                  column={column}
-                  title="Last name"
-                />
-              ),
-              cell: ({ row }) => (
-                <div className="text-xs">
-                  {row.getValue<WorkspaceMember["last_name"]>("last_name") ||
-                    "-"}
-                </div>
-              ),
-              enableSorting: true,
+              cell: ({ row }) => {
+                const member = row.original
+                const isAgentPreset = isAgentPresetMember(member)
+                const name = isAgentPreset
+                  ? member.last_name || "Agent preset"
+                  : [member.first_name, member.last_name]
+                      .filter(Boolean)
+                      .join(" ")
+                return (
+                  <div className="text-xs">
+                    <span>{name || "-"}</span>
+                  </div>
+                )
+              },
+              enableSorting: false,
               enableHiding: false,
             },
             {
@@ -219,7 +284,9 @@ export function WorkspaceMembersTable({
               ),
               cell: ({ row }) => (
                 <div className="text-xs capitalize">
-                  {row.getValue<string>("role_name")}
+                  {row.getValue<string>("role_name") === "Default preset role"
+                    ? ""
+                    : row.getValue<string>("role_name")}
                 </div>
               ),
               enableSorting: true,
@@ -230,6 +297,8 @@ export function WorkspaceMembersTable({
               id: "actions",
               enableHiding: false,
               cell: ({ row }) => {
+                const member = row.original
+                const isAgentPreset = isAgentPresetMember(member)
                 return (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -241,17 +310,20 @@ export function WorkspaceMembersTable({
                     <DropdownMenuContent>
                       <DropdownMenuItem
                         onClick={() =>
-                          navigator.clipboard.writeText(row.original.user_id)
+                          navigator.clipboard.writeText(member.user_id)
                         }
                       >
-                        Copy user ID
+                        {isAgentPreset
+                          ? "Copy agent preset ID"
+                          : "Copy user ID"}
                       </DropdownMenuItem>
 
-                      {canUpdateMembers && (
+                      {((isAgentPreset && canUpdateAgentPresetMember(member)) ||
+                        (!isAgentPreset && canUpdateMembers)) && (
                         <DialogTrigger asChild>
                           <DropdownMenuItem
                             onClick={() => {
-                              setSelectedUser(row.original)
+                              setSelectedUser(member)
                               setIsChangeRoleOpen(true)
                             }}
                           >
@@ -260,13 +332,13 @@ export function WorkspaceMembersTable({
                         </DialogTrigger>
                       )}
 
-                      {canRemoveMembers && (
+                      {!isAgentPreset && canRemoveMembers && (
                         <AlertDialogTrigger asChild>
                           <DropdownMenuItem
                             className="text-rose-500 focus:text-rose-600"
                             onClick={() => {
-                              setSelectedUser(row.original)
-                              console.debug("Selected user", row.original)
+                              setSelectedUser(member)
+                              console.debug("Selected user", member)
                             }}
                           >
                             Remove from workspace
@@ -279,7 +351,6 @@ export function WorkspaceMembersTable({
               },
             },
           ]}
-          toolbarProps={defaultToolbarProps}
         />
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -294,7 +365,7 @@ export function WorkspaceMembersTable({
             <AlertDialogAction
               variant="destructive"
               onClick={async () => {
-                if (selectedUser) {
+                if (selectedUser && !isAgentPresetMember(selectedUser)) {
                   console.log("Removing member", selectedUser)
                   try {
                     await removeMember(selectedUser.user_id)
@@ -323,6 +394,9 @@ export function WorkspaceMembersTable({
         open={isChangeRoleOpen}
         selectedUser={selectedUser}
         isSubmitting={isRoleMutationPending || userAssignmentsIsLoading}
+        isAgentPresetMember={
+          selectedUser ? isAgentPresetMember(selectedUser) : false
+        }
         setOpen={setIsChangeRoleOpen}
         onConfirm={handleChangeRole}
       />
@@ -334,12 +408,14 @@ function ChangeUserRoleDialog({
   open,
   selectedUser,
   isSubmitting,
+  isAgentPresetMember,
   setOpen,
   onConfirm,
 }: {
   open: boolean
   selectedUser: WorkspaceMember | null
   isSubmitting: boolean
+  isAgentPresetMember: boolean
   setOpen: (open: boolean) => void
   onConfirm: (roleId: string) => void
 }) {
@@ -350,6 +426,7 @@ function ChangeUserRoleDialog({
     () => roles.filter((r) => !r.slug || r.slug.startsWith("workspace-")),
     [roles]
   )
+  const roleOptions = useMemo(() => [...workspaceRoles], [workspaceRoles])
   const [selectedRoleId, setSelectedRoleId] = useState<string>("")
 
   useEffect(() => {
@@ -357,16 +434,37 @@ function ChangeUserRoleDialog({
       setSelectedRoleId("")
       return
     }
+    if (!isAgentPresetMember) {
+      const match = workspaceRoles.find(
+        (r) => r.name === selectedUser?.role_name
+      )
+      setSelectedRoleId(match?.id ?? "")
+      return
+    }
+    if (
+      selectedUser?.role_name === "Default preset role" ||
+      !selectedUser?.role_name
+    ) {
+      setSelectedRoleId(DEFAULT_PRESET_ROLE_VALUE)
+      return
+    }
     const match = workspaceRoles.find((r) => r.name === selectedUser?.role_name)
-    setSelectedRoleId(match?.id ?? "")
-  }, [open, selectedUser, workspaceRoles])
+    setSelectedRoleId(match?.id ?? DEFAULT_PRESET_ROLE_VALUE)
+  }, [isAgentPresetMember, open, selectedUser, workspaceRoles])
 
   return (
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>Change user role</DialogTitle>
+        <DialogTitle>
+          {isAgentPresetMember
+            ? "Change agent preset role"
+            : "Change user role"}
+        </DialogTitle>
         <DialogDescription>
-          Select a new role for {selectedUser?.email}
+          Select a new role for{" "}
+          {isAgentPresetMember
+            ? selectedUser?.last_name || "Agent preset"
+            : selectedUser?.email}
         </DialogDescription>
       </DialogHeader>
       <Select
@@ -377,7 +475,7 @@ function ChangeUserRoleDialog({
           <SelectValue placeholder="Select a role" />
         </SelectTrigger>
         <SelectContent>
-          {workspaceRoles.map((role) => (
+          {roleOptions.map((role) => (
             <SelectItem key={role.id} value={role.id}>
               {role.name}
             </SelectItem>
@@ -389,7 +487,11 @@ function ChangeUserRoleDialog({
           Cancel
         </Button>
         <Button
-          disabled={!selectedRoleId || rolesIsLoading || isSubmitting}
+          disabled={
+            (!isAgentPresetMember && !selectedRoleId) ||
+            rolesIsLoading ||
+            isSubmitting
+          }
           onClick={() => onConfirm(selectedRoleId)}
         >
           Change role
@@ -397,11 +499,4 @@ function ChangeUserRoleDialog({
       </DialogFooter>
     </DialogContent>
   )
-}
-
-const defaultToolbarProps: DataTableToolbarProps<WorkspaceMember> = {
-  filterProps: {
-    placeholder: "Filter users by email...",
-    column: "email",
-  },
 }

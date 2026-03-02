@@ -41,6 +41,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.agent.types import AgentConfig
     from tracecat.auth.types import Role
+    from tracecat.authz.controls import has_scope
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.logger import logger
@@ -265,6 +266,20 @@ class DurableAgentWorkflow:
         self._registry_lock = build_result.registry_lock
         user_mcp_claims = build_result.user_mcp_claims
         allowed_internal_tools = build_result.allowed_internal_tools
+
+        if cfg.tool_execution_scopes is not None:
+            execution_scopes = frozenset(cfg.tool_execution_scopes)
+            filtered_allowed_actions = {
+                action_name: tool_def
+                for action_name, tool_def in allowed_actions.items()
+                if has_scope(execution_scopes, f"action:{action_name}:execute")
+            }
+            logger.info(
+                "Applied preset execution role tool scope filter",
+                before_count=len(allowed_actions),
+                after_count=len(filtered_allowed_actions),
+            )
+            allowed_actions = filtered_allowed_actions
 
         logger.debug(
             "Resolved tool definitions",

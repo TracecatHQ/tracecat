@@ -38,6 +38,17 @@ function parseNamespaceValue(value: string): string | null {
   return value.slice(ACTION_SCOPE_NAMESPACE_PREFIX.length)
 }
 
+function getResourceGroupLabel(resource: string): string {
+  if (resource === "agent:preset:*") {
+    return "Agent presets (all)"
+  }
+  if (resource.startsWith("agent:preset:")) {
+    const presetSlug = resource.slice("agent:preset:".length)
+    return `Agent preset: ${presetSlug}`
+  }
+  return resource
+}
+
 export interface ScopeCategoryRowProps {
   categoryKey: string
   category: { label: string; description: string; resources: string[] }
@@ -265,7 +276,7 @@ export const ScopeCategoryRow = memo(function ScopeCategoryRow({
             ([resource, resourceScopes]) => (
               <div key={resource} className="space-y-1">
                 <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                  {resource}
+                  {getResourceGroupLabel(resource)}
                 </div>
                 <div className="flex flex-wrap gap-x-3 gap-y-1">
                   {resourceScopes.map((scope) => (

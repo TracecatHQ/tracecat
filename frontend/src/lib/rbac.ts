@@ -52,7 +52,8 @@ export const RESOURCE_CATEGORIES: Record<
   },
   agents: {
     label: "Agents",
-    description: "AI agent configuration and execution",
+    description:
+      "AI agent configuration, execution, and per-preset access controls",
     resources: ["agent"],
   },
   secrets: {
@@ -247,13 +248,33 @@ export function getCategoryPermissionLevel(
 export function groupScopesByResource(
   scopes: ScopeRead[]
 ): Record<string, ScopeRead[]> {
+  function getGroupKey(scope: ScopeRead): string {
+    if (scope.resource !== "agent:preset") {
+      return scope.resource
+    }
+
+    const sourceRef = scope.source_ref?.trim()
+    if (!sourceRef || !sourceRef.startsWith("agent_preset:")) {
+      return scope.resource
+    }
+
+    const presetSlug = sourceRef.slice("agent_preset:".length)
+    if (!presetSlug) {
+      return scope.resource
+    }
+    if (presetSlug === "wildcard") {
+      return "agent:preset:*"
+    }
+    return `agent:preset:${presetSlug}`
+  }
+
   return scopes.reduce(
     (acc, scope) => {
-      const resource = scope.resource
-      if (!acc[resource]) {
-        acc[resource] = []
+      const groupKey = getGroupKey(scope)
+      if (!acc[groupKey]) {
+        acc[groupKey] = []
       }
-      acc[resource].push(scope)
+      acc[groupKey].push(scope)
       return acc
     },
     {} as Record<string, ScopeRead[]>

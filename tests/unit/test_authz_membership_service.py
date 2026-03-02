@@ -12,6 +12,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.authz.service import MembershipService
 from tracecat.db.models import (
+    AgentPreset,
     Membership,
     Organization,
     User,
@@ -284,3 +285,84 @@ async def test_create_membership_duplicate_raises_integrity_error(
             workspace_id=workspace.id,
             params=WorkspaceMembershipCreate(user_id=member_user.id),
         )
+
+
+async def test_list_workspace_members_includes_agent_presets(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """Workspace member listing should include users and agent presets."""
+    preset_role = DBRole(
+        id=uuid.uuid4(),
+        name="Preset Runner",
+        slug="preset-runner",
+        description="Preset execution role",
+        organization_id=organization.id,
+    )
+    session.add(preset_role)
+    await session.flush()
+
+    session.add(
+        Membership(
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+        )
+    )
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+            assigned_by=actor_user.id,
+        )
+    )
+    session.add(
+        AgentPreset(
+            workspace_id=workspace.id,
+            name="General assistant",
+            slug="system-general-assistant",
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            is_system=True,
+            assigned_role_id=preset_role.id,
+        )
+    )
+    session.add(
+        AgentPreset(
+            workspace_id=workspace.id,
+            name="Research assistant",
+            slug="system-research-assistant",
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            is_system=True,
+            assigned_role_id=None,
+        )
+    )
+    await session.commit()
+
+    members = await membership_service.list_workspace_members(workspace.id)
+
+    assert len(members) == 3
+    by_email = {member.email: member for member in members}
+    assert member_user.email in by_email
+    assert by_email[member_user.email].role_name == "Workspace Editor"
+    general_preset_email = None
+    research_preset_email = None
+    for email, member in by_email.items():
+        if member.last_name == "General assistant":
+            general_preset_email = email
+        if member.last_name == "Research assistant":
+            research_preset_email = email
+    assert general_preset_email is not None
+    assert research_preset_email is not None
+    assert general_preset_email.endswith("@agent-presets.example.com")
+    assert research_preset_email.endswith("@agent-presets.example.com")
+    assert by_email[general_preset_email].role_name == "Preset Runner"
+    assert by_email[research_preset_email].role_name == "Default preset role"
+    assert by_email[general_preset_email].first_name == "Agent preset"
