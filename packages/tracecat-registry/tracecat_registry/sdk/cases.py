@@ -97,7 +97,9 @@ class CasesClient:
 
         return await self._client.post("/cases", json=data)
 
-    async def get_case(self, case_id: str) -> types.CaseRead:
+    async def get_case(
+        self, case_id: str, *, include_rows: bool | Unset = UNSET
+    ) -> types.CaseRead:
         """Get a case by ID.
 
         Args:
@@ -106,7 +108,10 @@ class CasesClient:
         Returns:
             Case data.
         """
-        return await self._client.get(f"/cases/{case_id}")
+        params: dict[str, Any] = {}
+        if is_set(include_rows):
+            params["include_rows"] = include_rows
+        return await self._client.get(f"/cases/{case_id}", params=params)
 
     async def update_case(
         self,
@@ -183,6 +188,7 @@ class CasesClient:
         reverse: bool | Unset = UNSET,
         order_by: str | Unset = UNSET,
         sort: Literal["asc", "desc"] | Unset = UNSET,
+        include_rows: bool | Unset = UNSET,
     ) -> types.CaseListResponse:
         """List cases using default server-side filtering.
 
@@ -205,6 +211,8 @@ class CasesClient:
             params["order_by"] = order_by
         if is_set(sort):
             params["sort"] = sort
+        if is_set(include_rows):
+            params["include_rows"] = include_rows
 
         return await self._client.get("/cases", params=params)
 
@@ -227,6 +235,7 @@ class CasesClient:
         end_time: datetime | str | Unset = UNSET,
         updated_after: datetime | str | Unset = UNSET,
         updated_before: datetime | str | Unset = UNSET,
+        include_rows: bool | Unset = UNSET,
     ) -> types.CaseListResponse:
         """Search cases with filtering and pagination."""
         params: dict[str, Any] = {"limit": limit}
@@ -968,3 +977,39 @@ class CasesClient:
             task_id: The task UUID.
         """
         await self._client.delete(f"/cases/tasks/{task_id}")
+
+    async def list_case_rows(
+        self,
+        case_id: str,
+        *,
+        limit: int = 20,
+        cursor: str | Unset = UNSET,
+        reverse: bool | Unset = UNSET,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"limit": limit}
+        if is_set(cursor):
+            params["cursor"] = cursor
+        if is_set(reverse):
+            params["reverse"] = reverse
+        return await self._client.get(f"/internal/cases/{case_id}/rows", params=params)
+
+    async def link_case_row(
+        self, case_id: str, *, table_id: str, row_id: str
+    ) -> types.CaseTableRowRead:
+        return await self._client.post(
+            f"/internal/cases/{case_id}/rows",
+            json={"table_id": table_id, "row_id": row_id},
+        )
+
+    async def unlink_case_row(
+        self, case_id: str, *, table_id: str, row_id: str
+    ) -> None:
+        await self._client.delete(f"/internal/cases/{case_id}/rows/{table_id}/{row_id}")
+
+    async def insert_case_row(
+        self, case_id: str, *, table_id: str, row: dict[str, Any]
+    ) -> types.CaseTableRowRead:
+        return await self._client.post(
+            f"/internal/cases/{case_id}/rows/insert",
+            json={"table_id": table_id, "row": {"data": row}},
+        )

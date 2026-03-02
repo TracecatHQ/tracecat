@@ -25,6 +25,8 @@ from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.durations.schemas import CaseDurationMetric
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.rows.schemas import CaseTableRowRead
+from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
     CaseCommentCreate,
@@ -81,6 +83,23 @@ async def _list_case_dropdown_values(
     return await dropdown_service.list_values_for_case(case_id)
 
 
+async def _list_case_rows(
+    *,
+    session: AsyncDBSession,
+    role: ExecutorWorkspaceRole,
+    case_id: uuid.UUID,
+    include_rows: bool,
+) -> list[CaseTableRowRead]:
+    if not include_rows:
+        return []
+    rows_service = CaseTableRowsService(session, role)
+    rows_by_case = await rows_service.hydrate_case_rows(
+        case_ids=[case_id],
+        include_row_data=True,
+    )
+    return rows_by_case.get(case_id, [])
+
+
 @router.get("")
 @require_scope("case:read")
 async def list_cases(
@@ -105,6 +124,7 @@ async def list_cases(
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
     ),
+    include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     service = CasesService(session, role)
 
@@ -130,6 +150,16 @@ async def list_cases(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve cases",
         ) from e
+    if include_rows and cases.items:
+        rows_service = CaseTableRowsService(session, role)
+        rows_by_case = await rows_service.hydrate_case_rows(
+            case_ids=[item.id for item in cases.items],
+            include_row_data=True,
+        )
+        cases.items = [
+            item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
+            for item in cases.items
+        ]
     return cases
 
 
@@ -189,6 +219,7 @@ async def search_cases(
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
     ),
+    include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     service = CasesService(session, role)
 
@@ -236,7 +267,7 @@ async def search_cases(
             parsed_dropdown_filters.setdefault(def_ref, []).append(opt_ref)
 
     try:
-        return await service.search_cases(
+        cases = await service.search_cases(
             pagination_params,
             search_term=search_term,
             status=status,
@@ -253,6 +284,18 @@ async def search_cases(
             order_by=order_by,
             sort=sort,
         )
+        if include_rows and cases.items:
+            rows_service = CaseTableRowsService(session, role)
+            rows_by_case = await rows_service.hydrate_case_rows(
+                case_ids=[item.id for item in cases.items],
+                include_row_data=True,
+            )
+            cases.items = [
+                item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
+                for item in cases.items
+            ]
+        return cases
+
     except ValueError as e:
         logger.warning(f"Invalid request for search cases: {e}")
         raise HTTPException(
@@ -276,6 +319,7 @@ async def get_case(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
     case_id: uuid.UUID,
+    include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CaseRead:
     service = CasesService(session, role)
     case = await service.get_case(case_id, track_view=True)
@@ -309,6 +353,12 @@ async def get_case(
     dropdown_reads = await _list_case_dropdown_values(
         session=session, role=role, case_id=case.id
     )
+    rows = await _list_case_rows(
+        session=session,
+        role=role,
+        case_id=case.id,
+        include_rows=include_rows,
+    )
 
     return CaseRead(
         id=case.id,
@@ -327,6 +377,7 @@ async def get_case(
         payload=case.payload,
         tags=tag_reads,
         dropdown_values=dropdown_reads,
+        rows=rows,
     )
 
 
@@ -401,6 +452,7 @@ async def update_case(
     session: AsyncDBSession,
     params: CaseUpdate,
     case_id: uuid.UUID,
+    include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CaseRead:
     service = CasesService(session, role)
     case = await service.get_case(case_id)
@@ -449,6 +501,12 @@ async def update_case(
     dropdown_reads = await _list_case_dropdown_values(
         session=session, role=role, case_id=updated_case.id
     )
+    rows = await _list_case_rows(
+        session=session,
+        role=role,
+        case_id=updated_case.id,
+        include_rows=include_rows,
+    )
 
     return CaseRead(
         id=updated_case.id,
@@ -467,6 +525,7 @@ async def update_case(
         payload=updated_case.payload,
         tags=tag_reads,
         dropdown_values=dropdown_reads,
+        rows=rows,
     )
 
 

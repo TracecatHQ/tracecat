@@ -1958,6 +1958,45 @@ class CaseDuration(WorkspaceModel):
     )
 
 
+class CaseTableRow(WorkspaceModel):
+    """Link table rows to cases."""
+
+    __tablename__ = "case_table_row"
+    __table_args__ = (
+        UniqueConstraint(
+            "case_id", "table_id", "row_id", name="uq_case_table_row_link"
+        ),
+        Index("ix_case_table_row_case_id", "case_id"),
+        Index("ix_case_table_row_table_id", "table_id"),
+        Index("ix_case_table_row_row_id", "row_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("case.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    table_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("tables.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    row_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+
+    case: Mapped[Case] = relationship(
+        "Case",
+        back_populates="table_rows",
+        lazy="selectin",
+    )
+
+
 class Case(WorkspaceModel):
     """A case represents an incident or issue that needs to be tracked and resolved."""
 
@@ -2027,6 +2066,12 @@ class Case(WorkspaceModel):
         "CaseAttachment",
         back_populates="case",
         cascade="all, delete",
+    )
+    table_rows: Mapped[list[CaseTableRow]] = relationship(
+        "CaseTableRow",
+        back_populates="case",
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
     assignee: Mapped[User | None] = relationship(
         "User",

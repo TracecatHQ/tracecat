@@ -1,6 +1,13 @@
 "use client"
 
-import { AlertCircle, Clock, ExternalLinkIcon, PlusIcon } from "lucide-react"
+import {
+  AlertCircle,
+  Clock,
+  ExternalLinkIcon,
+  Link2,
+  PlusIcon,
+  Unlink2,
+} from "lucide-react"
 import Link from "next/link"
 import { useMemo } from "react"
 import type { CaseEventRead } from "@/client"
@@ -151,6 +158,26 @@ function CaseFeedEvent({
 
         {event.type === "dropdown_value_changed" && (
           <DropdownValueChangedEvent event={event} actor={actor} />
+        )}
+
+        {(event.type as string) === "table_row_linked" && (
+          <div className="flex items-center space-x-2 text-xs">
+            <EventIcon icon={Link2} />
+            <span>
+              <EventActor user={actor} /> linked a row from{" "}
+              {(event as { table_name?: string }).table_name || "a table"}
+            </span>
+          </div>
+        )}
+
+        {(event.type as string) === "table_row_unlinked" && (
+          <div className="flex items-center space-x-2 text-xs">
+            <EventIcon icon={Unlink2} />
+            <span>
+              <EventActor user={actor} /> unlinked a row from{" "}
+              {(event as { table_name?: string }).table_name || "a table"}
+            </span>
+          </div>
         )}
         {/* Add a dot separator */}
         <InlineDotSeparator />

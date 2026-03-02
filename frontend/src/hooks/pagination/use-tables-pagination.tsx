@@ -12,12 +12,14 @@ export interface UseTablesPaginationParams {
   tableId: string
   workspaceId: string
   limit?: number
+  enabled?: boolean
 }
 
 export function useTablesPagination({
   tableId,
   workspaceId,
   limit = 50,
+  enabled = true,
 }: UseTablesPaginationParams) {
   // Wrapper function to adapt the API response to our generic interface
   const adaptedTablesListRows = async (
@@ -40,5 +42,6 @@ export function useTablesPagination({
     queryKey: ["rows", "paginated", tableId, workspaceId],
     queryFn: adaptedTablesListRows,
     additionalParams: { tableId },
+    enabled,
   })
 }

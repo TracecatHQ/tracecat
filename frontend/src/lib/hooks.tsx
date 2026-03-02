@@ -85,7 +85,6 @@ import {
   casesDeleteCase,
   casesDeleteComment,
   casesDeleteTask,
-  casesGetCase,
   casesListComments,
   casesListEventsWithUsers,
   casesListFields,
@@ -3580,7 +3579,12 @@ export function useGetCase(
     error: caseDataError,
   } = useQuery<CaseRead, TracecatApiError>({
     queryKey: ["case", caseId],
-    queryFn: async () => await casesGetCase({ caseId, workspaceId }),
+    queryFn: async () => {
+      const response = await apiClient.get<CaseRead>(`/cases/${caseId}`, {
+        params: { workspace_id: workspaceId, include_rows: true },
+      })
+      return response.data
+    },
     enabled: options?.enabled,
   })
 

@@ -98,6 +98,18 @@ class Case(TypedDict):
     updated_at: datetime
 
 
+class CaseTableRowRead(TypedDict):
+    id: UUID
+    case_id: UUID
+    table_id: UUID
+    table_name: str | None
+    row_id: UUID
+    row_data: dict[str, Any] | None
+    is_row_available: bool
+    created_at: datetime
+    updated_at: datetime
+
+
 class CaseRead(TypedDict):
     """Case information returned by get_case.
 
@@ -117,6 +129,7 @@ class CaseRead(TypedDict):
     tags: list[CaseTagRead]
     dropdown_values: list[CaseDropdownValueRead]
     assignee: UserRead | None
+    rows: list[CaseTableRowRead]
     created_at: datetime
     updated_at: datetime
 
@@ -136,6 +149,7 @@ class CaseReadMinimal(TypedDict):
     tags: list[CaseTagRead]
     dropdown_values: list[CaseDropdownValueRead]
     assignee: UserRead | None
+    rows: list[CaseTableRowRead]
     created_at: datetime
     updated_at: datetime
     num_tasks_completed: int
@@ -485,6 +499,26 @@ class DropdownValueChangedEvent(TypedDict, total=False):
     new_option_label: str | None
 
 
+class TableRowLinkedEvent(TypedDict, total=False):
+    user_id: UUID | None
+    created_at: str
+    wf_exec_id: str | None
+    type: str
+    table_id: UUID
+    table_name: str | None
+    row_id: UUID
+
+
+class TableRowUnlinkedEvent(TypedDict, total=False):
+    user_id: UUID | None
+    created_at: str
+    wf_exec_id: str | None
+    type: str
+    table_id: UUID
+    table_name: str | None
+    row_id: UUID
+
+
 # Union type for all case events
 type CaseEvent = (
     CreatedEvent
@@ -509,6 +543,8 @@ type CaseEvent = (
     | TaskPriorityChangedEvent
     | TaskWorkflowChangedEvent
     | DropdownValueChangedEvent
+    | TableRowLinkedEvent
+    | TableRowUnlinkedEvent
 )
 
 
