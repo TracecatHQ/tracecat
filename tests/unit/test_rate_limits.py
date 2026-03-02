@@ -41,8 +41,12 @@ def client(app: FastAPI) -> TestClient:
 class TestRateLimitIntegration:
     """Integration tests for the rate limiting middleware."""
 
-    def test_rate_limit_single_endpoint(self, client: TestClient):
+    def test_rate_limit_single_endpoint(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
         """Test that requests to a single endpoint are rate limited."""
+        monkeypatch.setattr("time.time", lambda: 0.0)
+
         # First 3 requests should succeed (capacity = 3)
         for _ in range(3):
             response = client.get("/test")
@@ -54,8 +58,12 @@ class TestRateLimitIntegration:
         assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
         assert response.text == "Rate limit exceeded. Please try again later."
 
-    def test_rate_limit_different_endpoints(self, client: TestClient):
+    def test_rate_limit_different_endpoints(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
         """Test that rate limiting works across different endpoints when by_endpoint=True."""
+        monkeypatch.setattr("time.time", lambda: 0.0)
+
         # First 2 requests to /test should succeed
         for _ in range(2):
             response = client.get("/test")
@@ -113,8 +121,10 @@ class TestRateLimitIntegration:
         response = client.get("/test")
         assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
 
-    def test_rate_limit_by_ip(self):
+    def test_rate_limit_by_ip(self, monkeypatch: pytest.MonkeyPatch):
         """Test that rate limiting works by IP address."""
+        monkeypatch.setattr("time.time", lambda: 0.0)
+
         # Create a new app with rate limiting by IP only
         app = FastAPI()
 
