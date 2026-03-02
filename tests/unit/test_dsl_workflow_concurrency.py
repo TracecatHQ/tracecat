@@ -12,7 +12,7 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.dsl.common import DSLEntrypoint, DSLInput
+from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.enums import FailStrategy, WaitStrategy
 from tracecat.dsl.schemas import (
     ROOT_STREAM,
@@ -26,6 +26,7 @@ from tracecat.dsl.schemas import (
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.dsl.workflow_logging import get_workflow_logger
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import InlineObject
 from tracecat.tiers.schemas import EffectiveLimits
 from tracecat.workflow.executions.enums import ExecutionType
@@ -237,6 +238,60 @@ async def test_execute_task_releases_action_permit_when_cancelled_during_heartbe
     release_mock.assert_awaited_once_with(action_id="permit-id")
 
 
+@pytest.mark.anyio
+async def test_run_skips_tier_limit_enforcement_when_flag_disabled() -> None:
+    workflow = _build_workflow()
+    task = ActionStatement(
+        ref="noop",
+        action="core.transform.reshape",
+        args={"value": "ok"},
+    )
+    dsl = DSLInput(
+        title="Run boundary",
+        description="feature flag off boundary test",
+        entrypoint=DSLEntrypoint(ref="noop", expects={}),
+        actions=[task],
+        triggers=[],
+    )
+    run_args = DSLRunArgs(
+        role=workflow.role,
+        dsl=dsl,
+        wf_id=workflow.run_context.wf_id,
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test"},
+            actions={"core.transform.reshape": "tracecat_registry"},
+        ),
+    )
+    run_result = InlineObject(data={"ok": True})
+    execute_activity_mock = AsyncMock()
+    acquire_permit_mock = AsyncMock()
+
+    with (
+        patch.object(
+            workflow,
+            "_resolve_organization_id",
+            new=AsyncMock(return_value=workflow.organization_id),
+        ),
+        patch(
+            "tracecat.dsl.workflow.workflow.execute_local_activity",
+            new=AsyncMock(return_value=False),
+        ),
+        patch(
+            "tracecat.dsl.workflow.workflow.execute_activity",
+            new=execute_activity_mock,
+        ),
+        patch.object(workflow, "_acquire_workflow_permit", new=acquire_permit_mock),
+        patch.object(workflow, "_run_workflow", new=AsyncMock(return_value=run_result)),
+    ):
+        result = await workflow.run(run_args)
+
+    assert workflow.workflow_concurrency_limits_enabled is False
+    execute_activity_mock.assert_not_awaited()
+    acquire_permit_mock.assert_not_awaited()
+    assert isinstance(result, InlineObject)
+    assert result.data == {"ok": True}
+
+
 def test_resolve_child_loop_batch_plan_applies_dispatch_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -265,6 +320,27 @@ def test_resolve_child_loop_batch_plan_is_independent_of_tier_action_cap(
 
     assert logical_batch_size == 8
     assert dispatch_window == 13
+
+
+def test_resolve_child_loop_batch_plan_is_independent_of_concurrency_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _build_workflow()
+    monkeypatch.setattr(config, "TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW", 11)
+
+    workflow.workflow_concurrency_limits_enabled = False
+    flag_off = workflow._resolve_child_loop_batch_plan(
+        total_count=9,
+        requested_batch_size=4,
+    )
+    workflow.workflow_concurrency_limits_enabled = True
+    flag_on = workflow._resolve_child_loop_batch_plan(
+        total_count=9,
+        requested_batch_size=4,
+    )
+
+    assert flag_off == (4, 11)
+    assert flag_on == (4, 11)
 
 
 @pytest.mark.anyio
