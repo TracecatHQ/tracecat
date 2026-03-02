@@ -6996,6 +6996,69 @@ export const $CursorPaginatedResponse_WorkflowReadMinimal_ = {
   title: "CursorPaginatedResponse[WorkflowReadMinimal]",
 } as const
 
+export const $CursorPaginatedResponse_WorkflowRunReadMinimal_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/WorkflowRunReadMinimal",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[WorkflowRunReadMinimal]",
+} as const
+
 export const $CustomOAuthProviderCreate = {
   properties: {
     name: {
@@ -21083,6 +21146,109 @@ export const $WorkflowEventType = {
   description: "The event types we care about.",
 } as const
 
+export const $WorkflowExecutionBulkResetItemResult = {
+  properties: {
+    execution_id: {
+      type: "string",
+      pattern:
+        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+      title: "Execution Id",
+    },
+    ok: {
+      type: "boolean",
+      title: "Ok",
+      default: false,
+    },
+    new_run_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Run Id",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+  },
+  type: "object",
+  required: ["execution_id"],
+  title: "WorkflowExecutionBulkResetItemResult",
+} as const
+
+export const $WorkflowExecutionBulkResetRequest = {
+  properties: {
+    execution_ids: {
+      items: {
+        type: "string",
+        pattern:
+          "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Execution Ids",
+    },
+    event_id: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Event Id",
+      description:
+        "Temporal history event id to reset from. If omitted, reset uses start.",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1024,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+    reapply_type: {
+      $ref: "#/components/schemas/WorkflowExecutionResetReapplyType",
+      default: "all_eligible",
+    },
+  },
+  type: "object",
+  title: "WorkflowExecutionBulkResetRequest",
+} as const
+
+export const $WorkflowExecutionBulkResetResponse = {
+  properties: {
+    results: {
+      items: {
+        $ref: "#/components/schemas/WorkflowExecutionBulkResetItemResult",
+      },
+      type: "array",
+      title: "Results",
+    },
+  },
+  type: "object",
+  title: "WorkflowExecutionBulkResetResponse",
+} as const
+
 export const $WorkflowExecutionCollectionPageItem = {
   properties: {
     index: {
@@ -22066,6 +22232,112 @@ export const $WorkflowExecutionReadMinimal = {
   title: "WorkflowExecutionReadMinimal",
 } as const
 
+export const $WorkflowExecutionRelationFilter = {
+  type: "string",
+  enum: ["all", "root", "child"],
+  title: "WorkflowExecutionRelationFilter",
+} as const
+
+export const $WorkflowExecutionResetPointRead = {
+  properties: {
+    event_id: {
+      type: "integer",
+      minimum: 1,
+      title: "Event Id",
+    },
+    event_time: {
+      type: "string",
+      format: "date-time",
+      title: "Event Time",
+    },
+    event_type: {
+      type: "string",
+      title: "Event Type",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    is_start: {
+      type: "boolean",
+      title: "Is Start",
+      description:
+        "True when this point maps to the earliest resettable point.",
+      default: false,
+    },
+    is_resettable: {
+      type: "boolean",
+      title: "Is Resettable",
+      description: "Whether the event can be used directly as a reset target.",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["event_id", "event_time", "event_type", "label"],
+  title: "WorkflowExecutionResetPointRead",
+} as const
+
+export const $WorkflowExecutionResetReapplyType = {
+  type: "string",
+  enum: ["all_eligible", "signal_only", "none"],
+  title: "WorkflowExecutionResetReapplyType",
+} as const
+
+export const $WorkflowExecutionResetRequest = {
+  properties: {
+    event_id: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Event Id",
+      description:
+        "Temporal history event id to reset from. If omitted, reset uses start.",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1024,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+    reapply_type: {
+      $ref: "#/components/schemas/WorkflowExecutionResetReapplyType",
+      default: "all_eligible",
+    },
+  },
+  type: "object",
+  title: "WorkflowExecutionResetRequest",
+} as const
+
+export const $WorkflowExecutionResetResponse = {
+  properties: {
+    execution_id: {
+      type: "string",
+      pattern:
+        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+      title: "Execution Id",
+    },
+    new_run_id: {
+      type: "string",
+      title: "New Run Id",
+    },
+  },
+  type: "object",
+  required: ["execution_id", "new_run_id"],
+  title: "WorkflowExecutionResetResponse",
+} as const
+
 export const $WorkflowExecutionStatus = {
   type: "integer",
   enum: [1, 2, 3, 4, 5, 6, 7],
@@ -22073,6 +22345,12 @@ export const $WorkflowExecutionStatus = {
   description: `Status of a workflow execution.
 
 See :py:class:\`temporalio.api.enums.v1.WorkflowExecutionStatus\`.`,
+} as const
+
+export const $WorkflowExecutionStatusFilterMode = {
+  type: "string",
+  enum: ["include", "exclude"],
+  title: "WorkflowExecutionStatusFilterMode",
 } as const
 
 export const $WorkflowExecutionTerminate = {
@@ -22513,6 +22791,149 @@ export const $WorkflowReadMinimal = {
   ],
   title: "WorkflowReadMinimal",
   description: "Minimal version of WorkflowRead model for list endpoints.",
+} as const
+
+export const $WorkflowRunReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "The ID of the workflow execution",
+    },
+    run_id: {
+      type: "string",
+      title: "Run Id",
+      description: "The run ID of the workflow execution",
+    },
+    start_time: {
+      type: "string",
+      format: "date-time",
+      title: "Start Time",
+      description: "The start time of the workflow execution",
+    },
+    execution_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Execution Time",
+      description: "When this workflow run started or should start.",
+    },
+    close_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Close Time",
+      description: "When the workflow was closed if closed.",
+    },
+    status: {
+      type: "string",
+      enum: [
+        "RUNNING",
+        "COMPLETED",
+        "FAILED",
+        "CANCELED",
+        "TERMINATED",
+        "CONTINUED_AS_NEW",
+        "TIMED_OUT",
+      ],
+    },
+    workflow_type: {
+      type: "string",
+      title: "Workflow Type",
+    },
+    task_queue: {
+      type: "string",
+      title: "Task Queue",
+    },
+    history_length: {
+      type: "integer",
+      title: "History Length",
+      description: "Number of events in the history",
+    },
+    parent_wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern:
+            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Wf Exec Id",
+    },
+    trigger_type: {
+      $ref: "#/components/schemas/TriggerType",
+    },
+    execution_type: {
+      $ref: "#/components/schemas/ExecutionType",
+      description:
+        "Execution type (draft or published). Draft uses the draft workflow graph.",
+      default: "published",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+      description: "Short workflow ID parsed from workflow execution ID.",
+    },
+    workflow_title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Title",
+      description: "Workflow title from workspace metadata when available.",
+    },
+    workflow_alias: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Alias",
+      description:
+        "Workflow alias from workspace metadata or execution search attributes.",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "run_id",
+    "start_time",
+    "status",
+    "workflow_type",
+    "task_queue",
+    "history_length",
+    "trigger_type",
+  ],
+  title: "WorkflowRunReadMinimal",
 } as const
 
 export const $WorkflowSummary = {

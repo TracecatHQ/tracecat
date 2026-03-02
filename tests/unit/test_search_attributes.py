@@ -23,7 +23,11 @@ from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.identifiers import UserID, WorkflowID
 from tracecat.workflow.executions.common import build_query
-from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
+from tracecat.workflow.executions.enums import (
+    ExecutionType,
+    TemporalSearchAttr,
+    TriggerType,
+)
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.schedules.bridge import build_schedule_search_attributes
 
@@ -322,14 +326,20 @@ class TestScheduleSearchAttributes:
         assert isinstance(search_attrs, TypedSearchAttributes)
         pairs = search_attrs.search_attributes
 
-        # Should have trigger_type and workspace_id
-        assert len(pairs) == 2
+        # Should have trigger_type, execution_type, and workspace_id
+        assert len(pairs) == 3
 
         # Verify trigger type is SCHEDULED
         trigger_pair = next(
             p for p in pairs if p.key.name == TemporalSearchAttr.TRIGGER_TYPE.value
         )
         assert trigger_pair.value == TriggerType.SCHEDULED.value
+
+        # Verify execution type is PUBLISHED
+        execution_pair = next(
+            p for p in pairs if p.key.name == TemporalSearchAttr.EXECUTION_TYPE.value
+        )
+        assert execution_pair.value == ExecutionType.PUBLISHED.value
 
         # Verify workspace ID
         workspace_pair = next(
@@ -346,12 +356,18 @@ class TestScheduleSearchAttributes:
         assert isinstance(search_attrs, TypedSearchAttributes)
         pairs = search_attrs.search_attributes
 
-        # Should only have trigger_type (no workspace_id)
-        assert len(pairs) == 1
+        # Should only have trigger_type and execution_type (no workspace_id)
+        assert len(pairs) == 2
 
-        # Verify only trigger type is set
-        assert pairs[0].key.name == TemporalSearchAttr.TRIGGER_TYPE.value
-        assert pairs[0].value == TriggerType.SCHEDULED.value
+        # Verify trigger and execution types are set
+        trigger_pair = next(
+            p for p in pairs if p.key.name == TemporalSearchAttr.TRIGGER_TYPE.value
+        )
+        assert trigger_pair.value == TriggerType.SCHEDULED.value
+        execution_pair = next(
+            p for p in pairs if p.key.name == TemporalSearchAttr.EXECUTION_TYPE.value
+        )
+        assert execution_pair.value == ExecutionType.PUBLISHED.value
 
 
 @pytest.mark.anyio

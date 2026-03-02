@@ -57,19 +57,9 @@ from tracecat.workflow.executions.enums import (
     TriggerType,
     WorkflowEventType,
     WorkflowExecutionEventStatus,
+    WorkflowExecutionStatusLiteral,
 )
 from tracecat.workflow.management.schemas import GetWorkflowDefinitionActivityInputs
-
-WorkflowExecutionStatusLiteral = Literal[
-    "RUNNING",
-    "COMPLETED",
-    "FAILED",
-    "CANCELED",
-    "TERMINATED",
-    "CONTINUED_AS_NEW",
-    "TIMED_OUT",
-]
-"""Mapped literal types for workflow execution statuses."""
 
 _ERROR_MESSAGE_MAX_LENGTH = 2048
 _SENSITIVE_ERROR_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -146,6 +136,50 @@ class WorkflowExecutionReadMinimal(WorkflowExecutionBase):
             execution_type=get_execution_type_from_search_attr(
                 execution.typed_search_attributes
             ),
+        )
+
+
+class WorkflowRunReadMinimal(WorkflowExecutionReadMinimal):
+    workflow_id: str | None = Field(
+        default=None,
+        description="Short workflow ID parsed from workflow execution ID.",
+    )
+    workflow_title: str | None = Field(
+        default=None,
+        description="Workflow title from workspace metadata when available.",
+    )
+    workflow_alias: str | None = Field(
+        default=None,
+        description=(
+            "Workflow alias from workspace metadata or execution search attributes."
+        ),
+    )
+
+    @staticmethod
+    def from_dataclass(
+        execution: WorkflowExecution,
+        *,
+        workflow_id: str | None = None,
+        workflow_title: str | None = None,
+        workflow_alias: str | None = None,
+    ) -> WorkflowRunReadMinimal:
+        base = WorkflowExecutionReadMinimal.from_dataclass(execution)
+        return WorkflowRunReadMinimal(
+            id=base.id,
+            run_id=base.run_id,
+            start_time=base.start_time,
+            execution_time=base.execution_time,
+            close_time=base.close_time,
+            status=base.status,
+            workflow_type=base.workflow_type,
+            task_queue=base.task_queue,
+            history_length=base.history_length,
+            parent_wf_exec_id=base.parent_wf_exec_id,
+            trigger_type=base.trigger_type,
+            execution_type=base.execution_type,
+            workflow_id=workflow_id,
+            workflow_title=workflow_title,
+            workflow_alias=workflow_alias,
         )
 
 
@@ -823,6 +857,87 @@ class WorkflowDispatchResponse(TypedDict):
 
 class WorkflowExecutionTerminate(BaseModel):
     reason: str | None = None
+
+
+class WorkflowExecutionRelationFilter(StrEnum):
+    ALL = "all"
+    ROOT = "root"
+    CHILD = "child"
+
+
+class WorkflowExecutionStatusFilterMode(StrEnum):
+    INCLUDE = "include"
+    EXCLUDE = "exclude"
+
+
+class WorkflowExecutionResetReapplyType(StrEnum):
+    ALL_ELIGIBLE = "all_eligible"
+    SIGNAL_ONLY = "signal_only"
+    NONE = "none"
+
+
+class WorkflowExecutionResetPointRead(BaseModel):
+    event_id: int = Field(..., ge=1)
+    event_time: datetime
+    event_type: str
+    label: str
+    is_start: bool = Field(
+        default=False,
+        description="True when this point maps to the earliest resettable point.",
+    )
+    is_resettable: bool = Field(
+        default=False,
+        description="Whether the event can be used directly as a reset target.",
+    )
+
+
+class WorkflowExecutionResetRequest(BaseModel):
+    event_id: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Temporal history event id to reset from. If omitted, reset uses start."
+        ),
+    )
+    reason: str | None = Field(default=None, max_length=1024)
+    reapply_type: WorkflowExecutionResetReapplyType = Field(
+        default=WorkflowExecutionResetReapplyType.ALL_ELIGIBLE
+    )
+
+
+class WorkflowExecutionResetResponse(BaseModel):
+    execution_id: WorkflowExecutionID
+    new_run_id: str
+
+
+class WorkflowExecutionBulkResetRequest(BaseModel):
+    execution_ids: list[WorkflowExecutionID] = Field(
+        default_factory=list,
+        min_length=1,
+        max_length=100,
+    )
+    event_id: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Temporal history event id to reset from. If omitted, reset uses start."
+        ),
+    )
+    reason: str | None = Field(default=None, max_length=1024)
+    reapply_type: WorkflowExecutionResetReapplyType = Field(
+        default=WorkflowExecutionResetReapplyType.ALL_ELIGIBLE
+    )
+
+
+class WorkflowExecutionBulkResetItemResult(BaseModel):
+    execution_id: WorkflowExecutionID
+    ok: bool = Field(default=False)
+    new_run_id: str | None = Field(default=None)
+    error: str | None = Field(default=None)
+
+
+class WorkflowExecutionBulkResetResponse(BaseModel):
+    results: list[WorkflowExecutionBulkResetItemResult] = Field(default_factory=list)
 
 
 class ReceiveInteractionResponse(BaseModel):

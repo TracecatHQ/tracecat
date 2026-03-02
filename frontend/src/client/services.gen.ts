@@ -596,6 +596,8 @@ import type {
   VcsGithubWebhookResponse,
   VcsSaveGithubAppCredentialsData,
   VcsSaveGithubAppCredentialsResponse,
+  WorkflowExecutionsBulkResetWorkflowExecutionsData,
+  WorkflowExecutionsBulkResetWorkflowExecutionsResponse,
   WorkflowExecutionsCancelWorkflowExecutionData,
   WorkflowExecutionsCancelWorkflowExecutionResponse,
   WorkflowExecutionsCreateDraftWorkflowExecutionData,
@@ -612,8 +614,14 @@ import type {
   WorkflowExecutionsGetWorkflowExecutionObjectPreviewData,
   WorkflowExecutionsGetWorkflowExecutionObjectPreviewResponse,
   WorkflowExecutionsGetWorkflowExecutionResponse,
+  WorkflowExecutionsListWorkflowExecutionResetPointsData,
+  WorkflowExecutionsListWorkflowExecutionResetPointsResponse,
   WorkflowExecutionsListWorkflowExecutionsData,
   WorkflowExecutionsListWorkflowExecutionsResponse,
+  WorkflowExecutionsResetWorkflowExecutionData,
+  WorkflowExecutionsResetWorkflowExecutionResponse,
+  WorkflowExecutionsSearchWorkflowExecutionsData,
+  WorkflowExecutionsSearchWorkflowExecutionsResponse,
   WorkflowExecutionsTerminateWorkflowExecutionData,
   WorkflowExecutionsTerminateWorkflowExecutionResponse,
   WorkflowsAddTagData,
@@ -1940,6 +1948,142 @@ export const workflowExecutionsCreateWorkflowExecution = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/workflow-executions",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Search Workflow Executions
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.trigger
+ * @param data.userId
+ * @param data.status
+ * @param data.statusMode
+ * @param data.startTimeFrom
+ * @param data.startTimeTo
+ * @param data.closeTimeFrom
+ * @param data.closeTimeTo
+ * @param data.durationGteSeconds
+ * @param data.durationLteSeconds
+ * @param data.searchTerm Filter by workflow title or alias.
+ * @param data.relation
+ * @param data.workflowId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_WorkflowRunReadMinimal_ Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsSearchWorkflowExecutions = (
+  data: WorkflowExecutionsSearchWorkflowExecutionsData
+): CancelablePromise<WorkflowExecutionsSearchWorkflowExecutionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workflow-executions/search",
+    query: {
+      trigger: data.trigger,
+      user_id: data.userId,
+      status: data.status,
+      status_mode: data.statusMode,
+      start_time_from: data.startTimeFrom,
+      start_time_to: data.startTimeTo,
+      close_time_from: data.closeTimeFrom,
+      close_time_to: data.closeTimeTo,
+      duration_gte_seconds: data.durationGteSeconds,
+      duration_lte_seconds: data.durationLteSeconds,
+      search_term: data.searchTerm,
+      relation: data.relation,
+      workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Workflow Execution Reset Points
+ * @param data The data for the request.
+ * @param data.executionId
+ * @param data.workspaceId
+ * @param data.limit
+ * @returns WorkflowExecutionResetPointRead Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsListWorkflowExecutionResetPoints = (
+  data: WorkflowExecutionsListWorkflowExecutionResetPointsData
+): CancelablePromise<WorkflowExecutionsListWorkflowExecutionResetPointsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workflow-executions/{execution_id}/reset-points",
+    path: {
+      execution_id: data.executionId,
+    },
+    query: {
+      limit: data.limit,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Reset Workflow Execution
+ * @param data The data for the request.
+ * @param data.executionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowExecutionResetResponse Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsResetWorkflowExecution = (
+  data: WorkflowExecutionsResetWorkflowExecutionData
+): CancelablePromise<WorkflowExecutionsResetWorkflowExecutionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflow-executions/{execution_id}/reset",
+    path: {
+      execution_id: data.executionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Bulk Reset Workflow Executions
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowExecutionBulkResetResponse Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsBulkResetWorkflowExecutions = (
+  data: WorkflowExecutionsBulkResetWorkflowExecutionsData
+): CancelablePromise<WorkflowExecutionsBulkResetWorkflowExecutionsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflow-executions/reset/bulk",
     query: {
       workspace_id: data.workspaceId,
     },

@@ -1,10 +1,11 @@
 import base64
+from datetime import datetime
 from typing import Any, Literal
 
 import temporalio.service
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +17,7 @@ from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import WorkflowDefinition
+from tracecat.db.models import Workflow, WorkflowDefinition
 from tracecat.dsl.common import (
     DSLInput,
     get_execution_type_from_search_attr,
@@ -26,8 +27,13 @@ from tracecat.ee.interactions.schemas import InteractionRead
 from tracecat.ee.interactions.service import InteractionService
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import UserID
-from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery, WorkflowUUID
+from tracecat.identifiers.workflow import (
+    OptionalAnyWorkflowIDQuery,
+    WorkflowUUID,
+    exec_id_to_parts,
+)
 from tracecat.logger import logger
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.settings.service import get_setting
 from tracecat.storage import blob
@@ -40,8 +46,14 @@ from tracecat.storage.object import (
 from tracecat.storage.utils import serialize_object
 from tracecat.validation.service import validate_dsl
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
-from tracecat.workflow.executions.enums import TriggerType
+from tracecat.workflow.executions.enums import (
+    ExecutionType,
+    TemporalSearchAttr,
+    TriggerType,
+)
 from tracecat.workflow.executions.schemas import (
+    WorkflowExecutionBulkResetRequest,
+    WorkflowExecutionBulkResetResponse,
     WorkflowExecutionCollectionPageItem,
     WorkflowExecutionCollectionPageItemKind,
     WorkflowExecutionCollectionPageRequest,
@@ -54,9 +66,17 @@ from tracecat.workflow.executions.schemas import (
     WorkflowExecutionRead,
     WorkflowExecutionReadCompact,
     WorkflowExecutionReadMinimal,
+    WorkflowExecutionRelationFilter,
+    WorkflowExecutionResetPointRead,
+    WorkflowExecutionResetRequest,
+    WorkflowExecutionResetResponse,
+    WorkflowExecutionStatusFilterMode,
+    WorkflowExecutionStatusLiteral,
     WorkflowExecutionTerminate,
+    WorkflowRunReadMinimal,
 )
 from tracecat.workflow.executions.service import (
+    WorkflowExecutionNotFoundError,
     WorkflowExecutionResultNotFoundError,
     WorkflowExecutionsService,
 )
@@ -65,6 +85,24 @@ from tracecat.workflow.management.management import WorkflowsManagementService
 router = APIRouter(prefix="/workflow-executions", tags=["workflow-executions"])
 PREVIEW_MAX_BYTES = 256 * 1024  # 256 KB
 COLLECTION_PAGE_PREVIEW_MAX_BYTES = 4 * 1024  # 4 KB per item preview in page responses
+
+
+def _workflow_execution_search_pagination_params(
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_WORKFLOW_EXECUTIONS_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_WORKFLOW_EXECUTIONS_MAX,
+    ),
+    cursor: str | None = Query(default=None),
+    reverse: bool = Query(default=False),
+) -> CursorPaginationParams:
+    # Use workflow-execution specific bounds for search while keeping the
+    # shared cursor pagination shape consumed by services.
+    return CursorPaginationParams.model_construct(
+        limit=limit,
+        cursor=cursor,
+        reverse=reverse,
+    )
 
 
 def _is_previewable_content_type(content_type: str) -> bool:
@@ -239,6 +277,85 @@ async def _list_interactions(
         return []
 
 
+def _normalize_search_term(search_term: str | None) -> str | None:
+    if search_term is None:
+        return None
+    stripped = search_term.strip()
+    if not stripped:
+        return None
+    return stripped
+
+
+async def _resolve_workflow_ids_by_search_term(
+    *,
+    session: AsyncSession,
+    role: WorkspaceUserRole,
+    search_term: str,
+) -> list[WorkflowUUID]:
+    if role.workspace_id is None:
+        return []
+    like_term = f"%{search_term}%"
+    statement = (
+        select(Workflow.id)
+        .where(Workflow.workspace_id == role.workspace_id)
+        .where(
+            or_(
+                Workflow.title.ilike(like_term),
+                Workflow.alias.ilike(like_term),
+            )
+        )
+        .limit(5000)
+    )
+    rows = (await session.execute(statement)).scalars().all()
+    return [WorkflowUUID.new(workflow_id) for workflow_id in rows]
+
+
+async def _load_workflow_metadata_map(
+    *,
+    session: AsyncSession,
+    role: WorkspaceUserRole,
+    workflow_ids: list[WorkflowUUID],
+) -> dict[str, tuple[str, str | None]]:
+    if role.workspace_id is None or not workflow_ids:
+        return {}
+
+    statement = select(Workflow).where(
+        Workflow.workspace_id == role.workspace_id,
+        Workflow.id.in_(workflow_ids),
+    )
+    workflows = (await session.execute(statement)).scalars().all()
+    return {
+        WorkflowUUID.new(workflow.id).short(): (workflow.title, workflow.alias)
+        for workflow in workflows
+    }
+
+
+def _to_workflow_run_read_minimal(
+    execution: Any,
+    workflow_metadata: dict[str, tuple[str, str | None]],
+) -> WorkflowRunReadMinimal:
+    workflow_id: str | None = None
+    workflow_title: str | None = None
+    workflow_alias: str | None = execution.typed_search_attributes.get(
+        TemporalSearchAttr.ALIAS.key
+    )
+    try:
+        wf_id, _ = exec_id_to_parts(execution.id)
+        workflow_id = wf_id.short()
+    except ValueError:
+        workflow_id = None
+    if workflow_id and (metadata := workflow_metadata.get(workflow_id)):
+        workflow_title, alias = metadata
+        if alias:
+            workflow_alias = alias
+    return WorkflowRunReadMinimal.from_dataclass(
+        execution,
+        workflow_id=workflow_id,
+        workflow_title=workflow_title,
+        workflow_alias=workflow_alias,
+    )
+
+
 @router.get("")
 @require_scope("workflow:read")
 async def list_workflow_executions(
@@ -284,6 +401,206 @@ async def list_workflow_executions(
         WorkflowExecutionReadMinimal.from_dataclass(execution)
         for execution in executions
     ]
+
+
+@router.get("/search")
+@require_scope("workflow:read")
+async def search_workflow_executions(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    workflow_id: OptionalAnyWorkflowIDQuery,
+    pagination: CursorPaginationParams = Depends(
+        _workflow_execution_search_pagination_params
+    ),
+    trigger_types: set[TriggerType] | None = Query(default=None, alias="trigger"),
+    triggered_by_user_id: UserID | SpecialUserID | None = Query(
+        default=None,
+        alias="user_id",
+    ),
+    statuses: set[WorkflowExecutionStatusLiteral] | None = Query(
+        default=None,
+        alias="status",
+    ),
+    status_mode: WorkflowExecutionStatusFilterMode = Query(
+        default=WorkflowExecutionStatusFilterMode.INCLUDE,
+    ),
+    start_time_from: datetime | None = Query(default=None),
+    start_time_to: datetime | None = Query(default=None),
+    close_time_from: datetime | None = Query(default=None),
+    close_time_to: datetime | None = Query(default=None),
+    duration_gte_seconds: int | None = Query(default=None, ge=0),
+    duration_lte_seconds: int | None = Query(default=None, ge=0),
+    search_term: str | None = Query(
+        default=None,
+        description="Filter by workflow title or alias.",
+    ),
+    relation: WorkflowExecutionRelationFilter = Query(
+        default=WorkflowExecutionRelationFilter.ALL
+    ),
+) -> CursorPaginatedResponse[WorkflowRunReadMinimal]:
+    if triggered_by_user_id == SpecialUserID.CURRENT:
+        if role.user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User ID is required to filter by user ID",
+            )
+        triggered_by_user_id = role.user_id
+    if start_time_from and start_time_to and start_time_from > start_time_to:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="start_time_from must be before start_time_to",
+        )
+    if close_time_from and close_time_to and close_time_from > close_time_to:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="close_time_from must be before close_time_to",
+        )
+    if (
+        duration_gte_seconds is not None
+        and duration_lte_seconds is not None
+        and duration_gte_seconds > duration_lte_seconds
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="duration_gte_seconds must be <= duration_lte_seconds",
+        )
+
+    normalized_search_term = _normalize_search_term(search_term)
+    workflow_ids: list[WorkflowUUID] | None = None
+    if normalized_search_term is not None:
+        workflow_ids = await _resolve_workflow_ids_by_search_term(
+            session=session,
+            role=role,
+            search_term=normalized_search_term,
+        )
+        if not workflow_ids:
+            return CursorPaginatedResponse(
+                items=[],
+                next_cursor=None,
+                prev_cursor=None,
+                has_more=False,
+                has_previous=False,
+                total_estimate=None,
+            )
+
+    service = await WorkflowExecutionsService.connect(role=role)
+    try:
+        page = await service.list_executions_paginated(
+            pagination=pagination,
+            workflow_id=workflow_id,
+            workflow_ids=workflow_ids,
+            trigger_types=trigger_types,
+            triggered_by_user_id=triggered_by_user_id,
+            statuses=statuses,
+            status_mode=status_mode,
+            execution_types={ExecutionType.PUBLISHED},
+            start_time_from=start_time_from,
+            start_time_to=start_time_to,
+            close_time_from=close_time_from,
+            close_time_to=close_time_to,
+            duration_gte_seconds=duration_gte_seconds,
+            duration_lte_seconds=duration_lte_seconds,
+            relation=relation,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+    page_workflow_ids: list[WorkflowUUID] = []
+    for execution in page.items:
+        try:
+            wf_id, _ = exec_id_to_parts(execution.id)
+            page_workflow_ids.append(wf_id)
+        except ValueError:
+            continue
+
+    workflow_metadata = await _load_workflow_metadata_map(
+        session=session,
+        role=role,
+        workflow_ids=page_workflow_ids,
+    )
+    items = [
+        _to_workflow_run_read_minimal(execution, workflow_metadata)
+        for execution in page.items
+    ]
+    return CursorPaginatedResponse(
+        items=items,
+        next_cursor=page.next_cursor,
+        prev_cursor=None,
+        has_more=page.has_more,
+        has_previous=page.has_previous,
+        total_estimate=None,
+    )
+
+
+@router.get("/{execution_id:path}/reset-points")
+@require_scope("workflow:read")
+async def list_workflow_execution_reset_points(
+    role: WorkspaceUserRole,
+    execution_id: UnquotedExecutionID,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[WorkflowExecutionResetPointRead]:
+    service = await WorkflowExecutionsService.connect(role=role)
+    try:
+        return await service.list_reset_points(execution_id, limit=limit)
+    except WorkflowExecutionNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@router.post("/{execution_id:path}/reset")
+@require_scope("workflow:terminate")
+async def reset_workflow_execution(
+    role: WorkspaceUserRole,
+    execution_id: UnquotedExecutionID,
+    params: WorkflowExecutionResetRequest,
+) -> WorkflowExecutionResetResponse:
+    service = await WorkflowExecutionsService.connect(role=role)
+    try:
+        new_run_id = await service.reset_workflow_execution(
+            execution_id,
+            event_id=params.event_id,
+            reason=params.reason,
+            reapply_type=params.reapply_type,
+        )
+    except WorkflowExecutionNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    return WorkflowExecutionResetResponse(
+        execution_id=execution_id, new_run_id=new_run_id
+    )
+
+
+@router.post("/reset/bulk")
+@require_scope("workflow:terminate")
+async def bulk_reset_workflow_executions(
+    role: WorkspaceUserRole,
+    params: WorkflowExecutionBulkResetRequest,
+) -> WorkflowExecutionBulkResetResponse:
+    service = await WorkflowExecutionsService.connect(role=role)
+    results = await service.bulk_reset_workflow_executions(
+        params.execution_ids,
+        event_id=params.event_id,
+        reason=params.reason,
+        reapply_type=params.reapply_type,
+    )
+    return WorkflowExecutionBulkResetResponse(results=results)
 
 
 @router.get("/{execution_id}")
@@ -773,6 +1090,11 @@ async def cancel_workflow_execution(
     service = await WorkflowExecutionsService.connect(role=role)
     try:
         await service.cancel_workflow_execution(execution_id)
+    except WorkflowExecutionNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
     except temporalio.service.RPCError as e:
         if "workflow execution already completed" in e.message:
             logger.info(
@@ -797,6 +1119,11 @@ async def terminate_workflow_execution(
     service = await WorkflowExecutionsService.connect(role=role)
     try:
         await service.terminate_workflow_execution(execution_id, reason=params.reason)
+    except WorkflowExecutionNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
     except temporalio.service.RPCError as e:
         if "workflow execution already completed" in e.message:
             logger.info(
