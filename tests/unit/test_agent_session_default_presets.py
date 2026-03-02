@@ -45,7 +45,7 @@ async def test_create_session_uses_default_system_preset_for_copilot(
     assert created.agent_preset_id == preset_id
     assert created.tools is None
     stmt = session.execute.await_args.args[0]
-    assert SYSTEM_PRESET_SLUG_WORKSPACE_COPILOT in str(stmt)
+    assert SYSTEM_PRESET_SLUG_WORKSPACE_COPILOT in stmt.compile().params.values()
 
 
 @pytest.mark.anyio

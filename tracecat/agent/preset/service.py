@@ -6,7 +6,7 @@ import json
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import cast
 
 from slugify import slugify
 from sqlalchemy import select
@@ -14,7 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
-from tracecat.agent.preset.scopes import ensure_preset_scopes, preset_scope_name
+from tracecat.agent.preset.scopes import (
+    PresetScopeAction,
+    ensure_preset_scopes,
+    preset_scope_name,
+)
 from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import has_scope, require_scope
@@ -120,8 +124,6 @@ SYSTEM_PRESET_DEFINITIONS: tuple[SystemPresetDefinition, ...] = (
         ),
     ),
 )
-
-type PresetScopeAction = Literal["read", "execute", "update", "delete"]
 
 
 async def seed_system_presets_for_workspace(

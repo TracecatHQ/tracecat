@@ -2,15 +2,10 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useQueryClient } from "@tanstack/react-query"
-import { BotIcon } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { WorkspaceMember, WorkspaceRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import {
-  DataTable,
-  DataTableColumnHeader,
-  type DataTableToolbarProps,
-} from "@/components/data-table"
+import { DataTable, DataTableColumnHeader } from "@/components/data-table"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +17,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -86,6 +82,7 @@ export function WorkspaceMembersTable({
   const { members, membersLoading, membersError } = useWorkspaceMembers(
     workspace.id
   )
+  const memberRows = members ?? []
   const {
     userAssignments,
     isLoading: userAssignmentsIsLoading,
@@ -108,7 +105,7 @@ export function WorkspaceMembersTable({
           })
         }
         const selectedIsAgentPreset = isAgentPresetMember(selectedUser)
-        if (!roleId) {
+        if (!selectedIsAgentPreset && !roleId) {
           return toast({
             title: "No role selected",
             description: "Please select a role before continuing.",
@@ -124,7 +121,9 @@ export function WorkspaceMembersTable({
           await updateAgentPreset({
             presetId: selectedUser.user_id,
             assigned_role_id:
-              roleId === DEFAULT_PRESET_ROLE_VALUE ? null : roleId,
+              roleId === DEFAULT_PRESET_ROLE_VALUE || roleId === ""
+                ? null
+                : roleId,
           })
         } else {
           // Find the existing RBAC assignment for this user in this workspace
@@ -184,6 +183,9 @@ export function WorkspaceMembersTable({
       if (canUpdateAnyAgentPreset === true) {
         return true
       }
+      if (!isAgentPresetMember(member)) {
+        return false
+      }
       const presetSlug = getAgentPresetSlug(member)
       if (!presetSlug) {
         return false
@@ -203,10 +205,29 @@ export function WorkspaceMembersTable({
         }}
       >
         <DataTable
-          data={members}
+          data={memberRows}
           isLoading={membersLoading}
           error={membersError}
           columns={[
+            {
+              id: "type",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Type"
+                />
+              ),
+              accessorFn: (row) =>
+                isAgentPresetMember(row) ? "Agent" : "Member",
+              cell: ({ row }) => (
+                <Badge variant="outline" className="text-[10px]">
+                  {isAgentPresetMember(row.original) ? "Agent" : "Member"}
+                </Badge>
+              ),
+              enableSorting: true,
+              enableHiding: false,
+            },
             {
               accessorKey: "email",
               header: ({ column }) => (
@@ -219,7 +240,7 @@ export function WorkspaceMembersTable({
               cell: ({ row }) => (
                 <div className="text-xs">
                   {isAgentPresetMember(row.original)
-                    ? "-"
+                    ? "Preset account"
                     : row.getValue<WorkspaceMember["email"]>("email")}
                 </div>
               ),
@@ -244,10 +265,7 @@ export function WorkspaceMembersTable({
                       .filter(Boolean)
                       .join(" ")
                 return (
-                  <div className="flex items-center gap-2 text-xs">
-                    {isAgentPreset && (
-                      <BotIcon className="size-3.5 text-muted-foreground" />
-                    )}
+                  <div className="text-xs">
                     <span>{name || "-"}</span>
                   </div>
                 )
@@ -266,7 +284,9 @@ export function WorkspaceMembersTable({
               ),
               cell: ({ row }) => (
                 <div className="text-xs capitalize">
-                  {row.getValue<string>("role_name")}
+                  {row.getValue<string>("role_name") === "Default preset role"
+                    ? ""
+                    : row.getValue<string>("role_name")}
                 </div>
               ),
               enableSorting: true,
@@ -331,7 +351,6 @@ export function WorkspaceMembersTable({
               },
             },
           ]}
-          toolbarProps={defaultToolbarProps}
         />
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -407,19 +426,7 @@ function ChangeUserRoleDialog({
     () => roles.filter((r) => !r.slug || r.slug.startsWith("workspace-")),
     [roles]
   )
-  const roleOptions = useMemo(
-    () =>
-      isAgentPresetMember
-        ? [
-            {
-              id: DEFAULT_PRESET_ROLE_VALUE,
-              name: "Default preset role",
-            },
-            ...workspaceRoles,
-          ]
-        : workspaceRoles,
-    [isAgentPresetMember, workspaceRoles]
-  )
+  const roleOptions = useMemo(() => [...workspaceRoles], [workspaceRoles])
   const [selectedRoleId, setSelectedRoleId] = useState<string>("")
 
   useEffect(() => {
@@ -427,15 +434,22 @@ function ChangeUserRoleDialog({
       setSelectedRoleId("")
       return
     }
+    if (!isAgentPresetMember) {
+      const match = workspaceRoles.find(
+        (r) => r.name === selectedUser?.role_name
+      )
+      setSelectedRoleId(match?.id ?? "")
+      return
+    }
     if (
-      isAgentPresetMember &&
-      selectedUser?.role_name === "Default preset role"
+      selectedUser?.role_name === "Default preset role" ||
+      !selectedUser?.role_name
     ) {
       setSelectedRoleId(DEFAULT_PRESET_ROLE_VALUE)
       return
     }
     const match = workspaceRoles.find((r) => r.name === selectedUser?.role_name)
-    setSelectedRoleId(match?.id ?? "")
+    setSelectedRoleId(match?.id ?? DEFAULT_PRESET_ROLE_VALUE)
   }, [isAgentPresetMember, open, selectedUser, workspaceRoles])
 
   return (
@@ -473,7 +487,11 @@ function ChangeUserRoleDialog({
           Cancel
         </Button>
         <Button
-          disabled={!selectedRoleId || rolesIsLoading || isSubmitting}
+          disabled={
+            (!isAgentPresetMember && !selectedRoleId) ||
+            rolesIsLoading ||
+            isSubmitting
+          }
           onClick={() => onConfirm(selectedRoleId)}
         >
           Change role
@@ -481,11 +499,4 @@ function ChangeUserRoleDialog({
       </DialogFooter>
     </DialogContent>
   )
-}
-
-const defaultToolbarProps: DataTableToolbarProps<WorkspaceMember> = {
-  filterProps: {
-    placeholder: "Filter members by email...",
-    column: "email",
-  },
 }

@@ -357,7 +357,7 @@ async def list_org_members(
         .where(Workspace.organization_id == role.organization_id)
         .order_by(Workspace.name.asc(), AgentPreset.name.asc())
     )
-    agent_rows = (await session.execute(agent_stmt)).all()
+    agent_rows = (await session.execute(agent_stmt)).tuples().all()
     for (
         preset_id,
         preset_name,

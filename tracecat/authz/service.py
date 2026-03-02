@@ -82,7 +82,7 @@ class MembershipService(BaseService):
             .where(Membership.workspace_id == workspace_id)
             .order_by(asc(User.email))
         )
-        user_rows = (await self.session.execute(user_statement)).all()
+        user_rows = (await self.session.execute(user_statement)).tuples().all()
         members = [
             WorkspaceMember(
                 user_id=user.id,
@@ -107,7 +107,7 @@ class MembershipService(BaseService):
             .where(AgentPreset.workspace_id == workspace_id)
             .order_by(asc(AgentPreset.name))
         )
-        preset_rows = (await self.session.execute(preset_statement)).all()
+        preset_rows = (await self.session.execute(preset_statement)).tuples().all()
         members.extend(
             WorkspaceMember(
                 user_id=preset_id,

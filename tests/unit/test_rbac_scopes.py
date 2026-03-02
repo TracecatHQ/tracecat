@@ -186,6 +186,14 @@ class TestHasScope:
         assert has_scope(scopes, "agent:preset:*:update") is True
         assert has_scope(scopes, "agent:preset:*:delete") is False
 
+    def test_has_scope_with_wildcard_required_via_implication(self):
+        scopes = frozenset({"agent:preset:incident-bot:update"})
+        assert has_scope(scopes, "agent:preset:*:read") is True
+
+    def test_has_scope_with_wildcard_required_via_implication_is_resource_scoped(self):
+        scopes = frozenset({"workflow:update"})
+        assert has_scope(scopes, "agent:preset:*:read") is False
+
     def test_has_scope_global_wildcard(self):
         scopes = frozenset({"*"})
         assert has_scope(scopes, "workflow:read") is True
