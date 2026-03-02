@@ -54,6 +54,7 @@ locals {
       "alb.ingress.kubernetes.io/target-type"     = "ip"
       "alb.ingress.kubernetes.io/listen-ports"    = "[{\"HTTP\": 80}, {\"HTTPS\": 443}]"
       "alb.ingress.kubernetes.io/ssl-redirect"    = "443"
+      "alb.ingress.kubernetes.io/ssl-policy"      = var.alb_ssl_policy
       "alb.ingress.kubernetes.io/certificate-arn" = var.acm_certificate_arn
       "alb.ingress.kubernetes.io/group.name"      = local.alb_group_name
       "external-dns.alpha.kubernetes.io/hostname" = var.domain_name

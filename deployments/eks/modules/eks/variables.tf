@@ -32,6 +32,12 @@ variable "acm_certificate_arn" {
   type        = string
 }
 
+variable "alb_ssl_policy" {
+  description = "ALB SSL security policy for HTTPS listeners"
+  type        = string
+  default     = "ELBSecurityPolicy-TLS13-1-2-Res-2021-06"
+}
+
 # Node Group Configuration
 variable "node_instance_types" {
   description = "Instance types for the EKS node group"
