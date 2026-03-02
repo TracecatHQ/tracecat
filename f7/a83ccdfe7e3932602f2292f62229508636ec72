@@ -1,0 +1,25 @@
+tracecat/dsl/workflow.py
+  ad43b1f3f6dd5149 1198-1200,2030-2033
+tests/unit/test_dsl_workflow_concurrency.py
+  ad43b1f3f6dd5149 187,189,191-210,214-225,227-239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "f7a83ccdfe7e3932602f2292f62229508636ec72",
+  "prompts": {
+    "ad43b1f3f6dd5149": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019caf7f-898b-76f0-9996-5c04836ff0ce",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 60,
+      "total_deletions": 8,
+      "accepted_lines": 55,
+      "overriden_lines": 2
+    }
+  }
+}
