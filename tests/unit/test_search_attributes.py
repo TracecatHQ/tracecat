@@ -8,9 +8,10 @@ Objectives
 4. Test workspace_id search attribute is properly included
 """
 
+import asyncio
 import uuid
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from temporalio.client import Client
@@ -93,6 +94,110 @@ def mock_dsl() -> DSLInput:
 @pytest.mark.anyio
 class TestWorkflowExecutionSearchAttributes:
     """Test search attributes on workflow executions."""
+
+    @pytest.mark.parametrize(
+        ("method_name", "temporal_method"),
+        [
+            ("create_workflow_execution", "execute_workflow"),
+            ("create_draft_workflow_execution", "execute_workflow"),
+            ("create_workflow_execution_wait_for_start", "start_workflow"),
+            ("create_draft_workflow_execution_wait_for_start", "start_workflow"),
+        ],
+    )
+    async def test_all_blocking_execution_entrypoints_include_workspace_search_attr(
+        self,
+        mock_client: Mock,
+        mock_role_with_workspace: Role,
+        mock_dsl: DSLInput,
+        test_workflow_id: WorkflowID,
+        method_name: str,
+        temporal_method: str,
+    ) -> None:
+        """Every blocking workflow creation entrypoint must set TracecatWorkspaceId."""
+        service = WorkflowExecutionsService(
+            client=mock_client, role=mock_role_with_workspace
+        )
+        mock_client.execute_workflow = AsyncMock(return_value={"status": "completed"})
+        mock_client.start_workflow = AsyncMock(return_value=Mock())
+
+        method = getattr(service, method_name)
+        with patch.object(service, "_resolve_execution_timeout", return_value=None):
+            await method(
+                dsl=mock_dsl,
+                wf_id=test_workflow_id,
+                trigger_type=TriggerType.MANUAL,
+            )
+
+        if temporal_method == "execute_workflow":
+            await_args = mock_client.execute_workflow.await_args
+        else:
+            await_args = mock_client.start_workflow.await_args
+
+        assert await_args is not None
+        search_attrs = await_args.kwargs["search_attributes"]
+        assert isinstance(search_attrs, TypedSearchAttributes)
+
+        ws_key = TemporalSearchAttr.WORKSPACE_ID.key
+        workspace_pairs = [
+            pair for pair in search_attrs.search_attributes if pair.key == ws_key
+        ]
+        assert workspace_pairs, "TracecatWorkspaceId search attribute missing"
+        assert workspace_pairs[0].value == str(mock_role_with_workspace.workspace_id)
+
+    @pytest.mark.parametrize(
+        "method_name",
+        [
+            "create_workflow_execution_nowait",
+            "create_draft_workflow_execution_nowait",
+        ],
+    )
+    async def test_all_nowait_execution_entrypoints_include_workspace_search_attr(
+        self,
+        mock_client: Mock,
+        mock_role_with_workspace: Role,
+        mock_dsl: DSLInput,
+        test_workflow_id: WorkflowID,
+        method_name: str,
+    ) -> None:
+        """Every nowait workflow creation entrypoint must set TracecatWorkspaceId."""
+        service = WorkflowExecutionsService(
+            client=mock_client, role=mock_role_with_workspace
+        )
+        mock_client.start_workflow = AsyncMock(return_value=Mock())
+        created_tasks: list[asyncio.Task[None]] = []
+
+        def _capture_ensure_future(coro: Any) -> asyncio.Task[None]:
+            task = asyncio.create_task(coro)
+            created_tasks.append(task)
+            return task
+
+        method = getattr(service, method_name)
+        with (
+            patch.object(service, "_resolve_execution_timeout", return_value=None),
+            patch.object(service, "_handle_background_task_exception", Mock()),
+            patch(
+                "tracecat.workflow.executions.service.asyncio.ensure_future",
+                side_effect=_capture_ensure_future,
+            ),
+        ):
+            method(
+                dsl=mock_dsl,
+                wf_id=test_workflow_id,
+                trigger_type=TriggerType.MANUAL,
+            )
+            await asyncio.gather(*created_tasks)
+
+        await_args = mock_client.start_workflow.await_args
+        assert await_args is not None
+        search_attrs = await_args.kwargs["search_attributes"]
+        assert isinstance(search_attrs, TypedSearchAttributes)
+
+        ws_key = TemporalSearchAttr.WORKSPACE_ID.key
+        workspace_pairs = [
+            pair for pair in search_attrs.search_attributes if pair.key == ws_key
+        ]
+        assert workspace_pairs, "TracecatWorkspaceId search attribute missing"
+        assert workspace_pairs[0].value == str(mock_role_with_workspace.workspace_id)
 
     async def test_manual_trigger_with_user_sets_all_attributes(
         self,
