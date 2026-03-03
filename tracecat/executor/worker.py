@@ -60,6 +60,11 @@ with workflow.unsafe.imports_passed_through():
         initialize_executor_backend,
         shutdown_executor_backend,
     )
+    from tracecat.executor.startup_warm_cache import warm_registry_cache_on_startup
+    from tracecat.executor.warm_readiness import (
+        clear_warm_ready_file,
+        mark_warm_ready,
+    )
     from tracecat.logger import logger
     from tracecat.registry.sync.workflow import (
         RegistrySyncActivities,
@@ -118,8 +123,32 @@ async def main() -> None:
         executor_backend=config.TRACECAT__EXECUTOR_BACKEND,
     )
 
+    # Clear stale readiness marker before startup initialization begins.
+    clear_warm_ready_file()
+
     # Initialize the executor backend before accepting tasks
     await initialize_executor_backend()
+    try:
+        warmup_report = await warm_registry_cache_on_startup()
+        if warmup_report.enabled:
+            logger.info(
+                "Executor startup warmup finished",
+                timed_out=warmup_report.timed_out,
+                published_definition_rows=warmup_report.published_definition_rows,
+                scheduled_definition_rows=warmup_report.scheduled_definition_rows,
+                definition_rows=warmup_report.definition_rows,
+                candidate_tarballs=warmup_report.candidate_tarballs,
+                warmed_tarballs=warmup_report.warmed_tarballs,
+                failed_tarballs=warmup_report.failed_tarballs,
+            )
+        else:
+            logger.info(
+                "Executor startup warmup skipped",
+                reason=warmup_report.skipped_reason,
+            )
+    finally:
+        # Timeboxed readiness gate: signal readiness once warmup attempt finishes.
+        mark_warm_ready()
 
     try:
         client = await get_temporal_client()

@@ -199,6 +199,12 @@ services:
       # Pool size auto-scales based on available CPUs if not set
       TRACECAT__EXECUTOR_WORKER_POOL_SIZE: ${TRACECAT__EXECUTOR_WORKER_POOL_SIZE:-}
       TRACECAT__EXECUTOR_BACKEND: ${TRACECAT__EXECUTOR_BACKEND:-direct}
+      TRACECAT__EXECUTOR_WARM_CACHE_ENABLED: ${TRACECAT__EXECUTOR_WARM_CACHE_ENABLED:-true}
+      TRACECAT__EXECUTOR_WARM_CACHE_TIMEOUT_SECONDS: ${TRACECAT__EXECUTOR_WARM_CACHE_TIMEOUT_SECONDS:-20}
+      TRACECAT__EXECUTOR_WARM_CACHE_CONCURRENCY: ${TRACECAT__EXECUTOR_WARM_CACHE_CONCURRENCY:-4}
+      TRACECAT__EXECUTOR_WARM_CACHE_MAX_WORKFLOW_DEFINITIONS: ${TRACECAT__EXECUTOR_WARM_CACHE_MAX_WORKFLOW_DEFINITIONS:-10000}
+      TRACECAT__EXECUTOR_WARM_CACHE_MAX_TARBALLS: ${TRACECAT__EXECUTOR_WARM_CACHE_MAX_TARBALLS:-2000}
+      TRACECAT__EXECUTOR_WARM_READY_FILE: ${TRACECAT__EXECUTOR_WARM_READY_FILE:-/tmp/tracecat/executor-warm.ready}
       # Redis
       REDIS_URL: ${REDIS_URL}
       # Blob storage (for S3/MinIO wheel access)
@@ -220,6 +226,12 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "tracecat.executor.healthcheck"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
 
   agent-executor:
     build:

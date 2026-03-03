@@ -498,6 +498,66 @@ variable "executor_worker_pool_size" {
   default     = null
 }
 
+variable "executor_warm_cache_enabled" {
+  type        = bool
+  description = "Enable executor startup warm cache preloading"
+  default     = true
+}
+
+variable "executor_warm_cache_timeout_seconds" {
+  type        = number
+  description = "Maximum startup warm cache duration in seconds"
+  default     = 20
+}
+
+variable "executor_warm_cache_concurrency" {
+  type        = number
+  description = "Max concurrent tarball warm operations at startup"
+  default     = 4
+}
+
+variable "executor_warm_cache_max_workflow_definitions" {
+  type        = number
+  description = "Max number of workflow definitions scanned for warmup"
+  default     = 10000
+}
+
+variable "executor_warm_cache_max_tarballs" {
+  type        = number
+  description = "Max number of tarballs warmed during startup"
+  default     = 2000
+}
+
+variable "executor_warm_ready_file" {
+  type        = string
+  description = "Readiness marker file path written after warmup attempt"
+  default     = "/tmp/tracecat/executor-warm.ready"
+}
+
+variable "executor_healthcheck_interval" {
+  type        = number
+  description = "Executor container healthcheck interval in seconds"
+  default     = 5
+}
+
+variable "executor_healthcheck_timeout" {
+  type        = number
+  description = "Executor container healthcheck timeout in seconds"
+  default     = 5
+}
+
+variable "executor_healthcheck_retries" {
+  type        = number
+  description = "Executor container healthcheck retries before unhealthy"
+  default     = 12
+}
+
+variable "executor_healthcheck_start_period" {
+  type        = number
+  description = "Executor container healthcheck grace period in seconds"
+  default     = 10
+}
+
 variable "agent_executor_cpu" {
   type    = string
   default = "4096"

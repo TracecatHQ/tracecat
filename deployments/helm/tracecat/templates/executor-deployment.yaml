@@ -60,6 +60,22 @@ spec:
           env:
             {{- include "tracecat.env.executor" . | nindent 12 }}
             {{- include "tracecat.env.secrets" . | nindent 12 }}
+          {{- if .Values.executor.startupProbe.enabled }}
+          startupProbe:
+            exec:
+              command: ["python", "-m", "tracecat.executor.healthcheck"]
+            periodSeconds: {{ .Values.executor.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.executor.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.executor.startupProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.executor.readinessProbe.enabled }}
+          readinessProbe:
+            exec:
+              command: ["python", "-m", "tracecat.executor.healthcheck"]
+            periodSeconds: {{ .Values.executor.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.executor.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.executor.readinessProbe.failureThreshold }}
+          {{- end }}
           volumeMounts:
             - name: sandbox-cache
               mountPath: /var/lib/tracecat/sandbox-cache

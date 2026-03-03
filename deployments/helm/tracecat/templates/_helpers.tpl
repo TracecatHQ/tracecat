@@ -746,6 +746,18 @@ Merges: common + temporal + postgres + redis + executor-specific
   value: {{ .Values.executor.queue | quote }}
 - name: TRACECAT__EXECUTOR_WORKER_POOL_SIZE
   value: {{ .Values.executor.workerPoolSize | quote }}
+- name: TRACECAT__EXECUTOR_WARM_CACHE_ENABLED
+  value: {{ .Values.executor.warmCache.enabled | quote }}
+- name: TRACECAT__EXECUTOR_WARM_CACHE_TIMEOUT_SECONDS
+  value: {{ .Values.executor.warmCache.timeoutSeconds | quote }}
+- name: TRACECAT__EXECUTOR_WARM_CACHE_CONCURRENCY
+  value: {{ .Values.executor.warmCache.concurrency | quote }}
+- name: TRACECAT__EXECUTOR_WARM_CACHE_MAX_WORKFLOW_DEFINITIONS
+  value: {{ .Values.executor.warmCache.maxWorkflowDefinitions | quote }}
+- name: TRACECAT__EXECUTOR_WARM_CACHE_MAX_TARBALLS
+  value: {{ .Values.executor.warmCache.maxTarballs | quote }}
+- name: TRACECAT__EXECUTOR_WARM_READY_FILE
+  value: {{ .Values.executor.warmCache.readyFile | quote }}
 {{- end }}
 
 {{/*

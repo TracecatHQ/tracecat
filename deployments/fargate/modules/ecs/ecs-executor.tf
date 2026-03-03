@@ -28,6 +28,13 @@ resource "aws_ecs_task_definition" "executor_task_definition" {
       }
       environment = local.executor_env
       secrets     = local.executor_secrets
+      healthCheck = {
+        command     = ["CMD-SHELL", "python -m tracecat.executor.healthcheck || exit 1"]
+        interval    = var.executor_healthcheck_interval
+        timeout     = var.executor_healthcheck_timeout
+        retries     = var.executor_healthcheck_retries
+        startPeriod = var.executor_healthcheck_start_period
+      }
     }
   ])
 }

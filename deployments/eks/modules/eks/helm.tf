@@ -253,6 +253,31 @@ resource "helm_release" "tracecat" {
     value = var.executor_backend
   }
 
+  set {
+    name  = "executor.warmCache.enabled"
+    value = var.executor_warm_cache_enabled
+  }
+
+  set {
+    name  = "executor.warmCache.timeoutSeconds"
+    value = var.executor_warm_cache_timeout_seconds
+  }
+
+  set {
+    name  = "executor.warmCache.concurrency"
+    value = var.executor_warm_cache_concurrency
+  }
+
+  set {
+    name  = "executor.warmCache.maxWorkflowDefinitions"
+    value = var.executor_warm_cache_max_workflow_definitions
+  }
+
+  set {
+    name  = "executor.warmCache.maxTarballs"
+    value = var.executor_warm_cache_max_tarballs
+  }
+
   # Agent Executor configuration
   set {
     name  = "agentExecutor.replicas"
