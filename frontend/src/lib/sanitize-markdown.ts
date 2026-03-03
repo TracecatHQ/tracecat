@@ -32,6 +32,9 @@ export const ALLOWED_MARKDOWN_IMAGE_PREFIXES = [
   "/",
 ]
 
+// Used to resolve path-relative markdown URLs during URL hardening.
+export const DEFAULT_MARKDOWN_ORIGIN = "https://tracecat.local"
+
 export function getStreamdownRehypePlugins() {
   // Sanitize first, then render KaTeX to avoid stripping math markup
   return [[rehypeSanitize, sanitizeSchema], rehypeKatex]

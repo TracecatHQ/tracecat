@@ -5,6 +5,7 @@ import { Streamdown } from "streamdown"
 import {
   ALLOWED_MARKDOWN_IMAGE_PREFIXES,
   ALLOWED_MARKDOWN_LINK_PREFIXES,
+  DEFAULT_MARKDOWN_ORIGIN,
   getStreamdownRehypePlugins,
 } from "@/lib/sanitize-markdown"
 import { cn } from "@/lib/utils"
@@ -25,6 +26,7 @@ export const Response = memo(
       )}
       allowedImagePrefixes={ALLOWED_MARKDOWN_IMAGE_PREFIXES}
       allowedLinkPrefixes={ALLOWED_MARKDOWN_LINK_PREFIXES}
+      defaultOrigin={DEFAULT_MARKDOWN_ORIGIN}
       rehypePlugins={responseRehypePlugins}
     >
       {children}
