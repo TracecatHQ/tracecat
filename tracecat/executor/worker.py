@@ -146,12 +146,10 @@ async def main() -> None:
                 "Executor startup warmup skipped",
                 reason=warmup_report.skipped_reason,
             )
-    finally:
-        # Timeboxed readiness gate: signal readiness once warmup attempt finishes.
-        mark_warm_ready()
 
-    try:
         client = await get_temporal_client()
+        # Signal readiness only after warmup gate and Temporal connectivity succeed.
+        mark_warm_ready()
 
         # Collect all activities from executor and registry sync
         activities = [

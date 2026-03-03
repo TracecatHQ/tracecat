@@ -1,8 +1,8 @@
 """Sentinel-file based readiness gate for executor warm cache.
 
-After the executor finishes its startup warmup attempt (success, timeout, or
-error), it writes a marker file to disk. Kubernetes readiness probes check for
-this file to decide when the executor pod is ready to receive traffic.
+After the executor finishes its startup warmup attempt and connects to Temporal,
+it writes a marker file to disk. Readiness probes check for this file to decide
+when the executor should be considered healthy.
 
 The file is cleared on every startup so stale markers from previous runs
 don't leak across container restarts.

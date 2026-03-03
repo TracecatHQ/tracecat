@@ -66,7 +66,7 @@ TRACECAT__EXECUTOR_WARM_CACHE_MAX_TARBALLS = int(
 TRACECAT__EXECUTOR_WARM_READY_FILE = os.environ.get(
     "TRACECAT__EXECUTOR_WARM_READY_FILE", "/tmp/tracecat/executor-warm.ready"
 )
-"""Readiness marker path written by executor after warmup attempt completes."""
+"""Readiness marker path written after startup warmup and Temporal connect."""
 
 # TODO: Set this as an environment variable
 TRACECAT__SERVICE_ROLES_WHITELIST = [
