@@ -1,0 +1,25 @@
+tests/unit/executor/test_startup_warm_cache.py
+  5c7d0aa880f94781 4,81,86-87,89-90,92-93,105,110,146,159,164-165,175,182-183,186,190,193,195,198-200,202-203,214,219,229,236-267,286
+tracecat/executor/startup_warm_cache.py
+  5c7d0aa880f94781 45,65-67,70-71,77,85,91,94-95,101,123,129,133,135-137,139-145,147-150,152-157,216-219,221-224,240-242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "96ab57a8721cc66a763f55a7fbc7cdb14c4ba7ee",
+  "prompts": {
+    "5c7d0aa880f94781": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb418-9506-7191-aeae-801be37156c8",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 119,
+      "total_deletions": 288,
+      "accepted_lines": 110,
+      "overriden_lines": 0
+    }
+  }
+}
