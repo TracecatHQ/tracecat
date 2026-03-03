@@ -1,0 +1,47 @@
+tracecat/db/models.py
+  a79d8c9015e64776 65,68-70,2736-2755,2815-2818,2820-2821,2823-2842
+frontend/src/components/integrations/create-custom-provider-dialog.tsx
+  a79d8c9015e64776 41-47,49-55,60,72,77-102,107-109,114-186,196-200,244,267-273,426-542
+frontend/src/client/services.custom.ts
+  a79d8c9015e64776 21-30
+frontend/src/client/types.gen.ts
+  a79d8c9015e64776 2113-2115,2117-2132,3234-3236,3238-3240,3242-3244,3247-3253,3319-3321,3323-3326,3328-3338,3577-3584
+frontend/src/components/provider-config-form.tsx
+  a79d8c9015e64776 24-31,74-94,108-120,134-158,160-166,168-169,171-221,272-287,294-298,316-322,380-383,388-389,549-575,580-684
+tracecat/integrations/enums.py
+  a79d8c9015e64776 24-33
+tracecat/integrations/providers/base.py
+  a79d8c9015e64776 4,14,16-17,21,127-131,142-146,159-179,209-216,221,236-243,290-292,294-298,402-417,423-426,428,1029-1030,1104-1105,1114-1121,1169-1177,1181-1200,1223-1227
+tracecat/integrations/schemas.py
+  a79d8c9015e64776 10,19,23,26-38,41-47,89-95,97-108,145-161,163,165-168,187,197-275,328-339,341-362,364-454,567-571,601-605,610-702
+tracecat/integrations/router.py
+  a79d8c9015e64776 4,24,26-28,45,335-339,358-366,670-674
+tracecat/integrations/service.py
+  a79d8c9015e64776 11-13,27,29-31,44,62-63,239-243,570-577,595-600,607-613,615-616,798-960,969-973,983-992,1004-1008,1015-1027,1029-1034,1036-1116,1148-1166,1171-1172,1175-1181,1183,1185-1191,1245-1256,1264-1270,1277-1283,1285-1286,1321-1325
+frontend/src/lib/hooks.tsx
+  a79d8c9015e64776 4519-4525
+alembic/versions/7bad028bc2ce_add_oauth_client_auth_method_and_.py
+  a79d8c9015e64776 1-87
+tests/unit/test_integrations_service.py
+  a79d8c9015e64776 10-11,19,40-48,1080-1156,1851-1867
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "c488c0e7a9569c884abbcec8872d999e5383cc60",
+  "prompts": {
+    "a79d8c9015e64776": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019caf74-1486-7fd1-8502-06359b98b82a",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1902,
+      "total_deletions": 104,
+      "accepted_lines": 1819,
+      "overriden_lines": 5
+    }
+  }
+}
