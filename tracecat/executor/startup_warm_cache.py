@@ -163,7 +163,9 @@ async def _collect_online_schedule_lock_candidates() -> list[_DefinitionLockCand
     """Query online-scheduled workflow definitions and return their lock candidates.
 
     Uses JSONB operators to extract origins directly in SQL, handling both
-    the current RegistryLock schema and the legacy flat-dict format.
+    the current RegistryLock schema and the legacy flat-dict format. The query
+    intentionally does not hard-cap rows so deduplication by workflow can be
+    applied before enforcing the warmup limit.
     """
     stmt = (
         select(
@@ -202,7 +204,6 @@ async def _collect_online_schedule_lock_candidates() -> list[_DefinitionLockCand
             func.jsonb_typeof(_origins_jsonb) == "object",
         )
         .order_by(Schedule.workflow_id.asc())
-        .limit(config.TRACECAT__EXECUTOR_WARM_CACHE_MAX_WORKFLOW_DEFINITIONS)
     )
     async with get_async_session_context_manager() as session:
         rows = (await session.execute(stmt)).tuples().all()
@@ -298,9 +299,12 @@ async def _run_warmup() -> WarmCacheReport:
     """Execute the full warmup pipeline: collect, deduplicate, resolve, and warm."""
     published_candidates = await _collect_published_definition_lock_candidates()
     scheduled_candidates = await _collect_online_schedule_lock_candidates()
+    max_definitions = max(
+        1, config.TRACECAT__EXECUTOR_WARM_CACHE_MAX_WORKFLOW_DEFINITIONS
+    )
     definition_candidates = _dedupe_definition_candidates(
         [*published_candidates, *scheduled_candidates]
-    )
+    )[:max_definitions]
     platform_definition_candidates = _filter_definition_candidates_to_platform_origins(
         definition_candidates
     )

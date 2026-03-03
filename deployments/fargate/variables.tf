@@ -509,7 +509,7 @@ variable "executor_healthcheck_timeout" {
 variable "executor_healthcheck_retries" {
   type        = number
   description = "Executor container healthcheck retries before unhealthy"
-  default     = 12
+  default     = 10
 }
 
 variable "executor_healthcheck_start_period" {

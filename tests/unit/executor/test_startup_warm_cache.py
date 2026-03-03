@@ -276,6 +276,78 @@ async def test_collect_online_schedule_lock_candidates_filters_empty_origins(
 
 
 @pytest.mark.anyio
+async def test_run_warmup_dedupes_before_definition_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    shared_wf = "wf-shared"
+    candidate_shared_a = startup_warm_cache._DefinitionLockCandidate(
+        organization_id=org_id,
+        workflow_id=shared_wf,
+        origins={DEFAULT_REGISTRY_ORIGIN: "1.0.0"},
+    )
+    candidate_shared_b = startup_warm_cache._DefinitionLockCandidate(
+        organization_id=org_id,
+        workflow_id=shared_wf,
+        origins={DEFAULT_REGISTRY_ORIGIN: "1.0.0"},
+    )
+    candidate_unique = startup_warm_cache._DefinitionLockCandidate(
+        organization_id=org_id,
+        workflow_id="wf-unique",
+        origins={DEFAULT_REGISTRY_ORIGIN: "2.0.0"},
+    )
+
+    seen_candidates: list[startup_warm_cache._DefinitionLockCandidate] = []
+
+    async def _published() -> list[startup_warm_cache._DefinitionLockCandidate]:
+        return []
+
+    async def _scheduled() -> list[startup_warm_cache._DefinitionLockCandidate]:
+        # Two schedules for the same workflow plus one distinct workflow.
+        return [candidate_shared_a, candidate_shared_b, candidate_unique]
+
+    async def _definition_uris(
+        candidates: list[startup_warm_cache._DefinitionLockCandidate],
+    ) -> set[str]:
+        seen_candidates.extend(candidates)
+        return set()
+
+    async def _platform_uris() -> set[str]:
+        return set()
+
+    async def _warm(_uris: list[str]) -> tuple[int, int]:
+        return 0, 0
+
+    monkeypatch.setattr(
+        startup_warm_cache,
+        "_collect_published_definition_lock_candidates",
+        _published,
+    )
+    monkeypatch.setattr(
+        startup_warm_cache,
+        "_collect_online_schedule_lock_candidates",
+        _scheduled,
+    )
+    monkeypatch.setattr(
+        startup_warm_cache, "_resolve_definition_tarball_uris", _definition_uris
+    )
+    monkeypatch.setattr(
+        startup_warm_cache, "_collect_platform_current_tarball_uris", _platform_uris
+    )
+    monkeypatch.setattr(startup_warm_cache, "_warm_tarball_uris", _warm)
+    monkeypatch.setattr(
+        config, "TRACECAT__EXECUTOR_WARM_CACHE_MAX_WORKFLOW_DEFINITIONS", 2
+    )
+
+    report = await startup_warm_cache._run_warmup()
+
+    assert report.published_definition_rows == 0
+    assert report.scheduled_definition_rows == 3
+    assert report.definition_rows == 2
+    assert seen_candidates == [candidate_shared_a, candidate_unique]
+
+
+@pytest.mark.anyio
 async def test_collect_platform_current_tarball_uris_dedupes_and_skips_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
