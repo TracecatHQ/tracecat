@@ -18,8 +18,6 @@ module.exports = {
     "^@/(.*)$": "<rootDir>/src/$1",
     "^lucide-react/dynamicIconImports$":
       "<rootDir>/tests/mocks/lucide-dynamic-icon-imports.js",
-    "^rehype-katex$": "<rootDir>/tests/mocks/rehype-katex.js",
-    "^rehype-sanitize$": "<rootDir>/tests/mocks/rehype-sanitize.js",
     // Mock CSS and other non-JS files
     "\\.(css|less|scss|sass)$": "identity-obj-proxy",
     "\\.(jpg|jpeg|png|gif|eot|otf|webp|svg|ttf|woff|woff2|mp4|webm|wav|mp3|m4a|aac|oga)$":

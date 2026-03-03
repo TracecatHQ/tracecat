@@ -49,6 +49,18 @@ jest.mock("streamdown", () => ({
   Streamdown: ({ children }) => children,
 }))
 
+// Mock rehype-katex and rehype-sanitize (ESM-only) for Jest
+jest.mock("rehype-katex", () => {
+  const plugin = () => (tree) => tree
+  return plugin
+})
+jest.mock("rehype-sanitize", () => {
+  const plugin = () => (tree) => tree
+  plugin.default = plugin
+  plugin.defaultSchema = { attributes: {} }
+  return plugin
+})
+
 // Mock react-syntax-highlighter
 jest.mock("react-syntax-highlighter", () => ({
   Prism: ({ children }) => children,
