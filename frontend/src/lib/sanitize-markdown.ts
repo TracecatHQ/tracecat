@@ -16,7 +16,8 @@ const sanitizeSchema = {
   },
 }
 
-export const SAFE_MARKDOWN_LINK_PREFIXES = [
+
+export const ALLOWED_MARKDOWN_LINK_PREFIXES = [
   "http://",
   "https://",
   "mailto:",
@@ -25,7 +26,7 @@ export const SAFE_MARKDOWN_LINK_PREFIXES = [
   "#",
 ]
 
-export const SAFE_MARKDOWN_IMAGE_PREFIXES = [
+export const ALLOWED_MARKDOWN_IMAGE_PREFIXES = [
   "http://",
   "https://",
   "data:image/",
@@ -33,5 +34,6 @@ export const SAFE_MARKDOWN_IMAGE_PREFIXES = [
 ]
 
 export function getStreamdownRehypePlugins() {
-  return [rehypeKatex, [rehypeSanitize, sanitizeSchema]]
+  // Sanitize first, then render KaTeX to avoid stripping math markup
+  return [[rehypeSanitize, sanitizeSchema], rehypeKatex]
 }
