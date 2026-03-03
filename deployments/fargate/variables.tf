@@ -438,7 +438,7 @@ variable "executor_memory" {
 variable "executor_desired_count" {
   type        = number
   description = "Desired number of executor instances to run"
-  default     = 1
+  default     = 2
 }
 
 variable "executor_client_timeout" {
@@ -471,7 +471,7 @@ variable "agent_executor_memory" {
 variable "agent_executor_desired_count" {
   type        = number
   description = "Desired number of agent-executor instances to run"
-  default     = 1
+  default     = 2
 }
 
 variable "agent_queue" {
