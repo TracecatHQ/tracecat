@@ -79,3 +79,28 @@ async def test_update_case_simple_serializes_and_keeps_null_option(
             ]
         },
     )
+
+
+@pytest.mark.anyio
+async def test_search_cases_uses_post_body_contract(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    """Case search should use POST /cases/search with JSON payload."""
+    mock_tracecat_client.post.return_value = {"items": []}
+
+    await cases_client.search_cases(
+        search_term="incident",
+        limit=10,
+        agg="count",
+        group_by=["status"],
+    )
+
+    mock_tracecat_client.post.assert_called_once_with(
+        "/cases/search",
+        json={
+            "limit": 10,
+            "search_term": "incident",
+            "group_by": ["status"],
+            "agg": "count",
+        },
+    )

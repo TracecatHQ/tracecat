@@ -5,9 +5,11 @@ All dict return types from UDFs are serialized to JSON, so UUIDs become strings
 and datetimes become ISO format strings.
 """
 
+from __future__ import annotations
+
 from uuid import UUID
 from datetime import datetime
-from typing import Any, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 
 # ============================================================================
@@ -165,6 +167,7 @@ class CaseListResponse(TypedDict):
     has_more: bool
     has_previous: bool
     total_estimate: int | None
+    aggregation: NotRequired[SearchAggregationResult | None]
 
 
 class CaseComment(TypedDict):
@@ -641,6 +644,38 @@ class TableSearchResponse(TypedDict):
     has_more: bool
     has_previous: bool
     total_estimate: NotRequired[int | None]
+    aggregation: NotRequired[SearchAggregationResult | None]
+
+
+SearchAggFunction = Literal[
+    "count",
+    "sum",
+    "min",
+    "max",
+    "mean",
+    "median",
+    "mode",
+    "n_unique",
+]
+
+
+class SearchAggregationBucket(TypedDict):
+    """One grouped aggregation bucket."""
+
+    key: dict[str, Any]
+    value: Any
+
+
+class SearchAggregationResult(TypedDict):
+    """Unified aggregation payload returned by search endpoints."""
+
+    agg: SearchAggFunction
+    agg_field: str | None
+    group_by: list[str]
+    value: Any
+    buckets: list[SearchAggregationBucket]
+    bucket_limit: int
+    truncated: bool
 
 
 # ============================================================================

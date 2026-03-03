@@ -63,3 +63,33 @@ async def test_search_rows_rejects_unexpected_dict_shape(
 
     with pytest.raises(ValueError, match="Unexpected search response"):
         await tables_client.search_rows(table="test_table")
+
+
+@pytest.mark.anyio
+async def test_search_rows_forwards_aggregation_params(
+    tables_client: TablesClient, mock_tracecat_client: MagicMock
+) -> None:
+    """Aggregation parameters should be included in the search body."""
+    mock_tracecat_client.post.return_value = {
+        "items": [],
+        "next_cursor": None,
+        "prev_cursor": None,
+        "has_more": False,
+        "has_previous": False,
+    }
+
+    await tables_client.search_rows(
+        table="test_table",
+        agg="count",
+        group_by=["name"],
+        bucket_limit=50,
+    )
+
+    mock_tracecat_client.post.assert_called_once_with(
+        "/tables/test_table/search",
+        json={
+            "group_by": ["name"],
+            "agg": "count",
+            "bucket_limit": 50,
+        },
+    )

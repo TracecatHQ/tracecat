@@ -140,6 +140,41 @@ async def search_rows(
         bool,
         Doc("If true, return cursor pagination metadata along with items."),
     ] = False,
+    order_by: Annotated[
+        str | None,
+        Doc("Column to sort by."),
+    ] = None,
+    sort: Annotated[
+        Literal["asc", "desc"] | None,
+        Doc("Sort direction for order_by."),
+    ] = None,
+    group_by: Annotated[
+        list[str] | None,
+        Doc("Optional grouping columns for aggregation."),
+    ] = None,
+    agg: Annotated[
+        Literal[
+            "count",
+            "sum",
+            "min",
+            "max",
+            "mean",
+            "median",
+            "mode",
+            "n_unique",
+            "avg",
+        ]
+        | None,
+        Doc("Optional aggregate function."),
+    ] = None,
+    agg_field: Annotated[
+        str | None,
+        Doc("Optional aggregation field."),
+    ] = None,
+    bucket_limit: Annotated[
+        int | None,
+        Doc("Maximum grouped buckets returned when group_by is set."),
+    ] = None,
 ) -> types.TableSearchResponse | list[dict[str, Any]]:
     if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise ValueError(
@@ -162,8 +197,32 @@ async def search_rows(
     if cursor is not None:
         params["cursor"] = cursor
     params["reverse"] = reverse
+    if order_by is not None:
+        params["order_by"] = order_by
+    if sort is not None:
+        params["sort"] = sort
+    if group_by is not None:
+        params["group_by"] = group_by
+    if agg is not None:
+        params["agg"] = agg
+    if agg_field is not None:
+        params["agg_field"] = agg_field
+    if bucket_limit is not None:
+        params["bucket_limit"] = bucket_limit
     response = await get_context().tables.search_rows(**params)
-    if paginate:
+
+    wants_structured = (
+        paginate
+        or cursor is not None
+        or reverse
+        or order_by is not None
+        or sort is not None
+        or group_by is not None
+        or agg is not None
+        or agg_field is not None
+        or bucket_limit is not None
+    )
+    if wants_structured:
         return response
     if isinstance(response, dict):
         return response.get("items")

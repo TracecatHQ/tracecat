@@ -426,10 +426,10 @@ class TestCoreSearchRecords:
         )
         assert result == legacy_rows
 
-    async def test_search_rows_with_date_filters(
+    async def test_search_rows_with_date_filters_and_cursor(
         self, mock_tables_client: AsyncMock, mock_row
     ):
-        """Test record search with date filtering capabilities."""
+        """Cursor-based table searches should return structured payloads."""
         mock_tables_client.search_rows.return_value = {
             "items": [mock_row],
             "next_cursor": None,
@@ -464,9 +464,44 @@ class TestCoreSearchRecords:
             cursor="cursor-1",
             reverse=False,
         )
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert result[0] == mock_row
+        assert isinstance(result, dict)
+        assert len(result["items"]) == 1
+        assert result["items"][0] == mock_row
+
+    async def test_search_rows_with_aggregation_returns_structured(
+        self, mock_tables_client: AsyncMock, mock_row
+    ) -> None:
+        """Aggregation input should return the full search contract."""
+        mock_tables_client.search_rows.return_value = {
+            "items": [mock_row],
+            "aggregation": {
+                "agg": "count",
+                "agg_field": None,
+                "group_by": ["name"],
+                "value": 1,
+                "buckets": [{"key": {"name": "John Doe"}, "value": 1}],
+                "bucket_limit": 100,
+                "truncated": False,
+            },
+        }
+
+        result = await search_rows(
+            table="test_table",
+            agg="count",
+            group_by=["name"],
+        )
+
+        mock_tables_client.search_rows.assert_called_once_with(
+            table="test_table",
+            limit=100,
+            reverse=False,
+            agg="count",
+            group_by=["name"],
+        )
+        assert isinstance(result, dict)
+        aggregation = result.get("aggregation")
+        assert aggregation is not None
+        assert aggregation["value"] == 1
 
 
 @pytest.mark.anyio

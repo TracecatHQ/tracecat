@@ -642,11 +642,17 @@ class TestCoreSearchCases:
         )
         assert result == [mock_case_dict]
 
-    async def test_search_cases_ignores_cursor_params_when_paginate_false(
+    async def test_search_cases_with_cursor_returns_structured_response(
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):
-        """search_cases should ignore cursor controls when paginate is false."""
-        mock_cases_client.search_cases.return_value = {"items": [mock_case_dict]}
+        """Cursor input should return structured pagination payload."""
+        mock_cases_client.search_cases.return_value = {
+            "items": [mock_case_dict],
+            "next_cursor": "cursor-2",
+            "prev_cursor": "cursor-0",
+            "has_more": True,
+            "has_previous": True,
+        }
 
         result = await search_cases(
             limit=25,
@@ -658,10 +664,45 @@ class TestCoreSearchCases:
 
         mock_cases_client.search_cases.assert_called_once_with(
             limit=25,
+            cursor="cursor-1",
+            reverse=True,
             order_by="updated_at",
             sort="asc",
         )
-        assert result == [mock_case_dict]
+        assert isinstance(result, dict)
+        assert result["items"] == [mock_case_dict]
+
+    async def test_search_cases_with_aggregation_returns_structured_response(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ) -> None:
+        """Aggregation requests should return full structured search payloads."""
+        mock_cases_client.search_cases.return_value = {
+            "items": [mock_case_dict],
+            "aggregation": {
+                "agg": "count",
+                "agg_field": None,
+                "group_by": ["status"],
+                "value": 1,
+                "buckets": [{"key": {"status": "new"}, "value": 1}],
+                "bucket_limit": 100,
+                "truncated": False,
+            },
+        }
+
+        result = await search_cases(
+            agg="count",
+            group_by=["status"],
+        )
+
+        mock_cases_client.search_cases.assert_called_once_with(
+            limit=100,
+            agg="count",
+            group_by=["status"],
+        )
+        assert isinstance(result, dict)
+        aggregation = result.get("aggregation")
+        assert aggregation is not None
+        assert aggregation["value"] == 1
 
     async def test_search_cases_forwards_all_filters(
         self, mock_cases_client: AsyncMock, mock_case_dict
