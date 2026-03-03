@@ -721,6 +721,7 @@ async def test_search_case_aggregates_success(
                 in_progress=8,
                 on_hold=4,
                 resolved=18,
+                closed=4,
                 other=2,
             ),
         )
@@ -744,4 +745,5 @@ async def test_search_case_aggregates_success(
         assert data["total"] == 42
         assert data["status_groups"]["new"] == 10
         assert data["status_groups"]["resolved"] == 18
+        assert data["status_groups"]["closed"] == 4
         mock_svc.get_search_case_aggregates.assert_called_once()

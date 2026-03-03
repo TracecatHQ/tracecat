@@ -1536,6 +1536,7 @@ export type CaseStatusGroupCounts = {
   in_progress?: number
   on_hold?: number
   resolved?: number
+  closed?: number
   other?: number
 }
 
