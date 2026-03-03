@@ -39,7 +39,7 @@ resource "aws_alb_listener" "https" {
   port              = "443"
   protocol          = "HTTPS"
 
-  ssl_policy      = "ELBSecurityPolicy-TLS13-1-2-Res-2021-06"
+  ssl_policy      = var.alb_ssl_policy
   certificate_arn = var.acm_certificate_arn
 
   default_action {

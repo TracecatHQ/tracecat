@@ -69,6 +69,12 @@ variable "acm_certificate_arn" {
   description = "The ARN of the ACM certificate to use for Tracecat"
 }
 
+variable "alb_ssl_policy" {
+  type        = string
+  description = "The ALB SSL security policy for HTTPS listeners"
+  default     = "ELBSecurityPolicy-TLS13-1-2-Res-2021-06"
+}
+
 ### Security
 
 variable "auth_types" {
