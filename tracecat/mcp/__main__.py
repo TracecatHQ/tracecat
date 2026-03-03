@@ -46,7 +46,7 @@ def main() -> None:
             logger.error(
                 "MCP server startup failed due to non-retryable configuration error"
             )
-            raise SystemExit(1) from None
+            raise SystemExit(0) from None
         except Exception as e:
             should_retry = attempt < max_attempts
             error = str(e)
