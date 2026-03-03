@@ -1,0 +1,23 @@
+tracecat/webhooks/router.py
+  fb61da9de0ade46d 3,85-86,88-91,94-99,105,175,182,185-190,369,391
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "020bdb29647316ff5fbf9b98551abae5be6b6391",
+  "prompts": {
+    "fb61da9de0ade46d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb481-761b-7af3-94fe-192744bfdd17",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 28,
+      "total_deletions": 6,
+      "accepted_lines": 24,
+      "overriden_lines": 3
+    }
+  }
+}
