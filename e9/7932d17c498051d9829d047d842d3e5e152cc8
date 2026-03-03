@@ -1,0 +1,25 @@
+tracecat/workflow/executions/service.py
+  8e251c1ca2fb4982 1288-1290
+tests/unit/test_webhook_execution_path.py
+  8e251c1ca2fb4982 717-739
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "e97932d17c498051d9829d047d842d3e5e152cc8",
+  "prompts": {
+    "8e251c1ca2fb4982": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb483-7335-7eb3-8c2d-e5703e62dfcb",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 26,
+      "total_deletions": 2,
+      "accepted_lines": 26,
+      "overriden_lines": 0
+    }
+  }
+}
