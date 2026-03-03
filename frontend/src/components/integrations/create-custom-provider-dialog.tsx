@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Loader2, Plus } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { PemFileUploader } from "@/components/pem-file-uploader"
@@ -135,6 +135,14 @@ const formSchema = z
     const hasAssertionCert = Boolean(data.client_assertion_certificate?.trim())
 
     if (method === "private_key_jwt") {
+      if (hasSecret) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Client secret must be empty for auth method private_key_jwt.",
+          path: ["client_secret"],
+        })
+      }
       if (!hasAssertionKey) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -157,6 +165,14 @@ const formSchema = z
           code: z.ZodIssueCode.custom,
           message: "Client secret is required for the selected auth method.",
           path: ["client_secret"],
+        })
+      }
+      if (hasAssertionKey || hasAssertionCert) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Client assertion fields must be empty for the selected auth method.",
+          path: ["client_assertion_private_key"],
         })
       }
     }
@@ -243,6 +259,34 @@ export function CreateCustomProviderDialog({
   })
 
   const clientAuthMethod = form.watch("client_auth_method")
+  useEffect(() => {
+    if (clientAuthMethod === "private_key_jwt") {
+      return
+    }
+
+    const hasAssertionKeyInput = Boolean(
+      form.getValues("client_assertion_private_key")?.trim()
+    )
+    const hasAssertionCertInput = Boolean(
+      form.getValues("client_assertion_certificate")?.trim()
+    )
+    if (!hasAssertionKeyInput && !hasAssertionCertInput) {
+      return
+    }
+
+    form.setValue("client_assertion_private_key", "", {
+      shouldDirty: true,
+      shouldTouch: true,
+    })
+    form.setValue("client_assertion_certificate", "", {
+      shouldDirty: true,
+      shouldTouch: true,
+    })
+    form.clearErrors([
+      "client_assertion_private_key",
+      "client_assertion_certificate",
+    ])
+  }, [clientAuthMethod, form])
 
   const resetForm = () => {
     form.reset(DEFAULT_VALUES)

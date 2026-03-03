@@ -2837,7 +2837,8 @@ class OAuthIntegration(TimestampMixin, Base):
             is_configured = has_client_id
         else:
             is_configured = has_client_id and (
-                has_client_secret or has_assertion_private_key
+                has_client_secret
+                or (has_assertion_private_key and has_assertion_certificate)
             )
 
         # Is connected: Successfully authenticated

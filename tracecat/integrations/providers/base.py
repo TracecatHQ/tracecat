@@ -1093,10 +1093,7 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             return self._client_registration_auth_method
         methods = self._token_endpoint_auth_methods_supported or []
         if self.client_auth_method != OAuthClientAuthMethod.AUTO:
-            explicit = self.client_auth_method.value
-            if explicit in methods or not methods:
-                return explicit
-            return explicit
+            return self.client_auth_method.value
         if self.client_assertion_private_key:
             if "private_key_jwt" in methods or not methods:
                 return "private_key_jwt"

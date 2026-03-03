@@ -815,7 +815,7 @@ class IntegrationService(BaseWorkspaceService):
                     raise ValueError("No certificates found")
             else:
                 x509.load_pem_x509_certificate(cert_bytes)
-        except ValueError as exc:
+        except (TypeError, ValueError, UnsupportedAlgorithm) as exc:
             raise ValueError(
                 "Invalid client_assertion_certificate format. Expected PEM certificate(s)."
             ) from exc

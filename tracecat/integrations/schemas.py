@@ -550,6 +550,10 @@ class ProviderConfig(BaseModel):
             return self
 
         if self.client_auth_method == OAuthClientAuthMethod.PRIVATE_KEY_JWT:
+            if self.client_secret is not None:
+                raise ValueError(
+                    "client_secret is not allowed when client_auth_method=private_key_jwt."
+                )
             if self.client_assertion_private_key is None:
                 raise ValueError(
                     "client_assertion_private_key is required for private_key_jwt."
@@ -572,11 +576,19 @@ class ProviderConfig(BaseModel):
             return self
 
         # AUTO mode
+        if self.client_assertion_private_key and self.client_secret:
+            raise ValueError(
+                "client_auth_method=auto cannot use both client_secret and client_assertion_private_key."
+            )
         if self.client_assertion_private_key:
             if self.client_assertion_certificate is None:
                 raise ValueError(
                     "client_assertion_certificate is required with client_assertion_private_key."
                 )
+        elif self.client_assertion_certificate is not None:
+            raise ValueError(
+                "client_assertion_certificate requires client_assertion_private_key."
+            )
         return self
 
 

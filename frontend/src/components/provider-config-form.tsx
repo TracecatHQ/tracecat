@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Info, Save } from "lucide-react"
-import { useCallback, useMemo } from "react"
+import { useCallback, useEffect, useMemo } from "react"
 import { useForm, useWatch } from "react-hook-form"
 import { z } from "zod"
 import type { IntegrationUpdate, ProviderRead } from "@/client"
@@ -104,6 +104,7 @@ const CLIENT_AUTH_METHOD_OPTIONS = [
 ] as const
 
 interface OAuthSchemaOptions {
+  hasExistingClientSecret: boolean
   hasExistingAssertionPrivateKey: boolean
   hasExistingAssertionCertificate: boolean
 }
@@ -153,7 +154,7 @@ const createOAuthSchema = (
     })
     .superRefine((data, ctx) => {
       const method = data.client_auth_method
-      const hasSecret = Boolean(data.client_secret?.trim())
+      const hasSecretInput = Boolean(data.client_secret?.trim())
       const hasAssertionKeyInput = Boolean(
         data.client_assertion_private_key?.trim()
       )
@@ -164,6 +165,7 @@ const createOAuthSchema = (
         hasAssertionKeyInput || options.hasExistingAssertionPrivateKey
       const hasAssertionCert =
         hasAssertionCertInput || options.hasExistingAssertionCertificate
+      const hasSecret = hasSecretInput || options.hasExistingClientSecret
 
       if (method === "private_key_jwt") {
         if (!hasAssertionKey) {
@@ -193,7 +195,7 @@ const createOAuthSchema = (
       }
 
       if (method === "none") {
-        if (hasSecret) {
+        if (hasSecretInput) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message:
@@ -282,14 +284,25 @@ export function ProviderConfigForm({
     integration?.has_client_assertion_private_key ?? false
   const hasExistingAssertionCertificate =
     integration?.has_client_assertion_certificate ?? false
+  const hasExistingClientSecret = useMemo(() => {
+    if (!integration || integration.status === "not_configured") {
+      return false
+    }
+    if (integration.client_auth_method === "none") {
+      return false
+    }
+    return !(integration.has_client_assertion_private_key ?? false)
+  }, [integration])
   const validationSchema = useMemo(
     () =>
       createOAuthSchema(clientSecretMaxLength, {
+        hasExistingClientSecret,
         hasExistingAssertionPrivateKey,
         hasExistingAssertionCertificate,
       }),
     [
       clientSecretMaxLength,
+      hasExistingClientSecret,
       hasExistingAssertionPrivateKey,
       hasExistingAssertionCertificate,
     ]
@@ -392,6 +405,34 @@ export function ProviderConfigForm({
   })
   const clientAuthMethod = watchedClientAuthMethod ?? "auto"
   const showAssertionFields = clientAuthMethod === "private_key_jwt"
+  useEffect(() => {
+    if (clientAuthMethod === "private_key_jwt") {
+      return
+    }
+
+    const hasAssertionKeyInput = Boolean(
+      form.getValues("client_assertion_private_key")?.trim()
+    )
+    const hasAssertionCertInput = Boolean(
+      form.getValues("client_assertion_certificate")?.trim()
+    )
+    if (!hasAssertionKeyInput && !hasAssertionCertInput) {
+      return
+    }
+
+    form.setValue("client_assertion_private_key", "", {
+      shouldDirty: true,
+      shouldTouch: true,
+    })
+    form.setValue("client_assertion_certificate", "", {
+      shouldDirty: true,
+      shouldTouch: true,
+    })
+    form.clearErrors([
+      "client_assertion_private_key",
+      "client_assertion_certificate",
+    ])
+  }, [clientAuthMethod, form])
   const authEndpointValue = watchedAuthEndpoint ?? ""
   const tokenEndpointValue = watchedTokenEndpoint ?? ""
   const defaultAuthEndpoint = providerDefaultAuth ?? ""
