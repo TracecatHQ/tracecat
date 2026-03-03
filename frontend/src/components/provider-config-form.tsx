@@ -80,11 +80,6 @@ const CLIENT_AUTH_METHOD_OPTIONS = [
   { value: "none", label: "No client authentication" },
 ] as const
 
-const ASSERTION_ALG_OPTIONS = [
-  { value: "RS256", label: "RS256" },
-  { value: "PS256", label: "PS256" },
-] as const
-
 interface OAuthSchemaOptions {
   hasExistingAssertionPrivateKey: boolean
   hasExistingAssertionCertificate: boolean
@@ -117,8 +112,6 @@ const createOAuthSchema = (
       ]),
       client_assertion_private_key: z.string().trim().optional(),
       client_assertion_certificate: z.string().trim().optional(),
-      client_assertion_kid: z.string().trim().max(255).optional(),
-      client_assertion_alg: z.enum(["RS256", "PS256"]).optional(),
       scopes: z.array(z.string().trim().min(1)).optional(),
       authorization_endpoint: z
         .string()
@@ -148,8 +141,6 @@ const createOAuthSchema = (
         hasAssertionKeyInput || options.hasExistingAssertionPrivateKey
       const hasAssertionCert =
         hasAssertionCertInput || options.hasExistingAssertionCertificate
-      const hasAssertionKid = Boolean(data.client_assertion_kid?.trim())
-      const hasAssertionAlg = Boolean(data.client_assertion_alg)
 
       if (method === "private_key_jwt") {
         if (!hasAssertionKey) {
@@ -159,11 +150,10 @@ const createOAuthSchema = (
             path: ["client_assertion_private_key"],
           })
         }
-        if (!hasAssertionCert && !hasAssertionKid) {
+        if (!hasAssertionCert) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message:
-              "Provide either a certificate or key ID for private_key_jwt.",
+            message: "Certificate is required for private_key_jwt.",
             path: ["client_assertion_certificate"],
           })
         }
@@ -188,12 +178,7 @@ const createOAuthSchema = (
             path: ["client_secret"],
           })
         }
-        if (
-          hasAssertionKeyInput ||
-          hasAssertionCertInput ||
-          hasAssertionKid ||
-          hasAssertionAlg
-        ) {
+        if (hasAssertionKeyInput || hasAssertionCertInput) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message:
@@ -295,8 +280,6 @@ export function ProviderConfigForm({
       client_auth_method: integration?.client_auth_method ?? "auto",
       client_assertion_private_key: "",
       client_assertion_certificate: "",
-      client_assertion_kid: integration?.client_assertion_kid ?? "",
-      client_assertion_alg: integration?.client_assertion_alg ?? undefined,
       scopes: fallbackScopes,
       authorization_endpoint:
         integration?.authorization_endpoint ?? providerDefaultAuth ?? "",
@@ -319,8 +302,6 @@ export function ProviderConfigForm({
           data.client_assertion_private_key?.trim() || undefined,
         client_assertion_certificate:
           data.client_assertion_certificate?.trim() || undefined,
-        client_assertion_kid: data.client_assertion_kid?.trim() || undefined,
-        client_assertion_alg: data.client_assertion_alg || undefined,
         scopes: data.scopes?.length ? data.scopes : undefined,
         authorization_endpoint: data.authorization_endpoint,
         token_endpoint: data.token_endpoint,
@@ -676,66 +657,6 @@ export function ProviderConfigForm({
                           {hasExistingAssertionCertificate
                             ? " Existing certificate is already configured."
                             : ""}
-                        </FormDescription>
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="client_assertion_kid"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          Client assertion key ID (kid){" "}
-                          <span className="text-xs text-muted-foreground">
-                            (optional)
-                          </span>
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            value={field.value ?? ""}
-                            placeholder="Optional key identifier"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="client_assertion_alg"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          Client assertion algorithm{" "}
-                          <span className="text-xs text-muted-foreground">
-                            (optional)
-                          </span>
-                        </FormLabel>
-                        <FormControl>
-                          <Select
-                            value={field.value}
-                            onValueChange={field.onChange}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select algorithm" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {ASSERTION_ALG_OPTIONS.map((option) => (
-                                <SelectItem
-                                  key={option.value}
-                                  value={option.value}
-                                >
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </FormControl>
-                        <FormMessage />
-                        <FormDescription className="text-xs">
-                          Defaults to provider-specific value when empty.
                         </FormDescription>
                       </FormItem>
                     )}

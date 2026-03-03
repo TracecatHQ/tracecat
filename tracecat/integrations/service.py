@@ -41,7 +41,6 @@ from tracecat.integrations.schemas import (
     CustomOAuthProviderCreate,
     MCPIntegrationCreate,
     MCPIntegrationUpdate,
-    OAuthClientAssertionAlg,
     ProviderConfig,
     ProviderKey,
     ProviderMetadata,
@@ -59,8 +58,6 @@ class IntegrationService(BaseWorkspaceService):
     """Service for managing user integrations."""
 
     service_name = "integrations"
-    _MICROSOFT_PROVIDER_PREFIXES: tuple[str, ...] = ("azure_", "microsoft_")
-    _ALLOWED_ASSERTION_ALGS: frozenset[str] = frozenset({"RS256", "PS256"})
 
     @staticmethod
     def _validate_https_endpoint(
@@ -239,8 +236,6 @@ class IntegrationService(BaseWorkspaceService):
             client_auth_method=params.client_auth_method,
             client_assertion_private_key=params.client_assertion_private_key,
             client_assertion_certificate=params.client_assertion_certificate,
-            client_assertion_kid=params.client_assertion_kid,
-            client_assertion_alg=params.client_assertion_alg,
             authorization_endpoint=provider.authorization_endpoint,
             token_endpoint=provider.token_endpoint,
             requested_scopes=scopes,
@@ -592,12 +587,6 @@ class IntegrationService(BaseWorkspaceService):
                 configured_authorization=integration.authorization_endpoint,
                 configured_token=integration.token_endpoint,
             )
-            assertion_alg = self._resolve_assertion_alg(
-                provider_key=key,
-                provided_alg=None,
-                existing_alg=integration.client_assertion_alg,
-                has_assertion_private_key=client_assertion_private_key is not None,
-            )
             # Create provider config
             provider_config = ProviderConfig(
                 client_id=client_id,
@@ -612,8 +601,6 @@ class IntegrationService(BaseWorkspaceService):
                 client_assertion_certificate=SecretStr(client_assertion_certificate)
                 if client_assertion_certificate is not None
                 else None,
-                client_assertion_kid=integration.client_assertion_kid,
-                client_assertion_alg=assertion_alg,
                 authorization_endpoint=authorization_endpoint,
                 token_endpoint=token_endpoint,
                 scopes=self.parse_scopes(integration.requested_scopes),
@@ -809,10 +796,6 @@ class IntegrationService(BaseWorkspaceService):
         normalized = value.strip()
         return normalized or None
 
-    @classmethod
-    def _is_microsoft_provider(cls, provider_id: str) -> bool:
-        return provider_id.startswith(cls._MICROSOFT_PROVIDER_PREFIXES)
-
     @staticmethod
     def _validate_pem_private_key(value: str) -> None:
         try:
@@ -837,40 +820,14 @@ class IntegrationService(BaseWorkspaceService):
                 "Invalid client_assertion_certificate format. Expected PEM certificate(s)."
             ) from exc
 
-    def _resolve_assertion_alg(
-        self,
-        *,
-        provider_key: ProviderKey,
-        provided_alg: str | None,
-        existing_alg: str | None,
-        has_assertion_private_key: bool,
-    ) -> OAuthClientAssertionAlg | None:
-        if not has_assertion_private_key:
-            return None
-        if provided_alg:
-            normalized = provided_alg.strip().upper()
-            if normalized not in self._ALLOWED_ASSERTION_ALGS:
-                raise ValueError("client_assertion_alg must be one of: RS256, PS256")
-            return cast(OAuthClientAssertionAlg, normalized)
-        if existing_alg and existing_alg.strip():
-            normalized = existing_alg.strip().upper()
-            if normalized in self._ALLOWED_ASSERTION_ALGS:
-                return cast(OAuthClientAssertionAlg, normalized)
-        if self._is_microsoft_provider(provider_key.id):
-            return cast(OAuthClientAssertionAlg, "PS256")
-        return cast(OAuthClientAssertionAlg, "RS256")
-
     def _validate_client_auth_configuration(
         self,
         *,
-        provider_key: ProviderKey,
         client_auth_method: OAuthClientAuthMethod,
         client_id: str | None,
         client_secret: str | None,
         client_assertion_private_key: str | None,
         client_assertion_certificate: str | None,
-        client_assertion_kid: str | None,
-        client_assertion_alg: OAuthClientAssertionAlg | None,
     ) -> None:
         if not client_id:
             raise ValueError("client_id is required for OAuth provider configuration.")
@@ -883,12 +840,7 @@ class IntegrationService(BaseWorkspaceService):
                 raise ValueError(
                     "client_secret is required for client_secret_* auth methods."
                 )
-            if (
-                client_assertion_private_key
-                or client_assertion_certificate
-                or client_assertion_kid
-                or client_assertion_alg
-            ):
+            if client_assertion_private_key or client_assertion_certificate:
                 raise ValueError(
                     "client_assertion_* fields are only valid with private_key_jwt."
                 )
@@ -903,20 +855,12 @@ class IntegrationService(BaseWorkspaceService):
                 raise ValueError(
                     "client_assertion_private_key is required for private_key_jwt."
                 )
-            if not client_assertion_certificate and not client_assertion_kid:
+            if not client_assertion_certificate:
                 raise ValueError(
-                    "private_key_jwt requires either client_assertion_certificate or client_assertion_kid."
-                )
-            if (
-                self._is_microsoft_provider(provider_key.id)
-                and not client_assertion_certificate
-            ):
-                raise ValueError(
-                    "Microsoft OAuth providers require client_assertion_certificate for private_key_jwt."
+                    "client_assertion_certificate is required for private_key_jwt."
                 )
             self._validate_pem_private_key(client_assertion_private_key)
-            if client_assertion_certificate:
-                self._validate_pem_certificates(client_assertion_certificate)
+            self._validate_pem_certificates(client_assertion_certificate)
             return
 
         if client_auth_method == OAuthClientAuthMethod.NONE:
@@ -924,8 +868,6 @@ class IntegrationService(BaseWorkspaceService):
                 client_secret
                 or client_assertion_private_key
                 or client_assertion_certificate
-                or client_assertion_kid
-                or client_assertion_alg
             ):
                 raise ValueError(
                     "client_auth_method=none does not allow client_secret or client_assertion_* fields."
@@ -938,23 +880,13 @@ class IntegrationService(BaseWorkspaceService):
                 "client_auth_method=auto cannot use both client_secret and client_assertion_private_key."
             )
         if client_assertion_private_key:
-            if not client_assertion_certificate and not client_assertion_kid:
+            if not client_assertion_certificate:
                 raise ValueError(
-                    "private_key_jwt in auto mode requires either client_assertion_certificate or client_assertion_kid."
-                )
-            if (
-                self._is_microsoft_provider(provider_key.id)
-                and not client_assertion_certificate
-            ):
-                raise ValueError(
-                    "Microsoft OAuth providers require client_assertion_certificate for private_key_jwt."
+                    "client_assertion_certificate is required with client_assertion_private_key."
                 )
             self._validate_pem_private_key(client_assertion_private_key)
-            if client_assertion_certificate:
-                self._validate_pem_certificates(client_assertion_certificate)
-        elif (
-            client_assertion_certificate or client_assertion_kid or client_assertion_alg
-        ):
+            self._validate_pem_certificates(client_assertion_certificate)
+        elif client_assertion_certificate:
             raise ValueError(
                 "client_assertion_* fields require client_assertion_private_key."
             )
@@ -969,8 +901,6 @@ class IntegrationService(BaseWorkspaceService):
         client_auth_method: OAuthClientAuthMethod | None = None,
         client_assertion_private_key: SecretStr | None = None,
         client_assertion_certificate: SecretStr | None = None,
-        client_assertion_kid: str | None = None,
-        client_assertion_alg: str | None = None,
         authorization_endpoint: str | None = None,
         token_endpoint: str | None = None,
         requested_scopes: list[str] | None = None,
@@ -988,8 +918,6 @@ class IntegrationService(BaseWorkspaceService):
         normalized_assertion_certificate = self._normalize_optional_secret(
             client_assertion_certificate
         )
-        normalized_assertion_kid = self._normalize_optional_string(client_assertion_kid)
-        normalized_assertion_alg = self._normalize_optional_string(client_assertion_alg)
         resolved_authorization, resolved_token = self._determine_endpoints(
             provider_impl,
             configured_authorization=authorization_endpoint,
@@ -1004,8 +932,6 @@ class IntegrationService(BaseWorkspaceService):
                 and client_auth_method is None
                 and client_assertion_private_key is None
                 and client_assertion_certificate is None
-                and client_assertion_kid is None
-                and client_assertion_alg is None
                 and authorization_endpoint is None
                 and token_endpoint is None
                 and requested_scopes is None
@@ -1050,12 +976,6 @@ class IntegrationService(BaseWorkspaceService):
             merged_assertion_certificate = (
                 normalized_assertion_certificate or existing_assertion_certificate
             )
-            merged_assertion_kid = (
-                normalized_assertion_kid or integration.client_assertion_kid
-            )
-            merged_assertion_alg = (
-                normalized_assertion_alg or integration.client_assertion_alg
-            )
 
             if client_auth_method in (
                 OAuthClientAuthMethod.CLIENT_SECRET_BASIC,
@@ -1063,32 +983,19 @@ class IntegrationService(BaseWorkspaceService):
             ):
                 merged_assertion_private_key = None
                 merged_assertion_certificate = None
-                merged_assertion_kid = None
-                merged_assertion_alg = None
             elif client_auth_method == OAuthClientAuthMethod.PRIVATE_KEY_JWT:
                 merged_client_secret = None
             elif client_auth_method == OAuthClientAuthMethod.NONE:
                 merged_client_secret = None
                 merged_assertion_private_key = None
                 merged_assertion_certificate = None
-                merged_assertion_kid = None
-                merged_assertion_alg = None
 
-            merged_assertion_alg = self._resolve_assertion_alg(
-                provider_key=provider_key,
-                provided_alg=normalized_assertion_alg,
-                existing_alg=integration.client_assertion_alg,
-                has_assertion_private_key=merged_assertion_private_key is not None,
-            )
             self._validate_client_auth_configuration(
-                provider_key=provider_key,
                 client_auth_method=effective_client_auth_method,
                 client_id=merged_client_id,
                 client_secret=merged_client_secret,
                 client_assertion_private_key=merged_assertion_private_key,
                 client_assertion_certificate=merged_assertion_certificate,
-                client_assertion_kid=merged_assertion_kid,
-                client_assertion_alg=merged_assertion_alg,
             )
 
             integration.encrypted_client_id = (
@@ -1112,8 +1019,6 @@ class IntegrationService(BaseWorkspaceService):
                 if merged_assertion_certificate
                 else None
             )
-            integration.client_assertion_kid = merged_assertion_kid
-            integration.client_assertion_alg = merged_assertion_alg
 
             integration.authorization_endpoint = self._validate_https_endpoint(
                 authorization_endpoint
@@ -1148,21 +1053,12 @@ class IntegrationService(BaseWorkspaceService):
             effective_client_auth_method = (
                 client_auth_method or OAuthClientAuthMethod.AUTO
             )
-            merged_assertion_alg = self._resolve_assertion_alg(
-                provider_key=provider_key,
-                provided_alg=normalized_assertion_alg,
-                existing_alg=None,
-                has_assertion_private_key=normalized_assertion_private_key is not None,
-            )
             self._validate_client_auth_configuration(
-                provider_key=provider_key,
                 client_auth_method=effective_client_auth_method,
                 client_id=normalized_client_id,
                 client_secret=normalized_client_secret,
                 client_assertion_private_key=normalized_assertion_private_key,
                 client_assertion_certificate=normalized_assertion_certificate,
-                client_assertion_kid=normalized_assertion_kid,
-                client_assertion_alg=merged_assertion_alg,
             )
             integration = OAuthIntegration(
                 workspace_id=self.workspace_id,
@@ -1187,8 +1083,6 @@ class IntegrationService(BaseWorkspaceService):
                 )
                 if normalized_assertion_certificate
                 else None,
-                client_assertion_kid=normalized_assertion_kid,
-                client_assertion_alg=merged_assertion_alg,
                 use_workspace_credentials=True,
                 # These will be populated during OAuth flow
                 encrypted_access_token=b"",  # Placeholder, will be updated
@@ -1261,14 +1155,6 @@ class IntegrationService(BaseWorkspaceService):
                 configured_authorization=integration.authorization_endpoint,
                 configured_token=integration.token_endpoint,
             )
-            assertion_alg = self._resolve_assertion_alg(
-                provider_key=ProviderKey(
-                    id=integration.provider_id, grant_type=integration.grant_type
-                ),
-                provided_alg=None,
-                existing_alg=integration.client_assertion_alg,
-                has_assertion_private_key=client_assertion_private_key is not None,
-            )
             return ProviderConfig(
                 client_id=client_id,
                 client_secret=SecretStr(client_secret)
@@ -1282,8 +1168,6 @@ class IntegrationService(BaseWorkspaceService):
                 client_assertion_certificate=SecretStr(client_assertion_certificate)
                 if client_assertion_certificate is not None
                 else None,
-                client_assertion_kid=integration.client_assertion_kid,
-                client_assertion_alg=assertion_alg,
                 authorization_endpoint=authorization_endpoint,
                 token_endpoint=token_endpoint,
                 scopes=self.parse_scopes(integration.requested_scopes)
@@ -1321,8 +1205,6 @@ class IntegrationService(BaseWorkspaceService):
             integration.client_auth_method = None
             integration.encrypted_client_assertion_private_key = None
             integration.encrypted_client_assertion_certificate = None
-            integration.client_assertion_kid = None
-            integration.client_assertion_alg = None
             integration.use_workspace_credentials = False
 
             self.session.add(integration)

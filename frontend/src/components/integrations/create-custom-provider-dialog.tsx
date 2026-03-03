@@ -47,11 +47,6 @@ const CLIENT_AUTH_METHOD_OPTIONS = [
   { value: "none", label: "No client authentication" },
 ] as const
 
-const ASSERTION_ALG_OPTIONS = [
-  { value: "RS256", label: "RS256" },
-  { value: "PS256", label: "PS256" },
-] as const
-
 const formSchema = z
   .object({
     name: z
@@ -94,13 +89,6 @@ const formSchema = z
       .trim()
       .optional()
       .or(z.literal("")),
-    client_assertion_kid: z
-      .string()
-      .trim()
-      .max(255)
-      .optional()
-      .or(z.literal("")),
-    client_assertion_alg: z.enum(["RS256", "PS256"]).optional(),
     authorization_endpoint: z
       .string()
       .trim()
@@ -122,8 +110,6 @@ const formSchema = z
     const hasSecret = Boolean(data.client_secret?.trim())
     const hasAssertionKey = Boolean(data.client_assertion_private_key?.trim())
     const hasAssertionCert = Boolean(data.client_assertion_certificate?.trim())
-    const hasAssertionKid = Boolean(data.client_assertion_kid?.trim())
-    const hasAssertionAlg = Boolean(data.client_assertion_alg)
 
     if (method === "private_key_jwt") {
       if (!hasAssertionKey) {
@@ -133,11 +119,10 @@ const formSchema = z
           path: ["client_assertion_private_key"],
         })
       }
-      if (!hasAssertionCert && !hasAssertionKid) {
+      if (!hasAssertionCert) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message:
-            "Provide either a certificate or key ID for private_key_jwt.",
+          message: "Certificate is required for private_key_jwt.",
           path: ["client_assertion_certificate"],
         })
       }
@@ -161,12 +146,7 @@ const formSchema = z
           path: ["client_secret"],
         })
       }
-      if (
-        hasAssertionKey ||
-        hasAssertionCert ||
-        hasAssertionKid ||
-        hasAssertionAlg
-      ) {
+      if (hasAssertionKey || hasAssertionCert) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message:
@@ -197,8 +177,6 @@ const DEFAULT_VALUES: CustomProviderFormValues = {
   client_auth_method: "auto",
   client_assertion_private_key: "",
   client_assertion_certificate: "",
-  client_assertion_kid: "",
-  client_assertion_alg: undefined,
   authorization_endpoint: "",
   token_endpoint: "",
   scopes: [],
@@ -269,8 +247,6 @@ export function CreateCustomProviderDialog({
         values.client_assertion_private_key?.trim() || undefined,
       client_assertion_certificate:
         values.client_assertion_certificate?.trim() || undefined,
-      client_assertion_kid: values.client_assertion_kid?.trim() || undefined,
-      client_assertion_alg: values.client_assertion_alg || undefined,
       authorization_endpoint: values.authorization_endpoint,
       token_endpoint: values.token_endpoint,
       scopes: values.scopes ?? [],
@@ -535,61 +511,6 @@ export function CreateCustomProviderDialog({
                     </FormItem>
                   )}
                 />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <FormField
-                    control={form.control}
-                    name="client_assertion_kid"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          Assertion key ID (kid){" "}
-                          <span className="text-xs text-muted-foreground">
-                            (optional)
-                          </span>
-                        </FormLabel>
-                        <FormControl>
-                          <Input placeholder="Optional key ID" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="client_assertion_alg"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          Assertion algorithm{" "}
-                          <span className="text-xs text-muted-foreground">
-                            (optional)
-                          </span>
-                        </FormLabel>
-                        <FormControl>
-                          <Select
-                            value={field.value}
-                            onValueChange={field.onChange}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select algorithm" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {ASSERTION_ALG_OPTIONS.map((option) => (
-                                <SelectItem
-                                  key={option.value}
-                                  value={option.value}
-                                >
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
               </>
             )}
             <FormField

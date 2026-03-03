@@ -2820,7 +2820,6 @@ class OAuthIntegration(TimestampMixin, Base):
         has_assertion_certificate = (
             self.encrypted_client_assertion_certificate is not None
         )
-        has_assertion_kid = bool(self.client_assertion_kid)
         auth_method = self.client_auth_method or OAuthClientAuthMethod.AUTO
 
         if auth_method in (
@@ -2832,7 +2831,7 @@ class OAuthIntegration(TimestampMixin, Base):
             is_configured = (
                 has_client_id
                 and has_assertion_private_key
-                and (has_assertion_certificate or has_assertion_kid)
+                and has_assertion_certificate
             )
         elif auth_method == OAuthClientAuthMethod.NONE:
             is_configured = has_client_id

@@ -7,7 +7,7 @@ Terminology:
 
 import uuid
 from datetime import datetime
-from typing import Any, Literal, Self, TypedDict, cast
+from typing import Any, Self, TypedDict
 from urllib.parse import urlparse
 
 from pydantic import (
@@ -26,9 +26,6 @@ from tracecat.integrations.enums import (
     OAuthClientAuthMethod,
     OAuthGrantType,
 )
-
-OAuthClientAssertionAlg = Literal["RS256", "PS256"]
-_ALLOWED_CLIENT_ASSERTION_ALGS: set[str] = {"RS256", "PS256"}
 
 
 def _normalize_optional_string(value: str | None) -> str | None:
@@ -98,14 +95,6 @@ class IntegrationRead(BaseModel):
         default=False,
         description="Whether a certificate is configured for JWT client assertions.",
     )
-    client_assertion_kid: str | None = Field(
-        default=None,
-        description="Optional key ID for JWT client assertions.",
-    )
-    client_assertion_alg: OAuthClientAssertionAlg | None = Field(
-        default=None,
-        description="JWT signing algorithm for client assertions.",
-    )
 
     # OAuth scopes
     granted_scopes: list[str] | None = Field(
@@ -156,16 +145,6 @@ class IntegrationUpdate(BaseModel):
         description="Optional PEM-encoded X.509 certificate for private_key_jwt authentication.",
         min_length=1,
     )
-    client_assertion_kid: str | None = Field(
-        default=None,
-        description="Optional key ID to include in private_key_jwt headers.",
-        min_length=1,
-        max_length=255,
-    )
-    client_assertion_alg: OAuthClientAssertionAlg | None = Field(
-        default=None,
-        description="JWT algorithm for private_key_jwt authentication.",
-    )
     authorization_endpoint: str | None = Field(
         default=None,
         description="OAuth authorization endpoint URL. Overrides provider defaults when set.",
@@ -194,11 +173,6 @@ class IntegrationUpdate(BaseModel):
             raise ValueError("OAuth endpoints must include a hostname")
         return value
 
-    @field_validator("client_assertion_kid", mode="before")
-    @classmethod
-    def _normalize_optional_kid(cls, value: str | None) -> str | None:
-        return _normalize_optional_string(value)
-
     @field_validator(
         "client_secret",
         "client_assertion_private_key",
@@ -213,25 +187,11 @@ class IntegrationUpdate(BaseModel):
             value = SecretStr(value)
         return _normalize_optional_secret(value)
 
-    @field_validator("client_assertion_alg", mode="before")
-    @classmethod
-    def _normalize_assertion_alg(
-        cls, value: OAuthClientAssertionAlg | str | None
-    ) -> OAuthClientAssertionAlg | None:
-        if value is None:
-            return None
-        normalized = value.upper() if isinstance(value, str) else value
-        if normalized not in _ALLOWED_CLIENT_ASSERTION_ALGS:
-            raise ValueError("client_assertion_alg must be one of: RS256, PS256")
-        return cast(OAuthClientAssertionAlg, normalized)
-
     @model_validator(mode="after")
     def _validate_client_auth_fields(self) -> Self:
         has_secret = self.client_secret is not None
         has_assertion_private_key = self.client_assertion_private_key is not None
         has_assertion_certificate = self.client_assertion_certificate is not None
-        has_assertion_kid = self.client_assertion_kid is not None
-        has_assertion_alg = self.client_assertion_alg is not None
 
         if self.client_auth_method in (
             OAuthClientAuthMethod.CLIENT_SECRET_BASIC,
@@ -251,13 +211,7 @@ class IntegrationUpdate(BaseModel):
             return self
 
         if self.client_auth_method == OAuthClientAuthMethod.NONE:
-            if (
-                has_secret
-                or has_assertion_private_key
-                or has_assertion_certificate
-                or has_assertion_kid
-                or has_assertion_alg
-            ):
+            if has_secret or has_assertion_private_key or has_assertion_certificate:
                 raise ValueError(
                     "client_auth_method=none does not allow client_secret or client_assertion_* fields."
                 )
@@ -339,21 +293,6 @@ class CustomOAuthProviderCreate(CustomOAuthProviderBase):
         description="Optional PEM-encoded X.509 certificate for private_key_jwt authentication.",
         min_length=1,
     )
-    client_assertion_kid: str | None = Field(
-        default=None,
-        description="Optional key ID to include in private_key_jwt headers.",
-        min_length=1,
-        max_length=255,
-    )
-    client_assertion_alg: OAuthClientAssertionAlg | None = Field(
-        default=None,
-        description="JWT algorithm for private_key_jwt authentication.",
-    )
-
-    @field_validator("client_assertion_kid", mode="before")
-    @classmethod
-    def _normalize_optional_kid(cls, value: str | None) -> str | None:
-        return _normalize_optional_string(value)
 
     @field_validator(
         "client_secret",
@@ -368,18 +307,6 @@ class CustomOAuthProviderCreate(CustomOAuthProviderBase):
         if isinstance(value, str):
             value = SecretStr(value)
         return _normalize_optional_secret(value)
-
-    @field_validator("client_assertion_alg", mode="before")
-    @classmethod
-    def _normalize_assertion_alg(
-        cls, value: OAuthClientAssertionAlg | str | None
-    ) -> OAuthClientAssertionAlg | None:
-        if value is None:
-            return None
-        normalized = value.upper() if isinstance(value, str) else value
-        if normalized not in _ALLOWED_CLIENT_ASSERTION_ALGS:
-            raise ValueError("client_assertion_alg must be one of: RS256, PS256")
-        return cast(OAuthClientAssertionAlg, normalized)
 
     @model_validator(mode="after")
     def _validate_client_auth_fields(self) -> Self:
@@ -406,12 +333,9 @@ class CustomOAuthProviderCreate(CustomOAuthProviderBase):
                 raise ValueError(
                     "client_assertion_private_key is required for private_key_jwt."
                 )
-            if (
-                self.client_assertion_certificate is None
-                and self.client_assertion_kid is None
-            ):
+            if self.client_assertion_certificate is None:
                 raise ValueError(
-                    "private_key_jwt requires either client_assertion_certificate or client_assertion_kid."
+                    "client_assertion_certificate is required for private_key_jwt."
                 )
             return self
 
@@ -424,14 +348,6 @@ class CustomOAuthProviderCreate(CustomOAuthProviderBase):
                 raise ValueError(
                     "client_assertion_* fields are not allowed when client_auth_method=none."
                 )
-            if self.client_assertion_kid:
-                raise ValueError(
-                    "client_assertion_kid is not allowed when client_auth_method=none."
-                )
-            if self.client_assertion_alg is not None:
-                raise ValueError(
-                    "client_assertion_alg is not allowed when client_auth_method=none."
-                )
             return self
 
         # AUTO mode
@@ -440,12 +356,9 @@ class CustomOAuthProviderCreate(CustomOAuthProviderBase):
                 "Provide either client_secret or client_assertion_private_key for client_auth_method=auto, not both."
             )
         if self.client_assertion_private_key:
-            if (
-                self.client_assertion_certificate is None
-                and self.client_assertion_kid is None
-            ):
+            if self.client_assertion_certificate is None:
                 raise ValueError(
-                    "private_key_jwt in auto mode requires either client_assertion_certificate or client_assertion_kid."
+                    "client_assertion_certificate is required with client_assertion_private_key."
                 )
         elif self.client_assertion_certificate is not None:
             raise ValueError(
@@ -567,8 +480,6 @@ class OAuthProviderKwargs(TypedDict, total=False):
     client_auth_method: OAuthClientAuthMethod
     client_assertion_private_key: str
     client_assertion_certificate: str
-    client_assertion_kid: str
-    client_assertion_alg: OAuthClientAssertionAlg
     scopes: list[str] | None
     authorization_endpoint: str
     token_endpoint: str
@@ -601,16 +512,9 @@ class ProviderConfig(BaseModel):
     client_auth_method: OAuthClientAuthMethod = OAuthClientAuthMethod.AUTO
     client_assertion_private_key: SecretStr | None = None
     client_assertion_certificate: SecretStr | None = None
-    client_assertion_kid: str | None = None
-    client_assertion_alg: OAuthClientAssertionAlg | None = None
     authorization_endpoint: str | None = None
     token_endpoint: str | None = None
     scopes: list[str] | None = None
-
-    @field_validator("client_assertion_kid", mode="before")
-    @classmethod
-    def _normalize_optional_kid(cls, value: str | None) -> str | None:
-        return _normalize_optional_string(value)
 
     @field_validator(
         "client_secret",
@@ -625,18 +529,6 @@ class ProviderConfig(BaseModel):
         if isinstance(value, str):
             value = SecretStr(value)
         return _normalize_optional_secret(value)
-
-    @field_validator("client_assertion_alg", mode="before")
-    @classmethod
-    def _normalize_assertion_alg(
-        cls, value: OAuthClientAssertionAlg | str | None
-    ) -> OAuthClientAssertionAlg | None:
-        if value is None:
-            return None
-        normalized = value.upper() if isinstance(value, str) else value
-        if normalized not in _ALLOWED_CLIENT_ASSERTION_ALGS:
-            raise ValueError("client_assertion_alg must be one of: RS256, PS256")
-        return cast(OAuthClientAssertionAlg, normalized)
 
     @model_validator(mode="after")
     def _validate_client_auth_fields(self) -> Self:
@@ -662,12 +554,9 @@ class ProviderConfig(BaseModel):
                 raise ValueError(
                     "client_assertion_private_key is required for private_key_jwt."
                 )
-            if (
-                self.client_assertion_certificate is None
-                and self.client_assertion_kid is None
-            ):
+            if self.client_assertion_certificate is None:
                 raise ValueError(
-                    "private_key_jwt requires either client_assertion_certificate or client_assertion_kid."
+                    "client_assertion_certificate is required for private_key_jwt."
                 )
             return self
 
@@ -680,24 +569,13 @@ class ProviderConfig(BaseModel):
                 raise ValueError(
                     "client_assertion_* fields are not allowed when client_auth_method=none."
                 )
-            if self.client_assertion_kid:
-                raise ValueError(
-                    "client_assertion_kid is not allowed when client_auth_method=none."
-                )
-            if self.client_assertion_alg is not None:
-                raise ValueError(
-                    "client_assertion_alg is not allowed when client_auth_method=none."
-                )
             return self
 
         # AUTO mode
         if self.client_assertion_private_key:
-            if (
-                self.client_assertion_certificate is None
-                and self.client_assertion_kid is None
-            ):
+            if self.client_assertion_certificate is None:
                 raise ValueError(
-                    "private_key_jwt in auto mode requires either client_assertion_certificate or client_assertion_kid."
+                    "client_assertion_certificate is required with client_assertion_private_key."
                 )
         return self
 

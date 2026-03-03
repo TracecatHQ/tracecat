@@ -127,8 +127,6 @@ class BaseOAuthProvider(ABC):
         client_auth_method: OAuthClientAuthMethod = OAuthClientAuthMethod.AUTO,
         client_assertion_private_key: str | None = None,
         client_assertion_certificate: str | None = None,
-        client_assertion_kid: str | None = None,
-        client_assertion_alg: str | None = None,
         scopes: list[str] | None = None,
         authorization_endpoint: str | None = None,
         token_endpoint: str | None = None,
@@ -142,8 +140,6 @@ class BaseOAuthProvider(ABC):
             client_auth_method: Token endpoint client authentication method
             client_assertion_private_key: PEM private key for private_key_jwt auth
             client_assertion_certificate: Optional PEM certificate for JWT headers
-            client_assertion_kid: Optional key ID for JWT headers
-            client_assertion_alg: Signing algorithm for JWT client assertions
             scopes: Optional scopes to use (overrides defaults if provided)
             authorization_endpoint: Optional authorization endpoint override
             token_endpoint: Optional token endpoint override
@@ -165,16 +161,6 @@ class BaseOAuthProvider(ABC):
         self.client_assertion_certificate = (
             client_assertion_certificate.strip()
             if client_assertion_certificate and client_assertion_certificate.strip()
-            else None
-        )
-        self.client_assertion_kid = (
-            client_assertion_kid.strip()
-            if client_assertion_kid and client_assertion_kid.strip()
-            else None
-        )
-        self.client_assertion_alg = (
-            client_assertion_alg.strip().upper()
-            if client_assertion_alg and client_assertion_alg.strip()
             else None
         )
 
@@ -238,7 +224,6 @@ class BaseOAuthProvider(ABC):
                 PrivateKeyJWT(
                     token_endpoint=self.token_endpoint,
                     headers=self._build_private_key_jwt_headers(),
-                    alg=self.client_assertion_alg,
                 )
             )
 
@@ -294,8 +279,6 @@ class BaseOAuthProvider(ABC):
             client_assertion_certificate=config.client_assertion_certificate.get_secret_value()
             if config.client_assertion_certificate
             else None,
-            client_assertion_kid=config.client_assertion_kid,
-            client_assertion_alg=config.client_assertion_alg,
             scopes=config.scopes,
             authorization_endpoint=config.authorization_endpoint,
             token_endpoint=config.token_endpoint,
@@ -410,8 +393,6 @@ class BaseOAuthProvider(ABC):
 
     def _build_private_key_jwt_headers(self) -> dict[str, str] | None:
         headers: dict[str, str] = {}
-        if self.client_assertion_kid:
-            headers["kid"] = self.client_assertion_kid
         if thumbprint := self._private_key_jwt_thumbprint():
             headers["x5t#S256"] = thumbprint
         return headers or None
@@ -1173,8 +1154,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             client_assertion_certificate = cls._clean_credential(
                 config.client_assertion_certificate
             )
-            client_assertion_kid = cls._clean_credential(config.client_assertion_kid)
-            client_assertion_alg = cls._clean_credential(config.client_assertion_alg)
         else:
             client_id = cls._clean_credential(kwargs.get("client_id"))
             client_secret = cls._clean_credential(kwargs.get("client_secret"))
@@ -1191,12 +1170,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             )
             client_assertion_certificate = cls._clean_credential(
                 kwargs.get("client_assertion_certificate")
-            )
-            client_assertion_kid = cls._clean_credential(
-                kwargs.get("client_assertion_kid")
-            )
-            client_assertion_alg = cls._clean_credential(
-                kwargs.get("client_assertion_alg")
             )
 
         registration_auth_method = None
@@ -1223,8 +1196,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             client_auth_method=client_auth_method,
             client_assertion_private_key=client_assertion_private_key,
             client_assertion_certificate=client_assertion_certificate,
-            client_assertion_kid=client_assertion_kid,
-            client_assertion_alg=client_assertion_alg,
             scopes=scopes,
             authorization_endpoint=discovery_result.authorization_endpoint,
             token_endpoint=discovery_result.token_endpoint,

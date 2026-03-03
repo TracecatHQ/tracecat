@@ -2118,14 +2118,6 @@ export type CustomOAuthProviderCreate = {
    * Optional PEM-encoded X.509 certificate for private_key_jwt authentication.
    */
   client_assertion_certificate?: string | null
-  /**
-   * Optional key ID to include in private_key_jwt headers.
-   */
-  client_assertion_kid?: string | null
-  /**
-   * JWT algorithm for private_key_jwt authentication.
-   */
-  client_assertion_alg?: "RS256" | "PS256" | null
 }
 
 /**
@@ -3240,14 +3232,6 @@ export type IntegrationRead = {
    */
   has_client_assertion_certificate?: boolean
   /**
-   * Optional key ID for JWT client assertions.
-   */
-  client_assertion_kid?: string | null
-  /**
-   * JWT signing algorithm for client assertions.
-   */
-  client_assertion_alg?: "RS256" | "PS256" | null
-  /**
    * OAuth scopes granted for this integration
    */
   granted_scopes?: Array<string> | null
@@ -3324,14 +3308,6 @@ export type IntegrationUpdate = {
    * Optional PEM-encoded X.509 certificate for private_key_jwt authentication.
    */
   client_assertion_certificate?: string | null
-  /**
-   * Optional key ID to include in private_key_jwt headers.
-   */
-  client_assertion_kid?: string | null
-  /**
-   * JWT algorithm for private_key_jwt authentication.
-   */
-  client_assertion_alg?: "RS256" | "PS256" | null
   /**
    * OAuth authorization endpoint URL. Overrides provider defaults when set.
    */

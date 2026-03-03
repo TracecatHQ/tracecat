@@ -7119,33 +7119,6 @@ export const $CustomOAuthProviderCreate = {
       description:
         "Optional PEM-encoded X.509 certificate for private_key_jwt authentication.",
     },
-    client_assertion_kid: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 255,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Client Assertion Kid",
-      description: "Optional key ID to include in private_key_jwt headers.",
-    },
-    client_assertion_alg: {
-      anyOf: [
-        {
-          type: "string",
-          enum: ["RS256", "PS256"],
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Client Assertion Alg",
-      description: "JWT algorithm for private_key_jwt authentication.",
-    },
   },
   type: "object",
   required: [
@@ -10174,31 +10147,6 @@ export const $IntegrationRead = {
         "Whether a certificate is configured for JWT client assertions.",
       default: false,
     },
-    client_assertion_kid: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Client Assertion Kid",
-      description: "Optional key ID for JWT client assertions.",
-    },
-    client_assertion_alg: {
-      anyOf: [
-        {
-          type: "string",
-          enum: ["RS256", "PS256"],
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Client Assertion Alg",
-      description: "JWT signing algorithm for client assertions.",
-    },
     granted_scopes: {
       anyOf: [
         {
@@ -10396,33 +10344,6 @@ export const $IntegrationUpdate = {
       title: "Client Assertion Certificate",
       description:
         "Optional PEM-encoded X.509 certificate for private_key_jwt authentication.",
-    },
-    client_assertion_kid: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 255,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Client Assertion Kid",
-      description: "Optional key ID to include in private_key_jwt headers.",
-    },
-    client_assertion_alg: {
-      anyOf: [
-        {
-          type: "string",
-          enum: ["RS256", "PS256"],
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Client Assertion Alg",
-      description: "JWT algorithm for private_key_jwt authentication.",
     },
     authorization_endpoint: {
       anyOf: [
