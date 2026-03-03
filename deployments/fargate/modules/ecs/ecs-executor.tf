@@ -17,7 +17,7 @@ resource "aws_ecs_task_definition" "executor_task_definition" {
     {
       name    = "TracecatExecutorContainer"
       image   = "${var.tracecat_image}:${local.tracecat_image_tag}"
-      command = ["python", "-m", "tracecat.executor.worker"]
+      command = ["/app/executor-entrypoint.sh"]
       logConfiguration = {
         logDriver = "awslogs"
         options = {

@@ -227,7 +227,7 @@ services:
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
       - sandbox-cache:/var/lib/tracecat/sandbox-cache
-    command: ["python", "-m", "tracecat.executor.worker"]
+    command: ["/app/executor-entrypoint.sh"]
     depends_on:
       migrations:
         condition: service_completed_successfully

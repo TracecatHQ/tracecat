@@ -128,8 +128,8 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 RUN mkdir -p /home/apiuser/.local/bin && ln -s $(which uv) /home/apiuser/.local/bin/uv
 
-COPY docker/scripts/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+COPY docker/scripts/entrypoint.sh docker/scripts/executor-entrypoint.sh /app/
+RUN chmod +x /app/entrypoint.sh /app/executor-entrypoint.sh
 
 # Switch to non-root user (matches production, required for pasta userspace networking)
 USER apiuser
@@ -184,8 +184,8 @@ COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
 COPY --chown=apiuser:apiuser ./packages /app/packages
 COPY --chown=apiuser:apiuser ./pyproject.toml ./uv.lock ./.python-version ./README.md ./LICENSE ./alembic.ini /app/
 COPY --chown=apiuser:apiuser ./alembic /app/alembic
-COPY --chown=apiuser:apiuser docker/scripts/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+COPY --chown=apiuser:apiuser docker/scripts/entrypoint.sh docker/scripts/executor-entrypoint.sh /app/
+RUN chmod +x /app/entrypoint.sh /app/executor-entrypoint.sh
 
 RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 \
     uv sync --locked --no-dev --no-editable
