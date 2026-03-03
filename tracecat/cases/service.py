@@ -276,12 +276,11 @@ class CasesService(BaseWorkspaceService):
             filters.append(assignee_clause)
 
         if tag_ids:
-            for tag_id in tag_ids:
-                filters.append(
-                    Case.id.in_(
-                        select(CaseTagLink.case_id).where(CaseTagLink.tag_id == tag_id)
-                    )
+            filters.append(
+                Case.id.in_(
+                    select(CaseTagLink.case_id).where(CaseTagLink.tag_id.in_(tag_ids))
                 )
+            )
 
         if dropdown_filters:
             for def_ref, option_refs in dropdown_filters.items():
