@@ -21,7 +21,11 @@ from tracecat.integrations.dependencies import (
     CCProviderInfoDep,
     ProviderInfoDep,
 )
-from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
+from tracecat.integrations.enums import (
+    IntegrationStatus,
+    OAuthClientAuthMethod,
+    OAuthGrantType,
+)
 from tracecat.integrations.providers import all_providers
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
@@ -344,6 +348,13 @@ async def get_integration(
         status=integration.status,
         is_expired=integration.is_expired,
         client_id=client_id,
+        client_auth_method=integration.client_auth_method or OAuthClientAuthMethod.AUTO,
+        has_client_assertion_private_key=(
+            integration.encrypted_client_assertion_private_key is not None
+        ),
+        has_client_assertion_certificate=(
+            integration.encrypted_client_assertion_certificate is not None
+        ),
     )
 
 
@@ -647,6 +658,9 @@ async def update_integration(
             provider_key=provider_info.key,
             client_id=params.client_id,
             client_secret=params.client_secret,
+            client_auth_method=params.client_auth_method,
+            client_assertion_private_key=params.client_assertion_private_key,
+            client_assertion_certificate=params.client_assertion_certificate,
             authorization_endpoint=params.authorization_endpoint,
             token_endpoint=params.token_endpoint,
             requested_scopes=params.scopes,

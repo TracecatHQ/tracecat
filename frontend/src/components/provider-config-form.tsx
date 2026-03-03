@@ -2,10 +2,11 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Info, Save } from "lucide-react"
-import { useCallback, useMemo } from "react"
+import { useCallback, useEffect, useMemo } from "react"
 import { useForm, useWatch } from "react-hook-form"
 import { z } from "zod"
 import type { IntegrationUpdate, ProviderRead } from "@/client"
+import { PemFileUploader } from "@/components/pem-file-uploader"
 import { ServiceAccountJsonUploader } from "@/components/service-account-json-uploader"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -21,6 +22,14 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { isMCPProvider } from "@/lib/providers"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -63,36 +72,167 @@ const renderHelpContent = (help: EndpointHelp) => {
   )
 }
 
-const createOAuthSchema = (clientSecretMaxLength: number) =>
-  z.object({
-    client_id: z
-      .string()
-      .trim()
-      .max(512, { message: "Client ID must be 512 characters or less" })
-      .optional(),
-    client_secret: z
-      .string()
-      .trim()
-      .max(clientSecretMaxLength, {
-        message: `Client secret must be ${clientSecretMaxLength} characters or less`,
-      })
-      .optional(),
-    scopes: z.array(z.string().trim().min(1)).optional(),
-    authorization_endpoint: z
-      .string()
-      .trim()
-      .url({ message: "Enter a valid HTTPS URL" })
-      .refine((value) => value.toLowerCase().startsWith("https://"), {
-        message: "Authorization endpoint must use HTTPS",
-      }),
-    token_endpoint: z
-      .string()
-      .trim()
-      .url({ message: "Enter a valid HTTPS URL" })
-      .refine((value) => value.toLowerCase().startsWith("https://"), {
-        message: "Token endpoint must use HTTPS",
-      }),
-  })
+const CLIENT_AUTH_METHOD_OPTIONS = [
+  {
+    value: "auto",
+    label: "Auto",
+    subtitle:
+      "Prefer client assertion when key material exists; otherwise use client secret.",
+  },
+  {
+    value: "client_secret_basic",
+    label: "Client secret (basic)",
+    subtitle:
+      "Sends client_id and client_secret in the Authorization header (Basic auth).",
+  },
+  {
+    value: "client_secret_post",
+    label: "Client secret (post)",
+    subtitle:
+      "Sends client_id and client_secret in the token request body (form fields).",
+  },
+  {
+    value: "private_key_jwt",
+    label: "Client assertion (private key JWT)",
+    subtitle: "Signs a JWT assertion using your private key and certificate.",
+  },
+  {
+    value: "none",
+    label: "No client authentication",
+    subtitle: "Public client mode with no client secret or client assertion.",
+  },
+] as const
+
+const DEFAULT_CLIENT_AUTH_METHOD_DESCRIPTION =
+  "Choose how Tracecat authenticates with this provider."
+
+interface OAuthSchemaOptions {
+  hasExistingClientSecret: boolean
+  hasExistingAssertionPrivateKey: boolean
+  hasExistingAssertionCertificate: boolean
+}
+
+const createOAuthSchema = (
+  clientSecretMaxLength: number,
+  options: OAuthSchemaOptions
+) =>
+  z
+    .object({
+      client_id: z
+        .string()
+        .trim()
+        .max(512, { message: "Client ID must be 512 characters or less" })
+        .optional(),
+      client_secret: z
+        .string()
+        .trim()
+        .max(clientSecretMaxLength, {
+          message: `Client secret must be ${clientSecretMaxLength} characters or less`,
+        })
+        .optional(),
+      client_auth_method: z.enum([
+        "auto",
+        "client_secret_basic",
+        "client_secret_post",
+        "private_key_jwt",
+        "none",
+      ]),
+      client_assertion_private_key: z.string().trim().optional(),
+      client_assertion_certificate: z.string().trim().optional(),
+      scopes: z.array(z.string().trim().min(1)).optional(),
+      authorization_endpoint: z
+        .string()
+        .trim()
+        .url({ message: "Enter a valid HTTPS URL" })
+        .refine((value) => value.toLowerCase().startsWith("https://"), {
+          message: "Authorization endpoint must use HTTPS",
+        }),
+      token_endpoint: z
+        .string()
+        .trim()
+        .url({ message: "Enter a valid HTTPS URL" })
+        .refine((value) => value.toLowerCase().startsWith("https://"), {
+          message: "Token endpoint must use HTTPS",
+        }),
+    })
+    .superRefine((data, ctx) => {
+      const method = data.client_auth_method
+      const hasSecretInput = Boolean(data.client_secret?.trim())
+      const hasAssertionKeyInput = Boolean(
+        data.client_assertion_private_key?.trim()
+      )
+      const hasAssertionCertInput = Boolean(
+        data.client_assertion_certificate?.trim()
+      )
+      const hasAssertionKey =
+        hasAssertionKeyInput || options.hasExistingAssertionPrivateKey
+      const hasAssertionCert =
+        hasAssertionCertInput || options.hasExistingAssertionCertificate
+      const hasSecret = hasSecretInput || options.hasExistingClientSecret
+
+      if (method === "private_key_jwt") {
+        if (!hasAssertionKey) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Private key is required for private key JWT.",
+            path: ["client_assertion_private_key"],
+          })
+        }
+        if (!hasAssertionCert) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Certificate is required for private key JWT.",
+            path: ["client_assertion_certificate"],
+          })
+        }
+      }
+
+      if (method === "client_secret_basic" || method === "client_secret_post") {
+        if (!hasSecret) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Client secret is required for the selected auth method.",
+            path: ["client_secret"],
+          })
+        }
+      }
+
+      if (method === "none") {
+        if (hasSecretInput) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "Client secret must be empty when auth method is set to none.",
+            path: ["client_secret"],
+          })
+        }
+        if (hasAssertionKeyInput || hasAssertionCertInput) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "Client assertion fields must be empty when auth method is set to none.",
+            path: ["client_assertion_private_key"],
+          })
+        }
+      }
+
+      if (method === "auto" && hasSecret && hasAssertionKey) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Auto mode cannot use both client secret and client assertion private key.",
+          path: ["client_auth_method"],
+        })
+      }
+
+      if (hasAssertionCertInput && !hasAssertionKey) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Certificate requires a private key.",
+          path: ["client_assertion_private_key"],
+        })
+      }
+    })
 
 type OAuthSchema = z.infer<ReturnType<typeof createOAuthSchema>>
 
@@ -132,10 +272,6 @@ export function ProviderConfigForm({
   const serviceAccountProviders = ["google", "google_sheets", "google_docs"]
   const isServiceAccountProvider = serviceAccountProviders.includes(id)
   const clientSecretMaxLength = isServiceAccountProvider ? 16384 : 512
-  const validationSchema = useMemo(
-    () => createOAuthSchema(clientSecretMaxLength),
-    [clientSecretMaxLength]
-  )
 
   const {
     integration,
@@ -147,12 +283,42 @@ export function ProviderConfigForm({
     workspaceId,
     grantType,
   })
+  const hasExistingAssertionPrivateKey =
+    integration?.has_client_assertion_private_key ?? false
+  const hasExistingAssertionCertificate =
+    integration?.has_client_assertion_certificate ?? false
+  const hasExistingClientSecret = useMemo(() => {
+    if (!integration || integration.status === "not_configured") {
+      return false
+    }
+    if (integration.client_auth_method === "none") {
+      return false
+    }
+    return !(integration.has_client_assertion_private_key ?? false)
+  }, [integration])
+  const validationSchema = useMemo(
+    () =>
+      createOAuthSchema(clientSecretMaxLength, {
+        hasExistingClientSecret,
+        hasExistingAssertionPrivateKey,
+        hasExistingAssertionCertificate,
+      }),
+    [
+      clientSecretMaxLength,
+      hasExistingClientSecret,
+      hasExistingAssertionPrivateKey,
+      hasExistingAssertionCertificate,
+    ]
+  )
 
   const defaultValues = useMemo<OAuthSchema>(() => {
     const fallbackScopes = integration?.requested_scopes ?? defaultScopes ?? []
     return {
       client_id: integration?.client_id ?? "",
       client_secret: "",
+      client_auth_method: integration?.client_auth_method ?? "auto",
+      client_assertion_private_key: "",
+      client_assertion_certificate: "",
       scopes: fallbackScopes,
       authorization_endpoint:
         integration?.authorization_endpoint ?? providerDefaultAuth ?? "",
@@ -170,6 +336,11 @@ export function ProviderConfigForm({
       const params: IntegrationUpdate = {
         client_id: data.client_id?.trim() || undefined,
         client_secret: data.client_secret?.trim() || undefined,
+        client_auth_method: data.client_auth_method,
+        client_assertion_private_key:
+          data.client_assertion_private_key?.trim() || undefined,
+        client_assertion_certificate:
+          data.client_assertion_certificate?.trim() || undefined,
         scopes: data.scopes?.length ? data.scopes : undefined,
         authorization_endpoint: data.authorization_endpoint,
         token_endpoint: data.token_endpoint,
@@ -227,10 +398,44 @@ export function ProviderConfigForm({
     control: form.control,
     name: "authorization_endpoint",
   })
+  const watchedClientAuthMethod = useWatch({
+    control: form.control,
+    name: "client_auth_method",
+  })
   const watchedTokenEndpoint = useWatch({
     control: form.control,
     name: "token_endpoint",
   })
+  const clientAuthMethod = watchedClientAuthMethod ?? "auto"
+  const showAssertionFields = clientAuthMethod === "private_key_jwt"
+  useEffect(() => {
+    if (clientAuthMethod === "private_key_jwt") {
+      return
+    }
+
+    const hasAssertionKeyInput = Boolean(
+      form.getValues("client_assertion_private_key")?.trim()
+    )
+    const hasAssertionCertInput = Boolean(
+      form.getValues("client_assertion_certificate")?.trim()
+    )
+    if (!hasAssertionKeyInput && !hasAssertionCertInput) {
+      return
+    }
+
+    form.setValue("client_assertion_private_key", "", {
+      shouldDirty: true,
+      shouldTouch: true,
+    })
+    form.setValue("client_assertion_certificate", "", {
+      shouldDirty: true,
+      shouldTouch: true,
+    })
+    form.clearErrors([
+      "client_assertion_private_key",
+      "client_assertion_certificate",
+    ])
+  }, [clientAuthMethod, form])
   const authEndpointValue = watchedAuthEndpoint ?? ""
   const tokenEndpointValue = watchedTokenEndpoint ?? ""
   const defaultAuthEndpoint = providerDefaultAuth ?? ""
@@ -317,7 +522,12 @@ export function ProviderConfigForm({
                 name="client_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{clientIdLabel}</FormLabel>
+                    <FormLabel>
+                      {clientIdLabel}{" "}
+                      <span className="text-xs text-muted-foreground">
+                        (optional)
+                      </span>
+                    </FormLabel>
                     <FormControl>
                       <Input
                         {...field}
@@ -338,7 +548,12 @@ export function ProviderConfigForm({
                 name="client_secret"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{clientSecretLabel}</FormLabel>
+                    <FormLabel>
+                      {clientSecretLabel}{" "}
+                      <span className="text-xs text-muted-foreground">
+                        (optional)
+                      </span>
+                    </FormLabel>
                     <FormControl>
                       {isServiceAccountProvider ? (
                         <ServiceAccountJsonUploader
@@ -390,6 +605,148 @@ export function ProviderConfigForm({
                   </FormItem>
                 )}
               />
+
+              <FormField
+                control={form.control}
+                name="client_auth_method"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Client auth method</FormLabel>
+                    <FormControl>
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select auth method">
+                            {
+                              CLIENT_AUTH_METHOD_OPTIONS.find(
+                                (option) => option.value === field.value
+                              )?.label
+                            }
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CLIENT_AUTH_METHOD_OPTIONS.map((option) => (
+                            <SelectItem
+                              key={option.value}
+                              value={option.value}
+                              textValue={option.label}
+                            >
+                              <div className="flex flex-col gap-0.5 py-0.5">
+                                <span>{option.label}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {option.subtitle}
+                                </span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormControl>
+                    <FormMessage />
+                    <FormDescription className="text-xs">
+                      {CLIENT_AUTH_METHOD_OPTIONS.find(
+                        (option) => option.value === field.value
+                      )?.subtitle ?? DEFAULT_CLIENT_AUTH_METHOD_DESCRIPTION}
+                    </FormDescription>
+                  </FormItem>
+                )}
+              />
+
+              {showAssertionFields && (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="client_assertion_private_key"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Client assertion private key</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            {...field}
+                            value={field.value ?? ""}
+                            rows={6}
+                            placeholder="-----BEGIN PRIVATE KEY-----"
+                          />
+                        </FormControl>
+                        <PemFileUploader
+                          allowedExtensions={[".pem", ".key"]}
+                          chooseLabel="Upload key file"
+                          onValueLoaded={(value) => {
+                            field.onChange(value)
+                            form.clearErrors("client_assertion_private_key")
+                          }}
+                          onError={(message) => {
+                            form.setError("client_assertion_private_key", {
+                              type: "manual",
+                              message,
+                            })
+                          }}
+                          onClearError={() => {
+                            form.clearErrors("client_assertion_private_key")
+                          }}
+                        />
+                        <FormMessage />
+                        <FormDescription className="text-xs">
+                          PEM private key used to sign private key JWT
+                          assertions. Leave blank to keep existing key.
+                          {hasExistingAssertionPrivateKey
+                            ? " Existing key is already configured."
+                            : ""}
+                        </FormDescription>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="client_assertion_certificate"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          Client assertion certificate{" "}
+                          <span className="text-xs text-muted-foreground">
+                            (optional)
+                          </span>
+                        </FormLabel>
+                        <FormControl>
+                          <Textarea
+                            {...field}
+                            value={field.value ?? ""}
+                            rows={5}
+                            placeholder="-----BEGIN CERTIFICATE-----"
+                          />
+                        </FormControl>
+                        <PemFileUploader
+                          allowedExtensions={[".pem", ".crt", ".cer"]}
+                          chooseLabel="Upload cert file"
+                          onValueLoaded={(value) => {
+                            field.onChange(value)
+                            form.clearErrors("client_assertion_certificate")
+                          }}
+                          onError={(message) => {
+                            form.setError("client_assertion_certificate", {
+                              type: "manual",
+                              message,
+                            })
+                          }}
+                          onClearError={() => {
+                            form.clearErrors("client_assertion_certificate")
+                          }}
+                        />
+                        <FormMessage />
+                        <FormDescription className="text-xs">
+                          Optional PEM certificate used for JWT header
+                          thumbprint.
+                          {hasExistingAssertionCertificate
+                            ? " Existing certificate is already configured."
+                            : ""}
+                        </FormDescription>
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
             </div>
           </div>
 
@@ -515,7 +872,12 @@ export function ProviderConfigForm({
                 render={({ field }) => (
                   <FormItem>
                     <div className="flex items-center justify-between gap-2">
-                      <FormLabel>OAuth scopes</FormLabel>
+                      <FormLabel>
+                        OAuth scopes{" "}
+                        <span className="text-xs text-muted-foreground">
+                          (optional)
+                        </span>
+                      </FormLabel>
                       {(defaultScopesList.length > 0 ||
                         scopesValue.length > 0) && (
                         <Button

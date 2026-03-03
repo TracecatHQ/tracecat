@@ -2,9 +2,10 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Loader2, Plus } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import { PemFileUploader } from "@/components/pem-file-uploader"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button, type ButtonProps } from "@/components/ui/button"
 import {
@@ -38,46 +39,174 @@ import { useCreateCustomProvider } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-const formSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(3, { message: "Name must be at least 3 characters long" })
-    .max(120, { message: "Name must be 120 characters or fewer" }),
-  description: z
-    .string()
-    .trim()
-    .max(512, { message: "Description must be 512 characters or fewer" })
-    .optional()
-    .or(z.literal("")),
-  grant_type: z.enum(["authorization_code", "client_credentials"]),
-  client_id: z
-    .string()
-    .trim()
-    .min(1, { message: "Client ID is required" })
-    .max(512, { message: "Client ID must be 512 characters or fewer" }),
-  client_secret: z
-    .string()
-    .trim()
-    .max(16384, { message: "Client secret is unexpectedly long" })
-    .optional()
-    .or(z.literal("")),
-  authorization_endpoint: z
-    .string()
-    .trim()
-    .url({ message: "Enter a valid HTTPS URL" })
-    .refine((value) => value.toLowerCase().startsWith("https://"), {
-      message: "Authorization endpoint must use HTTPS",
-    }),
-  token_endpoint: z
-    .string()
-    .trim()
-    .url({ message: "Enter a valid HTTPS URL" })
-    .refine((value) => value.toLowerCase().startsWith("https://"), {
-      message: "Token endpoint must use HTTPS",
-    }),
-  scopes: z.array(z.string().trim().min(1)).optional(),
-})
+const CLIENT_AUTH_METHOD_OPTIONS = [
+  {
+    value: "auto",
+    label: "Auto",
+    subtitle:
+      "Prefer client assertion when key material exists; otherwise use client secret.",
+  },
+  {
+    value: "client_secret_basic",
+    label: "Client secret (basic)",
+    subtitle:
+      "Sends client_id and client_secret in the Authorization header (Basic auth).",
+  },
+  {
+    value: "client_secret_post",
+    label: "Client secret (post)",
+    subtitle:
+      "Sends client_id and client_secret in the token request body (form fields).",
+  },
+  {
+    value: "private_key_jwt",
+    label: "Client assertion (private key JWT)",
+    subtitle: "Signs a JWT assertion using your private key and certificate.",
+  },
+  {
+    value: "none",
+    label: "No client authentication",
+    subtitle: "Public client mode with no client secret or client assertion.",
+  },
+] as const
+
+const DEFAULT_CLIENT_AUTH_METHOD_DESCRIPTION =
+  "Choose how Tracecat authenticates with this provider."
+
+const formSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(3, { message: "Name must be at least 3 characters long" })
+      .max(120, { message: "Name must be 120 characters or fewer" }),
+    description: z
+      .string()
+      .trim()
+      .max(512, { message: "Description must be 512 characters or fewer" })
+      .optional()
+      .or(z.literal("")),
+    grant_type: z.enum(["authorization_code", "client_credentials"]),
+    client_id: z
+      .string()
+      .trim()
+      .min(1, { message: "Client ID is required" })
+      .max(512, { message: "Client ID must be 512 characters or fewer" }),
+    client_secret: z
+      .string()
+      .trim()
+      .max(16384, { message: "Client secret is unexpectedly long" })
+      .optional()
+      .or(z.literal("")),
+    client_auth_method: z.enum([
+      "auto",
+      "client_secret_basic",
+      "client_secret_post",
+      "private_key_jwt",
+      "none",
+    ]),
+    client_assertion_private_key: z
+      .string()
+      .trim()
+      .optional()
+      .or(z.literal("")),
+    client_assertion_certificate: z
+      .string()
+      .trim()
+      .optional()
+      .or(z.literal("")),
+    authorization_endpoint: z
+      .string()
+      .trim()
+      .url({ message: "Enter a valid HTTPS URL" })
+      .refine((value) => value.toLowerCase().startsWith("https://"), {
+        message: "Authorization endpoint must use HTTPS",
+      }),
+    token_endpoint: z
+      .string()
+      .trim()
+      .url({ message: "Enter a valid HTTPS URL" })
+      .refine((value) => value.toLowerCase().startsWith("https://"), {
+        message: "Token endpoint must use HTTPS",
+      }),
+    scopes: z.array(z.string().trim().min(1)).optional(),
+  })
+  .superRefine((data, ctx) => {
+    const method = data.client_auth_method
+    const hasSecret = Boolean(data.client_secret?.trim())
+    const hasAssertionKey = Boolean(data.client_assertion_private_key?.trim())
+    const hasAssertionCert = Boolean(data.client_assertion_certificate?.trim())
+
+    if (method === "private_key_jwt") {
+      if (hasSecret) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Client secret must be empty for auth method private_key_jwt.",
+          path: ["client_secret"],
+        })
+      }
+      if (!hasAssertionKey) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Private key is required for private key JWT.",
+          path: ["client_assertion_private_key"],
+        })
+      }
+      if (!hasAssertionCert) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Certificate is required for private key JWT.",
+          path: ["client_assertion_certificate"],
+        })
+      }
+    }
+
+    if (method === "client_secret_basic" || method === "client_secret_post") {
+      if (!hasSecret) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Client secret is required for the selected auth method.",
+          path: ["client_secret"],
+        })
+      }
+      if (hasAssertionKey || hasAssertionCert) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Client assertion fields must be empty for the selected auth method.",
+          path: ["client_assertion_private_key"],
+        })
+      }
+    }
+
+    if (method === "none") {
+      if (hasSecret) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Client secret must be empty for auth method none.",
+          path: ["client_secret"],
+        })
+      }
+      if (hasAssertionKey || hasAssertionCert) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Client assertion fields must be empty for auth method none.",
+          path: ["client_assertion_private_key"],
+        })
+      }
+    }
+
+    if (method === "auto" && hasSecret && hasAssertionKey) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Auto mode cannot use both client secret and client assertion private key.",
+        path: ["client_auth_method"],
+      })
+    }
+  })
 
 type CustomProviderFormValues = z.infer<typeof formSchema>
 
@@ -87,6 +216,9 @@ const DEFAULT_VALUES: CustomProviderFormValues = {
   grant_type: "authorization_code",
   client_id: "",
   client_secret: "",
+  client_auth_method: "auto",
+  client_assertion_private_key: "",
+  client_assertion_certificate: "",
   authorization_endpoint: "",
   token_endpoint: "",
   scopes: [],
@@ -129,7 +261,35 @@ export function CreateCustomProviderDialog({
     defaultValues: DEFAULT_VALUES,
   })
 
-  const grantType = form.watch("grant_type")
+  const clientAuthMethod = form.watch("client_auth_method")
+  useEffect(() => {
+    if (clientAuthMethod === "private_key_jwt") {
+      return
+    }
+
+    const hasAssertionKeyInput = Boolean(
+      form.getValues("client_assertion_private_key")?.trim()
+    )
+    const hasAssertionCertInput = Boolean(
+      form.getValues("client_assertion_certificate")?.trim()
+    )
+    if (!hasAssertionKeyInput && !hasAssertionCertInput) {
+      return
+    }
+
+    form.setValue("client_assertion_private_key", "", {
+      shouldDirty: true,
+      shouldTouch: true,
+    })
+    form.setValue("client_assertion_certificate", "", {
+      shouldDirty: true,
+      shouldTouch: true,
+    })
+    form.clearErrors([
+      "client_assertion_private_key",
+      "client_assertion_certificate",
+    ])
+  }, [clientAuthMethod, form])
 
   const resetForm = () => {
     form.reset(DEFAULT_VALUES)
@@ -152,6 +312,11 @@ export function CreateCustomProviderDialog({
       grant_type: values.grant_type,
       client_id: values.client_id,
       client_secret: values.client_secret?.trim() || undefined,
+      client_auth_method: values.client_auth_method,
+      client_assertion_private_key:
+        values.client_assertion_private_key?.trim() || undefined,
+      client_assertion_certificate:
+        values.client_assertion_certificate?.trim() || undefined,
       authorization_endpoint: values.authorization_endpoint,
       token_endpoint: values.token_endpoint,
       scopes: values.scopes ?? [],
@@ -206,7 +371,12 @@ export function CreateCustomProviderDialog({
               name="description"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Description</FormLabel>
+                  <FormLabel>
+                    Description{" "}
+                    <span className="text-xs text-muted-foreground">
+                      (optional)
+                    </span>
+                  </FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Optional description for this provider"
@@ -285,11 +455,9 @@ export function CreateCustomProviderDialog({
                   <FormItem>
                     <FormLabel>
                       Client secret{" "}
-                      {grantType === "authorization_code" && (
-                        <span className="text-xs text-muted-foreground">
-                          (optional)
-                        </span>
-                      )}
+                      <span className="text-xs text-muted-foreground">
+                        (optional)
+                      </span>
                     </FormLabel>
                     <FormControl>
                       <Input
@@ -304,6 +472,133 @@ export function CreateCustomProviderDialog({
                 )}
               />
             </div>
+            <FormField
+              control={form.control}
+              name="client_auth_method"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Client auth method</FormLabel>
+                  <FormControl>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select auth method">
+                          {
+                            CLIENT_AUTH_METHOD_OPTIONS.find(
+                              (option) => option.value === field.value
+                            )?.label
+                          }
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CLIENT_AUTH_METHOD_OPTIONS.map((option) => (
+                          <SelectItem
+                            key={option.value}
+                            value={option.value}
+                            textValue={option.label}
+                          >
+                            <div className="flex flex-col gap-0.5 py-0.5">
+                              <span>{option.label}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {option.subtitle}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormControl>
+                  <FormDescription className="text-xs">
+                    {CLIENT_AUTH_METHOD_OPTIONS.find(
+                      (option) => option.value === field.value
+                    )?.subtitle ?? DEFAULT_CLIENT_AUTH_METHOD_DESCRIPTION}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            {clientAuthMethod === "private_key_jwt" && (
+              <>
+                <FormField
+                  control={form.control}
+                  name="client_assertion_private_key"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Client assertion private key</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          rows={6}
+                          placeholder="-----BEGIN PRIVATE KEY-----"
+                          {...field}
+                        />
+                      </FormControl>
+                      <PemFileUploader
+                        allowedExtensions={[".pem", ".key"]}
+                        chooseLabel="Upload key file"
+                        onValueLoaded={(value) => {
+                          field.onChange(value)
+                          form.clearErrors("client_assertion_private_key")
+                        }}
+                        onError={(message) => {
+                          form.setError("client_assertion_private_key", {
+                            type: "manual",
+                            message,
+                          })
+                        }}
+                        onClearError={() => {
+                          form.clearErrors("client_assertion_private_key")
+                        }}
+                      />
+                      <FormDescription className="text-xs">
+                        PEM private key used to sign client assertions.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="client_assertion_certificate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        Client assertion certificate{" "}
+                        <span className="text-xs text-muted-foreground">
+                          (optional)
+                        </span>
+                      </FormLabel>
+                      <FormControl>
+                        <Textarea
+                          rows={5}
+                          placeholder="-----BEGIN CERTIFICATE-----"
+                          {...field}
+                        />
+                      </FormControl>
+                      <PemFileUploader
+                        allowedExtensions={[".pem", ".crt", ".cer"]}
+                        chooseLabel="Upload cert file"
+                        onValueLoaded={(value) => {
+                          field.onChange(value)
+                          form.clearErrors("client_assertion_certificate")
+                        }}
+                        onError={(message) => {
+                          form.setError("client_assertion_certificate", {
+                            type: "manual",
+                            message,
+                          })
+                        }}
+                        onClearError={() => {
+                          form.clearErrors("client_assertion_certificate")
+                        }}
+                      />
+                      <FormDescription className="text-xs">
+                        Optional PEM certificate for JWT thumbprint headers.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </>
+            )}
             <FormField
               control={form.control}
               name="authorization_endpoint"
@@ -341,7 +636,12 @@ export function CreateCustomProviderDialog({
               name="scopes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Scopes</FormLabel>
+                  <FormLabel>
+                    Scopes{" "}
+                    <span className="text-xs text-muted-foreground">
+                      (optional)
+                    </span>
+                  </FormLabel>
                   <FormControl>
                     <MultiTagCommandInput
                       value={field.value ?? []}

@@ -16,10 +16,32 @@ from pydantic import (
     Field,
     SecretStr,
     field_validator,
+    model_validator,
 )
 
 from tracecat.identifiers import UserID, WorkspaceID
-from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
+from tracecat.integrations.enums import (
+    IntegrationStatus,
+    MCPAuthType,
+    OAuthClientAuthMethod,
+    OAuthGrantType,
+)
+
+
+def _normalize_optional_string(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _normalize_optional_secret(value: SecretStr | None) -> SecretStr | None:
+    if value is None:
+        return None
+    normalized = value.get_secret_value().strip()
+    if not normalized:
+        return None
+    return SecretStr(normalized)
 
 
 # Pydantic models for API responses
@@ -61,6 +83,18 @@ class IntegrationRead(BaseModel):
         default=None,
         description="OAuth client ID for the provider",
     )
+    client_auth_method: OAuthClientAuthMethod = Field(
+        default=OAuthClientAuthMethod.AUTO,
+        description="OAuth token endpoint client authentication method.",
+    )
+    has_client_assertion_private_key: bool = Field(
+        default=False,
+        description="Whether a private key is configured for JWT client assertions.",
+    )
+    has_client_assertion_certificate: bool = Field(
+        default=False,
+        description="Whether a certificate is configured for JWT client assertions.",
+    )
 
     # OAuth scopes
     granted_scopes: list[str] | None = Field(
@@ -97,6 +131,20 @@ class IntegrationUpdate(BaseModel):
         description="OAuth client secret for the provider",
         min_length=1,
     )
+    client_auth_method: OAuthClientAuthMethod | None = Field(
+        default=None,
+        description="OAuth token endpoint client authentication method.",
+    )
+    client_assertion_private_key: SecretStr | None = Field(
+        default=None,
+        description="PEM-encoded private key used for private_key_jwt authentication.",
+        min_length=1,
+    )
+    client_assertion_certificate: SecretStr | None = Field(
+        default=None,
+        description="Optional PEM-encoded X.509 certificate for private_key_jwt authentication.",
+        min_length=1,
+    )
     authorization_endpoint: str | None = Field(
         default=None,
         description="OAuth authorization endpoint URL. Overrides provider defaults when set.",
@@ -115,11 +163,8 @@ class IntegrationUpdate(BaseModel):
     @field_validator("authorization_endpoint", "token_endpoint", mode="before")
     @classmethod
     def _validate_https_endpoint(cls, value: str | None) -> str | None:
+        value = _normalize_optional_string(value)
         if value is None:
-            return None
-        if isinstance(value, str):
-            value = value.strip()
-        if not value:
             return None
         parsed = urlparse(value)
         if parsed.scheme.lower() != "https":
@@ -127,6 +172,61 @@ class IntegrationUpdate(BaseModel):
         if not parsed.netloc:
             raise ValueError("OAuth endpoints must include a hostname")
         return value
+
+    @field_validator(
+        "client_secret",
+        "client_assertion_private_key",
+        "client_assertion_certificate",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_optional_secret_fields(
+        cls, value: SecretStr | str | None
+    ) -> SecretStr | None:
+        if isinstance(value, str):
+            value = SecretStr(value)
+        return _normalize_optional_secret(value)
+
+    @model_validator(mode="after")
+    def _validate_client_auth_fields(self) -> Self:
+        has_secret = self.client_secret is not None
+        has_assertion_private_key = self.client_assertion_private_key is not None
+        has_assertion_certificate = self.client_assertion_certificate is not None
+
+        if self.client_auth_method in (
+            OAuthClientAuthMethod.CLIENT_SECRET_BASIC,
+            OAuthClientAuthMethod.CLIENT_SECRET_POST,
+        ):
+            if has_assertion_private_key or has_assertion_certificate:
+                raise ValueError(
+                    "client_assertion_* fields are only valid with private_key_jwt."
+                )
+            return self
+
+        if self.client_auth_method == OAuthClientAuthMethod.PRIVATE_KEY_JWT:
+            if has_secret:
+                raise ValueError(
+                    "client_secret is not allowed when client_auth_method=private_key_jwt."
+                )
+            return self
+
+        if self.client_auth_method == OAuthClientAuthMethod.NONE:
+            if has_secret or has_assertion_private_key or has_assertion_certificate:
+                raise ValueError(
+                    "client_auth_method=none does not allow client_secret or client_assertion_* fields."
+                )
+            return self
+
+        if self.client_auth_method == OAuthClientAuthMethod.AUTO:
+            if has_secret and has_assertion_private_key:
+                raise ValueError(
+                    "client_auth_method=auto cannot use both client_secret and client_assertion_private_key."
+                )
+            if has_assertion_certificate and not has_assertion_private_key:
+                raise ValueError(
+                    "client_assertion_certificate requires client_assertion_private_key."
+                )
+        return self
 
 
 class CustomOAuthProviderBase(BaseModel):
@@ -179,6 +279,92 @@ class CustomOAuthProviderCreate(CustomOAuthProviderBase):
         description="OAuth client secret for the provider",
         min_length=1,
     )
+    client_auth_method: OAuthClientAuthMethod = Field(
+        default=OAuthClientAuthMethod.AUTO,
+        description="OAuth token endpoint client authentication method.",
+    )
+    client_assertion_private_key: SecretStr | None = Field(
+        default=None,
+        description="PEM-encoded private key used for private_key_jwt authentication.",
+        min_length=1,
+    )
+    client_assertion_certificate: SecretStr | None = Field(
+        default=None,
+        description="Optional PEM-encoded X.509 certificate for private_key_jwt authentication.",
+        min_length=1,
+    )
+
+    @field_validator(
+        "client_secret",
+        "client_assertion_private_key",
+        "client_assertion_certificate",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_optional_secret_fields(
+        cls, value: SecretStr | str | None
+    ) -> SecretStr | None:
+        if isinstance(value, str):
+            value = SecretStr(value)
+        return _normalize_optional_secret(value)
+
+    @model_validator(mode="after")
+    def _validate_client_auth_fields(self) -> Self:
+        if self.client_auth_method in (
+            OAuthClientAuthMethod.CLIENT_SECRET_BASIC,
+            OAuthClientAuthMethod.CLIENT_SECRET_POST,
+        ):
+            if self.client_secret is None:
+                raise ValueError(
+                    "client_secret is required when using client_secret_* auth methods."
+                )
+            if self.client_assertion_private_key or self.client_assertion_certificate:
+                raise ValueError(
+                    "client_assertion_* fields are only valid with private_key_jwt."
+                )
+            return self
+
+        if self.client_auth_method == OAuthClientAuthMethod.PRIVATE_KEY_JWT:
+            if self.client_secret is not None:
+                raise ValueError(
+                    "client_secret is not allowed when client_auth_method=private_key_jwt."
+                )
+            if self.client_assertion_private_key is None:
+                raise ValueError(
+                    "client_assertion_private_key is required for private_key_jwt."
+                )
+            if self.client_assertion_certificate is None:
+                raise ValueError(
+                    "client_assertion_certificate is required for private_key_jwt."
+                )
+            return self
+
+        if self.client_auth_method == OAuthClientAuthMethod.NONE:
+            if self.client_secret is not None:
+                raise ValueError(
+                    "client_secret is not allowed when client_auth_method=none."
+                )
+            if self.client_assertion_private_key or self.client_assertion_certificate:
+                raise ValueError(
+                    "client_assertion_* fields are not allowed when client_auth_method=none."
+                )
+            return self
+
+        # AUTO mode
+        if self.client_assertion_private_key and self.client_secret:
+            raise ValueError(
+                "Provide either client_secret or client_assertion_private_key for client_auth_method=auto, not both."
+            )
+        if self.client_assertion_private_key:
+            if self.client_assertion_certificate is None:
+                raise ValueError(
+                    "client_assertion_certificate is required with client_assertion_private_key."
+                )
+        elif self.client_assertion_certificate is not None:
+            raise ValueError(
+                "client_assertion_certificate requires client_assertion_private_key."
+            )
+        return self
 
 
 class IntegrationOAuthConnect(BaseModel):
@@ -291,6 +477,9 @@ class OAuthProviderKwargs(TypedDict, total=False):
 
     client_id: str
     client_secret: str
+    client_auth_method: OAuthClientAuthMethod
+    client_assertion_private_key: str
+    client_assertion_certificate: str
     scopes: list[str] | None
     authorization_endpoint: str
     token_endpoint: str
@@ -320,9 +509,87 @@ class ProviderConfig(BaseModel):
 
     client_id: str | None = None
     client_secret: SecretStr | None = None
+    client_auth_method: OAuthClientAuthMethod = OAuthClientAuthMethod.AUTO
+    client_assertion_private_key: SecretStr | None = None
+    client_assertion_certificate: SecretStr | None = None
     authorization_endpoint: str | None = None
     token_endpoint: str | None = None
     scopes: list[str] | None = None
+
+    @field_validator(
+        "client_secret",
+        "client_assertion_private_key",
+        "client_assertion_certificate",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_optional_secret_fields(
+        cls, value: SecretStr | str | None
+    ) -> SecretStr | None:
+        if isinstance(value, str):
+            value = SecretStr(value)
+        return _normalize_optional_secret(value)
+
+    @model_validator(mode="after")
+    def _validate_client_auth_fields(self) -> Self:
+        if self.client_id is None:
+            raise ValueError("client_id is required for ProviderConfig.")
+
+        if self.client_auth_method in (
+            OAuthClientAuthMethod.CLIENT_SECRET_BASIC,
+            OAuthClientAuthMethod.CLIENT_SECRET_POST,
+        ):
+            if self.client_secret is None:
+                raise ValueError(
+                    "client_secret is required when using client_secret_* auth methods."
+                )
+            if self.client_assertion_private_key or self.client_assertion_certificate:
+                raise ValueError(
+                    "client_assertion_* fields are only valid with private_key_jwt."
+                )
+            return self
+
+        if self.client_auth_method == OAuthClientAuthMethod.PRIVATE_KEY_JWT:
+            if self.client_secret is not None:
+                raise ValueError(
+                    "client_secret is not allowed when client_auth_method=private_key_jwt."
+                )
+            if self.client_assertion_private_key is None:
+                raise ValueError(
+                    "client_assertion_private_key is required for private_key_jwt."
+                )
+            if self.client_assertion_certificate is None:
+                raise ValueError(
+                    "client_assertion_certificate is required for private_key_jwt."
+                )
+            return self
+
+        if self.client_auth_method == OAuthClientAuthMethod.NONE:
+            if self.client_secret is not None:
+                raise ValueError(
+                    "client_secret is not allowed when client_auth_method=none."
+                )
+            if self.client_assertion_private_key or self.client_assertion_certificate:
+                raise ValueError(
+                    "client_assertion_* fields are not allowed when client_auth_method=none."
+                )
+            return self
+
+        # AUTO mode
+        if self.client_assertion_private_key and self.client_secret:
+            raise ValueError(
+                "client_auth_method=auto cannot use both client_secret and client_assertion_private_key."
+            )
+        if self.client_assertion_private_key:
+            if self.client_assertion_certificate is None:
+                raise ValueError(
+                    "client_assertion_certificate is required with client_assertion_private_key."
+                )
+        elif self.client_assertion_certificate is not None:
+            raise ValueError(
+                "client_assertion_certificate requires client_assertion_private_key."
+            )
+        return self
 
 
 class ProviderReadMinimal(BaseModel):

@@ -7082,6 +7082,43 @@ export const $CustomOAuthProviderCreate = {
       title: "Client Secret",
       description: "OAuth client secret for the provider",
     },
+    client_auth_method: {
+      $ref: "#/components/schemas/OAuthClientAuthMethod",
+      description: "OAuth token endpoint client authentication method.",
+      default: "auto",
+    },
+    client_assertion_private_key: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Assertion Private Key",
+      description:
+        "PEM-encoded private key used for private_key_jwt authentication.",
+    },
+    client_assertion_certificate: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Assertion Certificate",
+      description:
+        "Optional PEM-encoded X.509 certificate for private_key_jwt authentication.",
+    },
   },
   type: "object",
   required: [
@@ -10091,6 +10128,25 @@ export const $IntegrationRead = {
       title: "Client Id",
       description: "OAuth client ID for the provider",
     },
+    client_auth_method: {
+      $ref: "#/components/schemas/OAuthClientAuthMethod",
+      description: "OAuth token endpoint client authentication method.",
+      default: "auto",
+    },
+    has_client_assertion_private_key: {
+      type: "boolean",
+      title: "Has Client Assertion Private Key",
+      description:
+        "Whether a private key is configured for JWT client assertions.",
+      default: false,
+    },
+    has_client_assertion_certificate: {
+      type: "boolean",
+      title: "Has Client Assertion Certificate",
+      description:
+        "Whether a certificate is configured for JWT client assertions.",
+      default: false,
+    },
     granted_scopes: {
       anyOf: [
         {
@@ -10245,6 +10301,49 @@ export const $IntegrationUpdate = {
       ],
       title: "Client Secret",
       description: "OAuth client secret for the provider",
+    },
+    client_auth_method: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OAuthClientAuthMethod",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "OAuth token endpoint client authentication method.",
+    },
+    client_assertion_private_key: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Assertion Private Key",
+      description:
+        "PEM-encoded private key used for private_key_jwt authentication.",
+    },
+    client_assertion_certificate: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Assertion Certificate",
+      description:
+        "Optional PEM-encoded X.509 certificate for private_key_jwt authentication.",
     },
     authorization_endpoint: {
       anyOf: [
@@ -10895,6 +10994,19 @@ export const $OAuth2AuthorizeResponse = {
   type: "object",
   required: ["authorization_url"],
   title: "OAuth2AuthorizeResponse",
+} as const
+
+export const $OAuthClientAuthMethod = {
+  type: "string",
+  enum: [
+    "auto",
+    "client_secret_basic",
+    "client_secret_post",
+    "private_key_jwt",
+    "none",
+  ],
+  title: "OAuthClientAuthMethod",
+  description: "Client authentication method used at the OAuth token endpoint.",
 } as const
 
 export const $OAuthGrantType = {

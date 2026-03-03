@@ -1,6 +1,7 @@
 """Base OAuth provider using authlib for standardized OAuth2 flows."""
 
 import asyncio
+import base64
 import json
 import secrets
 from abc import ABC
@@ -10,11 +11,14 @@ from urllib.parse import urlparse
 
 import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client
+from authlib.oauth2.rfc7523 import PrivateKeyJWT
 from authlib.oauth2.rfc7636 import create_s256_code_challenge
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
 from pydantic import BaseModel, Field, SecretStr
 
 from tracecat import config
-from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.enums import OAuthClientAuthMethod, OAuthGrantType
 from tracecat.integrations.schemas import (
     ProviderConfig,
     ProviderMetadata,
@@ -120,6 +124,9 @@ class BaseOAuthProvider(ABC):
         self,
         client_id: str | None = None,
         client_secret: str | None = None,
+        client_auth_method: OAuthClientAuthMethod = OAuthClientAuthMethod.AUTO,
+        client_assertion_private_key: str | None = None,
+        client_assertion_certificate: str | None = None,
         scopes: list[str] | None = None,
         authorization_endpoint: str | None = None,
         token_endpoint: str | None = None,
@@ -130,6 +137,9 @@ class BaseOAuthProvider(ABC):
         Args:
             client_id: Optional client ID to use instead of environment variable
             client_secret: Optional client secret to use instead of environment variable
+            client_auth_method: Token endpoint client authentication method
+            client_assertion_private_key: PEM private key for private_key_jwt auth
+            client_assertion_certificate: Optional PEM certificate for JWT headers
             scopes: Optional scopes to use (overrides defaults if provided)
             authorization_endpoint: Optional authorization endpoint override
             token_endpoint: Optional token endpoint override
@@ -141,6 +151,17 @@ class BaseOAuthProvider(ABC):
         self._client_registration_auth_method: str | None = None
         self._registration_endpoint: str | None = getattr(
             self, "_registration_endpoint", None
+        )
+        self.client_auth_method = client_auth_method
+        self.client_assertion_private_key = (
+            client_assertion_private_key.strip()
+            if client_assertion_private_key and client_assertion_private_key.strip()
+            else None
+        )
+        self.client_assertion_certificate = (
+            client_assertion_certificate.strip()
+            if client_assertion_certificate and client_assertion_certificate.strip()
+            else None
         )
 
         # Resolve client credentials, allowing subclasses to supply defaults
@@ -171,14 +192,22 @@ class BaseOAuthProvider(ABC):
         if not self.id == self.metadata.id:
             raise ValueError(f"{self.__class__.__name__} id must match metadata.id")
 
+        token_auth_method = self._get_token_endpoint_auth_method()
+        authlib_client_secret = self.client_secret
+        if token_auth_method == OAuthClientAuthMethod.PRIVATE_KEY_JWT.value:
+            if not self.client_assertion_private_key:
+                raise ValueError(
+                    "private_key_jwt requires client_assertion_private_key."
+                )
+            authlib_client_secret = self.client_assertion_private_key
+
         # Create base client kwargs
         client_kwargs = {
             "client_id": self.client_id,
-            "client_secret": self.client_secret,
+            "client_secret": authlib_client_secret,
             "grant_type": self.grant_type,
         }
 
-        token_auth_method = self._get_token_endpoint_auth_method()
         if token_auth_method:
             client_kwargs["token_endpoint_auth_method"] = token_auth_method
 
@@ -190,6 +219,13 @@ class BaseOAuthProvider(ABC):
         client_kwargs.update(self._get_client_kwargs())
 
         self.client = AsyncOAuth2Client(**client_kwargs)
+        if token_auth_method == OAuthClientAuthMethod.PRIVATE_KEY_JWT.value:
+            self.client.register_client_auth_method(
+                PrivateKeyJWT(
+                    token_endpoint=self.token_endpoint,
+                    headers=self._build_private_key_jwt_headers(),
+                )
+            )
 
         self.logger = logger.bind(service=f"{self.__class__.__name__}")
         self.logger.info(
@@ -235,6 +271,13 @@ class BaseOAuthProvider(ABC):
             client_id=config.client_id,
             client_secret=config.client_secret.get_secret_value()
             if config.client_secret
+            else None,
+            client_auth_method=config.client_auth_method,
+            client_assertion_private_key=config.client_assertion_private_key.get_secret_value()
+            if config.client_assertion_private_key
+            else None,
+            client_assertion_certificate=config.client_assertion_certificate.get_secret_value()
+            if config.client_assertion_certificate
             else None,
             scopes=config.scopes,
             authorization_endpoint=config.authorization_endpoint,
@@ -339,12 +382,31 @@ class BaseOAuthProvider(ABC):
         """Preferred token endpoint auth method when registering dynamically."""
         return None
 
+    def _private_key_jwt_thumbprint(self) -> str | None:
+        if not self.client_assertion_certificate:
+            return None
+        cert = x509.load_pem_x509_certificate(
+            self.client_assertion_certificate.encode("utf-8")
+        )
+        digest = cert.fingerprint(hashes.SHA256())
+        return base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")
+
+    def _build_private_key_jwt_headers(self) -> dict[str, str] | None:
+        headers: dict[str, str] = {}
+        if thumbprint := self._private_key_jwt_thumbprint():
+            headers["x5t#S256"] = thumbprint
+        return headers or None
+
     def _get_token_endpoint_auth_method(self) -> str | None:
         """Return auth method to use when calling the token endpoint."""
         if self._client_registration_auth_method is not None:
             return self._client_registration_auth_method
+        if self.client_auth_method != OAuthClientAuthMethod.AUTO:
+            return self.client_auth_method.value
+        if self.client_assertion_private_key:
+            return OAuthClientAuthMethod.PRIVATE_KEY_JWT.value
         if self.client_secret:
-            return "client_secret_basic"
+            return OAuthClientAuthMethod.CLIENT_SECRET_BASIC.value
         return None
 
     def _get_client_kwargs(self) -> dict[str, Any]:
@@ -945,6 +1007,8 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             return "client_secret_post"
         if "client_secret_basic" in methods:
             return "client_secret_basic"
+        if "private_key_jwt" in methods:
+            return "private_key_jwt"
         if "none" in methods:
             return "none"
         return None
@@ -1018,6 +1082,8 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         )
 
     def _dynamic_registration_auth_method(self) -> str | None:
+        if self.client_auth_method != OAuthClientAuthMethod.AUTO:
+            return self.client_auth_method.value
         return self._select_dynamic_registration_auth_method(
             self._token_endpoint_auth_methods_supported
         )
@@ -1026,6 +1092,11 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         if self._client_registration_auth_method:
             return self._client_registration_auth_method
         methods = self._token_endpoint_auth_methods_supported or []
+        if self.client_auth_method != OAuthClientAuthMethod.AUTO:
+            return self.client_auth_method.value
+        if self.client_assertion_private_key:
+            if "private_key_jwt" in methods or not methods:
+                return "private_key_jwt"
         if self.client_secret:
             for candidate in ("client_secret_post", "client_secret_basic"):
                 if candidate in methods:
@@ -1073,9 +1144,30 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         if config:
             client_id = cls._clean_credential(config.client_id)
             client_secret = cls._clean_credential(config.client_secret)
+            client_auth_method = config.client_auth_method
+            client_assertion_private_key = cls._clean_credential(
+                config.client_assertion_private_key
+            )
+            client_assertion_certificate = cls._clean_credential(
+                config.client_assertion_certificate
+            )
         else:
             client_id = cls._clean_credential(kwargs.get("client_id"))
             client_secret = cls._clean_credential(kwargs.get("client_secret"))
+            raw_client_auth_method = kwargs.get(
+                "client_auth_method", OAuthClientAuthMethod.AUTO
+            )
+            client_auth_method = (
+                raw_client_auth_method
+                if isinstance(raw_client_auth_method, OAuthClientAuthMethod)
+                else OAuthClientAuthMethod(str(raw_client_auth_method))
+            )
+            client_assertion_private_key = cls._clean_credential(
+                kwargs.get("client_assertion_private_key")
+            )
+            client_assertion_certificate = cls._clean_credential(
+                kwargs.get("client_assertion_certificate")
+            )
 
         registration_auth_method = None
         if not client_id and discovery_result.registration_endpoint:
@@ -1098,6 +1190,9 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         init_kwargs.update(
             client_id=client_id,
             client_secret=client_secret,
+            client_auth_method=client_auth_method,
+            client_assertion_private_key=client_assertion_private_key,
+            client_assertion_certificate=client_assertion_certificate,
             scopes=scopes,
             authorization_endpoint=discovery_result.authorization_endpoint,
             token_endpoint=discovery_result.token_endpoint,

@@ -7,6 +7,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.oauth2.rfc7636 import create_s256_code_challenge
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 from pydantic import BaseModel, SecretStr, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +18,11 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import OAuthIntegration
 from tracecat.exceptions import TracecatAuthorizationError
-from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.enums import (
+    IntegrationStatus,
+    OAuthClientAuthMethod,
+    OAuthGrantType,
+)
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     ClientCredentialsOAuthProvider,
@@ -33,6 +41,36 @@ from tracecat.integrations.service import (
 from tracecat.integrations.types import TokenResponse
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+def _generate_private_key_and_certificate_pem() -> tuple[str, str]:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Tracecat Test"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "tracecat.test"),
+        ]
+    )
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(UTC) - timedelta(days=1))
+        .not_valid_after(datetime.now(UTC) + timedelta(days=365))
+        .sign(key, hashes.SHA256())
+    )
+    private_key_pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+    certificate_pem = certificate.public_bytes(serialization.Encoding.PEM).decode(
+        "utf-8"
+    )
+    return private_key_pem, certificate_pem
 
 
 # Mock OAuth Provider for testing
@@ -1066,6 +1104,89 @@ class TestIntegrationService:
         assert config.authorization_endpoint == authorization_endpoint
         assert config.token_endpoint == token_endpoint
 
+    async def test_store_and_get_provider_config_private_key_jwt(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        provider_key = ProviderKey(
+            id="test_provider_private_key_jwt",
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+        )
+        private_key_pem, certificate_pem = _generate_private_key_and_certificate_pem()
+        private_key = SecretStr(private_key_pem)
+        certificate = SecretStr(certificate_pem)
+
+        integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="test_client_id",
+            client_auth_method=OAuthClientAuthMethod.PRIVATE_KEY_JWT,
+            client_assertion_private_key=private_key,
+            client_assertion_certificate=certificate,
+            authorization_endpoint="https://api.example.com/oauth/authorize",
+            token_endpoint="https://api.example.com/oauth/token",
+        )
+
+        config = integration_service.get_provider_config(
+            integration=integration,
+            default_scopes=["scope.one"],
+        )
+
+        assert config is not None
+        assert config.client_id == "test_client_id"
+        assert config.client_secret is None
+        assert config.client_auth_method == OAuthClientAuthMethod.PRIVATE_KEY_JWT
+        assert config.client_assertion_private_key is not None
+        assert (
+            config.client_assertion_private_key.get_secret_value().strip()
+            == private_key.get_secret_value().strip()
+        )
+        assert config.client_assertion_certificate is not None
+        assert (
+            config.client_assertion_certificate.get_secret_value().strip()
+            == certificate.get_secret_value().strip()
+        )
+
+    async def test_store_provider_config_rejects_invalid_private_key_jwt_config(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        provider_key = ProviderKey(
+            id="test_provider_invalid_private_key_jwt",
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+        )
+
+        with pytest.raises(
+            ValueError, match="client_assertion_private_key is required"
+        ):
+            await integration_service.store_provider_config(
+                provider_key=provider_key,
+                client_id="test_client_id",
+                client_auth_method=OAuthClientAuthMethod.PRIVATE_KEY_JWT,
+                authorization_endpoint="https://api.example.com/oauth/authorize",
+                token_endpoint="https://api.example.com/oauth/token",
+            )
+
+    async def test_store_provider_config_rejects_invalid_private_key_pem(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        provider_key = ProviderKey(
+            id="test_provider_invalid_private_key_pem",
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+        )
+        _, certificate_pem = _generate_private_key_and_certificate_pem()
+
+        with pytest.raises(ValueError, match="Invalid client_assertion_private_key"):
+            await integration_service.store_provider_config(
+                provider_key=provider_key,
+                client_id="test_client_id",
+                client_auth_method=OAuthClientAuthMethod.PRIVATE_KEY_JWT,
+                client_assertion_private_key=SecretStr("not-a-pem-key"),
+                client_assertion_certificate=SecretStr(certificate_pem),
+                authorization_endpoint="https://api.example.com/oauth/authorize",
+                token_endpoint="https://api.example.com/oauth/token",
+            )
+
     @pytest.mark.parametrize(
         ("authorization_endpoint", "token_endpoint"),
         [
@@ -1182,6 +1303,96 @@ class TestIntegrationService:
                     )
                 case _:
                     raise ValueError(f"Unexpected field: {field}")
+
+    def test_provider_config_private_key_jwt_rejects_client_secret(self) -> None:
+        private_key_pem, certificate_pem = _generate_private_key_and_certificate_pem()
+
+        with pytest.raises(
+            ValidationError,
+            match="client_secret is not allowed when client_auth_method=private_key_jwt",
+        ):
+            ProviderConfig(
+                client_id="test-client",
+                client_secret=SecretStr("test-secret"),
+                client_auth_method=OAuthClientAuthMethod.PRIVATE_KEY_JWT,
+                client_assertion_private_key=SecretStr(private_key_pem),
+                client_assertion_certificate=SecretStr(certificate_pem),
+            )
+
+    def test_provider_config_auto_rejects_secret_and_private_key(self) -> None:
+        private_key_pem, certificate_pem = _generate_private_key_and_certificate_pem()
+
+        with pytest.raises(
+            ValidationError,
+            match=(
+                "client_auth_method=auto cannot use both client_secret and "
+                "client_assertion_private_key"
+            ),
+        ):
+            ProviderConfig(
+                client_id="test-client",
+                client_secret=SecretStr("test-secret"),
+                client_auth_method=OAuthClientAuthMethod.AUTO,
+                client_assertion_private_key=SecretStr(private_key_pem),
+                client_assertion_certificate=SecretStr(certificate_pem),
+            )
+
+    def test_provider_config_auto_rejects_certificate_without_private_key(self) -> None:
+        _, certificate_pem = _generate_private_key_and_certificate_pem()
+
+        with pytest.raises(
+            ValidationError,
+            match="client_assertion_certificate requires client_assertion_private_key",
+        ):
+            ProviderConfig(
+                client_id="test-client",
+                client_auth_method=OAuthClientAuthMethod.AUTO,
+                client_assertion_certificate=SecretStr(certificate_pem),
+            )
+
+    async def test_oauth_integration_status_auto_requires_assertion_certificate(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        private_key_pem, certificate_pem = _generate_private_key_and_certificate_pem()
+
+        missing_certificate = OAuthIntegration(
+            workspace_id=integration_service.workspace_id,
+            provider_id="test_auto_status_missing_certificate",
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+            user_id=None,
+            encrypted_access_token=b"",
+            encrypted_client_id=integration_service.encrypt_client_credential(
+                "client-id"
+            ),
+            encrypted_client_assertion_private_key=(
+                integration_service.encrypt_client_credential(private_key_pem)
+            ),
+            encrypted_client_assertion_certificate=None,
+            client_auth_method=OAuthClientAuthMethod.AUTO,
+            use_workspace_credentials=True,
+        )
+        assert missing_certificate.status == IntegrationStatus.NOT_CONFIGURED
+
+        configured = OAuthIntegration(
+            workspace_id=integration_service.workspace_id,
+            provider_id="test_auto_status_configured",
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+            user_id=None,
+            encrypted_access_token=b"",
+            encrypted_client_id=integration_service.encrypt_client_credential(
+                "client-id"
+            ),
+            encrypted_client_assertion_private_key=(
+                integration_service.encrypt_client_credential(private_key_pem)
+            ),
+            encrypted_client_assertion_certificate=(
+                integration_service.encrypt_client_credential(certificate_pem)
+            ),
+            client_auth_method=OAuthClientAuthMethod.AUTO,
+            use_workspace_credentials=True,
+        )
+        assert configured.status == IntegrationStatus.CONFIGURED
 
     async def test_store_provider_config_includes_default_endpoints(
         self,
@@ -1758,6 +1969,25 @@ class TestClientCredentialsOAuthProvider:
                 mock_cc_provider.token_endpoint,
                 grant_type="client_credentials",
             )
+
+    async def test_private_key_jwt_initialization(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "tracecat.config.TRACECAT__PUBLIC_APP_URL", "http://localhost"
+        )
+        private_key_pem, certificate_pem = _generate_private_key_and_certificate_pem()
+        provider = MockCCOAuthProvider(
+            client_id="mock_cc_client_id",
+            client_auth_method=OAuthClientAuthMethod.PRIVATE_KEY_JWT,
+            client_assertion_private_key=private_key_pem,
+            client_assertion_certificate=certificate_pem,
+        )
+
+        assert (
+            getattr(provider.client, "token_endpoint_auth_method", None)
+            == OAuthClientAuthMethod.PRIVATE_KEY_JWT.value
+        )
 
     async def test_client_credentials_no_refresh_token(
         self, mock_cc_provider: MockCCOAuthProvider
