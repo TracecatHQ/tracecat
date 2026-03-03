@@ -16,7 +16,6 @@ const sanitizeSchema = {
   },
 }
 
-
 export const ALLOWED_MARKDOWN_LINK_PREFIXES = [
   "http://",
   "https://",
