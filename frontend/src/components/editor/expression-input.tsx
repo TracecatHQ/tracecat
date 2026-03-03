@@ -15,24 +15,15 @@ import { useCallback, useMemo } from "react"
 import { useFormContext } from "react-hook-form"
 import type { ActionRead } from "@/client"
 import {
-  createAtKeyCompletion,
   createAutocomplete,
-  createBlurHandler,
   createCoreKeymap,
-  createExitEditModeKeyHandler,
-  createExpressionNodeHover,
-  createPillClickHandler,
-  createPillDeleteKeymap,
-  createTemplatePillPlugin,
   EDITOR_STYLE,
-  editingRangeField,
   templatePillTheme,
 } from "@/components/editor/codemirror/common"
 import { createSimpleTemplatePlugin } from "@/components/editor/codemirror/highlight-plugin"
 import { ExpressionErrorBoundary } from "@/components/error-boundaries"
 import { Input } from "@/components/ui/input"
 import { createTemplateRegex } from "@/lib/expressions"
-import { useOrgAppSettings } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -124,7 +115,6 @@ function ExpressionInputCore({
   const workspaceId = useWorkspaceId()
   const { workflow } = useWorkflow()
   const methods = useFormContext()
-  const { appSettings } = useOrgAppSettings()
   const actions = workflow?.actions || ({} as Record<string, ActionRead>)
   const forEach = useMemo(() => methods.watch("for_each"), [methods])
 
@@ -171,14 +161,7 @@ function ExpressionInputCore({
   }, [value])
 
   const extensions = useMemo(() => {
-    const pillsEnabled = Boolean(
-      appSettings?.app_editor_pill_decorations_enabled
-    )
-
-    // Choose between pill plugin and simple highlighting
-    const templatePlugin = pillsEnabled
-      ? createTemplatePillPlugin(workspaceId)
-      : createSimpleTemplatePlugin(workspaceId)
+    const templatePlugin = createSimpleTemplatePlugin(workspaceId)
 
     const editorVisualTheme = EditorView.theme({
       // Input-specific styling to match shadcn Input
@@ -260,64 +243,21 @@ function ExpressionInputCore({
     })
 
     const baseExtensions = [
-      // Core setup
       history(),
       EditorState.allowMultipleSelections.of(true),
       indentUnit.of("  "),
-
-      // Linting
       linter(expressionLinter),
-
-      // Features
       bracketMatching(),
       closeBrackets(),
-      createAutocomplete({
-        workspaceId,
-        actions,
-        forEach,
-      }),
-
-      // Placeholder
+      createAutocomplete({ workspaceId, actions, forEach }),
       placeholder(placeholderText),
-
-      // Template expression plugin
       templatePlugin,
       templatePillTheme,
       editorVisualTheme,
     ]
 
-    // Add pill-specific extensions only when pills are enabled
-    if (pillsEnabled) {
-      return [
-        // Keymaps (pill-specific)
-        createPillDeleteKeymap(), // This must be first to ensure that the delete key is handled before the core keymap
-        createCoreKeymap(),
-        createAtKeyCompletion(),
-        createExitEditModeKeyHandler(),
-
-        ...baseExtensions,
-
-        // Pill-specific plugins
-        editingRangeField,
-        createExpressionNodeHover(workspaceId),
-
-        // Event handlers (pill-specific)
-        EditorView.domEventHandlers({
-          mousedown: createPillClickHandler(),
-          blur: createBlurHandler(),
-        }),
-      ]
-    }
-
     return baseExtensions.concat([createCoreKeymap()])
-  }, [
-    workspaceId,
-    actions,
-    placeholderText,
-    forEach,
-    defaultHeight,
-    appSettings,
-  ])
+  }, [workspaceId, actions, placeholderText, forEach, defaultHeight])
 
   const handleChange = useCallback(
     (val: string) => {
