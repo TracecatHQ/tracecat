@@ -12,7 +12,6 @@ import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import {
   ALLOWED_MARKDOWN_IMAGE_PREFIXES,
   ALLOWED_MARKDOWN_LINK_PREFIXES,
-  DEFAULT_MARKDOWN_ORIGIN,
   getStreamdownRehypePlugins,
 } from "@/lib/sanitize-markdown"
 
@@ -211,7 +210,6 @@ export function Messages({
           <Streamdown
             allowedImagePrefixes={ALLOWED_MARKDOWN_IMAGE_PREFIXES}
             allowedLinkPrefixes={ALLOWED_MARKDOWN_LINK_PREFIXES}
-            defaultOrigin={DEFAULT_MARKDOWN_ORIGIN}
             rehypePlugins={chatMessageRehypePlugins}
             className={`${assistantMarkdownStyle} flex-1`}
             parseIncompleteMarkdown
@@ -278,7 +276,6 @@ function AgentChatMessage({ message }: { message: ModelResponse }) {
           <Streamdown
             allowedImagePrefixes={ALLOWED_MARKDOWN_IMAGE_PREFIXES}
             allowedLinkPrefixes={ALLOWED_MARKDOWN_LINK_PREFIXES}
-            defaultOrigin={DEFAULT_MARKDOWN_ORIGIN}
             rehypePlugins={chatMessageRehypePlugins}
             className={assistantMarkdownStyle}
           >
