@@ -12,8 +12,10 @@ import {
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
-import type { WorkflowExecutionReadMinimal } from "@/client"
-import type { WorkflowRunReadMinimal } from "@/client/services.custom"
+import type {
+  WorkflowExecutionReadMinimal,
+  WorkflowRunReadMinimal,
+} from "@/client"
 import { WorkflowExecutionStatusIcon } from "@/components/executions/nav"
 import {
   AlertDialog,

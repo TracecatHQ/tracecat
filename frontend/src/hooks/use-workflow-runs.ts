@@ -4,23 +4,20 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type ApiError,
   type TriggerType,
-  workflowExecutionsCancelWorkflowExecution,
-  workflowExecutionsTerminateWorkflowExecution,
-} from "@/client"
-import {
   type WorkflowExecutionBulkResetResponse,
   type WorkflowExecutionRelationFilter,
   type WorkflowExecutionResetPointRead,
   type WorkflowExecutionResetReapplyType,
-  type WorkflowExecutionStatusFilter,
   type WorkflowExecutionStatusFilterMode,
   type WorkflowExecutionsSearchWorkflowExecutionsData,
   type WorkflowRunReadMinimal,
   workflowExecutionsBulkResetWorkflowExecutions,
-  workflowExecutionsListResetPoints,
+  workflowExecutionsCancelWorkflowExecution,
+  workflowExecutionsListWorkflowExecutionResetPoints,
   workflowExecutionsResetWorkflowExecution,
   workflowExecutionsSearchWorkflowExecutions,
-} from "@/client/services.custom"
+  workflowExecutionsTerminateWorkflowExecution,
+} from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import {
   type CursorPaginationParams,
@@ -29,6 +26,10 @@ import {
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const WORKFLOW_RUNS_PAGE_SIZE = 50
+type WorkflowExecutionStatusFilter = NonNullable<
+  WorkflowExecutionsSearchWorkflowExecutionsData["status"]
+>[number]
+
 const WORKFLOW_ID_SHORT_PATTERN = /^wf_[0-9A-Za-z]+$/
 const LEGACY_WORKFLOW_ID_PATTERN = /^wf-[0-9a-f]{32}$/
 const UUID_PATTERN =
@@ -225,7 +226,7 @@ export function useWorkflowExecutionResetPoints(
       if (!executionId) {
         return []
       }
-      return await workflowExecutionsListResetPoints({
+      return await workflowExecutionsListWorkflowExecutionResetPoints({
         workspaceId,
         executionId: encodeURIComponent(executionId),
         limit: 500,
@@ -438,7 +439,7 @@ export function useWorkflowRunMutations() {
         }),
       onSuccess: async (response: WorkflowExecutionBulkResetResponse) => {
         await invalidateRuns()
-        const failures = response.results.filter((result) => !result.ok)
+        const failures = (response.results ?? []).filter((result) => !result.ok)
         if (failures.length === 0) {
           toast({
             title: "Bulk reset started",

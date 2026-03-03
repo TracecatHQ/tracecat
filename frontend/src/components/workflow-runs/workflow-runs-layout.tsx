@@ -24,8 +24,11 @@ import {
 } from "lucide-react"
 import { type ComponentType, useEffect, useMemo, useRef, useState } from "react"
 import type { DateRange } from "react-day-picker"
-import type { TriggerType, WorkflowExecutionReadMinimal } from "@/client"
-import type { WorkflowExecutionRelationFilter } from "@/client/services.custom"
+import type {
+  TriggerType,
+  WorkflowExecutionReadMinimal,
+  WorkflowExecutionRelationFilter,
+} from "@/client"
 import {
   type FilterMode,
   FilterMultiSelect,

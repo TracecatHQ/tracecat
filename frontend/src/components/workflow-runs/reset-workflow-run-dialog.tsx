@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import type {
   WorkflowExecutionResetPointRead,
   WorkflowExecutionResetReapplyType,
-} from "@/client/services.custom"
+} from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
