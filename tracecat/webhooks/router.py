@@ -1,5 +1,6 @@
+import uuid
 from itertools import batched
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
 from fastapi import (
     APIRouter,
@@ -13,6 +14,7 @@ from fastapi import (
 )
 from temporalio.service import RPCError
 
+from tracecat import config
 from tracecat.concurrency import cooperative
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
@@ -23,6 +25,21 @@ from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, generate_exec_id
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.storage import blob
+from tracecat.storage.collection import get_collection_page
+from tracecat.storage.object import (
+    CollectionObject,
+    ExternalObject,
+    InlineObject,
+    StoredObject,
+    StoredObjectValidator,
+)
+from tracecat.storage.utils import (
+    cached_blob_download,
+    compute_sha256,
+    deserialize_object,
+    serialize_object,
+)
 from tracecat.webhooks.dependencies import (
     DraftWorkflowDep,
     PayloadDep,
@@ -50,9 +67,165 @@ class OktaVerificationResponse(TypedDict):
     verification: str
 
 
+class WebhookStoredObjectInlineResponse(TypedDict):
+    kind: Literal["value"]
+    value: Any
+
+
+class WebhookStoredObjectDownloadResponse(TypedDict):
+    kind: Literal["download_file", "download_export"]
+    download_url: str
+    expires_in_seconds: int
+    content_type: str
+    size_bytes: int
+
+
+type WaitResultOutput = (
+    WebhookStoredObjectInlineResponse | WebhookStoredObjectDownloadResponse
+)
+
+
 type WebhookResponse = (
     WorkflowExecutionCreateResponse | OktaVerificationResponse | Response
 )
+
+
+async def _to_external_download_response(
+    external: ExternalObject,
+) -> WebhookStoredObjectDownloadResponse:
+    ref = external.ref
+    expiry = config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
+    download_url = await blob.generate_presigned_download_url(
+        key=ref.key,
+        bucket=ref.bucket,
+        expiry=expiry,
+        force_download=True,
+        override_content_type="application/octet-stream",
+    )
+    return WebhookStoredObjectDownloadResponse(
+        kind="download_file",
+        download_url=download_url,
+        expires_in_seconds=expiry,
+        content_type=ref.content_type,
+        size_bytes=ref.size_bytes,
+    )
+
+
+async def _to_collection_download_response(
+    collection: CollectionObject,
+) -> WebhookStoredObjectDownloadResponse:
+    materialized = await _materialize_collection_values_for_wait(collection)
+    serialized = serialize_object(materialized)
+    prefix = collection.manifest_ref.key.removesuffix("/manifest.json")
+    export_key = f"{prefix}/downloads/{uuid.uuid4().hex}.json"
+
+    await blob.upload_file(
+        content=serialized,
+        key=export_key,
+        bucket=collection.manifest_ref.bucket,
+        content_type="application/json",
+    )
+
+    expiry = config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
+    download_url = await blob.generate_presigned_download_url(
+        key=export_key,
+        bucket=collection.manifest_ref.bucket,
+        expiry=expiry,
+        force_download=True,
+        override_content_type="application/json",
+    )
+
+    return WebhookStoredObjectDownloadResponse(
+        kind="download_export",
+        download_url=download_url,
+        expires_in_seconds=expiry,
+        content_type="application/json",
+        size_bytes=len(serialized),
+    )
+
+
+async def _retrieve_external_value(external: ExternalObject) -> Any:
+    ref = external.ref
+    content = await cached_blob_download(
+        sha256=ref.sha256,
+        bucket=ref.bucket,
+        key=ref.key,
+    )
+
+    actual_sha256 = compute_sha256(content)
+    if actual_sha256 != ref.sha256:
+        raise ValueError(
+            f"Integrity check failed for {ref.key}: "
+            f"expected {ref.sha256}, got {actual_sha256}"
+        )
+    return deserialize_object(content)
+
+
+async def _resolve_stored_object_value(stored: StoredObject) -> Any:
+    match stored:
+        case InlineObject(data=data):
+            return data
+        case ExternalObject() as external:
+            return await _retrieve_external_value(external)
+        case CollectionObject() as collection:
+            return await _materialize_collection_values_for_wait(collection)
+        case _:
+            raise TypeError(f"Expected StoredObject, got {type(stored).__name__}")
+
+
+async def _materialize_collection_values_for_wait(
+    collection: CollectionObject,
+) -> Any:
+    if collection.index is not None:
+        index = collection.index
+        if index < 0:
+            index += collection.count
+        if index < 0 or index >= collection.count:
+            raise IndexError(
+                f"Collection index {index} out of range [0, {collection.count})"
+            )
+
+        items = await get_collection_page(collection, offset=index, limit=1)
+        if not items:
+            raise IndexError(
+                f"Collection index {index} out of range [0, {collection.count})"
+            )
+        item = items[0]
+        if collection.element_kind == "value":
+            return item
+        stored = StoredObjectValidator.validate_python(item)
+        return await _resolve_stored_object_value(stored)
+
+    items = await get_collection_page(collection)
+    if collection.element_kind == "value":
+        return items
+
+    values: list[Any] = []
+    for item in items:
+        stored = StoredObjectValidator.validate_python(item)
+        values.append(await _resolve_stored_object_value(stored))
+    return values
+
+
+async def _normalize_wait_result(value: StoredObject) -> WaitResultOutput:
+    """Normalize /wait response values for StoredObject variants.
+
+    - InlineObject: returns value envelope
+    - ExternalObject: returns download envelope
+    - CollectionObject: materializes and returns download envelope
+    """
+    match value:
+        case InlineObject(data=data):
+            return WebhookStoredObjectInlineResponse(
+                kind="value",
+                value=data,
+            )
+        case ExternalObject() as external:
+            return await _to_external_download_response(external)
+        case CollectionObject() as collection:
+            return await _to_collection_download_response(collection)
+        case _:
+            raise ValueError(f"Expected StoredObject, got {type(value).__name__}")
 
 
 # NOTE: Need to set response_model to None to avoid FastAPI trying to parse the response as JSON
@@ -215,7 +388,7 @@ async def incoming_webhook_wait(
     workflow_id: AnyWorkflowIDPath,
     defn: ValidWorkflowDefinitionDep,
     payload: PayloadDep,
-) -> Any:
+) -> WaitResultOutput:
     """Webhook endpoint to trigger a workflow.
 
     This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
@@ -237,7 +410,7 @@ async def incoming_webhook_wait(
         else None,
     )
 
-    return response["result"]
+    return await _normalize_wait_result(response["result"])
 
 
 @router.post("/draft", response_model=None)
