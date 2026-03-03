@@ -25,7 +25,9 @@ from tracecat.cases.schemas import (
     CaseReadMinimal,
     CaseUpdate,
 )
+from tracecat.tags.schemas import TagCreate
 from tracecat.cases.service import CaseFieldsService, CasesService
+from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.models import Case
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.pagination import CursorPaginationParams
@@ -809,6 +811,65 @@ class TestCasesService:
         )
 
         assert search_response.model_dump() == list_response.model_dump()
+
+    async def test_search_cases_tag_filter_uses_or_logic(
+        self, cases_service: CasesService
+    ) -> None:
+        """Multiple tag filters should match cases that have any selected tag."""
+        tags_service = CaseTagsService(
+            session=cases_service.session,
+            role=cases_service.role,
+        )
+        tag_one = await tags_service.create_tag(
+            TagCreate(name="Tag One", color="#111111")
+        )
+        tag_two = await tags_service.create_tag(
+            TagCreate(name="Tag Two", color="#222222")
+        )
+
+        case_with_first_tag = await cases_service.create_case(
+            CaseCreate(
+                summary="Case with first tag",
+                description="Case linked to first tag",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        case_with_second_tag = await cases_service.create_case(
+            CaseCreate(
+                summary="Case with second tag",
+                description="Case linked to second tag",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        unrelated_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Untagged case",
+                description="Case without matching tags",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+        await tags_service.add_tag_to_case(case_with_first_tag.id, tag_one.id)
+        await tags_service.add_tag_to_case(case_with_second_tag.id, tag_two.id)
+
+        params = CursorPaginationParams(limit=20, cursor=None, reverse=False)
+        response = await cases_service.search_cases(
+            params=params,
+            tag_ids=[tag_one.id, tag_two.id],
+            order_by="created_at",
+            sort="asc",
+        )
+
+        result_ids = {item.id for item in response.items}
+        assert case_with_first_tag.id in result_ids
+        assert case_with_second_tag.id in result_ids
+        assert unrelated_case.id not in result_ids
 
     async def test_search_cases_short_id_exact_match(
         self, cases_service: CasesService
