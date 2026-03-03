@@ -1,6 +1,6 @@
 import uuid
 from itertools import batched
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Literal, TypedDict, cast
 
 from fastapi import (
     APIRouter,
@@ -63,12 +63,38 @@ class OktaVerificationResponse(TypedDict):
     verification: str
 
 
+type WaitResultScalar = str | int | float | bool | None
+type WaitResultValue = (
+    WaitResultScalar | list["WaitResultValue"] | dict[str, "WaitResultValue"]
+)
+
+
+class WebhookStoredObjectInlineResponse(TypedDict):
+    kind: Literal["value"]
+    value: WaitResultValue
+
+
 class WebhookStoredObjectDownloadResponse(TypedDict):
-    kind: Literal["external_ref", "collection_ref"]
+    kind: Literal["download_file", "download_export"]
     download_url: str
     expires_in_seconds: int
     content_type: str
     size_bytes: int
+
+
+type WaitResultInput = (
+    StoredObject
+    | WaitResultValue
+    | list["WaitResultInput"]
+    | dict[str, "WaitResultInput"]
+)
+type WaitResultOutput = (
+    WaitResultValue
+    | WebhookStoredObjectInlineResponse
+    | WebhookStoredObjectDownloadResponse
+    | list["WaitResultOutput"]
+    | dict[str, "WaitResultOutput"]
+)
 
 
 type WebhookResponse = (
@@ -76,7 +102,7 @@ type WebhookResponse = (
 )
 
 
-def _try_parse_stored_object(value: Any) -> StoredObject | None:
+def _try_parse_stored_object(value: object) -> StoredObject | None:
     if isinstance(value, (InlineObject, ExternalObject, CollectionObject)):
         return value
     if isinstance(value, dict) and value.get("type") in {
@@ -104,7 +130,7 @@ async def _to_external_download_response(
         override_content_type="application/octet-stream",
     )
     return WebhookStoredObjectDownloadResponse(
-        kind="external_ref",
+        kind="download_file",
         download_url=download_url,
         expires_in_seconds=expiry,
         content_type=ref.content_type,
@@ -138,7 +164,7 @@ async def _to_collection_download_response(
     )
 
     return WebhookStoredObjectDownloadResponse(
-        kind="collection_ref",
+        kind="download_export",
         download_url=download_url,
         expires_in_seconds=expiry,
         content_type="application/json",
@@ -146,17 +172,28 @@ async def _to_collection_download_response(
     )
 
 
-async def _normalize_wait_result(value: Any) -> Any:
+async def _normalize_wait_result(value: WaitResultInput) -> WaitResultOutput:
     """Normalize /wait response values for StoredObject variants.
 
-    - InlineObject: returns raw data
-    - ExternalObject: returns presigned download response
-    - CollectionObject: materializes and returns presigned download response
+    - InlineObject: returns value envelope
+    - ExternalObject: returns download envelope
+    - CollectionObject: materializes and returns download envelope
     """
+    if isinstance(value, InlineObject):
+        return WebhookStoredObjectInlineResponse(
+            kind="value", value=cast(WaitResultValue, value.data)
+        )
+    if isinstance(value, ExternalObject):
+        return await _to_external_download_response(value)
+    if isinstance(value, CollectionObject):
+        return await _to_collection_download_response(value)
+
     if stored := _try_parse_stored_object(value):
         match stored:
             case InlineObject(data=data):
-                return await _normalize_wait_result(data)
+                return WebhookStoredObjectInlineResponse(
+                    kind="value", value=cast(WaitResultValue, data)
+                )
             case ExternalObject() as external:
                 return await _to_external_download_response(external)
             case CollectionObject() as collection:
@@ -166,7 +203,7 @@ async def _normalize_wait_result(value: Any) -> Any:
         return {k: await _normalize_wait_result(v) for k, v in value.items()}
     if isinstance(value, list):
         return [await _normalize_wait_result(item) for item in value]
-    return value
+    return cast(WaitResultValue, value)
 
 
 # NOTE: Need to set response_model to None to avoid FastAPI trying to parse the response as JSON
@@ -329,7 +366,7 @@ async def incoming_webhook_wait(
     workflow_id: AnyWorkflowIDPath,
     defn: ValidWorkflowDefinitionDep,
     payload: PayloadDep,
-) -> Any:
+) -> WaitResultOutput:
     """Webhook endpoint to trigger a workflow.
 
     This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
@@ -351,7 +388,7 @@ async def incoming_webhook_wait(
         else None,
     )
 
-    return await _normalize_wait_result(response["result"])
+    return await _normalize_wait_result(cast(WaitResultInput, response["result"]))
 
 
 @router.post("/draft", response_model=None)

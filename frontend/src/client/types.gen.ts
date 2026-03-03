@@ -6262,6 +6262,24 @@ export type VideoUrl = {
   readonly identifier: string
 }
 
+export type WaitResultOutput =
+  | WaitResultValue
+  | WebhookStoredObjectInlineResponse
+  | WebhookStoredObjectDownloadResponse
+  | Array<WaitResultOutput>
+  | {
+      [key: string]: WaitResultOutput
+    }
+
+export type WaitResultScalar = string | number | boolean | null
+
+export type WaitResultValue =
+  | WaitResultScalar
+  | Array<WaitResultValue>
+  | {
+      [key: string]: WaitResultValue
+    }
+
 export type WaitStrategy = "wait" | "detach"
 
 export type WebhookApiKeyGenerateResponse = {
@@ -6309,6 +6327,21 @@ export type WebhookRead = {
 }
 
 export type WebhookStatus = "online" | "offline"
+
+export type WebhookStoredObjectDownloadResponse = {
+  kind: "download_file" | "download_export"
+  download_url: string
+  expires_in_seconds: number
+  content_type: string
+  size_bytes: number
+}
+
+export type kind = "download_file" | "download_export"
+
+export type WebhookStoredObjectInlineResponse = {
+  kind: "value"
+  value: WaitResultValue
+}
 
 export type WebhookUpdate = {
   status?: WebhookStatus | null
@@ -7218,7 +7251,7 @@ export type PublicIncomingWebhookWaitData = {
   workflowId: string
 }
 
-export type PublicIncomingWebhookWaitResponse = unknown
+export type PublicIncomingWebhookWaitResponse = WaitResultOutput
 
 export type PublicIncomingWebhookDraftData = {
   contentType?: string | null
@@ -9958,7 +9991,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: unknown
+        200: WaitResultOutput
         /**
          * Validation Error
          */

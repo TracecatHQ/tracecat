@@ -600,7 +600,7 @@ class TestWebhookRouterExecutionPath:
 
     @pytest.mark.anyio
     async def test_wait_webhook_returns_result_with_inline_object(self):
-        """The /wait router path must return workflow result payloads as-is."""
+        """The /wait router path wraps inline results in a value envelope."""
         workflow_id = WorkflowUUID.new_uuid4()
         payload = {"event": "test"}
         inline_result = InlineObject(type="inline", data={"_": "result-ref"})
@@ -622,7 +622,11 @@ class TestWebhookRouterExecutionPath:
                 payload=payload,
             )
 
-        assert response["result_ref"] == {"_": "result-ref"}
+        response_obj = cast(dict[str, Any], response)
+        assert response_obj["result_ref"] == {
+            "kind": "value",
+            "value": {"_": "result-ref"},
+        }
         mock_service.create_workflow_execution.assert_awaited_once()
         call_kwargs = mock_service.create_workflow_execution.call_args.kwargs
         assert call_kwargs["trigger_type"] == TriggerType.WEBHOOK
@@ -668,11 +672,10 @@ class TestWebhookRouterExecutionPath:
                 payload=payload,
             )
 
-        assert response["result_ref"]["kind"] == "external_ref"
-        assert (
-            response["result_ref"]["download_url"]
-            == "https://example.com/presigned/external"
-        )
+        response_obj = cast(dict[str, Any], response)
+        result_ref = cast(dict[str, Any], response_obj["result_ref"])
+        assert result_ref["kind"] == "download_file"
+        assert result_ref["download_url"] == "https://example.com/presigned/external"
 
     @pytest.mark.anyio
     async def test_wait_webhook_returns_single_download_url_for_collection_object(self):
@@ -729,11 +732,10 @@ class TestWebhookRouterExecutionPath:
                 payload=payload,
             )
 
-        assert response["result_ref"]["kind"] == "collection_ref"
-        assert (
-            response["result_ref"]["download_url"]
-            == "https://example.com/presigned/collection"
-        )
+        response_obj = cast(dict[str, Any], response)
+        result_ref = cast(dict[str, Any], response_obj["result_ref"])
+        assert result_ref["kind"] == "download_export"
+        assert result_ref["download_url"] == "https://example.com/presigned/collection"
         upload_file_mock.assert_awaited_once()
 
 

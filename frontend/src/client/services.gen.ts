@@ -773,7 +773,7 @@ export const publicIncomingWebhookGet = (
  * @param data.secret
  * @param data.workflowId
  * @param data.contentType
- * @returns unknown Successful Response
+ * @returns WaitResultOutput Successful Response
  * @throws ApiError
  */
 export const publicIncomingWebhookWait = (
