@@ -43,7 +43,7 @@ def main() -> None:
             logger.info("MCP server interrupted; shutting down")
             return
         except MCPNonRetryableStartupError:
-            logger.exception(
+            logger.error(
                 "MCP server startup failed due to non-retryable configuration error"
             )
             raise SystemExit(1) from None
