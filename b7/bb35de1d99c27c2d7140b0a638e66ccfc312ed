@@ -1,0 +1,29 @@
+frontend/src/components/workflow-runs/reset-workflow-run-dialog.tsx
+  81dcd76bbcd388e3 7
+frontend/src/components/workflow-runs/workflow-run-item.tsx
+  81dcd76bbcd388e3 16-18
+frontend/src/components/workflow-runs/workflow-runs-layout.tsx
+  81dcd76bbcd388e3 29-31
+frontend/src/hooks/use-workflow-runs.ts
+  81dcd76bbcd388e3 15-16,19-20,29-32,229,442
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "b7bb35de1d99c27c2d7140b0a638e66ccfc312ed",
+  "prompts": {
+    "81dcd76bbcd388e3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb497-8d89-7f93-9229-26d644d83b40",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 20,
+      "total_deletions": 384,
+      "accepted_lines": 17,
+      "overriden_lines": 0
+    }
+  }
+}
