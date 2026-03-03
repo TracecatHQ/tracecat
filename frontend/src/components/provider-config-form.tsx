@@ -6,6 +6,7 @@ import { useCallback, useMemo } from "react"
 import { useForm, useWatch } from "react-hook-form"
 import { z } from "zod"
 import type { IntegrationUpdate, ProviderRead } from "@/client"
+import { PemFileUploader } from "@/components/pem-file-uploader"
 import { ServiceAccountJsonUploader } from "@/components/service-account-json-uploader"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -473,7 +474,12 @@ export function ProviderConfigForm({
                 name="client_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{clientIdLabel}</FormLabel>
+                    <FormLabel>
+                      {clientIdLabel}{" "}
+                      <span className="text-xs text-muted-foreground">
+                        (optional)
+                      </span>
+                    </FormLabel>
                     <FormControl>
                       <Input
                         {...field}
@@ -494,7 +500,12 @@ export function ProviderConfigForm({
                 name="client_secret"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{clientSecretLabel}</FormLabel>
+                    <FormLabel>
+                      {clientSecretLabel}{" "}
+                      <span className="text-xs text-muted-foreground">
+                        (optional)
+                      </span>
+                    </FormLabel>
                     <FormControl>
                       {isServiceAccountProvider ? (
                         <ServiceAccountJsonUploader
@@ -594,6 +605,23 @@ export function ProviderConfigForm({
                             placeholder="-----BEGIN PRIVATE KEY-----"
                           />
                         </FormControl>
+                        <PemFileUploader
+                          allowedExtensions={[".pem", ".key"]}
+                          chooseLabel="Upload key file"
+                          onValueLoaded={(value) => {
+                            field.onChange(value)
+                            form.clearErrors("client_assertion_private_key")
+                          }}
+                          onError={(message) => {
+                            form.setError("client_assertion_private_key", {
+                              type: "manual",
+                              message,
+                            })
+                          }}
+                          onClearError={() => {
+                            form.clearErrors("client_assertion_private_key")
+                          }}
+                        />
                         <FormMessage />
                         <FormDescription className="text-xs">
                           PEM private key used to sign private_key_jwt
@@ -610,7 +638,12 @@ export function ProviderConfigForm({
                     name="client_assertion_certificate"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Client assertion certificate</FormLabel>
+                        <FormLabel>
+                          Client assertion certificate{" "}
+                          <span className="text-xs text-muted-foreground">
+                            (optional)
+                          </span>
+                        </FormLabel>
                         <FormControl>
                           <Textarea
                             {...field}
@@ -619,6 +652,23 @@ export function ProviderConfigForm({
                             placeholder="-----BEGIN CERTIFICATE-----"
                           />
                         </FormControl>
+                        <PemFileUploader
+                          allowedExtensions={[".pem", ".crt", ".cer"]}
+                          chooseLabel="Upload cert file"
+                          onValueLoaded={(value) => {
+                            field.onChange(value)
+                            form.clearErrors("client_assertion_certificate")
+                          }}
+                          onError={(message) => {
+                            form.setError("client_assertion_certificate", {
+                              type: "manual",
+                              message,
+                            })
+                          }}
+                          onClearError={() => {
+                            form.clearErrors("client_assertion_certificate")
+                          }}
+                        />
                         <FormMessage />
                         <FormDescription className="text-xs">
                           Optional PEM certificate used for JWT header
@@ -635,7 +685,12 @@ export function ProviderConfigForm({
                     name="client_assertion_kid"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Client assertion key ID (kid)</FormLabel>
+                        <FormLabel>
+                          Client assertion key ID (kid){" "}
+                          <span className="text-xs text-muted-foreground">
+                            (optional)
+                          </span>
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -652,7 +707,12 @@ export function ProviderConfigForm({
                     name="client_assertion_alg"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Client assertion algorithm</FormLabel>
+                        <FormLabel>
+                          Client assertion algorithm{" "}
+                          <span className="text-xs text-muted-foreground">
+                            (optional)
+                          </span>
+                        </FormLabel>
                         <FormControl>
                           <Select
                             value={field.value}
@@ -807,7 +867,12 @@ export function ProviderConfigForm({
                 render={({ field }) => (
                   <FormItem>
                     <div className="flex items-center justify-between gap-2">
-                      <FormLabel>OAuth scopes</FormLabel>
+                      <FormLabel>
+                        OAuth scopes{" "}
+                        <span className="text-xs text-muted-foreground">
+                          (optional)
+                        </span>
+                      </FormLabel>
                       {(defaultScopesList.length > 0 ||
                         scopesValue.length > 0) && (
                         <Button

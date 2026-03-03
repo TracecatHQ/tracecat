@@ -5,6 +5,7 @@ import { Loader2, Plus } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import { PemFileUploader } from "@/components/pem-file-uploader"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button, type ButtonProps } from "@/components/ui/button"
 import {
@@ -240,7 +241,6 @@ export function CreateCustomProviderDialog({
     defaultValues: DEFAULT_VALUES,
   })
 
-  const grantType = form.watch("grant_type")
   const clientAuthMethod = form.watch("client_auth_method")
 
   const resetForm = () => {
@@ -325,7 +325,12 @@ export function CreateCustomProviderDialog({
               name="description"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Description</FormLabel>
+                  <FormLabel>
+                    Description{" "}
+                    <span className="text-xs text-muted-foreground">
+                      (optional)
+                    </span>
+                  </FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Optional description for this provider"
@@ -404,11 +409,9 @@ export function CreateCustomProviderDialog({
                   <FormItem>
                     <FormLabel>
                       Client secret{" "}
-                      {grantType === "authorization_code" && (
-                        <span className="text-xs text-muted-foreground">
-                          (optional)
-                        </span>
-                      )}
+                      <span className="text-xs text-muted-foreground">
+                        (optional)
+                      </span>
                     </FormLabel>
                     <FormControl>
                       <Input
@@ -466,6 +469,23 @@ export function CreateCustomProviderDialog({
                           {...field}
                         />
                       </FormControl>
+                      <PemFileUploader
+                        allowedExtensions={[".pem", ".key"]}
+                        chooseLabel="Upload key file"
+                        onValueLoaded={(value) => {
+                          field.onChange(value)
+                          form.clearErrors("client_assertion_private_key")
+                        }}
+                        onError={(message) => {
+                          form.setError("client_assertion_private_key", {
+                            type: "manual",
+                            message,
+                          })
+                        }}
+                        onClearError={() => {
+                          form.clearErrors("client_assertion_private_key")
+                        }}
+                      />
                       <FormDescription className="text-xs">
                         PEM private key used to sign client assertions.
                       </FormDescription>
@@ -478,7 +498,12 @@ export function CreateCustomProviderDialog({
                   name="client_assertion_certificate"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Client assertion certificate</FormLabel>
+                      <FormLabel>
+                        Client assertion certificate{" "}
+                        <span className="text-xs text-muted-foreground">
+                          (optional)
+                        </span>
+                      </FormLabel>
                       <FormControl>
                         <Textarea
                           rows={5}
@@ -486,6 +511,23 @@ export function CreateCustomProviderDialog({
                           {...field}
                         />
                       </FormControl>
+                      <PemFileUploader
+                        allowedExtensions={[".pem", ".crt", ".cer"]}
+                        chooseLabel="Upload cert file"
+                        onValueLoaded={(value) => {
+                          field.onChange(value)
+                          form.clearErrors("client_assertion_certificate")
+                        }}
+                        onError={(message) => {
+                          form.setError("client_assertion_certificate", {
+                            type: "manual",
+                            message,
+                          })
+                        }}
+                        onClearError={() => {
+                          form.clearErrors("client_assertion_certificate")
+                        }}
+                      />
                       <FormDescription className="text-xs">
                         Optional PEM certificate for JWT thumbprint headers.
                       </FormDescription>
@@ -499,7 +541,12 @@ export function CreateCustomProviderDialog({
                     name="client_assertion_kid"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Assertion key ID (kid)</FormLabel>
+                        <FormLabel>
+                          Assertion key ID (kid){" "}
+                          <span className="text-xs text-muted-foreground">
+                            (optional)
+                          </span>
+                        </FormLabel>
                         <FormControl>
                           <Input placeholder="Optional key ID" {...field} />
                         </FormControl>
@@ -512,7 +559,12 @@ export function CreateCustomProviderDialog({
                     name="client_assertion_alg"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Assertion algorithm</FormLabel>
+                        <FormLabel>
+                          Assertion algorithm{" "}
+                          <span className="text-xs text-muted-foreground">
+                            (optional)
+                          </span>
+                        </FormLabel>
                         <FormControl>
                           <Select
                             value={field.value}
@@ -577,7 +629,12 @@ export function CreateCustomProviderDialog({
               name="scopes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Scopes</FormLabel>
+                  <FormLabel>
+                    Scopes{" "}
+                    <span className="text-xs text-muted-foreground">
+                      (optional)
+                    </span>
+                  </FormLabel>
                   <FormControl>
                     <MultiTagCommandInput
                       value={field.value ?? []}
