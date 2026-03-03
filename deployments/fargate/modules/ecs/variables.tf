@@ -195,7 +195,7 @@ variable "temporal_log_level" {
 variable "feature_flags" {
   type        = string
   description = "Comma separated list of Tracecat feature flags to enable. Requires Tracecat Enterprise license to modify."
-  default     = ""
+  default     = "workflow-concurrency-limits"
 }
 
 variable "ee_multi_tenant" {

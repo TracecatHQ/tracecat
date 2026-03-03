@@ -600,5 +600,5 @@ variable "ee_multi_tenant" {
 variable "feature_flags" {
   description = "Comma-separated enterprise feature flags (e.g. 'git-sync,case-tasks')"
   type        = string
-  default     = ""
+  default     = "workflow-concurrency-limits"
 }

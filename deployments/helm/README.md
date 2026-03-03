@@ -268,7 +268,7 @@ urls:
 | `tracecat.logLevel` | `INFO` | Log level for backend services |
 | `tracecat.allowOrigins` | `""` | CORS allowed origins |
 | `tracecat.featureFlags` | `""` | Core feature flags (comma-separated) |
-| `enterprise.featureFlags` | `""` | Enterprise-only flags appended to `tracecat.featureFlags` |
+| `enterprise.featureFlags` | `"workflow-concurrency-limits"` | Enterprise-only flags appended to `tracecat.featureFlags` |
 | `enterprise.multiTenant` | `false` | Enable enterprise multi-tenant mode |
 
 ### Service replicas and resources
