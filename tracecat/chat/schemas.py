@@ -235,6 +235,10 @@ class ApprovalDecision(BaseModel):
     action: Literal["approve", "override", "deny"]
     override_args: dict[str, Any] | None = None
     reason: str | None = None
+    metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional metadata captured with the decision (e.g. external actor identity).",
+    )
 
     def to_deferred_result(self) -> bool | ToolApproved | ToolDenied:
         match self.action:

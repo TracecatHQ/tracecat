@@ -2543,6 +2543,20 @@ export const $ApprovalDecision = {
       ],
       title: "Reason",
     },
+    metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metadata",
+      description:
+        "Optional metadata captured with the decision (e.g. external actor identity).",
+    },
   },
   type: "object",
   required: ["tool_call_id", "action"],

@@ -3,10 +3,12 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock
+from uuid import UUID
 
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
+from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.executor.loopback import (
     AgentStreamSink,
     LoopbackHandler,
@@ -85,3 +87,84 @@ async def test_emit_terminal_error_uses_redis_when_external_lookup_errors(
     )
     fake_stream.error.assert_awaited_once_with("runtime exited before connect")
     fake_stream.done.assert_awaited_once()
+
+
+def _make_handler() -> LoopbackHandler:
+    return LoopbackHandler(
+        input=LoopbackInput(
+            session_id=UUID("00000000-0000-0000-0000-000000000001"),
+            workspace_id=UUID("00000000-0000-0000-0000-000000000002"),
+            user_prompt="hi",
+            config=AgentConfig(
+                model_name="claude-3-7-sonnet",
+                model_provider="anthropic",
+            ),
+            mcp_auth_token="mcp-token",
+            litellm_auth_token="llm-token",
+            socket_dir=Path("/tmp"),
+        )
+    )
+
+
+def test_should_suppress_pending_approval_tool_result() -> None:
+    handler = _make_handler()
+    handler._pending_approval_tool_call_ids.add("tool-1")
+
+    event = UnifiedStreamEvent(
+        type=StreamEventType.TOOL_RESULT,
+        tool_call_id="tool-1",
+        tool_name="core.cases.create_case",
+        tool_output={"id": "case-123"},
+    )
+
+    assert handler._should_suppress_stream_event(event) is True
+
+
+def test_should_suppress_synthetic_interrupt_output() -> None:
+    handler = _make_handler()
+
+    event = UnifiedStreamEvent(
+        type=StreamEventType.TOOL_RESULT,
+        tool_call_id="tool-2",
+        tool_name="core.cases.create_case",
+        tool_output="The user doesn't want to take this action right now.",
+        is_error=True,
+    )
+
+    assert handler._should_suppress_stream_event(event) is True
+
+
+def test_should_suppress_nested_interrupt_output() -> None:
+    handler = _make_handler()
+
+    event = UnifiedStreamEvent(
+        type=StreamEventType.TOOL_RESULT,
+        tool_call_id="tool-3",
+        tool_name="core.cases.create_case",
+        tool_output=[
+            {
+                "type": "text",
+                "text": (
+                    "STOP what you are doing and wait for the user to tell you"
+                    " how to proceed."
+                ),
+            }
+        ],
+        is_error=True,
+    )
+
+    assert handler._should_suppress_stream_event(event) is True
+
+
+def test_should_not_suppress_normal_tool_result_error() -> None:
+    handler = _make_handler()
+
+    event = UnifiedStreamEvent(
+        type=StreamEventType.TOOL_RESULT,
+        tool_call_id="tool-4",
+        tool_name="core.cases.create_case",
+        tool_output="Tool execution failed: timeout",
+        is_error=True,
+    )
+
+    assert handler._should_suppress_stream_event(event) is False

@@ -66,6 +66,7 @@ class ApprovalDecisionPayload(BaseModel):
     approved: bool
     reason: str | None = None
     decision: bool | dict[str, Any] | None = None
+    decision_metadata: dict[str, Any] | None = None
     approved_by: UUID4 | None = None
 
 

@@ -60,7 +60,9 @@ export function buildSlackManifest({
   includeEventSubscriptions: boolean
 }): Record<string, unknown> {
   const settings: Record<string, unknown> = {
-    interactivity: { is_enabled: false },
+    interactivity: includeEventSubscriptions
+      ? { is_enabled: true, request_url: endpointUrl }
+      : { is_enabled: false },
     org_deploy_enabled: false,
     socket_mode_enabled: false,
     token_rotation_enabled: false,

@@ -641,6 +641,12 @@ export type ApprovalDecision = {
     [key: string]: unknown
   } | null
   reason?: string | null
+  /**
+   * Optional metadata captured with the decision (e.g. external actor identity).
+   */
+  metadata?: {
+    [key: string]: unknown
+  } | null
 }
 
 export type action = "approve" | "override" | "deny"

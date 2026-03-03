@@ -10,12 +10,15 @@ from tracecat.agent.channels.handlers.slack import (
     SLACK_EVENT_DEDUP_TTL_SECONDS,
     SlackChannelHandler,
 )
+from tracecat import config
 from tracecat.agent.channels.schemas import (
     ChannelType,
     SlackChannelTokenConfig,
     ValidatedChannelToken,
 )
+from tracecat.agent.channels.service import AgentChannelService
 from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatValidationError
 
 
 def test_parse_app_mention_context_uses_thread_ts_or_falls_back_to_ts() -> None:
@@ -48,6 +51,49 @@ def test_extract_prompt_text_strips_mentions() -> None:
 def test_extract_prompt_text_falls_back_when_only_mention() -> None:
     text = SlackChannelHandler._extract_prompt_text({"text": "<@U123>"})
     assert text == "<@U123>"
+
+
+def test_parse_approval_action_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SIGNING_SECRET", "test-signing-secret")
+    token = AgentChannelService.create_slack_approval_action_token(
+        batch_id="batch-1",
+        tool_call_id="tool-1",
+        action="approve",
+    )
+    payload = {
+        "type": "block_actions",
+        "actions": [{"value": token}],
+        "user": {"id": "U1", "username": "jordan"},
+        "channel": {"id": "C1"},
+        "container": {"message_ts": "1700000000.111", "thread_ts": "1700000000.100"},
+    }
+
+    context = SlackChannelHandler._parse_approval_action_context(payload)
+
+    assert context.batch_id == "batch-1"
+    assert context.tool_call_id == "tool-1"
+    assert context.action == "approve"
+    assert context.channel_id == "C1"
+    assert context.thread_ts == "1700000000.100"
+    assert context.message_ts == "1700000000.111"
+    assert context.user_id == "U1"
+    assert context.user_name == "jordan"
+
+
+def test_parse_approval_action_context_invalid_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SIGNING_SECRET", "test-signing-secret")
+    payload = {
+        "type": "block_actions",
+        "actions": [{"value": "bad.token"}],
+        "user": {"id": "U1"},
+        "channel": {"id": "C1"},
+        "container": {"message_ts": "1700000000.111"},
+    }
+
+    with pytest.raises(TracecatValidationError):
+        SlackChannelHandler._parse_approval_action_context(payload)
 
 
 @pytest.mark.anyio

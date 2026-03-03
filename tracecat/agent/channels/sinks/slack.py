@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from time import monotonic
 from typing import Any
 
@@ -14,14 +15,18 @@ from tracecat.agent.channels.handlers.slack_helpers import (
     set_error,
     set_in_progress,
 )
+from tracecat.agent.channels.service import AgentChannelService
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.logger import logger
+from tracecat.redis.client import get_redis_client
 
 
 class SlackStreamSink:
     """Maps runtime events directly to Slack stream APIs."""
 
     FLUSH_WINDOW_SECONDS = 0.25
+    APPROVAL_BATCH_TTL_SECONDS = 24 * 60 * 60
+    APPROVAL_REDIS_PREFIX = "slack-approval"
 
     def __init__(
         self,
@@ -50,9 +55,20 @@ class SlackStreamSink:
         self._is_closed = False
         self._in_progress_reaction_set = False
         self._tool_task_by_call_id: dict[str, tuple[str, str]] = {}
-        self._tool_in_progress_emitted: set[str] = set()
         self._pending_approval_tool_ids: set[str] = set()
         self._task_counter = 0
+
+    @classmethod
+    def _batch_key(cls, batch_id: str) -> str:
+        return f"{cls.APPROVAL_REDIS_PREFIX}:batch:{batch_id}"
+
+    @classmethod
+    def _decision_key(cls, batch_id: str, tool_call_id: str) -> str:
+        return f"{cls._batch_key(batch_id)}:decision:{tool_call_id}"
+
+    @classmethod
+    def _submission_key(cls, batch_id: str) -> str:
+        return f"{cls._batch_key(batch_id)}:submitted"
 
     @property
     def _metadata(self) -> dict[str, object]:
@@ -177,6 +193,17 @@ class SlackStreamSink:
             return output
         return f"{output[:max_len]}..."
 
+    @classmethod
+    def _format_tool_args_preview(cls, value: Any, *, max_len: int = 600) -> str:
+        if value is None:
+            return "{}"
+        if isinstance(value, dict):
+            output = json.dumps(value, indent=2, sort_keys=True, default=str)
+        else:
+            output = cls._coerce_output_text(value, max_len=max_len)
+        output = cls._coerce_output_text(output, max_len=max_len)
+        return output
+
     @staticmethod
     def _parse_json_if_possible(value: str) -> Any:
         stripped = value.strip()
@@ -186,6 +213,19 @@ class SlackStreamSink:
             return json.loads(stripped)
         except json.JSONDecodeError:
             return value
+
+    @staticmethod
+    def _looks_like_approval_interrupt_output(value: Any) -> bool:
+        if not isinstance(value, str):
+            return False
+        lowered = value.lower()
+        if "doesn't want to take this action" in lowered:
+            return True
+        if "stop what you are doing and wait for the user" in lowered:
+            return True
+        if "request interrupted by user" in lowered:
+            return True
+        return False
 
     @classmethod
     def _normalize_tool_output(cls, value: Any) -> Any:
@@ -227,7 +267,10 @@ class SlackStreamSink:
         return f"```\n{formatted}\n```"
 
     def _resolve_task(
-        self, *, tool_call_id: str | None, tool_name: str | None
+        self,
+        *,
+        tool_call_id: str | None,
+        tool_name: str | None,
     ) -> tuple[str, str]:
         if tool_call_id and tool_call_id in self._tool_task_by_call_id:
             return self._tool_task_by_call_id[tool_call_id]
@@ -248,14 +291,9 @@ class SlackStreamSink:
         output: Any | None = None,
     ) -> None:
         task_id, title = self._resolve_task(
-            tool_call_id=tool_call_id, tool_name=tool_name
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
         )
-        if status == "in_progress":
-            if task_id in self._tool_in_progress_emitted:
-                return
-            self._tool_in_progress_emitted.add(task_id)
-        elif status in {"complete", "error"}:
-            self._tool_in_progress_emitted.discard(task_id)
 
         chunk: dict[str, Any] = {
             "type": "task_update",
@@ -281,6 +319,120 @@ class SlackStreamSink:
             status=status,
         )
         await self._append_chunks([chunk])
+
+    async def _persist_approval_batch(
+        self,
+        *,
+        batch_id: str,
+        items: list[Any],
+    ) -> None:
+        redis = await get_redis_client()
+        batch_payload = {
+            "batch_id": batch_id,
+            "session_id": self._session_id,
+            "workspace_id": self._workspace_id,
+            "channel_id": self._channel_id,
+            "thread_ts": self._thread_ts,
+            "tool_call_ids": [str(item.id) for item in items],
+            "tool_names": {
+                str(item.id): str(item.name)
+                for item in items
+                if isinstance(item.id, str) and isinstance(item.name, str)
+            },
+        }
+        await redis.set(
+            self._batch_key(batch_id),
+            json.dumps(batch_payload, separators=(",", ":")),
+            expire_seconds=self.APPROVAL_BATCH_TTL_SECONDS,
+        )
+
+    async def _post_approval_card(
+        self,
+        *,
+        batch_id: str,
+        tool_call_id: str,
+        tool_name: str,
+        tool_input: dict[str, Any] | None,
+    ) -> None:
+        approve_value = AgentChannelService.create_slack_approval_action_token(
+            batch_id=batch_id,
+            tool_call_id=tool_call_id,
+            action="approve",
+        )
+        deny_value = AgentChannelService.create_slack_approval_action_token(
+            batch_id=batch_id,
+            tool_call_id=tool_call_id,
+            action="deny",
+        )
+        args_preview = self._format_tool_args_preview(tool_input)
+
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        "*Approval required*\n"
+                        f"*Tool:* `{tool_name}`\n"
+                        f"*Args:*\n```{args_preview}```"
+                    ),
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "action_id": "tracecat_approval_approve",
+                        "text": {"type": "plain_text", "text": "Approve"},
+                        "style": "primary",
+                        "value": approve_value,
+                    },
+                    {
+                        "type": "button",
+                        "action_id": "tracecat_approval_deny",
+                        "text": {"type": "plain_text", "text": "Deny"},
+                        "style": "danger",
+                        "value": deny_value,
+                    },
+                ],
+            },
+        ]
+
+        await self._client.api_call(
+            api_method="chat.postMessage",
+            json={
+                "channel": self._channel_id,
+                "thread_ts": self._thread_ts,
+                "text": f"Approval required for {tool_name}",
+                "blocks": blocks,
+            },
+        )
+
+    async def _emit_approval_cards(self, items: list[Any]) -> None:
+        if not items:
+            return
+
+        batch_id = uuid.uuid4().hex
+        await self._persist_approval_batch(batch_id=batch_id, items=items)
+
+        for item in items:
+            try:
+                await self._post_approval_card(
+                    batch_id=batch_id,
+                    tool_call_id=item.id,
+                    tool_name=item.name,
+                    tool_input=item.input,
+                )
+            except SlackApiError as exc:
+                logger.warning(
+                    "Failed to post Slack approval card",
+                    session_id=self._session_id,
+                    workspace_id=self._workspace_id,
+                    tool_call_id=item.id,
+                    tool_name=item.name,
+                    error=str(exc),
+                )
 
     async def _stop_stream(self, *, final_error_text: str | None = None) -> None:
         if self._is_closed:
@@ -363,15 +515,19 @@ class SlackStreamSink:
             StreamEventType.TOOL_CALL_START,
             StreamEventType.TOOL_CALL_STOP,
         ):
-            await self._flush_delta_buffer(force=True)
-            await self._emit_task_update(
-                tool_call_id=event.tool_call_id,
-                tool_name=event.tool_name,
-                status="in_progress",
-            )
+            # Avoid noisy timeline rows for repeated tool-attempt lifecycle events.
             return
 
         if event.type is StreamEventType.TOOL_RESULT:
+            if not event.tool_call_id:
+                logger.debug(
+                    "Skipping Slack tool result without tool_call_id",
+                    session_id=self._session_id,
+                    workspace_id=self._workspace_id,
+                    event_type=event.type,
+                    tool_name=event.tool_name,
+                )
+                return
             if (
                 event.is_error
                 and event.tool_call_id is not None
@@ -386,9 +542,17 @@ class SlackStreamSink:
                 )
                 return
 
-            if event.tool_call_id is not None:
-                self._pending_approval_tool_ids.discard(event.tool_call_id)
-
+            if event.is_error and self._looks_like_approval_interrupt_output(
+                event.tool_output
+            ):
+                logger.debug(
+                    "Skipping synthetic approval interruption tool result",
+                    session_id=self._session_id,
+                    workspace_id=self._workspace_id,
+                    tool_call_id=event.tool_call_id,
+                )
+                return
+            self._pending_approval_tool_ids.discard(event.tool_call_id)
             await self._flush_delta_buffer(force=True)
             await self._emit_task_update(
                 tool_call_id=event.tool_call_id,
@@ -417,6 +581,7 @@ class SlackStreamSink:
                     }
                 )
             await self._append_chunks(chunks)
+            await self._emit_approval_cards(list(event.approval_items))
             return
 
         if event.type is StreamEventType.TEXT_STOP:

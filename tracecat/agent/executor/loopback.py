@@ -179,6 +179,47 @@ class LoopbackHandler:
         self._stream_done_emitted: bool = False  # Dedupe flag for stream.done()
         # Track which session lines have been persisted to avoid duplicates
         self._persisted_line_uuids: set[str] = set()
+        # Track pending approval tool IDs to suppress synthetic interruption results.
+        self._pending_approval_tool_call_ids: set[str] = set()
+
+    @staticmethod
+    def _tool_output_contains_internal_interrupt(value: Any) -> bool:
+        """Return True when tool output matches approval interruption artifacts."""
+        markers = (
+            "doesn't want to take this action",
+            "stop what you are doing and wait for the user",
+            "request interrupted by user",
+        )
+
+        stack: list[Any] = [value]
+        while stack:
+            current = stack.pop()
+            if isinstance(current, str):
+                lowered = current.lower()
+                if any(marker in lowered for marker in markers):
+                    return True
+            elif isinstance(current, list):
+                stack.extend(current)
+            elif isinstance(current, dict):
+                stack.extend(current.values())
+        return False
+
+    def _should_suppress_stream_event(self, event: UnifiedStreamEvent) -> bool:
+        """Suppress internal/synthetic runtime events from external consumers."""
+        if event.type is not StreamEventType.TOOL_RESULT:
+            return False
+
+        tool_call_id = event.tool_call_id
+        if (
+            tool_call_id is not None
+            and tool_call_id in self._pending_approval_tool_call_ids
+        ):
+            return True
+
+        if not event.is_error:
+            return False
+
+        return self._tool_output_contains_internal_interrupt(event.tool_output)
 
     async def _emit_stream_done(self) -> None:
         """Emit stream.done() exactly once.
@@ -465,6 +506,35 @@ class LoopbackHandler:
                 case "stream_event":
                     # Forward streaming event to sink (Redis/UI or external channel)
                     if envelope.event:
+                        if envelope.event.type == StreamEventType.APPROVAL_REQUEST:
+                            logger.info(
+                                "Approval request received",
+                                session_id=self.input.session_id,
+                                items=envelope.event.approval_items,
+                            )
+                            self._result.approval_requested = True
+                            self._result.approval_items = [
+                                ToolCallContent(
+                                    id=item.id,
+                                    name=item.name,
+                                    input=item.input,
+                                )
+                                for item in (envelope.event.approval_items or [])
+                            ]
+                            self._pending_approval_tool_call_ids.update(
+                                item.id
+                                for item in (envelope.event.approval_items or [])
+                            )
+
+                        if self._should_suppress_stream_event(envelope.event):
+                            logger.debug(
+                                "Suppressing internal synthetic stream event",
+                                event_type=envelope.event.type,
+                                session_id=self.input.session_id,
+                                tool_call_id=envelope.event.tool_call_id,
+                            )
+                            continue
+
                         logger.debug(
                             "Forwarding stream event",
                             event_type=envelope.event.type,
@@ -484,24 +554,6 @@ class LoopbackHandler:
                             await self._emit_stream_done()
                             self._result.error = error_msg
                             break
-
-                        # Check for approval request
-                        if envelope.event.type == StreamEventType.APPROVAL_REQUEST:
-                            logger.info(
-                                "Approval request received",
-                                session_id=self.input.session_id,
-                                items=envelope.event.approval_items,
-                            )
-                            self._result.approval_requested = True
-                            # Convert from shared dataclass to Pydantic model
-                            self._result.approval_items = [
-                                ToolCallContent(
-                                    id=item.id,
-                                    name=item.name,
-                                    input=item.input,
-                                )
-                                for item in (envelope.event.approval_items or [])
-                            ]
 
                 case "message":
                     # Complete message (inner only) - legacy, skip if session_line is used

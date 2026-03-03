@@ -823,6 +823,7 @@ class AgentSessionService(BaseWorkspaceService):
 
         # Build ApprovalMap from the request decisions
         approval_map: ApprovalMap = {}
+        decision_metadata: dict[str, dict[str, Any]] = {}
         for decision in request.decisions:
             if decision.action == "approve":
                 if decision.override_args:
@@ -835,6 +836,8 @@ class AgentSessionService(BaseWorkspaceService):
                 approval_map[decision.tool_call_id] = ToolDenied(
                     message=decision.reason or "Tool denied by user"
                 )
+            if decision.metadata:
+                decision_metadata[decision.tool_call_id] = decision.metadata
 
         # Get workflow handle using curr_run_id
         client = await get_temporal_client()
@@ -858,6 +861,7 @@ class AgentSessionService(BaseWorkspaceService):
             WorkflowApprovalSubmission(
                 approvals=approval_map,
                 approved_by=self.role.user_id,
+                decision_metadata=decision_metadata or None,
             ),
         )
 

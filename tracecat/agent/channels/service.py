@@ -10,10 +10,12 @@ import os
 import secrets
 import time
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlencode
 
+from cryptography.exceptions import InvalidTag
 from cryptography.fernet import InvalidToken
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from pydantic import ValidationError
 from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy import exists, select
@@ -45,6 +47,9 @@ SLACK_ENCRYPTED_CONFIG_FIELDS = (
     "slack_signing_secret",
 )
 SLACK_OAUTH_STATE_TTL_SECONDS = 10 * 60
+SLACK_OAUTH_STATE_VERSION = "v2"
+SLACK_OAUTH_STATE_NONCE_BYTES = 12
+SLACK_APPROVAL_ACTION_TOKEN_TTL_SECONDS = 24 * 60 * 60
 SLACK_OAUTH_SCOPES = (
     "app_mentions:read",
     "channels:history",
@@ -203,35 +208,21 @@ class AgentChannelService(BaseWorkspaceService):
             },
             separators=(",", ":"),
         )
-        payload_b64 = (
-            base64.urlsafe_b64encode(payload_json.encode()).decode().rstrip("=")
+        payload_bytes = payload_json.encode()
+        nonce = secrets.token_bytes(SLACK_OAUTH_STATE_NONCE_BYTES)
+        ciphertext = AESGCM(cls._derive_slack_oauth_state_key()).encrypt(
+            nonce, payload_bytes, None
         )
-        signature = hmac.new(
-            cls._require_signing_secret().encode(),
-            payload_b64.encode(),
-            hashlib.sha256,
-        ).hexdigest()
-        return f"{payload_b64}.{signature}"
+        nonce_b64 = cls._b64url_encode(nonce)
+        ciphertext_b64 = cls._b64url_encode(ciphertext)
+        return f"{SLACK_OAUTH_STATE_VERSION}.{nonce_b64}.{ciphertext_b64}"
 
     @classmethod
     def parse_slack_oauth_state(cls, state: str) -> dict[str, str]:
-        if state.count(".") != 1:
-            raise TracecatValidationError("Invalid OAuth state")
-        payload_b64, signature = state.split(".", maxsplit=1)
-        expected_signature = hmac.new(
-            cls._require_signing_secret().encode(),
-            payload_b64.encode(),
-            hashlib.sha256,
-        ).hexdigest()
-        if not secrets.compare_digest(signature, expected_signature):
-            raise TracecatValidationError("Invalid OAuth state")
-
-        padding = "=" * (-len(payload_b64) % 4)
-        try:
-            payload_bytes = base64.urlsafe_b64decode(payload_b64 + padding)
-            payload = json.loads(payload_bytes.decode())
-        except (ValueError, json.JSONDecodeError) as exc:
-            raise TracecatValidationError("Invalid OAuth state") from exc
+        if state.startswith(f"{SLACK_OAUTH_STATE_VERSION}."):
+            payload = cls._parse_slack_oauth_state_v2(state)
+        else:
+            payload = cls._parse_slack_oauth_state_legacy(state)
 
         token_id = payload.get("token_id")
         workspace_id = payload.get("workspace_id")
@@ -250,6 +241,125 @@ class AgentChannelService(BaseWorkspaceService):
             "token_id": token_id,
             "workspace_id": workspace_id,
             "return_url": return_url,
+        }
+
+    @classmethod
+    def _parse_slack_oauth_state_v2(cls, state: str) -> dict[str, Any]:
+        parts = state.split(".")
+        if len(parts) != 3:
+            raise TracecatValidationError("Invalid OAuth state")
+        _, nonce_b64, ciphertext_b64 = parts
+        try:
+            nonce = cls._b64url_decode(nonce_b64)
+            if len(nonce) != SLACK_OAUTH_STATE_NONCE_BYTES:
+                raise TracecatValidationError("Invalid OAuth state")
+            ciphertext = cls._b64url_decode(ciphertext_b64)
+            payload_bytes = AESGCM(cls._derive_slack_oauth_state_key()).decrypt(
+                nonce, ciphertext, None
+            )
+            return json.loads(payload_bytes.decode())
+        except (InvalidTag, ValueError, json.JSONDecodeError) as exc:
+            raise TracecatValidationError("Invalid OAuth state") from exc
+
+    @classmethod
+    def _parse_slack_oauth_state_legacy(cls, state: str) -> dict[str, Any]:
+        if state.count(".") != 1:
+            raise TracecatValidationError("Invalid OAuth state")
+        payload_b64, signature = state.split(".", maxsplit=1)
+        expected_signature = hmac.new(
+            cls._require_signing_secret().encode(),
+            payload_b64.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        if not secrets.compare_digest(signature, expected_signature):
+            raise TracecatValidationError("Invalid OAuth state")
+
+        try:
+            payload_bytes = cls._b64url_decode(payload_b64)
+            return json.loads(payload_bytes.decode())
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise TracecatValidationError("Invalid OAuth state") from exc
+
+    @classmethod
+    def _derive_slack_oauth_state_key(cls) -> bytes:
+        signing_secret = cls._require_signing_secret()
+        return hmac.new(
+            signing_secret.encode(),
+            b"tracecat:agent:channels:slack-oauth-state:v2",
+            hashlib.sha256,
+        ).digest()
+
+    @staticmethod
+    def _b64url_encode(value: bytes) -> str:
+        return base64.urlsafe_b64encode(value).decode().rstrip("=")
+
+    @staticmethod
+    def _b64url_decode(value: str) -> bytes:
+        padding = "=" * (-len(value) % 4)
+        return base64.urlsafe_b64decode(value + padding)
+
+    @classmethod
+    def create_slack_approval_action_token(
+        cls,
+        *,
+        batch_id: str,
+        tool_call_id: str,
+        action: Literal["approve", "deny"],
+    ) -> str:
+        payload_json = json.dumps(
+            {
+                "batch_id": batch_id,
+                "tool_call_id": tool_call_id,
+                "action": action,
+                "exp": int(time.time()) + SLACK_APPROVAL_ACTION_TOKEN_TTL_SECONDS,
+            },
+            separators=(",", ":"),
+        )
+        payload_b64 = cls._b64url_encode(payload_json.encode())
+        signature = hmac.new(
+            cls._require_signing_secret().encode(),
+            payload_b64.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        return f"{payload_b64}.{signature}"
+
+    @classmethod
+    def parse_slack_approval_action_token(cls, token: str) -> dict[str, str]:
+        if token.count(".") != 1:
+            raise TracecatValidationError("Invalid approval action token")
+
+        payload_b64, signature = token.split(".", maxsplit=1)
+        expected_signature = hmac.new(
+            cls._require_signing_secret().encode(),
+            payload_b64.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        if not secrets.compare_digest(signature, expected_signature):
+            raise TracecatValidationError("Invalid approval action token")
+
+        try:
+            payload = json.loads(cls._b64url_decode(payload_b64).decode())
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise TracecatValidationError("Invalid approval action token") from exc
+
+        batch_id = payload.get("batch_id")
+        tool_call_id = payload.get("tool_call_id")
+        action = payload.get("action")
+        exp = payload.get("exp")
+        if (
+            not isinstance(batch_id, str)
+            or not isinstance(tool_call_id, str)
+            or action not in {"approve", "deny"}
+            or not isinstance(exp, int)
+        ):
+            raise TracecatValidationError("Invalid approval action token")
+        if exp < int(time.time()):
+            raise TracecatValidationError("Approval action token expired")
+
+        return {
+            "batch_id": batch_id,
+            "tool_call_id": tool_call_id,
+            "action": action,
         }
 
     @classmethod

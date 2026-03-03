@@ -11,6 +11,7 @@ from pydantic_ai.messages import ToolCallPart
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.agent.activities import (
     ApplyApprovalResultsActivityInputs,
+    ApprovalDecisionPayload,
     PersistApprovalsActivityInputs,
     ToolApprovalPayload,
 )
@@ -579,3 +580,45 @@ class TestApplyApprovalDecisionsActivity:
 
         # Should not raise
         await ApprovalManager.apply_approval_decisions(input_data)
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("patched_approval_service")
+class TestApplyApprovalDecisionMetadata:
+    async def test_apply_approval_decision_merges_metadata(
+        self,
+        svc_role: Role,
+        mock_agent_session: AgentSession,
+    ) -> None:
+        input_data = ApplyApprovalResultsActivityInputs(
+            role=svc_role,
+            session_id=mock_agent_session.id,
+            decisions=[
+                ApprovalDecisionPayload(
+                    tool_call_id="call_meta_1",
+                    approved=True,
+                    decision=True,
+                    decision_metadata={
+                        "source": "slack",
+                        "actor": {"user_id": "U123", "display_name": "jordan"},
+                    },
+                )
+            ],
+        )
+
+        await ApprovalManager.apply_approval_decisions(input_data)
+
+        async with ApprovalService.with_session(role=svc_role) as service:
+            approval = await service.get_approval_by_session_and_tool(
+                session_id=mock_agent_session.id,
+                tool_call_id="call_meta_1",
+            )
+            assert approval is not None
+            assert approval.status == ApprovalStatus.APPROVED
+            assert approval.decision == {
+                "value": True,
+                "metadata": {
+                    "source": "slack",
+                    "actor": {"user_id": "U123", "display_name": "jordan"},
+                },
+            }

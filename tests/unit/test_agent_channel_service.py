@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import json
 import uuid
 
 import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.agent.channels import service as channel_service_module
 from tracecat.agent.channels.schemas import (
     AgentChannelTokenCreate,
@@ -18,6 +23,7 @@ from tracecat.agent.channels.service import (
     PENDING_SLACK_BOT_TOKEN,
     REDACTED_SLACK_SECRET,
     REDACTED_SLACK_SIGNING_SECRET_PREFIX,
+    SLACK_OAUTH_STATE_TTL_SECONDS,
     AgentChannelService,
 )
 from tracecat.auth.types import Role
@@ -232,3 +238,130 @@ async def test_update_token_rejects_pending_bot_token_when_token_remains_active(
                 )
             ),
         )
+
+
+def _set_signing_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SIGNING_SECRET", "test-signing-secret")
+
+
+def _build_legacy_state(
+    *,
+    token_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    return_url: str,
+    exp: int,
+    signing_secret: str,
+) -> str:
+    payload_json = json.dumps(
+        {
+            "token_id": str(token_id),
+            "workspace_id": str(workspace_id),
+            "return_url": return_url,
+            "exp": exp,
+        },
+        separators=(",", ":"),
+    )
+    payload_b64 = base64.urlsafe_b64encode(payload_json.encode()).decode().rstrip("=")
+    signature = hmac.new(
+        signing_secret.encode(),
+        payload_b64.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{payload_b64}.{signature}"
+
+
+def _b64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode().rstrip("=")
+
+
+def _b64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(value + padding)
+
+
+def test_create_and_parse_slack_oauth_state_v2(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_signing_secret(monkeypatch)
+    monkeypatch.setattr("tracecat.agent.channels.service.time.time", lambda: 1_000_000)
+
+    token_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    return_url = "https://app.example.com/workspaces/abc/agents/def?builderPrompt=test"
+    state = AgentChannelService.create_slack_oauth_state(
+        token_id=token_id,
+        workspace_id=workspace_id,
+        return_url=return_url,
+    )
+
+    assert state.startswith("v2.")
+    assert str(token_id) not in state
+    payload = AgentChannelService.parse_slack_oauth_state(state)
+    assert payload == {
+        "token_id": str(token_id),
+        "workspace_id": str(workspace_id),
+        "return_url": return_url,
+    }
+
+
+def test_parse_slack_oauth_state_v2_rejects_tampering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_signing_secret(monkeypatch)
+    monkeypatch.setattr("tracecat.agent.channels.service.time.time", lambda: 1_000_000)
+
+    state = AgentChannelService.create_slack_oauth_state(
+        token_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        return_url="https://app.example.com/workspaces/abc/agents/def",
+    )
+    version, nonce_b64, ciphertext_b64 = state.split(".")
+    ciphertext = bytearray(_b64url_decode(ciphertext_b64))
+    ciphertext[0] ^= 0x01
+    tampered_state = f"{version}.{nonce_b64}.{_b64url_encode(bytes(ciphertext))}"
+
+    with pytest.raises(TracecatValidationError, match="Invalid OAuth state"):
+        AgentChannelService.parse_slack_oauth_state(tampered_state)
+
+
+def test_parse_slack_oauth_state_v2_rejects_expired_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_signing_secret(monkeypatch)
+    monkeypatch.setattr("tracecat.agent.channels.service.time.time", lambda: 1_000_000)
+    state = AgentChannelService.create_slack_oauth_state(
+        token_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        return_url="https://app.example.com/workspaces/abc/agents/def",
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.channels.service.time.time",
+        lambda: 1_000_000 + SLACK_OAUTH_STATE_TTL_SECONDS + 1,
+    )
+
+    with pytest.raises(TracecatValidationError, match="OAuth state expired"):
+        AgentChannelService.parse_slack_oauth_state(state)
+
+
+def test_parse_slack_oauth_state_accepts_legacy_signed_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    signing_secret = "test-signing-secret"
+    monkeypatch.setattr(config, "TRACECAT__SIGNING_SECRET", signing_secret)
+    monkeypatch.setattr("tracecat.agent.channels.service.time.time", lambda: 1_000_000)
+
+    token_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    return_url = "https://app.example.com/workspaces/abc/agents/def"
+    legacy_state = _build_legacy_state(
+        token_id=token_id,
+        workspace_id=workspace_id,
+        return_url=return_url,
+        exp=1_000_000 + SLACK_OAUTH_STATE_TTL_SECONDS,
+        signing_secret=signing_secret,
+    )
+
+    payload = AgentChannelService.parse_slack_oauth_state(legacy_state)
+    assert payload == {
+        "token_id": str(token_id),
+        "workspace_id": str(workspace_id),
+        "return_url": return_url,
+    }
