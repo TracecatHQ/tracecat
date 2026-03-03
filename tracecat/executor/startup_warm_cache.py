@@ -4,8 +4,8 @@ Pre-warms the executor's registry cache on startup by downloading and extracting
 tarball environments for workflow definitions that are likely to be needed soon.
 
 The warmup strategy collects tarball URIs from three sources:
-1. Published workflow definitions (latest published version per workflow).
-2. Online-scheduled workflow definitions (active schedules).
+1. Published workflow definitions (platform origins only).
+2. Online-scheduled workflow definitions (platform origins only).
 3. Platform registry current versions (builtin registry tarballs).
 
 These are deduplicated, capped, and concurrently downloaded with a configurable
@@ -33,6 +33,7 @@ from tracecat.executor.action_runner import get_action_runner
 from tracecat.executor.service import get_registry_artifacts_for_lock
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 
 # SQL expression that extracts the origins dict from the JSONB registry_lock
 # column. Handles both the current RegistryLock schema (registry_lock->'origins')
@@ -85,6 +86,32 @@ def _dedupe_definition_candidates(
         seen.add(dedupe_key)
         deduped.append(candidate)
     return deduped
+
+
+def _keep_platform_origins_only(origins: dict[str, str]) -> dict[str, str]:
+    """Keep only platform registry origins from a lock origins dict."""
+    if version := origins.get(DEFAULT_REGISTRY_ORIGIN):
+        return {DEFAULT_REGISTRY_ORIGIN: version}
+    return {}
+
+
+def _filter_definition_candidates_to_platform_origins(
+    candidates: list[_DefinitionLockCandidate],
+) -> list[_DefinitionLockCandidate]:
+    """Drop custom registry origins so warmup only targets platform tarballs."""
+    filtered: list[_DefinitionLockCandidate] = []
+    for candidate in candidates:
+        platform_origins = _keep_platform_origins_only(candidate.origins)
+        if not platform_origins:
+            continue
+        filtered.append(
+            _DefinitionLockCandidate(
+                organization_id=candidate.organization_id,
+                workflow_id=candidate.workflow_id,
+                origins=platform_origins,
+            )
+        )
+    return filtered
 
 
 async def _collect_published_definition_lock_candidates() -> list[
@@ -193,7 +220,7 @@ async def _collect_online_schedule_lock_candidates() -> list[_DefinitionLockCand
 async def _resolve_definition_tarball_uris(
     candidates: list[_DefinitionLockCandidate],
 ) -> set[str]:
-    """Resolve lock candidates to their concrete tarball URIs via the registry."""
+    """Resolve lock candidates to concrete platform tarball URIs via the registry."""
     uris: set[str] = set()
     seen: set[tuple[str, tuple[tuple[str, str], ...]]] = set()
 
@@ -274,7 +301,12 @@ async def _run_warmup() -> WarmCacheReport:
     definition_candidates = _dedupe_definition_candidates(
         [*published_candidates, *scheduled_candidates]
     )
-    definition_uris = await _resolve_definition_tarball_uris(definition_candidates)
+    platform_definition_candidates = _filter_definition_candidates_to_platform_origins(
+        definition_candidates
+    )
+    definition_uris = await _resolve_definition_tarball_uris(
+        platform_definition_candidates
+    )
     platform_uris = await _collect_platform_current_tarball_uris()
 
     all_uris = sorted(definition_uris | platform_uris)
@@ -292,7 +324,7 @@ async def _run_warmup() -> WarmCacheReport:
         enabled=True,
         published_definition_rows=len(published_candidates),
         scheduled_definition_rows=len(scheduled_candidates),
-        definition_rows=len(definition_candidates),
+        definition_rows=len(platform_definition_candidates),
         definition_locks=len(definition_uris),
         platform_tarballs=len(platform_uris),
         candidate_tarballs=len(all_uris),

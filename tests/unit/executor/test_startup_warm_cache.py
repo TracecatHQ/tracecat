@@ -10,6 +10,7 @@ from sqlalchemy.dialects import postgresql
 
 from tracecat import config
 from tracecat.executor import startup_warm_cache
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 
 
 @pytest.mark.anyio
@@ -147,6 +148,77 @@ async def test_run_warmup_merges_published_and_scheduled_candidates(
     assert sorted(warmed_inputs) == [
         "s3://tracecat/1.tar.gz",
         "s3://tracecat/2.tar.gz",
+    ]
+
+
+@pytest.mark.anyio
+async def test_run_warmup_filters_out_custom_registry_origins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    platform_and_custom = startup_warm_cache._DefinitionLockCandidate(
+        organization_id=org_id,
+        workflow_id="wf-platform-and-custom",
+        origins={
+            DEFAULT_REGISTRY_ORIGIN: "1.0.0",
+            "git+https://github.com/acme/custom-registry.git": "abc123",
+        },
+    )
+    custom_only = startup_warm_cache._DefinitionLockCandidate(
+        organization_id=org_id,
+        workflow_id="wf-custom-only",
+        origins={"git+https://github.com/acme/custom-only.git": "def456"},
+    )
+
+    seen_candidates: list[startup_warm_cache._DefinitionLockCandidate] = []
+
+    async def _published() -> list[startup_warm_cache._DefinitionLockCandidate]:
+        return [platform_and_custom, custom_only]
+
+    async def _scheduled() -> list[startup_warm_cache._DefinitionLockCandidate]:
+        return []
+
+    async def _definition_uris(
+        candidates: list[startup_warm_cache._DefinitionLockCandidate],
+    ) -> set[str]:
+        seen_candidates.extend(candidates)
+        return set()
+
+    async def _platform_uris() -> set[str]:
+        return set()
+
+    async def _warm(_uris: list[str]) -> tuple[int, int]:
+        return 0, 0
+
+    monkeypatch.setattr(
+        startup_warm_cache,
+        "_collect_published_definition_lock_candidates",
+        _published,
+    )
+    monkeypatch.setattr(
+        startup_warm_cache,
+        "_collect_online_schedule_lock_candidates",
+        _scheduled,
+    )
+    monkeypatch.setattr(
+        startup_warm_cache, "_resolve_definition_tarball_uris", _definition_uris
+    )
+    monkeypatch.setattr(
+        startup_warm_cache, "_collect_platform_current_tarball_uris", _platform_uris
+    )
+    monkeypatch.setattr(startup_warm_cache, "_warm_tarball_uris", _warm)
+
+    report = await startup_warm_cache._run_warmup()
+
+    assert report.published_definition_rows == 2
+    assert report.scheduled_definition_rows == 0
+    assert report.definition_rows == 1
+    assert seen_candidates == [
+        startup_warm_cache._DefinitionLockCandidate(
+            organization_id=org_id,
+            workflow_id="wf-platform-and-custom",
+            origins={DEFAULT_REGISTRY_ORIGIN: "1.0.0"},
+        )
     ]
 
 
