@@ -26,14 +26,20 @@ from tracecat.identifiers.workflow import AnyWorkflowIDPath, generate_exec_id
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage import blob
+from tracecat.storage.collection import get_collection_page
 from tracecat.storage.object import (
     CollectionObject,
     ExternalObject,
     InlineObject,
     StoredObject,
-    get_object_storage,
+    StoredObjectValidator,
 )
-from tracecat.storage.utils import serialize_object
+from tracecat.storage.utils import (
+    cached_blob_download,
+    compute_sha256,
+    deserialize_object,
+    serialize_object,
+)
 from tracecat.webhooks.dependencies import (
     DraftWorkflowDep,
     PayloadDep,
@@ -108,8 +114,7 @@ async def _to_external_download_response(
 async def _to_collection_download_response(
     collection: CollectionObject,
 ) -> WebhookStoredObjectDownloadResponse:
-    storage = get_object_storage()
-    materialized = await storage.retrieve(collection)
+    materialized = await _materialize_collection_values_for_wait(collection)
     serialized = serialize_object(materialized)
     prefix = collection.manifest_ref.key.removesuffix("/manifest.json")
     export_key = f"{prefix}/downloads/{uuid.uuid4().hex}.json"
@@ -137,6 +142,49 @@ async def _to_collection_download_response(
         content_type="application/json",
         size_bytes=len(serialized),
     )
+
+
+async def _retrieve_external_value(external: ExternalObject) -> Any:
+    ref = external.ref
+    content = await cached_blob_download(
+        sha256=ref.sha256,
+        bucket=ref.bucket,
+        key=ref.key,
+    )
+
+    actual_sha256 = compute_sha256(content)
+    if actual_sha256 != ref.sha256:
+        raise ValueError(
+            f"Integrity check failed for {ref.key}: "
+            f"expected {ref.sha256}, got {actual_sha256}"
+        )
+    return deserialize_object(content)
+
+
+async def _resolve_stored_object_value(stored: StoredObject) -> Any:
+    match stored:
+        case InlineObject(data=data):
+            return data
+        case ExternalObject() as external:
+            return await _retrieve_external_value(external)
+        case CollectionObject() as collection:
+            return await _materialize_collection_values_for_wait(collection)
+        case _:
+            raise TypeError(f"Expected StoredObject, got {type(stored).__name__}")
+
+
+async def _materialize_collection_values_for_wait(
+    collection: CollectionObject,
+) -> list[Any]:
+    items = await get_collection_page(collection)
+    if collection.element_kind == "value":
+        return items
+
+    values: list[Any] = []
+    for item in items:
+        stored = StoredObjectValidator.validate_python(item)
+        values.append(await _resolve_stored_object_value(stored))
+    return values
 
 
 async def _normalize_wait_result(value: StoredObject) -> WaitResultOutput:

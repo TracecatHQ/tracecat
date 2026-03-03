@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime
 import uuid
+from hashlib import sha256
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -711,8 +712,8 @@ class TestWebhookRouterExecutionPath:
                 AsyncMock(return_value=mock_service),
             ),
             patch(
-                "tracecat.webhooks.router.get_object_storage",
-                return_value=mock_storage,
+                "tracecat.webhooks.router.get_collection_page",
+                AsyncMock(return_value=[{"id": 1}, {"id": 2}, {"id": 3}]),
             ),
             patch(
                 "tracecat.webhooks.router.blob.upload_file",
@@ -734,6 +735,87 @@ class TestWebhookRouterExecutionPath:
         assert (
             response_obj["download_url"] == "https://example.com/presigned/collection"
         )
+        upload_file_mock.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_wait_webhook_materializes_collection_without_storage_backend(self):
+        workflow_id = WorkflowUUID.new_uuid4()
+        payload = {"event": "test"}
+        external_payload = b'{"id":2}'
+        external_ref = ExternalObject(
+            type="external",
+            ref=ObjectRef(
+                backend="s3",
+                bucket="tracecat-workflow",
+                key="wf/test/chunks/0.json",
+                size_bytes=len(external_payload),
+                sha256=sha256(external_payload).hexdigest(),
+                content_type="application/json",
+                encoding="json",
+            ),
+        )
+        collection_result = CollectionObject(
+            type="collection",
+            manifest_ref=ObjectRef(
+                backend="s3",
+                bucket="tracecat-workflow",
+                key="wf/test/return/manifest.json",
+                size_bytes=128,
+                sha256="manifest-sha",
+                content_type="application/json",
+                encoding="json",
+            ),
+            count=2,
+            chunk_size=2,
+            element_kind="stored_object",
+        )
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution = AsyncMock(
+            return_value={
+                "wf_id": workflow_id,
+                "result": collection_result,
+            }
+        )
+
+        with (
+            patch(
+                "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+                AsyncMock(return_value=mock_service),
+            ),
+            patch(
+                "tracecat.webhooks.router.get_collection_page",
+                AsyncMock(
+                    return_value=[
+                        InlineObject(type="inline", data={"id": 1}).model_dump(),
+                        external_ref.model_dump(),
+                    ]
+                ),
+            ),
+            patch(
+                "tracecat.webhooks.router.cached_blob_download",
+                AsyncMock(return_value=external_payload),
+            ) as cached_download_mock,
+            patch(
+                "tracecat.webhooks.router.blob.upload_file",
+                AsyncMock(),
+            ) as upload_file_mock,
+            patch(
+                "tracecat.webhooks.router.blob.generate_presigned_download_url",
+                AsyncMock(return_value="https://example.com/presigned/collection"),
+            ),
+        ):
+            response = await incoming_webhook_wait(
+                workflow_id=workflow_id,
+                defn=_definition(),
+                payload=payload,
+            )
+
+        assert response["kind"] == "download_export"
+        response_obj = cast(dict[str, Any], response)
+        assert (
+            response_obj["download_url"] == "https://example.com/presigned/collection"
+        )
+        cached_download_mock.assert_awaited_once()
         upload_file_mock.assert_awaited_once()
 
 
