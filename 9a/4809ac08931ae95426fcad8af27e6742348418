@@ -1,0 +1,23 @@
+tests/unit/test_workflow_executions.py
+  f592066751d4ba70 96-100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "9a4809ac08931ae95426fcad8af27e6742348418",
+  "prompts": {
+    "f592066751d4ba70": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb18b-cd02-7f53-9a11-612d7074388e",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 5,
+      "total_deletions": 1,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    }
+  }
+}
