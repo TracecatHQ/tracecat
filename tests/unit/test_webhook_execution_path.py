@@ -714,3 +714,26 @@ class TestWebhookDispatchWorkflowInvariants:
             pair for pair in search_attrs.search_attributes if pair.key == trigger_key
         ]
         assert found and found[0].value == "webhook"
+
+    @pytest.mark.anyio
+    async def test_dispatch_does_not_crash_for_inline_object_results(
+        self, service: WorkflowExecutionsService, mock_client: MagicMock
+    ):
+        """Regression: /wait dispatch must tolerate non-JSON-serializable results."""
+        inline_result = InlineObject(type="inline", data={"_": "result-ref"})
+        mock_client.execute_workflow.return_value = {
+            "status": "ok",
+            "result_ref": inline_result,
+        }
+        dsl = _dsl_input()
+
+        with patch.object(service, "_resolve_execution_timeout", return_value=None):
+            response = await service._dispatch_workflow(
+                dsl=dsl,
+                wf_id=_WF_ID,
+                wf_exec_id=f"{_WF_ID.short()}/exec_test",
+                trigger_inputs=None,
+                trigger_type=TriggerType.WEBHOOK,
+            )
+
+        assert response["result"]["result_ref"] == inline_result

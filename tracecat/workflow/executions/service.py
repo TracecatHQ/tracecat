@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import datetime
-import json
 from collections import OrderedDict
 from collections.abc import AsyncGenerator, Awaitable, Sequence
 from typing import Any
@@ -1286,7 +1285,9 @@ class WorkflowExecutionsService:
                 "Unexpected workflow error", role=self.role, wf_exec_id=wf_exec_id, e=e
             )
             raise e
-        self.logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
+        # Workflow results can include rich objects (e.g., StoredObject variants)
+        # that are not guaranteed to be JSON serializable.
+        self.logger.debug("Workflow result", result=result)
         return WorkflowDispatchResponse(wf_id=wf_id, result=result)
 
     async def _start_workflow(
