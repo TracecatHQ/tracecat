@@ -19,6 +19,7 @@ import {
   adminCreateOrganizationDomain,
   adminCreateTier,
   adminCreateUser,
+  adminDeleteOrganization,
   adminDeleteOrganizationDomain,
   adminDeleteTier,
   adminDemoteFromSuperuser,
@@ -30,6 +31,7 @@ import {
   adminListOrganizations,
   adminListOrgRepositories,
   adminListOrgRepositoryVersions,
+  adminListOrgTiers,
   adminListTiers,
   adminListUsers,
   adminPromoteOrgRepositoryVersion,
@@ -58,10 +60,6 @@ import {
   type TierRead,
   type TierUpdate,
 } from "@/client"
-import {
-  adminDeleteOrganizationWithConfirmation,
-  adminListOrgTiers,
-} from "@/client/services.custom"
 
 /* ── ORGANIZATIONS ─────────────────────────────────────────────────────────── */
 
@@ -100,7 +98,7 @@ export function useAdminOrganizations({
   const { mutateAsync: deleteOrganization, isPending: deletePending } =
     useMutation<void, Error, { orgId: string; confirmation: string }>({
       mutationFn: ({ orgId, confirmation }) =>
-        adminDeleteOrganizationWithConfirmation({
+        adminDeleteOrganization({
           orgId,
           confirm: confirmation,
         }),
