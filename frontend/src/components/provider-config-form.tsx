@@ -73,11 +73,34 @@ const renderHelpContent = (help: EndpointHelp) => {
 }
 
 const CLIENT_AUTH_METHOD_OPTIONS = [
-  { value: "auto", label: "Auto" },
-  { value: "client_secret_basic", label: "Client secret (basic)" },
-  { value: "client_secret_post", label: "Client secret (post)" },
-  { value: "private_key_jwt", label: "Client assertion (private_key_jwt)" },
-  { value: "none", label: "No client authentication" },
+  {
+    value: "auto",
+    label: "Auto",
+    subtitle:
+      "Prefer private_key_jwt when key material exists; otherwise use client secret.",
+  },
+  {
+    value: "client_secret_basic",
+    label: "Client secret (basic)",
+    subtitle:
+      "Sends client_id and client_secret in the Authorization header (Basic auth).",
+  },
+  {
+    value: "client_secret_post",
+    label: "Client secret (post)",
+    subtitle:
+      "Sends client_id and client_secret in the token request body (form fields).",
+  },
+  {
+    value: "private_key_jwt",
+    label: "Client assertion (private_key_jwt)",
+    subtitle: "Signs a JWT assertion using your private key and certificate.",
+  },
+  {
+    value: "none",
+    label: "No client authentication",
+    subtitle: "Public client mode with no client secret or client assertion.",
+  },
 ] as const
 
 interface OAuthSchemaOptions {
@@ -556,7 +579,12 @@ export function ProviderConfigForm({
                         <SelectContent>
                           {CLIENT_AUTH_METHOD_OPTIONS.map((option) => (
                             <SelectItem key={option.value} value={option.value}>
-                              {option.label}
+                              <div className="flex flex-col gap-0.5 py-0.5">
+                                <span>{option.label}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {option.subtitle}
+                                </span>
+                              </div>
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -564,7 +592,9 @@ export function ProviderConfigForm({
                     </FormControl>
                     <FormMessage />
                     <FormDescription className="text-xs">
-                      Choose how the client authenticates at the token endpoint.
+                      `client_secret_basic` uses the Authorization header;{" "}
+                      `client_secret_post` sends credentials in the request
+                      body.
                     </FormDescription>
                   </FormItem>
                 )}
