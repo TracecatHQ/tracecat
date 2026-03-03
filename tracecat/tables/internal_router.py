@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -20,7 +19,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.expressions.functions import tabulate
 from tracecat.logger import logger
-from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
+from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
@@ -30,6 +29,8 @@ from tracecat.tables.schemas import (
     TableRead,
     TableRowInsert,
     TableRowInsertBatch,
+    TableSearchRequest,
+    TableSearchResponse,
 )
 from tracecat.tables.service import TablesService
 
@@ -57,21 +58,6 @@ class TableLookupRequest(BaseModel):
 class TableExistsRequest(BaseModel):
     columns: list[str]
     values: list[Any]
-
-
-class TableSearchRequest(BaseModel):
-    search_term: str | None = None
-    start_time: datetime | None = None
-    end_time: datetime | None = None
-    updated_before: datetime | None = None
-    updated_after: datetime | None = None
-    cursor: str | None = None
-    reverse: bool = False
-    limit: int = Field(
-        default=config.TRACECAT__LIMIT_TABLE_SEARCH_DEFAULT,
-        ge=config.TRACECAT__LIMIT_MIN,
-        le=config.TRACECAT__LIMIT_CURSOR_MAX,
-    )
 
 
 class TableRowUpdate(BaseModel):
@@ -245,7 +231,7 @@ async def search_rows(
     session: AsyncDBSession,
     table_name: str,
     params: TableSearchRequest,
-) -> CursorPaginatedResponse[dict[str, Any]]:
+) -> TableSearchResponse:
     """Search rows in a table with optional filters."""
     service = TablesService(session, role=role)
     try:
@@ -257,18 +243,19 @@ async def search_rows(
         ) from exc
 
     try:
-        return await service.list_rows(
+        return await service.search_rows(
             table,
-            params=CursorPaginationParams(
-                limit=params.limit,
-                cursor=params.cursor,
-                reverse=params.reverse,
-            ),
             search_term=params.search_term,
             start_time=coerce_optional_to_utc_datetime(params.start_time),
             end_time=coerce_optional_to_utc_datetime(params.end_time),
             updated_before=coerce_optional_to_utc_datetime(params.updated_before),
             updated_after=coerce_optional_to_utc_datetime(params.updated_after),
+            limit=params.limit,
+            cursor=params.cursor,
+            reverse=params.reverse,
+            order_by=params.order_by,
+            sort=params.sort,
+            aggregation=params.aggregation_params(),
         )
     except ValueError as exc:
         raise HTTPException(

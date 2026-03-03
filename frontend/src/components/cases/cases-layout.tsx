@@ -6,7 +6,6 @@ import {
   type CaseDropdownDefinitionRead,
   type CasePriority,
   type CaseReadMinimal,
-  type CaseSearchAggregateRead,
   type CaseSeverity,
   type CaseStatus,
   type CaseTagRead,
@@ -26,7 +25,11 @@ import {
 import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useToast } from "@/components/ui/use-toast"
-import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
+import type {
+  CaseDateFilterValue,
+  CaseStageCounts,
+  UseCasesFilters,
+} from "@/hooks/use-cases"
 import { useDeleteCase } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -60,7 +63,7 @@ interface CasesLayoutProps {
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
   totalFilteredCaseEstimate: number | null
-  stageCounts: CaseSearchAggregateRead["status_groups"] | null
+  stageCounts: CaseStageCounts | null
   isCountsLoading: boolean
   isCountsFetching: boolean
   hasNextPage: boolean

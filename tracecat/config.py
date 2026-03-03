@@ -689,6 +689,16 @@ TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX = 1000
 TRACECAT__LIMIT_TABLE_DOWNLOAD_DEFAULT = TRACECAT__LIMIT_TABLE_DOWNLOAD_MAX
 """Default row count for internal table download."""
 
+TRACECAT__LIMIT_AGG_BUCKET_DEFAULT = int(
+    os.environ.get("TRACECAT__LIMIT_AGG_BUCKET_DEFAULT") or 100
+)
+"""Default number of aggregation buckets returned by grouped search."""
+
+TRACECAT__LIMIT_AGG_BUCKET_MAX = int(
+    os.environ.get("TRACECAT__LIMIT_AGG_BUCKET_MAX") or 1000
+)
+"""Maximum number of aggregation buckets returned by grouped search."""
+
 # === Context Compression === #
 TRACECAT__CONTEXT_COMPRESSION_ENABLED = os.environ.get(
     "TRACECAT__CONTEXT_COMPRESSION_ENABLED", "false"

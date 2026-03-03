@@ -29,6 +29,7 @@ from tracecat.cases.service import CaseFieldsService, CasesService
 from tracecat.db.models import Case
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.pagination import CursorPaginationParams
+from tracecat.search.schemas import SearchAggregationParams, SearchAggFunction
 from tracecat.tables.enums import SqlType
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -808,7 +809,10 @@ class TestCasesService:
             sort="asc",
         )
 
-        assert search_response.model_dump() == list_response.model_dump()
+        assert (
+            search_response.model_dump(exclude={"aggregation"})
+            == list_response.model_dump()
+        )
 
     async def test_search_cases_short_id_exact_match(
         self, cases_service: CasesService
@@ -874,10 +878,10 @@ class TestCasesService:
                 short_id="CASE-ABCD",
             )
 
-    async def test_get_search_case_aggregates_applies_enum_filters(
+    async def test_search_cases_aggregation_applies_enum_filters(
         self, cases_service: CasesService, session: AsyncSession
     ) -> None:
-        """Aggregate counts should respect include/exclude enum filters."""
+        """Unified search aggregation should respect enum filters."""
         now = datetime.now(UTC)
         session.add_all(
             [
@@ -935,19 +939,27 @@ class TestCasesService:
         )
         await session.commit()
 
-        aggregates = await cases_service.get_search_case_aggregates(
+        response = await cases_service.search_cases(
+            params=CursorPaginationParams(limit=20),
             status=[CaseStatus.IN_PROGRESS, CaseStatus.RESOLVED],
             priority=[CasePriority.HIGH, CasePriority.CRITICAL],
             severity=[CaseSeverity.MEDIUM, CaseSeverity.HIGH],
+            aggregation=SearchAggregationParams(
+                agg="count",
+                group_by=["status"],
+                bucket_limit=100,
+            ),
         )
 
-        assert aggregates.total == 2
-        assert aggregates.status_groups.new == 0
-        assert aggregates.status_groups.in_progress == 1
-        assert aggregates.status_groups.on_hold == 0
-        assert aggregates.status_groups.resolved == 1
-        assert aggregates.status_groups.closed == 0
-        assert aggregates.status_groups.other == 0
+        assert response.aggregation is not None
+        assert response.aggregation.agg == SearchAggFunction.COUNT
+        assert response.aggregation.value == 2
+        buckets = {
+            bucket.key["status"]: bucket.value
+            for bucket in response.aggregation.buckets
+        }
+        assert buckets["in_progress"] == 1
+        assert buckets["resolved"] == 1
 
     async def test_create_case_with_nonexistent_field(
         self, cases_service: CasesService

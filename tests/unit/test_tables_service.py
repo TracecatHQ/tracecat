@@ -14,6 +14,7 @@ from tracecat.db.models import Table
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginationParams
+from tracecat.search.schemas import SearchAggFunction, SearchAggregationParams
 from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
@@ -1375,3 +1376,72 @@ class TestTableDataTypes:
 
         # UUID comparison using string representation
         assert str(retrieved["uuid_col"]) == str(edge_cases["uuid_col"])
+
+    async def test_search_rows_with_grouped_count_aggregation(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Table search should return grouped count aggregation buckets."""
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Alice", "age": 30})
+        )
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Alice", "age": 31})
+        )
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 28})
+        )
+
+        response = await tables_service.search_rows(
+            table,
+            limit=20,
+            aggregation=SearchAggregationParams(
+                agg="count",
+                group_by=["name"],
+                bucket_limit=100,
+            ),
+        )
+
+        assert response.aggregation is not None
+        assert response.aggregation.agg == SearchAggFunction.COUNT
+        assert response.aggregation.value == 3
+        buckets = {
+            bucket.key["name"]: bucket.value for bucket in response.aggregation.buckets
+        }
+        assert buckets["Alice"] == 2
+        assert buckets["Bob"] == 1
+
+    async def test_search_rows_normalizes_avg_alias(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """avg alias should be canonicalized to mean in table aggregation responses."""
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Alice", "age": 20})
+        )
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 40})
+        )
+
+        response = await tables_service.search_rows(
+            table,
+            limit=20,
+            aggregation=SearchAggregationParams(agg="avg", agg_field="age"),
+        )
+
+        assert response.aggregation is not None
+        assert response.aggregation.agg == SearchAggFunction.MEAN
+        assert float(response.aggregation.value) == pytest.approx(30.0)
+
+    async def test_search_rows_rejects_value_counts(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """value_counts should be rejected with a validation error."""
+        with pytest.raises(
+            ValueError, match="Aggregation function 'value_counts' is not supported"
+        ):
+            await tables_service.search_rows(
+                table,
+                aggregation=SearchAggregationParams(
+                    agg="value_counts",
+                    agg_field="name",
+                ),
+            )

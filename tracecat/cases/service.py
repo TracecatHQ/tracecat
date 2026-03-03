@@ -1,6 +1,7 @@
 import re
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -8,10 +9,10 @@ import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
 from pydantic import ValidationError
 from sqlalchemy import and_, cast, func, or_, select
-from sqlalchemy.dialects.postgresql import UUID, insert
+from sqlalchemy.dialects.postgresql import JSONB, UUID, insert
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -40,8 +41,7 @@ from tracecat.cases.schemas import (
     CaseCreate,
     CaseEventVariant,
     CaseReadMinimal,
-    CaseSearchAggregateRead,
-    CaseStatusGroupCounts,
+    CaseSearchResponse,
     CaseTaskCreate,
     CaseTaskUpdate,
     CaseUpdate,
@@ -77,6 +77,7 @@ from tracecat.db.models import (
     CaseDropdownValue,
     CaseEvent,
     CaseFields,
+    CaseTag,
     CaseTagLink,
     CaseTask,
     User,
@@ -99,10 +100,16 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
+from tracecat.search.schemas import (
+    SearchAggFunction,
+    SearchAggregationBucket,
+    SearchAggregationParams,
+    SearchAggregationResult,
+)
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.common import normalize_column_options
 from tracecat.tables.enums import SqlType
-from tracecat.tables.service import TablesService
+from tracecat.tables.service import TablesService, sanitize_identifier
 from tracecat.tiers.enums import Entitlement
 
 
@@ -126,6 +133,45 @@ CASE_PRIORITY_SORT_ORDER = tuple(priority.value for priority in CasePriority)
 CASE_SEVERITY_SORT_ORDER = tuple(severity.value for severity in CaseSeverity)
 CASE_STATUS_SORT_ORDER = tuple(status.value for status in CaseStatus)
 SHORT_ID_PATTERN = re.compile(r"^(?:CASE-)?(\d{1,10})$", re.IGNORECASE)
+CASE_DROPDOWN_TOKEN_PATTERN = re.compile(r"^dropdown:([A-Za-z0-9_.-]+)$")
+CASE_CUSTOM_FIELD_TOKEN_PATTERN = re.compile(r"^field:([A-Za-z0-9_]+)$")
+
+CASE_GROUP_BY_BASE_FIELDS: dict[str, Any] = {
+    "status": Case.status,
+    "priority": Case.priority,
+    "severity": Case.severity,
+    "assignee_id": Case.assignee_id,
+}
+
+CASE_AGG_BASE_FIELDS: dict[str, tuple[Any, bool]] = {
+    "status": (Case.status, False),
+    "priority": (Case.priority, False),
+    "severity": (Case.severity, False),
+    "assignee_id": (Case.assignee_id, False),
+    "created_at": (Case.created_at, False),
+    "updated_at": (Case.updated_at, False),
+    "case_number": (Case.case_number, True),
+}
+
+NUMERIC_AGG_FUNCS = {
+    SearchAggFunction.SUM,
+    SearchAggFunction.MEAN,
+    SearchAggFunction.MEDIAN,
+}
+
+
+@dataclass(frozen=True)
+class _CaseGroupBySpec:
+    token: str
+    key: str
+    expr: Any
+
+
+@dataclass(frozen=True)
+class _CaseAggFieldSpec:
+    token: str
+    expr: Any
+    numeric: bool
 
 
 def _enum_sort_expr(column: Any, ordered_values: Sequence[str]) -> ColumnElement[int]:
@@ -341,7 +387,8 @@ class CasesService(BaseWorkspaceService):
         ]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
-    ) -> CursorPaginatedResponse[CaseReadMinimal]:
+        aggregation: SearchAggregationParams | None = None,
+    ) -> CaseSearchResponse:
         """Search cases with cursor-based pagination and filtering."""
         paginator = BaseCursorPaginator(self.session)
         filters = self._build_search_filters(
@@ -611,98 +658,436 @@ class CasesService(BaseWorkspaceService):
                 )
             )
 
-        return CursorPaginatedResponse(
+        search_aggregation = await self._compute_search_aggregation(
+            filters=filters,
+            aggregation=aggregation,
+        )
+
+        return CaseSearchResponse(
             items=case_items,
             next_cursor=next_cursor,
             prev_cursor=prev_cursor,
             has_more=has_more,
             has_previous=has_previous,
             total_estimate=total_estimate,
+            aggregation=search_aggregation,
         )
 
-    async def get_search_case_aggregates(
+    def _parse_agg_function(self, raw: str | None) -> SearchAggFunction:
+        if raw is None:
+            return SearchAggFunction.COUNT
+
+        normalized = raw.strip().lower()
+        if normalized == "value_counts":
+            raise ValueError("Aggregation function 'value_counts' is not supported")
+
+        try:
+            return SearchAggFunction.parse(normalized)
+        except ValueError as exc:
+            raise ValueError(
+                f"Unsupported aggregation function '{raw}'. "
+                "Expected one of: count, sum, min, max, mean, median, mode, n_unique, avg."
+            ) from exc
+
+    async def _prepare_case_aggregation_sources(
         self,
         *,
-        search_term: str | None = None,
-        status: CaseStatus | Sequence[CaseStatus] | None = None,
-        priority: CasePriority | Sequence[CasePriority] | None = None,
-        severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
-        assignee_ids: Sequence[uuid.UUID] | None = None,
-        include_unassigned: bool = False,
-        tag_ids: list[uuid.UUID] | None = None,
-        dropdown_filters: dict[str, list[str]] | None = None,
-        start_time: datetime | None = None,
-        end_time: datetime | None = None,
-        updated_before: datetime | None = None,
-        updated_after: datetime | None = None,
-    ) -> CaseSearchAggregateRead:
-        """Return global totals for the current case search filter set."""
-        filters = self._build_search_filters(
-            search_term=search_term,
-            status=status,
-            priority=priority,
-            severity=severity,
-            assignee_ids=assignee_ids,
-            include_unassigned=include_unassigned,
-            tag_ids=tag_ids,
-            dropdown_filters=dropdown_filters,
-            start_time=start_time,
-            end_time=end_time,
-            updated_before=updated_before,
-            updated_after=updated_after,
-        )
+        stmt: sa.Select[Any],
+        group_by_tokens: list[str],
+        agg_field: str | None,
+    ) -> tuple[sa.Select[Any], list[_CaseGroupBySpec], _CaseAggFieldSpec | None]:
+        group_specs: list[_CaseGroupBySpec] = []
+        agg_spec: _CaseAggFieldSpec | None = None
 
-        aggregate_stmt = select(
-            func.count(Case.id).label("total"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.NEW, 1), else_=0)),
-                0,
-            ).label("new"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.IN_PROGRESS, 1), else_=0)),
-                0,
-            ).label("in_progress"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.ON_HOLD, 1), else_=0)),
-                0,
-            ).label("on_hold"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.RESOLVED, 1), else_=0)),
-                0,
-            ).label("resolved"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.CLOSED, 1), else_=0)),
-                0,
-            ).label("closed"),
-            func.coalesce(
-                func.sum(
-                    sa.case(
-                        (
-                            Case.status.in_([CaseStatus.OTHER, CaseStatus.UNKNOWN]),
-                            1,
-                        ),
-                        else_=0,
-                    )
+        token_to_expr: dict[str, Any] = {}
+        token_numeric: dict[str, bool] = {}
+        needs_tag_join = False
+        dropdown_tokens: list[str] = []
+        custom_field_tokens: list[str] = []
+
+        for token in group_by_tokens:
+            if token in CASE_GROUP_BY_BASE_FIELDS:
+                token_to_expr[token] = CASE_GROUP_BY_BASE_FIELDS[token]
+                continue
+            if token == "tag":
+                needs_tag_join = True
+                continue
+            if CASE_DROPDOWN_TOKEN_PATTERN.match(token):
+                dropdown_tokens.append(token)
+                continue
+            if CASE_CUSTOM_FIELD_TOKEN_PATTERN.match(token):
+                custom_field_tokens.append(token)
+                continue
+            raise ValueError(
+                "Invalid group_by token "
+                f"'{token}'. Expected base fields, 'tag', "
+                "'dropdown:<definition_ref>', or 'field:<field_id>'."
+            )
+
+        if agg_field:
+            if agg_field in CASE_AGG_BASE_FIELDS:
+                expr, is_numeric = CASE_AGG_BASE_FIELDS[agg_field]
+                token_to_expr[agg_field] = expr
+                token_numeric[agg_field] = is_numeric
+            elif agg_field == "tag":
+                needs_tag_join = True
+            elif CASE_DROPDOWN_TOKEN_PATTERN.match(agg_field):
+                dropdown_tokens.append(agg_field)
+            elif CASE_CUSTOM_FIELD_TOKEN_PATTERN.match(agg_field):
+                custom_field_tokens.append(agg_field)
+            else:
+                raise ValueError(
+                    "Invalid agg_field token "
+                    f"'{agg_field}'. Expected case base field, 'tag', "
+                    "'dropdown:<definition_ref>', or 'field:<field_id>'."
+                )
+
+        if needs_tag_join:
+            stmt = stmt.outerjoin(
+                CaseTagLink, CaseTagLink.case_id == Case.id
+            ).outerjoin(
+                CaseTag,
+                and_(
+                    CaseTag.id == CaseTagLink.tag_id,
+                    CaseTag.workspace_id == self.workspace_id,
                 ),
-                0,
-            ).label("other"),
+            )
+            token_to_expr["tag"] = CaseTag.ref
+            token_numeric["tag"] = False
+
+        for index, dropdown_token in enumerate(dict.fromkeys(dropdown_tokens)):
+            match = CASE_DROPDOWN_TOKEN_PATTERN.match(dropdown_token)
+            if not match:
+                continue
+            definition_ref = match.group(1)
+            def_alias = aliased(CaseDropdownDefinition, name=f"cdd_{index}")
+            value_alias = aliased(CaseDropdownValue, name=f"cdv_{index}")
+            option_alias = aliased(CaseDropdownOption, name=f"cdo_{index}")
+            stmt = (
+                stmt.outerjoin(
+                    def_alias,
+                    and_(
+                        def_alias.workspace_id == self.workspace_id,
+                        def_alias.ref == definition_ref,
+                    ),
+                )
+                .outerjoin(
+                    value_alias,
+                    and_(
+                        value_alias.case_id == Case.id,
+                        value_alias.definition_id == def_alias.id,
+                    ),
+                )
+                .outerjoin(option_alias, option_alias.id == value_alias.option_id)
+            )
+            token_to_expr[dropdown_token] = option_alias.ref
+            token_numeric[dropdown_token] = False
+
+        custom_tokens = list(dict.fromkeys(custom_field_tokens))
+        if custom_tokens:
+            field_schema = await self.fields.get_field_schema()
+            reflected_columns = await self.fields.list_fields()
+            reflected_column_map = {
+                column["name"]: column
+                for column in reflected_columns
+                if "name" in column
+            }
+
+            custom_field_ids: list[str] = []
+            for token in custom_tokens:
+                match = CASE_CUSTOM_FIELD_TOKEN_PATTERN.match(token)
+                if not match:
+                    continue
+                field_id = match.group(1)
+                try:
+                    sanitized_field_id = sanitize_identifier(field_id)
+                except ValueError as exc:
+                    raise ValueError(f"Invalid custom field token '{token}'") from exc
+                if sanitized_field_id not in reflected_column_map:
+                    raise ValueError(
+                        f"Unknown custom field token '{token}'. Field does not exist."
+                    )
+                custom_field_ids.append(sanitized_field_id)
+
+            custom_fields_table = sa.table(
+                self.fields.sanitized_table_name,
+                sa.column("case_id"),
+                *(sa.column(field_id) for field_id in custom_field_ids),
+                schema=self.fields.schema_name,
+            )
+            stmt = stmt.outerjoin(
+                custom_fields_table, custom_fields_table.c.case_id == Case.id
+            )
+
+            for index, token in enumerate(custom_tokens):
+                match = CASE_CUSTOM_FIELD_TOKEN_PATTERN.match(token)
+                if not match:
+                    continue
+                field_id = sanitize_identifier(match.group(1))
+                field_type_raw = (field_schema.get(field_id) or {}).get("type")
+                field_type = str(field_type_raw).upper() if field_type_raw else None
+                is_multi_select = field_type == SqlType.MULTI_SELECT.value
+                is_numeric = field_type in {
+                    SqlType.INTEGER.value,
+                    SqlType.NUMERIC.value,
+                }
+                base_expr = custom_fields_table.c[field_id]
+                if is_multi_select:
+                    exploded_values = sa.lateral(
+                        sa.select(
+                            sa.func.jsonb_array_elements_text(
+                                sa.cast(base_expr, JSONB)
+                            ).label("value")
+                        )
+                    ).alias(f"case_field_values_{index}")
+                    stmt = stmt.outerjoin(exploded_values, sa.true())
+                    token_to_expr[token] = exploded_values.c.value
+                else:
+                    token_to_expr[token] = base_expr
+                token_numeric[token] = is_numeric
+
+        for token in group_by_tokens:
+            expr = token_to_expr.get(token)
+            if expr is None:
+                raise ValueError(f"Unable to resolve group_by token '{token}'")
+            group_specs.append(_CaseGroupBySpec(token=token, key=token, expr=expr))
+
+        if agg_field:
+            expr = token_to_expr.get(agg_field)
+            if expr is None:
+                raise ValueError(f"Unable to resolve agg_field token '{agg_field}'")
+            agg_spec = _CaseAggFieldSpec(
+                token=agg_field,
+                expr=expr,
+                numeric=token_numeric.get(agg_field, False),
+            )
+
+        return stmt, group_specs, agg_spec
+
+    async def _compute_search_aggregation(
+        self,
+        *,
+        filters: list[Any],
+        aggregation: SearchAggregationParams | None,
+    ) -> SearchAggregationResult | None:
+        if aggregation is None:
+            return None
+
+        group_by_tokens = aggregation.group_by or []
+        if (
+            not group_by_tokens
+            and aggregation.agg is None
+            and aggregation.agg_field is None
+        ):
+            return None
+
+        agg = self._parse_agg_function(aggregation.agg)
+        agg_field = aggregation.agg_field
+        if agg is SearchAggFunction.COUNT and agg_field is not None:
+            raise ValueError("agg_field is not supported when agg='count'")
+        if agg is not SearchAggFunction.COUNT and agg_field is None:
+            raise ValueError(f"agg_field is required when agg='{agg.value}'")
+
+        base_stmt = select(Case.id.label("case_id")).select_from(Case)
+        for clause in filters:
+            base_stmt = base_stmt.where(clause)
+
+        base_stmt, group_specs, agg_spec = await self._prepare_case_aggregation_sources(
+            stmt=base_stmt,
+            group_by_tokens=group_by_tokens,
+            agg_field=agg_field,
         )
 
-        for clause in filters:
-            aggregate_stmt = aggregate_stmt.where(clause)
+        if agg in NUMERIC_AGG_FUNCS:
+            if agg_spec is None or not agg_spec.numeric:
+                raise ValueError(
+                    f"Aggregation '{agg.value}' requires a numeric agg_field"
+                )
 
-        row = (await self.session.execute(aggregate_stmt)).one()
+        projection: list[ColumnElement[Any]] = [Case.id.label("case_id")]
+        for index, spec in enumerate(group_specs):
+            projection.append(spec.expr.label(f"group_{index}"))
+        if agg_spec is not None:
+            projection.append(agg_spec.expr.label("agg_value"))
+        dataset_stmt = base_stmt.with_only_columns(*projection)
+        dataset = dataset_stmt.subquery("case_search_aggregation_dataset")
 
-        return CaseSearchAggregateRead(
-            total=int(row.total or 0),
-            status_groups=CaseStatusGroupCounts(
-                new=int(row.new or 0),
-                in_progress=int(row.in_progress or 0),
-                on_hold=int(row.on_hold or 0),
-                resolved=int(row.resolved or 0),
-                closed=int(row.closed or 0),
-                other=int(row.other or 0),
-            ),
+        if agg is SearchAggFunction.COUNT:
+            overall_stmt = select(func.count(sa.distinct(dataset.c.case_id)))
+        elif agg is SearchAggFunction.SUM:
+            overall_stmt = select(func.sum(sa.cast(dataset.c.agg_value, sa.Numeric)))
+        elif agg is SearchAggFunction.MIN:
+            overall_stmt = select(func.min(dataset.c.agg_value))
+        elif agg is SearchAggFunction.MAX:
+            overall_stmt = select(func.max(dataset.c.agg_value))
+        elif agg is SearchAggFunction.MEAN:
+            overall_stmt = select(func.avg(sa.cast(dataset.c.agg_value, sa.Numeric)))
+        elif agg is SearchAggFunction.MEDIAN:
+            overall_stmt = select(
+                func.percentile_cont(0.5).within_group(
+                    sa.cast(dataset.c.agg_value, sa.Numeric)
+                )
+            )
+        elif agg is SearchAggFunction.N_UNIQUE:
+            overall_stmt = select(func.count(sa.distinct(dataset.c.agg_value)))
+            overall_stmt = overall_stmt.where(dataset.c.agg_value.is_not(None))
+        elif agg is SearchAggFunction.MODE:
+            mode_candidates = (
+                select(
+                    dataset.c.agg_value.label("mode_value"),
+                    func.count().label("frequency"),
+                )
+                .where(dataset.c.agg_value.is_not(None))
+                .group_by(dataset.c.agg_value)
+                .order_by(func.count().desc(), dataset.c.agg_value.asc())
+                .limit(1)
+                .subquery("case_mode_candidates")
+            )
+            overall_stmt = select(mode_candidates.c.mode_value)
+        else:
+            raise ValueError(f"Unsupported aggregation function '{agg.value}'")
+
+        overall_value = await self.session.scalar(overall_stmt)
+
+        bucket_limit = aggregation.bucket_limit
+        buckets: list[SearchAggregationBucket] = []
+        truncated = False
+        if group_specs:
+            group_columns = [
+                dataset.c[f"group_{index}"] for index in range(len(group_specs))
+            ]
+
+            if agg is SearchAggFunction.COUNT:
+                grouped_stmt = select(
+                    *(
+                        column.label(f"group_{index}")
+                        for index, column in enumerate(group_columns)
+                    ),
+                    func.count(sa.distinct(dataset.c.case_id)).label("agg_value"),
+                ).group_by(*group_columns)
+            elif agg is SearchAggFunction.SUM:
+                grouped_stmt = select(
+                    *(
+                        column.label(f"group_{index}")
+                        for index, column in enumerate(group_columns)
+                    ),
+                    func.sum(sa.cast(dataset.c.agg_value, sa.Numeric)).label(
+                        "agg_value"
+                    ),
+                ).group_by(*group_columns)
+            elif agg is SearchAggFunction.MIN:
+                grouped_stmt = select(
+                    *(
+                        column.label(f"group_{index}")
+                        for index, column in enumerate(group_columns)
+                    ),
+                    func.min(dataset.c.agg_value).label("agg_value"),
+                ).group_by(*group_columns)
+            elif agg is SearchAggFunction.MAX:
+                grouped_stmt = select(
+                    *(
+                        column.label(f"group_{index}")
+                        for index, column in enumerate(group_columns)
+                    ),
+                    func.max(dataset.c.agg_value).label("agg_value"),
+                ).group_by(*group_columns)
+            elif agg is SearchAggFunction.MEAN:
+                grouped_stmt = select(
+                    *(
+                        column.label(f"group_{index}")
+                        for index, column in enumerate(group_columns)
+                    ),
+                    func.avg(sa.cast(dataset.c.agg_value, sa.Numeric)).label(
+                        "agg_value"
+                    ),
+                ).group_by(*group_columns)
+            elif agg is SearchAggFunction.MEDIAN:
+                grouped_stmt = select(
+                    *(
+                        column.label(f"group_{index}")
+                        for index, column in enumerate(group_columns)
+                    ),
+                    func.percentile_cont(0.5)
+                    .within_group(sa.cast(dataset.c.agg_value, sa.Numeric))
+                    .label("agg_value"),
+                ).group_by(*group_columns)
+            elif agg is SearchAggFunction.N_UNIQUE:
+                grouped_stmt = (
+                    select(
+                        *(
+                            column.label(f"group_{index}")
+                            for index, column in enumerate(group_columns)
+                        ),
+                        func.count(sa.distinct(dataset.c.agg_value)).label("agg_value"),
+                    )
+                    .where(dataset.c.agg_value.is_not(None))
+                    .group_by(*group_columns)
+                )
+            elif agg is SearchAggFunction.MODE:
+                mode_ranked = (
+                    select(
+                        *(
+                            column.label(f"group_{index}")
+                            for index, column in enumerate(group_columns)
+                        ),
+                        dataset.c.agg_value.label("mode_value"),
+                        func.count().label("frequency"),
+                        sa.func.row_number()
+                        .over(
+                            partition_by=group_columns,
+                            order_by=(func.count().desc(), dataset.c.agg_value.asc()),
+                        )
+                        .label("rank"),
+                    )
+                    .where(dataset.c.agg_value.is_not(None))
+                    .group_by(*group_columns, dataset.c.agg_value)
+                    .subquery("group_mode_ranked")
+                )
+                grouped_stmt = (
+                    select(
+                        *(
+                            mode_ranked.c[f"group_{index}"]
+                            for index in range(len(group_specs))
+                        ),
+                        mode_ranked.c.mode_value.label("agg_value"),
+                    )
+                    .where(mode_ranked.c.rank == 1)
+                    .order_by(
+                        *(
+                            mode_ranked.c[f"group_{index}"]
+                            for index in range(len(group_specs))
+                        )
+                    )
+                )
+            else:
+                raise ValueError(f"Unsupported aggregation function '{agg.value}'")
+
+            grouped_stmt = grouped_stmt.limit(bucket_limit + 1)
+            grouped_rows = (await self.session.execute(grouped_stmt)).mappings().all()
+            truncated = len(grouped_rows) > bucket_limit
+            if truncated:
+                grouped_rows = grouped_rows[:bucket_limit]
+
+            for row in grouped_rows:
+                key = {
+                    spec.key: row[f"group_{index}"]
+                    for index, spec in enumerate(group_specs)
+                }
+                buckets.append(
+                    SearchAggregationBucket(
+                        key=key,
+                        value=row["agg_value"],
+                    )
+                )
+
+        return SearchAggregationResult(
+            agg=agg,
+            agg_field=agg_spec.token if agg_spec else None,
+            group_by=[spec.token for spec in group_specs],
+            value=overall_value,
+            buckets=buckets,
+            bucket_limit=bucket_limit,
+            truncated=truncated,
         )
 
     async def list_cases(
@@ -717,10 +1102,18 @@ class CasesService(BaseWorkspaceService):
         sort: Literal["asc", "desc"] | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """List cases with a simplified default search query."""
-        return await self.search_cases(
+        response = await self.search_cases(
             params=CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
             order_by=order_by,
             sort=sort,
+        )
+        return CursorPaginatedResponse[CaseReadMinimal](
+            items=response.items,
+            next_cursor=response.next_cursor,
+            prev_cursor=response.prev_cursor,
+            has_more=response.has_more,
+            has_previous=response.has_previous,
+            total_estimate=response.total_estimate,
         )
 
     async def get_case(

@@ -3,12 +3,14 @@
 import type {
   CasePriority,
   CaseReadMinimal,
+  CaseSearchOrderBy,
+  CaseSearchRequest,
   CaseSeverity,
   CaseStatus,
-  CasesSearchCasesData,
 } from "@/client"
 import { casesSearchCases } from "@/client"
 import {
+  type CursorPaginationParams,
   type CursorPaginationResponse,
   useCursorPagination,
 } from "./use-cursor-pagination"
@@ -25,6 +27,22 @@ export interface UseCasesPaginationParams {
   tags?: string[] | null
 }
 
+function toCaseOrderBy(
+  orderBy: string | null | undefined
+): CaseSearchOrderBy | undefined {
+  switch (orderBy) {
+    case "created_at":
+    case "updated_at":
+    case "priority":
+    case "severity":
+    case "status":
+    case "tasks":
+      return orderBy
+    default:
+      return undefined
+  }
+}
+
 export function useCasesPagination({
   workspaceId,
   limit,
@@ -37,16 +55,25 @@ export function useCasesPagination({
 }: UseCasesPaginationParams) {
   // Wrapper function to adapt the API response to our generic interface
   const adaptedCasesSearchCases = async (
-    params: CasesSearchCasesData
+    params: CursorPaginationParams
   ): Promise<CursorPaginationResponse<CaseReadMinimal>> => {
-    const response = await casesSearchCases({
-      ...params,
-      searchTerm,
+    const requestBody: CaseSearchRequest = {
+      search_term: searchTerm,
       status: status && status.length ? status : null,
       priority: priority && priority.length ? priority : null,
       severity: severity && severity.length ? severity : null,
-      assigneeId: assigneeIds && assigneeIds.length ? assigneeIds : null,
+      assignee_id: assigneeIds && assigneeIds.length ? assigneeIds : null,
       tags,
+      limit: params.limit,
+      cursor: params.cursor,
+      reverse: params.reverse,
+      order_by: toCaseOrderBy(params.orderBy),
+      sort: params.sort,
+    }
+
+    const response = await casesSearchCases({
+      workspaceId: params.workspaceId,
+      requestBody,
     })
     return {
       items: response.items,
@@ -58,7 +85,7 @@ export function useCasesPagination({
     }
   }
 
-  return useCursorPagination<CaseReadMinimal, CasesSearchCasesData>({
+  return useCursorPagination<CaseReadMinimal, CursorPaginationParams>({
     workspaceId,
     limit,
     queryKey: [

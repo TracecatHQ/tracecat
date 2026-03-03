@@ -1,17 +1,14 @@
 "use client"
 
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery } from "@tanstack/react-query"
 import { useCallback, useMemo, useState } from "react"
 import type { DateRange } from "react-day-picker"
 import {
   type CasePriority,
   type CaseReadMinimal,
-  type CaseSearchAggregateRead,
   type CaseSeverity,
   type CaseStatus,
-  type CasesSearchCaseAggregatesResponse,
   type CasesSearchCasesResponse,
-  casesSearchCaseAggregates,
   casesSearchCases,
 } from "@/client"
 import {
@@ -52,12 +49,25 @@ const ALL_CASE_SEVERITIES: ReadonlyArray<CaseSeverity> = [
   "fatal",
   "other",
 ]
-const EMPTY_STAGE_COUNTS: CaseSearchAggregateRead["status_groups"] = {
+export type CaseStageCounts = Record<
+  | "new"
+  | "in_progress"
+  | "on_hold"
+  | "resolved"
+  | "closed"
+  | "other"
+  | "unknown",
+  number
+>
+
+const EMPTY_STAGE_COUNTS: CaseStageCounts = {
   new: 0,
   in_progress: 0,
   on_hold: 0,
   resolved: 0,
+  closed: 0,
   other: 0,
+  unknown: 0,
 }
 
 // Preset date filter values (relative time periods)
@@ -129,7 +139,7 @@ export interface UseCasesResult {
   setUpdatedAfter: (value: CaseDateFilterValue) => void
   setCreatedAfter: (value: CaseDateFilterValue) => void
   totalFilteredCaseEstimate: number | null
-  stageCounts: CaseSearchAggregateRead["status_groups"] | null
+  stageCounts: CaseStageCounts | null
   isCountsLoading: boolean
   isCountsFetching: boolean
   hasNextPage: boolean
@@ -455,6 +465,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const {
     data: rowsData,
     isLoading,
+    isFetching,
     error,
     refetch: refetchRows,
     hasNextPage,
@@ -465,11 +476,26 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     queryFn: ({ pageParam }) =>
       casesSearchCases({
         workspaceId,
-        ...apiQueryParams,
-        orderBy: serverSortParams.orderBy,
-        sort: serverSortParams.sort,
-        limit: CASES_PAGE_SIZE,
-        cursor: (pageParam as string | null) ?? undefined,
+        requestBody: {
+          search_term: apiQueryParams.searchTerm,
+          status: apiQueryParams.status,
+          priority: apiQueryParams.priority,
+          severity: apiQueryParams.severity,
+          assignee_id: apiQueryParams.assigneeId,
+          tags: apiQueryParams.tags,
+          dropdown: apiQueryParams.dropdown,
+          start_time: apiQueryParams.startTime,
+          end_time: apiQueryParams.endTime,
+          updated_after: apiQueryParams.updatedAfter,
+          updated_before: apiQueryParams.updatedBefore,
+          order_by: serverSortParams.orderBy,
+          sort: serverSortParams.sort,
+          limit: CASES_PAGE_SIZE,
+          cursor: (pageParam as string | null) ?? undefined,
+          agg: "count",
+          group_by: ["status"],
+          bucket_limit: 100,
+        },
       }),
     enabled: enabled && Boolean(workspaceId) && !hasImpossibleEnumFilter,
     initialPageParam: null,
@@ -479,25 +505,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       }
       return lastPage.next_cursor
     },
-    retry: retryHandler,
-    refetchInterval: computeRefetchInterval(),
-    refetchOnWindowFocus: false,
-    staleTime: 60000,
-  })
-
-  const {
-    data: aggregateData,
-    isLoading: isCountsLoading,
-    isFetching: isCountsFetching,
-    refetch: refetchCounts,
-  } = useQuery<CasesSearchCaseAggregatesResponse, TracecatApiError>({
-    queryKey: ["cases", "aggregate", workspaceId, filtersKey],
-    queryFn: () =>
-      casesSearchCaseAggregates({
-        workspaceId,
-        ...apiQueryParams,
-      }),
-    enabled: enabled && Boolean(workspaceId) && !hasImpossibleEnumFilter,
     retry: retryHandler,
     refetchInterval: computeRefetchInterval(),
     refetchOnWindowFocus: false,
@@ -548,14 +555,56 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
   const cases = hasImpossibleEnumFilter ? [] : sortedCases
 
+  const stageCountsFromAggregation = useMemo(() => {
+    const aggregation = rowsData?.pages[0]?.aggregation
+    if (!aggregation) {
+      return null
+    }
+
+    const next = { ...EMPTY_STAGE_COUNTS }
+    for (const bucket of aggregation.buckets ?? []) {
+      const status = bucket.key?.status
+      if (typeof status !== "string") {
+        continue
+      }
+      const value =
+        typeof bucket.value === "number"
+          ? bucket.value
+          : Number(bucket.value ?? NaN)
+      if (!Number.isFinite(value)) {
+        continue
+      }
+
+      // Stage rollups used across the cases UI:
+      // - resolved stage includes both resolved + closed statuses
+      // - other stage includes both other + unknown statuses
+      switch (status) {
+        case "new":
+        case "in_progress":
+        case "on_hold":
+        case "resolved":
+        case "closed":
+        case "other":
+        case "unknown":
+          next[status] += value
+          break
+        default:
+          break
+      }
+    }
+
+    return next
+  }, [rowsData?.pages])
+
   const totalFilteredCaseEstimate = hasImpossibleEnumFilter
     ? 0
-    : (aggregateData?.total ?? rowsData?.pages[0]?.total_estimate ?? null)
+    : typeof rowsData?.pages[0]?.aggregation?.value === "number"
+      ? rowsData.pages[0].aggregation.value
+      : (rowsData?.pages[0]?.total_estimate ?? null)
 
   const refetch = useCallback(() => {
     void refetchRows()
-    void refetchCounts()
-  }, [refetchRows, refetchCounts])
+  }, [refetchRows])
 
   const handleFetchNextPage = useCallback(() => {
     if (!hasNextPage || isFetchingNextPage) {
@@ -614,9 +663,9 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     totalFilteredCaseEstimate,
     stageCounts: hasImpossibleEnumFilter
       ? EMPTY_STAGE_COUNTS
-      : (aggregateData?.status_groups ?? null),
-    isCountsLoading: hasImpossibleEnumFilter ? false : isCountsLoading,
-    isCountsFetching: hasImpossibleEnumFilter ? false : isCountsFetching,
+      : stageCountsFromAggregation,
+    isCountsLoading: hasImpossibleEnumFilter ? false : isLoading,
+    isCountsFetching: hasImpossibleEnumFilter ? false : isFetching,
     hasNextPage: hasImpossibleEnumFilter ? false : Boolean(hasNextPage),
     isFetchingNextPage: hasImpossibleEnumFilter ? false : isFetchingNextPage,
     fetchNextPage: handleFetchNextPage,

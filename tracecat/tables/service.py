@@ -13,10 +13,11 @@ from asyncpg.exceptions import (
     InvalidCachedStatementError,
     UndefinedTableError,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -41,6 +42,12 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
+from tracecat.search.schemas import (
+    SearchAggFunction,
+    SearchAggregationBucket,
+    SearchAggregationParams,
+    SearchAggregationResult,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.common import (
     coerce_multi_select_value,
@@ -64,6 +71,7 @@ from tracecat.tables.schemas import (
     TableColumnUpdate,
     TableCreate,
     TableRowInsert,
+    TableSearchResponse,
     TableUpdate,
 )
 
@@ -71,6 +79,12 @@ _RETRYABLE_DB_EXCEPTIONS = (
     InvalidCachedStatementError,
     InFailedSQLTransactionError,
 )
+
+NUMERIC_AGG_FUNCS = {
+    SearchAggFunction.SUM,
+    SearchAggFunction.MEAN,
+    SearchAggFunction.MEDIAN,
+}
 
 
 class BaseTablesService(BaseWorkspaceService):
@@ -1076,6 +1090,100 @@ class BaseTablesService(BaseWorkspaceService):
                 )
                 raise
 
+    def _parse_agg_function(self, raw: str | None) -> SearchAggFunction:
+        if raw is None:
+            return SearchAggFunction.COUNT
+
+        normalized = raw.strip().lower()
+        if normalized == "value_counts":
+            raise ValueError("Aggregation function 'value_counts' is not supported")
+
+        try:
+            return SearchAggFunction.parse(normalized)
+        except ValueError as exc:
+            raise ValueError(
+                f"Unsupported aggregation function '{raw}'. "
+                "Expected one of: count, sum, min, max, mean, median, mode, n_unique, avg."
+            ) from exc
+
+    def _table_column_type_map(self, table: Table) -> dict[str, SqlType]:
+        mapping: dict[str, SqlType] = {}
+        for column in table.columns:
+            mapping[column.name] = SqlType(column.type)
+        mapping["id"] = SqlType.UUID
+        mapping["created_at"] = SqlType.TIMESTAMPTZ
+        mapping["updated_at"] = SqlType.TIMESTAMPTZ
+        return mapping
+
+    def _build_table_search_where_clauses(
+        self,
+        table: Table,
+        *,
+        search_term: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        updated_before: datetime | None = None,
+        updated_after: datetime | None = None,
+    ) -> list[ColumnElement[bool]]:
+        where_conditions: list[ColumnElement[bool]] = []
+
+        if search_term:
+            if len(search_term) > 1000:
+                raise ValueError("Search term cannot exceed 1000 characters")
+            if "\x00" in search_term:
+                raise ValueError("Search term cannot contain null bytes")
+
+            searchable_columns = [
+                column.name
+                for column in table.columns
+                if column.type
+                in (
+                    SqlType.TEXT.value,
+                    SqlType.JSONB.value,
+                    SqlType.SELECT.value,
+                    SqlType.MULTI_SELECT.value,
+                )
+            ]
+            jsonb_columns = {
+                column.name
+                for column in table.columns
+                if column.type in (SqlType.JSONB.value, SqlType.MULTI_SELECT.value)
+            }
+
+            if searchable_columns:
+                search_pattern = sa.func.concat("%", search_term, "%")
+                search_conditions: list[ColumnElement[bool]] = []
+                for col_name in searchable_columns:
+                    sanitized_col = self._sanitize_identifier(col_name)
+                    if col_name in jsonb_columns:
+                        search_conditions.append(
+                            sa.func.cast(sa.column(sanitized_col), sa.TEXT).ilike(
+                                search_pattern
+                            )
+                        )
+                    else:
+                        search_conditions.append(
+                            sa.column(sanitized_col).ilike(search_pattern)
+                        )
+                where_conditions.append(sa.or_(*search_conditions))
+            else:
+                self.logger.warning(
+                    "No searchable columns found for text search",
+                    table=table.name,
+                    search_term=search_term,
+                )
+
+        if start_time is not None:
+            where_conditions.append(sa.column("created_at") >= start_time)
+        if end_time is not None:
+            where_conditions.append(sa.column("created_at") <= end_time)
+        if updated_after is not None:
+            where_conditions.append(sa.column("updated_at") >= updated_after)
+        if updated_before is not None:
+            where_conditions.append(sa.column("updated_at") <= updated_before)
+
+        return where_conditions
+
     async def search_rows(
         self,
         table: Table,
@@ -1090,7 +1198,8 @@ class BaseTablesService(BaseWorkspaceService):
         reverse: bool = False,
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
-    ) -> CursorPaginatedResponse[dict[str, Any]]:
+        aggregation: SearchAggregationParams | None = None,
+    ) -> TableSearchResponse:
         """Search rows in a table using cursor-based pagination."""
         page_limit = (
             limit if limit is not None else config.TRACECAT__LIMIT_TABLE_SEARCH_DEFAULT
@@ -1100,7 +1209,7 @@ class BaseTablesService(BaseWorkspaceService):
             cursor=cursor,
             reverse=reverse,
         )
-        return await self.list_rows(
+        rows_page = await self.list_rows(
             table=table,
             params=params,
             search_term=search_term,
@@ -1110,6 +1219,24 @@ class BaseTablesService(BaseWorkspaceService):
             updated_after=updated_after,
             order_by=order_by,
             sort=sort,
+        )
+        search_aggregation = await self._compute_table_aggregation(
+            table=table,
+            search_term=search_term,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
+            aggregation=aggregation,
+        )
+        return TableSearchResponse(
+            items=rows_page.items,
+            next_cursor=rows_page.next_cursor,
+            prev_cursor=rows_page.prev_cursor,
+            has_more=rows_page.has_more,
+            has_previous=rows_page.has_previous,
+            total_estimate=rows_page.total_estimate,
+            aggregation=search_aggregation,
         )
 
     async def list_rows(
@@ -1153,73 +1280,14 @@ class BaseTablesService(BaseWorkspaceService):
             sa.table(sanitized_table_name, schema=schema_name)
         )
 
-        # Build WHERE conditions
-        where_conditions = []
-
-        # Add text search conditions
-        if search_term:
-            # Validate search term to prevent abuse
-            if len(search_term) > 1000:
-                raise ValueError("Search term cannot exceed 1000 characters")
-            if "\x00" in search_term:
-                raise ValueError("Search term cannot contain null bytes")
-
-            # Get all text-searchable columns (TEXT and JSONB types)
-            searchable_columns = [
-                col.name
-                for col in table.columns
-                if col.type
-                in (
-                    SqlType.TEXT.value,
-                    SqlType.JSONB.value,
-                    SqlType.SELECT.value,
-                    SqlType.MULTI_SELECT.value,
-                )
-            ]
-
-            if searchable_columns:
-                # Use SQLAlchemy's concat function for proper parameter binding
-                search_pattern = sa.func.concat("%", search_term, "%")
-                search_conditions = []
-                for col_name in searchable_columns:
-                    sanitized_col = self._sanitize_identifier(col_name)
-                    if col_name in [
-                        c.name
-                        for c in table.columns
-                        if c.type in (SqlType.JSONB.value, SqlType.MULTI_SELECT.value)
-                    ]:
-                        # For JSONB columns, convert to text for searching
-                        search_conditions.append(
-                            sa.func.cast(sa.column(sanitized_col), sa.TEXT).ilike(
-                                search_pattern
-                            )
-                        )
-                    else:
-                        # For TEXT columns, search directly
-                        search_conditions.append(
-                            sa.column(sanitized_col).ilike(search_pattern)
-                        )
-                where_conditions.append(sa.or_(*search_conditions))
-            else:
-                # No searchable columns found, search_term will have no effect
-                self.logger.warning(
-                    "No searchable columns found for text search",
-                    table=table.name,
-                    search_term=search_term,
-                )
-
-        # Add date filters
-        if start_time is not None:
-            where_conditions.append(sa.column("created_at") >= start_time)
-
-        if end_time is not None:
-            where_conditions.append(sa.column("created_at") <= end_time)
-
-        if updated_after is not None:
-            where_conditions.append(sa.column("updated_at") >= updated_after)
-
-        if updated_before is not None:
-            where_conditions.append(sa.column("updated_at") <= updated_before)
+        where_conditions = self._build_table_search_where_clauses(
+            table,
+            search_term=search_term,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
+        )
 
         # Apply WHERE conditions if any
         if where_conditions:
@@ -1385,6 +1453,248 @@ class BaseTablesService(BaseWorkspaceService):
             prev_cursor=prev_cursor,
             has_more=has_more,
             has_previous=has_previous,
+        )
+
+    async def _compute_table_aggregation(
+        self,
+        *,
+        table: Table,
+        search_term: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        updated_before: datetime | None = None,
+        updated_after: datetime | None = None,
+        aggregation: SearchAggregationParams | None,
+    ) -> SearchAggregationResult | None:
+        if aggregation is None:
+            return None
+
+        group_by = aggregation.group_by or []
+        if not group_by and aggregation.agg is None and aggregation.agg_field is None:
+            return None
+
+        agg = self._parse_agg_function(aggregation.agg)
+        agg_field = aggregation.agg_field
+        if agg is SearchAggFunction.COUNT and agg_field is not None:
+            raise ValueError("agg_field is not supported when agg='count'")
+        if agg is not SearchAggFunction.COUNT and agg_field is None:
+            raise ValueError(f"agg_field is required when agg='{agg.value}'")
+
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        table_clause = sa.table(sanitized_table_name, schema=schema_name)
+        where_clauses = self._build_table_search_where_clauses(
+            table,
+            search_term=search_term,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
+        )
+
+        column_type_map = self._table_column_type_map(table)
+        for token in group_by:
+            if token not in column_type_map:
+                raise ValueError(f"Invalid group_by column: {token}")
+
+        agg_column = (
+            self._sanitize_identifier(agg_field) if agg_field is not None else None
+        )
+        if agg_field is not None and agg_field not in column_type_map:
+            raise ValueError(f"Invalid agg_field column: {agg_field}")
+
+        if agg in NUMERIC_AGG_FUNCS:
+            assert agg_field is not None
+            if column_type_map[agg_field] not in {SqlType.INTEGER, SqlType.NUMERIC}:
+                raise ValueError(
+                    f"Aggregation '{agg.value}' requires a numeric agg_field"
+                )
+
+        projection: list[ColumnElement[Any]] = [sa.column("id").label("row_id")]
+        for index, token in enumerate(group_by):
+            projection.append(
+                sa.column(self._sanitize_identifier(token)).label(f"group_{index}")
+            )
+        if agg_column is not None:
+            projection.append(sa.column(agg_column).label("agg_value"))
+
+        dataset_stmt = sa.select(*projection).select_from(table_clause)
+        if where_clauses:
+            dataset_stmt = dataset_stmt.where(sa.and_(*where_clauses))
+        dataset = dataset_stmt.subquery("table_search_aggregation_dataset")
+
+        if agg is SearchAggFunction.COUNT:
+            overall_stmt = select(func.count(sa.distinct(dataset.c.row_id)))
+        elif agg is SearchAggFunction.SUM:
+            overall_stmt = select(func.sum(sa.cast(dataset.c.agg_value, sa.Numeric)))
+        elif agg is SearchAggFunction.MIN:
+            overall_stmt = select(func.min(dataset.c.agg_value))
+        elif agg is SearchAggFunction.MAX:
+            overall_stmt = select(func.max(dataset.c.agg_value))
+        elif agg is SearchAggFunction.MEAN:
+            overall_stmt = select(func.avg(sa.cast(dataset.c.agg_value, sa.Numeric)))
+        elif agg is SearchAggFunction.MEDIAN:
+            overall_stmt = select(
+                func.percentile_cont(0.5).within_group(
+                    sa.cast(dataset.c.agg_value, sa.Numeric)
+                )
+            )
+        elif agg is SearchAggFunction.N_UNIQUE:
+            overall_stmt = select(func.count(sa.distinct(dataset.c.agg_value))).where(
+                dataset.c.agg_value.is_not(None)
+            )
+        elif agg is SearchAggFunction.MODE:
+            mode_candidates = (
+                select(
+                    dataset.c.agg_value.label("mode_value"),
+                    func.count().label("frequency"),
+                )
+                .where(dataset.c.agg_value.is_not(None))
+                .group_by(dataset.c.agg_value)
+                .order_by(func.count().desc(), dataset.c.agg_value.asc())
+                .limit(1)
+                .subquery("table_mode_candidates")
+            )
+            overall_stmt = select(mode_candidates.c.mode_value)
+        else:
+            raise ValueError(f"Unsupported aggregation function '{agg.value}'")
+
+        conn = await self.session.connection()
+        overall_value = await conn.scalar(overall_stmt)
+
+        bucket_limit = aggregation.bucket_limit
+        buckets: list[SearchAggregationBucket] = []
+        truncated = False
+        if group_by:
+            group_columns = [
+                dataset.c[f"group_{index}"] for index in range(len(group_by))
+            ]
+
+            if agg is SearchAggFunction.COUNT:
+                grouped_stmt = select(
+                    *(
+                        column.label(f"group_{index}")
+                        for index, column in enumerate(group_columns)
+                    ),
+                    func.count(sa.distinct(dataset.c.row_id)).label("agg_value"),
+                ).group_by(*group_columns)
+            elif agg is SearchAggFunction.SUM:
+                grouped_stmt = select(
+                    *(
+                        column.label(f"group_{index}")
+                        for index, column in enumerate(group_columns)
+                    ),
+                    func.sum(sa.cast(dataset.c.agg_value, sa.Numeric)).label(
+                        "agg_value"
+                    ),
+                ).group_by(*group_columns)
+            elif agg is SearchAggFunction.MIN:
+                grouped_stmt = select(
+                    *(
+                        column.label(f"group_{index}")
+                        for index, column in enumerate(group_columns)
+                    ),
+                    func.min(dataset.c.agg_value).label("agg_value"),
+                ).group_by(*group_columns)
+            elif agg is SearchAggFunction.MAX:
+                grouped_stmt = select(
+                    *(
+                        column.label(f"group_{index}")
+                        for index, column in enumerate(group_columns)
+                    ),
+                    func.max(dataset.c.agg_value).label("agg_value"),
+                ).group_by(*group_columns)
+            elif agg is SearchAggFunction.MEAN:
+                grouped_stmt = select(
+                    *(
+                        column.label(f"group_{index}")
+                        for index, column in enumerate(group_columns)
+                    ),
+                    func.avg(sa.cast(dataset.c.agg_value, sa.Numeric)).label(
+                        "agg_value"
+                    ),
+                ).group_by(*group_columns)
+            elif agg is SearchAggFunction.MEDIAN:
+                grouped_stmt = select(
+                    *(
+                        column.label(f"group_{index}")
+                        for index, column in enumerate(group_columns)
+                    ),
+                    func.percentile_cont(0.5)
+                    .within_group(sa.cast(dataset.c.agg_value, sa.Numeric))
+                    .label("agg_value"),
+                ).group_by(*group_columns)
+            elif agg is SearchAggFunction.N_UNIQUE:
+                grouped_stmt = (
+                    select(
+                        *(
+                            column.label(f"group_{index}")
+                            for index, column in enumerate(group_columns)
+                        ),
+                        func.count(sa.distinct(dataset.c.agg_value)).label("agg_value"),
+                    )
+                    .where(dataset.c.agg_value.is_not(None))
+                    .group_by(*group_columns)
+                )
+            elif agg is SearchAggFunction.MODE:
+                mode_ranked = (
+                    select(
+                        *(
+                            column.label(f"group_{index}")
+                            for index, column in enumerate(group_columns)
+                        ),
+                        dataset.c.agg_value.label("mode_value"),
+                        func.count().label("frequency"),
+                        sa.func.row_number()
+                        .over(
+                            partition_by=group_columns,
+                            order_by=(func.count().desc(), dataset.c.agg_value.asc()),
+                        )
+                        .label("rank"),
+                    )
+                    .where(dataset.c.agg_value.is_not(None))
+                    .group_by(*group_columns, dataset.c.agg_value)
+                    .subquery("table_group_mode_ranked")
+                )
+                grouped_stmt = (
+                    select(
+                        *(
+                            mode_ranked.c[f"group_{index}"]
+                            for index in range(len(group_by))
+                        ),
+                        mode_ranked.c.mode_value.label("agg_value"),
+                    )
+                    .where(mode_ranked.c.rank == 1)
+                    .order_by(
+                        *(
+                            mode_ranked.c[f"group_{index}"]
+                            for index in range(len(group_by))
+                        )
+                    )
+                )
+            else:
+                raise ValueError(f"Unsupported aggregation function '{agg.value}'")
+
+            grouped_stmt = grouped_stmt.limit(bucket_limit + 1)
+            grouped_rows = (await conn.execute(grouped_stmt)).mappings().all()
+            truncated = len(grouped_rows) > bucket_limit
+            if truncated:
+                grouped_rows = grouped_rows[:bucket_limit]
+
+            for row in grouped_rows:
+                key = {
+                    token: row[f"group_{index}"] for index, token in enumerate(group_by)
+                }
+                buckets.append(SearchAggregationBucket(key=key, value=row["agg_value"]))
+
+        return SearchAggregationResult(
+            agg=agg,
+            agg_field=agg_field,
+            group_by=group_by,
+            value=overall_value,
+            buckets=buckets,
+            bucket_limit=bucket_limit,
+            truncated=truncated,
         )
 
     async def batch_insert_rows(

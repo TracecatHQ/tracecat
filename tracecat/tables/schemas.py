@@ -1,12 +1,14 @@
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from tracecat import config
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import TableColumnID, TableID, TableRowID
+from tracecat.search.schemas import SearchAggregationParams, SearchAggregationResult
 from tracecat.tables.common import (
     coerce_multi_select_value,
     coerce_select_value,
@@ -263,3 +265,50 @@ class TableImportResponse(BaseModel):
     table: TableRead
     rows_inserted: int
     column_mapping: list[InferredColumn]
+
+
+class TableSearchRequest(Schema):
+    """Request payload for internal table search."""
+
+    search_term: str | None = Field(default=None)
+    start_time: datetime | None = Field(default=None)
+    end_time: datetime | None = Field(default=None)
+    updated_before: datetime | None = Field(default=None)
+    updated_after: datetime | None = Field(default=None)
+    cursor: str | None = Field(default=None)
+    reverse: bool = Field(default=False)
+    limit: int = Field(
+        default=config.TRACECAT__LIMIT_TABLE_SEARCH_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    )
+    order_by: str | None = Field(default=None)
+    sort: Literal["asc", "desc"] | None = Field(default=None)
+    group_by: list[str] | None = Field(default=None)
+    agg: str | None = Field(default=None)
+    agg_field: str | None = Field(default=None)
+    bucket_limit: int = Field(
+        default=config.TRACECAT__LIMIT_AGG_BUCKET_DEFAULT,
+        ge=1,
+        le=config.TRACECAT__LIMIT_AGG_BUCKET_MAX,
+    )
+
+    def aggregation_params(self) -> SearchAggregationParams:
+        return SearchAggregationParams(
+            group_by=self.group_by,
+            agg=self.agg,
+            agg_field=self.agg_field,
+            bucket_limit=self.bucket_limit,
+        )
+
+
+class TableSearchResponse(Schema):
+    """Cursor paginated table rows with optional aggregation."""
+
+    items: list[dict[str, Any]]
+    next_cursor: str | None = Field(default=None)
+    prev_cursor: str | None = Field(default=None)
+    has_more: bool = Field(default=False)
+    has_previous: bool = Field(default=False)
+    total_estimate: int | None = Field(default=None)
+    aggregation: SearchAggregationResult | None = Field(default=None)

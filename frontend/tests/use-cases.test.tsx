@@ -7,10 +7,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type {
   CaseReadMinimal,
   CaseStatus,
-  CasesSearchCaseAggregatesResponse,
   CasesSearchCasesResponse,
 } from "@/client"
-import { casesSearchCaseAggregates, casesSearchCases } from "@/client"
+import { casesSearchCases } from "@/client"
 import { useCases } from "@/hooks/use-cases"
 
 jest.mock("@/providers/workspace-id", () => ({
@@ -19,16 +18,11 @@ jest.mock("@/providers/workspace-id", () => ({
 
 jest.mock("@/client", () => ({
   casesSearchCases: jest.fn(),
-  casesSearchCaseAggregates: jest.fn(),
 }))
 
 const mockSearchCases = casesSearchCases as jest.MockedFunction<
   typeof casesSearchCases
 >
-const mockSearchCaseAggregates =
-  casesSearchCaseAggregates as jest.MockedFunction<
-    typeof casesSearchCaseAggregates
-  >
 
 function createCase(index: number): CaseReadMinimal {
   const id = `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`
@@ -135,7 +129,7 @@ describe("useCases", () => {
     jest.clearAllMocks()
   })
 
-  it("uses paginated rows and separate global counts", async () => {
+  it("uses paginated rows and unified global aggregation", async () => {
     const firstPage: CasesSearchCasesResponse = {
       items: Array.from({ length: 100 }, (_, index) => createCase(index + 1)),
       next_cursor: "cursor-page-2",
@@ -143,21 +137,24 @@ describe("useCases", () => {
       has_more: true,
       has_previous: false,
       total_estimate: 1000,
-    }
-
-    const aggregate: CasesSearchCaseAggregatesResponse = {
-      total: 1000,
-      status_groups: {
-        new: 700,
-        in_progress: 200,
-        on_hold: 50,
-        resolved: 40,
-        other: 10,
+      aggregation: {
+        agg: "count",
+        agg_field: null,
+        group_by: ["status"],
+        value: 1000,
+        buckets: [
+          { key: { status: "new" }, value: 700 },
+          { key: { status: "in_progress" }, value: 200 },
+          { key: { status: "on_hold" }, value: 50 },
+          { key: { status: "resolved" }, value: 40 },
+          { key: { status: "other" }, value: 10 },
+        ],
+        bucket_limit: 100,
+        truncated: false,
       },
     }
 
     mockSearchCases.mockResolvedValue(firstPage)
-    mockSearchCaseAggregates.mockResolvedValue(aggregate)
 
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -185,14 +182,12 @@ describe("useCases", () => {
     expect(mockSearchCases).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
-        limit: 100,
-      })
-    )
-
-    expect(mockSearchCaseAggregates).toHaveBeenCalledTimes(1)
-    expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceId: "workspace-1",
+        requestBody: expect.objectContaining({
+          limit: 100,
+          agg: "count",
+          group_by: ["status"],
+          bucket_limit: 100,
+        }),
       })
     )
   })
@@ -205,21 +200,18 @@ describe("useCases", () => {
       has_more: false,
       has_previous: false,
       total_estimate: 1,
-    }
-
-    const aggregate: CasesSearchCaseAggregatesResponse = {
-      total: 1,
-      status_groups: {
-        new: 1,
-        in_progress: 0,
-        on_hold: 0,
-        resolved: 0,
-        other: 0,
+      aggregation: {
+        agg: "count",
+        agg_field: null,
+        group_by: ["status"],
+        value: 1,
+        buckets: [{ key: { status: "new" }, value: 1 }],
+        bucket_limit: 100,
+        truncated: false,
       },
     }
 
     mockSearchCases.mockResolvedValue(firstPage)
-    mockSearchCaseAggregates.mockResolvedValue(aggregate)
 
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -248,7 +240,6 @@ describe("useCases", () => {
     expect(screen.getByTestId("total")).toHaveTextContent("0")
     expect(screen.getByTestId("new-count")).toHaveTextContent("0")
     expect(mockSearchCases).toHaveBeenCalledTimes(1)
-    expect(mockSearchCaseAggregates).toHaveBeenCalledTimes(1)
   })
 
   it("resets sortBy when clearing priority or severity sorting", async () => {
@@ -259,21 +250,18 @@ describe("useCases", () => {
       has_more: false,
       has_previous: false,
       total_estimate: 1,
-    }
-
-    const aggregate: CasesSearchCaseAggregatesResponse = {
-      total: 1,
-      status_groups: {
-        new: 1,
-        in_progress: 0,
-        on_hold: 0,
-        resolved: 0,
-        other: 0,
+      aggregation: {
+        agg: "count",
+        agg_field: null,
+        group_by: ["status"],
+        value: 1,
+        buckets: [{ key: { status: "new" }, value: 1 }],
+        bucket_limit: 100,
+        truncated: false,
       },
     }
 
     mockSearchCases.mockResolvedValue(firstPage)
-    mockSearchCaseAggregates.mockResolvedValue(aggregate)
 
     const queryClient = new QueryClient({
       defaultOptions: {

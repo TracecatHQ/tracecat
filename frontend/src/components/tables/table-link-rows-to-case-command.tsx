@@ -43,13 +43,15 @@ export function TableLinkRowsToCaseCommand() {
   } = useQuery({
     queryKey: ["cases", "search", "short-id", workspaceId, normalizedShortId],
     queryFn: async () => {
-      const response = await apiClient.get<SearchCasesResponse>(
+      const response = await apiClient.post<SearchCasesResponse>(
         "/cases/search",
+        {
+          short_id: normalizedShortId,
+          limit: 20,
+        },
         {
           params: {
             workspace_id: workspaceId,
-            short_id: normalizedShortId,
-            limit: 20,
           },
         }
       )
