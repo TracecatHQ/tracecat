@@ -5,10 +5,15 @@ import { MessageSquare } from "lucide-react"
 import { motion } from "motion/react"
 import Image from "next/image"
 import TracecatIcon from "public/icon.png"
-import { useEffect, useRef } from "react"
+import { type ComponentProps, useEffect, useRef } from "react"
 import { Streamdown } from "streamdown"
 import { Dots } from "@/components/loading/dots"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
+import {
+  getStreamdownRehypePlugins,
+  SAFE_MARKDOWN_IMAGE_PREFIXES,
+  SAFE_MARKDOWN_LINK_PREFIXES,
+} from "@/lib/sanitize-markdown"
 
 /**
  * Model message part types for the legacy chat messages component.
@@ -88,6 +93,10 @@ const caseUpdateActions = [
 
 const assistantMarkdownStyle =
   "text-sm max-w-full text-foreground dark:prose-invert"
+
+const chatMessageRehypePlugins = getStreamdownRehypePlugins() as NonNullable<
+  ComponentProps<typeof Streamdown>["rehypePlugins"]
+>
 
 export function Messages({
   messages,
@@ -199,6 +208,9 @@ export function Messages({
         >
           <Image src={TracecatIcon} alt="Tracecat" className="size-4 mt-1" />
           <Streamdown
+            allowedImagePrefixes={SAFE_MARKDOWN_IMAGE_PREFIXES}
+            allowedLinkPrefixes={SAFE_MARKDOWN_LINK_PREFIXES}
+            rehypePlugins={chatMessageRehypePlugins}
             className={`${assistantMarkdownStyle} flex-1`}
             parseIncompleteMarkdown
           >
@@ -261,7 +273,12 @@ function AgentChatMessage({ message }: { message: ModelResponse }) {
       <Image src={TracecatIcon} alt="Tracecat" className="size-4 mt-1" />
       <div className="flex flex-1 flex-col gap-3 text-sm text-foreground">
         {textContent && (
-          <Streamdown className={assistantMarkdownStyle}>
+          <Streamdown
+            allowedImagePrefixes={SAFE_MARKDOWN_IMAGE_PREFIXES}
+            allowedLinkPrefixes={SAFE_MARKDOWN_LINK_PREFIXES}
+            rehypePlugins={chatMessageRehypePlugins}
+            className={assistantMarkdownStyle}
+          >
             {textContent}
           </Streamdown>
         )}
