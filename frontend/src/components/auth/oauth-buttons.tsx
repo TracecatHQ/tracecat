@@ -1,7 +1,7 @@
 "use client"
 
 import { type ComponentPropsWithoutRef, useState } from "react"
-import { authOauthOidcDatabaseAuthorize } from "@/client/services.custom"
+import { authOauthOidcDatabaseAuthorize } from "@/client"
 import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import {
