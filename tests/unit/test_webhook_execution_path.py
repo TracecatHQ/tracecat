@@ -862,12 +862,9 @@ class TestWebhookDispatchWorkflowInvariants:
     async def test_dispatch_does_not_crash_for_inline_object_results(
         self, service: WorkflowExecutionsService, mock_client: MagicMock
     ):
-        """Regression: /wait dispatch must tolerate non-JSON-serializable results."""
+        """Regression: /wait dispatch returns StoredObject results for inline values."""
         inline_result = InlineObject(type="inline", data={"_": "result-ref"})
-        mock_client.execute_workflow.return_value = {
-            "status": "ok",
-            "result_ref": inline_result,
-        }
+        mock_client.execute_workflow.return_value = inline_result
         dsl = _dsl_input()
 
         with patch.object(service, "_resolve_execution_timeout", return_value=None):
@@ -879,4 +876,4 @@ class TestWebhookDispatchWorkflowInvariants:
                 trigger_type=TriggerType.WEBHOOK,
             )
 
-        assert response["result"]["result_ref"] == inline_result
+        assert response["result"] == inline_result

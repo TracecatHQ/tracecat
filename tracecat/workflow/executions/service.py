@@ -48,6 +48,7 @@ from tracecat.storage.collection import (
 from tracecat.storage.object import (
     CollectionObject,
     ExternalObject,
+    InlineObject,
     StoredObject,
     StoredObjectValidator,
     get_object_storage,
@@ -1256,10 +1257,13 @@ class WorkflowExecutionsService:
                 # Don't re-raise for expected terminations
                 return WorkflowDispatchResponse(
                     wf_id=wf_id,
-                    result={
-                        "status": "terminated",
-                        "message": "Workflow execution terminated by user",
-                    },
+                    result=InlineObject(
+                        type="inline",
+                        data={
+                            "status": "terminated",
+                            "message": "Workflow execution terminated by user",
+                        },
+                    ),
                 )
             else:
                 cause_message = self.format_failure_cause(e.cause)

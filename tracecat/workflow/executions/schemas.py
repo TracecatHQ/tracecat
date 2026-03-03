@@ -818,7 +818,7 @@ class WorkflowExecutionCreateResponse(TypedDict):
 
 class WorkflowDispatchResponse(TypedDict):
     wf_id: WorkflowID
-    result: Any
+    result: StoredObject
 
 
 class WorkflowExecutionTerminate(BaseModel):

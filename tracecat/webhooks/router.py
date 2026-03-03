@@ -12,7 +12,6 @@ from fastapi import (
     Response,
     status,
 )
-from pydantic import ValidationError
 from temporalio.service import RPCError
 
 from tracecat import config
@@ -32,7 +31,6 @@ from tracecat.storage.object import (
     ExternalObject,
     InlineObject,
     StoredObject,
-    StoredObjectValidator,
     get_object_storage,
 )
 from tracecat.storage.utils import serialize_object
@@ -84,21 +82,6 @@ type WaitResultOutput = (
 type WebhookResponse = (
     WorkflowExecutionCreateResponse | OktaVerificationResponse | Response
 )
-
-
-def _try_parse_stored_object(value: object) -> StoredObject | None:
-    if isinstance(value, (InlineObject, ExternalObject, CollectionObject)):
-        return value
-    if isinstance(value, dict) and value.get("type") in {
-        "inline",
-        "external",
-        "collection",
-    }:
-        try:
-            return StoredObjectValidator.validate_python(value)
-        except ValidationError:
-            return None
-    return None
 
 
 async def _to_external_download_response(
@@ -156,48 +139,25 @@ async def _to_collection_download_response(
     )
 
 
-async def _normalize_nested_stored_objects(value: object) -> Any:
-    if stored := _try_parse_stored_object(value):
-        match stored:
-            case InlineObject(data=data):
-                return await _normalize_nested_stored_objects(data)
-            case ExternalObject() as external:
-                return await _to_external_download_response(external)
-            case CollectionObject() as collection:
-                return await _to_collection_download_response(collection)
-
-    if isinstance(value, dict):
-        return {
-            key: await _normalize_nested_stored_objects(item)
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [await _normalize_nested_stored_objects(item) for item in value]
-    return value
-
-
-async def _normalize_wait_result(value: object) -> WaitResultOutput:
+async def _normalize_wait_result(value: StoredObject) -> WaitResultOutput:
     """Normalize /wait response values for StoredObject variants.
 
     - InlineObject: returns value envelope
     - ExternalObject: returns download envelope
     - CollectionObject: materializes and returns download envelope
     """
-    if stored := _try_parse_stored_object(value):
-        match stored:
-            case InlineObject(data=data):
-                return WebhookStoredObjectInlineResponse(
-                    kind="value",
-                    value=await _normalize_nested_stored_objects(data),
-                )
-            case ExternalObject() as external:
-                return await _to_external_download_response(external)
-            case CollectionObject() as collection:
-                return await _to_collection_download_response(collection)
-    return WebhookStoredObjectInlineResponse(
-        kind="value",
-        value=await _normalize_nested_stored_objects(value),
-    )
+    match value:
+        case InlineObject(data=data):
+            return WebhookStoredObjectInlineResponse(
+                kind="value",
+                value=data,
+            )
+        case ExternalObject() as external:
+            return await _to_external_download_response(external)
+        case CollectionObject() as collection:
+            return await _to_collection_download_response(collection)
+        case _:
+            raise ValueError(f"Expected StoredObject, got {type(value).__name__}")
 
 
 # NOTE: Need to set response_model to None to avoid FastAPI trying to parse the response as JSON
