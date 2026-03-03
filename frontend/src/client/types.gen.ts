@@ -6263,22 +6263,8 @@ export type VideoUrl = {
 }
 
 export type WaitResultOutput =
-  | WaitResultValue
   | WebhookStoredObjectInlineResponse
   | WebhookStoredObjectDownloadResponse
-  | Array<WaitResultOutput>
-  | {
-      [key: string]: WaitResultOutput
-    }
-
-export type WaitResultScalar = string | number | boolean | null
-
-export type WaitResultValue =
-  | WaitResultScalar
-  | Array<WaitResultValue>
-  | {
-      [key: string]: WaitResultValue
-    }
 
 export type WaitStrategy = "wait" | "detach"
 
@@ -6340,7 +6326,7 @@ export type kind = "download_file" | "download_export"
 
 export type WebhookStoredObjectInlineResponse = {
   kind: "value"
-  value: WaitResultValue
+  value: unknown
 }
 
 export type WebhookUpdate = {

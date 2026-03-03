@@ -608,7 +608,7 @@ class TestWebhookRouterExecutionPath:
         mock_service.create_workflow_execution = AsyncMock(
             return_value={
                 "wf_id": workflow_id,
-                "result": {"status": "ok", "result_ref": inline_result},
+                "result": inline_result,
             }
         )
 
@@ -622,11 +622,9 @@ class TestWebhookRouterExecutionPath:
                 payload=payload,
             )
 
+        assert response["kind"] == "value"
         response_obj = cast(dict[str, Any], response)
-        assert response_obj["result_ref"] == {
-            "kind": "value",
-            "value": {"_": "result-ref"},
-        }
+        assert response_obj["value"] == {"_": "result-ref"}
         mock_service.create_workflow_execution.assert_awaited_once()
         call_kwargs = mock_service.create_workflow_execution.call_args.kwargs
         assert call_kwargs["trigger_type"] == TriggerType.WEBHOOK
@@ -652,7 +650,7 @@ class TestWebhookRouterExecutionPath:
         mock_service.create_workflow_execution = AsyncMock(
             return_value={
                 "wf_id": workflow_id,
-                "result": {"result_ref": external_result},
+                "result": external_result,
             }
         )
 
@@ -672,10 +670,9 @@ class TestWebhookRouterExecutionPath:
                 payload=payload,
             )
 
+        assert response["kind"] == "download_file"
         response_obj = cast(dict[str, Any], response)
-        result_ref = cast(dict[str, Any], response_obj["result_ref"])
-        assert result_ref["kind"] == "download_file"
-        assert result_ref["download_url"] == "https://example.com/presigned/external"
+        assert response_obj["download_url"] == "https://example.com/presigned/external"
 
     @pytest.mark.anyio
     async def test_wait_webhook_returns_single_download_url_for_collection_object(self):
@@ -700,7 +697,7 @@ class TestWebhookRouterExecutionPath:
         mock_service.create_workflow_execution = AsyncMock(
             return_value={
                 "wf_id": workflow_id,
-                "result": {"result_ref": collection_result},
+                "result": collection_result,
             }
         )
         mock_storage = MagicMock()
@@ -732,10 +729,11 @@ class TestWebhookRouterExecutionPath:
                 payload=payload,
             )
 
+        assert response["kind"] == "download_export"
         response_obj = cast(dict[str, Any], response)
-        result_ref = cast(dict[str, Any], response_obj["result_ref"])
-        assert result_ref["kind"] == "download_export"
-        assert result_ref["download_url"] == "https://example.com/presigned/collection"
+        assert (
+            response_obj["download_url"] == "https://example.com/presigned/collection"
+        )
         upload_file_mock.assert_awaited_once()
 
 

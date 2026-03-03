@@ -1,6 +1,6 @@
 import uuid
 from itertools import batched
-from typing import Annotated, Literal, TypedDict, cast
+from typing import Annotated, Any, Literal, TypedDict
 
 from fastapi import (
     APIRouter,
@@ -63,15 +63,9 @@ class OktaVerificationResponse(TypedDict):
     verification: str
 
 
-type WaitResultScalar = str | int | float | bool | None
-type WaitResultValue = (
-    WaitResultScalar | list["WaitResultValue"] | dict[str, "WaitResultValue"]
-)
-
-
 class WebhookStoredObjectInlineResponse(TypedDict):
     kind: Literal["value"]
-    value: WaitResultValue
+    value: Any
 
 
 class WebhookStoredObjectDownloadResponse(TypedDict):
@@ -82,18 +76,8 @@ class WebhookStoredObjectDownloadResponse(TypedDict):
     size_bytes: int
 
 
-type WaitResultInput = (
-    StoredObject
-    | WaitResultValue
-    | list["WaitResultInput"]
-    | dict[str, "WaitResultInput"]
-)
 type WaitResultOutput = (
-    WaitResultValue
-    | WebhookStoredObjectInlineResponse
-    | WebhookStoredObjectDownloadResponse
-    | list["WaitResultOutput"]
-    | dict[str, "WaitResultOutput"]
+    WebhookStoredObjectInlineResponse | WebhookStoredObjectDownloadResponse
 )
 
 
@@ -172,38 +156,48 @@ async def _to_collection_download_response(
     )
 
 
-async def _normalize_wait_result(value: WaitResultInput) -> WaitResultOutput:
-    """Normalize /wait response values for StoredObject variants.
-
-    - InlineObject: returns value envelope
-    - ExternalObject: returns download envelope
-    - CollectionObject: materializes and returns download envelope
-    """
-    if isinstance(value, InlineObject):
-        return WebhookStoredObjectInlineResponse(
-            kind="value", value=cast(WaitResultValue, value.data)
-        )
-    if isinstance(value, ExternalObject):
-        return await _to_external_download_response(value)
-    if isinstance(value, CollectionObject):
-        return await _to_collection_download_response(value)
-
+async def _normalize_nested_stored_objects(value: object) -> Any:
     if stored := _try_parse_stored_object(value):
         match stored:
             case InlineObject(data=data):
-                return WebhookStoredObjectInlineResponse(
-                    kind="value", value=cast(WaitResultValue, data)
-                )
+                return await _normalize_nested_stored_objects(data)
             case ExternalObject() as external:
                 return await _to_external_download_response(external)
             case CollectionObject() as collection:
                 return await _to_collection_download_response(collection)
 
     if isinstance(value, dict):
-        return {k: await _normalize_wait_result(v) for k, v in value.items()}
+        return {
+            key: await _normalize_nested_stored_objects(item)
+            for key, item in value.items()
+        }
     if isinstance(value, list):
-        return [await _normalize_wait_result(item) for item in value]
-    return cast(WaitResultValue, value)
+        return [await _normalize_nested_stored_objects(item) for item in value]
+    return value
+
+
+async def _normalize_wait_result(value: object) -> WaitResultOutput:
+    """Normalize /wait response values for StoredObject variants.
+
+    - InlineObject: returns value envelope
+    - ExternalObject: returns download envelope
+    - CollectionObject: materializes and returns download envelope
+    """
+    if stored := _try_parse_stored_object(value):
+        match stored:
+            case InlineObject(data=data):
+                return WebhookStoredObjectInlineResponse(
+                    kind="value",
+                    value=await _normalize_nested_stored_objects(data),
+                )
+            case ExternalObject() as external:
+                return await _to_external_download_response(external)
+            case CollectionObject() as collection:
+                return await _to_collection_download_response(collection)
+    return WebhookStoredObjectInlineResponse(
+        kind="value",
+        value=await _normalize_nested_stored_objects(value),
+    )
 
 
 # NOTE: Need to set response_model to None to avoid FastAPI trying to parse the response as JSON
@@ -388,7 +382,7 @@ async def incoming_webhook_wait(
         else None,
     )
 
-    return await _normalize_wait_result(cast(WaitResultInput, response["result"]))
+    return await _normalize_wait_result(response["result"])
 
 
 @router.post("/draft", response_model=None)

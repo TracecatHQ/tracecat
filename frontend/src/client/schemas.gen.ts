@@ -20022,65 +20022,10 @@ distinguish multiple files.`,
 export const $WaitResultOutput = {
   anyOf: [
     {
-      $ref: "#/components/schemas/WaitResultValue",
-    },
-    {
       $ref: "#/components/schemas/WebhookStoredObjectInlineResponse",
     },
     {
       $ref: "#/components/schemas/WebhookStoredObjectDownloadResponse",
-    },
-    {
-      items: {
-        $ref: "#/components/schemas/WaitResultOutput",
-      },
-      type: "array",
-    },
-    {
-      additionalProperties: {
-        $ref: "#/components/schemas/WaitResultOutput",
-      },
-      type: "object",
-    },
-  ],
-} as const
-
-export const $WaitResultScalar = {
-  anyOf: [
-    {
-      type: "string",
-    },
-    {
-      type: "integer",
-    },
-    {
-      type: "number",
-    },
-    {
-      type: "boolean",
-    },
-    {
-      type: "null",
-    },
-  ],
-} as const
-
-export const $WaitResultValue = {
-  anyOf: [
-    {
-      $ref: "#/components/schemas/WaitResultScalar",
-    },
-    {
-      items: {
-        $ref: "#/components/schemas/WaitResultValue",
-      },
-      type: "array",
-    },
-    {
-      additionalProperties: {
-        $ref: "#/components/schemas/WaitResultValue",
-      },
-      type: "object",
     },
   ],
 } as const
@@ -20317,7 +20262,7 @@ export const $WebhookStoredObjectInlineResponse = {
       title: "Kind",
     },
     value: {
-      $ref: "#/components/schemas/WaitResultValue",
+      title: "Value",
     },
   },
   type: "object",
