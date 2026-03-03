@@ -103,6 +103,9 @@ const CLIENT_AUTH_METHOD_OPTIONS = [
   },
 ] as const
 
+const DEFAULT_CLIENT_AUTH_METHOD_DESCRIPTION =
+  "Choose how Tracecat authenticates with this provider."
+
 interface OAuthSchemaOptions {
   hasExistingClientSecret: boolean
   hasExistingAssertionPrivateKey: boolean
@@ -615,17 +618,18 @@ export function ProviderConfigForm({
                         onValueChange={field.onChange}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="Select auth method" />
+                          <SelectValue placeholder="Select auth method">
+                            {
+                              CLIENT_AUTH_METHOD_OPTIONS.find(
+                                (option) => option.value === field.value
+                              )?.label
+                            }
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {CLIENT_AUTH_METHOD_OPTIONS.map((option) => (
                             <SelectItem key={option.value} value={option.value}>
-                              <div className="flex flex-col gap-0.5 py-0.5">
-                                <span>{option.label}</span>
-                                <span className="text-xs text-muted-foreground">
-                                  {option.subtitle}
-                                </span>
-                              </div>
+                              {option.label}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -633,9 +637,9 @@ export function ProviderConfigForm({
                     </FormControl>
                     <FormMessage />
                     <FormDescription className="text-xs">
-                      Basic auth sends client credentials in the Authorization
-                      header; client secret post sends them in the token request
-                      body.
+                      {CLIENT_AUTH_METHOD_OPTIONS.find(
+                        (option) => option.value === field.value
+                      )?.subtitle ?? DEFAULT_CLIENT_AUTH_METHOD_DESCRIPTION}
                     </FormDescription>
                   </FormItem>
                 )}
