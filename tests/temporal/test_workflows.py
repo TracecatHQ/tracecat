@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.api.enums.v1 import EventType
 from temporalio.api.enums.v1.workflow_pb2 import ParentClosePolicy
 from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, TypedSearchAttributes
 from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.worker import Worker
 
@@ -92,7 +92,11 @@ from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInse
 from tracecat.tables.service import TablesService
 from tracecat.variables.schemas import VariableCreate
 from tracecat.variables.service import VariablesService
-from tracecat.workflow.executions.enums import WorkflowEventType
+from tracecat.workflow.executions.enums import (
+    TemporalSearchAttr,
+    TriggerType,
+    WorkflowEventType,
+)
 from tracecat.workflow.executions.schemas import (
     EventGroup,
     WorkflowExecutionEvent,
@@ -774,6 +778,20 @@ async def _run_workflow(
     worker: Worker,
     executor_worker: Worker | None = None,
 ):
+    pairs = [TriggerType.MANUAL.to_temporal_search_attr_pair()]
+    if run_args.role.user_id is not None:
+        pairs.append(
+            TemporalSearchAttr.TRIGGERED_BY_USER_ID.create_pair(
+                str(run_args.role.user_id)
+            )
+        )
+    if run_args.role.workspace_id is not None:
+        pairs.append(
+            TemporalSearchAttr.WORKSPACE_ID.create_pair(str(run_args.role.workspace_id))
+        )
+    pairs.append(run_args.execution_type.to_temporal_search_attr_pair())
+    search_attrs = TypedSearchAttributes(search_attributes=pairs)
+
     if executor_worker:
         async with worker, executor_worker:
             result = await worker.client.execute_workflow(
@@ -782,6 +800,7 @@ async def _run_workflow(
                 id=wf_exec_id,
                 task_queue=worker.task_queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                search_attributes=search_attrs,
             )
     else:
         async with worker:
@@ -791,6 +810,7 @@ async def _run_workflow(
                 id=wf_exec_id,
                 task_queue=worker.task_queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                search_attributes=search_attrs,
             )
     return result
 
