@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -10,7 +10,6 @@ from sqlalchemy.dialects import postgresql
 
 from tracecat import config
 from tracecat.executor import startup_warm_cache
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 
 
 @pytest.mark.anyio
@@ -79,33 +78,19 @@ async def test_warm_registry_cache_on_startup_handles_unexpected_error(
 
 
 @pytest.mark.anyio
-async def test_run_warmup_merges_published_and_scheduled_candidates(
+async def test_run_warmup_merges_published_and_scheduled_versions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    org_id = uuid.uuid4()
-    candidate_a = startup_warm_cache._DefinitionLockCandidate(
-        organization_id=org_id,
-        workflow_id="wf-a",
-        origins={"tracecat_registry": "1.0.0"},
-    )
-    candidate_b = startup_warm_cache._DefinitionLockCandidate(
-        organization_id=org_id,
-        workflow_id="wf-b",
-        origins={"tracecat_registry": "2.0.0"},
-    )
-
     warmed_inputs: list[str] = []
 
-    async def _published() -> list[startup_warm_cache._DefinitionLockCandidate]:
-        return [candidate_a]
+    async def _published() -> list[str]:
+        return ["1.0.0"]
 
-    async def _scheduled() -> list[startup_warm_cache._DefinitionLockCandidate]:
-        return [candidate_a, candidate_b]
+    async def _scheduled() -> list[str]:
+        return ["1.0.0", "2.0.0"]
 
-    async def _definition_uris(
-        candidates: list[startup_warm_cache._DefinitionLockCandidate],
-    ) -> set[str]:
-        assert candidates == [candidate_a, candidate_b]
+    async def _definition_uris(versions: list[str]) -> set[str]:
+        assert versions == ["1.0.0", "2.0.0"]
         return {"s3://tracecat/1.tar.gz", "s3://tracecat/2.tar.gz"}
 
     async def _platform_uris() -> set[str]:
@@ -117,12 +102,12 @@ async def test_run_warmup_merges_published_and_scheduled_candidates(
 
     monkeypatch.setattr(
         startup_warm_cache,
-        "_collect_published_definition_lock_candidates",
+        "_collect_published_platform_lock_versions",
         _published,
     )
     monkeypatch.setattr(
         startup_warm_cache,
-        "_collect_online_schedule_lock_candidates",
+        "_collect_online_schedule_platform_lock_versions",
         _scheduled,
     )
     monkeypatch.setattr(
@@ -151,77 +136,6 @@ async def test_run_warmup_merges_published_and_scheduled_candidates(
     ]
 
 
-@pytest.mark.anyio
-async def test_run_warmup_filters_out_custom_registry_origins(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    org_id = uuid.uuid4()
-    platform_and_custom = startup_warm_cache._DefinitionLockCandidate(
-        organization_id=org_id,
-        workflow_id="wf-platform-and-custom",
-        origins={
-            DEFAULT_REGISTRY_ORIGIN: "1.0.0",
-            "git+https://github.com/acme/custom-registry.git": "abc123",
-        },
-    )
-    custom_only = startup_warm_cache._DefinitionLockCandidate(
-        organization_id=org_id,
-        workflow_id="wf-custom-only",
-        origins={"git+https://github.com/acme/custom-only.git": "def456"},
-    )
-
-    seen_candidates: list[startup_warm_cache._DefinitionLockCandidate] = []
-
-    async def _published() -> list[startup_warm_cache._DefinitionLockCandidate]:
-        return [platform_and_custom, custom_only]
-
-    async def _scheduled() -> list[startup_warm_cache._DefinitionLockCandidate]:
-        return []
-
-    async def _definition_uris(
-        candidates: list[startup_warm_cache._DefinitionLockCandidate],
-    ) -> set[str]:
-        seen_candidates.extend(candidates)
-        return set()
-
-    async def _platform_uris() -> set[str]:
-        return set()
-
-    async def _warm(_uris: list[str]) -> tuple[int, int]:
-        return 0, 0
-
-    monkeypatch.setattr(
-        startup_warm_cache,
-        "_collect_published_definition_lock_candidates",
-        _published,
-    )
-    monkeypatch.setattr(
-        startup_warm_cache,
-        "_collect_online_schedule_lock_candidates",
-        _scheduled,
-    )
-    monkeypatch.setattr(
-        startup_warm_cache, "_resolve_definition_tarball_uris", _definition_uris
-    )
-    monkeypatch.setattr(
-        startup_warm_cache, "_collect_platform_current_tarball_uris", _platform_uris
-    )
-    monkeypatch.setattr(startup_warm_cache, "_warm_tarball_uris", _warm)
-
-    report = await startup_warm_cache._run_warmup()
-
-    assert report.published_definition_rows == 2
-    assert report.scheduled_definition_rows == 0
-    assert report.definition_rows == 1
-    assert seen_candidates == [
-        startup_warm_cache._DefinitionLockCandidate(
-            organization_id=org_id,
-            workflow_id="wf-platform-and-custom",
-            origins={DEFAULT_REGISTRY_ORIGIN: "1.0.0"},
-        )
-    ]
-
-
 class _FakeTuplesResult:
     def __init__(self, rows: list[tuple[object, ...]]) -> None:
         self._rows = rows
@@ -229,7 +143,7 @@ class _FakeTuplesResult:
     def all(self) -> list[tuple[object, ...]]:
         return self._rows
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[tuple[object, ...]]:
         return iter(self._rows)
 
 
@@ -242,14 +156,13 @@ class _FakeExecuteResult:
 
 
 @pytest.mark.anyio
-async def test_collect_online_schedule_lock_candidates_filters_empty_origins(
+async def test_collect_online_schedule_platform_lock_versions_filters_missing_platform_version(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    org_id = uuid.uuid4()
     rows: list[tuple[object, ...]] = [
-        (org_id, uuid.uuid4(), {"tracecat_registry": "1.0.0"}),
-        (uuid.uuid4(), uuid.uuid4(), {}),
-        (uuid.uuid4(), uuid.uuid4(), None),
+        ("1.0.0",),
+        (None,),
+        ("2.0.0",),
     ]
 
     class _FakeSession:
@@ -259,57 +172,35 @@ async def test_collect_online_schedule_lock_candidates_filters_empty_origins(
             return _FakeExecuteResult(rows)
 
     @asynccontextmanager
-    async def _session_cm():
+    async def _session_cm() -> AsyncIterator[_FakeSession]:
         yield _FakeSession()
 
     monkeypatch.setattr(
         startup_warm_cache, "get_async_session_context_manager", _session_cm
     )
 
-    candidates = await startup_warm_cache._collect_online_schedule_lock_candidates()
+    versions = (
+        await startup_warm_cache._collect_online_schedule_platform_lock_versions()
+    )
 
-    assert len(candidates) == 1
-    candidate = candidates[0]
-    assert candidate.organization_id == org_id
-    assert candidate.origins == {"tracecat_registry": "1.0.0"}
-    assert isinstance(candidate.workflow_id, str)
+    assert versions == ["1.0.0", "2.0.0"]
 
 
 @pytest.mark.anyio
-async def test_run_warmup_dedupes_before_definition_limit(
+async def test_run_warmup_dedupes_versions_before_definition_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    org_id = uuid.uuid4()
-    shared_wf = "wf-shared"
-    candidate_shared_a = startup_warm_cache._DefinitionLockCandidate(
-        organization_id=org_id,
-        workflow_id=shared_wf,
-        origins={DEFAULT_REGISTRY_ORIGIN: "1.0.0"},
-    )
-    candidate_shared_b = startup_warm_cache._DefinitionLockCandidate(
-        organization_id=org_id,
-        workflow_id=shared_wf,
-        origins={DEFAULT_REGISTRY_ORIGIN: "1.0.0"},
-    )
-    candidate_unique = startup_warm_cache._DefinitionLockCandidate(
-        organization_id=org_id,
-        workflow_id="wf-unique",
-        origins={DEFAULT_REGISTRY_ORIGIN: "2.0.0"},
-    )
+    seen_versions: list[str] = []
 
-    seen_candidates: list[startup_warm_cache._DefinitionLockCandidate] = []
-
-    async def _published() -> list[startup_warm_cache._DefinitionLockCandidate]:
+    async def _published() -> list[str]:
         return []
 
-    async def _scheduled() -> list[startup_warm_cache._DefinitionLockCandidate]:
-        # Two schedules for the same workflow plus one distinct workflow.
-        return [candidate_shared_a, candidate_shared_b, candidate_unique]
+    async def _scheduled() -> list[str]:
+        # Duplicate locked version plus one distinct locked version.
+        return ["1.0.0", "1.0.0", "2.0.0"]
 
-    async def _definition_uris(
-        candidates: list[startup_warm_cache._DefinitionLockCandidate],
-    ) -> set[str]:
-        seen_candidates.extend(candidates)
+    async def _definition_uris(versions: list[str]) -> set[str]:
+        seen_versions.extend(versions)
         return set()
 
     async def _platform_uris() -> set[str]:
@@ -320,12 +211,12 @@ async def test_run_warmup_dedupes_before_definition_limit(
 
     monkeypatch.setattr(
         startup_warm_cache,
-        "_collect_published_definition_lock_candidates",
+        "_collect_published_platform_lock_versions",
         _published,
     )
     monkeypatch.setattr(
         startup_warm_cache,
-        "_collect_online_schedule_lock_candidates",
+        "_collect_online_schedule_platform_lock_versions",
         _scheduled,
     )
     monkeypatch.setattr(
@@ -335,16 +226,45 @@ async def test_run_warmup_dedupes_before_definition_limit(
         startup_warm_cache, "_collect_platform_current_tarball_uris", _platform_uris
     )
     monkeypatch.setattr(startup_warm_cache, "_warm_tarball_uris", _warm)
-    monkeypatch.setattr(
-        config, "TRACECAT__EXECUTOR_WARM_CACHE_MAX_WORKFLOW_DEFINITIONS", 2
-    )
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_WARM_CACHE_MAX_LOCKED_VERSIONS", 2)
 
     report = await startup_warm_cache._run_warmup()
 
     assert report.published_definition_rows == 0
     assert report.scheduled_definition_rows == 3
     assert report.definition_rows == 2
-    assert seen_candidates == [candidate_shared_a, candidate_unique]
+    assert seen_versions == ["1.0.0", "2.0.0"]
+
+
+@pytest.mark.anyio
+async def test_resolve_definition_tarball_uris_dedupes_versions_and_skips_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rows: list[tuple[object, ...]] = [
+        ("s3://tracecat/a.tar.gz",),
+        ("s3://tracecat/b.tar.gz",),
+        ("s3://tracecat/a.tar.gz",),
+        (None,),
+    ]
+
+    class _FakeSession:
+        async def execute(self, stmt: Any) -> _FakeExecuteResult:
+            stmt.compile(dialect=postgresql.dialect())
+            return _FakeExecuteResult(rows)
+
+    @asynccontextmanager
+    async def _session_cm() -> AsyncIterator[_FakeSession]:
+        yield _FakeSession()
+
+    monkeypatch.setattr(
+        startup_warm_cache, "get_async_session_context_manager", _session_cm
+    )
+
+    uris = await startup_warm_cache._resolve_definition_tarball_uris(
+        ["1.0.0", "1.0.0", "2.0.0"]
+    )
+
+    assert uris == {"s3://tracecat/a.tar.gz", "s3://tracecat/b.tar.gz"}
 
 
 @pytest.mark.anyio
@@ -363,7 +283,7 @@ async def test_collect_platform_current_tarball_uris_dedupes_and_skips_empty(
             return _FakeExecuteResult(rows)
 
     @asynccontextmanager
-    async def _session_cm():
+    async def _session_cm() -> AsyncIterator[_FakeSession]:
         yield _FakeSession()
 
     monkeypatch.setattr(

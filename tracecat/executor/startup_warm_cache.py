@@ -27,11 +27,8 @@ from tracecat.db.models import (
     Schedule,
     Workflow,
     WorkflowDefinition,
-    Workspace,
 )
 from tracecat.executor.action_runner import get_action_runner
-from tracecat.executor.service import get_registry_artifacts_for_lock
-from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 
@@ -45,6 +42,7 @@ _origins_jsonb = case(
     ),
     else_=WorkflowDefinition.registry_lock,
 )
+_platform_lock_version = _origins_jsonb[DEFAULT_REGISTRY_ORIGIN].astext
 
 
 @dataclass
@@ -64,115 +62,43 @@ class WarmCacheReport:
     failed_tarballs: int = 0
 
 
-@dataclass(frozen=True)
-class _DefinitionLockCandidate:
-    """A workflow definition whose registry lock origins need warming."""
-
-    organization_id: OrganizationID
-    workflow_id: str
-    origins: dict[str, str]
+def _dedupe_versions(values: list[str]) -> list[str]:
+    """Deduplicate version strings while preserving order."""
+    return list(dict.fromkeys(values))
 
 
-def _dedupe_definition_candidates(
-    candidates: list[_DefinitionLockCandidate],
-) -> list[_DefinitionLockCandidate]:
-    """Deduplicate candidates by (organization_id, workflow_id), preserving order."""
-    deduped: list[_DefinitionLockCandidate] = []
-    seen: set[tuple[str, str]] = set()
-    for candidate in candidates:
-        dedupe_key = (str(candidate.organization_id), candidate.workflow_id)
-        if dedupe_key in seen:
-            continue
-        seen.add(dedupe_key)
-        deduped.append(candidate)
-    return deduped
-
-
-def _keep_platform_origins_only(origins: dict[str, str]) -> dict[str, str]:
-    """Keep only platform registry origins from a lock origins dict."""
-    if version := origins.get(DEFAULT_REGISTRY_ORIGIN):
-        return {DEFAULT_REGISTRY_ORIGIN: version}
-    return {}
-
-
-def _filter_definition_candidates_to_platform_origins(
-    candidates: list[_DefinitionLockCandidate],
-) -> list[_DefinitionLockCandidate]:
-    """Drop custom registry origins so warmup only targets platform tarballs."""
-    filtered: list[_DefinitionLockCandidate] = []
-    for candidate in candidates:
-        platform_origins = _keep_platform_origins_only(candidate.origins)
-        if not platform_origins:
-            continue
-        filtered.append(
-            _DefinitionLockCandidate(
-                organization_id=candidate.organization_id,
-                workflow_id=candidate.workflow_id,
-                origins=platform_origins,
-            )
-        )
-    return filtered
-
-
-async def _collect_published_definition_lock_candidates() -> list[
-    _DefinitionLockCandidate
-]:
-    """Query the latest published workflow definitions and return their lock candidates.
+async def _collect_published_platform_lock_versions() -> list[str]:
+    """Query latest published workflow definitions and return platform lock versions.
 
     Uses JSONB operators to extract origins directly in SQL, handling both
     the current RegistryLock schema and the legacy flat-dict format.
     """
     stmt = (
-        select(
-            Workspace.organization_id,
-            WorkflowDefinition.workflow_id,
-            _origins_jsonb.label("origins"),
-        )
+        select(_platform_lock_version.label("version"))
         .select_from(WorkflowDefinition)
         .join(Workflow, Workflow.id == WorkflowDefinition.workflow_id)
-        .join(
-            Workspace,
-            and_(
-                Workspace.id == Workflow.workspace_id,
-                Workspace.id == WorkflowDefinition.workspace_id,
-            ),
-        )
         .where(
             Workflow.version.is_not(None),
             WorkflowDefinition.version == Workflow.version,
             WorkflowDefinition.registry_lock.is_not(None),
             func.jsonb_typeof(_origins_jsonb) == "object",
+            _platform_lock_version.is_not(None),
         )
         .order_by(WorkflowDefinition.workflow_id.asc())
-        .limit(config.TRACECAT__EXECUTOR_WARM_CACHE_MAX_WORKFLOW_DEFINITIONS)
     )
     async with get_async_session_context_manager() as session:
         rows = (await session.execute(stmt)).tuples().all()
-    return [
-        _DefinitionLockCandidate(
-            organization_id=org_id,
-            workflow_id=str(wf_id),
-            origins=origins,
-        )
-        for org_id, wf_id, origins in rows
-        if origins
-    ]
+    return [version for (version,) in rows if version]
 
 
-async def _collect_online_schedule_lock_candidates() -> list[_DefinitionLockCandidate]:
-    """Query online-scheduled workflow definitions and return their lock candidates.
+async def _collect_online_schedule_platform_lock_versions() -> list[str]:
+    """Query online-scheduled workflow definitions and return platform lock versions.
 
     Uses JSONB operators to extract origins directly in SQL, handling both
-    the current RegistryLock schema and the legacy flat-dict format. The query
-    intentionally does not hard-cap rows so deduplication by workflow can be
-    applied before enforcing the warmup limit.
+    the current RegistryLock schema and the legacy flat-dict format.
     """
     stmt = (
-        select(
-            Workspace.organization_id,
-            WorkflowDefinition.workflow_id,
-            _origins_jsonb.label("origins"),
-        )
+        select(_platform_lock_version.label("version"))
         .select_from(Schedule)
         .join(
             Workflow,
@@ -189,58 +115,48 @@ async def _collect_online_schedule_lock_candidates() -> list[_DefinitionLockCand
                 WorkflowDefinition.version == Workflow.version,
             ),
         )
-        .join(
-            Workspace,
-            and_(
-                Workspace.id == Schedule.workspace_id,
-                Workspace.id == Workflow.workspace_id,
-                Workspace.id == WorkflowDefinition.workspace_id,
-            ),
-        )
         .where(
             Schedule.status == "online",
             Workflow.version.is_not(None),
             WorkflowDefinition.registry_lock.is_not(None),
             func.jsonb_typeof(_origins_jsonb) == "object",
+            _platform_lock_version.is_not(None),
         )
         .order_by(Schedule.workflow_id.asc())
     )
     async with get_async_session_context_manager() as session:
         rows = (await session.execute(stmt)).tuples().all()
-    return [
-        _DefinitionLockCandidate(
-            organization_id=org_id,
-            workflow_id=str(wf_id),
-            origins=origins,
-        )
-        for org_id, wf_id, origins in rows
-        if origins
-    ]
+    return [version for (version,) in rows if version]
 
 
 async def _resolve_definition_tarball_uris(
-    candidates: list[_DefinitionLockCandidate],
+    versions: list[str],
 ) -> set[str]:
-    """Resolve lock candidates to concrete platform tarball URIs via the registry."""
+    """Resolve platform lock versions to tarball URIs via platform registry tables."""
+    if not versions:
+        return set()
+
+    deduped_versions = _dedupe_versions(versions)
+    stmt = (
+        select(PlatformRegistryVersion.tarball_uri)
+        .select_from(PlatformRegistryVersion)
+        .join(
+            PlatformRegistryRepository,
+            PlatformRegistryVersion.repository_id == PlatformRegistryRepository.id,
+        )
+        .where(
+            PlatformRegistryRepository.origin == DEFAULT_REGISTRY_ORIGIN,
+            PlatformRegistryVersion.version.in_(deduped_versions),
+            PlatformRegistryVersion.tarball_uri.is_not(None),
+        )
+        .order_by(PlatformRegistryVersion.version.asc())
+    )
+
     uris: set[str] = set()
-    seen: set[tuple[str, tuple[tuple[str, str], ...]]] = set()
-
-    for candidate in candidates:
-        dedupe_key = (
-            str(candidate.organization_id),
-            tuple(sorted(candidate.origins.items())),
-        )
-        if dedupe_key in seen:
-            continue
-        seen.add(dedupe_key)
-
-        artifacts = await get_registry_artifacts_for_lock(
-            origins=candidate.origins,
-            organization_id=candidate.organization_id,
-        )
-        for artifact in artifacts:
-            if artifact.tarball_uri:
-                uris.add(artifact.tarball_uri)
+    async with get_async_session_context_manager() as session:
+        for (tarball_uri,) in (await session.execute(stmt)).tuples():
+            if tarball_uri:
+                uris.add(tarball_uri)
     return uris
 
 
@@ -297,20 +213,15 @@ async def _warm_tarball_uris(uris: list[str]) -> tuple[int, int]:
 
 async def _run_warmup() -> WarmCacheReport:
     """Execute the full warmup pipeline: collect, deduplicate, resolve, and warm."""
-    published_candidates = await _collect_published_definition_lock_candidates()
-    scheduled_candidates = await _collect_online_schedule_lock_candidates()
-    max_definitions = max(
-        1, config.TRACECAT__EXECUTOR_WARM_CACHE_MAX_WORKFLOW_DEFINITIONS
+    published_versions = await _collect_published_platform_lock_versions()
+    scheduled_versions = await _collect_online_schedule_platform_lock_versions()
+    max_locked_versions = max(
+        1, config.TRACECAT__EXECUTOR_WARM_CACHE_MAX_LOCKED_VERSIONS
     )
-    definition_candidates = _dedupe_definition_candidates(
-        [*published_candidates, *scheduled_candidates]
-    )[:max_definitions]
-    platform_definition_candidates = _filter_definition_candidates_to_platform_origins(
-        definition_candidates
-    )
-    definition_uris = await _resolve_definition_tarball_uris(
-        platform_definition_candidates
-    )
+    definition_versions = _dedupe_versions([*published_versions, *scheduled_versions])[
+        :max_locked_versions
+    ]
+    definition_uris = await _resolve_definition_tarball_uris(definition_versions)
     platform_uris = await _collect_platform_current_tarball_uris()
 
     all_uris = sorted(definition_uris | platform_uris)
@@ -326,9 +237,9 @@ async def _run_warmup() -> WarmCacheReport:
     warmed, failed = await _warm_tarball_uris(all_uris)
     return WarmCacheReport(
         enabled=True,
-        published_definition_rows=len(published_candidates),
-        scheduled_definition_rows=len(scheduled_candidates),
-        definition_rows=len(platform_definition_candidates),
+        published_definition_rows=len(published_versions),
+        scheduled_definition_rows=len(scheduled_versions),
+        definition_rows=len(definition_versions),
         definition_locks=len(definition_uris),
         platform_tarballs=len(platform_uris),
         candidate_tarballs=len(all_uris),

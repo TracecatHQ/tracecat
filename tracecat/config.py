@@ -53,10 +53,10 @@ TRACECAT__EXECUTOR_WARM_CACHE_CONCURRENCY = int(
 )
 """Maximum concurrent tarball warmup operations at executor startup."""
 
-TRACECAT__EXECUTOR_WARM_CACHE_MAX_WORKFLOW_DEFINITIONS = int(
-    os.environ.get("TRACECAT__EXECUTOR_WARM_CACHE_MAX_WORKFLOW_DEFINITIONS") or 10000
+TRACECAT__EXECUTOR_WARM_CACHE_MAX_LOCKED_VERSIONS = int(
+    os.environ.get("TRACECAT__EXECUTOR_WARM_CACHE_MAX_LOCKED_VERSIONS") or 100
 )
-"""Maximum number of latest workflow definitions to inspect for warmup."""
+"""Maximum number of distinct locked platform versions to inspect for warmup."""
 
 TRACECAT__EXECUTOR_WARM_CACHE_MAX_TARBALLS = int(
     os.environ.get("TRACECAT__EXECUTOR_WARM_CACHE_MAX_TARBALLS") or 2000

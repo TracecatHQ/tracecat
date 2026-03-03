@@ -298,7 +298,7 @@ executor:
     enabled: true
     timeoutSeconds: 20
     concurrency: 4
-    maxWorkflowDefinitions: 10000
+    maxLockedVersions: 100
     maxTarballs: 2000
     readyFile: /tmp/tracecat/executor-warm.ready
   startupProbe:

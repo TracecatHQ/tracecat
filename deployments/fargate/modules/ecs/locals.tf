@@ -108,22 +108,22 @@ locals {
       local.tracecat_db_configs,
       local.tracecat_db_configs_executor,
       {
-        TRACECAT__API_URL                                      = local.internal_api_url
-        TRACECAT__DB_ENDPOINT                                  = local.core_db_hostname
-        TRACECAT__EXECUTOR_BACKEND                             = "direct"
-        TRACECAT__EXECUTOR_QUEUE                               = var.executor_queue
-        TRACECAT__EXECUTOR_WORKER_POOL_SIZE                    = var.executor_worker_pool_size
-        TRACECAT__EXECUTOR_WARM_CACHE_ENABLED                  = var.executor_warm_cache_enabled
-        TRACECAT__EXECUTOR_WARM_CACHE_TIMEOUT_SECONDS          = var.executor_warm_cache_timeout_seconds
-        TRACECAT__EXECUTOR_WARM_CACHE_CONCURRENCY              = var.executor_warm_cache_concurrency
-        TRACECAT__EXECUTOR_WARM_CACHE_MAX_WORKFLOW_DEFINITIONS = var.executor_warm_cache_max_workflow_definitions
-        TRACECAT__EXECUTOR_WARM_CACHE_MAX_TARBALLS             = var.executor_warm_cache_max_tarballs
-        TRACECAT__EXECUTOR_WARM_READY_FILE                     = var.executor_warm_ready_file
-        TRACECAT__UNSAFE_DISABLE_SM_MASKING                    = "false"
-        TRACECAT__DISABLE_NSJAIL                               = "true"
-        TRACECAT__SANDBOX_NSJAIL_PATH                          = "/usr/local/bin/nsjail"
-        TRACECAT__SANDBOX_ROOTFS_PATH                          = "/var/lib/tracecat/sandbox-rootfs"
-        TRACECAT__SANDBOX_CACHE_DIR                            = "/var/lib/tracecat/sandbox-cache"
+        TRACECAT__API_URL                                 = local.internal_api_url
+        TRACECAT__DB_ENDPOINT                             = local.core_db_hostname
+        TRACECAT__EXECUTOR_BACKEND                        = "direct"
+        TRACECAT__EXECUTOR_QUEUE                          = var.executor_queue
+        TRACECAT__EXECUTOR_WORKER_POOL_SIZE               = var.executor_worker_pool_size
+        TRACECAT__EXECUTOR_WARM_CACHE_ENABLED             = var.executor_warm_cache_enabled
+        TRACECAT__EXECUTOR_WARM_CACHE_TIMEOUT_SECONDS     = var.executor_warm_cache_timeout_seconds
+        TRACECAT__EXECUTOR_WARM_CACHE_CONCURRENCY         = var.executor_warm_cache_concurrency
+        TRACECAT__EXECUTOR_WARM_CACHE_MAX_LOCKED_VERSIONS = var.executor_warm_cache_max_locked_versions
+        TRACECAT__EXECUTOR_WARM_CACHE_MAX_TARBALLS        = var.executor_warm_cache_max_tarballs
+        TRACECAT__EXECUTOR_WARM_READY_FILE                = var.executor_warm_ready_file
+        TRACECAT__UNSAFE_DISABLE_SM_MASKING               = "false"
+        TRACECAT__DISABLE_NSJAIL                          = "true"
+        TRACECAT__SANDBOX_NSJAIL_PATH                     = "/usr/local/bin/nsjail"
+        TRACECAT__SANDBOX_ROOTFS_PATH                     = "/var/lib/tracecat/sandbox-rootfs"
+        TRACECAT__SANDBOX_CACHE_DIR                       = "/var/lib/tracecat/sandbox-cache"
       }
     ) :
     { name = k, value = tostring(v) } if v != null

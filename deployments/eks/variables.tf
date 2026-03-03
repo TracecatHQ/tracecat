@@ -374,10 +374,10 @@ variable "executor_warm_cache_concurrency" {
   default     = 4
 }
 
-variable "executor_warm_cache_max_workflow_definitions" {
-  description = "Max number of workflow definitions scanned for warmup"
+variable "executor_warm_cache_max_locked_versions" {
+  description = "Max number of distinct locked platform versions scanned for warmup"
   type        = number
-  default     = 10000
+  default     = 100
 }
 
 variable "executor_warm_cache_max_tarballs" {

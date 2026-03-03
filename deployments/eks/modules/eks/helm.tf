@@ -269,8 +269,8 @@ resource "helm_release" "tracecat" {
   }
 
   set {
-    name  = "executor.warmCache.maxWorkflowDefinitions"
-    value = var.executor_warm_cache_max_workflow_definitions
+    name  = "executor.warmCache.maxLockedVersions"
+    value = var.executor_warm_cache_max_locked_versions
   }
 
   set {
