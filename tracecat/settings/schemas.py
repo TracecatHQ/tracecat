@@ -87,7 +87,6 @@ class AppSettingsRead(BaseSettingsGroup):
     app_interactions_enabled: bool
     app_workflow_export_enabled: bool
     app_create_workspace_on_register: bool
-    app_editor_pill_decorations_enabled: bool
     app_action_form_mode_enabled: bool
 
 
@@ -112,10 +111,6 @@ class AppSettingsUpdate(BaseSettingsGroup):
     app_create_workspace_on_register: bool = Field(
         default=False,
         description="Whether to automatically create a workspace when a user signs up.",
-    )
-    app_editor_pill_decorations_enabled: bool = Field(
-        default=False,
-        description="Whether to show template expression pills with decorations. When disabled, expressions show as plain text with simple highlighting.",
     )
     app_action_form_mode_enabled: bool = Field(
         default=True,
