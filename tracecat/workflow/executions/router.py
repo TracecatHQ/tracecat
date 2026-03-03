@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.client import WorkflowExecution
 
 import tracecat.agent.adapter.vercel
 from tracecat import config
@@ -29,6 +30,7 @@ from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
     OptionalAnyWorkflowIDQuery,
+    WorkflowIDShort,
     WorkflowUUID,
     exec_id_to_parts,
 )
@@ -315,7 +317,7 @@ async def _load_workflow_metadata_map(
     session: AsyncSession,
     role: WorkspaceUserRole,
     workflow_ids: list[WorkflowUUID],
-) -> dict[str, tuple[str, str | None]]:
+) -> dict[WorkflowIDShort, tuple[str, str | None]]:
     if role.workspace_id is None or not workflow_ids:
         return {}
 
@@ -331,10 +333,10 @@ async def _load_workflow_metadata_map(
 
 
 def _to_workflow_run_read_minimal(
-    execution: Any,
-    workflow_metadata: dict[str, tuple[str, str | None]],
+    execution: WorkflowExecution,
+    workflow_metadata: dict[WorkflowIDShort, tuple[str, str | None]],
 ) -> WorkflowRunReadMinimal:
-    workflow_id: str | None = None
+    workflow_id: WorkflowIDShort | None = None
     workflow_title: str | None = None
     workflow_alias: str | None = execution.typed_search_attributes.get(
         TemporalSearchAttr.ALIAS.key
