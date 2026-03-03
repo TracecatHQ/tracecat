@@ -34,6 +34,24 @@ class SearchAggFunction(StrEnum):
         return agg
 
 
+def parse_search_agg_function(raw: str | SearchAggFunction | None) -> SearchAggFunction:
+    """Parse and validate aggregation functions used by search endpoints."""
+    if raw is None:
+        return SearchAggFunction.COUNT
+
+    normalized = raw.strip().lower() if isinstance(raw, str) else raw
+    if normalized == "value_counts":
+        raise ValueError("Aggregation function 'value_counts' is not supported")
+
+    try:
+        return SearchAggFunction.parse(normalized)
+    except ValueError as exc:
+        raise ValueError(
+            f"Unsupported aggregation function '{raw}'. "
+            "Expected one of: count, sum, min, max, mean, median, mode, n_unique, avg."
+        ) from exc
+
+
 class SearchAggregationBucket(Schema):
     """A grouped aggregation bucket."""
 

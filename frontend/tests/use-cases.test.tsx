@@ -44,15 +44,29 @@ function createCase(index: number): CaseReadMinimal {
 }
 
 function HookProbe() {
-  const { cases, totalFilteredCaseEstimate, stageCounts } = useCases({
-    autoRefresh: false,
-  })
+  const {
+    cases,
+    totalFilteredCaseEstimate,
+    stageCounts,
+    fetchNextPage,
+    hasNextPage,
+  } = useCases({ autoRefresh: false })
 
   return (
     <div>
       <span data-testid="rows">{cases.length}</span>
       <span data-testid="total">{totalFilteredCaseEstimate ?? -1}</span>
       <span data-testid="new-count">{stageCounts?.new ?? -1}</span>
+      <button
+        onClick={() => {
+          if (hasNextPage) {
+            void fetchNextPage()
+          }
+        }}
+        type="button"
+      >
+        load-more
+      </button>
     </div>
   )
 }
@@ -190,6 +204,77 @@ describe("useCases", () => {
         }),
       })
     )
+  })
+
+  it("skips aggregation on follow-up pages", async () => {
+    const firstPage: CasesSearchCasesResponse = {
+      items: Array.from({ length: 100 }, (_, index) => createCase(index + 1)),
+      next_cursor: "cursor-page-2",
+      prev_cursor: null,
+      has_more: true,
+      has_previous: false,
+      total_estimate: 1000,
+      aggregation: {
+        agg: "count",
+        agg_field: null,
+        group_by: ["status"],
+        value: 1000,
+        buckets: [{ key: { status: "new" }, value: 1000 }],
+        bucket_limit: 100,
+        truncated: false,
+      },
+    }
+    const secondPage: CasesSearchCasesResponse = {
+      items: Array.from({ length: 100 }, (_, index) => createCase(index + 101)),
+      next_cursor: null,
+      prev_cursor: "cursor-page-1",
+      has_more: false,
+      has_previous: true,
+      total_estimate: 1000,
+      aggregation: null,
+    }
+
+    mockSearchCases
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce(secondPage)
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HookProbe />
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rows")).toHaveTextContent("100")
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "load-more" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rows")).toHaveTextContent("200")
+    })
+
+    expect(mockSearchCases).toHaveBeenCalledTimes(2)
+
+    const firstRequest = mockSearchCases.mock.calls[0]?.[0]
+    const secondRequest = mockSearchCases.mock.calls[1]?.[0]
+    expect(firstRequest?.requestBody).toMatchObject({
+      agg: "count",
+      group_by: ["status"],
+      bucket_limit: 100,
+    })
+    expect(secondRequest?.requestBody?.cursor).toBe("cursor-page-2")
+    expect(secondRequest?.requestBody).not.toHaveProperty("agg")
+    expect(secondRequest?.requestBody).not.toHaveProperty("group_by")
+    expect(secondRequest?.requestBody).not.toHaveProperty("bucket_limit")
   })
 
   it("clears rows when enum exclude filters match no records", async () => {

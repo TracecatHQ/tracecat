@@ -407,6 +407,35 @@ class TestCoreSearchRecords:
         assert result["items"][0] == mock_row
         assert result["next_cursor"] == "cursor-1"
 
+    async def test_search_rows_with_sort_still_returns_list(
+        self, mock_tables_client: AsyncMock, mock_row
+    ) -> None:
+        """Sort-only calls should preserve the legacy list response shape."""
+        mock_tables_client.search_rows.return_value = {
+            "items": [mock_row],
+            "next_cursor": "cursor-1",
+            "prev_cursor": None,
+            "has_more": True,
+            "has_previous": False,
+        }
+
+        result = await search_rows(
+            table="test_table",
+            limit=50,
+            order_by="name",
+            sort="asc",
+        )
+
+        mock_tables_client.search_rows.assert_called_once_with(
+            table="test_table",
+            limit=50,
+            reverse=False,
+            order_by="name",
+            sort="asc",
+        )
+        assert isinstance(result, list)
+        assert result == [mock_row]
+
     async def test_search_rows_legacy_list_response(
         self, mock_tables_client: AsyncMock
     ):

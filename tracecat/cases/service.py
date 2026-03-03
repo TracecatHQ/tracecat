@@ -105,6 +105,7 @@ from tracecat.search.schemas import (
     SearchAggregationBucket,
     SearchAggregationParams,
     SearchAggregationResult,
+    parse_search_agg_function,
 )
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.common import normalize_column_options
@@ -673,22 +674,6 @@ class CasesService(BaseWorkspaceService):
             aggregation=search_aggregation,
         )
 
-    def _parse_agg_function(self, raw: str | None) -> SearchAggFunction:
-        if raw is None:
-            return SearchAggFunction.COUNT
-
-        normalized = raw.strip().lower()
-        if normalized == "value_counts":
-            raise ValueError("Aggregation function 'value_counts' is not supported")
-
-        try:
-            return SearchAggFunction.parse(normalized)
-        except ValueError as exc:
-            raise ValueError(
-                f"Unsupported aggregation function '{raw}'. "
-                "Expected one of: count, sum, min, max, mean, median, mode, n_unique, avg."
-            ) from exc
-
     async def _prepare_case_aggregation_sources(
         self,
         *,
@@ -881,7 +866,7 @@ class CasesService(BaseWorkspaceService):
         ):
             return None
 
-        agg = self._parse_agg_function(aggregation.agg)
+        agg = parse_search_agg_function(aggregation.agg)
         agg_field = aggregation.agg_field
         if agg is SearchAggFunction.COUNT and agg_field is not None:
             raise ValueError("agg_field is not supported when agg='count'")

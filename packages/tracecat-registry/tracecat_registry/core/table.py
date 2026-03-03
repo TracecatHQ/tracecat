@@ -215,8 +215,6 @@ async def search_rows(
         paginate
         or cursor is not None
         or reverse
-        or order_by is not None
-        or sort is not None
         or group_by is not None
         or agg is not None
         or agg_field is not None

@@ -473,8 +473,11 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     fetchNextPage,
   } = useInfiniteQuery<CasesSearchCasesResponse, TracecatApiError>({
     queryKey: ["cases", workspaceId, rowsKey],
-    queryFn: ({ pageParam }) =>
-      casesSearchCases({
+    queryFn: ({ pageParam }) => {
+      const cursor = (pageParam as string | null) ?? undefined
+      const includeAggregation = cursor === undefined
+
+      return casesSearchCases({
         workspaceId,
         requestBody: {
           search_term: apiQueryParams.searchTerm,
@@ -491,12 +494,17 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
           order_by: serverSortParams.orderBy,
           sort: serverSortParams.sort,
           limit: CASES_PAGE_SIZE,
-          cursor: (pageParam as string | null) ?? undefined,
-          agg: "count",
-          group_by: ["status"],
-          bucket_limit: 100,
+          cursor,
+          ...(includeAggregation
+            ? {
+                agg: "count" as const,
+                group_by: ["status"],
+                bucket_limit: 100,
+              }
+            : {}),
         },
-      }),
+      })
+    },
     enabled: enabled && Boolean(workspaceId) && !hasImpossibleEnumFilter,
     initialPageParam: null,
     getNextPageParam: (lastPage) => {

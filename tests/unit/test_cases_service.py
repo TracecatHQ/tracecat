@@ -979,6 +979,22 @@ class TestCasesService:
         with pytest.raises(ValueError):
             await cases_service.create_case(params)
 
+    async def test_search_cases_rejects_value_counts(
+        self, cases_service: CasesService, mocker
+    ) -> None:
+        """value_counts should be rejected with a validation error."""
+        mocker.patch.object(cases_service, "has_entitlement", return_value=False)
+        with pytest.raises(
+            ValueError, match="Aggregation function 'value_counts' is not supported"
+        ):
+            await cases_service.search_cases(
+                params=CursorPaginationParams(limit=20),
+                aggregation=SearchAggregationParams(
+                    agg="value_counts",
+                    agg_field="status",
+                ),
+            )
+
     async def test_create_case_fields_update_fails(
         self, cases_service: CasesService, case_create_params: CaseCreate, mocker
     ) -> None:
