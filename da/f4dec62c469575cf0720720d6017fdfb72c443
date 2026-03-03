@@ -1,0 +1,23 @@
+tests/unit/test_webhook_execution_path.py
+  b923ecf13f1bd546 30,596-624
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "daf4dec62c469575cf0720720d6017fdfb72c443",
+  "prompts": {
+    "b923ecf13f1bd546": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb493-a991-7481-a1b0-b1ce529ea6b3",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 31,
+      "total_deletions": 1,
+      "accepted_lines": 31,
+      "overriden_lines": 0
+    }
+  }
+}
