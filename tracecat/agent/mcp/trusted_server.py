@@ -22,7 +22,7 @@ from typing import Any
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
-from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.common.types import MCPHttpServerConfig
 from tracecat.agent.mcp.executor import ActionExecutionError, execute_action
 from tracecat.agent.mcp.internal_tools import (
     INTERNAL_TOOL_HANDLERS,
@@ -172,12 +172,15 @@ async def execute_user_mcp_tool(
         raise ToolError(f"User MCP server '{server_name}' not authorized")
 
     try:
-        config_dict: MCPServerConfig = {
+        config_dict: MCPHttpServerConfig = {
+            "type": "http",
             "name": server_config.name,
             "url": server_config.url,
             "transport": server_config.transport,
             "headers": server_config.headers,
         }
+        if server_config.timeout is not None:
+            config_dict["timeout"] = server_config.timeout
 
         client = UserMCPClient([config_dict])
         result = await client.call_tool(server_name, tool_name, args)

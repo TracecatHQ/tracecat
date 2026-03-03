@@ -16,7 +16,7 @@ import os
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import orjson
 from claude_agent_sdk import (
@@ -47,7 +47,10 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
-from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.common.types import (
+    MCPStdioServerConfig,
+    MCPToolDefinition,
+)
 from tracecat.agent.mcp.proxy_server import create_proxy_mcp_server
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
@@ -457,7 +460,7 @@ class ClaudeAgentRuntime:
                 self._last_seen_line_index = len(payload.sdk_session_data.splitlines())
 
         try:
-            # Build MCP servers config for registry actions and user MCP tools
+            # Build MCP servers config for registry actions and stdio servers
             mcp_servers: dict[str, Any] = {}
             if self.registry_tools:
                 proxy_config = await create_proxy_mcp_server(
@@ -466,11 +469,31 @@ class ClaudeAgentRuntime:
                 )
                 mcp_servers["tracecat-registry"] = proxy_config
 
-            # User MCP tools are now handled via the proxy server
-            # They're included in allowed_actions and routed through the trusted server
-            # (The sandbox has no network access, so direct HTTP connections don't work)
-
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
+            if payload.config.mcp_servers:
+                for config in payload.config.mcp_servers:
+                    if config.get("type", "http") != "stdio":
+                        continue
+                    stdio_config = cast(MCPStdioServerConfig, config)
+
+                    base_name = stdio_config["name"]
+                    server_name = base_name
+                    suffix = 2
+                    while server_name in mcp_servers:
+                        server_name = f"{base_name}-{suffix}"
+                        suffix += 1
+
+                    server_config: dict[str, Any] = {
+                        "command": stdio_config["command"],
+                    }
+                    if args := stdio_config.get("args"):
+                        server_config["args"] = args
+                    if env := stdio_config.get("env"):
+                        server_config["env"] = env
+                    if timeout := stdio_config.get("timeout"):
+                        server_config["timeout"] = timeout
+
+                    mcp_servers[server_name] = server_config
 
             def handle_claude_stderr(line: str) -> None:
                 """Forward Claude CLI stderr to loopback via queue."""

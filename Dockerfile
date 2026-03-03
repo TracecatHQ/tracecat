@@ -22,12 +22,18 @@ RUN git clone https://github.com/google/nsjail.git /tmp/nsjail && \
 # ====================
 # Stage 2: Create minimal sandbox rootfs
 # ====================
+FROM node:22.13.1-slim AS node-bin
 FROM python:3.12-slim-bookworm AS sandbox-rootfs
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl wget jq iputils-ping && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.15 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.9.15 /uvx /usr/local/bin/uvx
+COPY --from=node-bin /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-bin /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 RUN useradd -m -u 1000 sandbox && \
     mkdir -p /workspace /work /cache /packages /home/sandbox && \
@@ -44,6 +50,12 @@ ENV HOST=0.0.0.0 PORT=8000
 
 # Copy nsjail binary
 COPY --from=nsjail-builder /usr/local/bin/nsjail /usr/local/bin/nsjail
+
+# Copy Node.js + npx for in-process MCP command servers (stdio)
+COPY --from=node-bin /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-bin /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 # Install runtime packages
 RUN apt-get update && apt-get install -y --no-install-recommends \

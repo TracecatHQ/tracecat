@@ -1,10 +1,10 @@
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, cast
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Body, HTTPException, Query, status
 from pydantic import SecretStr
 from sqlalchemy import select
 
@@ -47,6 +47,7 @@ from tracecat.integrations.service import (
     InsecureOAuthEndpointError,
     IntegrationService,
 )
+from tracecat.integrations.types import MCPServerType
 from tracecat.logger import logger
 
 integrations_router = APIRouter(prefix="/integrations", tags=["integrations"])
@@ -806,7 +807,7 @@ async def get_provider(
 async def create_mcp_integration(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    params: MCPIntegrationCreate,
+    params: Annotated[MCPIntegrationCreate, Body(...)],
 ) -> MCPIntegrationRead:
     """Create a new MCP integration."""
     if role.workspace_id is None:
@@ -835,6 +836,11 @@ async def create_mcp_integration(
         oauth_integration_id=mcp_integration.oauth_integration_id,
         created_at=mcp_integration.created_at,
         updated_at=mcp_integration.updated_at,
+        server_type=cast(MCPServerType, mcp_integration.server_type),
+        stdio_command=mcp_integration.stdio_command,
+        stdio_args=mcp_integration.stdio_args,
+        has_stdio_env=bool(mcp_integration.encrypted_stdio_env),
+        timeout=mcp_integration.timeout,
     )
 
 
@@ -866,6 +872,11 @@ async def list_mcp_integrations(
             oauth_integration_id=integration.oauth_integration_id,
             created_at=integration.created_at,
             updated_at=integration.updated_at,
+            server_type=cast(MCPServerType, integration.server_type),
+            stdio_command=integration.stdio_command,
+            stdio_args=integration.stdio_args,
+            has_stdio_env=bool(integration.encrypted_stdio_env),
+            timeout=integration.timeout,
         )
         for integration in integrations
     ]
@@ -904,6 +915,11 @@ async def get_mcp_integration(
         oauth_integration_id=integration.oauth_integration_id,
         created_at=integration.created_at,
         updated_at=integration.updated_at,
+        server_type=cast(MCPServerType, integration.server_type),
+        stdio_command=integration.stdio_command,
+        stdio_args=integration.stdio_args,
+        has_stdio_env=bool(integration.encrypted_stdio_env),
+        timeout=integration.timeout,
     )
 
 
@@ -949,6 +965,11 @@ async def update_mcp_integration(
         oauth_integration_id=integration.oauth_integration_id,
         created_at=integration.created_at,
         updated_at=integration.updated_at,
+        server_type=cast(MCPServerType, integration.server_type),
+        stdio_command=integration.stdio_command,
+        stdio_args=integration.stdio_args,
+        has_stdio_env=bool(integration.encrypted_stdio_env),
+        timeout=integration.timeout,
     )
 
 
