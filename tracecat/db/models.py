@@ -62,7 +62,12 @@ from tracecat.identifiers import (
     action,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
+from tracecat.integrations.enums import (
+    IntegrationStatus,
+    MCPAuthType,
+    OAuthClientAuthMethod,
+    OAuthGrantType,
+)
 from tracecat.interactions.enums import InteractionStatus, InteractionType
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
@@ -2728,6 +2733,26 @@ class OAuthIntegration(TimestampMixin, Base):
         LargeBinary,
         nullable=True,
     )
+    client_auth_method: Mapped[OAuthClientAuthMethod | None] = mapped_column(
+        Enum(OAuthClientAuthMethod, name="oauthclientauthmethod"),
+        nullable=True,
+    )
+    encrypted_client_assertion_private_key: Mapped[bytes | None] = mapped_column(
+        LargeBinary,
+        nullable=True,
+    )
+    encrypted_client_assertion_certificate: Mapped[bytes | None] = mapped_column(
+        LargeBinary,
+        nullable=True,
+    )
+    client_assertion_kid: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
+    client_assertion_alg: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
     use_workspace_credentials: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
@@ -2787,11 +2812,34 @@ class OAuthIntegration(TimestampMixin, Base):
     @property
     def status(self) -> IntegrationStatus:
         """Get the status of the integration."""
-        # Is configured: Has client ID and Secret
-        is_configured = (
-            self.encrypted_client_id is not None
-            and self.encrypted_client_secret is not None
+        has_client_id = self.encrypted_client_id is not None
+        has_client_secret = self.encrypted_client_secret is not None
+        has_assertion_private_key = (
+            self.encrypted_client_assertion_private_key is not None
         )
+        has_assertion_certificate = (
+            self.encrypted_client_assertion_certificate is not None
+        )
+        has_assertion_kid = bool(self.client_assertion_kid)
+        auth_method = self.client_auth_method or OAuthClientAuthMethod.AUTO
+
+        if auth_method in (
+            OAuthClientAuthMethod.CLIENT_SECRET_BASIC,
+            OAuthClientAuthMethod.CLIENT_SECRET_POST,
+        ):
+            is_configured = has_client_id and has_client_secret
+        elif auth_method == OAuthClientAuthMethod.PRIVATE_KEY_JWT:
+            is_configured = (
+                has_client_id
+                and has_assertion_private_key
+                and (has_assertion_certificate or has_assertion_kid)
+            )
+        elif auth_method == OAuthClientAuthMethod.NONE:
+            is_configured = has_client_id
+        else:
+            is_configured = has_client_id and (
+                has_client_secret or has_assertion_private_key
+            )
 
         # Is connected: Successfully authenticated
         is_connected = len(self.encrypted_access_token) > 0

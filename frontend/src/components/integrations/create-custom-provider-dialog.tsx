@@ -38,46 +38,152 @@ import { useCreateCustomProvider } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-const formSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(3, { message: "Name must be at least 3 characters long" })
-    .max(120, { message: "Name must be 120 characters or fewer" }),
-  description: z
-    .string()
-    .trim()
-    .max(512, { message: "Description must be 512 characters or fewer" })
-    .optional()
-    .or(z.literal("")),
-  grant_type: z.enum(["authorization_code", "client_credentials"]),
-  client_id: z
-    .string()
-    .trim()
-    .min(1, { message: "Client ID is required" })
-    .max(512, { message: "Client ID must be 512 characters or fewer" }),
-  client_secret: z
-    .string()
-    .trim()
-    .max(16384, { message: "Client secret is unexpectedly long" })
-    .optional()
-    .or(z.literal("")),
-  authorization_endpoint: z
-    .string()
-    .trim()
-    .url({ message: "Enter a valid HTTPS URL" })
-    .refine((value) => value.toLowerCase().startsWith("https://"), {
-      message: "Authorization endpoint must use HTTPS",
-    }),
-  token_endpoint: z
-    .string()
-    .trim()
-    .url({ message: "Enter a valid HTTPS URL" })
-    .refine((value) => value.toLowerCase().startsWith("https://"), {
-      message: "Token endpoint must use HTTPS",
-    }),
-  scopes: z.array(z.string().trim().min(1)).optional(),
-})
+const CLIENT_AUTH_METHOD_OPTIONS = [
+  { value: "auto", label: "Auto" },
+  { value: "client_secret_basic", label: "Client secret (basic)" },
+  { value: "client_secret_post", label: "Client secret (post)" },
+  { value: "private_key_jwt", label: "Client assertion (private_key_jwt)" },
+  { value: "none", label: "No client authentication" },
+] as const
+
+const ASSERTION_ALG_OPTIONS = [
+  { value: "RS256", label: "RS256" },
+  { value: "PS256", label: "PS256" },
+] as const
+
+const formSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(3, { message: "Name must be at least 3 characters long" })
+      .max(120, { message: "Name must be 120 characters or fewer" }),
+    description: z
+      .string()
+      .trim()
+      .max(512, { message: "Description must be 512 characters or fewer" })
+      .optional()
+      .or(z.literal("")),
+    grant_type: z.enum(["authorization_code", "client_credentials"]),
+    client_id: z
+      .string()
+      .trim()
+      .min(1, { message: "Client ID is required" })
+      .max(512, { message: "Client ID must be 512 characters or fewer" }),
+    client_secret: z
+      .string()
+      .trim()
+      .max(16384, { message: "Client secret is unexpectedly long" })
+      .optional()
+      .or(z.literal("")),
+    client_auth_method: z.enum([
+      "auto",
+      "client_secret_basic",
+      "client_secret_post",
+      "private_key_jwt",
+      "none",
+    ]),
+    client_assertion_private_key: z
+      .string()
+      .trim()
+      .optional()
+      .or(z.literal("")),
+    client_assertion_certificate: z
+      .string()
+      .trim()
+      .optional()
+      .or(z.literal("")),
+    client_assertion_kid: z
+      .string()
+      .trim()
+      .max(255)
+      .optional()
+      .or(z.literal("")),
+    client_assertion_alg: z.enum(["RS256", "PS256"]).optional(),
+    authorization_endpoint: z
+      .string()
+      .trim()
+      .url({ message: "Enter a valid HTTPS URL" })
+      .refine((value) => value.toLowerCase().startsWith("https://"), {
+        message: "Authorization endpoint must use HTTPS",
+      }),
+    token_endpoint: z
+      .string()
+      .trim()
+      .url({ message: "Enter a valid HTTPS URL" })
+      .refine((value) => value.toLowerCase().startsWith("https://"), {
+        message: "Token endpoint must use HTTPS",
+      }),
+    scopes: z.array(z.string().trim().min(1)).optional(),
+  })
+  .superRefine((data, ctx) => {
+    const method = data.client_auth_method
+    const hasSecret = Boolean(data.client_secret?.trim())
+    const hasAssertionKey = Boolean(data.client_assertion_private_key?.trim())
+    const hasAssertionCert = Boolean(data.client_assertion_certificate?.trim())
+    const hasAssertionKid = Boolean(data.client_assertion_kid?.trim())
+    const hasAssertionAlg = Boolean(data.client_assertion_alg)
+
+    if (method === "private_key_jwt") {
+      if (!hasAssertionKey) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Private key is required for private_key_jwt.",
+          path: ["client_assertion_private_key"],
+        })
+      }
+      if (!hasAssertionCert && !hasAssertionKid) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Provide either a certificate or key ID for private_key_jwt.",
+          path: ["client_assertion_certificate"],
+        })
+      }
+    }
+
+    if (method === "client_secret_basic" || method === "client_secret_post") {
+      if (!hasSecret) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Client secret is required for the selected auth method.",
+          path: ["client_secret"],
+        })
+      }
+    }
+
+    if (method === "none") {
+      if (hasSecret) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Client secret must be empty for auth method none.",
+          path: ["client_secret"],
+        })
+      }
+      if (
+        hasAssertionKey ||
+        hasAssertionCert ||
+        hasAssertionKid ||
+        hasAssertionAlg
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Client assertion fields must be empty for auth method none.",
+          path: ["client_assertion_private_key"],
+        })
+      }
+    }
+
+    if (method === "auto" && hasSecret && hasAssertionKey) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Auto mode cannot use both client secret and client assertion private key.",
+        path: ["client_auth_method"],
+      })
+    }
+  })
 
 type CustomProviderFormValues = z.infer<typeof formSchema>
 
@@ -87,6 +193,11 @@ const DEFAULT_VALUES: CustomProviderFormValues = {
   grant_type: "authorization_code",
   client_id: "",
   client_secret: "",
+  client_auth_method: "auto",
+  client_assertion_private_key: "",
+  client_assertion_certificate: "",
+  client_assertion_kid: "",
+  client_assertion_alg: undefined,
   authorization_endpoint: "",
   token_endpoint: "",
   scopes: [],
@@ -130,6 +241,7 @@ export function CreateCustomProviderDialog({
   })
 
   const grantType = form.watch("grant_type")
+  const clientAuthMethod = form.watch("client_auth_method")
 
   const resetForm = () => {
     form.reset(DEFAULT_VALUES)
@@ -152,6 +264,13 @@ export function CreateCustomProviderDialog({
       grant_type: values.grant_type,
       client_id: values.client_id,
       client_secret: values.client_secret?.trim() || undefined,
+      client_auth_method: values.client_auth_method,
+      client_assertion_private_key:
+        values.client_assertion_private_key?.trim() || undefined,
+      client_assertion_certificate:
+        values.client_assertion_certificate?.trim() || undefined,
+      client_assertion_kid: values.client_assertion_kid?.trim() || undefined,
+      client_assertion_alg: values.client_assertion_alg || undefined,
       authorization_endpoint: values.authorization_endpoint,
       token_endpoint: values.token_endpoint,
       scopes: values.scopes ?? [],
@@ -304,6 +423,123 @@ export function CreateCustomProviderDialog({
                 )}
               />
             </div>
+            <FormField
+              control={form.control}
+              name="client_auth_method"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Client auth method</FormLabel>
+                  <FormControl>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select auth method" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CLIENT_AUTH_METHOD_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormControl>
+                  <FormDescription className="text-xs">
+                    Choose how the OAuth client authenticates to the token
+                    endpoint.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            {clientAuthMethod === "private_key_jwt" && (
+              <>
+                <FormField
+                  control={form.control}
+                  name="client_assertion_private_key"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Client assertion private key</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          rows={6}
+                          placeholder="-----BEGIN PRIVATE KEY-----"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription className="text-xs">
+                        PEM private key used to sign client assertions.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="client_assertion_certificate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Client assertion certificate</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          rows={5}
+                          placeholder="-----BEGIN CERTIFICATE-----"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription className="text-xs">
+                        Optional PEM certificate for JWT thumbprint headers.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="client_assertion_kid"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Assertion key ID (kid)</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Optional key ID" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="client_assertion_alg"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Assertion algorithm</FormLabel>
+                        <FormControl>
+                          <Select
+                            value={field.value}
+                            onValueChange={field.onChange}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select algorithm" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ASSERTION_ALG_OPTIONS.map((option) => (
+                                <SelectItem
+                                  key={option.value}
+                                  value={option.value}
+                                >
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </>
+            )}
             <FormField
               control={form.control}
               name="authorization_endpoint"

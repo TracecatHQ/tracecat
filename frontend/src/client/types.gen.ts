@@ -2106,6 +2106,26 @@ export type CustomOAuthProviderCreate = {
    * OAuth client secret for the provider
    */
   client_secret?: string | null
+  /**
+   * OAuth token endpoint client authentication method.
+   */
+  client_auth_method?: OAuthClientAuthMethod
+  /**
+   * PEM-encoded private key used for private_key_jwt authentication.
+   */
+  client_assertion_private_key?: string | null
+  /**
+   * Optional PEM-encoded X.509 certificate for private_key_jwt authentication.
+   */
+  client_assertion_certificate?: string | null
+  /**
+   * Optional key ID to include in private_key_jwt headers.
+   */
+  client_assertion_kid?: string | null
+  /**
+   * JWT algorithm for private_key_jwt authentication.
+   */
+  client_assertion_alg?: "RS256" | "PS256" | null
 }
 
 /**
@@ -3208,6 +3228,26 @@ export type IntegrationRead = {
    */
   client_id?: string | null
   /**
+   * OAuth token endpoint client authentication method.
+   */
+  client_auth_method?: OAuthClientAuthMethod
+  /**
+   * Whether a private key is configured for JWT client assertions.
+   */
+  has_client_assertion_private_key?: boolean
+  /**
+   * Whether a certificate is configured for JWT client assertions.
+   */
+  has_client_assertion_certificate?: boolean
+  /**
+   * Optional key ID for JWT client assertions.
+   */
+  client_assertion_kid?: string | null
+  /**
+   * JWT signing algorithm for client assertions.
+   */
+  client_assertion_alg?: "RS256" | "PS256" | null
+  /**
    * OAuth scopes granted for this integration
    */
   granted_scopes?: Array<string> | null
@@ -3272,6 +3312,26 @@ export type IntegrationUpdate = {
    * OAuth client secret for the provider
    */
   client_secret?: string | null
+  /**
+   * OAuth token endpoint client authentication method.
+   */
+  client_auth_method?: OAuthClientAuthMethod | null
+  /**
+   * PEM-encoded private key used for private_key_jwt authentication.
+   */
+  client_assertion_private_key?: string | null
+  /**
+   * Optional PEM-encoded X.509 certificate for private_key_jwt authentication.
+   */
+  client_assertion_certificate?: string | null
+  /**
+   * Optional key ID to include in private_key_jwt headers.
+   */
+  client_assertion_kid?: string | null
+  /**
+   * JWT algorithm for private_key_jwt authentication.
+   */
+  client_assertion_alg?: "RS256" | "PS256" | null
   /**
    * OAuth authorization endpoint URL. Overrides provider defaults when set.
    */
@@ -3508,6 +3568,16 @@ export type ModelSecretConfig = {
 export type OAuth2AuthorizeResponse = {
   authorization_url: string
 }
+
+/**
+ * Client authentication method used at the OAuth token endpoint.
+ */
+export type OAuthClientAuthMethod =
+  | "auto"
+  | "client_secret_basic"
+  | "client_secret_post"
+  | "private_key_jwt"
+  | "none"
 
 /**
  * Grant type for OAuth 2.0.

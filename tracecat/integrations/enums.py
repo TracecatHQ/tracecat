@@ -21,6 +21,16 @@ class OAuthGrantType(StrEnum):
     """Client credentials grant type. See https://datatracker.ietf.org/doc/html/rfc6749#section-1.3.4"""
 
 
+class OAuthClientAuthMethod(StrEnum):
+    """Client authentication method used at the OAuth token endpoint."""
+
+    AUTO = "auto"
+    CLIENT_SECRET_BASIC = "client_secret_basic"
+    CLIENT_SECRET_POST = "client_secret_post"
+    PRIVATE_KEY_JWT = "private_key_jwt"
+    NONE = "none"
+
+
 class MCPAuthType(StrEnum):
     """Authentication type for MCP integrations."""
 

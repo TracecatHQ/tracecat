@@ -1,7 +1,7 @@
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, cast
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, status
@@ -21,7 +21,11 @@ from tracecat.integrations.dependencies import (
     CCProviderInfoDep,
     ProviderInfoDep,
 )
-from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
+from tracecat.integrations.enums import (
+    IntegrationStatus,
+    OAuthClientAuthMethod,
+    OAuthGrantType,
+)
 from tracecat.integrations.providers import all_providers
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
@@ -38,6 +42,7 @@ from tracecat.integrations.schemas import (
     MCPIntegrationCreate,
     MCPIntegrationRead,
     MCPIntegrationUpdate,
+    OAuthClientAssertionAlg,
     ProviderKey,
     ProviderRead,
     ProviderReadMinimal,
@@ -327,6 +332,12 @@ async def get_integration(
                     provider_id=integration.provider_id,
                 )
 
+    client_assertion_alg: OAuthClientAssertionAlg | None = None
+    if integration.client_assertion_alg in ("RS256", "PS256"):
+        client_assertion_alg = cast(
+            OAuthClientAssertionAlg, integration.client_assertion_alg
+        )
+
     return IntegrationRead(
         id=integration.id,
         user_id=integration.user_id,
@@ -344,6 +355,15 @@ async def get_integration(
         status=integration.status,
         is_expired=integration.is_expired,
         client_id=client_id,
+        client_auth_method=integration.client_auth_method or OAuthClientAuthMethod.AUTO,
+        has_client_assertion_private_key=(
+            integration.encrypted_client_assertion_private_key is not None
+        ),
+        has_client_assertion_certificate=(
+            integration.encrypted_client_assertion_certificate is not None
+        ),
+        client_assertion_kid=integration.client_assertion_kid,
+        client_assertion_alg=client_assertion_alg,
     )
 
 
@@ -647,6 +667,11 @@ async def update_integration(
             provider_key=provider_info.key,
             client_id=params.client_id,
             client_secret=params.client_secret,
+            client_auth_method=params.client_auth_method,
+            client_assertion_private_key=params.client_assertion_private_key,
+            client_assertion_certificate=params.client_assertion_certificate,
+            client_assertion_kid=params.client_assertion_kid,
+            client_assertion_alg=params.client_assertion_alg,
             authorization_endpoint=params.authorization_endpoint,
             token_endpoint=params.token_endpoint,
             requested_scopes=params.scopes,

@@ -21,6 +21,14 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { isMCPProvider } from "@/lib/providers"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -63,36 +71,154 @@ const renderHelpContent = (help: EndpointHelp) => {
   )
 }
 
-const createOAuthSchema = (clientSecretMaxLength: number) =>
-  z.object({
-    client_id: z
-      .string()
-      .trim()
-      .max(512, { message: "Client ID must be 512 characters or less" })
-      .optional(),
-    client_secret: z
-      .string()
-      .trim()
-      .max(clientSecretMaxLength, {
-        message: `Client secret must be ${clientSecretMaxLength} characters or less`,
-      })
-      .optional(),
-    scopes: z.array(z.string().trim().min(1)).optional(),
-    authorization_endpoint: z
-      .string()
-      .trim()
-      .url({ message: "Enter a valid HTTPS URL" })
-      .refine((value) => value.toLowerCase().startsWith("https://"), {
-        message: "Authorization endpoint must use HTTPS",
-      }),
-    token_endpoint: z
-      .string()
-      .trim()
-      .url({ message: "Enter a valid HTTPS URL" })
-      .refine((value) => value.toLowerCase().startsWith("https://"), {
-        message: "Token endpoint must use HTTPS",
-      }),
-  })
+const CLIENT_AUTH_METHOD_OPTIONS = [
+  { value: "auto", label: "Auto" },
+  { value: "client_secret_basic", label: "Client secret (basic)" },
+  { value: "client_secret_post", label: "Client secret (post)" },
+  { value: "private_key_jwt", label: "Client assertion (private_key_jwt)" },
+  { value: "none", label: "No client authentication" },
+] as const
+
+const ASSERTION_ALG_OPTIONS = [
+  { value: "RS256", label: "RS256" },
+  { value: "PS256", label: "PS256" },
+] as const
+
+interface OAuthSchemaOptions {
+  hasExistingAssertionPrivateKey: boolean
+  hasExistingAssertionCertificate: boolean
+}
+
+const createOAuthSchema = (
+  clientSecretMaxLength: number,
+  options: OAuthSchemaOptions
+) =>
+  z
+    .object({
+      client_id: z
+        .string()
+        .trim()
+        .max(512, { message: "Client ID must be 512 characters or less" })
+        .optional(),
+      client_secret: z
+        .string()
+        .trim()
+        .max(clientSecretMaxLength, {
+          message: `Client secret must be ${clientSecretMaxLength} characters or less`,
+        })
+        .optional(),
+      client_auth_method: z.enum([
+        "auto",
+        "client_secret_basic",
+        "client_secret_post",
+        "private_key_jwt",
+        "none",
+      ]),
+      client_assertion_private_key: z.string().trim().optional(),
+      client_assertion_certificate: z.string().trim().optional(),
+      client_assertion_kid: z.string().trim().max(255).optional(),
+      client_assertion_alg: z.enum(["RS256", "PS256"]).optional(),
+      scopes: z.array(z.string().trim().min(1)).optional(),
+      authorization_endpoint: z
+        .string()
+        .trim()
+        .url({ message: "Enter a valid HTTPS URL" })
+        .refine((value) => value.toLowerCase().startsWith("https://"), {
+          message: "Authorization endpoint must use HTTPS",
+        }),
+      token_endpoint: z
+        .string()
+        .trim()
+        .url({ message: "Enter a valid HTTPS URL" })
+        .refine((value) => value.toLowerCase().startsWith("https://"), {
+          message: "Token endpoint must use HTTPS",
+        }),
+    })
+    .superRefine((data, ctx) => {
+      const method = data.client_auth_method
+      const hasSecret = Boolean(data.client_secret?.trim())
+      const hasAssertionKeyInput = Boolean(
+        data.client_assertion_private_key?.trim()
+      )
+      const hasAssertionCertInput = Boolean(
+        data.client_assertion_certificate?.trim()
+      )
+      const hasAssertionKey =
+        hasAssertionKeyInput || options.hasExistingAssertionPrivateKey
+      const hasAssertionCert =
+        hasAssertionCertInput || options.hasExistingAssertionCertificate
+      const hasAssertionKid = Boolean(data.client_assertion_kid?.trim())
+      const hasAssertionAlg = Boolean(data.client_assertion_alg)
+
+      if (method === "private_key_jwt") {
+        if (!hasAssertionKey) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Private key is required for private_key_jwt.",
+            path: ["client_assertion_private_key"],
+          })
+        }
+        if (!hasAssertionCert && !hasAssertionKid) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "Provide either a certificate or key ID for private_key_jwt.",
+            path: ["client_assertion_certificate"],
+          })
+        }
+      }
+
+      if (method === "client_secret_basic" || method === "client_secret_post") {
+        if (!hasSecret) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Client secret is required for the selected auth method.",
+            path: ["client_secret"],
+          })
+        }
+      }
+
+      if (method === "none") {
+        if (hasSecret) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "Client secret must be empty when auth method is set to none.",
+            path: ["client_secret"],
+          })
+        }
+        if (
+          hasAssertionKeyInput ||
+          hasAssertionCertInput ||
+          hasAssertionKid ||
+          hasAssertionAlg
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "Client assertion fields must be empty when auth method is set to none.",
+            path: ["client_assertion_private_key"],
+          })
+        }
+      }
+
+      if (method === "auto" && hasSecret && hasAssertionKey) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Auto mode cannot use both client secret and client assertion private key.",
+          path: ["client_auth_method"],
+        })
+      }
+
+      if (hasAssertionCertInput && !hasAssertionKey) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Certificate requires a private key.",
+          path: ["client_assertion_private_key"],
+        })
+      }
+    })
 
 type OAuthSchema = z.infer<ReturnType<typeof createOAuthSchema>>
 
@@ -132,10 +258,6 @@ export function ProviderConfigForm({
   const serviceAccountProviders = ["google", "google_sheets", "google_docs"]
   const isServiceAccountProvider = serviceAccountProviders.includes(id)
   const clientSecretMaxLength = isServiceAccountProvider ? 16384 : 512
-  const validationSchema = useMemo(
-    () => createOAuthSchema(clientSecretMaxLength),
-    [clientSecretMaxLength]
-  )
 
   const {
     integration,
@@ -147,12 +269,33 @@ export function ProviderConfigForm({
     workspaceId,
     grantType,
   })
+  const hasExistingAssertionPrivateKey =
+    integration?.has_client_assertion_private_key ?? false
+  const hasExistingAssertionCertificate =
+    integration?.has_client_assertion_certificate ?? false
+  const validationSchema = useMemo(
+    () =>
+      createOAuthSchema(clientSecretMaxLength, {
+        hasExistingAssertionPrivateKey,
+        hasExistingAssertionCertificate,
+      }),
+    [
+      clientSecretMaxLength,
+      hasExistingAssertionPrivateKey,
+      hasExistingAssertionCertificate,
+    ]
+  )
 
   const defaultValues = useMemo<OAuthSchema>(() => {
     const fallbackScopes = integration?.requested_scopes ?? defaultScopes ?? []
     return {
       client_id: integration?.client_id ?? "",
       client_secret: "",
+      client_auth_method: integration?.client_auth_method ?? "auto",
+      client_assertion_private_key: "",
+      client_assertion_certificate: "",
+      client_assertion_kid: integration?.client_assertion_kid ?? "",
+      client_assertion_alg: integration?.client_assertion_alg ?? undefined,
       scopes: fallbackScopes,
       authorization_endpoint:
         integration?.authorization_endpoint ?? providerDefaultAuth ?? "",
@@ -170,6 +313,13 @@ export function ProviderConfigForm({
       const params: IntegrationUpdate = {
         client_id: data.client_id?.trim() || undefined,
         client_secret: data.client_secret?.trim() || undefined,
+        client_auth_method: data.client_auth_method,
+        client_assertion_private_key:
+          data.client_assertion_private_key?.trim() || undefined,
+        client_assertion_certificate:
+          data.client_assertion_certificate?.trim() || undefined,
+        client_assertion_kid: data.client_assertion_kid?.trim() || undefined,
+        client_assertion_alg: data.client_assertion_alg || undefined,
         scopes: data.scopes?.length ? data.scopes : undefined,
         authorization_endpoint: data.authorization_endpoint,
         token_endpoint: data.token_endpoint,
@@ -227,10 +377,16 @@ export function ProviderConfigForm({
     control: form.control,
     name: "authorization_endpoint",
   })
+  const watchedClientAuthMethod = useWatch({
+    control: form.control,
+    name: "client_auth_method",
+  })
   const watchedTokenEndpoint = useWatch({
     control: form.control,
     name: "token_endpoint",
   })
+  const clientAuthMethod = watchedClientAuthMethod ?? "auto"
+  const showAssertionFields = clientAuthMethod === "private_key_jwt"
   const authEndpointValue = watchedAuthEndpoint ?? ""
   const tokenEndpointValue = watchedTokenEndpoint ?? ""
   const defaultAuthEndpoint = providerDefaultAuth ?? ""
@@ -390,6 +546,142 @@ export function ProviderConfigForm({
                   </FormItem>
                 )}
               />
+
+              <FormField
+                control={form.control}
+                name="client_auth_method"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Client auth method</FormLabel>
+                    <FormControl>
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select auth method" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CLIENT_AUTH_METHOD_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormControl>
+                    <FormMessage />
+                    <FormDescription className="text-xs">
+                      Choose how the client authenticates at the token endpoint.
+                    </FormDescription>
+                  </FormItem>
+                )}
+              />
+
+              {showAssertionFields && (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="client_assertion_private_key"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Client assertion private key</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            {...field}
+                            value={field.value ?? ""}
+                            rows={6}
+                            placeholder="-----BEGIN PRIVATE KEY-----"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                        <FormDescription className="text-xs">
+                          PEM private key used to sign private_key_jwt
+                          assertions. Leave blank to keep existing key.
+                          {hasExistingAssertionPrivateKey
+                            ? " Existing key is already configured."
+                            : ""}
+                        </FormDescription>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="client_assertion_certificate"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Client assertion certificate</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            {...field}
+                            value={field.value ?? ""}
+                            rows={5}
+                            placeholder="-----BEGIN CERTIFICATE-----"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                        <FormDescription className="text-xs">
+                          Optional PEM certificate used for JWT header
+                          thumbprint.
+                          {hasExistingAssertionCertificate
+                            ? " Existing certificate is already configured."
+                            : ""}
+                        </FormDescription>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="client_assertion_kid"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Client assertion key ID (kid)</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            value={field.value ?? ""}
+                            placeholder="Optional key identifier"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="client_assertion_alg"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Client assertion algorithm</FormLabel>
+                        <FormControl>
+                          <Select
+                            value={field.value}
+                            onValueChange={field.onChange}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select algorithm" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ASSERTION_ALG_OPTIONS.map((option) => (
+                                <SelectItem
+                                  key={option.value}
+                                  value={option.value}
+                                >
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </FormControl>
+                        <FormMessage />
+                        <FormDescription className="text-xs">
+                          Defaults to provider-specific value when empty.
+                        </FormDescription>
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
             </div>
           </div>
 

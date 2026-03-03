@@ -4514,6 +4514,13 @@ export function useCreateCustomProvider(workspaceId: string) {
         token_endpoint: params.token_endpoint.trim(),
         client_id: params.client_id.trim(),
         client_secret: params.client_secret?.trim() || undefined,
+        client_auth_method: params.client_auth_method,
+        client_assertion_private_key:
+          params.client_assertion_private_key?.trim() || undefined,
+        client_assertion_certificate:
+          params.client_assertion_certificate?.trim() || undefined,
+        client_assertion_kid: params.client_assertion_kid?.trim() || undefined,
+        client_assertion_alg: params.client_assertion_alg || undefined,
         scopes: cleanScopes ?? [],
         provider_id: params.provider_id?.trim() || undefined,
       }

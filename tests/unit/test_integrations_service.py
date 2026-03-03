@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.oauth2.rfc7636 import create_s256_code_challenge
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from pydantic import BaseModel, SecretStr, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +16,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import OAuthIntegration
 from tracecat.exceptions import TracecatAuthorizationError
-from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.enums import OAuthClientAuthMethod, OAuthGrantType
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     ClientCredentialsOAuthProvider,
@@ -33,6 +35,15 @@ from tracecat.integrations.service import (
 from tracecat.integrations.types import TokenResponse
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+def _generate_private_key_pem() -> str:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
 
 
 # Mock OAuth Provider for testing
@@ -1066,6 +1077,84 @@ class TestIntegrationService:
         assert config.authorization_endpoint == authorization_endpoint
         assert config.token_endpoint == token_endpoint
 
+    async def test_store_and_get_provider_config_private_key_jwt(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        provider_key = ProviderKey(
+            id="test_provider_private_key_jwt",
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+        )
+        private_key = SecretStr(_generate_private_key_pem())
+
+        integration = await integration_service.store_provider_config(
+            provider_key=provider_key,
+            client_id="test_client_id",
+            client_auth_method=OAuthClientAuthMethod.PRIVATE_KEY_JWT,
+            client_assertion_private_key=private_key,
+            client_assertion_kid="test-kid",
+            authorization_endpoint="https://api.example.com/oauth/authorize",
+            token_endpoint="https://api.example.com/oauth/token",
+        )
+
+        config = integration_service.get_provider_config(
+            integration=integration,
+            default_scopes=["scope.one"],
+        )
+
+        assert config is not None
+        assert config.client_id == "test_client_id"
+        assert config.client_secret is None
+        assert config.client_auth_method == OAuthClientAuthMethod.PRIVATE_KEY_JWT
+        assert config.client_assertion_private_key is not None
+        assert (
+            config.client_assertion_private_key.get_secret_value().strip()
+            == private_key.get_secret_value().strip()
+        )
+        assert config.client_assertion_kid == "test-kid"
+        assert config.client_assertion_alg == "RS256"
+
+    async def test_store_provider_config_rejects_invalid_private_key_jwt_config(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        provider_key = ProviderKey(
+            id="test_provider_invalid_private_key_jwt",
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+        )
+
+        with pytest.raises(
+            ValueError, match="client_assertion_private_key is required"
+        ):
+            await integration_service.store_provider_config(
+                provider_key=provider_key,
+                client_id="test_client_id",
+                client_auth_method=OAuthClientAuthMethod.PRIVATE_KEY_JWT,
+                client_assertion_kid="test-kid",
+                authorization_endpoint="https://api.example.com/oauth/authorize",
+                token_endpoint="https://api.example.com/oauth/token",
+            )
+
+    async def test_store_provider_config_rejects_invalid_private_key_pem(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        provider_key = ProviderKey(
+            id="test_provider_invalid_private_key_pem",
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+        )
+
+        with pytest.raises(ValueError, match="Invalid client_assertion_private_key"):
+            await integration_service.store_provider_config(
+                provider_key=provider_key,
+                client_id="test_client_id",
+                client_auth_method=OAuthClientAuthMethod.PRIVATE_KEY_JWT,
+                client_assertion_private_key=SecretStr("not-a-pem-key"),
+                client_assertion_kid="test-kid",
+                authorization_endpoint="https://api.example.com/oauth/authorize",
+                token_endpoint="https://api.example.com/oauth/token",
+            )
+
     @pytest.mark.parametrize(
         ("authorization_endpoint", "token_endpoint"),
         [
@@ -1758,6 +1847,24 @@ class TestClientCredentialsOAuthProvider:
                 mock_cc_provider.token_endpoint,
                 grant_type="client_credentials",
             )
+
+    async def test_private_key_jwt_initialization(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "tracecat.config.TRACECAT__PUBLIC_APP_URL", "http://localhost"
+        )
+        provider = MockCCOAuthProvider(
+            client_id="mock_cc_client_id",
+            client_auth_method=OAuthClientAuthMethod.PRIVATE_KEY_JWT,
+            client_assertion_private_key=_generate_private_key_pem(),
+            client_assertion_kid="test-kid",
+        )
+
+        assert (
+            getattr(provider.client, "token_endpoint_auth_method", None)
+            == OAuthClientAuthMethod.PRIVATE_KEY_JWT.value
+        )
 
     async def test_client_credentials_no_refresh_token(
         self, mock_cc_provider: MockCCOAuthProvider
