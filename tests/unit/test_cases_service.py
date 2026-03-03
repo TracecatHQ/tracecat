@@ -855,8 +855,8 @@ class TestCasesService:
             )
         )
 
-        await tags_service.add_tag_to_case(case_with_first_tag.id, tag_one.id)
-        await tags_service.add_tag_to_case(case_with_second_tag.id, tag_two.id)
+        await tags_service.add_case_tag(case_with_first_tag.id, str(tag_one.id))
+        await tags_service.add_case_tag(case_with_second_tag.id, str(tag_two.id))
 
         params = CursorPaginationParams(limit=20, cursor=None, reverse=False)
         response = await cases_service.search_cases(
