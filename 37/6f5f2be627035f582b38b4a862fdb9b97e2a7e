@@ -1,0 +1,73 @@
+frontend/src/hooks/pagination/use-cursor-pagination.tsx
+  81dcd76bbcd388e3 42-43,67-68,114-115
+frontend/src/hooks/use-cases.ts
+  81dcd76bbcd388e3 21-24
+frontend/src/components/cases/cases-layout.tsx
+  81dcd76bbcd388e3 25-28
+frontend/src/components/cases/cases-accordion.tsx
+  81dcd76bbcd388e3 28-29
+tests/unit/test_search_attributes.py
+  6b2862bf8764860f 13
+tracecat/workflow/executions/service.py
+  81dcd76bbcd388e3 287,297,1482,1484
+tracecat/workflow/executions/router.py
+  81dcd76bbcd388e3 318,334-335,337
+tests/unit/test_workflow_execution_workspace_scoping.py
+  9d4aa6d665cf6057 142,163-164,184,318,348,369
+frontend/src/components/workflow-runs/workflow-run-item.tsx
+  81dcd76bbcd388e3 15
+frontend/src/components/workflow-runs/reset-workflow-run-dialog.tsx
+  81dcd76bbcd388e3 7
+frontend/src/components/cases/cases-header.tsx
+  81dcd76bbcd388e3 23-24,26-29,48-55
+frontend/src/components/workflow-runs/workflow-runs-layout.tsx
+  81dcd76bbcd388e3 27-28,32-33
+frontend/src/hooks/use-workflow-runs.ts
+  81dcd76bbcd388e3 7-10,20,23,228,441
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "376f5f2be627035f582b38b4a862fdb9b97e2a7e",
+  "prompts": {
+    "6b2862bf8764860f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb4e5-e675-70b3-8972-0134cda44a13",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 106,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "81dcd76bbcd388e3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb497-8d89-7f93-9229-26d644d83b40",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 52,
+      "overriden_lines": 0
+    },
+    "9d4aa6d665cf6057": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e6d76def-a24b-4bae-a257-aab573e8411e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 39,
+      "total_deletions": 8,
+      "accepted_lines": 7,
+      "overriden_lines": 0
+    }
+  }
+}
