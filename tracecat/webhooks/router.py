@@ -1,5 +1,6 @@
+import uuid
 from itertools import batched
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
 from fastapi import (
     APIRouter,
@@ -11,8 +12,10 @@ from fastapi import (
     Response,
     status,
 )
+from pydantic import ValidationError
 from temporalio.service import RPCError
 
+from tracecat import config
 from tracecat.concurrency import cooperative
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
@@ -23,6 +26,16 @@ from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, generate_exec_id
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.storage import blob
+from tracecat.storage.object import (
+    CollectionObject,
+    ExternalObject,
+    InlineObject,
+    StoredObject,
+    StoredObjectValidator,
+    get_object_storage,
+)
+from tracecat.storage.utils import serialize_object
 from tracecat.webhooks.dependencies import (
     DraftWorkflowDep,
     PayloadDep,
@@ -50,9 +63,110 @@ class OktaVerificationResponse(TypedDict):
     verification: str
 
 
+class WebhookStoredObjectDownloadResponse(TypedDict):
+    kind: Literal["external_ref", "collection_ref"]
+    download_url: str
+    expires_in_seconds: int
+    content_type: str
+    size_bytes: int
+
+
 type WebhookResponse = (
     WorkflowExecutionCreateResponse | OktaVerificationResponse | Response
 )
+
+
+def _try_parse_stored_object(value: Any) -> StoredObject | None:
+    if isinstance(value, (InlineObject, ExternalObject, CollectionObject)):
+        return value
+    if isinstance(value, dict) and value.get("type") in {
+        "inline",
+        "external",
+        "collection",
+    }:
+        try:
+            return StoredObjectValidator.validate_python(value)
+        except ValidationError:
+            return None
+    return None
+
+
+async def _to_external_download_response(
+    external: ExternalObject,
+) -> WebhookStoredObjectDownloadResponse:
+    ref = external.ref
+    expiry = config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
+    download_url = await blob.generate_presigned_download_url(
+        key=ref.key,
+        bucket=ref.bucket,
+        expiry=expiry,
+        force_download=True,
+        override_content_type="application/octet-stream",
+    )
+    return WebhookStoredObjectDownloadResponse(
+        kind="external_ref",
+        download_url=download_url,
+        expires_in_seconds=expiry,
+        content_type=ref.content_type,
+        size_bytes=ref.size_bytes,
+    )
+
+
+async def _to_collection_download_response(
+    collection: CollectionObject,
+) -> WebhookStoredObjectDownloadResponse:
+    storage = get_object_storage()
+    materialized = await storage.retrieve(collection)
+    serialized = serialize_object(materialized)
+    prefix = collection.manifest_ref.key.removesuffix("/manifest.json")
+    export_key = f"{prefix}/downloads/{uuid.uuid4().hex}.json"
+
+    await blob.upload_file(
+        content=serialized,
+        key=export_key,
+        bucket=collection.manifest_ref.bucket,
+        content_type="application/json",
+    )
+
+    expiry = config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
+    download_url = await blob.generate_presigned_download_url(
+        key=export_key,
+        bucket=collection.manifest_ref.bucket,
+        expiry=expiry,
+        force_download=True,
+        override_content_type="application/json",
+    )
+
+    return WebhookStoredObjectDownloadResponse(
+        kind="collection_ref",
+        download_url=download_url,
+        expires_in_seconds=expiry,
+        content_type="application/json",
+        size_bytes=len(serialized),
+    )
+
+
+async def _normalize_wait_result(value: Any) -> Any:
+    """Normalize /wait response values for StoredObject variants.
+
+    - InlineObject: returns raw data
+    - ExternalObject: returns presigned download response
+    - CollectionObject: materializes and returns presigned download response
+    """
+    if stored := _try_parse_stored_object(value):
+        match stored:
+            case InlineObject(data=data):
+                return await _normalize_wait_result(data)
+            case ExternalObject() as external:
+                return await _to_external_download_response(external)
+            case CollectionObject() as collection:
+                return await _to_collection_download_response(collection)
+
+    if isinstance(value, dict):
+        return {k: await _normalize_wait_result(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [await _normalize_wait_result(item) for item in value]
+    return value
 
 
 # NOTE: Need to set response_model to None to avoid FastAPI trying to parse the response as JSON
@@ -237,7 +351,7 @@ async def incoming_webhook_wait(
         else None,
     )
 
-    return response["result"]
+    return await _normalize_wait_result(response["result"])
 
 
 @router.post("/draft", response_model=None)
