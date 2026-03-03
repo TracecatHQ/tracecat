@@ -534,12 +534,12 @@ variable "agent_executor_worker_pool_size" {
 
 variable "temporal_cpu" {
   type    = string
-  default = "2048"
+  default = "8192"
 }
 
 variable "temporal_memory" {
   type    = string
-  default = "4096"
+  default = "16384"
 }
 
 variable "temporal_num_history_shards" {
