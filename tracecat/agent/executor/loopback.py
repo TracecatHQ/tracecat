@@ -22,10 +22,11 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import orjson
-from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
-from tracecat.agent.channels.schemas import ChannelType, SlackChannelTokenConfig
+from tracecat.agent.channels.schemas import ChannelType
+from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
 from tracecat.agent.channels.sinks import ExternalChannelSink, SlackStreamSink
 from tracecat.agent.common.protocol import RuntimeEventEnvelope, RuntimeInitPayload
 from tracecat.agent.common.socket_io import MessageType, build_message, read_message
@@ -43,6 +44,7 @@ from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.types import AgentConfig
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import AgentChannelToken, AgentSession, AgentSessionHistory
+from tracecat.exceptions import TracecatValidationError
 from tracecat.logger import logger
 
 
@@ -153,6 +155,16 @@ class LoopbackHandler:
             except Exception as e:
                 logger.warning("Failed to emit stream done", error=str(e))
 
+    async def emit_terminal_error(self, error: str) -> None:
+        """Emit a terminal error through the resolved stream sink.
+
+        This is used by executor-level crash/timeout paths that happen outside
+        normal loopback event processing.
+        """
+        if self._stream_sink is None:
+            self._stream_sink = await self._initialize_stream_sink()
+        await self._stream_sink.error(error)
+
     async def handle_connection(
         self,
         reader: asyncio.StreamReader,
@@ -244,9 +256,24 @@ class LoopbackHandler:
     async def _initialize_stream_sink(self) -> LoopbackEventSink:
         """Build stream sink for this session."""
 
-        external_sink = await self._build_external_channel_sink()
+        try:
+            external_sink = await self._build_external_channel_sink()
+        except SQLAlchemyError as e:
+            logger.warning(
+                "Failed to resolve external channel sink; falling back to Redis",
+                session_id=self.input.session_id,
+                workspace_id=self.input.workspace_id,
+                error=str(e),
+            )
+            external_sink = None
+
         if external_sink is not None:
             return external_sink
+
+        return await self._build_redis_stream_sink()
+
+    async def _build_redis_stream_sink(self) -> AgentStreamSink:
+        """Build Redis-backed stream sink."""
 
         redis_stream = await AgentStream.new(
             session_id=self.input.session_id,
@@ -308,6 +335,17 @@ class LoopbackHandler:
                     channel_context=channel_context,
                 )
                 return None
+            recipient_user_id = channel_context.get("user_id")
+            recipient_team_id = channel_context.get("team_id")
+            reaction_ts = channel_context.get("message_ts")
+            if not isinstance(reaction_ts, str):
+                reaction_ts = channel_context.get("event_ts")
+            if not isinstance(recipient_user_id, str):
+                recipient_user_id = None
+            if not isinstance(recipient_team_id, str):
+                recipient_team_id = None
+            if not isinstance(reaction_ts, str):
+                reaction_ts = None
 
             preset_id = agent_session.agent_preset_id or agent_session.entity_id
             token_stmt = (
@@ -332,8 +370,11 @@ class LoopbackHandler:
                 return None
 
             try:
-                config = SlackChannelTokenConfig.model_validate(channel_token.config)
-            except ValidationError:
+                config = AgentChannelService.parse_stored_channel_config(
+                    channel_type=ChannelType.SLACK,
+                    config_payload=channel_token.config,
+                )
+            except TracecatValidationError:
                 logger.exception(
                     "Slack token config is invalid; falling back to Redis",
                     session_id=self.input.session_id,
@@ -347,11 +388,22 @@ class LoopbackHandler:
                 workspace_id=self.input.workspace_id,
                 channel_type=ChannelType.SLACK.value,
                 slack_channel_id=channel_id,
+                reaction_ts=reaction_ts,
             )
+            if config.slack_bot_token == PENDING_SLACK_BOT_TOKEN:
+                logger.warning(
+                    "Slack bot token is pending OAuth install; falling back to Redis",
+                    session_id=self.input.session_id,
+                    token_id=channel_token.id,
+                )
+                return None
             return SlackStreamSink(
                 slack_bot_token=config.slack_bot_token,
                 channel_id=channel_id,
                 thread_ts=thread_ts,
+                recipient_user_id=recipient_user_id,
+                recipient_team_id=recipient_team_id,
+                reaction_ts=reaction_ts,
                 session_id=str(self.input.session_id),
                 workspace_id=str(self.input.workspace_id),
             )

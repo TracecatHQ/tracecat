@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import json
 from time import monotonic
 from typing import Any, Protocol, runtime_checkable
 
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
+from tracecat.agent.channels.handlers.slack_helpers import (
+    set_complete,
+    set_error,
+    set_in_progress,
+)
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.logger import logger
 
@@ -37,12 +43,18 @@ class SlackStreamSink:
         slack_bot_token: str,
         channel_id: str,
         thread_ts: str,
+        recipient_user_id: str | None = None,
+        recipient_team_id: str | None = None,
+        reaction_ts: str | None = None,
         session_id: str,
         workspace_id: str,
     ) -> None:
         self._client = AsyncWebClient(token=slack_bot_token)
         self._channel_id = channel_id
         self._thread_ts = thread_ts
+        self._recipient_user_id = recipient_user_id
+        self._recipient_team_id = recipient_team_id
+        self._reaction_ts = reaction_ts
         self._session_id = session_id
         self._workspace_id = workspace_id
         self._stream_ts: str | None = None
@@ -50,6 +62,11 @@ class SlackStreamSink:
         self._last_flush_at = monotonic()
         self._final_text = ""
         self._is_closed = False
+        self._in_progress_reaction_set = False
+        self._tool_task_by_call_id: dict[str, tuple[str, str]] = {}
+        self._tool_in_progress_emitted: set[str] = set()
+        self._pending_approval_tool_ids: set[str] = set()
+        self._task_counter = 0
 
     @property
     def _metadata(self) -> dict[str, object]:
@@ -73,9 +90,17 @@ class SlackStreamSink:
     async def _ensure_stream_started(self) -> None:
         if self._stream_ts is not None:
             return
+        payload: dict[str, Any] = {
+            "channel": self._channel_id,
+            "thread_ts": self._thread_ts,
+            "task_display_mode": "timeline",
+        }
+        if self._recipient_user_id and self._recipient_team_id:
+            payload["recipient_user_id"] = self._recipient_user_id
+            payload["recipient_team_id"] = self._recipient_team_id
         response = await self._client.api_call(
             api_method="chat.startStream",
-            params={"channel": self._channel_id, "thread_ts": self._thread_ts},
+            json=payload,
         )
         response_data = response.data
         if not isinstance(response_data, dict):
@@ -85,18 +110,23 @@ class SlackStreamSink:
             raise ValueError("Slack chat.startStream did not return a stream ts")
         self._stream_ts = stream_ts
 
-    async def _append_stream_text(self, text: str) -> None:
-        if not text:
+    async def _append_chunks(self, chunks: list[dict[str, Any]]) -> None:
+        if not chunks:
             return
         await self._ensure_stream_started()
         await self._client.api_call(
             api_method="chat.appendStream",
-            params={
+            json={
                 "channel": self._channel_id,
                 "ts": self._stream_ts,
-                "markdown_text": text,
+                "chunks": chunks,
             },
         )
+
+    async def _append_stream_text(self, text: str) -> None:
+        if not text:
+            return
+        await self._append_chunks([{"type": "markdown_text", "text": text}])
         self._final_text += text
 
     async def _flush_delta_buffer(self, *, force: bool) -> None:
@@ -110,80 +140,306 @@ class SlackStreamSink:
         self._last_flush_at = now
         await self._append_stream_text(chunk)
 
+    async def _set_in_progress_reaction(self) -> None:
+        if self._in_progress_reaction_set:
+            return
+        if self._reaction_ts is None:
+            return
+        await set_in_progress(
+            self._client,
+            channel_id=self._channel_id,
+            ts=self._reaction_ts,
+        )
+        self._in_progress_reaction_set = True
+
+    async def _set_terminal_reaction(self, *, is_error: bool) -> None:
+        if self._reaction_ts is None:
+            return
+        if is_error:
+            await set_error(
+                self._client,
+                channel_id=self._channel_id,
+                ts=self._reaction_ts,
+            )
+            return
+        await set_complete(
+            self._client,
+            channel_id=self._channel_id,
+            ts=self._reaction_ts,
+        )
+
+    def _next_task_id(self) -> str:
+        self._task_counter += 1
+        return f"task_{self._task_counter}"
+
+    @staticmethod
+    def _tool_title(tool_name: str | None) -> str:
+        if not tool_name:
+            return "Tool call"
+        if "." in tool_name:
+            return tool_name.split(".")[-1].replace("_", " ").strip().title()
+        return tool_name.replace("_", " ").strip().title()
+
+    @staticmethod
+    def _coerce_output_text(value: Any, *, max_len: int = 1200) -> str:
+        if isinstance(value, str):
+            output = value
+        else:
+            try:
+                output = json.dumps(value, default=str)
+            except TypeError:
+                output = str(value)
+        if len(output) <= max_len:
+            return output
+        return f"{output[:max_len]}..."
+
+    @staticmethod
+    def _parse_json_if_possible(value: str) -> Any:
+        stripped = value.strip()
+        if not stripped or stripped[0] not in "{[":
+            return value
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            return value
+
+    @classmethod
+    def _normalize_tool_output(cls, value: Any) -> Any:
+        if isinstance(value, list) and value:
+            text_parts: list[str] = []
+            for item in value:
+                if (
+                    isinstance(item, dict)
+                    and item.get("type") == "text"
+                    and isinstance(item.get("text"), str)
+                ):
+                    text_parts.append(item["text"])
+                else:
+                    return value
+            joined = "\n".join(part.strip() for part in text_parts if part.strip())
+            return cls._parse_json_if_possible(joined)
+
+        if isinstance(value, str):
+            return cls._parse_json_if_possible(value)
+
+        return value
+
+    @classmethod
+    def _format_tool_output(
+        cls, value: Any, *, is_error: bool, max_len: int = 3000
+    ) -> str | None:
+        normalized = cls._normalize_tool_output(value)
+
+        if normalized is None:
+            return None
+
+        if isinstance(normalized, (dict, list)):
+            formatted = json.dumps(normalized, indent=2, sort_keys=True, default=str)
+            formatted = cls._coerce_output_text(formatted, max_len=max_len)
+            return f"```json\n{formatted}\n```"
+
+        # Keep scalar outputs as-is (including errors), just cap extreme length.
+        formatted = cls._coerce_output_text(normalized, max_len=max_len)
+        return f"```\n{formatted}\n```"
+
+    def _resolve_task(
+        self, *, tool_call_id: str | None, tool_name: str | None
+    ) -> tuple[str, str]:
+        if tool_call_id and tool_call_id in self._tool_task_by_call_id:
+            return self._tool_task_by_call_id[tool_call_id]
+
+        task_id = tool_call_id or self._next_task_id()
+        title = self._tool_title(tool_name)
+        if tool_call_id:
+            self._tool_task_by_call_id[tool_call_id] = (task_id, title)
+        return task_id, title
+
+    async def _emit_task_update(
+        self,
+        *,
+        tool_call_id: str | None,
+        tool_name: str | None,
+        status: str,
+        details: str | None = None,
+        output: Any | None = None,
+    ) -> None:
+        task_id, title = self._resolve_task(
+            tool_call_id=tool_call_id, tool_name=tool_name
+        )
+        if status == "in_progress":
+            if task_id in self._tool_in_progress_emitted:
+                return
+            self._tool_in_progress_emitted.add(task_id)
+        elif status in {"complete", "error"}:
+            self._tool_in_progress_emitted.discard(task_id)
+
+        chunk: dict[str, Any] = {
+            "type": "task_update",
+            "id": task_id,
+            "title": title,
+            "status": status,
+        }
+        if details:
+            chunk["details"] = details
+        if output is not None:
+            formatted_output = self._format_tool_output(
+                output, is_error=(status == "error")
+            )
+            if formatted_output:
+                chunk["output"] = formatted_output
+        logger.info(
+            "Sending Slack task_update chunk",
+            session_id=self._session_id,
+            workspace_id=self._workspace_id,
+            task_id=task_id,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            status=status,
+        )
+        await self._append_chunks([chunk])
+
     async def _stop_stream(self, *, final_error_text: str | None = None) -> None:
         if self._is_closed:
             return
 
-        await self._flush_delta_buffer(force=True)
-        if final_error_text:
-            await self._append_stream_text(final_error_text)
-
-        if self._stream_ts is None:
-            self._is_closed = True
-            return
-
+        is_error = final_error_text is not None
         try:
-            await self._client.api_call(
-                api_method="chat.stopStream",
-                params={
-                    "channel": self._channel_id,
-                    "ts": self._stream_ts,
-                    "metadata": self._metadata,
-                },
-            )
-            self._is_closed = True
-            return
-        except SlackApiError as exc:
-            logger.warning(
-                "Slack stopStream with metadata failed; attempting fallback",
-                session_id=self._session_id,
-                workspace_id=self._workspace_id,
-                error=str(exc),
-            )
+            await self._flush_delta_buffer(force=True)
+            if final_error_text:
+                await self._append_stream_text(final_error_text)
 
-        try:
-            await self._client.api_call(
-                api_method="chat.stopStream",
-                params={"channel": self._channel_id, "ts": self._stream_ts},
-            )
-        except SlackApiError as exc:
-            logger.warning(
-                "Slack stopStream fallback failed",
-                session_id=self._session_id,
-                workspace_id=self._workspace_id,
-                error=str(exc),
-            )
+            if self._stream_ts is None:
+                return
 
-        try:
-            await self._client.api_call(
-                api_method="chat.update",
-                params={
-                    "channel": self._channel_id,
-                    "ts": self._stream_ts,
-                    "text": self._final_text or " ",
-                    "metadata": self._metadata,
-                },
-            )
-        except SlackApiError as exc:
-            logger.warning(
-                "Slack chat.update metadata fallback failed",
-                session_id=self._session_id,
-                workspace_id=self._workspace_id,
-                error=str(exc),
-            )
+            try:
+                await self._client.api_call(
+                    api_method="chat.stopStream",
+                    json={
+                        "channel": self._channel_id,
+                        "ts": self._stream_ts,
+                        "metadata": json.dumps(self._metadata),
+                    },
+                )
+                return
+            except SlackApiError as exc:
+                logger.warning(
+                    "Slack stopStream with metadata failed; attempting fallback",
+                    session_id=self._session_id,
+                    workspace_id=self._workspace_id,
+                    error=str(exc),
+                )
+
+            try:
+                await self._client.api_call(
+                    api_method="chat.stopStream",
+                    json={"channel": self._channel_id, "ts": self._stream_ts},
+                )
+            except SlackApiError as exc:
+                logger.warning(
+                    "Slack stopStream fallback failed",
+                    session_id=self._session_id,
+                    workspace_id=self._workspace_id,
+                    error=str(exc),
+                )
+
+            try:
+                await self._client.api_call(
+                    api_method="chat.update",
+                    json={
+                        "channel": self._channel_id,
+                        "ts": self._stream_ts,
+                        "text": self._final_text or " ",
+                        "metadata": self._metadata,
+                    },
+                )
+            except SlackApiError as exc:
+                logger.warning(
+                    "Slack chat.update metadata fallback failed",
+                    session_id=self._session_id,
+                    workspace_id=self._workspace_id,
+                    error=str(exc),
+                )
         finally:
+            await self._set_terminal_reaction(is_error=is_error)
             self._is_closed = True
 
     async def append(self, event: UnifiedStreamEvent) -> None:
         if self._is_closed:
             return
 
+        if event.type not in (StreamEventType.DONE, StreamEventType.ERROR):
+            await self._set_in_progress_reaction()
+
         if event.type is StreamEventType.TEXT_DELTA and event.text:
             self._delta_buffer.append(event.text)
             await self._flush_delta_buffer(force=False)
             return
 
-        if event.type in (StreamEventType.TEXT_STOP, StreamEventType.DONE):
+        if event.type in (
+            StreamEventType.TOOL_CALL_START,
+            StreamEventType.TOOL_CALL_STOP,
+        ):
+            await self._flush_delta_buffer(force=True)
+            await self._emit_task_update(
+                tool_call_id=event.tool_call_id,
+                tool_name=event.tool_name,
+                status="in_progress",
+            )
+            return
+
+        if event.type is StreamEventType.TOOL_RESULT:
+            if (
+                event.is_error
+                and event.tool_call_id is not None
+                and event.tool_call_id in self._pending_approval_tool_ids
+            ):
+                logger.info(
+                    "Ignoring transient tool error for pending approval",
+                    session_id=self._session_id,
+                    workspace_id=self._workspace_id,
+                    tool_call_id=event.tool_call_id,
+                    tool_name=event.tool_name,
+                )
+                return
+
+            if event.tool_call_id is not None:
+                self._pending_approval_tool_ids.discard(event.tool_call_id)
+
+            await self._flush_delta_buffer(force=True)
+            await self._emit_task_update(
+                tool_call_id=event.tool_call_id,
+                tool_name=event.tool_name,
+                status="error" if event.is_error else "complete",
+                output=event.tool_output,
+            )
+            return
+
+        if event.type is StreamEventType.APPROVAL_REQUEST and event.approval_items:
+            await self._flush_delta_buffer(force=True)
+            chunks: list[dict[str, Any]] = []
+            for item in event.approval_items:
+                self._pending_approval_tool_ids.add(item.id)
+                task_id, title = self._resolve_task(
+                    tool_call_id=item.id,
+                    tool_name=item.name,
+                )
+                chunks.append(
+                    {
+                        "type": "task_update",
+                        "id": task_id,
+                        "title": title,
+                        "status": "pending",
+                        "details": "Waiting for approval",
+                    }
+                )
+            await self._append_chunks(chunks)
+            return
+
+        if event.type is StreamEventType.TEXT_STOP:
+            await self._flush_delta_buffer(force=True)
+            return
+
+        if event.type is StreamEventType.DONE:
             await self._stop_stream()
             return
 

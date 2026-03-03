@@ -98,7 +98,6 @@ def downgrade() -> None:
     op.drop_index(
         "ix_agent_channel_token_agent_preset_id_channel_type_active",
         table_name="agent_channel_token",
-        postgresql_where=sa.text("is_active IS TRUE"),
     )
     op.drop_index(
         op.f("ix_agent_channel_token_agent_preset_id"), table_name="agent_channel_token"

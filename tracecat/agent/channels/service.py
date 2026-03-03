@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
+import json
+import os
 import secrets
+import time
 import uuid
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlencode
 
+from cryptography.fernet import InvalidToken
 from pydantic import ValidationError
+from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -21,10 +29,33 @@ from tracecat.agent.channels.schemas import (
 )
 from tracecat.db.models import AgentChannelToken, AgentPreset
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseWorkspaceService
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
+
+PENDING_SLACK_BOT_TOKEN = "__tracecat_pending_bot_token__"
+REDACTED_SLACK_SECRET = "********"
+REDACTED_SLACK_SIGNING_SECRET_PREFIX = "__tracecat_pending_signing_secret__"
+ENCRYPTED_CONFIG_VALUE_PREFIX = "__tracecat_encrypted__:"
+SLACK_ENCRYPTED_CONFIG_FIELDS = (
+    "slack_bot_token",
+    "slack_client_secret",
+    "slack_signing_secret",
+)
+SLACK_OAUTH_STATE_TTL_SECONDS = 10 * 60
+SLACK_OAUTH_SCOPES = (
+    "app_mentions:read",
+    "channels:history",
+    "chat:write",
+    "chat:write.customize",
+    "groups:history",
+    "im:history",
+    "mpim:history",
+    "reactions:read",
+    "reactions:write",
+)
 
 
 class AgentChannelService(BaseWorkspaceService):
@@ -40,6 +71,47 @@ class AgentChannelService(BaseWorkspaceService):
                 "TRACECAT__SIGNING_SECRET must be set to use agent channel tokens"
             )
         return signing_secret
+
+    @staticmethod
+    def _require_db_encryption_key() -> str:
+        encryption_key = (
+            os.environ.get("TRACECAT__DB_ENCRYPTION_KEY")
+            or config.TRACECAT__DB_ENCRYPTION_KEY
+        )
+        if not encryption_key:
+            raise TracecatValidationError(
+                "TRACECAT__DB_ENCRYPTION_KEY must be set to use agent channel tokens"
+            )
+        return encryption_key
+
+    @classmethod
+    def _encrypt_config_value(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        encrypted = encrypt_value(
+            value.encode("utf-8"),
+            key=cls._require_db_encryption_key(),
+        ).decode("utf-8")
+        return f"{ENCRYPTED_CONFIG_VALUE_PREFIX}{encrypted}"
+
+    @classmethod
+    def _decrypt_config_value(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.startswith(ENCRYPTED_CONFIG_VALUE_PREFIX):
+            # Backward compatibility for existing plaintext DB rows.
+            return value
+        encrypted = value.removeprefix(ENCRYPTED_CONFIG_VALUE_PREFIX)
+        try:
+            decrypted = decrypt_value(
+                encrypted.encode("utf-8"),
+                key=cls._require_db_encryption_key(),
+            )
+        except InvalidToken as exc:
+            raise TracecatValidationError(
+                "Failed to decrypt stored Slack channel config"
+            ) from exc
+        return decrypted.decode("utf-8")
 
     @staticmethod
     def _validate_hex(value: str, *, expected_len: int, field_name: str) -> str:
@@ -98,6 +170,109 @@ class AgentChannelService(BaseWorkspaceService):
             f"{channel_type.value}/{public_token}"
         )
 
+    @classmethod
+    def build_slack_oauth_redirect_uri(cls) -> str:
+        return f"{config.TRACECAT__PUBLIC_API_URL}/agent/channels/slack/oauth/callback"
+
+    @classmethod
+    def build_slack_oauth_authorization_url(cls, *, client_id: str, state: str) -> str:
+        query = urlencode(
+            {
+                "client_id": client_id,
+                "scope": ",".join(SLACK_OAUTH_SCOPES),
+                "state": state,
+                "redirect_uri": cls.build_slack_oauth_redirect_uri(),
+            }
+        )
+        return f"https://slack.com/oauth/v2/authorize?{query}"
+
+    @classmethod
+    def create_slack_oauth_state(
+        cls,
+        *,
+        token_id: uuid.UUID,
+        workspace_id: uuid.UUID,
+        return_url: str,
+    ) -> str:
+        payload_json = json.dumps(
+            {
+                "token_id": str(token_id),
+                "workspace_id": str(workspace_id),
+                "return_url": return_url,
+                "exp": int(time.time()) + SLACK_OAUTH_STATE_TTL_SECONDS,
+            },
+            separators=(",", ":"),
+        )
+        payload_b64 = (
+            base64.urlsafe_b64encode(payload_json.encode()).decode().rstrip("=")
+        )
+        signature = hmac.new(
+            cls._require_signing_secret().encode(),
+            payload_b64.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        return f"{payload_b64}.{signature}"
+
+    @classmethod
+    def parse_slack_oauth_state(cls, state: str) -> dict[str, str]:
+        if state.count(".") != 1:
+            raise TracecatValidationError("Invalid OAuth state")
+        payload_b64, signature = state.split(".", maxsplit=1)
+        expected_signature = hmac.new(
+            cls._require_signing_secret().encode(),
+            payload_b64.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        if not secrets.compare_digest(signature, expected_signature):
+            raise TracecatValidationError("Invalid OAuth state")
+
+        padding = "=" * (-len(payload_b64) % 4)
+        try:
+            payload_bytes = base64.urlsafe_b64decode(payload_b64 + padding)
+            payload = json.loads(payload_bytes.decode())
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise TracecatValidationError("Invalid OAuth state") from exc
+
+        token_id = payload.get("token_id")
+        workspace_id = payload.get("workspace_id")
+        return_url = payload.get("return_url")
+        exp = payload.get("exp")
+        if (
+            not isinstance(token_id, str)
+            or not isinstance(workspace_id, str)
+            or not isinstance(return_url, str)
+            or not isinstance(exp, int)
+        ):
+            raise TracecatValidationError("Invalid OAuth state")
+        if exp < int(time.time()):
+            raise TracecatValidationError("OAuth state expired")
+        return {
+            "token_id": token_id,
+            "workspace_id": workspace_id,
+            "return_url": return_url,
+        }
+
+    @classmethod
+    async def exchange_slack_oauth_code(
+        cls,
+        *,
+        client_id: str,
+        client_secret: str,
+        code: str,
+    ) -> str:
+        response = await AsyncWebClient().oauth_v2_access(
+            client_id=client_id,
+            client_secret=client_secret,
+            code=code,
+            redirect_uri=cls.build_slack_oauth_redirect_uri(),
+        )
+        access_token = response.get("access_token")
+        if not isinstance(access_token, str) or not access_token:
+            raise TracecatValidationError(
+                "Slack OAuth response missing bot access token"
+            )
+        return access_token
+
     @staticmethod
     def _validate_channel_config(
         channel_type: ChannelType,
@@ -112,6 +287,70 @@ class AgentChannelService(BaseWorkspaceService):
                 raise TracecatValidationError("Invalid Slack channel config") from exc
 
         raise TracecatValidationError(f"Unsupported channel type: {channel_type.value}")
+
+    @classmethod
+    def serialize_channel_config_for_storage(
+        cls,
+        *,
+        channel_type: ChannelType,
+        config: SlackChannelTokenConfig,
+    ) -> dict[str, Any]:
+        if channel_type is ChannelType.SLACK:
+            payload = config.model_dump()
+            for field in SLACK_ENCRYPTED_CONFIG_FIELDS:
+                raw_value = payload.get(field)
+                if raw_value is not None and not isinstance(raw_value, str):
+                    raise TracecatValidationError("Invalid Slack channel config")
+                payload[field] = cls._encrypt_config_value(raw_value)
+            return payload
+
+        raise TracecatValidationError(f"Unsupported channel type: {channel_type.value}")
+
+    @classmethod
+    def parse_stored_channel_config(
+        cls,
+        *,
+        channel_type: ChannelType,
+        config_payload: dict[str, Any] | SlackChannelTokenConfig,
+    ) -> SlackChannelTokenConfig:
+        if channel_type is ChannelType.SLACK:
+            if isinstance(config_payload, SlackChannelTokenConfig):
+                return config_payload
+            if not isinstance(config_payload, dict):
+                raise TracecatValidationError("Invalid Slack channel config")
+
+            payload = dict(config_payload)
+            for field in SLACK_ENCRYPTED_CONFIG_FIELDS:
+                raw_value = payload.get(field)
+                if raw_value is not None and not isinstance(raw_value, str):
+                    raise TracecatValidationError("Invalid Slack channel config")
+                payload[field] = cls._decrypt_config_value(raw_value)
+
+            return cls._validate_channel_config(channel_type, payload)
+
+        raise TracecatValidationError(f"Unsupported channel type: {channel_type.value}")
+
+    @staticmethod
+    def _redact_slack_config(
+        config: SlackChannelTokenConfig,
+    ) -> SlackChannelTokenConfig:
+        redacted_signing_secret = (
+            config.slack_signing_secret
+            if config.slack_signing_secret.startswith(
+                REDACTED_SLACK_SIGNING_SECRET_PREFIX
+            )
+            else f"{REDACTED_SLACK_SIGNING_SECRET_PREFIX}redacted"
+        )
+        return SlackChannelTokenConfig(
+            slack_bot_token=(
+                PENDING_SLACK_BOT_TOKEN
+                if config.slack_bot_token == PENDING_SLACK_BOT_TOKEN
+                else REDACTED_SLACK_SECRET
+            ),
+            slack_client_id=config.slack_client_id,
+            slack_client_secret=None,
+            slack_signing_secret=redacted_signing_secret,
+        )
 
     async def _require_workspace_preset(self, preset_id: uuid.UUID) -> None:
         stmt = select(AgentPreset.id).where(
@@ -130,12 +369,22 @@ class AgentChannelService(BaseWorkspaceService):
         validated_config = self._validate_channel_config(
             params.channel_type, params.config
         )
+        if (
+            params.is_active
+            and validated_config.slack_bot_token == PENDING_SLACK_BOT_TOKEN
+        ):
+            raise TracecatValidationError(
+                "Cannot activate token without Slack bot token"
+            )
 
         token = AgentChannelToken(
             workspace_id=self.workspace_id,
             agent_preset_id=params.agent_preset_id,
             channel_type=params.channel_type.value,
-            config=validated_config.model_dump(),
+            config=self.serialize_channel_config_for_storage(
+                channel_type=params.channel_type,
+                config=validated_config,
+            ),
             is_active=params.is_active,
         )
         self.session.add(token)
@@ -195,15 +444,37 @@ class AgentChannelService(BaseWorkspaceService):
         self, token: AgentChannelToken, params: AgentChannelTokenUpdate
     ) -> AgentChannelToken:
         set_fields = params.model_dump(exclude_unset=True)
+        validated_config: SlackChannelTokenConfig | None = None
+        channel_type = ChannelType(token.channel_type)
 
         if "config" in set_fields and set_fields["config"] is not None:
             validated_config = self._validate_channel_config(
-                ChannelType(token.channel_type), set_fields["config"]
+                channel_type, set_fields["config"]
             )
-            token.config = validated_config.model_dump()
+            token.config = self.serialize_channel_config_for_storage(
+                channel_type=channel_type,
+                config=validated_config,
+            )
+
+        next_is_active = token.is_active
+        if "is_active" in set_fields:
+            if set_fields["is_active"] is None:
+                raise TracecatValidationError("is_active cannot be null")
+            next_is_active = set_fields["is_active"]
+
+        current_config = validated_config
+        if current_config is None:
+            current_config = self.parse_stored_channel_config(
+                channel_type=channel_type,
+                config_payload=token.config,
+            )
+        if next_is_active and current_config.slack_bot_token == PENDING_SLACK_BOT_TOKEN:
+            raise TracecatValidationError(
+                "Cannot activate token without Slack bot token"
+            )
 
         if "is_active" in set_fields:
-            token.is_active = set_fields["is_active"]
+            token.is_active = next_is_active
 
         self.session.add(token)
         try:
@@ -230,24 +501,30 @@ class AgentChannelService(BaseWorkspaceService):
         await self.session.commit()
 
     @classmethod
-    async def get_active_token_for_public_request(
+    async def get_token_for_public_request(
         cls,
         session: AsyncSession,
         *,
         token_id: uuid.UUID,
         channel_type: ChannelType,
+        require_active: bool = True,
     ) -> AgentChannelToken | None:
         stmt = select(AgentChannelToken).where(
             AgentChannelToken.id == token_id,
             AgentChannelToken.channel_type == channel_type.value,
-            AgentChannelToken.is_active.is_(True),
         )
+        if require_active:
+            stmt = stmt.where(AgentChannelToken.is_active.is_(True))
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
     def to_read(self, token: AgentChannelToken) -> AgentChannelTokenRead:
         channel_type = ChannelType(token.channel_type)
-        validated_config = self._validate_channel_config(channel_type, token.config)
+        validated_config = self.parse_stored_channel_config(
+            channel_type=channel_type,
+            config_payload=token.config,
+        )
+        redacted_config = self._redact_slack_config(validated_config)
         public_token = self.create_public_token(token.id)
         endpoint_url = self.build_endpoint_url(channel_type, public_token)
         return AgentChannelTokenRead(
@@ -255,7 +532,7 @@ class AgentChannelService(BaseWorkspaceService):
             workspace_id=token.workspace_id,
             agent_preset_id=token.agent_preset_id,
             channel_type=channel_type,
-            config=validated_config,
+            config=redacted_config,
             is_active=token.is_active,
             public_token=public_token,
             endpoint_url=endpoint_url,

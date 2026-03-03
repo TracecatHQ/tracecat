@@ -167,6 +167,16 @@ class SandboxedAgentExecutor:
             )
             handler = LoopbackHandler(input=loopback_input)
 
+            async def emit_stream_error(error_msg: str) -> None:
+                """Emit errors through the same sink abstraction as loopback."""
+                try:
+                    await handler.emit_terminal_error(error_msg)
+                except Exception:
+                    logger.warning(
+                        "Failed to emit terminal stream error",
+                        session_id=self.input.session_id,
+                    )
+
             # Future to capture loopback result
             self._loopback_result = asyncio.get_running_loop().create_future()
 
@@ -277,6 +287,17 @@ class SandboxedAgentExecutor:
                 process_exit_task = asyncio.create_task(wait_process_exit())
 
                 try:
+
+                    def _apply_loopback_result(loopback_result: Any) -> None:
+                        """Copy loopback result fields into the activity result."""
+                        result.success = loopback_result.success
+                        result.error = loopback_result.error
+                        result.approval_requested = loopback_result.approval_requested
+                        result.approval_items = loopback_result.approval_items or None
+                        result.output = loopback_result.output
+                        result.result_usage = loopback_result.result_usage
+                        result.result_num_turns = loopback_result.result_num_turns
+
                     while elapsed < self.timeout_seconds:
                         # Wait for either loopback result, fatal error, or process exit
                         done, _ = await asyncio.wait(
@@ -318,24 +339,51 @@ class SandboxedAgentExecutor:
                             if self._process and self._process.returncode is None:
                                 self._process.kill()
 
-                            # Send error to stream
-                            try:
-                                stream = await AgentStream.new(
-                                    session_id=self.input.session_id,
-                                    workspace_id=self.input.workspace_id,
-                                )
-                                await stream.error(error_msg)
-                            except Exception:
-                                pass
+                            await emit_stream_error(error_msg)
                             break
 
-                        # Check if process exited before connecting (crash)
+                        # Check if process exited before loopback completion
                         if (
                             process_exit_task in done
                             and not self._loopback_result.done()
                         ):
-                            # Process exited without connecting to loopback
                             returncode, stderr = process_exit_task.result()
+                            if returncode == 0:
+                                # Graceful process exit can race with loopback future resolution.
+                                # Give loopback a short window to finish before treating as an error.
+                                logger.warning(
+                                    "Runtime exited before loopback future was ready; waiting briefly",
+                                    returncode=returncode,
+                                    session_id=self.input.session_id,
+                                )
+                                try:
+                                    loopback_result = await asyncio.wait_for(
+                                        asyncio.shield(self._loopback_result),
+                                        timeout=5.0,
+                                    )
+                                except TimeoutError:
+                                    error_msg = (
+                                        "Runtime exited cleanly but loopback result "
+                                        "was not received"
+                                    )
+                                    logger.error(
+                                        "Missing loopback result after clean runtime exit",
+                                        returncode=returncode,
+                                        session_id=self.input.session_id,
+                                    )
+                                    result.error = error_msg
+                                    await emit_stream_error(error_msg)
+                                    break
+
+                                logger.info(
+                                    "Loopback result received after clean runtime exit",
+                                    success=loopback_result.success,
+                                    error=loopback_result.error,
+                                )
+                                _apply_loopback_result(loopback_result)
+                                break
+
+                            # Non-zero exit code before loopback completion: treat as crash
                             # Log stderr - show last 4000 chars which typically contain the actual error
                             # (NSJail mount logs consume the beginning)
                             if stderr:
@@ -358,15 +406,7 @@ class SandboxedAgentExecutor:
                             )
                             result.error = error_msg
 
-                            # Send error to stream
-                            try:
-                                stream = await AgentStream.new(
-                                    session_id=self.input.session_id,
-                                    workspace_id=self.input.workspace_id,
-                                )
-                                await stream.error(error_msg)
-                            except Exception:
-                                pass
+                            await emit_stream_error(error_msg)
                             break
 
                         # Loopback completed
@@ -376,13 +416,7 @@ class SandboxedAgentExecutor:
                             success=loopback_result.success,
                             error=loopback_result.error,
                         )
-                        result.success = loopback_result.success
-                        result.error = loopback_result.error
-                        result.approval_requested = loopback_result.approval_requested
-                        result.approval_items = loopback_result.approval_items or None
-                        result.output = loopback_result.output
-                        result.result_usage = loopback_result.result_usage
-                        result.result_num_turns = loopback_result.result_num_turns
+                        _apply_loopback_result(loopback_result)
                         break
                     else:
                         # Exceeded total timeout
@@ -390,14 +424,7 @@ class SandboxedAgentExecutor:
                         result.error = (
                             f"Agent execution timed out after {self.timeout_seconds}s"
                         )
-                        try:
-                            stream = await AgentStream.new(
-                                session_id=self.input.session_id,
-                                workspace_id=self.input.workspace_id,
-                            )
-                            await stream.error(result.error)
-                        except Exception:
-                            pass
+                        await emit_stream_error(result.error)
 
                 except asyncio.CancelledError:
                     logger.error(

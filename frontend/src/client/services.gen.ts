@@ -89,6 +89,8 @@ import type {
   AgentChannelsListChannelTokensResponse,
   AgentChannelsRotateChannelTokenData,
   AgentChannelsRotateChannelTokenResponse,
+  AgentChannelsStartSlackOauthData,
+  AgentChannelsStartSlackOauthResponse,
   AgentChannelsUpdateChannelTokenData,
   AgentChannelsUpdateChannelTokenResponse,
   AgentCreateProviderCredentialsData,
@@ -377,6 +379,8 @@ import type {
   PublicCheckReadyResponse,
   PublicHandleChannelEventData,
   PublicHandleChannelEventResponse,
+  PublicHandleSlackOauthCallbackData,
+  PublicHandleSlackOauthCallbackResponse,
   PublicIncomingWebhookDraftData,
   PublicIncomingWebhookDraftResponse,
   PublicIncomingWebhookGetData,
@@ -919,6 +923,34 @@ export const publicHandleChannelEvent = (
     path: {
       channel_type: data.channelType,
       token: data.token,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Handle Slack Oauth Callback
+ * @param data The data for the request.
+ * @param data.state
+ * @param data.code
+ * @param data.error
+ * @param data.errorDescription
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const publicHandleSlackOauthCallback = (
+  data: PublicHandleSlackOauthCallbackData
+): CancelablePromise<PublicHandleSlackOauthCallbackResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/channels/slack/oauth/callback",
+    query: {
+      code: data.code,
+      state: data.state,
+      error: data.error,
+      error_description: data.errorDescription,
     },
     errors: {
       422: "Validation Error",
@@ -4091,6 +4123,31 @@ export const agentChannelsRotateChannelToken = (
     query: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Start Slack Oauth
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns SlackOAuthStartResponse Successful Response
+ * @throws ApiError
+ */
+export const agentChannelsStartSlackOauth = (
+  data: AgentChannelsStartSlackOauthData
+): CancelablePromise<AgentChannelsStartSlackOauthResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/channels/tokens/slack/oauth/start",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

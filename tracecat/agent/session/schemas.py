@@ -39,10 +39,6 @@ class AgentSessionCreate(BaseModel):
         ...,
         description="ID of the associated entity",
     )
-    channel_context: dict[str, Any] | None = Field(
-        default=None,
-        description="External channel metadata used to resume a session thread",
-    )
     tools: list[str] | None = Field(
         default=None,
         description="Tools available to the agent for this session",

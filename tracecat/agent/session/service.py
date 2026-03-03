@@ -85,11 +85,14 @@ class AgentSessionService(BaseWorkspaceService):
     async def create_session(
         self,
         args: AgentSessionCreate,
+        *,
+        channel_context: dict[str, Any] | None = None,
     ) -> AgentSession:
         """Create a new agent session.
 
         Args:
             args: Session creation parameters.
+            channel_context: Trusted external channel metadata to bind to session.
 
         Returns:
             The created AgentSession model.
@@ -106,7 +109,7 @@ class AgentSessionService(BaseWorkspaceService):
             created_by=self.role.user_id,
             entity_type=args.entity_type.value,
             entity_id=args.entity_id,
-            channel_context=args.channel_context,
+            channel_context=channel_context,
             tools=tools,
             agent_preset_id=args.agent_preset_id,
             # Harness

@@ -1753,19 +1753,6 @@ export const $AgentSessionCreate = {
       title: "Entity Id",
       description: "ID of the associated entity",
     },
-    channel_context: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Channel Context",
-      description: "External channel metadata used to resume a session thread",
-    },
     tools: {
       anyOf: [
         {
@@ -16579,6 +16566,32 @@ export const $SlackChannelTokenConfig = {
       title: "Slack Bot Token",
       description: "Slack bot token used for API calls",
     },
+    slack_client_id: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slack Client Id",
+      description: "Slack app client ID used for OAuth install",
+    },
+    slack_client_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slack Client Secret",
+      description: "Slack app client secret used for OAuth install",
+    },
     slack_signing_secret: {
       type: "string",
       minLength: 1,
@@ -16590,6 +16603,80 @@ export const $SlackChannelTokenConfig = {
   required: ["slack_bot_token", "slack_signing_secret"],
   title: "SlackChannelTokenConfig",
   description: "Slack channel token configuration.",
+} as const
+
+export const $SlackOAuthStartRequest = {
+  properties: {
+    token_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token Id",
+      description: "Existing channel token ID. If omitted, creates one.",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+      description: "Agent preset to associate with the channel token.",
+    },
+    client_id: {
+      type: "string",
+      minLength: 1,
+      title: "Client Id",
+      description: "Slack app client ID",
+    },
+    client_secret: {
+      type: "string",
+      minLength: 1,
+      title: "Client Secret",
+      description: "Slack app client secret",
+    },
+    signing_secret: {
+      type: "string",
+      minLength: 1,
+      title: "Signing Secret",
+      description: "Slack app signing secret",
+    },
+    return_url: {
+      type: "string",
+      minLength: 1,
+      title: "Return Url",
+      description: "URL to return users to after OAuth callback",
+    },
+  },
+  type: "object",
+  required: [
+    "agent_preset_id",
+    "client_id",
+    "client_secret",
+    "signing_secret",
+    "return_url",
+  ],
+  title: "SlackOAuthStartRequest",
+  description: "Request schema for starting Slack OAuth install flow.",
+} as const
+
+export const $SlackOAuthStartResponse = {
+  properties: {
+    authorization_url: {
+      type: "string",
+      title: "Authorization Url",
+    },
+    token: {
+      $ref: "#/components/schemas/AgentChannelTokenRead",
+    },
+  },
+  type: "object",
+  required: ["authorization_url", "token"],
+  title: "SlackOAuthStartResponse",
+  description: "Response schema for Slack OAuth start.",
 } as const
 
 export const $SourceDocumentUIPart = {

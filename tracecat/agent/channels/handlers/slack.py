@@ -9,13 +9,14 @@ from typing import Any
 
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.channels.handlers.slack_helpers import (
     SlackAlreadyAcknowledgedError,
     ack_event,
     notify_error,
-    remove_ack,
+    set_in_progress,
 )
 from tracecat.agent.channels.schemas import (
     ChannelType,
@@ -27,6 +28,7 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import BasicChatRequest
+from tracecat.db.models import AgentSession
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 
@@ -48,6 +50,8 @@ class SlackAppMentionContext:
     def to_channel_context(self) -> SlackChannelContext:
         return {
             "channel_type": ChannelType.SLACK.value,
+            # Use the actual message ts for reactions in downstream sinks.
+            "message_ts": self.ts,
             "team_id": self.team_id,
             "channel_id": self.channel_id,
             "thread_ts": self.thread_ts,
@@ -173,6 +177,54 @@ class SlackChannelHandler:
                 continue
         return None
 
+    async def _resolve_session_id_from_channel_context(
+        self,
+        *,
+        token: ValidatedChannelToken,
+        context: SlackAppMentionContext,
+    ) -> uuid.UUID | None:
+        stmt = (
+            select(AgentSession.id)
+            .where(
+                AgentSession.workspace_id == token.workspace_id,
+                AgentSession.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL.value,
+                AgentSession.entity_id == token.agent_preset_id,
+                AgentSession.channel_context.is_not(None),
+                AgentSession.channel_context.contains(
+                    {
+                        "team_id": context.team_id,
+                        "channel_id": context.channel_id,
+                        "thread_ts": context.thread_ts,
+                    }
+                ),
+            )
+            .order_by(AgentSession.updated_at.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def _persist_session_channel_context(
+        self,
+        *,
+        token: ValidatedChannelToken,
+        context: SlackAppMentionContext,
+        session_id: uuid.UUID,
+    ) -> bool:
+        stmt = select(AgentSession).where(
+            AgentSession.id == session_id,
+            AgentSession.workspace_id == token.workspace_id,
+            AgentSession.entity_type == AgentSessionEntity.EXTERNAL_CHANNEL.value,
+            AgentSession.agent_preset_id == token.agent_preset_id,
+        )
+        result = await self.session.execute(stmt)
+        session_row = result.scalar_one_or_none()
+        if session_row is None:
+            return False
+        session_row.channel_context = dict(context.to_channel_context())
+        await self.session.commit()
+        return True
+
     async def _resolve_or_create_session(
         self,
         *,
@@ -187,19 +239,32 @@ class SlackChannelHandler:
             channel_id=context.channel_id,
             thread_ts=context.thread_ts,
         )
-        if session_id is not None:
-            existing = await session_service.get_session(session_id)
-            if existing is not None:
-                return existing.id
+        if session_id is not None and await self._persist_session_channel_context(
+            token=token,
+            context=context,
+            session_id=session_id,
+        ):
+            return session_id
+
+        session_id = await self._resolve_session_id_from_channel_context(
+            token=token,
+            context=context,
+        )
+        if session_id is not None and await self._persist_session_channel_context(
+            token=token,
+            context=context,
+            session_id=session_id,
+        ):
+            return session_id
 
         created = await session_service.create_session(
             AgentSessionCreate(
                 title="Slack thread",
                 entity_type=AgentSessionEntity.EXTERNAL_CHANNEL,
                 entity_id=token.agent_preset_id,
-                channel_context=dict(context.to_channel_context()),
                 agent_preset_id=token.agent_preset_id,
-            )
+            ),
+            channel_context=dict(context.to_channel_context()),
         )
         return created.id
 
@@ -225,19 +290,28 @@ class SlackChannelHandler:
             return
 
         context = self._parse_app_mention_context(payload)
-        dedup_client = await get_redis_client()
-        if await self._is_duplicate_event(
-            dedup_client,
-            team_id=context.team_id,
-            event_id=context.event_id,
-        ):
-            logger.info(
-                "Slack event already processed",
+        try:
+            dedup_client = await get_redis_client()
+            if await self._is_duplicate_event(
+                dedup_client,
+                team_id=context.team_id,
+                event_id=context.event_id,
+            ):
+                logger.info(
+                    "Slack event already processed",
+                    workspace_id=str(token.workspace_id),
+                    event_id=context.event_id,
+                    team_id=context.team_id,
+                )
+                return
+        except Exception as exc:
+            logger.warning(
+                "Slack dedup check failed; continuing without dedup",
                 workspace_id=str(token.workspace_id),
                 event_id=context.event_id,
                 team_id=context.team_id,
+                error=str(exc),
             )
-            return
 
         slack_client = AsyncWebClient(token=token.config.slack_bot_token)
         try:
@@ -284,7 +358,7 @@ class SlackChannelHandler:
                 logger.exception("Failed to notify Slack error state")
             return
         else:
-            await remove_ack(
+            await set_in_progress(
                 slack_client,
                 channel_id=context.channel_id,
                 ts=context.ts,

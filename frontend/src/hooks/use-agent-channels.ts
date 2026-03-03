@@ -11,6 +11,7 @@ import {
   type ChannelType,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import { client } from "@/lib/api"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 
 type ListChannelTokenParams = {
@@ -228,5 +229,57 @@ export function useDeleteAgentChannelToken(workspaceId: string) {
     deleteChannelToken,
     deleteChannelTokenIsPending,
     deleteChannelTokenError,
+  }
+}
+
+type SlackOAuthStartRequest = {
+  tokenId?: string
+  agentPresetId: string
+  clientId: string
+  clientSecret: string
+  signingSecret: string
+  returnUrl: string
+}
+
+type SlackOAuthStartResponse = {
+  authorization_url: string
+}
+
+export function useStartSlackOAuth(workspaceId: string) {
+  const {
+    mutateAsync: startSlackOAuth,
+    isPending: startSlackOAuthIsPending,
+    error: startSlackOAuthError,
+  } = useMutation<SlackOAuthStartResponse, Error, SlackOAuthStartRequest>({
+    mutationFn: async (params) => {
+      const response = await client.post<SlackOAuthStartResponse>(
+        "/agent/channels/tokens/slack/oauth/start",
+        {
+          token_id: params.tokenId,
+          agent_preset_id: params.agentPresetId,
+          client_id: params.clientId.trim(),
+          client_secret: params.clientSecret.trim(),
+          signing_secret: params.signingSecret.trim(),
+          return_url: params.returnUrl,
+        },
+        {
+          params: { workspace_id: workspaceId },
+        }
+      )
+      return response.data
+    },
+    onError: (error) => {
+      toast({
+        title: "Slack connect failed",
+        description: error.message,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    startSlackOAuth,
+    startSlackOAuthIsPending,
+    startSlackOAuthError,
   }
 }

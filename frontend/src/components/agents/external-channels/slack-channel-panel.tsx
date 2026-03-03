@@ -27,14 +27,13 @@ import {
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
-import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/use-toast"
 import {
   useAgentChannelTokens,
   useCreateAgentChannelToken,
   useDeleteAgentChannelToken,
   useRotateAgentChannelToken,
-  useUpdateAgentChannelToken,
+  useStartSlackOAuth,
 } from "@/hooks"
 import { copyToClipboard } from "@/lib/utils"
 
@@ -42,14 +41,37 @@ type SetupMethod = "existing" | "new"
 type DialogStage = "choose" | "guide" | "connect"
 const PROVISIONAL_BOT_TOKEN = "__tracecat_pending_bot_token__"
 const PROVISIONAL_SIGNING_SECRET_PREFIX = "__tracecat_pending_signing_secret__"
+type SlackChannelConfig = {
+  slack_bot_token: string
+  slack_signing_secret: string
+  slack_client_id?: string | null
+  slack_client_secret?: string | null
+}
 
 export function buildSlackManifest({
   endpointUrl,
+  oauthRedirectUrl,
   appName,
+  includeEventSubscriptions,
 }: {
   endpointUrl: string
+  oauthRedirectUrl: string
   appName: string
+  includeEventSubscriptions: boolean
 }): Record<string, unknown> {
+  const settings: Record<string, unknown> = {
+    interactivity: { is_enabled: false },
+    org_deploy_enabled: false,
+    socket_mode_enabled: false,
+    token_rotation_enabled: false,
+  }
+  if (includeEventSubscriptions) {
+    settings.event_subscriptions = {
+      request_url: endpointUrl,
+      bot_events: ["app_mention"],
+    }
+  }
+
   return {
     display_information: {
       name: `${appName} agent`,
@@ -64,7 +86,7 @@ export function buildSlackManifest({
       },
       bot_user: {
         display_name: `${appName} agent`,
-        always_online: false,
+        always_online: true,
       },
     },
     oauth_config: {
@@ -81,18 +103,20 @@ export function buildSlackManifest({
           "reactions:write",
         ],
       },
+      redirect_urls: [oauthRedirectUrl],
     },
-    settings: {
-      event_subscriptions: {
-        request_url: endpointUrl,
-        bot_events: ["app_mention"],
-      },
-      interactivity: { is_enabled: false },
-      org_deploy_enabled: false,
-      socket_mode_enabled: false,
-      token_rotation_enabled: false,
-    },
+    settings,
   }
+}
+
+function buildSlackOAuthRedirectUrlFromEndpoint(endpointUrl: string): string {
+  const marker = "/agent/channels/slack/"
+  const markerIndex = endpointUrl.indexOf(marker)
+  if (markerIndex === -1) {
+    return endpointUrl
+  }
+  const base = endpointUrl.slice(0, markerIndex)
+  return `${base}${marker}oauth/callback`
 }
 
 function SetupListItem({
@@ -138,19 +162,19 @@ export function SlackChannelPanel({
 
   const { createChannelToken, createChannelTokenIsPending } =
     useCreateAgentChannelToken(workspaceId)
-  const { updateChannelToken, updateChannelTokenIsPending } =
-    useUpdateAgentChannelToken(workspaceId)
   const { rotateChannelToken, rotateChannelTokenIsPending } =
     useRotateAgentChannelToken(workspaceId)
   const { deleteChannelToken, deleteChannelTokenIsPending } =
     useDeleteAgentChannelToken(workspaceId)
+  const { startSlackOAuth, startSlackOAuthIsPending } =
+    useStartSlackOAuth(workspaceId)
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogStage, setDialogStage] = useState<DialogStage>("choose")
   const [setupMethod, setSetupMethod] = useState<SetupMethod | null>(null)
-  const [slackBotToken, setSlackBotToken] = useState("")
+  const [slackClientId, setSlackClientId] = useState("")
+  const [slackClientSecret, setSlackClientSecret] = useState("")
   const [slackSigningSecret, setSlackSigningSecret] = useState("")
-  const [isActive, setIsActive] = useState(true)
   const [provisionedTokenId, setProvisionedTokenId] = useState<string | null>(
     null
   )
@@ -166,6 +190,13 @@ export function SlackChannelPanel({
 
   const tokenId = token?.id ?? provisionedTokenId
   const endpointUrl = token?.endpoint_url ?? provisionedEndpointUrl
+  const tokenConfig = token?.config as SlackChannelConfig | undefined
+  const oauthRedirectUrl = useMemo(() => {
+    if (!endpointUrl) {
+      return ""
+    }
+    return buildSlackOAuthRedirectUrlFromEndpoint(endpointUrl)
+  }, [endpointUrl])
   const manifestText = useMemo(() => {
     if (!endpointUrl) {
       return ""
@@ -173,41 +204,66 @@ export function SlackChannelPanel({
     return JSON.stringify(
       buildSlackManifest({
         endpointUrl,
+        oauthRedirectUrl,
         appName: preset?.name ?? "Tracecat",
+        includeEventSubscriptions: setupMethod !== "new",
       }),
       null,
       2
     )
-  }, [endpointUrl, preset?.name])
+  }, [endpointUrl, oauthRedirectUrl, preset?.name, setupMethod])
 
   const isBusy =
     createChannelTokenIsPending ||
-    updateChannelTokenIsPending ||
     rotateChannelTokenIsPending ||
-    deleteChannelTokenIsPending
+    deleteChannelTokenIsPending ||
+    startSlackOAuthIsPending
 
   useEffect(() => {
     if (!token) {
-      setSlackBotToken("")
+      setSlackClientId("")
+      setSlackClientSecret("")
       setSlackSigningSecret("")
-      setIsActive(true)
       return
     }
     setProvisionedTokenId(null)
     setProvisionedEndpointUrl("")
-    const tokenValue =
-      token.config.slack_bot_token === PROVISIONAL_BOT_TOKEN
-        ? ""
-        : token.config.slack_bot_token
-    const signingSecretValue = token.config.slack_signing_secret.startsWith(
+    setSlackClientId(tokenConfig?.slack_client_id ?? "")
+    setSlackClientSecret(tokenConfig?.slack_client_secret ?? "")
+    const signingSecretValue = tokenConfig?.slack_signing_secret.startsWith(
       PROVISIONAL_SIGNING_SECRET_PREFIX
     )
       ? ""
-      : token.config.slack_signing_secret
-    setSlackBotToken(tokenValue)
+      : (tokenConfig?.slack_signing_secret ?? "")
     setSlackSigningSecret(signingSecretValue)
-    setIsActive(token.is_active)
-  }, [token])
+  }, [token, tokenConfig])
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+    const url = new URL(window.location.href)
+    const slackConnectStatus = url.searchParams.get("slack_connect")
+    if (!slackConnectStatus) {
+      return
+    }
+    const message = url.searchParams.get("slack_message")
+    if (slackConnectStatus === "success") {
+      toast({
+        title: "Slack App connected",
+        description: "Your channel token is now active.",
+      })
+    } else {
+      toast({
+        title: "Slack App connection failed",
+        description: message || "Unable to complete Slack OAuth flow.",
+        variant: "destructive",
+      })
+    }
+    url.searchParams.delete("slack_connect")
+    url.searchParams.delete("slack_message")
+    window.history.replaceState({}, "", url.toString())
+  }, [])
 
   if (!preset) {
     return (
@@ -236,45 +292,35 @@ export function SlackChannelPanel({
     )
   }
 
-  async function handleSave(): Promise<void> {
+  async function handleConnectToSlack(): Promise<void> {
     const presetId = preset?.id
     if (!presetId) {
       return
     }
-    const botToken = slackBotToken.trim()
+    const clientId = slackClientId.trim()
+    const clientSecret = slackClientSecret.trim()
     const signingSecret = slackSigningSecret.trim()
-    if (!botToken || !signingSecret) {
+    if (!clientId || !clientSecret || !signingSecret) {
       toast({
         title: "Missing fields",
-        description: "Bot token and signing secret are required.",
+        description:
+          "Client ID, client secret, and signing secret are required.",
         variant: "destructive",
       })
       return
     }
-
-    if (tokenId) {
-      await updateChannelToken({
-        tokenId,
-        requestBody: {
-          config: {
-            slack_bot_token: botToken,
-            slack_signing_secret: signingSecret,
-          },
-          is_active: isActive,
-        },
-      })
+    if (typeof window === "undefined") {
       return
     }
-
-    await createChannelToken({
-      agent_preset_id: presetId,
-      channel_type: "slack",
-      config: {
-        slack_bot_token: botToken,
-        slack_signing_secret: signingSecret,
-      },
-      is_active: isActive,
+    const response = await startSlackOAuth({
+      tokenId: tokenId ?? undefined,
+      agentPresetId: presetId,
+      clientId,
+      clientSecret,
+      signingSecret,
+      returnUrl: window.location.href,
     })
+    window.location.assign(response.authorization_url)
   }
 
   async function handleRotate(): Promise<void> {
@@ -314,7 +360,7 @@ export function SlackChannelPanel({
       return
     }
 
-    await handleSave()
+    await handleConnectToSlack()
   }
 
   const integrationStatus = token?.is_active ? "Connected" : "Not connected"
@@ -325,13 +371,8 @@ export function SlackChannelPanel({
     if (!presetId) {
       return
     }
-    if (method === "existing") {
-      setDialogStage("connect")
-      return
-    }
-
     if (tokenId) {
-      setDialogStage("guide")
+      setDialogStage(method === "new" ? "guide" : "connect")
       return
     }
 
@@ -347,7 +388,7 @@ export function SlackChannelPanel({
       })
       setProvisionedTokenId(createdToken.id)
       setProvisionedEndpointUrl(createdToken.endpoint_url)
-      setDialogStage("guide")
+      setDialogStage(method === "new" ? "guide" : "connect")
     } catch {
       return
     }
@@ -412,7 +453,7 @@ export function SlackChannelPanel({
               ) : null}
               {dialogStage === "connect" ? (
                 <DialogDescription>
-                  Connect your Slack credentials.
+                  Enter your Slack app credentials to start OAuth install.
                 </DialogDescription>
               ) : null}
             </DialogHeader>
@@ -512,8 +553,8 @@ export function SlackChannelPanel({
                   />
                   <SetupListItem
                     index={3}
-                    title="Install and verify events"
-                    description="Install the app to your workspace and confirm app mentions are enabled."
+                    title="Install the app"
+                    description="Install to your workspace. You will add Event Subscriptions after connecting app credentials in Tracecat."
                   />
                 </div>
 
@@ -524,7 +565,7 @@ export function SlackChannelPanel({
                   <SetupListItem
                     index={4}
                     title='Continue with "Next"'
-                    description="Proceed to connect the bot token and signing secret."
+                    description="Proceed to connect your Client ID, client secret, and signing secret."
                   />
                 </div>
               </div>
@@ -548,13 +589,41 @@ export function SlackChannelPanel({
                   ) : null}
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-medium">Bot token</label>
+                  <label className="text-xs font-medium">
+                    OAuth redirect URL
+                  </label>
+                  <Input
+                    readOnly
+                    value={oauthRedirectUrl}
+                    placeholder="Will appear after initial connect"
+                  />
+                  {oauthRedirectUrl ? (
+                    <CopyButton
+                      value={oauthRedirectUrl}
+                      toastMessage="OAuth redirect URL copied"
+                      tooltipMessage="Copy OAuth redirect URL"
+                    />
+                  ) : null}
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-medium">Client ID</label>
+                  <Input
+                    value={slackClientId}
+                    onChange={(event) => setSlackClientId(event.target.value)}
+                    disabled={isBusy}
+                    placeholder="1234567890.1234567890"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-medium">Client secret</label>
                   <Input
                     type="password"
-                    value={slackBotToken}
-                    onChange={(event) => setSlackBotToken(event.target.value)}
+                    value={slackClientSecret}
+                    onChange={(event) =>
+                      setSlackClientSecret(event.target.value)
+                    }
                     disabled={isBusy}
-                    placeholder="xoxb-..."
+                    placeholder="Slack App client secret"
                   />
                 </div>
                 <div className="space-y-2">
@@ -567,14 +636,6 @@ export function SlackChannelPanel({
                     }
                     disabled={isBusy}
                     placeholder="Slack signing secret"
-                  />
-                </div>
-                <div className="flex items-center justify-between rounded border px-3 py-2">
-                  <span className="text-xs font-medium">Active</span>
-                  <Switch
-                    checked={isActive}
-                    onCheckedChange={setIsActive}
-                    disabled={isBusy}
                   />
                 </div>
                 {token ? (
@@ -631,7 +692,7 @@ export function SlackChannelPanel({
                     {isBusy ? (
                       <Loader2 className="mr-2 size-4 animate-spin" />
                     ) : null}
-                    {dialogStage === "connect" ? "Connect" : "Next"}
+                    {dialogStage === "connect" ? "Connect to Slack" : "Next"}
                   </Button>
                 </div>
               </>

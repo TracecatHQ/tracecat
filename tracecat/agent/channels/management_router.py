@@ -12,8 +12,11 @@ from tracecat.agent.channels.schemas import (
     AgentChannelTokenRead,
     AgentChannelTokenUpdate,
     ChannelType,
+    SlackChannelTokenConfig,
+    SlackOAuthStartRequest,
+    SlackOAuthStartResponse,
 )
-from tracecat.agent.channels.service import AgentChannelService
+from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
@@ -155,3 +158,89 @@ async def delete_channel_token(
             detail=f"Channel token '{token_id}' not found",
         )
     await service.delete_token(token)
+
+
+@router.post("/slack/oauth/start", response_model=SlackOAuthStartResponse)
+@require_scope("agent:update")
+async def start_slack_oauth(
+    *,
+    params: SlackOAuthStartRequest,
+    role: WorkspaceEditorRole,
+    session: AsyncDBSession,
+) -> SlackOAuthStartResponse:
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="workspace_id is required",
+        )
+    service = AgentChannelService(session, role=role)
+
+    token = None
+    if params.token_id is not None:
+        token = await service.get_token(params.token_id)
+        if token is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Channel token '{params.token_id}' not found",
+            )
+        if token.agent_preset_id != params.agent_preset_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Provided token does not match the requested agent preset "
+                    f"('{params.agent_preset_id}')"
+                ),
+            )
+
+    if token is None:
+        try:
+            token = await service.create_token(
+                AgentChannelTokenCreate(
+                    agent_preset_id=params.agent_preset_id,
+                    channel_type=ChannelType.SLACK,
+                    config=SlackChannelTokenConfig(
+                        slack_bot_token=PENDING_SLACK_BOT_TOKEN,
+                        slack_client_id=params.client_id,
+                        slack_client_secret=params.client_secret,
+                        slack_signing_secret=params.signing_secret,
+                    ),
+                    is_active=False,
+                )
+            )
+        except (TracecatNotFoundError, TracecatValidationError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+    else:
+        existing_config = service.parse_stored_channel_config(
+            channel_type=ChannelType(token.channel_type),
+            config_payload=token.config,
+        )
+        updated = await service.update_token(
+            token,
+            AgentChannelTokenUpdate(
+                config=SlackChannelTokenConfig(
+                    slack_bot_token=existing_config.slack_bot_token,
+                    slack_client_id=params.client_id,
+                    slack_client_secret=params.client_secret,
+                    slack_signing_secret=params.signing_secret,
+                ),
+                is_active=False,
+            ),
+        )
+        token = updated
+
+    state = service.create_slack_oauth_state(
+        token_id=token.id,
+        workspace_id=role.workspace_id,
+        return_url=params.return_url,
+    )
+    authorization_url = service.build_slack_oauth_authorization_url(
+        client_id=params.client_id,
+        state=state,
+    )
+    return SlackOAuthStartResponse(
+        authorization_url=authorization_url,
+        token=service.to_read(token),
+    )

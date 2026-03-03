@@ -423,12 +423,6 @@ export type AgentSessionCreate = {
    */
   entity_id: string
   /**
-   * External channel metadata used to resume a session thread
-   */
-  channel_context?: {
-    [key: string]: unknown
-  } | null
-  /**
    * Tools available to the agent for this session
    */
   tools?: Array<string> | null
@@ -2713,7 +2707,10 @@ export type ExternalObject = {
 /**
  * Feature flag enum reserved for engineering rollouts.
  */
-export type FeatureFlag = "ai-ranking" | "workflow-concurrency-limits" | "agent-channels"
+export type FeatureFlag =
+  | "ai-ranking"
+  | "workflow-concurrency-limits"
+  | "agent-channels"
 
 /**
  * Response model for feature flags.
@@ -5222,9 +5219,55 @@ export type SlackChannelTokenConfig = {
    */
   slack_bot_token: string
   /**
+   * Slack app client ID used for OAuth install
+   */
+  slack_client_id?: string | null
+  /**
+   * Slack app client secret used for OAuth install
+   */
+  slack_client_secret?: string | null
+  /**
    * Slack signing secret used for request verification
    */
   slack_signing_secret: string
+}
+
+/**
+ * Request schema for starting Slack OAuth install flow.
+ */
+export type SlackOAuthStartRequest = {
+  /**
+   * Existing channel token ID. If omitted, creates one.
+   */
+  token_id?: string | null
+  /**
+   * Agent preset to associate with the channel token.
+   */
+  agent_preset_id: string
+  /**
+   * Slack app client ID
+   */
+  client_id: string
+  /**
+   * Slack app client secret
+   */
+  client_secret: string
+  /**
+   * Slack app signing secret
+   */
+  signing_secret: string
+  /**
+   * URL to return users to after OAuth callback
+   */
+  return_url: string
+}
+
+/**
+ * Response schema for Slack OAuth start.
+ */
+export type SlackOAuthStartResponse = {
+  authorization_url: string
+  token: AgentChannelTokenRead
 }
 
 /**
@@ -7721,6 +7764,15 @@ export type PublicHandleChannelEventData = {
 
 export type PublicHandleChannelEventResponse = unknown
 
+export type PublicHandleSlackOauthCallbackData = {
+  code?: string | null
+  error?: string | null
+  errorDescription?: string | null
+  state: string
+}
+
+export type PublicHandleSlackOauthCallbackResponse = unknown
+
 export type WorkspacesListWorkspacesResponse = Array<WorkspaceReadMinimal>
 
 export type WorkspacesCreateWorkspaceData = {
@@ -8648,6 +8700,13 @@ export type AgentChannelsRotateChannelTokenData = {
 }
 
 export type AgentChannelsRotateChannelTokenResponse = AgentChannelTokenRead
+
+export type AgentChannelsStartSlackOauthData = {
+  requestBody: SlackOAuthStartRequest
+  workspaceId: string
+}
+
+export type AgentChannelsStartSlackOauthResponse = SlackOAuthStartResponse
 
 export type AgentPresetsListAgentPresetsData = {
   workspaceId: string
@@ -10649,6 +10708,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/agent/channels/slack/oauth/callback": {
+    get: {
+      req: PublicHandleSlackOauthCallbackData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces": {
     get: {
       res: {
@@ -12349,6 +12423,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentChannelTokenRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/channels/tokens/slack/oauth/start": {
+    post: {
+      req: AgentChannelsStartSlackOauthData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SlackOAuthStartResponse
         /**
          * Validation Error
          */

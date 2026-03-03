@@ -5,18 +5,58 @@ from __future__ import annotations
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
+ACK_REACTION = "eyes"
+IN_PROGRESS_REACTION = "hourglass_flowing_sand"
+COMPLETE_REACTION = "white_check_mark"
+ERROR_REACTION = "warning"
+
 
 class SlackAlreadyAcknowledgedError(ValueError):
     """Raised when another processor already acknowledged a Slack message."""
+
+
+async def _add_reaction(
+    client: AsyncWebClient,
+    *,
+    channel_id: str,
+    ts: str,
+    name: str,
+    ignore_already_reacted: bool = True,
+) -> None:
+    try:
+        await client.api_call(
+            api_method="reactions.add",
+            params={"channel": channel_id, "timestamp": ts, "name": name},
+        )
+    except SlackApiError as exc:
+        if ignore_already_reacted and exc.response.get("error") == "already_reacted":
+            return
+        raise
+
+
+async def _remove_reaction(
+    client: AsyncWebClient, *, channel_id: str, ts: str, name: str
+) -> None:
+    try:
+        await client.api_call(
+            api_method="reactions.remove",
+            params={"channel": channel_id, "timestamp": ts, "name": name},
+        )
+    except SlackApiError:
+        # Best-effort cleanup: ignore if reaction is already gone.
+        return
 
 
 async def ack_event(client: AsyncWebClient, *, channel_id: str, ts: str) -> None:
     """Add the eyes reaction to indicate event processing has started."""
 
     try:
-        await client.api_call(
-            api_method="reactions.add",
-            params={"channel": channel_id, "timestamp": ts, "name": "eyes"},
+        await _add_reaction(
+            client,
+            channel_id=channel_id,
+            ts=ts,
+            name=ACK_REACTION,
+            ignore_already_reacted=False,
         )
     except SlackApiError as exc:
         if exc.response.get("error") == "already_reacted":
@@ -28,15 +68,50 @@ async def ack_event(client: AsyncWebClient, *, channel_id: str, ts: str) -> None
 
 async def remove_ack(client: AsyncWebClient, *, channel_id: str, ts: str) -> None:
     """Remove the eyes reaction."""
+    await _remove_reaction(client, channel_id=channel_id, ts=ts, name=ACK_REACTION)
 
-    try:
-        await client.api_call(
-            api_method="reactions.remove",
-            params={"channel": channel_id, "timestamp": ts, "name": "eyes"},
-        )
-    except SlackApiError:
-        # Best-effort cleanup: ignore if reaction is already gone.
-        return
+
+async def set_in_progress(client: AsyncWebClient, *, channel_id: str, ts: str) -> None:
+    """Swap the initial ack reaction for an in-progress reaction."""
+
+    await _remove_reaction(client, channel_id=channel_id, ts=ts, name=ACK_REACTION)
+    await _add_reaction(
+        client,
+        channel_id=channel_id,
+        ts=ts,
+        name=IN_PROGRESS_REACTION,
+    )
+
+
+async def set_complete(client: AsyncWebClient, *, channel_id: str, ts: str) -> None:
+    """Mark processing complete on the source Slack message."""
+
+    await _remove_reaction(
+        client,
+        channel_id=channel_id,
+        ts=ts,
+        name=IN_PROGRESS_REACTION,
+    )
+    await _remove_reaction(client, channel_id=channel_id, ts=ts, name=ACK_REACTION)
+    await _add_reaction(
+        client,
+        channel_id=channel_id,
+        ts=ts,
+        name=COMPLETE_REACTION,
+    )
+
+
+async def set_error(client: AsyncWebClient, *, channel_id: str, ts: str) -> None:
+    """Mark processing failed on the source Slack message."""
+
+    await _remove_reaction(
+        client,
+        channel_id=channel_id,
+        ts=ts,
+        name=IN_PROGRESS_REACTION,
+    )
+    await _remove_reaction(client, channel_id=channel_id, ts=ts, name=ACK_REACTION)
+    await _add_reaction(client, channel_id=channel_id, ts=ts, name=ERROR_REACTION)
 
 
 async def notify_error(
@@ -49,14 +124,7 @@ async def notify_error(
     """Notify the user in-thread that processing failed."""
 
     if ts:
-        await remove_ack(client, channel_id=channel_id, ts=ts)
-        try:
-            await client.api_call(
-                api_method="reactions.add",
-                params={"channel": channel_id, "timestamp": ts, "name": "warning"},
-            )
-        except SlackApiError:
-            pass
+        await set_error(client, channel_id=channel_id, ts=ts)
 
     await client.api_call(
         api_method="chat.postMessage",
