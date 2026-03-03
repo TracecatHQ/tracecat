@@ -1,6 +1,20 @@
-import DOMPurify from "dompurify"
+import rehypeKatex from "rehype-katex"
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize"
 
-const FORBIDDEN_ATTRIBUTES = ["style"]
+const defaultAttributes = defaultSchema.attributes ?? {}
+
+const sanitizeSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultAttributes,
+    "*": [...(defaultAttributes["*"] ?? []), "className", "id"],
+    a: [...(defaultAttributes.a ?? []), "target", "rel", "title"],
+    code: [...(defaultAttributes.code ?? []), "className"],
+    div: [...(defaultAttributes.div ?? []), "className", "id"],
+    pre: [...(defaultAttributes.pre ?? []), "className"],
+    span: [...(defaultAttributes.span ?? []), "className"],
+  },
+}
 
 export const SAFE_MARKDOWN_LINK_PREFIXES = [
   "http://",
@@ -18,8 +32,6 @@ export const SAFE_MARKDOWN_IMAGE_PREFIXES = [
   "/",
 ]
 
-export function sanitizeMarkdownContent(content: string): string {
-  return DOMPurify.sanitize(content, {
-    FORBID_ATTR: FORBIDDEN_ATTRIBUTES,
-  })
+export function getStreamdownRehypePlugins() {
+  return [rehypeKatex, [rehypeSanitize, sanitizeSchema]]
 }

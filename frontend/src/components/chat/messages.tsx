@@ -5,14 +5,14 @@ import { MessageSquare } from "lucide-react"
 import { motion } from "motion/react"
 import Image from "next/image"
 import TracecatIcon from "public/icon.png"
-import { useEffect, useRef } from "react"
+import { type ComponentProps, useEffect, useRef } from "react"
 import { Streamdown } from "streamdown"
 import { Dots } from "@/components/loading/dots"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import {
+  getStreamdownRehypePlugins,
   SAFE_MARKDOWN_IMAGE_PREFIXES,
   SAFE_MARKDOWN_LINK_PREFIXES,
-  sanitizeMarkdownContent,
 } from "@/lib/sanitize-markdown"
 
 /**
@@ -93,6 +93,10 @@ const caseUpdateActions = [
 
 const assistantMarkdownStyle =
   "text-sm max-w-full text-foreground dark:prose-invert"
+
+const chatMessageRehypePlugins = getStreamdownRehypePlugins() as NonNullable<
+  ComponentProps<typeof Streamdown>["rehypePlugins"]
+>
 
 export function Messages({
   messages,
@@ -206,10 +210,11 @@ export function Messages({
           <Streamdown
             allowedImagePrefixes={SAFE_MARKDOWN_IMAGE_PREFIXES}
             allowedLinkPrefixes={SAFE_MARKDOWN_LINK_PREFIXES}
+            rehypePlugins={chatMessageRehypePlugins}
             className={`${assistantMarkdownStyle} flex-1`}
             parseIncompleteMarkdown
           >
-            {sanitizeMarkdownContent(streamingText)}
+            {streamingText}
           </Streamdown>
         </motion.div>
       )}
@@ -271,9 +276,10 @@ function AgentChatMessage({ message }: { message: ModelResponse }) {
           <Streamdown
             allowedImagePrefixes={SAFE_MARKDOWN_IMAGE_PREFIXES}
             allowedLinkPrefixes={SAFE_MARKDOWN_LINK_PREFIXES}
+            rehypePlugins={chatMessageRehypePlugins}
             className={assistantMarkdownStyle}
           >
-            {sanitizeMarkdownContent(textContent)}
+            {textContent}
           </Streamdown>
         )}
 

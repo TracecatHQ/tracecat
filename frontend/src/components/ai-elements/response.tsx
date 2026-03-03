@@ -3,13 +3,17 @@
 import { type ComponentProps, memo } from "react"
 import { Streamdown } from "streamdown"
 import {
+  getStreamdownRehypePlugins,
   SAFE_MARKDOWN_IMAGE_PREFIXES,
   SAFE_MARKDOWN_LINK_PREFIXES,
-  sanitizeMarkdownContent,
 } from "@/lib/sanitize-markdown"
 import { cn } from "@/lib/utils"
 
 type ResponseProps = ComponentProps<typeof Streamdown>
+
+const responseRehypePlugins = getStreamdownRehypePlugins() as NonNullable<
+  ResponseProps["rehypePlugins"]
+>
 
 export const Response = memo(
   ({ className, children, ...props }: ResponseProps) => (
@@ -20,11 +24,11 @@ export const Response = memo(
       )}
       allowedImagePrefixes={SAFE_MARKDOWN_IMAGE_PREFIXES}
       allowedLinkPrefixes={SAFE_MARKDOWN_LINK_PREFIXES}
-      {...(typeof children === "string"
-        ? { children: sanitizeMarkdownContent(children) }
-        : { children })}
+      rehypePlugins={responseRehypePlugins}
       {...props}
-    />
+    >
+      {children}
+    </Streamdown>
   ),
   (prevProps, nextProps) => prevProps.children === nextProps.children
 )
