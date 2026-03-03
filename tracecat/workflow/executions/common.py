@@ -11,7 +11,7 @@ from temporalio.api.history.v1 import HistoryEvent
 from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.compression import get_compression_payload_codec
 from tracecat.executor.activities import ExecutorActivities
-from tracecat.identifiers import UserID, WorkflowID
+from tracecat.identifiers import UserID, WorkflowID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.storage.object import (
     CollectionObject,
@@ -289,6 +289,7 @@ async def extract_first(input_or_result: temporalio.api.common.v1.Payloads) -> A
 
 
 def build_query(
+    workspace_id: WorkspaceID,
     workflow_id: WorkflowID | None = None,
     trigger_types: set[TriggerType] | None = None,
     triggered_by_user_id: UserID | None = None,
@@ -301,7 +302,6 @@ def build_query(
     close_time_to: datetime | None = None,
     duration_gte_seconds: int | None = None,
     duration_lte_seconds: int | None = None,
-    workspace_id: str | None = None,
     _include_legacy: bool = True,
 ) -> str:
     query = []
@@ -310,8 +310,7 @@ def build_query(
         dt = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
         return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    if workspace_id:
-        query.append(f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{workspace_id}'")
+    query.append(f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{workspace_id}'")
     if workflow_id:
         short_id = workflow_id.short()
         wf_id_query = f"WorkflowId STARTS_WITH '{short_id}'"

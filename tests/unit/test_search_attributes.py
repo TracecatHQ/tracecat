@@ -378,11 +378,12 @@ class TestSearchAttributeQueries:
         self, mock_role_with_workspace: Role, test_workflow_id: WorkflowID
     ) -> None:
         """Test that build_query constructs queries with search attributes."""
+        assert mock_role_with_workspace.workspace_id is not None
         query = build_query(
+            workspace_id=mock_role_with_workspace.workspace_id,
             workflow_id=test_workflow_id,
             trigger_types={TriggerType.MANUAL},
             triggered_by_user_id=mock_role_with_workspace.user_id,
-            workspace_id=str(mock_role_with_workspace.workspace_id),
         )
 
         # Verify query includes workspace, trigger type, and user ID
@@ -397,6 +398,7 @@ class TestSearchAttributeQueries:
     ) -> None:
         """Test building queries with multiple trigger types."""
         query = build_query(
+            workspace_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
             workflow_id=test_workflow_id,
             trigger_types={TriggerType.SCHEDULED, TriggerType.WEBHOOK},
         )
@@ -410,7 +412,10 @@ class TestSearchAttributeQueries:
         self, test_workflow_id: WorkflowID
     ) -> None:
         """Test building queries with just workflow ID."""
-        query = build_query(workflow_id=test_workflow_id)
+        query = build_query(
+            workspace_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            workflow_id=test_workflow_id,
+        )
 
         # Verify query includes workflow ID
         assert test_workflow_id.short() in query

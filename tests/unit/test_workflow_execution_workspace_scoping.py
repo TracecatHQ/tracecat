@@ -51,6 +51,17 @@ def mock_role(svc_workspace) -> Role:
     )
 
 
+@pytest.fixture
+def mock_role_without_workspace() -> Role:
+    return Role(
+        type="service",
+        workspace_id=None,
+        user_id=None,
+        service_id="tracecat-service",
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
+    )
+
+
 @pytest.mark.anyio
 class TestWorkflowExecutionWorkspaceFiltering:
     async def test_workflow_run_read_minimal_from_dataclass_keeps_status_typed(
@@ -163,6 +174,23 @@ class TestWorkflowExecutionWorkspaceFiltering:
         assert "ExecutionStatus = 'Running'" in called_query
         assert TemporalSearchAttr.WORKSPACE_ID.value in called_query
         assert str(mock_role.workspace_id) in called_query
+
+    async def test_query_executions_requires_workspace_id(
+        self,
+        mock_client: Mock,
+        mock_role_without_workspace: Role,
+    ) -> None:
+        service = WorkflowExecutionsService(
+            client=mock_client, role=mock_role_without_workspace
+        )
+        mock_client.list_workflows = Mock()
+
+        with pytest.raises(
+            ValueError, match="Workspace ID is required to query workflow executions"
+        ):
+            await service.query_executions(query="ExecutionStatus = 'Running'")
+
+        mock_client.list_workflows.assert_not_called()
 
     async def test_list_executions_by_workflow_id_includes_workspace_filter(
         self,
@@ -367,11 +395,31 @@ class TestWorkflowExecutionWorkspaceFiltering:
         assert "ExecutionStatus != 'Failed'" in exclude_query
         assert "ExecutionStatus != 'Running'" in exclude_query
 
+    async def test_list_executions_paginated_requires_workspace_id(
+        self,
+        mock_client: Mock,
+        mock_role_without_workspace: Role,
+    ) -> None:
+        service = WorkflowExecutionsService(
+            client=mock_client, role=mock_role_without_workspace
+        )
+        mock_client.list_workflows = Mock()
+
+        with pytest.raises(
+            ValueError, match="Workspace ID is required to query workflow executions"
+        ):
+            await service.list_executions_paginated(
+                pagination=CursorPaginationParams(limit=10)
+            )
+
+        mock_client.list_workflows.assert_not_called()
+
     async def test_build_query_supports_time_duration_user_and_execution_type(
         self,
     ) -> None:
         user_id = uuid.UUID("00000000-0000-0000-0000-000000000123")
         query = build_query(
+            workspace_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
             triggered_by_user_id=user_id,
             execution_types={ExecutionType.PUBLISHED},
             start_time_from=datetime(2026, 1, 1, 0, 0, tzinfo=UTC),

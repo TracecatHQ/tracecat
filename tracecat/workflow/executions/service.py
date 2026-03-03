@@ -41,7 +41,7 @@ from tracecat.dsl.types import Task
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.ee.interactions.service import InteractionService
-from tracecat.identifiers import UserID
+from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.identifiers.workflow import (
     WorkflowExecutionID,
     WorkflowID,
@@ -261,11 +261,9 @@ class WorkflowExecutionsService:
         """
         if limit is not None and limit <= 0:
             limit = None
-        if workspace_id := self._role_workspace_id():
-            workspace_clause = (
-                f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{workspace_id}'"
-            )
-            query = f"({query}) AND {workspace_clause}" if query else workspace_clause
+        workspace_id = self.workspace_id
+        workspace_clause = f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{workspace_id}'"
+        query = f"({query}) AND {workspace_clause}" if query else workspace_clause
 
         executions = []
         # NOTE: We operate under the assumption that `list_workflows` is ordered by StartTime
@@ -360,7 +358,6 @@ class WorkflowExecutionsService:
         duration_lte_seconds: int | None = None,
         relation: WorkflowExecutionRelationFilter = WorkflowExecutionRelationFilter.ALL,
     ) -> WorkflowExecutionsPage:
-        workspace_id = self._role_workspace_id()
         query = build_query(
             workflow_id=workflow_id,
             trigger_types=trigger_types,
@@ -374,7 +371,7 @@ class WorkflowExecutionsService:
             close_time_to=close_time_to,
             duration_gte_seconds=duration_gte_seconds,
             duration_lte_seconds=duration_lte_seconds,
-            workspace_id=workspace_id,
+            workspace_id=self.workspace_id,
         )
         if workflow_ids_clause := self._build_workflow_ids_clause(workflow_ids or []):
             query = (
@@ -425,6 +422,17 @@ class WorkflowExecutionsService:
         if self.role is None or self.role.workspace_id is None:
             return None
         return str(self.role.workspace_id)
+
+    @property
+    def workspace_id(self) -> WorkspaceID:
+        if self.role is None:
+            raise ValueError("Role is required to query workflow executions")
+        workspace_id = self.role.workspace_id
+        if workspace_id is None:
+            raise ValueError("Workspace ID is required to query workflow executions")
+        if not isinstance(workspace_id, WorkspaceID):
+            raise TypeError("Workspace ID must be a WorkspaceID")
+        return workspace_id
 
     def _is_execution_visible_in_workspace(self, execution: WorkflowExecution) -> bool:
         role_workspace_id = self._role_workspace_id()
@@ -484,12 +492,11 @@ class WorkflowExecutionsService:
         limit: int | None = None,
     ) -> list[WorkflowExecution]:
         """List all workflow executions."""
-        workspace_id = self._role_workspace_id()
         query = build_query(
             workflow_id=workflow_id,
             trigger_types=trigger_types,
             triggered_by_user_id=triggered_by_user_id,
-            workspace_id=workspace_id,
+            workspace_id=self.workspace_id,
         )
         return await self.query_executions(query=query, limit=limit)
 
@@ -497,8 +504,7 @@ class WorkflowExecutionsService:
         self, wf_id: WorkflowID
     ) -> list[WorkflowExecution]:
         """List all workflow executions by workflow ID."""
-        workspace_id = self._role_workspace_id()
-        query = build_query(workflow_id=wf_id, workspace_id=workspace_id)
+        query = build_query(workflow_id=wf_id, workspace_id=self.workspace_id)
         return await self.query_executions(query=query)
 
     async def get_latest_execution_by_workflow_id(
