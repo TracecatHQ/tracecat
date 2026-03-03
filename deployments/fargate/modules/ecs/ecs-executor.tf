@@ -15,9 +15,13 @@ resource "aws_ecs_task_definition" "executor_task_definition" {
 
   container_definitions = jsonencode([
     {
-      name    = "TracecatExecutorContainer"
-      image   = "${var.tracecat_image}:${local.tracecat_image_tag}"
-      command = ["/app/executor-entrypoint.sh"]
+      name  = "TracecatExecutorContainer"
+      image = "${var.tracecat_image}:${local.tracecat_image_tag}"
+      command = [
+        "sh",
+        "-c",
+        "if [ -x /app/executor-entrypoint.sh ]; then exec /app/executor-entrypoint.sh; else exec python -m tracecat.executor.worker; fi"
+      ]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -29,7 +33,10 @@ resource "aws_ecs_task_definition" "executor_task_definition" {
       environment = local.executor_env
       secrets     = local.executor_secrets
       healthCheck = {
-        command     = ["CMD-SHELL", "python -m tracecat.executor.healthcheck || exit 1"]
+        command = [
+          "CMD-SHELL",
+          "python -c \"import importlib.util,sys;sys.exit(0 if importlib.util.find_spec('tracecat.executor.healthcheck') is None else 1)\" || python -m tracecat.executor.healthcheck || exit 1"
+        ]
         interval    = var.executor_healthcheck_interval
         timeout     = var.executor_healthcheck_timeout
         retries     = var.executor_healthcheck_retries

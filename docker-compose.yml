@@ -227,7 +227,13 @@ services:
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
       - sandbox-cache:/var/lib/tracecat/sandbox-cache
-    command: ["/app/executor-entrypoint.sh"]
+    # Backward-compatible startup for older images that lack the new entrypoint.
+    command:
+      - sh
+      - -c
+      - >
+        if [ -x /app/executor-entrypoint.sh ]; then exec /app/executor-entrypoint.sh;
+        else exec python -m tracecat.executor.worker; fi
     depends_on:
       migrations:
         condition: service_completed_successfully
@@ -238,7 +244,12 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-m", "tracecat.executor.healthcheck"]
+      # Backward-compatible healthcheck for older images without the module.
+      test:
+        - CMD-SHELL
+        - >
+          python -c "import importlib.util,sys;sys.exit(0 if importlib.util.find_spec('tracecat.executor.healthcheck') is None else 1)" ||
+          python -m tracecat.executor.healthcheck
       interval: 2s
       timeout: 2s
       retries: 30
