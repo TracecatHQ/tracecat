@@ -33,5 +33,6 @@ export const SAFE_MARKDOWN_IMAGE_PREFIXES = [
 ]
 
 export function getStreamdownRehypePlugins() {
-  return [rehypeKatex, [rehypeSanitize, sanitizeSchema]]
+  // Sanitize first, then render KaTeX to avoid stripping math markup
+  return [[rehypeSanitize, sanitizeSchema], rehypeKatex]
 }

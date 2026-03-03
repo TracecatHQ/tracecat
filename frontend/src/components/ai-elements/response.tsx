@@ -18,6 +18,7 @@ const responseRehypePlugins = getStreamdownRehypePlugins() as NonNullable<
 export const Response = memo(
   ({ className, children, ...props }: ResponseProps) => (
     <Streamdown
+      {...props}
       className={cn(
         "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className
@@ -25,7 +26,6 @@ export const Response = memo(
       allowedImagePrefixes={SAFE_MARKDOWN_IMAGE_PREFIXES}
       allowedLinkPrefixes={SAFE_MARKDOWN_LINK_PREFIXES}
       rehypePlugins={responseRehypePlugins}
-      {...props}
     >
       {children}
     </Streamdown>
