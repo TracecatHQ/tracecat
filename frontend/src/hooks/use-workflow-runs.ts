@@ -220,7 +220,7 @@ export function useWorkflowExecutionResetPoints(
 
   return useQuery<WorkflowExecutionResetPointRead[], ApiError>({
     enabled: enabled && !!executionId,
-    queryKey: ["workflow-run-reset-points", executionId],
+    queryKey: ["workflow-run-reset-points", workspaceId, executionId],
     queryFn: async () => {
       if (!executionId) {
         return []

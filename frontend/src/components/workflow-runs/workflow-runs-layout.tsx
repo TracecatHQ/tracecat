@@ -1123,6 +1123,8 @@ export function WorkflowRunsLayout() {
     }
     return `Showing ${startItem}-${endItem}`
   }, [endItem, runs.length, startItem])
+  const showPaginationControls =
+    runs.length > 0 || hasNextPage || hasPreviousPage
 
   useEffect(() => {
     setSelectedExecutionIds(new Set())
@@ -1374,7 +1376,7 @@ export function WorkflowRunsLayout() {
             />
           </div>
 
-          {runs.length > 0 && (
+          {showPaginationControls && (
             <div className="ml-auto flex items-center gap-2">
               <span className="text-xs text-muted-foreground">
                 {showingLabel ?? `${runs.length} runs`}

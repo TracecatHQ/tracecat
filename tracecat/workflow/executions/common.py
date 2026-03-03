@@ -323,7 +323,7 @@ def build_query(
     if trigger_types:
         trigger_type_query = [
             f"({TemporalSearchAttr.TRIGGER_TYPE.value} = '{trigger_type.value}')"
-            for trigger_type in trigger_types
+            for trigger_type in sorted(trigger_types, key=lambda value: value.value)
         ]
         if trigger_type_query:
             query.append(f"({' OR '.join(trigger_type_query)})")
