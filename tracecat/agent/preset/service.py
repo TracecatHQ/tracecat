@@ -11,7 +11,13 @@ from slugify import slugify
 from sqlalchemy import select
 
 from tracecat import config
-from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
+from tracecat.agent.mcp.user_client import UserMCPClient, discover_user_mcp_tools
+from tracecat.agent.mcp.utils import mcp_tool_name_to_canonical
+from tracecat.agent.preset.schemas import (
+    AgentPresetCreate,
+    AgentPresetUpdate,
+    DiscoveredMCPTool,
+)
 from tracecat.agent.types import AgentConfig, MCPServerConfig, OutputType
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
@@ -83,16 +89,29 @@ class AgentPresetService(BaseWorkspaceService):
         return preset
 
     async def _validate_actions(self, actions: list[str]) -> None:
-        """Validate that all actions are in the registry index."""
-        actions_set = set(actions)
+        """Validate registry actions in ``actions`` against the registry index.
+
+        User MCP actions (for example ``mcp.Linear.list_issues``) are filtered
+        out here and are not validated at preset-save time. They are resolved
+        when MCP integrations are discovered/used at execution time.
+        """
+        normalized_actions = {s for action in actions if (s := action.strip())}
+        # Separate MCP tools from registry actions
+        registry_actions = {
+            action
+            for action in normalized_actions
+            if not UserMCPClient.parse_user_mcp_tool_name(action)
+        }
+        if not registry_actions:
+            return
         registry_service = RegistryActionsService(self.session, role=self.role)
         index_entries = await registry_service.list_actions_from_index(
-            include_keys=actions_set
+            include_keys=registry_actions
         )
         available_identifiers = {
             f"{entry.namespace}.{entry.name}" for entry, _ in index_entries
         }
-        if missing_actions := actions_set - available_identifiers:
+        if missing_actions := registry_actions - available_identifiers:
             raise TracecatValidationError(
                 f"{len(missing_actions)} actions were not found in the registry: {sorted(missing_actions)}"
             )
@@ -456,3 +475,25 @@ class AgentPresetService(BaseWorkspaceService):
             model_settings=model_settings,
             enable_internet_access=preset.enable_internet_access,
         )
+
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def discover_mcp_tools(
+        self, mcp_integration_ids: list[str]
+    ) -> list[DiscoveredMCPTool]:
+        """Discover tools from MCP integrations for the approval selector."""
+        mcp_servers = await self._resolve_mcp_integrations(mcp_integration_ids)
+        if not mcp_servers:
+            return []
+
+        tools = await discover_user_mcp_tools(mcp_servers)
+        if not tools:
+            return []
+
+        return [
+            DiscoveredMCPTool(
+                name=mcp_tool_name_to_canonical(name),
+                description=defn.description,
+                server_name=name.split("__")[1] if "__" in name else "unknown",
+            )
+            for name, defn in tools.items()
+        ]

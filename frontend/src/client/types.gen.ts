@@ -2261,6 +2261,34 @@ export type DataUIPart = {
 }
 
 /**
+ * Request body for discovering MCP tools from integrations.
+ */
+export type DiscoverMCPToolsRequest = {
+  /**
+   * List of MCP integration IDs to discover tools from
+   */
+  mcp_integration_ids: Array<string>
+}
+
+/**
+ * A discovered MCP tool with its canonical name.
+ */
+export type DiscoveredMCPTool = {
+  /**
+   * Canonical tool name (e.g. mcp.Linear.list_issues)
+   */
+  name: string
+  /**
+   * Tool description
+   */
+  description: string
+  /**
+   * MCP server name
+   */
+  server_name: string
+}
+
+/**
  * The URL of the document.
  */
 export type DocumentUrl = {
@@ -8075,6 +8103,13 @@ export type AgentPresetsCreateAgentPresetData = {
 
 export type AgentPresetsCreateAgentPresetResponse = AgentPresetRead
 
+export type AgentPresetsDiscoverMcpToolsData = {
+  requestBody: DiscoverMCPToolsRequest
+  workspaceId: string
+}
+
+export type AgentPresetsDiscoverMcpToolsResponse = Array<DiscoveredMCPTool>
+
 export type AgentPresetsGetAgentPresetData = {
   presetId: string
   workspaceId: string
@@ -11594,6 +11629,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/discover-mcp-tools": {
+    post: {
+      req: AgentPresetsDiscoverMcpToolsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<DiscoveredMCPTool>
         /**
          * Validation Error
          */

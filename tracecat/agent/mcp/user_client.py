@@ -176,21 +176,59 @@ class UserMCPClient:
             return ""
 
     @staticmethod
-    def parse_user_mcp_tool_name(tool_name: str) -> tuple[str, str] | None:
+    def parse_user_mcp_tool_name(
+        tool_name: str,
+        *,
+        known_server_names: set[str] | None = None,
+    ) -> tuple[str, str] | None:
         """Parse a user MCP tool name into (server_name, tool_name).
 
         User MCP tools follow the pattern: mcp__{server_name}__{tool_name}
 
         Args:
             tool_name: Full tool name to parse.
+            known_server_names: Optional configured server names used to
+                disambiguate canonical names when server names may contain dots.
 
         Returns:
             Tuple of (server_name, original_tool_name), or None if not a user MCP tool.
 
         """
+        tool_name = tool_name.strip()
+        # Legacy or wrapped registry names are not user-defined MCP tools.
+        if tool_name.startswith("mcp.tracecat-registry."):
+            return None
+
         # Skip tracecat-registry tools (handled separately)
         if tool_name.startswith("mcp__tracecat-registry__"):
             return None
+
+        # Canonical user MCP format:
+        #   mcp.{server_name}.{tool_name}
+        if tool_name.startswith("mcp."):
+            canonical_name = tool_name.removeprefix("mcp.")
+
+            # When server names are known, prefer the longest matching prefix.
+            # This preserves full server names that contain dots.
+            if known_server_names:
+                matched_server_name = max(
+                    (
+                        server_name
+                        for server_name in known_server_names
+                        if canonical_name.startswith(f"{server_name}.")
+                    ),
+                    key=len,
+                    default=None,
+                )
+                if matched_server_name:
+                    original_tool_name = canonical_name[len(matched_server_name) + 1 :]
+                    if original_tool_name:
+                        return (matched_server_name, original_tool_name)
+
+            # Legacy fallback when no configured names are available.
+            parts = canonical_name.split(".", 1)
+            if len(parts) == 2 and parts[0] and parts[1]:
+                return (parts[0], parts[1])
 
         # Check for user MCP pattern
         if not tool_name.startswith("mcp__"):

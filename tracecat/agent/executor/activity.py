@@ -39,12 +39,13 @@ from tracecat.agent.common.config import (
 )
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
 from tracecat.agent.common.stream_types import ToolCallContent, UnifiedStreamEvent
-from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.common.types import MCPServerConfig, MCPToolDefinition
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
 )
 from tracecat.agent.mcp.executor import ActionExecutionError, execute_action
+from tracecat.agent.mcp.user_client import UserMCPClient, call_user_mcp_tool
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
 from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime
@@ -590,6 +591,8 @@ class ExecuteApprovedToolsInput(BaseModel):
     allowed_actions: list[str]
     # Registry lock for action resolution
     registry_lock: RegistryLock
+    # User MCP server configs for executing approved MCP tools
+    user_mcp_configs: list[MCPServerConfig] | None = None
 
 
 class ExecuteApprovedToolsResult(BaseModel):
@@ -601,6 +604,33 @@ class ExecuteApprovedToolsResult(BaseModel):
 
 
 HEARTBEAT_INTERVAL = 30  # seconds - must be less than heartbeat_timeout (60s)
+
+
+async def _await_with_heartbeat(
+    task: asyncio.Task[Any],
+    *,
+    tool_name: str,
+) -> Any:
+    """Await a task while sending periodic Temporal heartbeats."""
+    elapsed = 0
+    try:
+        while True:
+            try:
+                return await asyncio.wait_for(
+                    asyncio.shield(task),
+                    timeout=HEARTBEAT_INTERVAL,
+                )
+            except TimeoutError:
+                elapsed += HEARTBEAT_INTERVAL
+                activity.heartbeat(f"Executing tool {tool_name}: {elapsed}s elapsed")
+                logger.debug(
+                    "Heartbeat sent while executing tool",
+                    tool_name=tool_name,
+                    elapsed=elapsed,
+                )
+    finally:
+        if not task.done():
+            task.cancel()
 
 
 async def _execute_action_with_heartbeat(
@@ -639,29 +669,27 @@ async def _execute_action_with_heartbeat(
             registry_lock=registry_lock,
         )
     )
+    return await _await_with_heartbeat(action_task, tool_name=tool_name)
 
-    elapsed = 0
-    try:
-        while True:
-            try:
-                # Wait for completion with heartbeat interval timeout
-                result = await asyncio.wait_for(
-                    asyncio.shield(action_task),
-                    timeout=HEARTBEAT_INTERVAL,
-                )
-                return result
-            except TimeoutError:
-                # Action still running - send heartbeat and continue waiting
-                elapsed += HEARTBEAT_INTERVAL
-                activity.heartbeat(f"Executing tool {tool_name}: {elapsed}s elapsed")
-                logger.debug(
-                    "Heartbeat sent while executing tool",
-                    tool_name=tool_name,
-                    elapsed=elapsed,
-                )
-    finally:
-        if not action_task.done():
-            action_task.cancel()
+
+async def _execute_user_mcp_tool_with_heartbeat(
+    configs: list[MCPServerConfig],
+    server_name: str,
+    tool_name: str,
+    args: dict[str, Any],
+    *,
+    original_tool_name: str,
+) -> Any:
+    """Execute a user MCP tool with periodic Temporal heartbeats."""
+    mcp_task = asyncio.create_task(
+        call_user_mcp_tool(
+            configs=configs,
+            server_name=server_name,
+            tool_name=tool_name,
+            args=args,
+        )
+    )
+    return await _await_with_heartbeat(mcp_task, tool_name=original_tool_name)
 
 
 @activity.defn
@@ -707,6 +735,11 @@ async def execute_approved_tools_activity(
         approved_count=len(input.approved_tools),
         denied_count=len(input.denied_tools),
     )
+    known_mcp_server_names = (
+        {cfg["name"] for cfg in input.user_mcp_configs}
+        if input.user_mcp_configs
+        else None
+    )
 
     # Prefetch registry manifests into agent worker's cache for O(1) action resolution
     await registry_resolver.prefetch_lock(
@@ -727,21 +760,45 @@ async def execute_approved_tools_activity(
             # Normalize tool name (MCP format -> action name)
             action_name = normalize_mcp_tool_name(tool_call.tool_name)
 
+            # Check if this is a user MCP tool (not a registry action)
+            parsed_mcp = UserMCPClient.parse_user_mcp_tool_name(
+                tool_call.tool_name,
+                known_server_names=known_mcp_server_names,
+            )
+            if parsed_mcp is None:
+                # Fall back to already-normalized name (helps with canonical MCP names)
+                parsed_mcp = UserMCPClient.parse_user_mcp_tool_name(
+                    action_name,
+                    known_server_names=known_mcp_server_names,
+                )
+
             logger.info(
                 "Executing approved tool",
                 tool_call_id=tool_call.tool_call_id,
                 tool_name=tool_call.tool_name,
                 action_name=action_name,
+                is_mcp_tool=parsed_mcp is not None,
             )
 
-            # Execute the action via MCP executor with heartbeating
-            result = await _execute_action_with_heartbeat(
-                action_name=action_name,
-                args=tool_call.args,
-                claims=claims,
-                registry_lock=input.registry_lock,
-                tool_name=tool_call.tool_name,
-            )
+            if parsed_mcp and input.user_mcp_configs:
+                # Route to user MCP server
+                server_name, original_tool_name = parsed_mcp
+                result = await _execute_user_mcp_tool_with_heartbeat(
+                    configs=input.user_mcp_configs,
+                    server_name=server_name,
+                    tool_name=original_tool_name,
+                    args=tool_call.args,
+                    original_tool_name=tool_call.tool_name,
+                )
+            else:
+                # Execute the action via MCP executor with heartbeating
+                result = await _execute_action_with_heartbeat(
+                    action_name=action_name,
+                    args=tool_call.args,
+                    claims=claims,
+                    registry_lock=input.registry_lock,
+                    tool_name=tool_call.tool_name,
+                )
 
             tool_result = ToolExecutionResult(
                 tool_call_id=tool_call.tool_call_id,

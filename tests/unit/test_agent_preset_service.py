@@ -2,10 +2,12 @@
 
 import uuid
 from typing import cast
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.preset import service as preset_service_module
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.types import AgentConfig
@@ -732,3 +734,47 @@ class TestAgentPresetService:
         update_params = AgentPresetUpdate(tool_approvals=None)
         updated_preset = await agent_preset_service.update_preset(preset, update_params)
         assert updated_preset.tool_approvals is None
+
+    async def test_discover_mcp_tools_is_read_only(
+        self,
+        agent_preset_service: AgentPresetService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Discovering MCP tools should not write or commit DB state."""
+
+        class _ToolDef:
+            description = "List issues"
+
+        async def _resolve_mcp_integrations(
+            _mcp_integration_ids: list[str],
+        ) -> list[dict[str, object]]:
+            return [{"name": "Linear", "url": "https://mcp.example.com", "headers": {}}]
+
+        async def _discover_user_mcp_tools(
+            _mcp_servers: list[dict[str, object]],
+        ) -> dict[str, _ToolDef]:
+            return {"mcp__Linear__issues__list": _ToolDef()}
+
+        commit_mock = AsyncMock()
+        monkeypatch.setattr(
+            agent_preset_service, "_resolve_mcp_integrations", _resolve_mcp_integrations
+        )
+        monkeypatch.setattr(
+            preset_service_module,
+            "discover_user_mcp_tools",
+            _discover_user_mcp_tools,
+        )
+        monkeypatch.setattr(agent_preset_service.session, "commit", commit_mock)
+
+        discovered = await agent_preset_service.discover_mcp_tools(
+            ["40f31ce3-a0c7-4b0a-bf26-2d8dc6a0ea16"]
+        )
+
+        assert discovered == [
+            preset_service_module.DiscoveredMCPTool(
+                name="mcp.Linear.issues.list",
+                description="List issues",
+                server_name="Linear",
+            )
+        ]
+        commit_mock.assert_not_awaited()
