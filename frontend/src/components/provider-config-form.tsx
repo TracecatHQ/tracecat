@@ -628,8 +628,17 @@ export function ProviderConfigForm({
                         </SelectTrigger>
                         <SelectContent>
                           {CLIENT_AUTH_METHOD_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
+                            <SelectItem
+                              key={option.value}
+                              value={option.value}
+                              textValue={option.label}
+                            >
+                              <div className="flex flex-col gap-0.5 py-0.5">
+                                <span>{option.label}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {option.subtitle}
+                                </span>
+                              </div>
                             </SelectItem>
                           ))}
                         </SelectContent>
