@@ -27,7 +27,7 @@ from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import InlineObject
-from tracecat.webhooks.router import _incoming_webhook
+from tracecat.webhooks.router import _incoming_webhook, incoming_webhook_wait
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -592,6 +592,36 @@ class TestWebhookRouterExecutionPath:
         assert "wf_id" in response
         assert "wf_exec_id" in response
         assert response["wf_exec_id"] == expected_exec_id
+
+    @pytest.mark.anyio
+    async def test_wait_webhook_returns_result_with_inline_object(self):
+        """The /wait router path must return workflow result payloads as-is."""
+        workflow_id = WorkflowUUID.new_uuid4()
+        payload = {"event": "test"}
+        inline_result = InlineObject(type="inline", data={"_": "result-ref"})
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution = AsyncMock(
+            return_value={
+                "wf_id": workflow_id,
+                "result": {"status": "ok", "result_ref": inline_result},
+            }
+        )
+
+        with patch(
+            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+            AsyncMock(return_value=mock_service),
+        ):
+            response = await incoming_webhook_wait(
+                workflow_id=workflow_id,
+                defn=_definition(),
+                payload=payload,
+            )
+
+        assert response["result_ref"] == inline_result
+        mock_service.create_workflow_execution.assert_awaited_once()
+        call_kwargs = mock_service.create_workflow_execution.call_args.kwargs
+        assert call_kwargs["trigger_type"] == TriggerType.WEBHOOK
+        assert call_kwargs["payload"] == payload
 
 
 # ---------------------------------------------------------------------------
