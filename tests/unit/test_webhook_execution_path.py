@@ -33,6 +33,7 @@ from tracecat.storage.object import (
     InlineObject,
     ObjectRef,
 )
+from tracecat.storage.utils import deserialize_object
 from tracecat.webhooks.router import _incoming_webhook, incoming_webhook_wait
 from tracecat.workflow.executions.enums import (
     ExecutionType,
@@ -736,6 +737,67 @@ class TestWebhookRouterExecutionPath:
             response_obj["download_url"] == "https://example.com/presigned/collection"
         )
         upload_file_mock.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_wait_webhook_materializes_only_indexed_collection_item(self):
+        workflow_id = WorkflowUUID.new_uuid4()
+        payload = {"event": "test"}
+        collection_result = CollectionObject(
+            type="collection",
+            manifest_ref=ObjectRef(
+                backend="s3",
+                bucket="tracecat-workflow",
+                key="wf/test/return/manifest.json",
+                size_bytes=128,
+                sha256="manifest-sha",
+                content_type="application/json",
+                encoding="json",
+            ),
+            count=3,
+            chunk_size=2,
+            element_kind="value",
+            index=1,
+        )
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution = AsyncMock(
+            return_value={
+                "wf_id": workflow_id,
+                "result": collection_result,
+            }
+        )
+        get_page_mock = AsyncMock(return_value=[{"id": 2}])
+
+        with (
+            patch(
+                "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+                AsyncMock(return_value=mock_service),
+            ),
+            patch(
+                "tracecat.webhooks.router.get_collection_page",
+                get_page_mock,
+            ),
+            patch(
+                "tracecat.webhooks.router.blob.upload_file",
+                AsyncMock(),
+            ) as upload_file_mock,
+            patch(
+                "tracecat.webhooks.router.blob.generate_presigned_download_url",
+                AsyncMock(return_value="https://example.com/presigned/collection"),
+            ),
+        ):
+            response = await incoming_webhook_wait(
+                workflow_id=workflow_id,
+                defn=_definition(),
+                payload=payload,
+            )
+
+        assert response["kind"] == "download_export"
+        get_page_mock.assert_awaited_once_with(collection_result, offset=1, limit=1)
+
+        await_args = upload_file_mock.await_args
+        assert await_args is not None
+        uploaded_content = await_args.kwargs["content"]
+        assert deserialize_object(uploaded_content) == {"id": 2}
 
     @pytest.mark.anyio
     async def test_wait_webhook_materializes_collection_without_storage_backend(self):

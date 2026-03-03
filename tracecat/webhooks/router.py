@@ -175,7 +175,27 @@ async def _resolve_stored_object_value(stored: StoredObject) -> Any:
 
 async def _materialize_collection_values_for_wait(
     collection: CollectionObject,
-) -> list[Any]:
+) -> Any:
+    if collection.index is not None:
+        index = collection.index
+        if index < 0:
+            index += collection.count
+        if index < 0 or index >= collection.count:
+            raise IndexError(
+                f"Collection index {index} out of range [0, {collection.count})"
+            )
+
+        items = await get_collection_page(collection, offset=index, limit=1)
+        if not items:
+            raise IndexError(
+                f"Collection index {index} out of range [0, {collection.count})"
+            )
+        item = items[0]
+        if collection.element_kind == "value":
+            return item
+        stored = StoredObjectValidator.validate_python(item)
+        return await _resolve_stored_object_value(stored)
+
     items = await get_collection_page(collection)
     if collection.element_kind == "value":
         return items
