@@ -16,6 +16,12 @@ from mcp.types import CallToolRequestParams
 from tracecat_registry import RegistrySecret
 
 import tracecat.mcp.auth as mcp_auth
+from tracecat.agent.common.stream_types import (
+    StreamEventType,
+    ToolCallContent,
+    UnifiedStreamEvent,
+)
+from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.expressions.common import ExprType
 from tracecat.tables.service import TablesService
 from tracecat.validation.schemas import (
@@ -1572,3 +1578,98 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     assert captured["workspace_id"] == workspace_id
     assert captured["timeout"] == 120
     assert captured["last_id"] == expected_start_id
+
+
+@pytest.mark.anyio
+async def test_collect_agent_response_returns_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+
+    class _Stream:
+        async def _stream_events(self, _not_disconnected, *, last_id: str):
+            assert last_id == "1717426372766-0"
+            yield StreamDelta(
+                id="1717426372767-0",
+                event=UnifiedStreamEvent(
+                    type=StreamEventType.TEXT_DELTA,
+                    text="hello ",
+                ),
+            )
+            yield StreamDelta(
+                id="1717426372768-0",
+                event=UnifiedStreamEvent(
+                    type=StreamEventType.TEXT_DELTA,
+                    text="world",
+                ),
+            )
+            yield StreamEnd(id="1717426372769-0")
+
+    async def _new(_session_id: uuid.UUID, _workspace_id: uuid.UUID) -> _Stream:
+        return _Stream()
+
+    monkeypatch.setattr(mcp_server.AgentStream, "new", _new)
+    result = await mcp_server._collect_agent_response(
+        session_id=session_id,
+        workspace_id=workspace_id,
+        timeout=5.0,
+        last_id="1717426372766-0",
+    )
+
+    assert result == "hello world"
+
+
+@pytest.mark.anyio
+async def test_collect_agent_response_surfaces_approval_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+
+    class _Stream:
+        async def _stream_events(self, _not_disconnected, *, last_id: str):
+            assert last_id == "1717426372766-0"
+            yield StreamDelta(
+                id="1717426372767-0",
+                event=UnifiedStreamEvent(
+                    type=StreamEventType.TEXT_DELTA,
+                    text="I can do that.",
+                ),
+            )
+            yield StreamDelta(
+                id="1717426372768-0",
+                event=UnifiedStreamEvent.approval_request_event(
+                    [
+                        ToolCallContent(
+                            id="toolu_123",
+                            name="core.http_request",
+                            input={"url": "https://example.com"},
+                        )
+                    ]
+                ),
+            )
+            yield StreamEnd(id="1717426372769-0")
+
+    async def _new(_session_id: uuid.UUID, _workspace_id: uuid.UUID) -> _Stream:
+        return _Stream()
+
+    monkeypatch.setattr(mcp_server.AgentStream, "new", _new)
+    result = await mcp_server._collect_agent_response(
+        session_id=session_id,
+        workspace_id=workspace_id,
+        timeout=5.0,
+        last_id="1717426372766-0",
+    )
+    payload = _payload(result)
+
+    assert payload["status"] == "awaiting_approval"
+    assert payload["session_id"] == str(session_id)
+    assert payload["partial_output"] == "I can do that."
+    assert payload["items"] == [
+        {
+            "tool_call_id": "toolu_123",
+            "tool_name": "core.http_request",
+            "args": {"url": "https://example.com"},
+        }
+    ]

@@ -3322,9 +3322,10 @@ async def _collect_agent_response(
     timeout: float,
     last_id: str,
 ) -> str:
-    """Poll Redis agent stream, collect TEXT_DELTA chunks until StreamEnd."""
+    """Poll Redis agent stream and return text output or pending approval state."""
     stream = await AgentStream.new(session_id, workspace_id)
     text_parts: list[str] = []
+    approval_items: dict[str, dict[str, Any]] = {}
 
     async def _not_disconnected() -> bool:
         return False
@@ -3339,14 +3340,30 @@ async def _collect_agent_response(
                         break
                     case StreamError(error=err):
                         raise ToolError(f"Agent error: {err}")
-                    case StreamDelta(event=delta) if (
-                        isinstance(delta, UnifiedStreamEvent)
-                        and delta.type == StreamEventType.TEXT_DELTA
-                        and delta.text
+                    case StreamDelta(event=delta) if isinstance(
+                        delta, UnifiedStreamEvent
                     ):
-                        text_parts.append(delta.text)
+                        if delta.type == StreamEventType.TEXT_DELTA and delta.text:
+                            text_parts.append(delta.text)
+                        elif delta.type == StreamEventType.APPROVAL_REQUEST:
+                            for item in delta.approval_items or []:
+                                approval_items[item.id] = {
+                                    "tool_call_id": item.id,
+                                    "tool_name": item.name,
+                                    "args": item.input,
+                                }
     except TimeoutError:
         raise ToolError(f"Agent response timed out after {timeout}s") from None
+
+    if approval_items:
+        return _json(
+            {
+                "status": "awaiting_approval",
+                "session_id": str(session_id),
+                "items": list(approval_items.values()),
+                "partial_output": "".join(text_parts) or None,
+            }
+        )
 
     return "".join(text_parts) or "(no output)"
 
@@ -3392,7 +3409,7 @@ async def run_agent_preset(
     prompt: str,
     timeout_seconds: int = 120,
 ) -> str:
-    """Run an agent preset with a prompt and return its text response.
+    """Run an agent preset with a prompt and return text or approval status.
 
     Creates an ephemeral session, triggers the agent workflow, and waits
     for the response. The agent has access to all tools configured on the preset.
@@ -3402,6 +3419,10 @@ async def run_agent_preset(
         preset_slug: Slug of the agent preset to run (from list_agent_presets).
         prompt: The user prompt to send to the agent.
         timeout_seconds: Max seconds to wait for response (default 120, max 300).
+
+    Returns:
+        Plain text agent response, or a JSON object with
+        ``status="awaiting_approval"`` when a tool call is pending review.
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
