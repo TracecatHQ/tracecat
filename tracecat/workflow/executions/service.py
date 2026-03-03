@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
+import orjson
 import temporalio.api.enums.v1
 from pydantic import ValidationError
 from temporalio.api.common.v1 import message_pb2
@@ -282,8 +283,8 @@ class WorkflowExecutionsService:
             "query": query or "",
             "relation": relation.value,
         }
-        canonical = json.dumps(payload, separators=(",", ":"), sort_keys=True)
-        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        canonical = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
+        return hashlib.sha256(canonical).hexdigest()
 
     @staticmethod
     def _encode_query_cursor(next_page_token: bytes, fingerprint: str) -> str:
@@ -292,7 +293,7 @@ class WorkflowExecutionsService:
             "fingerprint": fingerprint,
         }
         encoded = base64.urlsafe_b64encode(
-            json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+            orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
         )
         return encoded.decode("ascii")
 
