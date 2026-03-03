@@ -69,7 +69,10 @@ import {
   type CaseTaskCreate,
   type CaseTaskRead,
   type CaseTaskUpdate,
+  type CaseTriggerCreate,
+  type CaseTriggerRead,
   type CaseUpdate,
+  type CustomOAuthProviderCreate,
   caseDropdownsAddDropdownOption,
   caseDropdownsCreateDropdownDefinition,
   caseDropdownsDeleteDropdownDefinition,
@@ -159,6 +162,7 @@ import {
   type ProviderCredentialConfig,
   type ProviderRead,
   type ProviderReadMinimal,
+  providersCreateCustomProvider,
   providersGetProvider,
   providersListProviders,
   type RegistryActionCreate,
@@ -287,8 +291,10 @@ import {
   tagsDeleteTag,
   tagsListTags,
   tagsUpdateTag,
+  triggersCreateCaseTrigger,
   triggersDeleteWebhookApiKey,
   triggersGenerateWebhookApiKey,
+  triggersGetCaseTrigger,
   triggersRevokeWebhookApiKey,
   triggersUpdateWebhook,
   type UserRoleAssignmentCreate,
@@ -344,14 +350,6 @@ import {
   workspacesListWorkspaces,
   workspacesUpdateWorkspace,
 } from "@/client"
-import {
-  type CaseTriggerCreate,
-  type CaseTriggerRead,
-  type CustomOAuthProviderCreateRequest,
-  providersCreateCustomProvider,
-  triggersCreateCaseTrigger,
-  triggersGetCaseTrigger,
-} from "@/client/services.custom"
 import { toast } from "@/components/ui/use-toast"
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { client as apiClient, getBaseUrl } from "@/lib/api"
@@ -4490,7 +4488,7 @@ export function useIntegrations(workspaceId: string) {
 }
 
 type CreateCustomProviderParams = Omit<
-  CustomOAuthProviderCreateRequest,
+  CustomOAuthProviderCreate,
   "provider_id"
 > & {
   provider_id?: string | null
@@ -4508,7 +4506,7 @@ export function useCreateCustomProvider(workspaceId: string) {
       const cleanScopes = params.scopes
         ?.map((scope) => scope.trim())
         .filter(Boolean)
-      const payload: CustomOAuthProviderCreateRequest = {
+      const payload: CustomOAuthProviderCreate = {
         ...params,
         name: params.name.trim(),
         description: params.description?.trim() || undefined,
