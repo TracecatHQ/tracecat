@@ -77,7 +77,7 @@ const CLIENT_AUTH_METHOD_OPTIONS = [
     value: "auto",
     label: "Auto",
     subtitle:
-      "Prefer private_key_jwt when key material exists; otherwise use client secret.",
+      "Prefer client assertion when key material exists; otherwise use client secret.",
   },
   {
     value: "client_secret_basic",
@@ -93,7 +93,7 @@ const CLIENT_AUTH_METHOD_OPTIONS = [
   },
   {
     value: "private_key_jwt",
-    label: "Client assertion (private_key_jwt)",
+    label: "Client assertion (private key JWT)",
     subtitle: "Signs a JWT assertion using your private key and certificate.",
   },
   {
@@ -169,14 +169,14 @@ const createOAuthSchema = (
         if (!hasAssertionKey) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: "Private key is required for private_key_jwt.",
+            message: "Private key is required for private key JWT.",
             path: ["client_assertion_private_key"],
           })
         }
         if (!hasAssertionCert) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: "Certificate is required for private_key_jwt.",
+            message: "Certificate is required for private key JWT.",
             path: ["client_assertion_certificate"],
           })
         }
@@ -592,8 +592,8 @@ export function ProviderConfigForm({
                     </FormControl>
                     <FormMessage />
                     <FormDescription className="text-xs">
-                      `client_secret_basic` uses the Authorization header;{" "}
-                      `client_secret_post` sends credentials in the request
+                      Basic auth sends client credentials in the Authorization
+                      header; client secret post sends them in the token request
                       body.
                     </FormDescription>
                   </FormItem>
@@ -635,7 +635,7 @@ export function ProviderConfigForm({
                         />
                         <FormMessage />
                         <FormDescription className="text-xs">
-                          PEM private key used to sign private_key_jwt
+                          PEM private key used to sign private key JWT
                           assertions. Leave blank to keep existing key.
                           {hasExistingAssertionPrivateKey
                             ? " Existing key is already configured."
