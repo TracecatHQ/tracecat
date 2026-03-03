@@ -26,6 +26,7 @@ import {
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const WORKFLOW_RUNS_PAGE_SIZE = 50
+const WORKFLOW_RUNS_POLL_INTERVAL_MS = 10_000
 type WorkflowExecutionStatusFilter = NonNullable<
   WorkflowExecutionsSearchWorkflowExecutionsData["status"]
 >[number]
@@ -174,6 +175,9 @@ export function useWorkflowRuns(
       searchTerm: parsedSearchTerm,
       relation: normalizedRelation,
     },
+    refetchInterval: WORKFLOW_RUNS_POLL_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   })
 
   const runs = pagination.data
