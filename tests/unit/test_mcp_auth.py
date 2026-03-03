@@ -117,3 +117,61 @@ def test_get_token_identity_extracts_ids_from_claims_and_scopes(
     assert identity.email is None
     assert identity.organization_ids == frozenset({org_id, extra_org_id})
     assert identity.workspace_ids == frozenset({ws_id, extra_ws_id})
+
+
+@pytest.mark.anyio
+async def test_list_workspaces_for_request_passes_claimed_org_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id_1 = uuid.uuid4()
+    org_id_2 = uuid.uuid4()
+    captured: dict[str, object] = {}
+
+    identity = mcp_auth.MCPTokenIdentity(
+        client_id="tracecat-client",
+        email="user@example.com",
+        organization_ids=frozenset({org_id_1, org_id_2}),
+    )
+
+    async def _list_user_workspaces(
+        email: str,
+        organization_ids: frozenset[uuid.UUID] | None = None,
+    ) -> list[dict[str, str]]:
+        captured["email"] = email
+        captured["organization_ids"] = organization_ids
+        return []
+
+    monkeypatch.setattr(mcp_auth, "get_token_identity", lambda: identity)
+    monkeypatch.setattr(mcp_auth, "list_user_workspaces", _list_user_workspaces)
+
+    await mcp_auth.list_workspaces_for_request()
+
+    assert captured["email"] == "user@example.com"
+    assert captured["organization_ids"] == frozenset({org_id_1, org_id_2})
+
+
+@pytest.mark.anyio
+async def test_list_workspaces_for_request_without_claimed_org_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    identity = mcp_auth.MCPTokenIdentity(
+        client_id="tracecat-client",
+        email="user@example.com",
+    )
+
+    async def _list_user_workspaces(
+        email: str,
+        organization_ids: frozenset[uuid.UUID] | None = None,
+    ) -> list[dict[str, str]]:
+        captured["email"] = email
+        captured["organization_ids"] = organization_ids
+        return []
+
+    monkeypatch.setattr(mcp_auth, "get_token_identity", lambda: identity)
+    monkeypatch.setattr(mcp_auth, "list_user_workspaces", _list_user_workspaces)
+
+    await mcp_auth.list_workspaces_for_request()
+
+    assert captured["email"] == "user@example.com"
+    assert captured["organization_ids"] is None

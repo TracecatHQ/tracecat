@@ -643,7 +643,7 @@ async def resolve_role(email: str, workspace_id: WorkspaceID) -> Role:
 
 async def list_user_workspaces(
     email: str,
-    organization_id: OrganizationID | None = None,
+    organization_ids: frozenset[OrganizationID] | None = None,
 ) -> list[dict[str, str]]:
     """List workspaces accessible to the user.
 
@@ -657,8 +657,8 @@ async def list_user_workspaces(
         # Platform superusers can see all workspaces without org memberships.
         if user.is_superuser:
             stmt = select(Workspace.id, Workspace.name)
-            if organization_id is not None:
-                stmt = stmt.where(Workspace.organization_id == organization_id)
+            if organization_ids:
+                stmt = stmt.where(Workspace.organization_id.in_(organization_ids))
             stmt = stmt.order_by(Workspace.name.asc(), Workspace.id.asc())
             result = await session.execute(stmt)
             return [{"id": str(row.id), "name": row.name} for row in result.all()]
@@ -672,10 +672,10 @@ async def list_user_workspaces(
 
         if not org_ids:
             return []
-        if organization_id is not None:
-            if organization_id not in org_ids:
+        if organization_ids:
+            org_ids &= set(organization_ids)
+            if not org_ids:
                 return []
-            org_ids = {organization_id}
 
         # Determine org-admin visibility on a per-organization basis.
         org_admin_ids: set[OrganizationID] = set()
@@ -734,8 +734,14 @@ async def resolve_role_for_request(workspace_id: WorkspaceID) -> Role:
 
 async def list_workspaces_for_request() -> list[dict[str, str]]:
     """List workspaces accessible to the current MCP caller."""
-    email = get_email_from_token()
-    return await list_user_workspaces(email)
+    identity = get_token_identity()
+    if identity.email is None:
+        raise ValueError("Token does not contain an email claim")
+    scoped_org_ids = identity.organization_ids or None
+    return await list_user_workspaces(
+        identity.email,
+        organization_ids=scoped_org_ids,
+    )
 
 
 def get_email_from_token() -> str:
