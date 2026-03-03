@@ -149,8 +149,10 @@ class TestWorkflowExecutionWorkspaceFiltering:
         await_args = mock_q.await_args
         assert await_args is not None
         query = await_args.kwargs["query"]
-        assert TemporalSearchAttr.WORKSPACE_ID.value in query
-        assert str(mock_role.workspace_id) in query
+        workspace_clause = (
+            f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{mock_role.workspace_id}'"
+        )
+        assert workspace_clause in query
 
     async def test_query_executions_enforces_workspace_scope(
         self,
@@ -171,9 +173,11 @@ class TestWorkflowExecutionWorkspaceFiltering:
         await service.query_executions(query="ExecutionStatus = 'Running'")
 
         called_query = mock_client.list_workflows.call_args.kwargs["query"]
-        assert "ExecutionStatus = 'Running'" in called_query
-        assert TemporalSearchAttr.WORKSPACE_ID.value in called_query
-        assert str(mock_role.workspace_id) in called_query
+        workspace_clause = (
+            f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{mock_role.workspace_id}'"
+        )
+        assert workspace_clause in called_query
+        assert f"(ExecutionStatus = 'Running') AND {workspace_clause}" == called_query
 
     async def test_query_executions_requires_workspace_id(
         self,
@@ -208,8 +212,10 @@ class TestWorkflowExecutionWorkspaceFiltering:
         await_args = mock_q.await_args
         assert await_args is not None
         query = await_args.kwargs["query"]
-        assert TemporalSearchAttr.WORKSPACE_ID.value in query
-        assert str(mock_role.workspace_id) in query
+        workspace_clause = (
+            f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{mock_role.workspace_id}'"
+        )
+        assert workspace_clause in query
         assert wf_id.short() in query
 
     async def test_require_execution_raises_for_missing_execution(
@@ -344,6 +350,10 @@ class TestWorkflowExecutionWorkspaceFiltering:
             async def fetch_next_page(self, *, page_size: int | None = None) -> None:
                 return None
 
+        workspace_clause = (
+            f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{mock_role.workspace_id}'"
+        )
+
         mock_client.list_workflows = Mock(return_value=Iterator())
 
         root_page = await service.list_executions_paginated(
@@ -351,6 +361,8 @@ class TestWorkflowExecutionWorkspaceFiltering:
             relation=WorkflowExecutionRelationFilter.ROOT,
         )
         assert root_page.items == [root_exec]
+        root_query = mock_client.list_workflows.call_args.kwargs["query"]
+        assert workspace_clause in root_query
 
         mock_client.list_workflows = Mock(return_value=Iterator())
         child_page = await service.list_executions_paginated(
@@ -358,6 +370,8 @@ class TestWorkflowExecutionWorkspaceFiltering:
             relation=WorkflowExecutionRelationFilter.CHILD,
         )
         assert child_page.items == [child_exec]
+        child_query = mock_client.list_workflows.call_args.kwargs["query"]
+        assert workspace_clause in child_query
 
     async def test_list_executions_paginated_applies_status_filter(
         self,
@@ -374,6 +388,10 @@ class TestWorkflowExecutionWorkspaceFiltering:
             async def fetch_next_page(self, *, page_size: int | None = None) -> None:
                 return None
 
+        workspace_clause = (
+            f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{mock_role.workspace_id}'"
+        )
+
         mock_client.list_workflows = Mock(return_value=Iterator())
         statuses: set[WorkflowExecutionStatusLiteral] = {"RUNNING", "FAILED"}
         await service.list_executions_paginated(
@@ -384,6 +402,7 @@ class TestWorkflowExecutionWorkspaceFiltering:
         include_query = mock_client.list_workflows.call_args.kwargs["query"]
         assert "ExecutionStatus = 'Failed'" in include_query
         assert "ExecutionStatus = 'Running'" in include_query
+        assert workspace_clause in include_query
 
         mock_client.list_workflows = Mock(return_value=Iterator())
         await service.list_executions_paginated(
@@ -394,6 +413,7 @@ class TestWorkflowExecutionWorkspaceFiltering:
         exclude_query = mock_client.list_workflows.call_args.kwargs["query"]
         assert "ExecutionStatus != 'Failed'" in exclude_query
         assert "ExecutionStatus != 'Running'" in exclude_query
+        assert workspace_clause in exclude_query
 
     async def test_list_executions_paginated_requires_workspace_id(
         self,
@@ -414,12 +434,30 @@ class TestWorkflowExecutionWorkspaceFiltering:
 
         mock_client.list_workflows.assert_not_called()
 
+    async def test_build_query_workspace_only(self) -> None:
+        workspace_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        query = build_query(workspace_id=workspace_id)
+        workspace_clause = f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{workspace_id}'"
+        assert query == workspace_clause
+
+    async def test_build_query_workspace_clause_joined_with_and(self) -> None:
+        workspace_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        user_id = uuid.UUID("00000000-0000-0000-0000-000000000123")
+        query = build_query(
+            workspace_id=workspace_id,
+            triggered_by_user_id=user_id,
+        )
+        workspace_clause = f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{workspace_id}'"
+        assert query.startswith(workspace_clause)
+        assert f"{workspace_clause} AND " in query
+
     async def test_build_query_supports_time_duration_user_and_execution_type(
         self,
     ) -> None:
+        workspace_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
         user_id = uuid.UUID("00000000-0000-0000-0000-000000000123")
         query = build_query(
-            workspace_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            workspace_id=workspace_id,
             triggered_by_user_id=user_id,
             execution_types={ExecutionType.PUBLISHED},
             start_time_from=datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
@@ -430,6 +468,9 @@ class TestWorkflowExecutionWorkspaceFiltering:
             duration_lte_seconds=3600,
         )
 
+        workspace_clause = f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{workspace_id}'"
+        assert query.startswith(workspace_clause)
+        assert f"{workspace_clause} AND " in query
         assert f"TracecatTriggeredByUserId = '{str(user_id)}'" in query
         assert "TracecatExecutionType = 'published'" in query
         assert "TracecatExecutionType IS NULL" in query
