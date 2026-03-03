@@ -180,7 +180,7 @@
       "lodash-es": "4.17.23",
       "tar": "7.5.8",
       "markdown-it": "14.1.1",
-      "minimatch": "10.2.2"
+      "minimatch": "10.2.3"
     }
   }
 }
