@@ -29,11 +29,11 @@ import type {
   WorkflowExecutionReadMinimal,
   WorkflowExecutionRelationFilter,
 } from "@/client"
+import { WorkflowExecutionStatusIcon } from "@/components/executions/nav"
 import {
   type FilterMode,
   FilterMultiSelect,
-} from "@/components/cases/cases-header"
-import { WorkflowExecutionStatusIcon } from "@/components/executions/nav"
+} from "@/components/filters/filter-multi-select"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import {

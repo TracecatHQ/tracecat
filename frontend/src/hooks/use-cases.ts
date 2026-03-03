@@ -17,9 +17,11 @@ import {
 import {
   type CaseSortValue,
   DEFAULT_CASE_SORT,
-  type FilterMode,
-  type SortDirection,
 } from "@/components/cases/cases-header"
+import type {
+  FilterMode,
+  SortDirection,
+} from "@/components/filters/filter-multi-select"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
