@@ -1,0 +1,23 @@
+tests/unit/test_search_attributes.py
+  6b2862bf8764860f 11,14,98-200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.7",
+  "base_commit_sha": "f14cebff1022de37e87aa60732286f050c64093b",
+  "prompts": {
+    "6b2862bf8764860f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cb4e5-e675-70b3-8972-0134cda44a13",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 106,
+      "total_deletions": 1,
+      "accepted_lines": 106,
+      "overriden_lines": 0
+    }
+  }
+}
