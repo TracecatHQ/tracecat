@@ -667,9 +667,7 @@ class CasesService(BaseWorkspaceService):
                 0,
             ).label("on_hold"),
             func.coalesce(
-                func.sum(
-                    sa.case((Case.status == CaseStatus.RESOLVED, 1), else_=0)
-                ),
+                func.sum(sa.case((Case.status == CaseStatus.RESOLVED, 1), else_=0)),
                 0,
             ).label("resolved"),
             func.coalesce(
