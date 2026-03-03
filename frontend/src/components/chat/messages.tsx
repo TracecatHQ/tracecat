@@ -10,9 +10,9 @@ import { Streamdown } from "streamdown"
 import { Dots } from "@/components/loading/dots"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import {
+  ALLOWED_MARKDOWN_IMAGE_PREFIXES,
+  ALLOWED_MARKDOWN_LINK_PREFIXES,
   getStreamdownRehypePlugins,
-  SAFE_MARKDOWN_IMAGE_PREFIXES,
-  SAFE_MARKDOWN_LINK_PREFIXES,
 } from "@/lib/sanitize-markdown"
 
 /**
@@ -208,8 +208,8 @@ export function Messages({
         >
           <Image src={TracecatIcon} alt="Tracecat" className="size-4 mt-1" />
           <Streamdown
-            allowedImagePrefixes={SAFE_MARKDOWN_IMAGE_PREFIXES}
-            allowedLinkPrefixes={SAFE_MARKDOWN_LINK_PREFIXES}
+            allowedImagePrefixes={ALLOWED_MARKDOWN_IMAGE_PREFIXES}
+            allowedLinkPrefixes={ALLOWED_MARKDOWN_LINK_PREFIXES}
             rehypePlugins={chatMessageRehypePlugins}
             className={`${assistantMarkdownStyle} flex-1`}
             parseIncompleteMarkdown
@@ -274,8 +274,8 @@ function AgentChatMessage({ message }: { message: ModelResponse }) {
       <div className="flex flex-1 flex-col gap-3 text-sm text-foreground">
         {textContent && (
           <Streamdown
-            allowedImagePrefixes={SAFE_MARKDOWN_IMAGE_PREFIXES}
-            allowedLinkPrefixes={SAFE_MARKDOWN_LINK_PREFIXES}
+            allowedImagePrefixes={ALLOWED_MARKDOWN_IMAGE_PREFIXES}
+            allowedLinkPrefixes={ALLOWED_MARKDOWN_LINK_PREFIXES}
             rehypePlugins={chatMessageRehypePlugins}
             className={assistantMarkdownStyle}
           >

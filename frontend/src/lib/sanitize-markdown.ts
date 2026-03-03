@@ -16,7 +16,7 @@ const sanitizeSchema = {
   },
 }
 
-export const SAFE_MARKDOWN_LINK_PREFIXES = [
+export const ALLOWED_MARKDOWN_LINK_PREFIXES = [
   "http://",
   "https://",
   "mailto:",
@@ -25,7 +25,7 @@ export const SAFE_MARKDOWN_LINK_PREFIXES = [
   "#",
 ]
 
-export const SAFE_MARKDOWN_IMAGE_PREFIXES = [
+export const ALLOWED_MARKDOWN_IMAGE_PREFIXES = [
   "http://",
   "https://",
   "data:image/",
