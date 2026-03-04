@@ -146,13 +146,13 @@ variable "hosted_zone_id" {
 variable "tracecat_image_tag" {
   description = "Docker image tag for Tracecat services"
   type        = string
-  default     = "1.0.0-beta.24"
+  default     = "1.0.0-beta.25"
 }
 
 variable "tracecat_chart_version" {
   description = "Helm chart version for Tracecat (from OCI registry)"
   type        = string
-  default     = "0.3.34"
+  default     = "0.3.35"
 }
 
 variable "tracecat_ingress_split" {
