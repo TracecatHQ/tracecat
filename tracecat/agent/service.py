@@ -24,6 +24,7 @@ from tracecat.db.models import OrganizationSecret, Secret
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
@@ -191,6 +192,7 @@ class AgentManagementService(BaseOrgService):
             select(OrganizationSecret.id).where(
                 OrganizationSecret.organization_id == self.organization_id,
                 OrganizationSecret.name == secret_name,
+                OrganizationSecret.environment == DEFAULT_SECRETS_ENVIRONMENT,
             )
         )
         return result.scalar_one_or_none() is not None
@@ -217,6 +219,7 @@ class AgentManagementService(BaseOrgService):
             select(Secret.id).where(
                 Secret.workspace_id == workspace_id,
                 Secret.name == secret_name,
+                Secret.environment == DEFAULT_SECRETS_ENVIRONMENT,
             )
         )
         return result.scalar_one_or_none() is not None
