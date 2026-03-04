@@ -191,8 +191,11 @@ class UserMCPClient:
             Tuple of (server_name, original_tool_name), or None if not a user MCP tool.
 
         """
-        # Skip tracecat-registry tools (handled separately)
-        if tool_name.startswith("mcp__tracecat-registry__"):
+        # Skip tracecat registry-reserved prefixes (handled separately).
+        # Support both alias forms.
+        if tool_name.startswith("mcp__tracecat-registry__") or tool_name.startswith(
+            "mcp__tracecat_registry__"
+        ):
             return None
 
         # Check for user MCP pattern

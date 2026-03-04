@@ -102,6 +102,12 @@ INTERNET_TOOLS = [
     "WebFetch",
 ]
 
+# Registry MCP server name aliases for backward compatibility.
+# Different execution/resume paths may reference either hyphen or underscore
+# forms, so we keep both aliases valid.
+REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
+REGISTRY_MCP_SERVER_NAME_ALIAS = "tracecat_registry"
+
 
 class ClaudeAgentRuntime:
     """Stateless, sandboxed Claude SDK runtime.
@@ -467,7 +473,10 @@ class ClaudeAgentRuntime:
                     allowed_actions=self.registry_tools,
                     auth_token=payload.mcp_auth_token,
                 )
-                mcp_servers["tracecat-registry"] = proxy_config
+                mcp_servers[REGISTRY_MCP_SERVER_NAME] = proxy_config
+                # Guard against alias drift in resumed session history/tool calls.
+                if payload.sdk_session_id:
+                    mcp_servers[REGISTRY_MCP_SERVER_NAME_ALIAS] = proxy_config
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
             if payload.config.mcp_servers:

@@ -1590,10 +1590,10 @@ def convert_chat_messages_to_ui(
                     # Extract underlying tool name for execute_tool wrapper
                     tool_name = part.name
                     tool_input = part.input or {}
-                    if (
-                        part.name == "mcp__tracecat-registry__execute_tool"
-                        and isinstance(tool_input, dict)
-                    ):
+                    if part.name in {
+                        "mcp__tracecat-registry__execute_tool",
+                        "mcp__tracecat_registry__execute_tool",
+                    } and isinstance(tool_input, dict):
                         tool_name = tool_input.get("tool_name", part.name)
                         tool_input = tool_input.get("args", tool_input)
                     # Normalize MCP registry prefix
