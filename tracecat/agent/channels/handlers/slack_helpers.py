@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from slack_sdk.errors import SlackApiError
+from slack_sdk.errors import SlackApiError, SlackClientError
 from slack_sdk.web.async_client import AsyncWebClient
 
 from tracecat.logger import logger
@@ -128,7 +128,7 @@ async def notify_error(
     if ts:
         try:
             await set_error(client, channel_id=channel_id, ts=ts)
-        except Exception as exc:
+        except SlackClientError as exc:
             logger.warning(
                 "Failed to mark Slack message with error reaction",
                 channel_id=channel_id,

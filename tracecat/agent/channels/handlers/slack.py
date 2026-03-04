@@ -127,14 +127,26 @@ class SlackChannelHandler:
 
     async def _is_duplicate_event(
         self, client: RedisClient, *, team_id: str, event_id: str
-    ) -> bool:
+    ) -> tuple[str, bool]:
         dedup_key = f"slack-event:{team_id}:{event_id}"
         inserted = await client.set_if_not_exists(
             dedup_key,
             "1",
             expire_seconds=SLACK_EVENT_DEDUP_TTL_SECONDS,
         )
-        return not inserted
+        return dedup_key, not inserted
+
+    async def _release_duplicate_event(
+        self, client: RedisClient, *, dedup_key: str
+    ) -> None:
+        try:
+            await client.delete(dedup_key)
+        except Exception as exc:
+            logger.warning(
+                "Failed to release Slack dedup key",
+                dedup_key=dedup_key,
+                error=str(exc),
+            )
 
     async def _resolve_session_id_from_thread_metadata(
         self, client: AsyncWebClient, *, channel_id: str, thread_ts: str
@@ -290,13 +302,16 @@ class SlackChannelHandler:
             return
 
         context = self._parse_app_mention_context(payload)
+        dedup_client: RedisClient | None = None
+        dedup_key: str | None = None
         try:
             dedup_client = await get_redis_client()
-            if await self._is_duplicate_event(
+            dedup_key, is_duplicate = await self._is_duplicate_event(
                 dedup_client,
                 team_id=context.team_id,
                 event_id=context.event_id,
-            ):
+            )
+            if is_duplicate:
                 logger.info(
                     "Slack event already processed",
                     workspace_id=str(token.workspace_id),
@@ -362,6 +377,11 @@ class SlackChannelHandler:
                     workspace_id=str(token.workspace_id),
                     event_id=context.event_id,
                     channel_id=context.channel_id,
+                )
+            if dedup_client is not None and dedup_key is not None:
+                await self._release_duplicate_event(
+                    dedup_client,
+                    dedup_key=dedup_key,
                 )
             return
         else:

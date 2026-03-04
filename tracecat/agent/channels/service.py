@@ -334,12 +334,11 @@ class AgentChannelService(BaseWorkspaceService):
     def _redact_slack_config(
         config: SlackChannelTokenConfig,
     ) -> SlackChannelTokenConfig:
+        redacted_marker = f"{REDACTED_SLACK_SIGNING_SECRET_PREFIX}redacted"
         redacted_signing_secret = (
             config.slack_signing_secret
-            if config.slack_signing_secret.startswith(
-                REDACTED_SLACK_SIGNING_SECRET_PREFIX
-            )
-            else f"{REDACTED_SLACK_SIGNING_SECRET_PREFIX}redacted"
+            if config.slack_signing_secret == redacted_marker
+            else redacted_marker
         )
         return SlackChannelTokenConfig(
             slack_bot_token=(

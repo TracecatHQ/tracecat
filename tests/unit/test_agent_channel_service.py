@@ -110,6 +110,39 @@ async def test_to_read_preserves_pending_bot_token_placeholder(
     read_token = agent_channel_service.to_read(token)
 
     assert read_token.config.slack_bot_token == PENDING_SLACK_BOT_TOKEN
+    assert (
+        read_token.config.slack_signing_secret
+        == f"{REDACTED_SLACK_SIGNING_SECRET_PREFIX}redacted"
+    )
+
+
+@pytest.mark.anyio
+async def test_to_read_redacts_prefix_colliding_slack_signing_secret(
+    agent_channel_service: AgentChannelService,
+    agent_preset: AgentPreset,
+) -> None:
+    token = await agent_channel_service.create_token(
+        AgentChannelTokenCreate(
+            agent_preset_id=agent_preset.id,
+            channel_type=ChannelType.SLACK,
+            config=SlackChannelTokenConfig(
+                slack_bot_token="xoxb-real-secret",
+                slack_client_id="12345.67890",
+                slack_client_secret="client-secret",
+                slack_signing_secret=(
+                    f"{REDACTED_SLACK_SIGNING_SECRET_PREFIX}looks-like-real"
+                ),
+            ),
+            is_active=False,
+        )
+    )
+
+    read_token = agent_channel_service.to_read(token)
+
+    assert (
+        read_token.config.slack_signing_secret
+        == f"{REDACTED_SLACK_SIGNING_SECRET_PREFIX}redacted"
+    )
 
 
 @pytest.mark.anyio

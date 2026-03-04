@@ -6,7 +6,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tracecat.agent.channels.handlers.slack import SlackChannelHandler
+from tracecat.agent.channels.handlers.slack import (
+    SLACK_EVENT_DEDUP_TTL_SECONDS,
+    SlackChannelHandler,
+)
 from tracecat.agent.channels.schemas import (
     ChannelType,
     SlackChannelTokenConfig,
@@ -244,3 +247,81 @@ async def test_handle_continues_when_redis_dedup_unavailable() -> None:
     ack_event_mock.assert_awaited_once()
     run_turn_mock.assert_awaited_once()
     set_in_progress_mock.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_handle_clears_dedup_key_after_processing_failure() -> None:
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:update"}),
+    )
+    handler = SlackChannelHandler(session=AsyncMock(), role=role)
+    token = ValidatedChannelToken(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        agent_preset_id=uuid.uuid4(),
+        channel_type=ChannelType.SLACK,
+        config=SlackChannelTokenConfig(
+            slack_bot_token="xoxb-test",
+            slack_signing_secret="signing-secret",
+        ),
+        public_token="public-token",
+    )
+    payload = {
+        "type": "event_callback",
+        "team_id": "T1",
+        "event_id": "Ev1",
+        "event": {
+            "type": "app_mention",
+            "ts": "1700000000.123",
+            "thread_ts": "1700000000.100",
+            "channel": "C1",
+            "user": "U1",
+            "text": "<@Ubot> summarize this",
+        },
+    }
+    dedup_client = AsyncMock()
+    dedup_client.set_if_not_exists.return_value = True
+    dedup_client.delete = AsyncMock(return_value=1)
+
+    with (
+        patch(
+            "tracecat.agent.channels.handlers.slack.get_redis_client",
+            AsyncMock(return_value=dedup_client),
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.ack_event",
+            new_callable=AsyncMock,
+        ),
+        patch.object(
+            handler,
+            "_resolve_or_create_session",
+            AsyncMock(return_value=uuid.uuid4()),
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.AgentSessionService.run_turn",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("run_turn failed"),
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.notify_error",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.set_in_progress",
+            new_callable=AsyncMock,
+        ) as set_in_progress_mock,
+    ):
+        await handler.handle(payload=payload, token=token)
+
+    dedup_client.set_if_not_exists.assert_awaited_once_with(
+        "slack-event:T1:Ev1",
+        "1",
+        expire_seconds=SLACK_EVENT_DEDUP_TTL_SECONDS,
+    )
+    dedup_client.delete.assert_awaited_once_with("slack-event:T1:Ev1")
+    set_in_progress_mock.assert_not_awaited()
