@@ -131,7 +131,7 @@ resource "helm_release" "tracecat" {
       urls = {
         publicApp = "https://${var.domain_name}"
         publicApi = "https://${var.domain_name}/api"
-        publicMcp = "https://${var.domain_name}"
+        publicMcp = "https://${var.domain_name}/mcp"
       }
       mcp = {
         enabled  = var.tracecat_mcp_enabled
