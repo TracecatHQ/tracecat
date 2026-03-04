@@ -160,14 +160,14 @@ class DurableAgentWorkflow:
     @workflow.run
     async def run(self, args: AgentWorkflowArgs) -> AgentOutput:
         """Run the agent until completion. The agent will call tools until it needs human approval."""
-        logger.info(
+        logger.debug(
             "DurableAgentWorkflow run", args=args, harness_type=self.harness_type
         )
         logger.debug("AGENT CONTEXT", agent_context=AgentContext.get())
         if workflow.unsafe.is_replaying():
-            logger.info("Workflow is replaying")
+            logger.debug("Workflow is replaying")
         else:
-            logger.info("Starting agent", prompt=args.agent_args.user_prompt)
+            logger.debug("Starting agent", prompt=args.agent_args.user_prompt)
 
         cfg = await self._build_config(args)
 
