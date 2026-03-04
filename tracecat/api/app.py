@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.router import router as admin_router
 from tracecat_ee.agent.approvals.router import router as approvals_router
+from tracecat_ee.watchtower.router import router as watchtower_router
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
@@ -420,6 +421,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(agent_preset_router)
     app.include_router(agent_session_router)
     app.include_router(approvals_router)
+    app.include_router(watchtower_router)
     app.include_router(admin_router)
     app.include_router(admin_registry_router, prefix="/admin")
     app.include_router(inbox_router)

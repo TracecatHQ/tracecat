@@ -1020,6 +1020,51 @@ async def test_get_mcp_client_id_returns_anonymous_without_context():
     assert get_mcp_client_id(ctx) == "anonymous"
 
 
+def test_watchtower_status_mapping() -> None:
+    from tracecat.mcp.middleware import _derive_tool_call_status
+
+    assert _derive_tool_call_status("Tool timed out after 5 seconds") == "timeout"
+    assert _derive_tool_call_status("Request blocked by admin policy") == "blocked"
+    assert _derive_tool_call_status("Forbidden") == "rejected"
+    assert _derive_tool_call_status("Unhandled failure") == "error"
+
+
+def test_watchtower_workspace_resolution_prefers_claimed_scope() -> None:
+    from tracecat.mcp.auth import MCPTokenIdentity
+    from tracecat.mcp.middleware import _resolve_workspace_id
+
+    scoped_workspace_id = uuid.uuid4()
+    identity = MCPTokenIdentity(
+        client_id="client",
+        email="user@example.com",
+        organization_ids=frozenset(),
+        workspace_ids=frozenset({scoped_workspace_id}),
+    )
+    resolved = _resolve_workspace_id(
+        identity=identity,
+        arguments={"workspace_id": str(uuid.uuid4())},
+    )
+    assert resolved == scoped_workspace_id
+
+
+def test_watchtower_workspace_resolution_uses_tool_argument() -> None:
+    from tracecat.mcp.auth import MCPTokenIdentity
+    from tracecat.mcp.middleware import _resolve_workspace_id
+
+    workspace_id = uuid.uuid4()
+    identity = MCPTokenIdentity(
+        client_id="client",
+        email="user@example.com",
+        organization_ids=frozenset(),
+        workspace_ids=frozenset(),
+    )
+    resolved = _resolve_workspace_id(
+        identity=identity,
+        arguments={"workspace_id": str(workspace_id)},
+    )
+    assert resolved == workspace_id
+
+
 # ---------------------------------------------------------------------------
 # Resource registration tests
 # ---------------------------------------------------------------------------

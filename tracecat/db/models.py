@@ -2487,6 +2487,366 @@ class AgentSessionHistory(WorkspaceModel):
     )
 
 
+class WatchtowerAgent(OrganizationModel):
+    """Organization-scoped local agent identity for Watchtower monitoring."""
+
+    __tablename__ = "watchtower_agent"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "fingerprint_hash",
+            name="uq_watchtower_agent_organization_id_fingerprint_hash",
+        ),
+        Index(
+            "ix_wt_agent_org_seen",
+            "organization_id",
+            "last_seen_at",
+        ),
+        Index(
+            "ix_wt_agent_org_blocked",
+            "organization_id",
+            "blocked_at",
+        ),
+        Index(
+            "ix_wt_agent_org_type",
+            "organization_id",
+            "agent_type",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Watchtower agent identifier",
+    )
+    fingerprint_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="Stable hash for the observed local agent identity",
+    )
+    agent_type: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="unknown",
+        doc="Normalized local agent type (claude_code, codex, opencode, etc.)",
+    )
+    agent_source: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="unknown",
+        doc="Source used to classify agent type (client_info, user_agent, mixed, unknown)",
+    )
+    agent_icon_key: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="Frontend icon key for agent rendering",
+    )
+    raw_user_agent: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Raw user-agent value from the local agent transport",
+    )
+    raw_client_info: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Raw MCP initialize clientInfo payload",
+    )
+    auth_client_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="OAuth client identifier used by the local agent",
+    )
+    last_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="Most recently observed user ID for this agent",
+    )
+    last_user_email: Mapped[str | None] = mapped_column(
+        String(320),
+        nullable=True,
+        doc="Most recently observed user email for this agent",
+    )
+    last_user_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Most recently observed user display name for this agent",
+    )
+    first_seen_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        doc="When this agent was first seen",
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        doc="Most recent activity timestamp for this agent",
+    )
+    blocked_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When this agent was disabled in Watchtower",
+    )
+    blocked_reason: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Optional reason for disabling this agent",
+    )
+    blocked_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="User who disabled this agent",
+    )
+
+    last_user: Mapped[User | None] = relationship(
+        "User",
+        foreign_keys=[last_user_id],
+    )
+    blocked_by: Mapped[User | None] = relationship(
+        "User",
+        foreign_keys=[blocked_by_user_id],
+    )
+
+
+class WatchtowerAgentSession(OrganizationModel):
+    """Organization-scoped local agent session lifecycle for Watchtower."""
+
+    __tablename__ = "watchtower_agent_session"
+    __table_args__ = (
+        Index(
+            "ix_wt_agent_sess_org_session_id_uq",
+            "organization_id",
+            "agent_session_id",
+            unique=True,
+            postgresql_where=text("agent_session_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_wt_agent_sess_org_state_seen",
+            "organization_id",
+            "session_state",
+            "last_seen_at",
+        ),
+        Index(
+            "ix_wt_agent_sess_org_auth_cb_seen",
+            "organization_id",
+            "auth_client_id",
+            "oauth_callback_seen_at",
+        ),
+        Index(
+            "ix_wt_agent_sess_org_user_seen",
+            "organization_id",
+            "user_id",
+            "last_seen_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Watchtower agent session identifier",
+    )
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("watchtower_agent.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Associated Watchtower agent record",
+    )
+    session_state: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="awaiting_initialize",
+        doc="Session lifecycle state (awaiting_initialize, connected, revoked)",
+    )
+    auth_transaction_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        doc="OAuth transaction ID when captured during callback flow",
+    )
+    auth_client_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="OAuth client identifier observed for this session",
+    )
+    oauth_callback_seen_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="Timestamp observed at OAuth callback stage",
+    )
+    agent_session_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Session ID from the local MCP transport",
+    )
+    initialize_seen_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="Timestamp observed at MCP initialize stage",
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="User associated with this local agent session",
+    )
+    user_email: Mapped[str | None] = mapped_column(
+        String(320),
+        nullable=True,
+        doc="Snapshot of associated user email",
+    )
+    user_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Snapshot of associated user display name",
+    )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="Most recent workspace observed for this session",
+    )
+    first_seen_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        doc="When this session was first seen",
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        doc="Most recent activity timestamp for this session",
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When this session was revoked",
+    )
+    revoked_reason: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Optional reason for session revocation",
+    )
+    revoked_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="User who revoked this session",
+    )
+
+    agent: Mapped[WatchtowerAgent | None] = relationship("WatchtowerAgent")
+    user: Mapped[User | None] = relationship("User", foreign_keys=[user_id])
+    revoked_by: Mapped[User | None] = relationship(
+        "User",
+        foreign_keys=[revoked_by_user_id],
+    )
+
+
+class WatchtowerAgentToolCall(OrganizationModel):
+    """Tool-call telemetry for Watchtower local agent sessions."""
+
+    __tablename__ = "watchtower_agent_tool_call"
+    __table_args__ = (
+        Index(
+            "ix_wt_call_org_called",
+            "organization_id",
+            "called_at",
+        ),
+        Index(
+            "ix_wt_call_org_session_called",
+            "organization_id",
+            "agent_session_id",
+            "called_at",
+        ),
+        Index(
+            "ix_wt_call_org_agent_called",
+            "organization_id",
+            "agent_id",
+            "called_at",
+        ),
+        Index(
+            "ix_wt_call_org_ws_called",
+            "organization_id",
+            "workspace_id",
+            "called_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Watchtower tool-call identifier",
+    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("watchtower_agent.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Associated Watchtower agent",
+    )
+    agent_session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("watchtower_agent_session.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Associated Watchtower agent session row ID",
+    )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Workspace observed for this tool call",
+    )
+    tool_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc="Name of the invoked tool",
+    )
+    call_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        doc="Call result status (success, error, timeout, rejected, blocked)",
+    )
+    latency_ms: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="Tool execution latency in milliseconds",
+    )
+    args_redacted: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        doc="Redacted structural summary of tool-call arguments",
+    )
+    error_redacted: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Redacted summary for tool-call errors",
+    )
+    called_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        doc="When the tool call was observed",
+    )
+
+    agent: Mapped[WatchtowerAgent] = relationship("WatchtowerAgent")
+    session: Mapped[WatchtowerAgentSession] = relationship("WatchtowerAgentSession")
+
+
 class AgentPreset(WorkspaceModel):
     """Database model for storing reusable agent preset configurations."""
 
