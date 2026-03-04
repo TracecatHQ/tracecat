@@ -25,6 +25,7 @@ from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.durations.schemas import CaseDurationMetric
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.filters import parse_assignee_filter
 from tracecat.cases.rows.schemas import CaseTableRowRead
 from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
@@ -239,20 +240,7 @@ async def search_cases(
         reverse=reverse,
     )
 
-    parsed_assignee_ids: list[uuid.UUID] = []
-    include_unassigned = False
-    if assignee_id:
-        for identifier in assignee_id:
-            if identifier == "unassigned":
-                include_unassigned = True
-                continue
-            try:
-                parsed_assignee_ids.append(uuid.UUID(identifier))
-            except ValueError as e:
-                raise HTTPException(
-                    status_code=HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid assignee_id: {identifier}",
-                ) from e
+    parsed_assignee_filters = parse_assignee_filter(assignee_id)
 
     parsed_dropdown_filters: dict[str, list[str]] | None = None
     if dropdown:
@@ -273,8 +261,8 @@ async def search_cases(
             status=status,
             priority=priority,
             severity=severity,
-            assignee_ids=parsed_assignee_ids or None,
-            include_unassigned=include_unassigned,
+            assignee_ids=parsed_assignee_filters["assignee_ids"],
+            include_unassigned=parsed_assignee_filters["include_unassigned"],
             tag_ids=tag_ids if tag_ids else None,
             dropdown_filters=parsed_dropdown_filters,
             start_time=start_time,

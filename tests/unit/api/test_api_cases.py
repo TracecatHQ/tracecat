@@ -654,6 +654,74 @@ async def test_search_cases_success(
 
 
 @pytest.mark.anyio
+async def test_search_cases_accepts_frontend_unassigned_sentinel(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test GET /cases/search accepts frontend unassigned filter sentinel."""
+    with (
+        patch.object(cases_router, "CasesService") as MockService,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.search_cases.return_value = CursorPaginatedResponse[CaseReadMinimal](
+            items=[],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+        )
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            "/cases/search",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "assignee_id": "__UNASSIGNED__",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_svc.search_cases.assert_called_once()
+        assert mock_svc.search_cases.call_args.kwargs["assignee_ids"] is None
+        assert mock_svc.search_cases.call_args.kwargs["include_unassigned"] is True
+
+
+@pytest.mark.anyio
+async def test_search_case_aggregates_accepts_frontend_unassigned_sentinel(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test GET /cases/search/aggregate accepts frontend unassigned sentinel."""
+    with (
+        patch.object(cases_router, "CasesService") as MockService,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.get_search_case_aggregates.return_value = CaseSearchAggregateRead(
+            total=0,
+            status_groups=CaseStatusGroupCounts(),
+        )
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            "/cases/search/aggregate",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "assignee_id": "__UNASSIGNED__",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_svc.get_search_case_aggregates.assert_called_once()
+        assert (
+            mock_svc.get_search_case_aggregates.call_args.kwargs["assignee_ids"] is None
+        )
+        assert (
+            mock_svc.get_search_case_aggregates.call_args.kwargs["include_unassigned"]
+            is True
+        )
+
+
+@pytest.mark.anyio
 async def test_search_cases_forwards_date_filters(
     client: TestClient,
     test_admin_role: Role,
