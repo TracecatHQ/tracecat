@@ -7,43 +7,43 @@ description: A cheatsheet of core actions, integrations, and credentials support
 
 <Note>Core action namespaces are prefixed with `core.`.</Note>
 
-| Namespace      | Function        | Secrets |
-| -------------- | --------------- | ------- |
-| core           | http_poll       | `mtls`, `ca_cert`   |
-| core           | http_request    | `mtls`, `ca_cert`   |
-| core           | require         | -       |
-| core           | send_email_smtp | `smtp`  |
-| core.sql       | execute_query   | `sql`   |
-| core.cases     | create_case     | -       |
-| core.cases     | create_comment  | -       |
-| core.cases     | get_case        | -       |
-| core.cases     | list_cases      | -       |
-| core.cases     | list_comments   | -       |
-| core.cases     | update_case     | -       |
-| core.cases     | update_comment  | -       |
-| core.cases     | search_cases    | -       |
-| core.script    | run_python      | -       |
-| core.table     | delete_row      | -       |
-| core.table     | insert_row      | -       |
-| core.table     | lookup          | -       |
-| core.table     | lookup_many     | -       |
-| core.table     | update_row      | -       |
-| core.transform | apply           | -       |
-| core.transform | deduplicate     | -       |
-| core.transform | filter          | -       |
-| core.transform | is_in           | -       |
-| core.transform | map             | -       |
-| core.transform | not_in          | -       |
-| core.transform | reshape         | -       |
-| core.workflow  | execute         | -       |
+| Namespace      | Function        | Secrets           |
+| -------------- | --------------- | ----------------- |
+| core           | http_poll       | `mtls`, `ca_cert` |
+| core           | http_request    | `mtls`, `ca_cert` |
+| core           | require         | -                 |
+| core           | send_email_smtp | `smtp`            |
+| core.sql       | execute_query   | `sql`             |
+| core.cases     | create_case     | -                 |
+| core.cases     | create_comment  | -                 |
+| core.cases     | get_case        | -                 |
+| core.cases     | list_cases      | -                 |
+| core.cases     | list_comments   | -                 |
+| core.cases     | update_case     | -                 |
+| core.cases     | update_comment  | -                 |
+| core.cases     | search_cases    | -                 |
+| core.script    | run_python      | -                 |
+| core.table     | delete_row      | -                 |
+| core.table     | insert_row      | -                 |
+| core.table     | lookup          | -                 |
+| core.table     | lookup_many     | -                 |
+| core.table     | update_row      | -                 |
+| core.transform | apply           | -                 |
+| core.transform | deduplicate     | -                 |
+| core.transform | filter          | -                 |
+| core.transform | is_in           | -                 |
+| core.transform | map             | -                 |
+| core.transform | not_in          | -                 |
+| core.transform | reshape         | -                 |
+| core.workflow  | execute         | -                 |
 
 ## AI Actions
 
-| Namespace      | Function        | Secrets |
-| -------------- | --------------- | ------- |
-| ai             | action          | -       |
-| ai             | agent           | -       |
-| ai             | slackbot        | -       |
+| Namespace | Function | Secrets |
+| --------- | -------- | ------- |
+| ai        | action   | -       |
+| ai        | agent    | -       |
+| ai        | slackbot | -       |
 
 ## Integrations
 
@@ -54,6 +54,7 @@ description: A cheatsheet of core actions, integrations, and credentials support
 Many integrations support workspace variables for base URLs, allowing you to configure them once at the workspace level instead of repeating them in every workflow action.
 
 **Supported integrations:**
+
 - Splunk: `VARS.splunk.base_url`
 - Elasticsearch: `VARS.elasticsearch.base_url`
 - Okta: `VARS.okta.base_url`
@@ -63,12 +64,14 @@ Many integrations support workspace variables for base URLs, allowing you to con
 - And many more (alertmedia, datadog, elastic_security, okta_oar, ollama, openai, sublime, wazuh)
 
 **How it works:**
+
 1. Create a workspace variable with the integration name (e.g., `splunk`) and key `base_url`
 2. Set the value to your instance URL (e.g., `https://splunk.example.com:8089`)
 3. In workflow actions, the `base_url` input is now optional and will use the workspace variable as a fallback
 4. You can still override the workspace variable by explicitly providing a `base_url` in specific actions
 
 **Example:**
+
 ```yaml
 # Workspace variable: splunk.base_url = https://splunk.example.com:8089
 # Action will use the workspace variable
@@ -83,11 +86,11 @@ Many integrations support workspace variables for base URLs, allowing you to con
   action: tools.splunk.search_events
   args:
     query: "search index=main error"
-    base_url: https://splunk-dev.example.com:8089  # Explicit override
+    base_url: https://splunk-dev.example.com:8089 # Explicit override
 ```
 
-| Namespace              | Function                                | Secrets                   |
-| ---------------------- | --------------------------------------- | ------------------------- |
+| Namespace              | Function                                | Secrets                               |
+| ---------------------- | --------------------------------------- | ------------------------------------- |
 | tools.alertmedia       | create_trip                             | `alertmedia`, `mtls`, `ca_cert`       |
 | tools.alertmedia       | delete_trip                             | `alertmedia`, `mtls`, `ca_cert`       |
 | tools.alertmedia       | get_travel_events                       | `alertmedia`, `mtls`, `ca_cert`       |
@@ -96,48 +99,48 @@ Many integrations support workspace variables for base URLs, allowing you to con
 | tools.alertmedia       | search_trips                            | `alertmedia`, `mtls`, `ca_cert`       |
 | tools.alertmedia       | search_users                            | `alertmedia`, `mtls`, `ca_cert`       |
 | tools.alertmedia       | update_trip                             | `alertmedia`, `mtls`, `ca_cert`       |
-| tools.amazon_s3        | download_object                         | `amazon_s3`               |
-| tools.amazon_s3        | parse_uri                               | `amazon_s3`               |
-| tools.ansible          | run_playbook                            | `ansible`                 |
-| tools.aws_boto3        | call_api                                | `aws`                     |
-| tools.aws_boto3        | call_paginated_api                      | `aws`                     |
+| tools.amazon_s3        | download_object                         | `amazon_s3`                           |
+| tools.amazon_s3        | parse_uri                               | `amazon_s3`                           |
+| tools.ansible          | run_playbook                            | `ansible`                             |
+| tools.aws_boto3        | call_api                                | `aws`                                 |
+| tools.aws_boto3        | call_paginated_api                      | `aws`                                 |
 | tools.crowdsec         | lookup_ip_address                       | `crowdsec_cti`, `mtls`, `ca_cert`     |
-| tools.crowdstrike      | list_alerts                             | `crowdstrike`             |
-| tools.crowdstrike      | list_cases                              | `crowdstrike`             |
-| tools.crowdstrike      | list_detects                            | `crowdstrike`             |
+| tools.crowdstrike      | list_alerts                             | `crowdstrike`                         |
+| tools.crowdstrike      | list_cases                              | `crowdstrike`                         |
+| tools.crowdstrike      | list_detects                            | `crowdstrike`                         |
 | tools.datadog          | list_security_signals                   | `datadog`, `mtls`, `ca_cert`          |
 | tools.elastic_security | list_detection_signals                  | `elastic_security`, `mtls`, `ca_cert` |
-| tools.falconpy         | call_command                            | `crowdstrike`             |
-| tools.google_api       | get_access_token                        | `google_api`              |
+| tools.falconpy         | call_command                            | `crowdstrike`                         |
+| tools.google_api       | get_access_token                        | `google_api`                          |
 | tools.google_maps      | get_location_data                       | `google_maps`, `mtls`, `ca_cert`      |
-| tools.gophish          | create_campaign             | `gophish`                 |
-| tools.gophish          | create_group                | `gophish`                 |
-| tools.gophish          | create_landing_page         | `gophish`                 |
-| tools.gophish          | create_sending_profile      | `gophish`                 |
-| tools.gophish          | create_template             | `gophish`                 |
-| tools.gophish          | delete_campaign             | `gophish`                 |
-| tools.gophish          | delete_group                | `gophish`                 |
-| tools.gophish          | delete_landing_page         | `gophish`                 |
-| tools.gophish          | delete_sending_profile      | `gophish`                 |
-| tools.gophish          | delete_template             | `gophish`                 |
-| tools.gophish          | get_campaign                | `gophish`                 |
-| tools.gophish          | get_campaign_results        | `gophish`                 |
-| tools.gophish          | get_campaign_summary        | `gophish`                 |
-| tools.gophish          | get_group                   | `gophish`                 |
-| tools.gophish          | get_group_summary           | `gophish`                 |
-| tools.gophish          | get_landing_page            | `gophish`                 |
-| tools.gophish          | get_sending_profile         | `gophish`                 |
-| tools.gophish          | get_template                | `gophish`                 |
-| tools.gophish          | list_campaigns              | `gophish`                 |
-| tools.gophish          | list_groups                 | `gophish`                 |
-| tools.gophish          | list_groups_summary         | `gophish`                 |
-| tools.gophish          | list_landing_pages          | `gophish`                 |
-| tools.gophish          | list_sending_profiles       | `gophish`                 |
-| tools.gophish          | list_templates              | `gophish`                 |
-| tools.gophish          | modify_group                | `gophish`                 |
-| tools.gophish          | modify_landing_page         | `gophish`                 |
-| tools.gophish          | modify_sending_profile      | `gophish`                 |
-| tools.gophish          | modify_template             | `gophish`                 |
+| tools.gophish          | create_campaign                         | `gophish`                             |
+| tools.gophish          | create_group                            | `gophish`                             |
+| tools.gophish          | create_landing_page                     | `gophish`                             |
+| tools.gophish          | create_sending_profile                  | `gophish`                             |
+| tools.gophish          | create_template                         | `gophish`                             |
+| tools.gophish          | delete_campaign                         | `gophish`                             |
+| tools.gophish          | delete_group                            | `gophish`                             |
+| tools.gophish          | delete_landing_page                     | `gophish`                             |
+| tools.gophish          | delete_sending_profile                  | `gophish`                             |
+| tools.gophish          | delete_template                         | `gophish`                             |
+| tools.gophish          | get_campaign                            | `gophish`                             |
+| tools.gophish          | get_campaign_results                    | `gophish`                             |
+| tools.gophish          | get_campaign_summary                    | `gophish`                             |
+| tools.gophish          | get_group                               | `gophish`                             |
+| tools.gophish          | get_group_summary                       | `gophish`                             |
+| tools.gophish          | get_landing_page                        | `gophish`                             |
+| tools.gophish          | get_sending_profile                     | `gophish`                             |
+| tools.gophish          | get_template                            | `gophish`                             |
+| tools.gophish          | list_campaigns                          | `gophish`                             |
+| tools.gophish          | list_groups                             | `gophish`                             |
+| tools.gophish          | list_groups_summary                     | `gophish`                             |
+| tools.gophish          | list_landing_pages                      | `gophish`                             |
+| tools.gophish          | list_sending_profiles                   | `gophish`                             |
+| tools.gophish          | list_templates                          | `gophish`                             |
+| tools.gophish          | modify_group                            | `gophish`                             |
+| tools.gophish          | modify_landing_page                     | `gophish`                             |
+| tools.gophish          | modify_sending_profile                  | `gophish`                             |
+| tools.gophish          | modify_template                         | `gophish`                             |
 | tools.hackerone        | get_program                             | `hackerone`, `mtls`, `ca_cert`        |
 | tools.hackerone        | get_programs                            | `hackerone`, `mtls`, `ca_cert`        |
 | tools.hackerone        | get_report                              | `hackerone`, `mtls`, `ca_cert`        |
@@ -164,12 +167,12 @@ Many integrations support workspace variables for base URLs, allowing you to con
 | tools.jira             | update_issue_fields                     | `jira`, `mtls`, `ca_cert`             |
 | tools.jira             | update_issue_status                     | `jira`, `mtls`, `ca_cert`             |
 | tools.jira             | upload_attachment                       | `jira`, `mtls`, `ca_cert`             |
-| tools.ldap             | add_entry                               | `ldap`                    |
-| tools.leakcheck        | search_domain_leak                      | `leakcheck_api`           |
-| tools.leakcheck        | search_email_leak                       | `leakcheck_api`           |
-| tools.ldap             | delete_entry                            | `ldap`                    |
-| tools.ldap             | modify_entry                            | `ldap`                    |
-| tools.ldap             | search_entries                          | `ldap`                    |
+| tools.ldap             | add_entry                               | `ldap`                                |
+| tools.leakcheck        | search_domain_leak                      | `leakcheck_api`                       |
+| tools.leakcheck        | search_email_leak                       | `leakcheck_api`                       |
+| tools.ldap             | delete_entry                            | `ldap`                                |
+| tools.ldap             | modify_entry                            | `ldap`                                |
+| tools.ldap             | search_entries                          | `ldap`                                |
 | tools.okta             | activate_user                           | `okta`, `mtls`, `ca_cert`             |
 | tools.okta             | add_to_group                            | `okta`, `mtls`, `ca_cert`             |
 | tools.okta             | assign_group_to_app                     | `okta`, `mtls`, `ca_cert`             |
@@ -193,36 +196,37 @@ Many integrations support workspace variables for base URLs, allowing you to con
 | tools.okta_oar         | get_requests                            | `okta`, `mtls`, `ca_cert`             |
 | tools.okta_oar         | get_specific_request                    | `okta`, `mtls`, `ca_cert`             |
 | tools.okta_oar         | get_user                                | `okta`, `mtls`, `ca_cert`             |
-| tools.pagerduty        | acknowledge_event                       | -                         |
-| tools.pagerduty        | get_all_schedules                       | `pagerduty`               |
-| tools.pagerduty        | get_contact_methods                     | `pagerduty`               |
-| tools.pagerduty        | get_incident_data                       | `pagerduty`               |
-| tools.pagerduty        | get_incidents                           | `pagerduty`               |
-| tools.pagerduty        | get_user_notification_rules             | `pagerduty`               |
-| tools.pagerduty        | get_users_on_call                       | `pagerduty`               |
-| tools.pagerduty        | resolve_event                           | `pagerduty`               |
-| tools.pagerduty        | trigger_event                           | -                         |
-| tools.phishlabs        | get_case_data                           | `phishlabs`               |
-| tools.phishlabs        | get_feed_data                           | `phishlabs`               |
-| tools.phishlabs        | get_threat_data                         | `phishlabs`               |
-| tools.pymongo          | execute_operation                       | `mongodb`                 |
-| tools.rootly           | create_alert                            | `rootly`                  |
-| tools.rootly           | create_incident                         | `rootly`                  |
-| tools.rootly           | get_alert                               | `rootly`                  |
-| tools.rootly           | get_incident                            | `rootly`                  |
-| tools.rootly           | list_alerts                             | `rootly`                  |
-| tools.rootly           | list_incident_alerts                    | `rootly`                  |
-| tools.rootly           | list_incidents                          | `rootly`                  |
+| tools.pagerduty        | acknowledge_event                       | -                                     |
+| tools.pagerduty        | get_all_schedules                       | `pagerduty`                           |
+| tools.pagerduty        | get_contact_methods                     | `pagerduty`                           |
+| tools.pagerduty        | get_incident_data                       | `pagerduty`                           |
+| tools.pagerduty        | get_incidents                           | `pagerduty`                           |
+| tools.pagerduty        | get_user_notification_rules             | `pagerduty`                           |
+| tools.pagerduty        | get_users_on_call                       | `pagerduty`                           |
+| tools.pagerduty        | resolve_event                           | `pagerduty`                           |
+| tools.pagerduty        | trigger_event                           | -                                     |
+| tools.phishlabs        | get_case_data                           | `phishlabs`                           |
+| tools.phishlabs        | get_feed_data                           | `phishlabs`                           |
+| tools.phishlabs        | get_threat_data                         | `phishlabs`                           |
+| tools.pymongo          | execute_operation                       | `mongodb`                             |
+| tools.rootly           | create_alert                            | `rootly`                              |
+| tools.rootly           | create_incident                         | `rootly`                              |
+| tools.rootly           | get_alert                               | `rootly`                              |
+| tools.rootly           | get_incident                            | `rootly`                              |
+| tools.rootly           | list_alerts                             | `rootly`                              |
+| tools.rootly           | list_incident_alerts                    | `rootly`                              |
+| tools.rootly           | list_incidents                          | `rootly`                              |
 | tools.sentinel_one     | list_threats                            | `sentinel_one`, `mtls`, `ca_cert`     |
-| tools.slack            | ask_text_input                          | `slack`                   |
-| tools.slack            | lookup_user_by_email                    | `slack`                   |
-| tools.slack            | post_message                            | `slack`                   |
-| tools.slack            | post_notification                       | `slack`                   |
-| tools.slack            | post_update                             | `slack`                   |
-| tools.slack            | revoke_sessions                         | `slack`                   |
-| tools.slack_sdk        | call_method                             | `slack`                   |
-| tools.slack_sdk        | call_paginated_method                   | `slack`                   |
+| tools.slack            | ask_text_input                          | `slack`                               |
+| tools.slack            | lookup_user_by_email                    | `slack`                               |
+| tools.slack            | post_message                            | `slack`                               |
+| tools.slack            | post_notification                       | `slack`                               |
+| tools.slack            | post_update                             | `slack`                               |
+| tools.slack            | revoke_sessions                         | `slack`                               |
+| tools.slack_sdk        | call_method                             | `slack`                               |
+| tools.slack_sdk        | call_paginated_method                   | `slack`                               |
 | tools.splunk           | add_kv_fields                           | `splunk`, `mtls`, `ca_cert`           |
+| tools.splunk           | batch_save_kv_entries                   | `splunk`                              |
 | tools.splunk           | create_kv_collection                    | `splunk`, `mtls`, `ca_cert`           |
 | tools.splunk           | create_kv_entry                         | `splunk`, `mtls`, `ca_cert`           |
 | tools.splunk           | delete_kv_collection                    | `splunk`, `mtls`, `ca_cert`           |
@@ -301,8 +305,8 @@ Many integrations support workspace variables for base URLs, allowing you to con
 | `smtp`                 | `SMTP_HOST` `SMTP_PASS` `SMTP_PORT` `SMTP_USER`                                | -                                                                                                                  |
 | `splunk`               | `SPLUNK_API_KEY`                                                               | -                                                                                                                  |
 | `splunk_hec`           | `SPLUNK_HEC_TOKEN`                                                             | -                                                                                                                  |
-| `mtls`                 | -                                                                              | `TLS_CERTIFICATE` `TLS_PRIVATE_KEY`                                                                                 |
-| `ca_cert`              | -                                                                              | `CA_CERTIFICATE`                                                                                                    |
+| `mtls`                 | -                                                                              | `TLS_CERTIFICATE` `TLS_PRIVATE_KEY`                                                                                |
+| `ca_cert`              | -                                                                              | `CA_CERTIFICATE`                                                                                                   |
 | `thehive`              | `THEHIVE_API_KEY`                                                              | -                                                                                                                  |
 | `threatstream`         | `ANOMALI_API_KEY` `ANOMALI_USERNAME`                                           | -                                                                                                                  |
 | `urlscan`              | `URLSCAN_API_KEY`                                                              | -                                                                                                                  |
