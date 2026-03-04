@@ -18,6 +18,7 @@ from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
 from mcp.server.auth.provider import TokenError
 from pydantic import BaseModel, Field
+from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
@@ -493,7 +494,8 @@ def create_mcp_auth() -> AuthProvider:
     # Build Redis-backed storage for OAuth state (client registrations,
     # auth codes, tokens, transactions) so state survives restarts and
     # is shared across MCP replicas.
-    redis_store = RedisStore(url=REDIS_URL)
+    redis_client = AsyncRedis.from_url(REDIS_URL, decode_responses=True)
+    redis_store = RedisStore(client=redis_client)
     prefixed_store = PrefixCollectionsWrapper(redis_store, prefix="mcp")
     if TRACECAT__DB_ENCRYPTION_KEY:
         client_storage = FernetEncryptionWrapper(
