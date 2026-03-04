@@ -23,6 +23,7 @@ from tracecat.auth.users import search_users
 from tracecat.authz.controls import require_scope
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.filters import parse_assignee_filter
 from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
@@ -77,38 +78,11 @@ WorkspaceUser = Annotated[
 ]
 
 
-class ParsedAssigneeFilter(TypedDict):
-    assignee_ids: list[uuid.UUID] | None
-    include_unassigned: bool
-
-
 class ParsedCaseSearchFilters(TypedDict):
     assignee_ids: list[uuid.UUID] | None
     include_unassigned: bool
     tag_ids: list[uuid.UUID] | None
     dropdown_filters: dict[str, list[str]] | None
-
-
-def _parse_assignee_filter(assignee_id: list[str] | None) -> ParsedAssigneeFilter:
-    parsed_assignee_ids: list[uuid.UUID] = []
-    include_unassigned = False
-    if assignee_id:
-        for identifier in assignee_id:
-            if identifier == "unassigned":
-                include_unassigned = True
-                continue
-            try:
-                parsed_assignee_ids.append(uuid.UUID(identifier))
-            except ValueError as e:
-                raise HTTPException(
-                    status_code=HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid assignee_id: {identifier}",
-                ) from e
-
-    return {
-        "assignee_ids": parsed_assignee_ids or None,
-        "include_unassigned": include_unassigned,
-    }
 
 
 def _parse_dropdown_filter(
@@ -156,7 +130,7 @@ async def _parse_case_search_filters(
     tags: list[str] | None,
     dropdown: list[str] | None,
 ) -> ParsedCaseSearchFilters:
-    include_assignees = _parse_assignee_filter(assignee_id)
+    include_assignees = parse_assignee_filter(assignee_id)
 
     return {
         "assignee_ids": include_assignees["assignee_ids"],
