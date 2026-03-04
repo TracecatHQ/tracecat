@@ -6,7 +6,7 @@ definition:
     If an entry includes a _key that matches an existing document, it is updated;
     otherwise a new document is created. Processing stops on the first failure.
   display_group: Splunk
-  doc_url: https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints/kv-store-endpoint-descriptions#post-10
+  doc_url: https://help.splunk.com/en/splunk-cloud-platform/leverage-rest-apis/rest-api-reference/10.0.2503/kv-store-endpoints/kv-store-endpoint-descriptions#ariaid-title16
   namespace: tools.splunk
   name: batch_save_kv_entries
   secrets:
