@@ -20,10 +20,12 @@ import {
   type CaseSortValue,
   CasesHeader,
   DEFAULT_CASE_SORT,
-  type FilterMode,
-  type SortDirection,
 } from "@/components/cases/cases-header"
 import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
+import type {
+  FilterMode,
+  SortDirection,
+} from "@/components/filters/filter-multi-select"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useToast } from "@/components/ui/use-toast"
 import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"

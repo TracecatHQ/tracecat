@@ -14,13 +14,20 @@ from tracecat.dsl.common import DSLRunArgs
 from tracecat.identifiers import ScheduleUUID, WorkflowID
 from tracecat.identifiers.schedules import AnyScheduleID
 from tracecat.logger import logger
-from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
+from tracecat.workflow.executions.enums import (
+    ExecutionType,
+    TemporalSearchAttr,
+    TriggerType,
+)
 from tracecat.workflow.schedules.schemas import ScheduleUpdate
 
 
 def build_schedule_search_attributes(role: Role) -> TypedSearchAttributes:
     """Build search attributes for scheduled workflows."""
-    pairs = [TriggerType.SCHEDULED.to_temporal_search_attr_pair()]
+    pairs = [
+        TriggerType.SCHEDULED.to_temporal_search_attr_pair(),
+        ExecutionType.PUBLISHED.to_temporal_search_attr_pair(),
+    ]
     if role.workspace_id is not None:
         pairs.append(
             TemporalSearchAttr.WORKSPACE_ID.create_pair(str(role.workspace_id))

@@ -1,4 +1,6 @@
-from typing import Any
+from collections.abc import Collection
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 import orjson
 import temporalio.api.common.v1
@@ -9,7 +11,7 @@ from temporalio.api.history.v1 import HistoryEvent
 from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.compression import get_compression_payload_codec
 from tracecat.executor.activities import ExecutorActivities
-from tracecat.identifiers import UserID, WorkflowID
+from tracecat.identifiers import UserID, WorkflowID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.storage.object import (
     CollectionObject,
@@ -18,9 +20,11 @@ from tracecat.storage.object import (
     StoredObject,
 )
 from tracecat.workflow.executions.enums import (
+    ExecutionType,
     TemporalSearchAttr,
     TriggerType,
     WorkflowEventType,
+    WorkflowExecutionStatusLiteral,
 )
 
 SCHEDULED_EVENT_TYPES = (
@@ -28,6 +32,18 @@ SCHEDULED_EVENT_TYPES = (
     EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED,
     EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED,
 )
+
+_WORKFLOW_EXECUTION_STATUS_TO_TEMPORAL_VALUE: dict[
+    WorkflowExecutionStatusLiteral, str
+] = {
+    "RUNNING": "Running",
+    "COMPLETED": "Completed",
+    "FAILED": "Failed",
+    "CANCELED": "Canceled",
+    "TERMINATED": "Terminated",
+    "CONTINUED_AS_NEW": "ContinuedAsNew",
+    "TIMED_OUT": "TimedOut",
+}
 
 START_EVENT_TYPES = (
     EventType.EVENT_TYPE_ACTIVITY_TASK_STARTED,
@@ -273,15 +289,28 @@ async def extract_first(input_or_result: temporalio.api.common.v1.Payloads) -> A
 
 
 def build_query(
+    workspace_id: WorkspaceID,
     workflow_id: WorkflowID | None = None,
     trigger_types: set[TriggerType] | None = None,
     triggered_by_user_id: UserID | None = None,
-    workspace_id: str | None = None,
+    statuses: Collection[str] | None = None,
+    status_mode: Literal["include", "exclude"] = "include",
+    execution_types: Collection[ExecutionType] | None = None,
+    start_time_from: datetime | None = None,
+    start_time_to: datetime | None = None,
+    close_time_from: datetime | None = None,
+    close_time_to: datetime | None = None,
+    duration_gte_seconds: int | None = None,
+    duration_lte_seconds: int | None = None,
     _include_legacy: bool = True,
 ) -> str:
     query = []
-    if workspace_id:
-        query.append(f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{workspace_id}'")
+
+    def _format_temporal_datetime(value: datetime) -> str:
+        dt = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    query.append(f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{workspace_id}'")
     if workflow_id:
         short_id = workflow_id.short()
         wf_id_query = f"WorkflowId STARTS_WITH '{short_id}'"
@@ -290,25 +319,70 @@ def build_query(
             legacy_wf_id = workflow_id.to_legacy()
             wf_id_query += f" OR WorkflowId STARTS_WITH '{legacy_wf_id}'"
         query.append(f"({wf_id_query})")
-    trigger_type_query = []
     if trigger_types:
-        for trigger_type in trigger_types:
-            if trigger_type == TriggerType.MANUAL:
-                # Manual trigger type is a special case that requires a user ID
-                if triggered_by_user_id is not None:
-                    trigger_type_query.append(
-                        f"({TemporalSearchAttr.TRIGGER_TYPE.value} = '{TriggerType.MANUAL}' AND {TemporalSearchAttr.TRIGGERED_BY_USER_ID.value} = '{str(triggered_by_user_id)}')"
-                    )
-                else:
-                    logger.warning(
-                        "Manual trigger type specified but no user ID provided. This is likely a bug.",
-                        workflow_id=workflow_id,
-                    )
-            else:
-                # All other trigger types are simple
-                trigger_type_query.append(
-                    f"({TemporalSearchAttr.TRIGGER_TYPE.value} = '{trigger_type.value}')"
-                )
+        trigger_type_query = [
+            f"({TemporalSearchAttr.TRIGGER_TYPE.value} = '{trigger_type.value}')"
+            for trigger_type in sorted(trigger_types, key=lambda value: value.value)
+        ]
         if trigger_type_query:
             query.append(f"({' OR '.join(trigger_type_query)})")
+
+    if triggered_by_user_id is not None:
+        query.append(
+            f"{TemporalSearchAttr.TRIGGERED_BY_USER_ID.value} = '{str(triggered_by_user_id)}'"
+        )
+
+    if statuses:
+        temporal_status_values = [
+            _WORKFLOW_EXECUTION_STATUS_TO_TEMPORAL_VALUE[status_name]
+            for status_name in sorted(statuses)
+            if status_name in _WORKFLOW_EXECUTION_STATUS_TO_TEMPORAL_VALUE
+        ]
+        if temporal_status_values:
+            if status_mode == "exclude":
+                status_comparator = "!="
+                status_joiner = " AND "
+            else:
+                status_comparator = "="
+                status_joiner = " OR "
+            status_query = status_joiner.join(
+                [
+                    f"ExecutionStatus {status_comparator} '{status_value}'"
+                    for status_value in temporal_status_values
+                ]
+            )
+            query.append(f"({status_query})")
+
+    if execution_types:
+        execution_type_clauses = [
+            f"{TemporalSearchAttr.EXECUTION_TYPE.value} = '{execution_type.value}'"
+            for execution_type in sorted(execution_types, key=lambda value: value.value)
+        ]
+        # Backward compatibility: older published runs may not have
+        # TracecatExecutionType indexed at all.
+        if (
+            ExecutionType.PUBLISHED in execution_types
+            and ExecutionType.DRAFT not in execution_types
+        ):
+            execution_type_clauses.append(
+                f"{TemporalSearchAttr.EXECUTION_TYPE.value} IS NULL"
+            )
+        execution_type_query = " OR ".join(execution_type_clauses)
+        if execution_type_query:
+            query.append(f"({execution_type_query})")
+
+    if start_time_from is not None:
+        query.append(f"StartTime >= '{_format_temporal_datetime(start_time_from)}'")
+    if start_time_to is not None:
+        query.append(f"StartTime <= '{_format_temporal_datetime(start_time_to)}'")
+    if close_time_from is not None:
+        query.append(f"CloseTime >= '{_format_temporal_datetime(close_time_from)}'")
+    if close_time_to is not None:
+        query.append(f"CloseTime <= '{_format_temporal_datetime(close_time_to)}'")
+
+    if duration_gte_seconds is not None:
+        query.append(f"ExecutionDuration >= '{duration_gte_seconds}s'")
+    if duration_lte_seconds is not None:
+        query.append(f"ExecutionDuration <= '{duration_lte_seconds}s'")
+
     return " AND ".join(query)

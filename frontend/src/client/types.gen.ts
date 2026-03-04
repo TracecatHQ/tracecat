@@ -2075,6 +2075,30 @@ export type CursorPaginatedResponse_WorkflowReadMinimal_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_WorkflowRunReadMinimal_ = {
+  items: Array<WorkflowRunReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 /**
  * Request payload for creating a custom OAuth provider.
  */
@@ -6532,6 +6556,27 @@ export type WorkflowEventType =
   | "WORKFLOW_EXECUTION_UPDATE_REJECTED"
   | "WORKFLOW_EXECUTION_UPDATE_COMPLETED"
 
+export type WorkflowExecutionBulkResetItemResult = {
+  execution_id: string
+  ok?: boolean
+  new_run_id?: string | null
+  error?: string | null
+}
+
+export type WorkflowExecutionBulkResetRequest = {
+  execution_ids?: Array<string>
+  /**
+   * Temporal history event id to reset from. If omitted, reset uses start.
+   */
+  event_id?: number | null
+  reason?: string | null
+  reapply_type?: WorkflowExecutionResetReapplyType
+}
+
+export type WorkflowExecutionBulkResetResponse = {
+  results?: Array<WorkflowExecutionBulkResetItemResult>
+}
+
 export type WorkflowExecutionCollectionPageItem = {
   /**
    * Collection index for this item
@@ -6890,12 +6935,50 @@ export type WorkflowExecutionReadMinimal = {
   execution_type?: ExecutionType
 }
 
+export type WorkflowExecutionRelationFilter = "all" | "root" | "child"
+
+export type WorkflowExecutionResetPointRead = {
+  event_id: number
+  event_time: string
+  event_type: string
+  label: string
+  /**
+   * True when this point maps to the earliest resettable point.
+   */
+  is_start?: boolean
+  /**
+   * Whether the event can be used directly as a reset target.
+   */
+  is_resettable?: boolean
+}
+
+export type WorkflowExecutionResetReapplyType =
+  | "all_eligible"
+  | "signal_only"
+  | "none"
+
+export type WorkflowExecutionResetRequest = {
+  /**
+   * Temporal history event id to reset from. If omitted, reset uses start.
+   */
+  event_id?: number | null
+  reason?: string | null
+  reapply_type?: WorkflowExecutionResetReapplyType
+}
+
+export type WorkflowExecutionResetResponse = {
+  execution_id: string
+  new_run_id: string
+}
+
 /**
  * Status of a workflow execution.
  *
  * See :py:class:`temporalio.api.enums.v1.WorkflowExecutionStatus`.
  */
 export type WorkflowExecutionStatus = 1 | 2 | 3 | 4 | 5 | 6 | 7
+
+export type WorkflowExecutionStatusFilterMode = "include" | "exclude"
 
 export type WorkflowExecutionTerminate = {
   reason?: string | null
@@ -6978,6 +7061,61 @@ export type WorkflowReadMinimal = {
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
   trigger_summary?: WorkflowTriggerSummary | null
+}
+
+export type WorkflowRunReadMinimal = {
+  /**
+   * The ID of the workflow execution
+   */
+  id: string
+  /**
+   * The run ID of the workflow execution
+   */
+  run_id: string
+  /**
+   * The start time of the workflow execution
+   */
+  start_time: string
+  /**
+   * When this workflow run started or should start.
+   */
+  execution_time?: string | null
+  /**
+   * When the workflow was closed if closed.
+   */
+  close_time?: string | null
+  status:
+    | "RUNNING"
+    | "COMPLETED"
+    | "FAILED"
+    | "CANCELED"
+    | "TERMINATED"
+    | "CONTINUED_AS_NEW"
+    | "TIMED_OUT"
+  workflow_type: string
+  task_queue: string
+  /**
+   * Number of events in the history
+   */
+  history_length: number
+  parent_wf_exec_id?: string | null
+  trigger_type: TriggerType
+  /**
+   * Execution type (draft or published). Draft uses the draft workflow graph.
+   */
+  execution_type?: ExecutionType
+  /**
+   * Short workflow ID parsed from workflow execution ID.
+   */
+  workflow_id?: string | null
+  /**
+   * Workflow title from workspace metadata when available.
+   */
+  workflow_title?: string | null
+  /**
+   * Workflow alias from workspace metadata or execution search attributes.
+   */
+  workflow_alias?: string | null
 }
 
 /**
@@ -7636,6 +7774,66 @@ export type WorkflowExecutionsCreateWorkflowExecutionData = {
 
 export type WorkflowExecutionsCreateWorkflowExecutionResponse =
   WorkflowExecutionCreateResponse
+
+export type WorkflowExecutionsSearchWorkflowExecutionsData = {
+  closeTimeFrom?: string | null
+  closeTimeTo?: string | null
+  cursor?: string | null
+  durationGteSeconds?: number | null
+  durationLteSeconds?: number | null
+  limit?: number
+  relation?: WorkflowExecutionRelationFilter
+  reverse?: boolean
+  /**
+   * Filter by workflow title or alias.
+   */
+  searchTerm?: string | null
+  startTimeFrom?: string | null
+  startTimeTo?: string | null
+  status?: Array<
+    | "RUNNING"
+    | "COMPLETED"
+    | "FAILED"
+    | "CANCELED"
+    | "TERMINATED"
+    | "CONTINUED_AS_NEW"
+    | "TIMED_OUT"
+  > | null
+  statusMode?: WorkflowExecutionStatusFilterMode
+  trigger?: Array<TriggerType> | null
+  userId?: string | SpecialUserID | null
+  workflowId?: string | null
+  workspaceId: string
+}
+
+export type WorkflowExecutionsSearchWorkflowExecutionsResponse =
+  CursorPaginatedResponse_WorkflowRunReadMinimal_
+
+export type WorkflowExecutionsListWorkflowExecutionResetPointsData = {
+  executionId: string
+  limit?: number
+  workspaceId: string
+}
+
+export type WorkflowExecutionsListWorkflowExecutionResetPointsResponse =
+  Array<WorkflowExecutionResetPointRead>
+
+export type WorkflowExecutionsResetWorkflowExecutionData = {
+  executionId: string
+  requestBody: WorkflowExecutionResetRequest
+  workspaceId: string
+}
+
+export type WorkflowExecutionsResetWorkflowExecutionResponse =
+  WorkflowExecutionResetResponse
+
+export type WorkflowExecutionsBulkResetWorkflowExecutionsData = {
+  requestBody: WorkflowExecutionBulkResetRequest
+  workspaceId: string
+}
+
+export type WorkflowExecutionsBulkResetWorkflowExecutionsResponse =
+  WorkflowExecutionBulkResetResponse
 
 export type WorkflowExecutionsGetWorkflowExecutionData = {
   executionId: string
@@ -10635,6 +10833,66 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkflowExecutionCreateResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/search": {
+    get: {
+      req: WorkflowExecutionsSearchWorkflowExecutionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_WorkflowRunReadMinimal_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/{execution_id}/reset-points": {
+    get: {
+      req: WorkflowExecutionsListWorkflowExecutionResetPointsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkflowExecutionResetPointRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/{execution_id}/reset": {
+    post: {
+      req: WorkflowExecutionsResetWorkflowExecutionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowExecutionResetResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/reset/bulk": {
+    post: {
+      req: WorkflowExecutionsBulkResetWorkflowExecutionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowExecutionBulkResetResponse
         /**
          * Validation Error
          */

@@ -39,6 +39,8 @@ export interface UseCursorPaginationOptions<
   enabled?: boolean
   staleTime?: number
   refetchOnWindowFocus?: boolean
+  refetchInterval?: number | false
+  refetchIntervalInBackground?: boolean
 }
 
 export interface CursorPaginationState {
@@ -62,6 +64,8 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
   enabled = true,
   staleTime,
   refetchOnWindowFocus,
+  refetchInterval,
+  refetchIntervalInBackground,
 }: UseCursorPaginationOptions<T, P>) {
   const [paginationState, setPaginationState] = useState<CursorPaginationState>(
     DEFAULT_PAGINATION_STATE
@@ -107,6 +111,8 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
     enabled: enabled && !!workspaceId,
     staleTime,
     refetchOnWindowFocus,
+    refetchInterval,
+    refetchIntervalInBackground,
   })
 
   const goToNextPage = () => {

@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import datetime
+import hashlib
+import json
+import uuid
 from collections import OrderedDict
-from collections.abc import AsyncGenerator, Awaitable, Sequence
-from typing import Any
+from collections.abc import AsyncGenerator, Sequence
+from dataclasses import dataclass
+from typing import Any, cast
 
+import orjson
 import temporalio.api.enums.v1
 from pydantic import ValidationError
-from temporalio.api.enums.v1 import EventType, PendingActivityState
+from temporalio.api.common.v1 import message_pb2
+from temporalio.api.enums.v1 import EventType, PendingActivityState, ResetReapplyType
 from temporalio.api.history.v1 import HistoryEvent
+from temporalio.api.workflowservice.v1 import request_response_pb2
 from temporalio.client import (
     Client,
     WorkflowExecution,
@@ -34,13 +42,14 @@ from tracecat.dsl.types import Task
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.ee.interactions.service import InteractionService
-from tracecat.identifiers import UserID
+from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.identifiers.workflow import (
     WorkflowExecutionID,
     WorkflowID,
     generate_exec_id,
 )
 from tracecat.logger import logger
+from tracecat.pagination import CursorPaginationParams
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.collection import (
     get_collection_page as get_storage_collection_page,
@@ -77,15 +86,33 @@ from tracecat.workflow.executions.schemas import (
     EventFailure,
     EventGroup,
     WorkflowDispatchResponse,
+    WorkflowExecutionBulkResetItemResult,
     WorkflowExecutionCreateResponse,
     WorkflowExecutionEvent,
     WorkflowExecutionEventCompact,
+    WorkflowExecutionRelationFilter,
+    WorkflowExecutionResetPointRead,
+    WorkflowExecutionResetReapplyType,
+    WorkflowExecutionStatusFilterMode,
+    WorkflowExecutionStatusLiteral,
 )
 from tracecat.workspaces.service import WorkspaceService
 
 
 class WorkflowExecutionResultNotFoundError(ValueError):
     """Raised when no matching completed event exists for a given event ID."""
+
+
+class WorkflowExecutionNotFoundError(ValueError):
+    """Raised when a workflow execution is not visible in the current workspace."""
+
+
+@dataclass(frozen=True)
+class WorkflowExecutionsPage:
+    items: list[WorkflowExecution]
+    next_cursor: str | None
+    has_more: bool
+    has_previous: bool
 
 
 def _unwrap_loop_control_result(value: Any) -> Any:
@@ -235,6 +262,9 @@ class WorkflowExecutionsService:
         """
         if limit is not None and limit <= 0:
             limit = None
+        workspace_id = self.workspace_id
+        workspace_clause = f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{workspace_id}'"
+        query = f"({query}) AND {workspace_clause}" if query else workspace_clause
 
         executions = []
         # NOTE: We operate under the assumption that `list_workflows` is ordered by StartTime
@@ -245,10 +275,165 @@ class WorkflowExecutionsService:
                 break
         return executions
 
+    @staticmethod
+    def _build_query_fingerprint(
+        *, query: str | None, relation: WorkflowExecutionRelationFilter
+    ) -> str:
+        payload = {
+            "query": query or "",
+            "relation": relation.value,
+        }
+        canonical = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
+        return hashlib.sha256(canonical).hexdigest()
+
+    @staticmethod
+    def _encode_query_cursor(next_page_token: bytes, fingerprint: str) -> str:
+        payload = {
+            "token": base64.urlsafe_b64encode(next_page_token).decode("ascii"),
+            "fingerprint": fingerprint,
+        }
+        encoded = base64.urlsafe_b64encode(
+            orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
+        )
+        return encoded.decode("ascii")
+
+    @staticmethod
+    def _decode_query_cursor(cursor: str) -> tuple[bytes, str]:
+        try:
+            decoded = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
+            data = json.loads(decoded)
+            token_text = data["token"]
+            fingerprint = data["fingerprint"]
+            if not isinstance(token_text, str) or not isinstance(fingerprint, str):
+                raise ValueError("Malformed workflow executions cursor")
+            return base64.urlsafe_b64decode(token_text.encode("ascii")), fingerprint
+        except Exception as e:
+            raise ValueError("Invalid workflow executions cursor") from e
+
+    @staticmethod
+    def _build_workflow_id_clause(
+        workflow_id: WorkflowID,
+        *,
+        include_legacy: bool = True,
+    ) -> str:
+        short_id = workflow_id.short()
+        wf_id_query = f"WorkflowId STARTS_WITH '{short_id}'"
+        if include_legacy:
+            legacy_wf_id = workflow_id.to_legacy()
+            wf_id_query += f" OR WorkflowId STARTS_WITH '{legacy_wf_id}'"
+        return f"({wf_id_query})"
+
+    @staticmethod
+    def _build_workflow_ids_clause(
+        workflow_ids: Sequence[WorkflowID],
+    ) -> str | None:
+        if not workflow_ids:
+            return None
+        unique_ids = {wf_id.short(): wf_id for wf_id in workflow_ids}
+        clauses = [
+            WorkflowExecutionsService._build_workflow_id_clause(unique_ids[key])
+            for key in sorted(unique_ids)
+        ]
+        if not clauses:
+            return None
+        return f"({' OR '.join(clauses)})"
+
+    async def list_executions_paginated(
+        self,
+        *,
+        pagination: CursorPaginationParams,
+        workflow_id: WorkflowID | None = None,
+        workflow_ids: Sequence[WorkflowID] | None = None,
+        trigger_types: set[TriggerType] | None = None,
+        triggered_by_user_id: UserID | None = None,
+        statuses: set[WorkflowExecutionStatusLiteral] | None = None,
+        status_mode: WorkflowExecutionStatusFilterMode = (
+            WorkflowExecutionStatusFilterMode.INCLUDE
+        ),
+        execution_types: set[ExecutionType] | None = None,
+        start_time_from: datetime.datetime | None = None,
+        start_time_to: datetime.datetime | None = None,
+        close_time_from: datetime.datetime | None = None,
+        close_time_to: datetime.datetime | None = None,
+        duration_gte_seconds: int | None = None,
+        duration_lte_seconds: int | None = None,
+        relation: WorkflowExecutionRelationFilter = WorkflowExecutionRelationFilter.ALL,
+    ) -> WorkflowExecutionsPage:
+        query = build_query(
+            workflow_id=workflow_id,
+            trigger_types=trigger_types,
+            triggered_by_user_id=triggered_by_user_id,
+            statuses=statuses,
+            status_mode=status_mode.value,
+            execution_types=execution_types,
+            start_time_from=start_time_from,
+            start_time_to=start_time_to,
+            close_time_from=close_time_from,
+            close_time_to=close_time_to,
+            duration_gte_seconds=duration_gte_seconds,
+            duration_lte_seconds=duration_lte_seconds,
+            workspace_id=self.workspace_id,
+        )
+        if workflow_ids_clause := self._build_workflow_ids_clause(workflow_ids or []):
+            query = (
+                f"{query} AND {workflow_ids_clause}" if query else workflow_ids_clause
+            )
+
+        fingerprint = self._build_query_fingerprint(query=query, relation=relation)
+        next_page_token: bytes | None = None
+        has_previous = pagination.cursor is not None
+        if pagination.cursor is not None:
+            next_page_token, cursor_fingerprint = self._decode_query_cursor(
+                pagination.cursor
+            )
+            if cursor_fingerprint != fingerprint:
+                raise ValueError(
+                    "Cursor no longer matches current filters. Retry without cursor."
+                )
+
+        iterator = self._client.list_workflows(
+            query=query or None,
+            page_size=pagination.limit,
+            next_page_token=next_page_token,
+        )
+        await iterator.fetch_next_page(page_size=pagination.limit)
+        executions = list(iterator.current_page or [])
+        if relation == WorkflowExecutionRelationFilter.ROOT:
+            executions = [
+                execution for execution in executions if execution.parent_id is None
+            ]
+        elif relation == WorkflowExecutionRelationFilter.CHILD:
+            executions = [
+                execution for execution in executions if execution.parent_id is not None
+            ]
+
+        next_cursor = None
+        if iterator.next_page_token:
+            next_cursor = self._encode_query_cursor(
+                iterator.next_page_token, fingerprint
+            )
+        return WorkflowExecutionsPage(
+            items=executions,
+            next_cursor=next_cursor,
+            has_more=next_cursor is not None,
+            has_previous=has_previous,
+        )
+
     def _role_workspace_id(self) -> str | None:
         if self.role is None or self.role.workspace_id is None:
             return None
         return str(self.role.workspace_id)
+
+    @property
+    def workspace_id(self) -> WorkspaceID:
+        if self.role is None:
+            raise ValueError("Role is required to query workflow executions")
+        workspace_id = self.role.workspace_id
+        if workspace_id is None:
+            raise ValueError("Workspace ID is required to query workflow executions")
+        if not isinstance(workspace_id, WorkspaceID):
+            raise TypeError("Workspace ID must be a WorkspaceID")
+        return workspace_id
 
     def _is_execution_visible_in_workspace(self, execution: WorkflowExecution) -> bool:
         role_workspace_id = self._role_workspace_id()
@@ -290,6 +475,16 @@ class WorkflowExecutionsService:
                 return None
             raise
 
+    async def require_execution(
+        self, wf_exec_id: WorkflowExecutionID
+    ) -> WorkflowExecution:
+        execution = await self.get_execution(wf_exec_id)
+        if execution is None:
+            raise WorkflowExecutionNotFoundError(
+                f"Workflow execution not found: {wf_exec_id}"
+            )
+        return execution
+
     async def list_executions(
         self,
         workflow_id: WorkflowID | None = None,
@@ -298,12 +493,11 @@ class WorkflowExecutionsService:
         limit: int | None = None,
     ) -> list[WorkflowExecution]:
         """List all workflow executions."""
-        workspace_id = self._role_workspace_id()
         query = build_query(
             workflow_id=workflow_id,
             trigger_types=trigger_types,
             triggered_by_user_id=triggered_by_user_id,
-            workspace_id=workspace_id,
+            workspace_id=self.workspace_id,
         )
         return await self.query_executions(query=query, limit=limit)
 
@@ -311,8 +505,7 @@ class WorkflowExecutionsService:
         self, wf_id: WorkflowID
     ) -> list[WorkflowExecution]:
         """List all workflow executions by workflow ID."""
-        workspace_id = self._role_workspace_id()
-        query = build_query(workflow_id=wf_id, workspace_id=workspace_id)
+        query = build_query(workflow_id=wf_id, workspace_id=self.workspace_id)
         return await self.query_executions(query=query)
 
     async def get_latest_execution_by_workflow_id(
@@ -329,6 +522,7 @@ class WorkflowExecutionsService:
         **kwargs,
     ) -> list[WorkflowExecutionEventCompact]:
         """List the event history of a workflow execution."""
+        await self.require_execution(wf_exec_id)
         # Mapping of source event ID to compact event
         # Source event id is the event ID of the scheduled event
         # Position -> WFECompact
@@ -597,6 +791,7 @@ class WorkflowExecutionsService:
         event_id: int,
     ) -> HistoryEvent:
         """Resolve a completed Temporal event by event ID or source event ID."""
+        await self.require_execution(wf_exec_id)
         handle = self.handle(wf_exec_id)
         source_match: HistoryEvent | None = None
 
@@ -640,6 +835,7 @@ class WorkflowExecutionsService:
         **kwargs,
     ) -> list[WorkflowExecutionEvent]:
         """List the event history of a workflow execution."""
+        await self.require_execution(wf_exec_id)
 
         history = await self.handle(wf_exec_id).fetch_history(
             event_filter_type=event_filter_type, **kwargs
@@ -942,6 +1138,7 @@ class WorkflowExecutionsService:
         **kwargs,
     ) -> AsyncGenerator[HistoryEvent, Any]:
         """List the event history of a workflow execution."""
+        await self.require_execution(wf_exec_id)
 
         handle = self.handle(wf_exec_id)
         async for event in handle.fetch_history_events(
@@ -1422,14 +1619,177 @@ class WorkflowExecutionsService:
             )
             raise e
 
-    def cancel_workflow_execution(
-        self, wf_exec_id: WorkflowExecutionID
-    ) -> Awaitable[None]:
-        """Cancel a workflow execution."""
-        return self.handle(wf_exec_id).cancel()
+    @staticmethod
+    def _event_type_label(event_type: int) -> str:
+        try:
+            return EventType.Name(cast(EventType.ValueType, event_type)).removeprefix(
+                "EVENT_TYPE_"
+            )
+        except ValueError:
+            return f"UNKNOWN_{event_type}"
 
-    def terminate_workflow_execution(
+    @staticmethod
+    def _is_resettable_event(event: HistoryEvent) -> bool:
+        return event.event_type == EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED
+
+    @staticmethod
+    def _to_temporal_reset_reapply_type(
+        reapply_type: WorkflowExecutionResetReapplyType,
+    ) -> ResetReapplyType.ValueType:
+        match reapply_type:
+            case WorkflowExecutionResetReapplyType.ALL_ELIGIBLE:
+                return ResetReapplyType.RESET_REAPPLY_TYPE_ALL_ELIGIBLE
+            case WorkflowExecutionResetReapplyType.SIGNAL_ONLY:
+                return ResetReapplyType.RESET_REAPPLY_TYPE_SIGNAL
+            case WorkflowExecutionResetReapplyType.NONE:
+                return ResetReapplyType.RESET_REAPPLY_TYPE_NONE
+            case _:
+                raise ValueError(f"Unsupported reset reapply type: {reapply_type}")
+
+    async def list_reset_points(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+        *,
+        limit: int = 100,
+    ) -> list[WorkflowExecutionResetPointRead]:
+        await self.require_execution(wf_exec_id)
+        points: list[WorkflowExecutionResetPointRead] = []
+        first_resettable_event_id: int | None = None
+        handle = self.handle(wf_exec_id)
+        async for event in handle.fetch_history_events(
+            event_filter_type=WorkflowHistoryEventFilterType.ALL_EVENT
+        ):
+            resettable = self._is_resettable_event(event)
+            if resettable and first_resettable_event_id is None:
+                first_resettable_event_id = event.event_id
+            points.append(
+                WorkflowExecutionResetPointRead(
+                    event_id=event.event_id,
+                    event_time=event.event_time.ToDatetime(datetime.UTC),
+                    event_type=self._event_type_label(event.event_type),
+                    label=f"Event {event.event_id}",
+                    is_start=False,
+                    is_resettable=resettable,
+                )
+            )
+            if len(points) >= limit:
+                break
+
+        if first_resettable_event_id is not None:
+            for point in points:
+                point.is_start = point.event_id == first_resettable_event_id
+        return points
+
+    async def _resolve_reset_event_id(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+        *,
+        event_id: int | None,
+    ) -> int:
+        reset_event_id: int | None = None
+        first_resettable_event_id: int | None = None
+        handle = self.handle(wf_exec_id)
+        async for event in handle.fetch_history_events(
+            event_filter_type=WorkflowHistoryEventFilterType.ALL_EVENT
+        ):
+            if not self._is_resettable_event(event):
+                continue
+            if first_resettable_event_id is None:
+                first_resettable_event_id = event.event_id
+            if event_id is None:
+                reset_event_id = event.event_id
+                break
+            if event.event_id <= event_id:
+                reset_event_id = event.event_id
+            else:
+                break
+
+        if event_id is None and first_resettable_event_id is not None:
+            return first_resettable_event_id
+        if reset_event_id is None:
+            if event_id is None:
+                raise ValueError(
+                    "No resettable point found for workflow execution start."
+                )
+            raise ValueError(
+                f"No resettable point found at or before event {event_id}."
+            )
+        return reset_event_id
+
+    async def reset_workflow_execution(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+        *,
+        event_id: int | None,
+        reason: str | None = None,
+        reapply_type: WorkflowExecutionResetReapplyType = WorkflowExecutionResetReapplyType.ALL_ELIGIBLE,
+    ) -> str:
+        execution = await self.require_execution(wf_exec_id)
+        workflow_task_finish_event_id = await self._resolve_reset_event_id(
+            wf_exec_id, event_id=event_id
+        )
+        response = await self._client.workflow_service.reset_workflow_execution(
+            request_response_pb2.ResetWorkflowExecutionRequest(
+                namespace=config.TEMPORAL__CLUSTER_NAMESPACE,
+                workflow_execution=message_pb2.WorkflowExecution(
+                    workflow_id=execution.id,
+                    run_id=execution.run_id,
+                ),
+                reason=reason or f"Reset workflow execution {wf_exec_id}",
+                workflow_task_finish_event_id=workflow_task_finish_event_id,
+                request_id=str(uuid.uuid4()),
+                reset_reapply_type=self._to_temporal_reset_reapply_type(reapply_type),
+                identity="tracecat-api",
+            )
+        )
+        return response.run_id
+
+    async def bulk_reset_workflow_executions(
+        self,
+        execution_ids: Sequence[WorkflowExecutionID],
+        *,
+        event_id: int | None,
+        reason: str | None = None,
+        reapply_type: WorkflowExecutionResetReapplyType = WorkflowExecutionResetReapplyType.ALL_ELIGIBLE,
+        concurrency_limit: int = 10,
+    ) -> list[WorkflowExecutionBulkResetItemResult]:
+        semaphore = asyncio.Semaphore(max(1, concurrency_limit))
+
+        async def _reset(
+            execution_id: WorkflowExecutionID,
+        ) -> WorkflowExecutionBulkResetItemResult:
+            async with semaphore:
+                try:
+                    new_run_id = await self.reset_workflow_execution(
+                        execution_id,
+                        event_id=event_id,
+                        reason=reason,
+                        reapply_type=reapply_type,
+                    )
+                    return WorkflowExecutionBulkResetItemResult(
+                        execution_id=execution_id,
+                        ok=True,
+                        new_run_id=new_run_id,
+                    )
+                except Exception as e:
+                    return WorkflowExecutionBulkResetItemResult(
+                        execution_id=execution_id,
+                        ok=False,
+                        error=str(e),
+                    )
+
+        return await asyncio.gather(
+            *[_reset(execution_id) for execution_id in execution_ids]
+        )
+
+    async def cancel_workflow_execution(self, wf_exec_id: WorkflowExecutionID) -> None:
+        """Cancel a workflow execution."""
+        await self.require_execution(wf_exec_id)
+        await self.handle(wf_exec_id).cancel()
+
+    async def terminate_workflow_execution(
         self, wf_exec_id: WorkflowExecutionID, reason: str | None = None
-    ) -> Awaitable[None]:
+    ) -> None:
         """Terminate a workflow execution."""
-        return self.handle(wf_exec_id).terminate(reason=reason)
+        await self.require_execution(wf_exec_id)
+        await self.handle(wf_exec_id).terminate(reason=reason)
