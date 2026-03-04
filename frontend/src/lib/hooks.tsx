@@ -803,6 +803,7 @@ export function useWorkflowManager(
       await workflowsAddTag(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
     },
     onError: (error: TracecatApiError) => {
       console.error("Failed to add tag to workflow:", error)
@@ -818,6 +819,7 @@ export function useWorkflowManager(
       await workflowsRemoveTag(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
     },
     onError: (error: TracecatApiError) => {
       console.error("Failed to remove tag from workflow:", error)

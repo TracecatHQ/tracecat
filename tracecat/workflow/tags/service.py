@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import WorkflowTag, WorkflowTagLink
@@ -36,9 +37,23 @@ class WorkflowTagsService(BaseWorkspaceService):
         self, wf_id: WorkflowID, tag_id: TagID
     ) -> WorkflowTagLink:
         """Add a tag association to a workflow."""
+        stmt = select(WorkflowTagLink).where(
+            WorkflowTagLink.workflow_id == wf_id,
+            WorkflowTagLink.tag_id == tag_id,
+        )
+        result = await self.session.execute(stmt)
+        existing = result.scalar_one_or_none()
+        if existing is not None:
+            return existing
+
         wf_tag = WorkflowTagLink(workflow_id=wf_id, tag_id=tag_id)
-        self.session.add(wf_tag)
-        await self.session.commit()
+        try:
+            self.session.add(wf_tag)
+            await self.session.commit()
+        except IntegrityError:
+            # Handle concurrent inserts for the same workflow/tag pair.
+            await self.session.rollback()
+            return await self.get_workflow_tag(wf_id, tag_id)
         return wf_tag
 
     @require_scope("workflow:update")
