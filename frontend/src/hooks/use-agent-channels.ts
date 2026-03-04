@@ -7,11 +7,13 @@ import {
   agentChannelsDeleteChannelToken,
   agentChannelsListChannelTokens,
   agentChannelsRotateChannelToken,
+  agentChannelsStartSlackOauth,
   agentChannelsUpdateChannelToken,
   type ChannelType,
+  type SlackOAuthStartRequest as ClientSlackOAuthStartRequest,
+  type SlackOAuthStartResponse,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
-import { client } from "@/lib/api"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 
 type ListChannelTokenParams = {
@@ -232,7 +234,7 @@ export function useDeleteAgentChannelToken(workspaceId: string) {
   }
 }
 
-type SlackOAuthStartRequest = {
+type SlackOAuthStartArgs = {
   tokenId?: string
   agentPresetId: string
   clientId: string
@@ -241,37 +243,40 @@ type SlackOAuthStartRequest = {
   returnUrl: string
 }
 
-type SlackOAuthStartResponse = {
-  authorization_url: string
-}
-
 export function useStartSlackOAuth(workspaceId: string) {
   const {
     mutateAsync: startSlackOAuth,
     isPending: startSlackOAuthIsPending,
     error: startSlackOAuthError,
-  } = useMutation<SlackOAuthStartResponse, Error, SlackOAuthStartRequest>({
+  } = useMutation<
+    SlackOAuthStartResponse,
+    TracecatApiError,
+    SlackOAuthStartArgs
+  >({
     mutationFn: async (params) => {
-      const response = await client.post<SlackOAuthStartResponse>(
-        "/agent/channels/tokens/slack/oauth/start",
-        {
-          token_id: params.tokenId,
-          agent_preset_id: params.agentPresetId,
-          client_id: params.clientId.trim(),
-          client_secret: params.clientSecret.trim(),
-          signing_secret: params.signingSecret.trim(),
-          return_url: params.returnUrl,
-        },
-        {
-          params: { workspace_id: workspaceId },
-        }
-      )
-      return response.data
+      const requestBody: ClientSlackOAuthStartRequest = {
+        agent_preset_id: params.agentPresetId,
+        client_id: params.clientId.trim(),
+        client_secret: params.clientSecret.trim(),
+        signing_secret: params.signingSecret.trim(),
+        return_url: params.returnUrl,
+      }
+      if (params.tokenId) {
+        requestBody.token_id = params.tokenId
+      }
+      return await agentChannelsStartSlackOauth({
+        workspaceId,
+        requestBody,
+      })
     },
     onError: (error) => {
+      const detail =
+        typeof error.body?.detail === "string"
+          ? error.body.detail
+          : "Failed to start Slack connect flow."
       toast({
         title: "Slack connect failed",
-        description: error.message,
+        description: detail,
         variant: "destructive",
       })
     },

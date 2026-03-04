@@ -5,6 +5,8 @@ from __future__ import annotations
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
+from tracecat.logger import logger
+
 ACK_REACTION = "eyes"
 IN_PROGRESS_REACTION = "hourglass_flowing_sand"
 COMPLETE_REACTION = "white_check_mark"
@@ -124,7 +126,15 @@ async def notify_error(
     """Notify the user in-thread that processing failed."""
 
     if ts:
-        await set_error(client, channel_id=channel_id, ts=ts)
+        try:
+            await set_error(client, channel_id=channel_id, ts=ts)
+        except Exception as exc:
+            logger.warning(
+                "Failed to mark Slack message with error reaction",
+                channel_id=channel_id,
+                ts=ts,
+                error=str(exc),
+            )
 
     await client.api_call(
         api_method="chat.postMessage",

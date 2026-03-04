@@ -339,9 +339,10 @@ class SlackChannelHandler:
                 thread_ts=context.thread_ts,
             )
             return
-        except Exception:
-            logger.exception(
+        except Exception as exc:
+            logger.error(
                 "Failed to process Slack app_mention",
+                error=str(exc),
                 workspace_id=str(token.workspace_id),
                 event_id=context.event_id,
                 channel_id=context.channel_id,
@@ -354,8 +355,14 @@ class SlackChannelHandler:
                     thread_ts=context.thread_ts,
                     ts=context.ts,
                 )
-            except Exception:
-                logger.exception("Failed to notify Slack error state")
+            except Exception as exc:
+                logger.error(
+                    "Failed to notify Slack error state",
+                    error=str(exc),
+                    workspace_id=str(token.workspace_id),
+                    event_id=context.event_id,
+                    channel_id=context.channel_id,
+                )
             return
         else:
             await set_in_progress(

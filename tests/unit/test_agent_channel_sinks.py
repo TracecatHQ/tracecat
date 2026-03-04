@@ -40,10 +40,8 @@ class _FakeSlackClient:
         return _FakeSlackResponse(data={"ok": True})
 
 
-@pytest.mark.anyio
-async def test_slack_stream_sink_batches_deltas_and_stops(
-    monkeypatch: pytest.MonkeyPatch,
-):
+@pytest.fixture
+def patched_slack_client(monkeypatch: pytest.MonkeyPatch) -> _FakeSlackClient:
     fake_client = _FakeSlackClient(token="xoxb-test")
 
     def _make_client(*, token: str) -> _FakeSlackClient:
@@ -51,6 +49,14 @@ async def test_slack_stream_sink_batches_deltas_and_stops(
         return fake_client
 
     monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+    return fake_client
+
+
+@pytest.mark.anyio
+async def test_slack_stream_sink_batches_deltas_and_stops(
+    patched_slack_client: _FakeSlackClient,
+):
+    fake_client = patched_slack_client
 
     sink = SlackStreamSink(
         slack_bot_token="xoxb-test",
@@ -80,14 +86,10 @@ async def test_slack_stream_sink_batches_deltas_and_stops(
 
 
 @pytest.mark.anyio
-async def test_slack_stream_sink_emits_error_text(monkeypatch: pytest.MonkeyPatch):
-    fake_client = _FakeSlackClient(token="xoxb-test")
-
-    def _make_client(*, token: str) -> _FakeSlackClient:
-        assert token == "xoxb-test"
-        return fake_client
-
-    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+async def test_slack_stream_sink_emits_error_text(
+    patched_slack_client: _FakeSlackClient,
+):
+    fake_client = patched_slack_client
 
     sink = SlackStreamSink(
         slack_bot_token="xoxb-test",
@@ -110,15 +112,9 @@ async def test_slack_stream_sink_emits_error_text(monkeypatch: pytest.MonkeyPatc
 
 @pytest.mark.anyio
 async def test_slack_stream_sink_marks_reaction_complete(
-    monkeypatch: pytest.MonkeyPatch,
+    patched_slack_client: _FakeSlackClient,
 ):
-    fake_client = _FakeSlackClient(token="xoxb-test")
-
-    def _make_client(*, token: str) -> _FakeSlackClient:
-        assert token == "xoxb-test"
-        return fake_client
-
-    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+    fake_client = patched_slack_client
 
     sink = SlackStreamSink(
         slack_bot_token="xoxb-test",
@@ -143,15 +139,9 @@ async def test_slack_stream_sink_marks_reaction_complete(
 
 @pytest.mark.anyio
 async def test_slack_stream_sink_emits_task_updates_for_tool_events(
-    monkeypatch: pytest.MonkeyPatch,
+    patched_slack_client: _FakeSlackClient,
 ):
-    fake_client = _FakeSlackClient(token="xoxb-test")
-
-    def _make_client(*, token: str) -> _FakeSlackClient:
-        assert token == "xoxb-test"
-        return fake_client
-
-    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+    fake_client = patched_slack_client
 
     sink = SlackStreamSink(
         slack_bot_token="xoxb-test",
@@ -202,15 +192,9 @@ async def test_slack_stream_sink_emits_task_updates_for_tool_events(
 
 @pytest.mark.anyio
 async def test_slack_stream_sink_does_not_close_on_text_stop(
-    monkeypatch: pytest.MonkeyPatch,
+    patched_slack_client: _FakeSlackClient,
 ):
-    fake_client = _FakeSlackClient(token="xoxb-test")
-
-    def _make_client(*, token: str) -> _FakeSlackClient:
-        assert token == "xoxb-test"
-        return fake_client
-
-    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+    fake_client = patched_slack_client
 
     sink = SlackStreamSink(
         slack_bot_token="xoxb-test",
@@ -246,15 +230,9 @@ async def test_slack_stream_sink_does_not_close_on_text_stop(
 
 @pytest.mark.anyio
 async def test_slack_stream_sink_formats_tool_output(
-    monkeypatch: pytest.MonkeyPatch,
+    patched_slack_client: _FakeSlackClient,
 ):
-    fake_client = _FakeSlackClient(token="xoxb-test")
-
-    def _make_client(*, token: str) -> _FakeSlackClient:
-        assert token == "xoxb-test"
-        return fake_client
-
-    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+    fake_client = patched_slack_client
 
     sink = SlackStreamSink(
         slack_bot_token="xoxb-test",
@@ -305,15 +283,9 @@ async def test_slack_stream_sink_formats_tool_output(
 
 @pytest.mark.anyio
 async def test_slack_stream_sink_dedupes_in_progress_task_updates(
-    monkeypatch: pytest.MonkeyPatch,
+    patched_slack_client: _FakeSlackClient,
 ):
-    fake_client = _FakeSlackClient(token="xoxb-test")
-
-    def _make_client(*, token: str) -> _FakeSlackClient:
-        assert token == "xoxb-test"
-        return fake_client
-
-    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+    fake_client = patched_slack_client
 
     sink = SlackStreamSink(
         slack_bot_token="xoxb-test",
@@ -356,15 +328,9 @@ async def test_slack_stream_sink_dedupes_in_progress_task_updates(
 
 @pytest.mark.anyio
 async def test_slack_stream_sink_ignores_pending_approval_interrupt_errors(
-    monkeypatch: pytest.MonkeyPatch,
+    patched_slack_client: _FakeSlackClient,
 ):
-    fake_client = _FakeSlackClient(token="xoxb-test")
-
-    def _make_client(*, token: str) -> _FakeSlackClient:
-        assert token == "xoxb-test"
-        return fake_client
-
-    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+    fake_client = patched_slack_client
 
     sink = SlackStreamSink(
         slack_bot_token="xoxb-test",

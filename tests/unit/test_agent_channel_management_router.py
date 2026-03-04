@@ -52,3 +52,40 @@ async def test_start_slack_oauth_rejects_mismatched_token_preset() -> None:
 
     assert exc_info.value.status_code == 400
     assert "does not match the requested agent preset" in exc_info.value.detail
+
+
+@pytest.mark.anyio
+async def test_start_slack_oauth_returns_404_for_missing_token() -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:update"}),
+    )
+    params = SlackOAuthStartRequest(
+        token_id=uuid.uuid4(),
+        agent_preset_id=uuid.uuid4(),
+        client_id="client-id",
+        client_secret="client-secret",
+        signing_secret="signing-secret",
+        return_url="https://app.tracecat.com/settings",
+    )
+    mock_service = AsyncMock()
+    mock_service.get_token.return_value = None
+
+    with patch(
+        "tracecat.agent.channels.management_router.AgentChannelService",
+        return_value=mock_service,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            oauth_start_fn = getattr(
+                start_slack_oauth, "__wrapped__", start_slack_oauth
+            )
+            await oauth_start_fn(
+                params=params,
+                role=role,
+                session=AsyncMock(),
+            )
+
+    assert exc_info.value.status_code == 404

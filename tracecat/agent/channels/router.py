@@ -286,8 +286,8 @@ async def handle_slack_oauth_callback(
                 message=message,
             )
         )
-    except Exception:
-        logger.exception("Slack OAuth callback failed")
+    except Exception as exc:
+        logger.error("Slack OAuth callback failed", error=str(exc), exc_info=False)
         return RedirectResponse(
             _build_callback_redirect_url(
                 base_url=return_url,

@@ -84,3 +84,4 @@ async def test_emit_terminal_error_uses_redis_when_external_lookup_errors(
         workspace_id=loopback_input.workspace_id,
     )
     fake_stream.error.assert_awaited_once_with("runtime exited before connect")
+    fake_stream.done.assert_awaited_once()

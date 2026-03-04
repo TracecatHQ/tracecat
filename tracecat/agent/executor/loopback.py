@@ -164,6 +164,7 @@ class LoopbackHandler:
         if self._stream_sink is None:
             self._stream_sink = await self._initialize_stream_sink()
         await self._stream_sink.error(error)
+        await self._emit_stream_done()
 
     async def handle_connection(
         self,

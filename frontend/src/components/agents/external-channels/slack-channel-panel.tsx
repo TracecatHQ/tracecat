@@ -312,31 +312,43 @@ export function SlackChannelPanel({
     if (typeof window === "undefined") {
       return
     }
-    const response = await startSlackOAuth({
-      tokenId: tokenId ?? undefined,
-      agentPresetId: presetId,
-      clientId,
-      clientSecret,
-      signingSecret,
-      returnUrl: window.location.href,
-    })
-    window.location.assign(response.authorization_url)
+    try {
+      const response = await startSlackOAuth({
+        tokenId: tokenId ?? undefined,
+        agentPresetId: presetId,
+        clientId,
+        clientSecret,
+        signingSecret,
+        returnUrl: window.location.href,
+      })
+      window.location.assign(response.authorization_url)
+    } catch {
+      return
+    }
   }
 
   async function handleRotate(): Promise<void> {
     if (!token) {
       return
     }
-    await rotateChannelToken({ tokenId: token.id })
+    try {
+      await rotateChannelToken({ tokenId: token.id })
+    } catch {
+      return
+    }
   }
 
   async function handleDelete(): Promise<void> {
     if (!token) {
       return
     }
-    await deleteChannelToken({ tokenId: token.id })
-    setProvisionedTokenId(null)
-    setProvisionedEndpointUrl("")
+    try {
+      await deleteChannelToken({ tokenId: token.id })
+      setProvisionedTokenId(null)
+      setProvisionedEndpointUrl("")
+    } catch {
+      return
+    }
   }
 
   function handleCopyManifest(): void {
