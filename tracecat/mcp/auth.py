@@ -145,28 +145,15 @@ def get_token_identity() -> MCPTokenIdentity:
     claims = access_token.claims
     raw_email = claims.get("email")
     email = raw_email.strip() if isinstance(raw_email, str) else None
-    claim_client_id = claims.get("client_id")
-    claim_azp = claims.get("azp")
-    claim_sub = claims.get("sub")
-    claim_client_text = (
-        claim_client_id.strip()
-        if isinstance(claim_client_id, str) and claim_client_id.strip()
-        else None
-    )
-    claim_azp_text = (
-        claim_azp.strip() if isinstance(claim_azp, str) and claim_azp.strip() else None
-    )
-    raw_token_client_id = access_token.client_id
-    token_client_id = (
-        raw_token_client_id.strip()
-        if isinstance(raw_token_client_id, str) and raw_token_client_id.strip()
-        else None
-    )
-    claim_sub_text = (
-        claim_sub.strip() if isinstance(claim_sub, str) and claim_sub.strip() else None
-    )
-    client_id = (
-        claim_client_text or claim_azp_text or token_client_id or claim_sub_text or ""
+    raw_client_ids = [
+        claims.get("client_id"),
+        claims.get("azp"),
+        access_token.client_id,
+        claims.get("sub"),
+    ]
+    client_id = next(
+        (c for raw in raw_client_ids if isinstance(raw, str) and (c := raw.strip())),
+        "",
     )
 
     organization_ids = _extract_claimed_uuids(
