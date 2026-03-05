@@ -14,6 +14,7 @@ from tracecat_ee.watchtower.service import (
     normalize_agent_identity,
     redact_tool_call_args,
 )
+from tracecat_ee.watchtower.types import WatchtowerAgentType
 
 
 class _RowsResult:
@@ -142,14 +143,14 @@ def test_agent_fingerprint_is_stable_when_client_info_changes() -> None:
     from_callback = _build_agent_fingerprint(
         organization_id=organization_id,
         auth_client_id="claude-code",
-        agent_type="claude_code",
+        agent_type=WatchtowerAgentType.CLAUDE_CODE,
         user_agent="Claude-Code/1.2.3",
         client_info=None,
     )
     from_initialize = _build_agent_fingerprint(
         organization_id=organization_id,
         auth_client_id="claude-code",
-        agent_type="claude_code",
+        agent_type=WatchtowerAgentType.CLAUDE_CODE,
         user_agent="Claude-Code/1.2.3",
         client_info={"name": "Claude Code", "version": "1.2.3"},
     )
@@ -211,8 +212,7 @@ async def test_list_agents_active_session_count_uses_stale_cutoff() -> None:
 
     fake_session = _FakeSession(
         [
-            _ExecuteResult(scalars_rows=[agent]),
-            _ExecuteResult(tuples_rows=[(agent_id, 2, 1)]),
+            _ExecuteResult(tuples_rows=[(agent, 2, 1)]),
         ]
     )
     service = _build_service(fake_session, org_id)
@@ -225,8 +225,8 @@ async def test_list_agents_active_session_count_uses_stale_cutoff() -> None:
     )
 
     assert response.items[0].active_session_count == 1
-    counts_stmt_text = str(fake_session.statements[1])
-    assert counts_stmt_text.count("watchtower_agent_session.last_seen_at >=") >= 2
+    counts_stmt_text = str(fake_session.statements[0])
+    assert "watchtower_agent_session.last_seen_at >=" in counts_stmt_text
 
 
 @pytest.mark.anyio

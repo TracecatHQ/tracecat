@@ -6397,7 +6397,7 @@ export type WatchtowerAgentRead = {
   id: string
   organization_id: string
   fingerprint_hash: string
-  agent_type: string
+  agent_type: WatchtowerAgentType
   agent_source: string
   agent_icon_key: string | null
   raw_user_agent: string | null
@@ -6477,6 +6477,17 @@ export type WatchtowerAgentToolCallRead = {
   error_redacted: string | null
   called_at: string
 }
+
+/**
+ * Normalized local-agent classifications stored by Watchtower.
+ */
+export type WatchtowerAgentType =
+  | "claude_code"
+  | "codex"
+  | "cursor"
+  | "windsurf"
+  | "opencode"
+  | "unknown"
 
 /**
  * Request payload for disabling an agent.
@@ -8624,7 +8635,7 @@ export type ApprovalsSubmitApprovalsData = {
 export type ApprovalsSubmitApprovalsResponse = void
 
 export type WatchtowerListWatchtowerAgentsData = {
-  agentType?: string | null
+  agentType?: WatchtowerAgentType | null
   cursor?: string | null
   limit?: number
   status?: string | null

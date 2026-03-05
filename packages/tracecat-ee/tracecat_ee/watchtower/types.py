@@ -1,0 +1,16 @@
+"""Domain types for Watchtower."""
+
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class WatchtowerAgentType(StrEnum):
+    """Normalized local-agent classifications stored by Watchtower."""
+
+    CLAUDE_CODE = "claude_code"
+    CODEX = "codex"
+    CURSOR = "cursor"
+    WINDSURF = "windsurf"
+    OPENCODE = "opencode"
+    UNKNOWN = "unknown"

@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from tracecat_ee.watchtower.types import WatchtowerAgentType
+
 
 class WatchtowerAgentRead(BaseModel):
     """Watchtower agent row for monitor list views."""
@@ -14,7 +16,7 @@ class WatchtowerAgentRead(BaseModel):
     id: UUID
     organization_id: UUID
     fingerprint_hash: str
-    agent_type: str
+    agent_type: WatchtowerAgentType
     agent_source: str
     agent_icon_key: str | None
     raw_user_agent: str | None

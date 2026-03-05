@@ -20452,8 +20452,7 @@ export const $WatchtowerAgentRead = {
       title: "Fingerprint Hash",
     },
     agent_type: {
-      type: "string",
-      title: "Agent Type",
+      $ref: "#/components/schemas/WatchtowerAgentType",
     },
     agent_source: {
       type: "string",
@@ -20959,6 +20958,13 @@ export const $WatchtowerAgentToolCallRead = {
   ],
   title: "WatchtowerAgentToolCallRead",
   description: "Watchtower tool-call event row.",
+} as const
+
+export const $WatchtowerAgentType = {
+  type: "string",
+  enum: ["claude_code", "codex", "cursor", "windsurf", "opencode", "unknown"],
+  title: "WatchtowerAgentType",
+  description: "Normalized local-agent classifications stored by Watchtower.",
 } as const
 
 export const $WatchtowerDisableAgentRequest = {

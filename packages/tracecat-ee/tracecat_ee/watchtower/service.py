@@ -35,6 +35,7 @@ from tracecat_ee.watchtower.schemas import (
     WatchtowerAgentToolCallListResponse,
     WatchtowerAgentToolCallRead,
 )
+from tracecat_ee.watchtower.types import WatchtowerAgentType
 
 SESSION_STALE_WINDOW_MINUTES = 30
 OAUTH_PROVISIONAL_MATCH_WINDOW_MINUTES = 30
@@ -61,14 +62,48 @@ class WatchtowerService(BaseOrgService):
         *,
         limit: int,
         cursor: str | None,
-        agent_type: str | None,
+        agent_type: WatchtowerAgentType | None,
         status: str | None,
     ) -> WatchtowerAgentListResponse:
         retention_cutoff = _retention_cutoff()
         stale_cutoff = _session_stale_cutoff()
-        stmt = select(WatchtowerAgent).where(
-            WatchtowerAgent.organization_id == self.organization_id,
-            WatchtowerAgent.last_seen_at >= retention_cutoff,
+
+        counts_subq = (
+            select(
+                WatchtowerAgentSession.agent_id,
+                func.count().label("total"),
+                func.count(
+                    case(
+                        (
+                            and_(
+                                WatchtowerAgentSession.session_state == "connected",
+                                WatchtowerAgentSession.revoked_at.is_(None),
+                                WatchtowerAgentSession.last_seen_at >= stale_cutoff,
+                            ),
+                            1,
+                        )
+                    )
+                ).label("active"),
+            )
+            .where(
+                WatchtowerAgentSession.organization_id == self.organization_id,
+                WatchtowerAgentSession.last_seen_at >= retention_cutoff,
+            )
+            .group_by(WatchtowerAgentSession.agent_id)
+            .subquery()
+        )
+
+        stmt = (
+            select(
+                WatchtowerAgent,
+                func.coalesce(counts_subq.c.total, 0).label("total_sessions"),
+                func.coalesce(counts_subq.c.active, 0).label("active_sessions"),
+            )
+            .outerjoin(counts_subq, WatchtowerAgent.id == counts_subq.c.agent_id)
+            .where(
+                WatchtowerAgent.organization_id == self.organization_id,
+                WatchtowerAgent.last_seen_at >= retention_cutoff,
+            )
         )
         if agent_type:
             stmt = stmt.where(WatchtowerAgent.agent_type == agent_type)
@@ -97,52 +132,17 @@ class WatchtowerService(BaseOrgService):
         stmt = stmt.limit(limit + 1)
 
         result = await self.session.execute(stmt)
-        agents = list(result.scalars().all())
-        has_more = len(agents) > limit
+        rows: list[tuple[WatchtowerAgent, int, int]] = list(result.tuples().all())
+        has_more = len(rows) > limit
         if has_more:
-            agents = agents[:limit]
-
-        active_session_counts: dict[uuid.UUID, int] = {}
-        total_session_counts: dict[uuid.UUID, int] = {}
-        if agents:
-            agent_ids = [agent.id for agent in agents]
-            counts_stmt = (
-                select(
-                    WatchtowerAgentSession.agent_id,
-                    func.count().label("total"),
-                    func.count(
-                        case(
-                            (
-                                and_(
-                                    WatchtowerAgentSession.session_state == "connected",
-                                    WatchtowerAgentSession.revoked_at.is_(None),
-                                    WatchtowerAgentSession.last_seen_at >= stale_cutoff,
-                                ),
-                                1,
-                            )
-                        )
-                    ).label("active"),
-                )
-                .where(
-                    WatchtowerAgentSession.organization_id == self.organization_id,
-                    WatchtowerAgentSession.agent_id.in_(agent_ids),
-                    WatchtowerAgentSession.last_seen_at >= retention_cutoff,
-                )
-                .group_by(WatchtowerAgentSession.agent_id)
-            )
-            counts_result = await self.session.execute(counts_stmt)
-            for agent_id, total, active in counts_result.tuples().all():
-                if agent_id is not None:
-                    aid = cast(uuid.UUID, agent_id)
-                    total_session_counts[aid] = int(total)
-                    active_session_counts[aid] = int(active)
+            rows = rows[:limit]
 
         items = [
             WatchtowerAgentRead(
                 id=agent.id,
                 organization_id=agent.organization_id,
                 fingerprint_hash=agent.fingerprint_hash,
-                agent_type=agent.agent_type,
+                agent_type=_coerce_agent_type(agent.agent_type),
                 agent_source=agent.agent_source,
                 agent_icon_key=agent.agent_icon_key,
                 raw_user_agent=agent.raw_user_agent,
@@ -156,23 +156,19 @@ class WatchtowerService(BaseOrgService):
                 blocked_at=agent.blocked_at,
                 blocked_reason=agent.blocked_reason,
                 status=_derive_agent_status(agent),
-                active_session_count=active_session_counts.get(agent.id, 0),
-                inactive_session_count=max(
-                    total_session_counts.get(agent.id, 0)
-                    - active_session_counts.get(agent.id, 0),
-                    0,
-                ),
+                active_session_count=active,
+                inactive_session_count=max(total - active, 0),
             )
-            for agent in agents
+            for agent, total, active in rows
         ]
 
         next_cursor = None
-        if has_more and agents:
-            last = agents[-1]
+        if has_more and rows:
+            last_agent = rows[-1][0]
             next_cursor = BaseCursorPaginator.encode_cursor(
-                id=last.id,
+                id=last_agent.id,
                 sort_column="last_seen_at",
-                sort_value=last.last_seen_at,
+                sort_value=last_agent.last_seen_at,
             )
 
         return WatchtowerAgentListResponse(
@@ -444,7 +440,7 @@ def normalize_agent_identity(
     *,
     user_agent: str | None,
     client_info: dict[str, Any] | None,
-) -> tuple[str, str, str]:
+) -> tuple[WatchtowerAgentType, str, str]:
     """Normalize local agent identity from MCP initialize/client metadata."""
     client_name = str(client_info.get("name") or "") if client_info else ""
     ua_text = user_agent or ""
@@ -452,35 +448,39 @@ def normalize_agent_identity(
     client_type = _classify_agent_text(client_name)
     ua_type = _classify_agent_text(ua_text)
 
-    if client_type != "unknown" and ua_type != "unknown" and client_type != ua_type:
+    if (
+        client_type != WatchtowerAgentType.UNKNOWN
+        and ua_type != WatchtowerAgentType.UNKNOWN
+        and client_type != ua_type
+    ):
         return client_type, "mixed", client_type
-    if client_type != "unknown":
+    if client_type != WatchtowerAgentType.UNKNOWN:
         return client_type, "client_info", client_type
-    if ua_type != "unknown":
+    if ua_type != WatchtowerAgentType.UNKNOWN:
         return ua_type, "user_agent", ua_type
-    return "unknown", "unknown", "unknown"
+    return WatchtowerAgentType.UNKNOWN, "unknown", "unknown"
 
 
-def _classify_agent_text(value: str) -> str:
+def _classify_agent_text(value: str) -> WatchtowerAgentType:
     text = value.lower()
     if "claude" in text:
-        return "claude_code"
+        return WatchtowerAgentType.CLAUDE_CODE
     if "codex" in text or "openai" in text:
-        return "codex"
+        return WatchtowerAgentType.CODEX
     if "cursor" in text:
-        return "cursor"
+        return WatchtowerAgentType.CURSOR
     if "windsurf" in text:
-        return "windsurf"
+        return WatchtowerAgentType.WINDSURF
     if "opencode" in text:
-        return "opencode"
-    return "unknown"
+        return WatchtowerAgentType.OPENCODE
+    return WatchtowerAgentType.UNKNOWN
 
 
 def _build_agent_fingerprint(
     *,
     organization_id: uuid.UUID,
     auth_client_id: str | None,
-    agent_type: str,
+    agent_type: WatchtowerAgentType,
     user_agent: str | None,
     client_info: dict[str, Any] | None,
 ) -> str:
@@ -489,7 +489,7 @@ def _build_agent_fingerprint(
         [
             str(organization_id),
             auth_client_id or "",
-            agent_type,
+            str(agent_type),
             user_agent or "",
         ]
     )
@@ -508,6 +508,15 @@ async def _resolve_user_by_email(
 ) -> User | None:
     result = await session.execute(select(User).filter_by(email=email))
     return result.scalar_one_or_none()
+
+
+def _coerce_agent_type(value: str | None) -> WatchtowerAgentType:
+    if value is None:
+        return WatchtowerAgentType.UNKNOWN
+    try:
+        return WatchtowerAgentType(value)
+    except ValueError:
+        return WatchtowerAgentType.UNKNOWN
 
 
 async def _resolve_unambiguous_org(

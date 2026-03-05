@@ -21,6 +21,7 @@ from tracecat_ee.watchtower.schemas import (
     WatchtowerRevokeAgentSessionRequest,
 )
 from tracecat_ee.watchtower.service import WatchtowerService
+from tracecat_ee.watchtower.types import WatchtowerAgentType
 
 router = APIRouter(
     prefix="/watchtower/monitor",
@@ -51,7 +52,7 @@ async def list_watchtower_agents(
         le=config.TRACECAT__LIMIT_CURSOR_MAX,
     ),
     cursor: str | None = Query(default=None),
-    agent_type: str | None = Query(default=None),
+    agent_type: WatchtowerAgentType | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
 ) -> WatchtowerAgentListResponse:
     service = WatchtowerService(session, role=role)

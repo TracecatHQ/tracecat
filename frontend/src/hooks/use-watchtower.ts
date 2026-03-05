@@ -15,7 +15,7 @@ const WATCHTOWER_REFRESH_MS = 5000
 
 export function useWatchtowerAgents(params?: {
   status?: string
-  agentType?: string
+  agentType?: WatchtowerAgentRead["agent_type"]
   limit?: number
 }) {
   const status = params?.status
