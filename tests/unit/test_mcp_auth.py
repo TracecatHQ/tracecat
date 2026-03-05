@@ -119,6 +119,48 @@ def test_get_token_identity_extracts_ids_from_claims_and_scopes(
     assert identity.workspace_ids == frozenset({ws_id, extra_ws_id})
 
 
+def test_get_token_identity_prefers_token_client_id_over_sub(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = type(
+        "T",
+        (),
+        {
+            "client_id": "oauth-client-id",
+            "scopes": [],
+            "claims": {
+                "sub": "user-subject-id",
+            },
+        },
+    )()
+    monkeypatch.setattr(mcp_auth, "get_access_token", lambda: token)
+
+    identity = mcp_auth.get_token_identity()
+
+    assert identity.client_id == "oauth-client-id"
+
+
+def test_get_token_identity_falls_back_to_sub_when_no_client_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = type(
+        "T",
+        (),
+        {
+            "client_id": "",
+            "scopes": [],
+            "claims": {
+                "sub": "user-subject-id",
+            },
+        },
+    )()
+    monkeypatch.setattr(mcp_auth, "get_access_token", lambda: token)
+
+    identity = mcp_auth.get_token_identity()
+
+    assert identity.client_id == "user-subject-id"
+
+
 @pytest.mark.anyio
 async def test_list_workspaces_for_request_passes_claimed_org_ids(
     monkeypatch: pytest.MonkeyPatch,

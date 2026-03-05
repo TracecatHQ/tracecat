@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -94,25 +94,38 @@ class WatchtowerService(BaseOrgService):
             agents = agents[:limit]
 
         active_session_counts: dict[uuid.UUID, int] = {}
+        total_session_counts: dict[uuid.UUID, int] = {}
         if agents:
             agent_ids = [agent.id for agent in agents]
-            active_stmt = (
-                select(WatchtowerAgentSession.agent_id, func.count())
+            counts_stmt = (
+                select(
+                    WatchtowerAgentSession.agent_id,
+                    func.count().label("total"),
+                    func.count(
+                        case(
+                            (
+                                and_(
+                                    WatchtowerAgentSession.session_state == "connected",
+                                    WatchtowerAgentSession.revoked_at.is_(None),
+                                ),
+                                1,
+                            )
+                        )
+                    ).label("active"),
+                )
                 .where(
                     WatchtowerAgentSession.organization_id == self.organization_id,
                     WatchtowerAgentSession.agent_id.in_(agent_ids),
-                    WatchtowerAgentSession.session_state == "connected",
-                    WatchtowerAgentSession.revoked_at.is_(None),
                     WatchtowerAgentSession.last_seen_at >= retention_cutoff,
                 )
                 .group_by(WatchtowerAgentSession.agent_id)
             )
-            active_result = await self.session.execute(active_stmt)
-            active_session_counts = {
-                cast(uuid.UUID, agent_id): int(count)
-                for agent_id, count in active_result.tuples().all()
-                if agent_id is not None
-            }
+            counts_result = await self.session.execute(counts_stmt)
+            for agent_id, total, active in counts_result.tuples().all():
+                if agent_id is not None:
+                    aid = cast(uuid.UUID, agent_id)
+                    total_session_counts[aid] = int(total)
+                    active_session_counts[aid] = int(active)
 
         items = [
             WatchtowerAgentRead(
@@ -134,6 +147,11 @@ class WatchtowerService(BaseOrgService):
                 blocked_reason=agent.blocked_reason,
                 status=_derive_agent_status(agent),
                 active_session_count=active_session_counts.get(agent.id, 0),
+                inactive_session_count=max(
+                    total_session_counts.get(agent.id, 0)
+                    - active_session_counts.get(agent.id, 0),
+                    0,
+                ),
             )
             for agent in agents
         ]

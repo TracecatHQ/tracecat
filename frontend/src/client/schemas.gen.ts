@@ -20580,6 +20580,11 @@ export const $WatchtowerAgentRead = {
       title: "Active Session Count",
       default: 0,
     },
+    inactive_session_count: {
+      type: "integer",
+      title: "Inactive Session Count",
+      default: 0,
+    },
   },
   type: "object",
   required: [

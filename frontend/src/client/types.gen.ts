@@ -6414,6 +6414,7 @@ export type WatchtowerAgentRead = {
   blocked_reason: string | null
   status: string
   active_session_count?: number
+  inactive_session_count?: number
 }
 
 /**

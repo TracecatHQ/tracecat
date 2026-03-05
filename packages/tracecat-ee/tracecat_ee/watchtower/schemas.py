@@ -29,6 +29,7 @@ class WatchtowerAgentRead(BaseModel):
     blocked_reason: str | None
     status: str
     active_session_count: int = 0
+    inactive_session_count: int = 0
 
 
 class WatchtowerAgentSessionRead(BaseModel):

@@ -145,15 +145,24 @@ def get_token_identity() -> MCPTokenIdentity:
     claims = access_token.claims
     raw_email = claims.get("email")
     email = raw_email.strip() if isinstance(raw_email, str) else None
-    client_id_claim = (
-        claims.get("client_id")
-        or claims.get("azp")
-        or claims.get("sub")
-        or access_token.client_id
+    claim_client_id = claims.get("client_id")
+    claim_azp = claims.get("azp")
+    claim_sub = claims.get("sub")
+    claim_client_text = (
+        claim_client_id.strip()
+        if isinstance(claim_client_id, str) and claim_client_id.strip()
+        else None
     )
-    client_id = str(client_id_claim).strip() if client_id_claim else ""
-    if not client_id:
-        client_id = access_token.client_id
+    claim_azp_text = (
+        claim_azp.strip() if isinstance(claim_azp, str) and claim_azp.strip() else None
+    )
+    token_client_id = access_token.client_id.strip()
+    claim_sub_text = (
+        claim_sub.strip() if isinstance(claim_sub, str) and claim_sub.strip() else None
+    )
+    client_id = (
+        claim_client_text or claim_azp_text or token_client_id or claim_sub_text or ""
+    )
 
     organization_ids = _extract_claimed_uuids(
         claims,
@@ -508,10 +517,10 @@ def create_mcp_auth() -> AuthProvider:
                     maybe_create_oauth_provisional_session,
                 )
 
-                client_id = payload.get("client_id")
+                raw_client_id = payload.get("client_id")
                 auth_client_id = (
-                    str(client_id)
-                    if isinstance(client_id, str) and client_id.strip()
+                    raw_client_id.strip()
+                    if isinstance(raw_client_id, str) and raw_client_id.strip()
                     else None
                 )
 
