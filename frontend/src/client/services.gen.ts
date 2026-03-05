@@ -596,6 +596,18 @@ import type {
   VcsGithubWebhookResponse,
   VcsSaveGithubAppCredentialsData,
   VcsSaveGithubAppCredentialsResponse,
+  WatchtowerDisableWatchtowerAgentData,
+  WatchtowerDisableWatchtowerAgentResponse,
+  WatchtowerEnableWatchtowerAgentData,
+  WatchtowerEnableWatchtowerAgentResponse,
+  WatchtowerListWatchtowerAgentSessionsData,
+  WatchtowerListWatchtowerAgentSessionsResponse,
+  WatchtowerListWatchtowerAgentsData,
+  WatchtowerListWatchtowerAgentsResponse,
+  WatchtowerListWatchtowerSessionToolCallsData,
+  WatchtowerListWatchtowerSessionToolCallsResponse,
+  WatchtowerRevokeWatchtowerSessionData,
+  WatchtowerRevokeWatchtowerSessionResponse,
   WorkflowExecutionsBulkResetWorkflowExecutionsData,
   WorkflowExecutionsBulkResetWorkflowExecutionsResponse,
   WorkflowExecutionsCancelWorkflowExecutionData,
@@ -4396,6 +4408,168 @@ export const approvalsSubmitApprovals = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Watchtower Agents
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @param data.agentType
+ * @param data.status
+ * @returns WatchtowerAgentListResponse Successful Response
+ * @throws ApiError
+ */
+export const watchtowerListWatchtowerAgents = (
+  data: WatchtowerListWatchtowerAgentsData = {}
+): CancelablePromise<WatchtowerListWatchtowerAgentsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/watchtower/monitor/agents",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      agent_type: data.agentType,
+      status: data.status,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Watchtower Agent Sessions
+ * @param data The data for the request.
+ * @param data.agentId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.workspaceId
+ * @param data.state
+ * @returns WatchtowerAgentSessionListResponse Successful Response
+ * @throws ApiError
+ */
+export const watchtowerListWatchtowerAgentSessions = (
+  data: WatchtowerListWatchtowerAgentSessionsData
+): CancelablePromise<WatchtowerListWatchtowerAgentSessionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/watchtower/monitor/agents/{agent_id}/sessions",
+    path: {
+      agent_id: data.agentId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      workspace_id: data.workspaceId,
+      state: data.state,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Watchtower Session Tool Calls
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.status
+ * @returns WatchtowerAgentToolCallListResponse Successful Response
+ * @throws ApiError
+ */
+export const watchtowerListWatchtowerSessionToolCalls = (
+  data: WatchtowerListWatchtowerSessionToolCallsData
+): CancelablePromise<WatchtowerListWatchtowerSessionToolCallsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/watchtower/monitor/sessions/{session_id}/tool-calls",
+    path: {
+      session_id: data.sessionId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      status: data.status,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Watchtower Session
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const watchtowerRevokeWatchtowerSession = (
+  data: WatchtowerRevokeWatchtowerSessionData
+): CancelablePromise<WatchtowerRevokeWatchtowerSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/watchtower/monitor/sessions/{session_id}/revoke",
+    path: {
+      session_id: data.sessionId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Disable Watchtower Agent
+ * @param data The data for the request.
+ * @param data.agentId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const watchtowerDisableWatchtowerAgent = (
+  data: WatchtowerDisableWatchtowerAgentData
+): CancelablePromise<WatchtowerDisableWatchtowerAgentResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/watchtower/monitor/agents/{agent_id}/disable",
+    path: {
+      agent_id: data.agentId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Enable Watchtower Agent
+ * @param data The data for the request.
+ * @param data.agentId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const watchtowerEnableWatchtowerAgent = (
+  data: WatchtowerEnableWatchtowerAgentData
+): CancelablePromise<WatchtowerEnableWatchtowerAgentResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/watchtower/monitor/agents/{agent_id}/enable",
+    path: {
+      agent_id: data.agentId,
+    },
     errors: {
       422: "Validation Error",
     },

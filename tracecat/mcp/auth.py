@@ -8,6 +8,7 @@ import re
 import uuid
 from base64 import urlsafe_b64decode
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from cryptography.fernet import Fernet
 from fastmcp.server.auth import AuthProvider
@@ -23,6 +24,7 @@ from sqlalchemy import select
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
 
+from tracecat import config
 from tracecat.auth.credentials import compute_effective_scopes
 from tracecat.auth.oidc import get_platform_oidc_config
 from tracecat.auth.types import Role
@@ -120,6 +122,20 @@ def _extract_scope_uuids(scopes: list[str], resource: str) -> set[uuid.UUID]:
     return ids
 
 
+def _decode_unverified_id_token_claims(id_token: str) -> dict[str, object]:
+    """Decode a JWT payload without signature verification.
+
+    The upstream token exchange has already validated the token. This helper only
+    extracts claims for local attribution logic (email/org/workspace hints).
+    """
+    payload_b64 = id_token.split(".")[1]
+    padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+    claims = json.loads(urlsafe_b64decode(padded))
+    if not isinstance(claims, dict):
+        raise ValueError("id_token payload is not an object")
+    return claims
+
+
 def get_token_identity() -> MCPTokenIdentity:
     """Extract normalized caller identity from the current access token."""
     access_token = get_access_token()
@@ -129,15 +145,16 @@ def get_token_identity() -> MCPTokenIdentity:
     claims = access_token.claims
     raw_email = claims.get("email")
     email = raw_email.strip() if isinstance(raw_email, str) else None
-    client_id_claim = (
-        claims.get("client_id")
-        or claims.get("azp")
-        or claims.get("sub")
-        or access_token.client_id
+    raw_client_ids = [
+        claims.get("client_id"),
+        claims.get("azp"),
+        access_token.client_id,
+        claims.get("sub"),
+    ]
+    client_id = next(
+        (c for raw in raw_client_ids if isinstance(raw, str) and (c := raw.strip())),
+        "",
     )
-    client_id = str(client_id_claim).strip() if client_id_claim else ""
-    if not client_id:
-        client_id = access_token.client_id
 
     organization_ids = _extract_claimed_uuids(
         claims,
@@ -419,17 +436,20 @@ def create_mcp_auth() -> AuthProvider:
             # Decode the JWT payload without verification (already
             # validated by the upstream exchange).
             try:
-                payload_b64 = id_token.split(".")[1]
-                # Pad base64
-                padded = payload_b64 + "=" * (-len(payload_b64) % 4)
-                claims = json.loads(urlsafe_b64decode(padded))
+                claims = _decode_unverified_id_token_claims(id_token)
             except Exception as exc:
                 raise TokenError(
                     "invalid_grant",
                     "Failed to decode id_token claims",
                 ) from exc
 
-            email = claims.get("email")
+            raw_email = claims.get("email")
+            if not isinstance(raw_email, str):
+                raise TokenError(
+                    "invalid_client",
+                    "No email claim in id_token — cannot resolve Tracecat user",
+                )
+            email = raw_email.strip()
             if not email:
                 raise TokenError(
                     "invalid_client",
@@ -451,6 +471,79 @@ def create_mcp_auth() -> AuthProvider:
                 ) from None
 
             return {"email": email}
+
+        async def _handle_idp_callback(
+            self, request: Request
+        ) -> HTMLResponse | RedirectResponse:
+            response = await super()._handle_idp_callback(request)
+            if not isinstance(response, RedirectResponse):
+                return response
+
+            if not config.TRACECAT__EE_MULTI_TENANT:
+                return response
+
+            location = response.headers.get("location")
+            if location is None:
+                return response
+
+            parsed = urlparse(location)
+            callback_codes = parse_qs(parsed.query).get("code")
+            if not callback_codes:
+                return response
+
+            auth_code = callback_codes[0]
+            if not auth_code:
+                return response
+
+            try:
+                code_model = await self._code_store.get(key=auth_code)
+                if code_model is None:
+                    return response
+
+                payload = code_model.model_dump()
+                email = self._extract_callback_email(payload)
+                if email is None:
+                    return response
+
+                from tracecat_ee.watchtower.service import (
+                    maybe_create_oauth_provisional_session,
+                )
+
+                raw_client_id = payload.get("client_id")
+                auth_client_id = (
+                    raw_client_id.strip()
+                    if isinstance(raw_client_id, str) and raw_client_id.strip()
+                    else None
+                )
+
+                await maybe_create_oauth_provisional_session(
+                    email=email,
+                    auth_client_id=auth_client_id,
+                    auth_transaction_id=request.query_params.get("state"),
+                    user_agent=request.headers.get("user-agent"),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to record Watchtower OAuth callback",
+                    error=str(exc),
+                )
+
+            return response
+
+        @staticmethod
+        def _extract_callback_email(payload: dict[str, Any]) -> str | None:
+            idp_tokens = payload.get("idp_tokens")
+            if not isinstance(idp_tokens, dict):
+                return None
+            id_token = idp_tokens.get("id_token")
+            if not isinstance(id_token, str) or not id_token:
+                return None
+            claims = _decode_unverified_id_token_claims(id_token)
+            email = claims.get("email")
+            if not isinstance(email, str):
+                return None
+            normalized = email.strip()
+            return normalized or None
 
         async def _show_consent_page(
             self, request: Request
@@ -521,9 +614,7 @@ def create_mcp_auth() -> AuthProvider:
 async def resolve_user_by_email(email: str) -> User:
     """Look up a user by email, raising if not found."""
     async with get_async_session_context_manager() as session:
-        result = await session.execute(
-            select(User).where(User.email == email)  # pyright: ignore[reportArgumentType]
-        )
+        result = await session.execute(select(User).filter_by(email=email))
         user = result.scalars().first()
         if user is None:
             raise ValueError(f"No user found for email: {email}")

@@ -8046,6 +8046,13 @@ export const $EffectiveEntitlements = {
         "Whether RBAC add-ons are enabled (custom roles, groups, and assignments)",
       default: false,
     },
+    watchtower: {
+      type: "boolean",
+      title: "Watchtower",
+      description:
+        "Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -8083,6 +8090,12 @@ export const $EntitlementsDict = {
       title: "Rbac Addons",
       description:
         "Whether RBAC add-ons are enabled (custom roles, groups, and assignments)",
+    },
+    watchtower: {
+      type: "boolean",
+      title: "Watchtower",
+      description:
+        "Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)",
     },
   },
   type: "object",
@@ -20388,6 +20401,636 @@ export const $WaitStrategy = {
   type: "string",
   enum: ["wait", "detach"],
   title: "WaitStrategy",
+} as const
+
+export const $WatchtowerAgentListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/WatchtowerAgentRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "WatchtowerAgentListResponse",
+  description: "Paginated response for Watchtower agents.",
+} as const
+
+export const $WatchtowerAgentRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    fingerprint_hash: {
+      type: "string",
+      title: "Fingerprint Hash",
+    },
+    agent_type: {
+      $ref: "#/components/schemas/WatchtowerAgentType",
+    },
+    agent_source: {
+      type: "string",
+      title: "Agent Source",
+    },
+    agent_icon_key: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Icon Key",
+    },
+    raw_user_agent: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Raw User Agent",
+    },
+    raw_client_info: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Raw Client Info",
+    },
+    auth_client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Auth Client Id",
+    },
+    last_user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last User Id",
+    },
+    last_user_email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last User Email",
+    },
+    last_user_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last User Name",
+    },
+    first_seen_at: {
+      type: "string",
+      format: "date-time",
+      title: "First Seen At",
+    },
+    last_seen_at: {
+      type: "string",
+      format: "date-time",
+      title: "Last Seen At",
+    },
+    blocked_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Blocked At",
+    },
+    blocked_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Blocked Reason",
+    },
+    status: {
+      $ref: "#/components/schemas/WatchtowerAgentStatus",
+    },
+    active_session_count: {
+      type: "integer",
+      title: "Active Session Count",
+      default: 0,
+    },
+    inactive_session_count: {
+      type: "integer",
+      title: "Inactive Session Count",
+      default: 0,
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "fingerprint_hash",
+    "agent_type",
+    "agent_source",
+    "agent_icon_key",
+    "raw_user_agent",
+    "raw_client_info",
+    "auth_client_id",
+    "last_user_id",
+    "last_user_email",
+    "last_user_name",
+    "first_seen_at",
+    "last_seen_at",
+    "blocked_at",
+    "blocked_reason",
+    "status",
+  ],
+  title: "WatchtowerAgentRead",
+  description: "Watchtower agent row for monitor list views.",
+} as const
+
+export const $WatchtowerAgentSessionListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/WatchtowerAgentSessionRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "WatchtowerAgentSessionListResponse",
+  description: "Paginated response for Watchtower sessions.",
+} as const
+
+export const $WatchtowerAgentSessionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    agent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Id",
+    },
+    session_state: {
+      type: "string",
+      title: "Session State",
+    },
+    auth_transaction_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Auth Transaction Id",
+    },
+    auth_client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Auth Client Id",
+    },
+    oauth_callback_seen_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Oauth Callback Seen At",
+    },
+    agent_session_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Session Id",
+    },
+    initialize_seen_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Initialize Seen At",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+    },
+    user_email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Email",
+    },
+    user_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Name",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    first_seen_at: {
+      type: "string",
+      format: "date-time",
+      title: "First Seen At",
+    },
+    last_seen_at: {
+      type: "string",
+      format: "date-time",
+      title: "Last Seen At",
+    },
+    revoked_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Revoked At",
+    },
+    revoked_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Revoked Reason",
+    },
+    status: {
+      $ref: "#/components/schemas/WatchtowerAgentSessionStatus",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "agent_id",
+    "session_state",
+    "auth_transaction_id",
+    "auth_client_id",
+    "oauth_callback_seen_at",
+    "agent_session_id",
+    "initialize_seen_at",
+    "user_id",
+    "user_email",
+    "user_name",
+    "workspace_id",
+    "first_seen_at",
+    "last_seen_at",
+    "revoked_at",
+    "revoked_reason",
+    "status",
+  ],
+  title: "WatchtowerAgentSessionRead",
+  description: "Watchtower agent session row for monitor list views.",
+} as const
+
+export const $WatchtowerAgentSessionStatus = {
+  type: "string",
+  enum: ["active", "idle", "revoked"],
+  title: "WatchtowerAgentSessionStatus",
+  description: "Derived status for Watchtower agent sessions in monitor APIs.",
+} as const
+
+export const $WatchtowerAgentStatus = {
+  type: "string",
+  enum: ["active", "idle", "blocked"],
+  title: "WatchtowerAgentStatus",
+  description: "Derived status for Watchtower agents in monitor APIs.",
+} as const
+
+export const $WatchtowerAgentToolCallListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/WatchtowerAgentToolCallRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "WatchtowerAgentToolCallListResponse",
+  description: "Paginated response for Watchtower tool calls.",
+} as const
+
+export const $WatchtowerAgentToolCallRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    agent_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Id",
+    },
+    agent_session_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Session Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    tool_name: {
+      type: "string",
+      title: "Tool Name",
+    },
+    call_status: {
+      $ref: "#/components/schemas/WatchtowerToolCallStatus",
+    },
+    latency_ms: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Latency Ms",
+    },
+    args_redacted: {
+      additionalProperties: true,
+      type: "object",
+      title: "Args Redacted",
+    },
+    error_redacted: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error Redacted",
+    },
+    called_at: {
+      type: "string",
+      format: "date-time",
+      title: "Called At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "agent_id",
+    "agent_session_id",
+    "workspace_id",
+    "tool_name",
+    "call_status",
+    "latency_ms",
+    "args_redacted",
+    "error_redacted",
+    "called_at",
+  ],
+  title: "WatchtowerAgentToolCallRead",
+  description: "Watchtower tool-call event row.",
+} as const
+
+export const $WatchtowerAgentType = {
+  type: "string",
+  enum: [
+    "claude_code",
+    "codex",
+    "cursor",
+    "windsurf",
+    "opencode",
+    "openclaw",
+    "unknown",
+  ],
+  title: "WatchtowerAgentType",
+  description: "Normalized local-agent classifications stored by Watchtower.",
+} as const
+
+export const $WatchtowerDisableAgentRequest = {
+  properties: {
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+  },
+  type: "object",
+  title: "WatchtowerDisableAgentRequest",
+  description: "Request payload for disabling an agent.",
+} as const
+
+export const $WatchtowerRevokeAgentSessionRequest = {
+  properties: {
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+  },
+  type: "object",
+  title: "WatchtowerRevokeAgentSessionRequest",
+  description: "Request payload for session revocation.",
+} as const
+
+export const $WatchtowerToolCallStatus = {
+  type: "string",
+  enum: ["success", "error", "timeout", "rejected", "blocked"],
+  title: "WatchtowerToolCallStatus",
+  description: "Tool call result status for Watchtower monitor APIs.",
 } as const
 
 export const $WebhookApiKeyGenerateResponse = {

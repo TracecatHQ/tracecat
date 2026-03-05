@@ -39,3 +39,10 @@ class EntitlementsDict(TypedDict, total=False):
             " (custom roles, groups, and assignments)"
         ),
     ]
+    watchtower: Annotated[
+        bool,
+        Field(
+            description="Whether Watchtower agent monitoring is enabled"
+            " (agent sessions, tool-call telemetry, and controls)"
+        ),
+    ]

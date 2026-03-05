@@ -2450,6 +2450,10 @@ export type EffectiveEntitlements = {
    * Whether RBAC add-ons are enabled (custom roles, groups, and assignments)
    */
   rbac_addons?: boolean
+  /**
+   * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
+   */
+  watchtower?: boolean
 }
 
 /**
@@ -2478,6 +2482,10 @@ export type EntitlementsDict = {
    * Whether RBAC add-ons are enabled (custom roles, groups, and assignments)
    */
   rbac_addons?: boolean
+  /**
+   * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
+   */
+  watchtower?: boolean
 }
 
 export type ErrorDetails = {
@@ -6373,6 +6381,149 @@ export type WaitResultOutput =
 
 export type WaitStrategy = "wait" | "detach"
 
+/**
+ * Paginated response for Watchtower agents.
+ */
+export type WatchtowerAgentListResponse = {
+  items: Array<WatchtowerAgentRead>
+  next_cursor?: string | null
+  has_more?: boolean
+}
+
+/**
+ * Watchtower agent row for monitor list views.
+ */
+export type WatchtowerAgentRead = {
+  id: string
+  organization_id: string
+  fingerprint_hash: string
+  agent_type: WatchtowerAgentType
+  agent_source: string
+  agent_icon_key: string | null
+  raw_user_agent: string | null
+  raw_client_info: {
+    [key: string]: unknown
+  } | null
+  auth_client_id: string | null
+  last_user_id: string | null
+  last_user_email: string | null
+  last_user_name: string | null
+  first_seen_at: string
+  last_seen_at: string
+  blocked_at: string | null
+  blocked_reason: string | null
+  status: WatchtowerAgentStatus
+  active_session_count?: number
+  inactive_session_count?: number
+}
+
+/**
+ * Paginated response for Watchtower sessions.
+ */
+export type WatchtowerAgentSessionListResponse = {
+  items: Array<WatchtowerAgentSessionRead>
+  next_cursor?: string | null
+  has_more?: boolean
+}
+
+/**
+ * Watchtower agent session row for monitor list views.
+ */
+export type WatchtowerAgentSessionRead = {
+  id: string
+  organization_id: string
+  agent_id: string | null
+  session_state: string
+  auth_transaction_id: string | null
+  auth_client_id: string | null
+  oauth_callback_seen_at: string | null
+  agent_session_id: string | null
+  initialize_seen_at: string | null
+  user_id: string | null
+  user_email: string | null
+  user_name: string | null
+  workspace_id: string | null
+  first_seen_at: string
+  last_seen_at: string
+  revoked_at: string | null
+  revoked_reason: string | null
+  status: WatchtowerAgentSessionStatus
+}
+
+/**
+ * Derived status for Watchtower agent sessions in monitor APIs.
+ */
+export type WatchtowerAgentSessionStatus = "active" | "idle" | "revoked"
+
+/**
+ * Derived status for Watchtower agents in monitor APIs.
+ */
+export type WatchtowerAgentStatus = "active" | "idle" | "blocked"
+
+/**
+ * Paginated response for Watchtower tool calls.
+ */
+export type WatchtowerAgentToolCallListResponse = {
+  items: Array<WatchtowerAgentToolCallRead>
+  next_cursor?: string | null
+  has_more?: boolean
+}
+
+/**
+ * Watchtower tool-call event row.
+ */
+export type WatchtowerAgentToolCallRead = {
+  id: string
+  organization_id: string
+  agent_id: string
+  agent_session_id: string
+  workspace_id: string | null
+  tool_name: string
+  call_status: WatchtowerToolCallStatus
+  latency_ms: number | null
+  args_redacted: {
+    [key: string]: unknown
+  }
+  error_redacted: string | null
+  called_at: string
+}
+
+/**
+ * Normalized local-agent classifications stored by Watchtower.
+ */
+export type WatchtowerAgentType =
+  | "claude_code"
+  | "codex"
+  | "cursor"
+  | "windsurf"
+  | "opencode"
+  | "openclaw"
+  | "unknown"
+
+/**
+ * Request payload for disabling an agent.
+ */
+export type WatchtowerDisableAgentRequest = {
+  reason?: string | null
+}
+
+/**
+ * Request payload for session revocation.
+ */
+export type WatchtowerRevokeAgentSessionRequest = {
+  reason?: string | null
+}
+
+/**
+ * Tool call result status for Watchtower monitor APIs.
+ */
+export type WatchtowerToolCallStatus =
+  | "success"
+  | "error"
+  | "timeout"
+  | "rejected"
+  | "blocked"
+
 export type WebhookApiKeyGenerateResponse = {
   api_key: string
   preview: string
@@ -8503,6 +8654,56 @@ export type ApprovalsSubmitApprovalsData = {
 }
 
 export type ApprovalsSubmitApprovalsResponse = void
+
+export type WatchtowerListWatchtowerAgentsData = {
+  agentType?: WatchtowerAgentType | null
+  cursor?: string | null
+  limit?: number
+  status?: WatchtowerAgentStatus | null
+}
+
+export type WatchtowerListWatchtowerAgentsResponse = WatchtowerAgentListResponse
+
+export type WatchtowerListWatchtowerAgentSessionsData = {
+  agentId: string
+  cursor?: string | null
+  limit?: number
+  state?: string | null
+  workspaceId?: string | null
+}
+
+export type WatchtowerListWatchtowerAgentSessionsResponse =
+  WatchtowerAgentSessionListResponse
+
+export type WatchtowerListWatchtowerSessionToolCallsData = {
+  cursor?: string | null
+  limit?: number
+  sessionId: string
+  status?: WatchtowerToolCallStatus | null
+}
+
+export type WatchtowerListWatchtowerSessionToolCallsResponse =
+  WatchtowerAgentToolCallListResponse
+
+export type WatchtowerRevokeWatchtowerSessionData = {
+  requestBody: WatchtowerRevokeAgentSessionRequest
+  sessionId: string
+}
+
+export type WatchtowerRevokeWatchtowerSessionResponse = void
+
+export type WatchtowerDisableWatchtowerAgentData = {
+  agentId: string
+  requestBody: WatchtowerDisableAgentRequest
+}
+
+export type WatchtowerDisableWatchtowerAgentResponse = void
+
+export type WatchtowerEnableWatchtowerAgentData = {
+  agentId: string
+}
+
+export type WatchtowerEnableWatchtowerAgentResponse = void
 
 export type AdminListOrganizationsResponse =
   Array<tracecat_ee__admin__organizations__schemas__OrgRead>
@@ -12146,6 +12347,96 @@ export type $OpenApiTs = {
   "/approvals/{session_id}": {
     post: {
       req: ApprovalsSubmitApprovalsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/watchtower/monitor/agents": {
+    get: {
+      req: WatchtowerListWatchtowerAgentsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WatchtowerAgentListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/watchtower/monitor/agents/{agent_id}/sessions": {
+    get: {
+      req: WatchtowerListWatchtowerAgentSessionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WatchtowerAgentSessionListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/watchtower/monitor/sessions/{session_id}/tool-calls": {
+    get: {
+      req: WatchtowerListWatchtowerSessionToolCallsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WatchtowerAgentToolCallListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/watchtower/monitor/sessions/{session_id}/revoke": {
+    post: {
+      req: WatchtowerRevokeWatchtowerSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/watchtower/monitor/agents/{agent_id}/disable": {
+    post: {
+      req: WatchtowerDisableWatchtowerAgentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/watchtower/monitor/agents/{agent_id}/enable": {
+    post: {
+      req: WatchtowerEnableWatchtowerAgentData
       res: {
         /**
          * Successful Response
