@@ -5,10 +5,10 @@ import Link from "next/link"
 import { useEffect, useState } from "react"
 import type {
   AgentPresetRead,
+  AgentPresetReadMinimal,
   AgentSessionEntity,
   AgentSessionsGetSessionVercelResponse,
 } from "@/client"
-import { AgentPresetMenu } from "@/components/chat/agent-preset-menu"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
@@ -201,7 +201,10 @@ export function ChatInterface({
     }
   }
 
-  const handleCreateCaseChatOnFirstSend = async (messageText: string) => {
+  const handleCreateCaseChatOnFirstSend = async (
+    messageText: string,
+    selectedTools?: string[]
+  ) => {
     if (entityType !== "case" || createChatPending) {
       return null
     }
@@ -211,6 +214,7 @@ export function ChatInterface({
         title: `Chat ${(chats?.length || 0) + 1}`,
         entity_type: "case",
         entity_id: entityId,
+        tools: selectedTools,
         agent_preset_id: effectivePresetId,
       })
 
@@ -269,21 +273,8 @@ export function ChatInterface({
             {/* (left-side plus removed) */}
           </div>
 
-          {/* Right-side controls: preset selector + actions */}
+          {/* Right-side actions */}
           <div className="flex items-center gap-1">
-            {presetsEnabled && (
-              <AgentPresetMenu
-                label={presetMenuLabel}
-                presets={presetOptions}
-                presetsIsLoading={presetsIsLoading}
-                presetsError={presetsError}
-                selectedPresetId={effectivePresetId}
-                disabled={presetMenuDisabled}
-                showSpinner={showPresetSpinner}
-                noPresetDescription="Use workspace default case agent instructions."
-                onSelect={(presetId) => void handlePresetChange(presetId)}
-              />
-            )}
             {/* New chat icon button with tooltip */}
             <AlertDialog
               open={newChatDialogOpen}
@@ -342,6 +333,22 @@ export function ChatInterface({
           draftMode={
             entityType === "case" && (isCaseDraftChat || chats?.length === 0)
           }
+          presetSelector={
+            presetsEnabled
+              ? {
+                  label: presetMenuLabel,
+                  presets: presetOptions,
+                  presetsError,
+                  presetsIsLoading,
+                  selectedPresetId: effectivePresetId,
+                  disabled: presetMenuDisabled,
+                  showSpinner: showPresetSpinner,
+                  noPresetDescription:
+                    "Use workspace default case agent instructions.",
+                  onSelect: (presetId) => void handlePresetChange(presetId),
+                }
+              : undefined
+          }
           onCreateSessionBeforeSend={
             entityType === "case" ? handleCreateCaseChatOnFirstSend : undefined
           }
@@ -373,7 +380,21 @@ interface ChatBodyProps {
   selectedPreset?: AgentPresetRead
   toolsEnabled: boolean
   draftMode: boolean
-  onCreateSessionBeforeSend?: (messageText: string) => Promise<string | null>
+  presetSelector?: {
+    label: string
+    presets?: AgentPresetReadMinimal[]
+    presetsIsLoading: boolean
+    presetsError: unknown
+    selectedPresetId: string | null
+    onSelect: (presetId: string | null) => void | Promise<void>
+    disabled?: boolean
+    showSpinner?: boolean
+    noPresetDescription?: string
+  }
+  onCreateSessionBeforeSend?: (
+    messageText: string,
+    selectedTools?: string[]
+  ) => Promise<string | null>
   draftInputDisabled: boolean
   pendingMessage: string | null
   onPendingMessageSent: () => void
@@ -390,6 +411,7 @@ function ChatBody({
   selectedPreset,
   toolsEnabled,
   draftMode,
+  presetSelector,
   onCreateSessionBeforeSend,
   draftInputDisabled,
   pendingMessage,
@@ -477,7 +499,8 @@ function ChatBody({
         placeholder={`Ask about this ${entityType}...`}
         className="flex-1 min-h-0"
         modelInfo={modelInfo}
-        toolsEnabled={false}
+        toolsEnabled={toolsEnabled}
+        presetSelector={presetSelector}
         onBeforeSend={onCreateSessionBeforeSend}
         inputDisabled={draftInputDisabled}
         inputDisabledPlaceholder="Creating chat..."
@@ -503,6 +526,7 @@ function ChatBody({
       className="flex-1 min-h-0"
       modelInfo={modelInfo}
       toolsEnabled={toolsEnabled}
+      presetSelector={presetSelector}
       pendingMessage={pendingMessage ?? undefined}
       onPendingMessageSent={onPendingMessageSent}
     />

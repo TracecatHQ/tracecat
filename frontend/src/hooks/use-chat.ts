@@ -311,7 +311,7 @@ export function useVercelChat({
           kind: "vercel",
           model: modelInfo?.name,
           model_provider: modelInfo?.provider,
-          message: last,
+          message: last as unknown as VercelChatRequest["message"],
         }
         const baseUrl = (modelInfo as { baseUrl?: string | null })?.baseUrl
         if (baseUrl != null) body.base_url = baseUrl
