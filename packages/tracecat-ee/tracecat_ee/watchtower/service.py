@@ -1104,11 +1104,13 @@ async def maybe_prune_watchtower_retention(
         < WATCHTOWER_RETENTION_PRUNE_INTERVAL_SECONDS
     ):
         return
-    await prune_watchtower_retention(
-        session,
-        organization_id=organization_id,
-        now=reference,
-    )
+    async with get_async_session_context_manager() as prune_session:
+        await prune_watchtower_retention(
+            prune_session,
+            organization_id=organization_id,
+            now=reference,
+        )
+        await prune_session.commit()
     _PRUNE_LAST_RUN_BY_ORG[organization_id] = reference
 
 
