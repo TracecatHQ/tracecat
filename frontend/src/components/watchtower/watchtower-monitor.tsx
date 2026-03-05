@@ -75,6 +75,7 @@ const AGENT_TYPE_ORDER = [
   "cursor",
   "windsurf",
   "opencode",
+  "openclaw",
   "unknown",
 ] as const
 
@@ -114,6 +115,12 @@ const AGENT_TYPE_GROUPS: Record<string, AgentTypeGroupConfig> = {
     iconColor: "text-slate-600",
     triggerClassName:
       "data-[state=open]:border-l-slate-600 data-[state=open]:bg-slate-600/[0.03] dark:data-[state=open]:bg-slate-600/[0.08]",
+  },
+  openclaw: {
+    label: "OpenClaw",
+    iconColor: "text-rose-600",
+    triggerClassName:
+      "data-[state=open]:border-l-rose-600 data-[state=open]:bg-rose-600/[0.03] dark:data-[state=open]:bg-rose-600/[0.08]",
   },
   unknown: {
     label: "Unknown",
@@ -1224,6 +1231,9 @@ function AgentTypeIcon({
   }
   if (agentType === "opencode") {
     return <MonogramIcon label="O" size={size} />
+  }
+  if (agentType === "openclaw") {
+    return <MonogramIcon label="OC" size={size} />
   }
   return <BotIcon className={className} />
 }
