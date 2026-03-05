@@ -36,6 +36,7 @@ from tracecat_ee.watchtower.schemas import (
     WatchtowerAgentToolCallRead,
 )
 from tracecat_ee.watchtower.types import (
+    WatchtowerAgentSessionStatus,
     WatchtowerAgentStatus,
     WatchtowerAgentType,
     WatchtowerToolCallStatus,
@@ -447,12 +448,14 @@ def _derive_agent_status(agent: WatchtowerAgent) -> WatchtowerAgentStatus:
     return WatchtowerAgentStatus.IDLE
 
 
-def _derive_session_status(session: WatchtowerAgentSession) -> str:
+def _derive_session_status(
+    session: WatchtowerAgentSession,
+) -> WatchtowerAgentSessionStatus:
     if session.session_state == "revoked" or session.revoked_at is not None:
-        return "revoked"
+        return WatchtowerAgentSessionStatus.REVOKED
     if session.last_seen_at >= _session_stale_cutoff():
-        return "active"
-    return "idle"
+        return WatchtowerAgentSessionStatus.ACTIVE
+    return WatchtowerAgentSessionStatus.IDLE
 
 
 def normalize_agent_identity(

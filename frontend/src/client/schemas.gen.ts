@@ -20805,8 +20805,7 @@ export const $WatchtowerAgentSessionRead = {
       title: "Revoked Reason",
     },
     status: {
-      type: "string",
-      title: "Status",
+      $ref: "#/components/schemas/WatchtowerAgentSessionStatus",
     },
   },
   type: "object",
@@ -20832,6 +20831,13 @@ export const $WatchtowerAgentSessionRead = {
   ],
   title: "WatchtowerAgentSessionRead",
   description: "Watchtower agent session row for monitor list views.",
+} as const
+
+export const $WatchtowerAgentSessionStatus = {
+  type: "string",
+  enum: ["active", "idle", "revoked"],
+  title: "WatchtowerAgentSessionStatus",
+  description: "Derived status for Watchtower agent sessions in monitor APIs.",
 } as const
 
 export const $WatchtowerAgentStatus = {

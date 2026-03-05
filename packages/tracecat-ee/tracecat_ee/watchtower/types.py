@@ -33,3 +33,11 @@ class WatchtowerToolCallStatus(StrEnum):
     TIMEOUT = "timeout"
     REJECTED = "rejected"
     BLOCKED = "blocked"
+
+
+class WatchtowerAgentSessionStatus(StrEnum):
+    """Derived status for Watchtower agent sessions in monitor APIs."""
+
+    ACTIVE = "active"
+    IDLE = "idle"
+    REVOKED = "revoked"

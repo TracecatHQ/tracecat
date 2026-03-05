@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from tracecat_ee.watchtower.types import (
+    WatchtowerAgentSessionStatus,
     WatchtowerAgentStatus,
     WatchtowerAgentType,
     WatchtowerToolCallStatus,
@@ -58,7 +59,7 @@ class WatchtowerAgentSessionRead(BaseModel):
     last_seen_at: datetime
     revoked_at: datetime | None
     revoked_reason: str | None
-    status: str
+    status: WatchtowerAgentSessionStatus
 
 
 class WatchtowerAgentToolCallRead(BaseModel):

@@ -6447,8 +6447,13 @@ export type WatchtowerAgentSessionRead = {
   last_seen_at: string
   revoked_at: string | null
   revoked_reason: string | null
-  status: string
+  status: WatchtowerAgentSessionStatus
 }
+
+/**
+ * Derived status for Watchtower agent sessions in monitor APIs.
+ */
+export type WatchtowerAgentSessionStatus = "active" | "idle" | "revoked"
 
 /**
  * Derived status for Watchtower agents in monitor APIs.
