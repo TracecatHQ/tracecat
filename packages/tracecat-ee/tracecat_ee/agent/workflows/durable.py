@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from temporalio import workflow
+from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
@@ -45,6 +46,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
+    from tracecat.workflow.executions.enums import (
+        ExecutionType,
+        TemporalSearchAttr,
+        TriggerType,
+    )
     from tracecat_ee.agent.activities import (
         AgentActivities,
         BuildToolDefsArgs,
@@ -120,6 +126,48 @@ class DurableAgentWorkflow:
         # Registry lock for action resolution (set after build_tool_definitions)
         self._registry_lock: RegistryLock | None = None
 
+    def _upsert_tracecat_search_attributes(self) -> None:
+        """Ensure direct agent runs have core Tracecat search attributes.
+
+        For workflows started with existing Tracecat attributes (e.g. DSL child
+        workflows), this re-upserts the current values and only fills missing
+        keys from role/defaults.
+        """
+        search_attributes = (
+            workflow.info().typed_search_attributes or TypedSearchAttributes.empty
+        )
+        trigger_type = (
+            search_attributes.get(TemporalSearchAttr.TRIGGER_TYPE.key)
+            or TriggerType.MANUAL.value
+        )
+        execution_type = (
+            search_attributes.get(TemporalSearchAttr.EXECUTION_TYPE.key)
+            or ExecutionType.PUBLISHED.value
+        )
+        workspace_id = search_attributes.get(TemporalSearchAttr.WORKSPACE_ID.key)
+        if workspace_id is None and self.role.workspace_id is not None:
+            workspace_id = str(self.role.workspace_id)
+        triggered_by_user_id = search_attributes.get(
+            TemporalSearchAttr.TRIGGERED_BY_USER_ID.key
+        )
+        if triggered_by_user_id is None and self.role.user_id is not None:
+            triggered_by_user_id = str(self.role.user_id)
+
+        updates = [
+            TemporalSearchAttr.TRIGGER_TYPE.key.value_set(trigger_type),
+            TemporalSearchAttr.EXECUTION_TYPE.key.value_set(execution_type),
+        ]
+        if triggered_by_user_id is not None:
+            updates.append(
+                TemporalSearchAttr.TRIGGERED_BY_USER_ID.key.value_set(
+                    triggered_by_user_id
+                )
+            )
+        if workspace_id is not None:
+            updates.append(TemporalSearchAttr.WORKSPACE_ID.key.value_set(workspace_id))
+
+        workflow.upsert_search_attributes(updates)
+
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
         if args.agent_args.preset_slug:
             preset_config = await workflow.execute_activity(
@@ -160,6 +208,7 @@ class DurableAgentWorkflow:
     @workflow.run
     async def run(self, args: AgentWorkflowArgs) -> AgentOutput:
         """Run the agent until completion. The agent will call tools until it needs human approval."""
+        self._upsert_tracecat_search_attributes()
         logger.info(
             "DurableAgentWorkflow run", args=args, harness_type=self.harness_type
         )
