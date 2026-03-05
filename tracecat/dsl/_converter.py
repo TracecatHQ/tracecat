@@ -9,7 +9,6 @@ from temporalio.converter import (
     DataConverter,
     DefaultPayloadConverter,
     JSONPlainPayloadConverter,
-    value_to_type,
 )
 
 from tracecat.dsl.compression import get_compression_payload_codec
@@ -72,10 +71,7 @@ class PydanticORJSONPayloadConverter(JSONPlainPayloadConverter):
     ) -> Any:
         """Decode payloads without surfacing raw payload data in errors."""
         try:
-            obj = orjson.loads(payload.data)
-            if type_hint is not None:
-                obj = value_to_type(type_hint, obj, self._custom_type_converters)
-            return obj
+            return super().from_payload(payload, type_hint)
         except Exception:
             raise RuntimeError(
                 f"Failed to decode payload for {_format_type_hint(type_hint)}"
