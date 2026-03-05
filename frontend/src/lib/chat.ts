@@ -297,9 +297,7 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
         // Handle output parts
         const { toolCallId } = part
         const currState = states.get(toolCallId)
-        const newPart: ai.ToolUIPart = {
-          ...part,
-        }
+        const newPart = { ...part }
         if (currState?.open) {
           // Extract the open position from the string key
           const [openMsgIdx, openPartIdx] = currState.open
@@ -313,7 +311,7 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
           }
           newPart.input = openPart.input
         }
-        newParts.push(newPart)
+        newParts.push(newPart as ai.UIMessagePart<ai.UIDataTypes, ai.UITools>)
       } else {
         newParts.push(part)
       }
