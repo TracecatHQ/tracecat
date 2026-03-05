@@ -3599,8 +3599,6 @@ export type MCPIntegrationUpdate = {
   timeout?: number | null
 }
 
-export type MCPServerConfig = MCPHttpServerConfig | MCPStdioServerConfig
-
 export type MCPServerType = "http" | "stdio"
 
 /**

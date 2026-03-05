@@ -207,6 +207,7 @@ async def test_slack_stream_sink_emits_task_updates_for_tool_events(
     statuses = [chunk["status"] for chunk in task_chunks]
     assert "complete" in statuses
     assert "in_progress" not in statuses
+    assert all("output" not in chunk for chunk in task_chunks)
     assert not markdown_chunks
 
 
@@ -250,7 +251,7 @@ async def test_slack_stream_sink_does_not_close_on_text_stop(
 
 
 @pytest.mark.anyio
-async def test_slack_stream_sink_formats_tool_output(
+async def test_slack_stream_sink_formats_failure_for_any_tool(
     patched_slack_client: _FakeSlackClient,
 ):
     fake_client = patched_slack_client
@@ -268,16 +269,8 @@ async def test_slack_stream_sink_formats_tool_output(
             type=StreamEventType.TOOL_RESULT,
             tool_call_id="tool-call-3",
             tool_name="core.cases.create_case",
-            tool_output=[
-                {
-                    "type": "text",
-                    "text": (
-                        '{"id":"7124a7bc-4ac0-4f0b-9fc4-e6a173f922dc",'
-                        '"case_number":11,"summary":"The Tokyo Tower Time Trouble"}'
-                    ),
-                }
-            ],
-            is_error=False,
+            tool_output={"message": "case creation failed"},
+            is_error=True,
         )
     )
     await sink.done()
@@ -287,19 +280,17 @@ async def test_slack_stream_sink_formats_tool_output(
         for method, payload in fake_client.calls
         if method == "chat.appendStream"
     ]
-    complete_chunks = [
+    error_chunks = [
         payload["chunks"][0]
         for payload in append_payloads
         if payload.get("chunks")
         and payload["chunks"][0].get("type") == "task_update"
-        and payload["chunks"][0].get("status") == "complete"
+        and payload["chunks"][0].get("status") == "error"
     ]
-    assert complete_chunks
-    formatted_output = complete_chunks[0].get("output")
-    assert isinstance(formatted_output, str)
-    assert formatted_output.startswith("```json\n")
-    assert '"case_number": 11' in formatted_output
-    assert '"id": "7124a7bc-4ac0-4f0b-9fc4-e6a173f922dc"' in formatted_output
+    assert error_chunks
+    error_chunk = error_chunks[0]
+    assert error_chunk["details"] == "case creation failed"
+    assert "output" not in error_chunk
 
 
 @pytest.mark.anyio
@@ -668,3 +659,93 @@ async def test_slack_stream_sink_skips_synthetic_approval_interrupt_error(
         if payload.get("chunks") and payload["chunks"][0].get("type") == "task_update"
     ]
     assert not task_updates
+
+
+@pytest.mark.anyio
+async def test_slack_stream_sink_suppresses_output_for_all_tool_success(
+    patched_slack_client: _FakeSlackClient,
+):
+    fake_client = patched_slack_client
+
+    sink = SlackStreamSink(
+        slack_bot_token="xoxb-test",
+        channel_id="C123",
+        thread_ts="1700000000.000001",
+        session_id="session-tool-success",
+        workspace_id="workspace-tool-success",
+    )
+
+    await sink.append(
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_CALL_STOP,
+            tool_call_id="tool-call-success",
+            tool_name="core.cases.create_case",
+            tool_input={"summary": "hello"},
+        )
+    )
+    await sink.append(
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_RESULT,
+            tool_call_id="tool-call-success",
+            tool_name="core.cases.create_case",
+            tool_output={"id": "case-123"},
+            is_error=False,
+        )
+    )
+    await sink.done()
+
+    append_payloads = [
+        payload
+        for method, payload in fake_client.calls
+        if method == "chat.appendStream"
+    ]
+    task_chunks = [
+        payload["chunks"][0]
+        for payload in append_payloads
+        if payload.get("chunks") and payload["chunks"][0].get("type") == "task_update"
+    ]
+    assert len(task_chunks) == 1
+    assert task_chunks[0]["status"] == "complete"
+    assert "output" not in task_chunks[0]
+
+
+@pytest.mark.anyio
+async def test_slack_stream_sink_formats_failure_for_slack_tool(
+    patched_slack_client: _FakeSlackClient,
+):
+    fake_client = patched_slack_client
+
+    sink = SlackStreamSink(
+        slack_bot_token="xoxb-test",
+        channel_id="C123",
+        thread_ts="1700000000.000001",
+        session_id="session-slack-tool-failure",
+        workspace_id="workspace-slack-tool-failure",
+    )
+
+    await sink.append(
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_RESULT,
+            tool_call_id="tool-call-slack-failure",
+            tool_name="tools.slack.post_message",
+            tool_output={"error": "channel_not_found"},
+            is_error=True,
+        )
+    )
+    await sink.done()
+
+    append_payloads = [
+        payload
+        for method, payload in fake_client.calls
+        if method == "chat.appendStream"
+    ]
+    task_chunks = [
+        payload["chunks"][0]
+        for payload in append_payloads
+        if payload.get("chunks") and payload["chunks"][0].get("type") == "task_update"
+    ]
+    assert len(task_chunks) == 1
+    task_chunk = task_chunks[0]
+    assert task_chunk["status"] == "error"
+    assert task_chunk["details"] == "channel_not_found"
+    assert "output" not in task_chunk
