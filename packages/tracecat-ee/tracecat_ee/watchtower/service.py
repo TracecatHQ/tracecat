@@ -35,7 +35,11 @@ from tracecat_ee.watchtower.schemas import (
     WatchtowerAgentToolCallListResponse,
     WatchtowerAgentToolCallRead,
 )
-from tracecat_ee.watchtower.types import WatchtowerAgentType
+from tracecat_ee.watchtower.types import (
+    WatchtowerAgentStatus,
+    WatchtowerAgentType,
+    WatchtowerToolCallStatus,
+)
 
 SESSION_STALE_WINDOW_MINUTES = 30
 OAUTH_PROVISIONAL_MATCH_WINDOW_MINUTES = 30
@@ -63,7 +67,7 @@ class WatchtowerService(BaseOrgService):
         limit: int,
         cursor: str | None,
         agent_type: WatchtowerAgentType | None,
-        status: str | None,
+        status: WatchtowerAgentStatus | None,
     ) -> WatchtowerAgentListResponse:
         retention_cutoff = _retention_cutoff()
         stale_cutoff = _session_stale_cutoff()
@@ -76,14 +80,14 @@ class WatchtowerService(BaseOrgService):
         )
         if agent_type:
             page_stmt = page_stmt.where(WatchtowerAgent.agent_type == agent_type)
-        if status == "blocked":
+        if status == WatchtowerAgentStatus.BLOCKED:
             page_stmt = page_stmt.where(WatchtowerAgent.blocked_at.is_not(None))
-        elif status == "active":
+        elif status == WatchtowerAgentStatus.ACTIVE:
             page_stmt = page_stmt.where(
                 WatchtowerAgent.blocked_at.is_(None),
                 WatchtowerAgent.last_seen_at >= stale_cutoff,
             )
-        elif status == "idle":
+        elif status == WatchtowerAgentStatus.IDLE:
             page_stmt = page_stmt.where(
                 WatchtowerAgent.blocked_at.is_(None),
                 WatchtowerAgent.last_seen_at < stale_cutoff,
@@ -219,8 +223,8 @@ class WatchtowerService(BaseOrgService):
         )
         stmt = stmt.limit(limit + 1)
 
-        result = await self.session.execute(stmt)
-        sessions = list(result.scalars().all())
+        session_rows = await self.session.scalars(stmt)
+        sessions: list[WatchtowerAgentSession] = list(session_rows.all())
         has_more = len(sessions) > limit
         if has_more:
             sessions = sessions[:limit]
@@ -270,7 +274,7 @@ class WatchtowerService(BaseOrgService):
         session_id: uuid.UUID,
         limit: int,
         cursor: str | None,
-        status: str | None,
+        status: WatchtowerToolCallStatus | None,
     ) -> WatchtowerAgentToolCallListResponse:
         await self._assert_session_exists(session_id)
         retention_cutoff = _retention_cutoff()
@@ -295,8 +299,8 @@ class WatchtowerService(BaseOrgService):
         )
         stmt = stmt.limit(limit + 1)
 
-        result = await self.session.execute(stmt)
-        calls = list(result.scalars().all())
+        call_rows = await self.session.scalars(stmt)
+        calls: list[WatchtowerAgentToolCall] = list(call_rows.all())
         has_more = len(calls) > limit
         if has_more:
             calls = calls[:limit]
@@ -309,7 +313,7 @@ class WatchtowerService(BaseOrgService):
                 agent_session_id=call.agent_session_id,
                 workspace_id=call.workspace_id,
                 tool_name=call.tool_name,
-                call_status=call.call_status,
+                call_status=_coerce_tool_call_status(call.call_status),
                 latency_ms=call.latency_ms,
                 args_redacted=cast(dict[str, object], call.args_redacted),
                 error_redacted=call.error_redacted,
@@ -435,12 +439,12 @@ def _apply_desc_cursor_filter(
     )
 
 
-def _derive_agent_status(agent: WatchtowerAgent) -> str:
+def _derive_agent_status(agent: WatchtowerAgent) -> WatchtowerAgentStatus:
     if agent.blocked_at is not None:
-        return "blocked"
+        return WatchtowerAgentStatus.BLOCKED
     if agent.last_seen_at >= _session_stale_cutoff():
-        return "active"
-    return "idle"
+        return WatchtowerAgentStatus.ACTIVE
+    return WatchtowerAgentStatus.IDLE
 
 
 def _derive_session_status(session: WatchtowerAgentSession) -> str:
@@ -536,6 +540,15 @@ def _coerce_agent_type(value: str | None) -> WatchtowerAgentType:
         return WatchtowerAgentType.UNKNOWN
 
 
+def _coerce_tool_call_status(value: str | None) -> WatchtowerToolCallStatus:
+    if value is None:
+        return WatchtowerToolCallStatus.ERROR
+    try:
+        return WatchtowerToolCallStatus(value)
+    except ValueError:
+        return WatchtowerToolCallStatus.ERROR
+
+
 async def _resolve_unambiguous_org(
     session: AsyncSession,
     *,
@@ -579,7 +592,17 @@ async def maybe_create_oauth_provisional_session(
     auth_transaction_id: str | None,
     user_agent: str | None,
 ) -> None:
-    """Create/update a provisional session at OAuth callback when org is unambiguous."""
+    """Create/update a provisional session at OAuth callback when org is unambiguous.
+
+    Called from the OIDC proxy callback (browser-mediated), *before* the MCP
+    client sends its ``initialize`` request.  The session is created in the
+    ``awaiting_initialize`` state with ``agent_id=None`` because we don't yet
+    have the client metadata needed to fingerprint the agent.  The subsequent
+    ``ingest_watchtower_initialize_event`` call will match this provisional
+    session and promote it to ``connected``.
+    """
+    # user_agent from the OAuth callback is the browser's UA, not the MCP
+    # client's — discard it to avoid misleading fingerprints.
     del user_agent
     if not config.TRACECAT__EE_MULTI_TENANT:
         return
@@ -589,6 +612,8 @@ async def maybe_create_oauth_provisional_session(
         if user is None:
             return
 
+        # No org/workspace hints are available at the OAuth callback stage,
+        # so we rely solely on the user's org memberships to resolve the org.
         organization_id = await _resolve_unambiguous_org(
             session,
             user_id=user.id,
@@ -609,6 +634,8 @@ async def maybe_create_oauth_provisional_session(
         now = datetime.now(UTC)
         display_name = _display_name(user)
 
+        # Match on auth_client_id exactly (including NULL) to avoid
+        # cross-client collisions when the same user has multiple agents.
         auth_client_clause = (
             WatchtowerAgentSession.auth_client_id == auth_client_id
             if auth_client_id is not None
@@ -616,6 +643,8 @@ async def maybe_create_oauth_provisional_session(
         )
         recent_cutoff = now - timedelta(minutes=OAUTH_PROVISIONAL_MATCH_WINDOW_MINUTES)
 
+        # Check for an existing provisional session from a recent OAuth
+        # callback that hasn't yet been promoted by initialize.
         existing_result = await session.execute(
             select(WatchtowerAgentSession)
             .where(
@@ -631,6 +660,8 @@ async def maybe_create_oauth_provisional_session(
         existing = existing_result.scalar_one_or_none()
 
         if existing is None:
+            # First OAuth callback for this user/client pair — create a new
+            # provisional session that initialize will pick up later.
             session.add(
                 WatchtowerAgentSession(
                     id=uuid.uuid4(),
@@ -648,8 +679,9 @@ async def maybe_create_oauth_provisional_session(
                 )
             )
         else:
-            # OAuth callback metadata can be browser-mediated and may not match
-            # the eventual MCP initialize fingerprint. Associate the agent later.
+            # Re-use the existing provisional session. Reset agent_id because
+            # OAuth callback metadata is browser-mediated and may not match
+            # the eventual MCP initialize fingerprint.
             existing.agent_id = None
             existing.auth_transaction_id = auth_transaction_id
             existing.oauth_callback_seen_at = now
@@ -670,7 +702,21 @@ async def ingest_watchtower_initialize_event(
     claimed_org_ids: frozenset[uuid.UUID] | None,
     claimed_workspace_ids: frozenset[uuid.UUID] | None,
 ) -> WatchtowerAgentCallContext | None:
-    """Persist/associate Watchtower agent + session records on MCP initialize."""
+    """Persist/associate Watchtower agent + session records on MCP initialize.
+
+    Called from ``WatchtowerMonitorMiddleware.on_initialize`` when an MCP
+    client sends its ``initialize`` request.  This is the second half of the
+    two-phase session lifecycle:
+
+    1. ``maybe_create_oauth_provisional_session`` (OAuth callback) creates a
+       provisional ``awaiting_initialize`` session without agent metadata.
+    2. This function matches/creates the agent fingerprint and promotes the
+       provisional session to ``connected``, or creates a fresh session if
+       no provisional match is found.
+
+    Returns a ``WatchtowerAgentCallContext`` that the middleware caches for
+    subsequent tool-call telemetry within the same MCP session.
+    """
     if not config.TRACECAT__EE_MULTI_TENANT:
         return None
 
@@ -696,6 +742,8 @@ async def ingest_watchtower_initialize_event(
             organization_id=organization_id,
         )
 
+        # Classify the agent from client_info (MCP initialize params) and
+        # user-agent header, then build a stable fingerprint for dedup.
         now = datetime.now(UTC)
         agent_type, agent_source, icon_key = normalize_agent_identity(
             user_agent=user_agent,
@@ -709,6 +757,7 @@ async def ingest_watchtower_initialize_event(
             client_info=client_info,
         )
 
+        # Upsert the agent record keyed on fingerprint_hash.
         agent_result = await session.execute(
             select(WatchtowerAgent).where(
                 WatchtowerAgent.organization_id == organization_id,
@@ -735,6 +784,8 @@ async def ingest_watchtower_initialize_event(
             )
             session.add(agent)
         else:
+            # Refresh metadata — the same fingerprint may reconnect with
+            # updated client_info or a different user.
             agent.agent_type = agent_type
             agent.agent_source = agent_source
             agent.agent_icon_key = icon_key
@@ -746,6 +797,9 @@ async def ingest_watchtower_initialize_event(
             agent.last_user_name = _display_name(user)
             agent.last_seen_at = now
 
+        # --- Session matching ---
+        # Try to find a provisional session created by the OAuth callback
+        # (awaiting_initialize), scoped to the same user and client.
         auth_client_clause = (
             WatchtowerAgentSession.auth_client_id == auth_client_id
             if auth_client_id is not None
@@ -766,6 +820,8 @@ async def ingest_watchtower_initialize_event(
         )
         tracked_session = provisional_result.scalar_one_or_none()
 
+        # Fallback: check for an existing session with the same MCP session ID
+        # (e.g. a reconnect after a transient disconnect).
         if tracked_session is None:
             existing_result = await session.execute(
                 select(WatchtowerAgentSession).where(
@@ -776,6 +832,7 @@ async def ingest_watchtower_initialize_event(
             tracked_session = existing_result.scalar_one_or_none()
 
         if tracked_session is None:
+            # No provisional or existing session — create a fresh one.
             tracked_session = WatchtowerAgentSession(
                 id=uuid.uuid4(),
                 organization_id=organization_id,
@@ -792,6 +849,8 @@ async def ingest_watchtower_initialize_event(
             )
             session.add(tracked_session)
         else:
+            # Promote the provisional/existing session to connected and
+            # associate it with the resolved agent.
             tracked_session.agent_id = agent.id
             tracked_session.session_state = "connected"
             tracked_session.agent_session_id = mcp_session_id
@@ -816,7 +875,18 @@ async def get_watchtower_tool_call_context(
     claimed_org_ids: frozenset[uuid.UUID] | None,
     claimed_workspace_ids: frozenset[uuid.UUID] | None,
 ) -> tuple[WatchtowerAgentCallContext | None, str | None]:
-    """Resolve Watchtower call context and block reason (if blocked/revoked)."""
+    """Resolve Watchtower call context and block reason (if blocked/revoked).
+
+    Called by ``WatchtowerMonitorMiddleware.on_call_tool`` on every tool
+    invocation.  Returns ``(context, None)`` for allowed calls, or
+    ``(context, reason)`` when the agent or session has been blocked/revoked
+    by an org admin — the middleware uses the reason string to raise a
+    ``ToolError`` and reject the call.
+
+    Returns ``(None, None)`` when Watchtower tracking doesn't apply (e.g.
+    single-tenant, unresolvable user/org, missing entitlement, or no
+    matching session).
+    """
     if not config.TRACECAT__EE_MULTI_TENANT:
         return None, None
 
@@ -837,6 +907,8 @@ async def get_watchtower_tool_call_context(
         if not await is_org_entitled(session, organization_id, Entitlement.WATCHTOWER):
             return None, None
 
+        # Look up the session by MCP session ID. Sessions older than the
+        # retention window are ignored (they've been pruned or are stale).
         retention_cutoff = _retention_cutoff()
         session_result = await session.execute(
             select(WatchtowerAgentSession).where(
@@ -846,6 +918,8 @@ async def get_watchtower_tool_call_context(
             )
         )
         tracked_session = session_result.scalar_one_or_none()
+        # If no session or the session hasn't been associated with an agent
+        # yet (still awaiting_initialize), we can't enforce policy.
         if tracked_session is None or tracked_session.agent_id is None:
             return None, None
 
@@ -866,6 +940,7 @@ async def get_watchtower_tool_call_context(
             session_row_id=tracked_session.id,
         )
 
+        # Check agent-level and session-level access controls.
         if agent.blocked_at is not None:
             return ctx, "This local agent has been disabled by your organization admin."
         if (
@@ -891,7 +966,19 @@ async def record_watchtower_tool_call(
     error_redacted: str | None,
     email: str | None,
 ) -> None:
-    """Persist Watchtower tool-call event and refresh activity timestamps."""
+    """Persist a Watchtower tool-call event and refresh activity timestamps.
+
+    Called from ``WatchtowerMonitorMiddleware.on_call_tool`` after the tool
+    executes (or is blocked).  Each invocation:
+
+    1. Prunes expired telemetry for the org (opportunistic retention).
+    2. Re-resolves the session and agent rows (they may have been revoked
+       or pruned between the context lookup and the actual recording).
+    3. Refreshes ``last_seen_at`` on both the session and agent so the
+       dashboard reflects recent activity.
+    4. Inserts a ``WatchtowerAgentToolCall`` row with redacted arguments
+       and an optional truncated error summary.
+    """
     if not config.TRACECAT__EE_MULTI_TENANT:
         return
 
@@ -901,6 +988,8 @@ async def record_watchtower_tool_call(
             organization_id=call_context.organization_id,
         )
 
+        # Re-fetch session and agent — they may have been revoked or pruned
+        # between the context lookup and now.
         tracked_session_result = await session.execute(
             select(WatchtowerAgentSession).where(
                 WatchtowerAgentSession.organization_id == call_context.organization_id,
@@ -922,6 +1011,9 @@ async def record_watchtower_tool_call(
             return
 
         now = datetime.now(UTC)
+
+        # Keep user attribution up to date — the email from the access
+        # token may differ from what was stored at session creation.
         user: User | None = None
         if email is not None:
             user = await _resolve_user_by_email(session, email)
@@ -935,6 +1027,7 @@ async def record_watchtower_tool_call(
             agent.last_user_email = user.email
             agent.last_user_name = display_name
 
+        # Refresh activity timestamps so the dashboard shows recent activity.
         tracked_session.last_seen_at = now
         tracked_session.workspace_id = workspace_id or tracked_session.workspace_id
         agent.last_seen_at = now

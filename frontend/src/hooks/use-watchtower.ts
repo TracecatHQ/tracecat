@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type WatchtowerAgentRead,
+  type WatchtowerAgentToolCallRead,
   watchtowerDisableWatchtowerAgent,
   watchtowerEnableWatchtowerAgent,
   watchtowerListWatchtowerAgentSessions,
@@ -14,7 +15,7 @@ import {
 const WATCHTOWER_REFRESH_MS = 5000
 
 export function useWatchtowerAgents(params?: {
-  status?: string
+  status?: WatchtowerAgentRead["status"]
   agentType?: WatchtowerAgentRead["agent_type"]
   limit?: number
 }) {
@@ -74,7 +75,7 @@ export function useWatchtowerAgentSessions(
 export function useWatchtowerSessionToolCalls(
   sessionId: string | null,
   params?: {
-    status?: string
+    status?: WatchtowerAgentToolCallRead["call_status"]
     limit?: number
   }
 ) {

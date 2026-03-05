@@ -20571,8 +20571,7 @@ export const $WatchtowerAgentRead = {
       title: "Blocked Reason",
     },
     status: {
-      type: "string",
-      title: "Status",
+      $ref: "#/components/schemas/WatchtowerAgentStatus",
     },
     active_session_count: {
       type: "integer",
@@ -20835,6 +20834,13 @@ export const $WatchtowerAgentSessionRead = {
   description: "Watchtower agent session row for monitor list views.",
 } as const
 
+export const $WatchtowerAgentStatus = {
+  type: "string",
+  enum: ["active", "idle", "blocked"],
+  title: "WatchtowerAgentStatus",
+  description: "Derived status for Watchtower agents in monitor APIs.",
+} as const
+
 export const $WatchtowerAgentToolCallListResponse = {
   properties: {
     items: {
@@ -20906,8 +20912,7 @@ export const $WatchtowerAgentToolCallRead = {
       title: "Tool Name",
     },
     call_status: {
-      type: "string",
-      title: "Call Status",
+      $ref: "#/components/schemas/WatchtowerToolCallStatus",
     },
     latency_ms: {
       anyOf: [
@@ -21013,6 +21018,13 @@ export const $WatchtowerRevokeAgentSessionRequest = {
   type: "object",
   title: "WatchtowerRevokeAgentSessionRequest",
   description: "Request payload for session revocation.",
+} as const
+
+export const $WatchtowerToolCallStatus = {
+  type: "string",
+  enum: ["success", "error", "timeout", "rejected", "blocked"],
+  title: "WatchtowerToolCallStatus",
+  description: "Tool call result status for Watchtower monitor APIs.",
 } as const
 
 export const $WebhookApiKeyGenerateResponse = {

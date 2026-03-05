@@ -14,7 +14,7 @@ from tracecat_ee.watchtower.service import (
     normalize_agent_identity,
     redact_tool_call_args,
 )
-from tracecat_ee.watchtower.types import WatchtowerAgentType
+from tracecat_ee.watchtower.types import WatchtowerAgentStatus, WatchtowerAgentType
 
 
 class _RowsResult:
@@ -161,12 +161,12 @@ def test_agent_fingerprint_is_stable_when_client_info_changes() -> None:
 @pytest.mark.parametrize(
     ("status_filter", "expected_fragment"),
     [
-        ("active", "watchtower_agent.last_seen_at >="),
-        ("idle", "watchtower_agent.last_seen_at <"),
+        (WatchtowerAgentStatus.ACTIVE, "watchtower_agent.last_seen_at >="),
+        (WatchtowerAgentStatus.IDLE, "watchtower_agent.last_seen_at <"),
     ],
 )
 async def test_list_agents_applies_status_window_filters(
-    status_filter: str,
+    status_filter: WatchtowerAgentStatus,
     expected_fragment: str,
 ) -> None:
     org_id = uuid.uuid4()

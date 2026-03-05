@@ -6412,7 +6412,7 @@ export type WatchtowerAgentRead = {
   last_seen_at: string
   blocked_at: string | null
   blocked_reason: string | null
-  status: string
+  status: WatchtowerAgentStatus
   active_session_count?: number
   inactive_session_count?: number
 }
@@ -6451,6 +6451,11 @@ export type WatchtowerAgentSessionRead = {
 }
 
 /**
+ * Derived status for Watchtower agents in monitor APIs.
+ */
+export type WatchtowerAgentStatus = "active" | "idle" | "blocked"
+
+/**
  * Paginated response for Watchtower tool calls.
  */
 export type WatchtowerAgentToolCallListResponse = {
@@ -6469,7 +6474,7 @@ export type WatchtowerAgentToolCallRead = {
   agent_session_id: string
   workspace_id: string | null
   tool_name: string
-  call_status: string
+  call_status: WatchtowerToolCallStatus
   latency_ms: number | null
   args_redacted: {
     [key: string]: unknown
@@ -6503,6 +6508,16 @@ export type WatchtowerDisableAgentRequest = {
 export type WatchtowerRevokeAgentSessionRequest = {
   reason?: string | null
 }
+
+/**
+ * Tool call result status for Watchtower monitor APIs.
+ */
+export type WatchtowerToolCallStatus =
+  | "success"
+  | "error"
+  | "timeout"
+  | "rejected"
+  | "blocked"
 
 export type WebhookApiKeyGenerateResponse = {
   api_key: string
@@ -8639,7 +8654,7 @@ export type WatchtowerListWatchtowerAgentsData = {
   agentType?: WatchtowerAgentType | null
   cursor?: string | null
   limit?: number
-  status?: string | null
+  status?: WatchtowerAgentStatus | null
 }
 
 export type WatchtowerListWatchtowerAgentsResponse = WatchtowerAgentListResponse
@@ -8659,7 +8674,7 @@ export type WatchtowerListWatchtowerSessionToolCallsData = {
   cursor?: string | null
   limit?: number
   sessionId: string
-  status?: string | null
+  status?: WatchtowerToolCallStatus | null
 }
 
 export type WatchtowerListWatchtowerSessionToolCallsResponse =

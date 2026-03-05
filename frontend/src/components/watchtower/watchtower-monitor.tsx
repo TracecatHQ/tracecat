@@ -249,7 +249,10 @@ export function WatchtowerMonitor() {
     isFetching: agentsFetching,
   } = useWatchtowerAgents({
     limit: 200,
-    status: agentStatusFilter === "all" ? undefined : agentStatusFilter,
+    status:
+      agentStatusFilter === "all"
+        ? undefined
+        : (agentStatusFilter as WatchtowerAgentRead["status"]),
   })
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
@@ -296,7 +299,10 @@ export function WatchtowerMonitor() {
   const { data: toolCallsResponse, isLoading: toolCallsLoading } =
     useWatchtowerSessionToolCalls(selectedSessionId, {
       limit: 200,
-      status: toolStatusFilter === "all" ? undefined : toolStatusFilter,
+      status:
+        toolStatusFilter === "all"
+          ? undefined
+          : (toolStatusFilter as WatchtowerAgentToolCallRead["call_status"]),
     })
   const toolCalls = toolCallsResponse?.items ?? []
 

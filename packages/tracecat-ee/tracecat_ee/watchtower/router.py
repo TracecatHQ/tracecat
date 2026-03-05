@@ -21,7 +21,11 @@ from tracecat_ee.watchtower.schemas import (
     WatchtowerRevokeAgentSessionRequest,
 )
 from tracecat_ee.watchtower.service import WatchtowerService
-from tracecat_ee.watchtower.types import WatchtowerAgentType
+from tracecat_ee.watchtower.types import (
+    WatchtowerAgentStatus,
+    WatchtowerAgentType,
+    WatchtowerToolCallStatus,
+)
 
 router = APIRouter(
     prefix="/watchtower/monitor",
@@ -53,7 +57,7 @@ async def list_watchtower_agents(
     ),
     cursor: str | None = Query(default=None),
     agent_type: WatchtowerAgentType | None = Query(default=None),
-    status_filter: str | None = Query(default=None, alias="status"),
+    status_filter: WatchtowerAgentStatus | None = Query(default=None, alias="status"),
 ) -> WatchtowerAgentListResponse:
     service = WatchtowerService(session, role=role)
     try:
@@ -128,7 +132,9 @@ async def list_watchtower_session_tool_calls(
         le=config.TRACECAT__LIMIT_CURSOR_MAX,
     ),
     cursor: str | None = Query(default=None),
-    status_filter: str | None = Query(default=None, alias="status"),
+    status_filter: WatchtowerToolCallStatus | None = Query(
+        default=None, alias="status"
+    ),
 ) -> WatchtowerAgentToolCallListResponse:
     service = WatchtowerService(session, role=role)
     try:
