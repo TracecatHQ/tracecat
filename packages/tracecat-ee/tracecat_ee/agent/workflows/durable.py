@@ -41,6 +41,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.agent.types import AgentConfig
     from tracecat.auth.types import Role
+    from tracecat.config import TRACECAT__AGENT_SANDBOX_TIMEOUT
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.logger import logger
@@ -339,7 +340,9 @@ class DurableAgentWorkflow:
             result = await workflow.execute_activity(
                 run_agent_activity,
                 executor_input,
-                start_to_close_timeout=timedelta(seconds=600),
+                start_to_close_timeout=timedelta(
+                    seconds=TRACECAT__AGENT_SANDBOX_TIMEOUT
+                ),
                 heartbeat_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )

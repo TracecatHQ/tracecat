@@ -87,7 +87,7 @@ class AgentResourceLimits:
 
     Defaults are read from environment variables:
     - TRACECAT__AGENT_SANDBOX_MEMORY_MB: memory_mb (default 4096 = 4 GiB)
-    - TRACECAT__AGENT_SANDBOX_TIMEOUT: timeout_seconds and cpu_seconds (default 600s)
+    - TRACECAT__AGENT_SANDBOX_TIMEOUT: timeout_seconds and cpu_seconds (default 1800s)
 
     Attributes:
         memory_mb: Maximum memory in megabytes.
