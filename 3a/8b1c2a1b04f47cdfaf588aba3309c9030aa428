@@ -1,0 +1,31 @@
+packages/tracecat-ee/tracecat_ee/watchtower/service.py
+  3f68e0534bde1a53 39,452-453,455,457-458
+frontend/src/client/schemas.gen.ts
+  3f68e0534bde1a53 20808,20836-20840
+packages/tracecat-ee/tracecat_ee/watchtower/schemas.py
+  3f68e0534bde1a53 11,62
+frontend/src/client/types.gen.ts
+  3f68e0534bde1a53 6450,6453-6456
+packages/tracecat-ee/tracecat_ee/watchtower/types.py
+  3f68e0534bde1a53 36-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "3a8b1c2a1b04f47cdfaf588aba3309c9030aa428",
+  "prompts": {
+    "3f68e0534bde1a53": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cba8d-2124-7380-a0eb-5abb0575e113",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 31,
+      "total_deletions": 8,
+      "accepted_lines": 30,
+      "overriden_lines": 0
+    }
+  }
+}
