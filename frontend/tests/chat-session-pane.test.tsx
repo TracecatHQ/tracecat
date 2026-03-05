@@ -26,6 +26,7 @@ const createChatFixture = (
   created_by: "user-1",
   entity_type: "case",
   entity_id: "case-1",
+  channel_context: null,
   tools: [],
   agent_preset_id: null,
   harness_type: null,

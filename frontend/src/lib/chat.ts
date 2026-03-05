@@ -168,6 +168,12 @@ export const ENTITY_TO_INVALIDATION: Record<
       // No invalidation logic for approval entity
     },
   },
+  external_channel: {
+    predicate: () => false,
+    handler: (_queryClient, _workspaceId, _entityId) => {
+      // No invalidation logic for external channel entity
+    },
+  },
 }
 
 export type ModelInfo = {

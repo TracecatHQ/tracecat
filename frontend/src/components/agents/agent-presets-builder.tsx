@@ -21,6 +21,7 @@ import {
   ToggleLeft,
   Trash2,
   Type,
+  Webhook,
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -39,6 +40,7 @@ import type {
   AgentPresetRead,
   AgentPresetUpdate,
 } from "@/client"
+import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
 import { ActionSelect } from "@/components/chat/action-select"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
@@ -108,6 +110,7 @@ import {
 } from "@/hooks"
 import { useCreateChat, useGetChatVercel, useListChats } from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import type { ModelInfo } from "@/lib/chat"
 import {
   useAgentModels,
@@ -781,6 +784,7 @@ type AgentPresetSideTab =
   | "live-chat"
   | "assistant"
   | "configuration"
+  | "channels"
   | "structured-output"
 
 type McpIntegrationOption = {
@@ -830,6 +834,8 @@ function AgentPresetForm({
 }: AgentPresetFormProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<AgentPresetSideTab>("live-chat")
+  const { isFeatureEnabled: isFeatureEnabledFlag } = useFeatureFlag()
+  const channelsEnabled = isFeatureEnabledFlag("agent-channels")
 
   const form = useForm<AgentPresetFormValues>({
     resolver: zodResolver(agentPresetSchema),
@@ -887,6 +893,12 @@ function AgentPresetForm({
       })
     }
   }, [form, modelOptions])
+
+  useEffect(() => {
+    if (!channelsEnabled && activeTab === "channels") {
+      setActiveTab("live-chat")
+    }
+  }, [activeTab, channelsEnabled])
 
   const handleSubmit = form.handleSubmit(async (values) => {
     const payload = formValuesToPayload(values)
@@ -957,6 +969,7 @@ function AgentPresetForm({
             <AgentPresetRightPanel
               activeTab={activeTab}
               onTabChange={setActiveTab}
+              channelsEnabled={channelsEnabled}
               preset={preset}
               workspaceId={workspaceId}
               builderPrompt={builderPrompt}
@@ -1169,6 +1182,7 @@ function AgentPresetDocumentPanel({
 function AgentPresetRightPanel({
   activeTab,
   onTabChange,
+  channelsEnabled,
   preset,
   workspaceId,
   builderPrompt,
@@ -1186,6 +1200,7 @@ function AgentPresetRightPanel({
 }: {
   activeTab: AgentPresetSideTab
   onTabChange: (tab: AgentPresetSideTab) => void
+  channelsEnabled: boolean
   preset: AgentPresetRead | null
   workspaceId: string
   builderPrompt?: string
@@ -1239,6 +1254,15 @@ function AgentPresetRightPanel({
                 <Box className="mr-2 size-4" />
                 <span>Output</span>
               </TabsTrigger>
+              {channelsEnabled ? (
+                <TabsTrigger
+                  className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  value="channels"
+                >
+                  <Webhook className="mr-2 size-4" />
+                  <span>Channels</span>
+                </TabsTrigger>
+              ) : null}
             </TabsList>
           </div>
           <Separator />
@@ -1276,6 +1300,12 @@ function AgentPresetRightPanel({
           <TabsContent value="structured-output" className="mt-0 h-full">
             <AgentPresetStructuredOutputPanel form={form} isSaving={isSaving} />
           </TabsContent>
+
+          {channelsEnabled ? (
+            <TabsContent value="channels" className="mt-0 h-full">
+              <SlackChannelPanel workspaceId={workspaceId} preset={preset} />
+            </TabsContent>
+          ) : null}
         </div>
       </Tabs>
     </div>
