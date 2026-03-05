@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils"
 
 export type WorkflowEventsListRow = {
   key: string
-  label: string
+  label: React.ReactNode
   meta?: React.ReactNode
   time: string
   icon: React.ReactNode
@@ -21,6 +21,7 @@ export type WorkflowEventsListRow = {
   subflowLink?: string
   trailing?: React.ReactNode
   onSelect?: () => void
+  variant?: "default" | "pinned"
 }
 
 export function WorkflowEventsList({
@@ -37,11 +38,18 @@ export function WorkflowEventsList({
       )}
       {rows.map((row) => {
         const isInteractive = Boolean(row.onSelect)
+        const isPinnedRow = row.variant === "pinned"
         const metaText =
           typeof row.meta === "string" || typeof row.meta === "number"
             ? String(row.meta)
             : null
         const isIterationMeta = metaText !== null && /^\d+$/.test(metaText)
+        const labelContent =
+          typeof row.label === "string" ? (
+            <div className="truncate text-foreground/70">{row.label}</div>
+          ) : (
+            <div className="min-w-0 text-foreground/80">{row.label}</div>
+          )
         return (
           <div key={row.key}>
             <div
@@ -50,7 +58,9 @@ export function WorkflowEventsList({
               className={cn(
                 "group flex h-11 items-center px-3 text-xs transition-all",
                 isInteractive && "cursor-pointer hover:bg-muted/50",
-                row.selected && "bg-muted-foreground/10"
+                row.selected && "bg-muted-foreground/10",
+                isPinnedRow &&
+                  "border-l-2 border-l-zinc-300 bg-zinc-50/50 hover:bg-zinc-100/60"
               )}
               onClick={() => {
                 row.onSelect?.()
@@ -70,7 +80,7 @@ export function WorkflowEventsList({
               </div>
               <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2 text-xs">
-                  <div className="truncate text-foreground/70">{row.label}</div>
+                  {labelContent}
                   {row.meta && (
                     <Badge
                       variant="outline"

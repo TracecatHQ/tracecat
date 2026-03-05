@@ -8,10 +8,16 @@ import {
   CircleDot,
   LoaderIcon,
   MessageCircle,
+  PinIcon,
 } from "lucide-react"
 import type { ReactNode } from "react"
 import { useEffect, useMemo, useState } from "react"
-import type { EventFailure, InteractionRead, Session_Any_ } from "@/client"
+import type {
+  EventFailure,
+  InteractionRead,
+  Session_Any_,
+  WorkflowUpdate,
+} from "@/client"
 import {
   Conversation,
   ConversationContent,
@@ -48,6 +54,9 @@ import { parseChatError } from "@/hooks/use-chat"
 import { isUIMessageArray } from "@/lib/agents"
 import { getBaseUrl } from "@/lib/api"
 import {
+  getEffectiveEventExecutionId,
+  getEffectiveEventSourceEventId,
+  getSyntheticPinnedEventMeta,
   groupEventsByActionRef,
   parseStreamId,
   refToLabel,
@@ -58,7 +67,12 @@ import {
   isCollectionStoredObject,
   isExternalStoredObject,
 } from "@/lib/stored-object"
+import {
+  getWorkflowDraftPins,
+  type WorkflowDraftPins,
+} from "@/lib/workflow-pins"
 import { useWorkflowBuilder } from "@/providers/builder"
+import { useWorkflow } from "@/providers/workflow"
 
 type TabType = "input" | "result" | "interaction"
 
@@ -71,6 +85,15 @@ export function ActionEventPane({
 }) {
   const { workflowId, selectedActionEventRef, setSelectedActionEventRef } =
     useWorkflowBuilder()
+  const { workflow, updateWorkflow } = useWorkflow()
+  const [isSavingPins, setIsSavingPins] = useState(false)
+  const draftPins = getWorkflowDraftPins(workflow)
+  const isResultTab = type === "result"
+  const selectedRefIsPinned =
+    isResultTab &&
+    selectedActionEventRef !== undefined &&
+    draftPins?.source_execution_id === execution.id &&
+    draftPins.action_refs.includes(selectedActionEventRef)
 
   if (!workflowId)
     return <AlertNotification level="error" message="No workflow in context" />
@@ -86,6 +109,70 @@ export function ActionEventPane({
     )
   }
   const groupedEvents = groupEventsByActionRef(events)
+
+  const saveDraftPins = async (nextPins: WorkflowDraftPins | null) => {
+    setIsSavingPins(true)
+    try {
+      await updateWorkflow({
+        draft_pins: nextPins,
+      } as unknown as WorkflowUpdate)
+    } finally {
+      setIsSavingPins(false)
+    }
+  }
+
+  const handlePinSelected = async () => {
+    if (!selectedActionEventRef) {
+      return
+    }
+    const nextRefs =
+      draftPins?.source_execution_id === execution.id
+        ? Array.from(
+            new Set([...draftPins.action_refs, selectedActionEventRef])
+          )
+        : [selectedActionEventRef]
+    await saveDraftPins({
+      source_execution_id: execution.id,
+      action_refs: nextRefs,
+    })
+    toast({
+      title: "Pinned action result",
+      description: `ACTIONS.${selectedActionEventRef}.result is now pinned for draft runs.`,
+    })
+  }
+
+  const handleUnpinSelected = async () => {
+    if (
+      !selectedActionEventRef ||
+      draftPins?.source_execution_id !== execution.id
+    ) {
+      return
+    }
+    const nextRefs = draftPins.action_refs.filter(
+      (ref) => ref !== selectedActionEventRef
+    )
+    await saveDraftPins(
+      nextRefs.length > 0
+        ? {
+            source_execution_id: execution.id,
+            action_refs: nextRefs,
+          }
+        : null
+    )
+    toast({
+      title: "Unpinned action result",
+      description: `ACTIONS.${selectedActionEventRef}.result will be computed again.`,
+    })
+  }
+
+  const handleClearPins = async () => {
+    await saveDraftPins(null)
+    toast({
+      title: "Cleared draft pins",
+      description: "All pinned draft action results were removed.",
+    })
+  }
+
   return (
     <div className="flex flex-col gap-4 p-4">
       <Select
@@ -115,6 +202,44 @@ export function ActionEventPane({
           </SelectGroup>
         </SelectContent>
       </Select>
+      {isResultTab && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="secondary" className="font-normal">
+            <PinIcon className="mr-1 size-3" />
+            {draftPins?.action_refs.length ?? 0} pinned
+          </Badge>
+          {draftPins && (
+            <Badge
+              variant="outline"
+              className="font-mono text-[10px] font-normal"
+            >
+              Source: {draftPins.source_execution_id}
+            </Badge>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            variant={selectedRefIsPinned ? "outline" : "secondary"}
+            disabled={!selectedActionEventRef || isSavingPins}
+            onClick={
+              selectedRefIsPinned ? handleUnpinSelected : handlePinSelected
+            }
+            className="h-7 text-xs"
+          >
+            {selectedRefIsPinned ? "Unpin selected" : "Pin selected"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={!draftPins || isSavingPins}
+            onClick={handleClearPins}
+            className="h-7 text-xs"
+          >
+            Clear pins
+          </Button>
+        </div>
+      )}
 
       <ActionEventView
         selectedRef={selectedActionEventRef}
@@ -345,6 +470,12 @@ function ActionEventContent({
   streamIdPlaceholder?: string
 }) {
   const { status, session, stream_id, action_error } = actionEvent
+  const syntheticPinnedMeta = getSyntheticPinnedEventMeta(actionEvent)
+  const effectiveExecutionId = getEffectiveEventExecutionId(
+    actionEvent,
+    executionId
+  )
+  const effectiveEventId = getEffectiveEventSourceEventId(actionEvent)
   switch (status) {
     case "SCHEDULED": {
       return (
@@ -371,6 +502,14 @@ function ActionEventContent({
     default: {
       const showSessionTabs =
         type === "result" && !!session && !action_error && !streamIdPlaceholder
+      const pinnedBadge = syntheticPinnedMeta ? (
+        <Badge variant="outline" className="items-center gap-1 border-dashed">
+          <PinIcon className="size-3" />
+          <span className="text-[10px]">
+            Pinned from {syntheticPinnedMeta.source_execution_id}
+          </span>
+        </Badge>
+      ) : null
 
       if (showSessionTabs && session) {
         return (
@@ -382,6 +521,7 @@ function ActionEventContent({
                   Action {status.toLowerCase()}
                 </span>
               </Badge>
+              {pinnedBadge}
               <div className="ml-auto flex flex-wrap items-center gap-2">
                 <StreamDetails
                   streamId={stream_id}
@@ -412,8 +552,8 @@ function ActionEventContent({
               <ActionResultViewer
                 result={actionEvent.action_result}
                 eventRef={eventRef}
-                executionId={executionId}
-                eventId={actionEvent.source_event_id}
+                executionId={effectiveExecutionId}
+                eventId={effectiveEventId}
                 defaultExpanded={true}
                 defaultTab="nested"
               />
@@ -431,6 +571,7 @@ function ActionEventContent({
                 Action {status.toLowerCase()}
               </span>
             </Badge>
+            {pinnedBadge}
             <StreamDetails
               streamId={stream_id}
               placeholder={streamIdPlaceholder}
@@ -445,8 +586,8 @@ function ActionEventContent({
               event={actionEvent}
               type={type}
               eventRef={eventRef}
-              executionId={executionId}
-              eventId={actionEvent.source_event_id}
+              executionId={effectiveExecutionId}
+              eventId={effectiveEventId}
             />
           )}
         </div>

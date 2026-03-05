@@ -876,6 +876,14 @@ class Workflow(WorkspaceModel):
             "Example: {'tracecat_registry': '1.2.3', 'git+ssh://...': '0.5.0'}"
         ),
     )
+    draft_pins: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc=(
+            "Draft run pin configuration. "
+            "Contains source execution ID and pinned action refs."
+        ),
+    )
     folder_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("workflow_folder.id", ondelete="CASCADE"),

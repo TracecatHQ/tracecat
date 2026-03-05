@@ -255,11 +255,21 @@ async def incoming_webhook_draft(
     logger.trace("Draft webhook payload", payload=payload)
 
     service = await WorkflowExecutionsService.connect()
+    pinned_action_results = await service.resolve_draft_pinned_action_results(
+        wf_id=workflow_id,
+        dsl=draft_ctx.dsl,
+        draft_pins=draft_ctx.draft_pins,
+    )
+    parsed_draft_pins = service.parse_draft_pins(draft_ctx.draft_pins)
     response = await service.create_draft_workflow_execution_wait_for_start(
         dsl=draft_ctx.dsl,
         wf_id=workflow_id,
         payload=payload,
         trigger_type=TriggerType.WEBHOOK,
+        pinned_action_results=pinned_action_results,
+        pinned_source_execution_id=parsed_draft_pins.source_execution_id
+        if parsed_draft_pins
+        else None,
         registry_lock=RegistryLock.model_validate(draft_ctx.registry_lock)
         if draft_ctx.registry_lock
         else None,

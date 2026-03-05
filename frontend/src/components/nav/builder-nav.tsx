@@ -495,7 +495,7 @@ function WorkflowManualTrigger({
   disabled: boolean
   workflowId: string
 }) {
-  const { expandSidebarAndFocusEvents, setCurrentExecutionId } =
+  const { expandSidebarAndFocusEvents, setCurrentExecutionId, sidebarRef } =
     useWorkflowBuilder()
   // Always use draft execution endpoint - runs the current draft workflow graph
   const { createDraftExecution, createDraftExecutionIsPending } =
@@ -535,6 +535,7 @@ function WorkflowManualTrigger({
 
       // Expand sidebar immediately
       expandSidebarAndFocusEvents()
+      sidebarRef.current?.setActiveTab("workflow-events")
     } catch (error) {
       if (error instanceof ApiError) {
         const tracecatError = error as TracecatApiError<{

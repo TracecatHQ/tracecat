@@ -67,6 +67,7 @@ from tracecat.workflow.management.schemas import (
     WorkflowCreate,
     WorkflowDefinitionRead,
     WorkflowDefinitionReadMinimal,
+    WorkflowDraftPins,
     WorkflowEntrypointValidationRequest,
     WorkflowEntrypointValidationResponse,
     WorkflowMoveToFolder,
@@ -351,6 +352,9 @@ async def get_workflow(
         trigger_position_x=workflow.trigger_position_x,
         trigger_position_y=workflow.trigger_position_y,
         graph_version=workflow.graph_version,
+        draft_pins=WorkflowDraftPins.model_validate(workflow.draft_pins)
+        if workflow.draft_pins
+        else None,
     )
 
 

@@ -587,6 +587,18 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
     child_wf_wait_strategy: WaitStrategy | None = None
     # SSE streaming for agents
     session: Session[TSessionEvent] | None = None
+    synthetic_kind: Literal["pinned"] | None = Field(
+        default=None,
+        description="Synthetic compact event marker. Set for stitched non-Temporal rows.",
+    )
+    pinned_source_execution_id: WorkflowExecutionID | None = Field(
+        default=None,
+        description="Source execution ID when synthetic_kind is pinned.",
+    )
+    pinned_source_event_id: int | None = Field(
+        default=None,
+        description="Source compact event ID when synthetic_kind is pinned.",
+    )
 
     @staticmethod
     async def from_source_event(

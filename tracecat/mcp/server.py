@@ -2245,10 +2245,12 @@ async def run_draft_workflow(
                 )
 
         # Build DSL from draft
+        draft_pins: dict[str, Any] | None = None
         async with WorkflowsManagementService.with_session(role=role) as svc:
             workflow = await svc.get_workflow(wf_id)
             if not workflow:
                 raise ToolError(f"Workflow {workflow_id} not found")
+            draft_pins = workflow.draft_pins
             try:
                 dsl_input = await svc.build_dsl_from_workflow(workflow)
             except (TracecatValidationError, ValidationError) as e:
@@ -2257,10 +2259,20 @@ async def run_draft_workflow(
         # Validate and parse trigger inputs before dispatch
         payload = _validate_and_parse_trigger_inputs(dsl_input, inputs)
         exec_service = await WorkflowExecutionsService.connect(role=role)
+        pinned_action_results = await exec_service.resolve_draft_pinned_action_results(
+            wf_id=wf_id,
+            dsl=dsl_input,
+            draft_pins=draft_pins,
+        )
+        parsed_draft_pins = exec_service.parse_draft_pins(draft_pins)
         response = await exec_service.create_draft_workflow_execution_wait_for_start(
             dsl=dsl_input,
             wf_id=wf_id,
             payload=payload,
+            pinned_action_results=pinned_action_results,
+            pinned_source_execution_id=parsed_draft_pins.source_execution_id
+            if parsed_draft_pins
+            else None,
         )
         return _json(
             {
@@ -2473,7 +2485,8 @@ async def get_workflow_execution(
 
         # Get compact event history for action-level details
         compact_events = await exec_service.list_workflow_execution_events_compact(
-            execution_id
+            execution_id,
+            include_pinned_synthetic=True,
         )
 
         events_payload: list[dict[str, Any]] = []

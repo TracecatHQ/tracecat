@@ -974,12 +974,13 @@ export function useWorkspaceManager() {
 }
 
 export function useWorkflowExecutions(
-  workflowId: string,
+  workflowId: string | null,
   options?: {
     /**
      * Refetch interval in milliseconds
      */
     refetchInterval?: number
+    enabled?: boolean
   }
 ) {
   const workspaceId = useWorkspaceId()
@@ -989,11 +990,16 @@ export function useWorkflowExecutions(
     error: workflowExecutionsError,
   } = useQuery<WorkflowExecutionReadMinimal[], Error>({
     queryKey: ["workflow-executions", workflowId],
-    queryFn: async () =>
-      await workflowExecutionsListWorkflowExecutions({
+    queryFn: async () => {
+      if (!workflowId) {
+        return []
+      }
+      return await workflowExecutionsListWorkflowExecutions({
         workspaceId,
         workflowId,
-      }),
+      })
+    },
+    enabled: options?.enabled ?? Boolean(workflowId),
     ...options,
   })
   return {
@@ -1108,6 +1114,9 @@ export function useCreateManualWorkflowExecution(workflowId: string) {
         queryKey: ["last-manual-execution", workflowId],
       })
       await queryClient.refetchQueries({
+        queryKey: ["workflow-executions", workflowId],
+      })
+      await queryClient.refetchQueries({
         queryKey: ["compact-workflow-execution"],
       })
       await queryClient.refetchQueries({
@@ -1166,6 +1175,9 @@ export function useCreateDraftWorkflowExecution(workflowId: string) {
       })
       await queryClient.refetchQueries({
         queryKey: ["last-manual-execution", workflowId],
+      })
+      await queryClient.refetchQueries({
+        queryKey: ["workflow-executions", workflowId],
       })
       await queryClient.refetchQueries({
         queryKey: ["compact-workflow-execution"],

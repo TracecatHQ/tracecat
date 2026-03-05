@@ -126,6 +126,7 @@ class DSLScheduler:
         context: ExecutionContext,
         role: Role,
         run_context: RunContext,
+        pinned_action_results: dict[str, TaskResult] | None = None,
         logger: WorkflowRuntimeLogger | None = None,
     ):
         # Static
@@ -137,6 +138,7 @@ class DSLScheduler:
         self.skip_strategy = skip_strategy
         self.role = role
         self.run_context = run_context
+        self.pinned_action_results = pinned_action_results or {}
         # Workflow-safe logger by default; callers can inject a pre-bound instance.
         self.logger = logger or workflow_logger
         self.tasks: dict[str, ActionStatement] = {}
@@ -174,6 +176,11 @@ class DSLScheduler:
             for ref in self.tasks
         }
         """Adjacency list of task dependencies (sorted for determinism)"""
+        self.pinned_action_refs: frozenset[str] = frozenset(
+            ref for ref in self.pinned_action_results if ref in self.tasks
+        )
+        self.force_skip_refs = self._compute_force_skip_refs(self.pinned_action_refs)
+        """Refs that should be force-skipped because all downstream paths are pinned."""
 
         control_adj = dsl._to_adjacency()
         (
@@ -207,12 +214,40 @@ class DSLScheduler:
             indegrees=self.indegrees,
             task_count=len(self.tasks),
             max_pending_tasks=self.max_pending_tasks,
+            pinned_action_refs=sorted(self.pinned_action_refs),
+            force_skip_refs=sorted(self.force_skip_refs),
         )
 
     @staticmethod
     def _adj_sort_key(adj: AdjDst) -> tuple[str, str]:
         dst_ref, edge_type = adj
         return dst_ref, edge_type.value
+
+    def _compute_force_skip_refs(self, pinned_refs: frozenset[str]) -> frozenset[str]:
+        """Compute upstream refs that are made redundant by pinned descendants.
+
+        A ref is force-skipped when all of its immediate downstream refs are in the
+        pinned/force-skipped domain. This captures the convention that the most
+        downstream pin dominates upstream computation.
+        """
+        if not pinned_refs:
+            return frozenset()
+
+        skip_domain = set(pinned_refs)
+        changed = True
+        while changed:
+            changed = False
+            for ref, next_items in self.adj.items():
+                if ref in skip_domain:
+                    continue
+                next_refs = {next_ref for next_ref, _edge_type in next_items}
+                if not next_refs:
+                    continue
+                if next_refs.issubset(skip_domain):
+                    skip_domain.add(ref)
+                    changed = True
+
+        return frozenset(skip_domain - set(pinned_refs))
 
     def _scope_is_descendant(self, scope: str, ancestor_scope: str) -> bool:
         curr_scope = scope
@@ -664,23 +699,35 @@ class DSLScheduler:
             task = replace(task, delay=0.0)
         try:
             # 1) Skip propagation (force-skip) takes highest precedence over everything else
-            if self._skip_should_propagate(task, stmt):
+            if task.ref in self.force_skip_refs or self._skip_should_propagate(
+                task, stmt
+            ):
                 self.logger.debug(
                     "Task should be force-skipped, propagating", task=task
                 )
                 return await self._handle_skip_path(task, stmt)
 
-            # 2) Then we check if the task is reachable
+            # 2) Pinned root action short-circuit (run_if still respected).
+            if task.stream_id == ROOT_STREAM and ref in self.pinned_action_refs:
+                if await self._task_should_skip(task, stmt):
+                    self.logger.debug("Pinned task should self-skip", task=task)
+                    return await self._handle_skip_path(task, stmt)
+                action_ctx = self._get_action_context(task.stream_id)
+                action_ctx[ref] = self.pinned_action_results[ref].model_copy(deep=True)
+                self.logger.debug("Using pinned action result", task=task)
+                return await self._handle_success_path(task)
+
+            # 3) Then we check if the task is reachable
             if not self._is_reachable(task, stmt):
                 self.logger.debug("Task cannot proceed, unreachable", task=task)
                 raise TaskUnreachable(f"Task {task} is unreachable")
 
-            # 3) Check if the task should self-skip based on its `run_if` condition
+            # 4) Check if the task should self-skip based on its `run_if` condition
             if await self._task_should_skip(task, stmt):
                 self.logger.debug("Task should self-skip", task=task)
                 return await self._handle_skip_path(task, stmt)
 
-            # 4) If we made it here, the task is reachable and not force-skipped.
+            # 5) If we made it here, the task is reachable and not force-skipped.
 
             # Respect the task delay if it exists. We need this to stagger tasks for scatter.
             if original_delay > 0:
@@ -1273,6 +1320,7 @@ class DSLScheduler:
 
                 # This shouldn't fail as all skip streams have parent streams
                 parent_stream = self._get_parent_stream_id_safe(task, stream_id)
+                parent_action_context = self._get_action_context(parent_stream)
                 scatter_ref, _ = stream_id.leaf
                 scatter_task = Task(ref=scatter_ref, stream_id=parent_stream)
                 self.logger.debug(
@@ -1284,7 +1332,6 @@ class DSLScheduler:
                         "Observed scatter, setting result to empty collection",
                         task=task,
                     )
-                    parent_action_context = self._get_action_context(parent_stream)
                     finalized = await workflow.execute_activity(
                         DSLActivities.finalize_gather_activity,
                         arg=FinalizeGatherActivityInput(
@@ -1309,6 +1356,14 @@ class DSLScheduler:
                         task=task,
                         scatter_task=scatter_task,
                     )
+                    if task.ref in parent_action_context:
+                        self.logger.debug(
+                            "Gather has pinned parent result; continuing from parent stream",
+                            task=task,
+                            parent_stream=parent_stream,
+                        )
+                        next_task = Task(ref=task.ref, stream_id=parent_stream)
+                        return await self._queue_tasks(next_task)
                     # If scatter wasn't observed, this means it was force-skipped
                     # This means we need to skip all downstream tasks
                     unreachable = {

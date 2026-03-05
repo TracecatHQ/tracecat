@@ -16,6 +16,7 @@ from tracecat.dsl.schemas import (
     ActionStatement,
     ExecutionContext,
     RunContext,
+    TaskResult,
 )
 from tracecat.dsl.types import Task
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -99,3 +100,102 @@ async def test_queue_tasks_is_deterministic() -> None:
     await queue_task
 
     assert [t.ref for t in queue.items] == ["b", "c"]
+
+
+@pytest.mark.anyio
+async def test_downstream_pin_force_skips_exclusive_upstream() -> None:
+    async def executor(_: ActionStatement) -> None:
+        return None
+
+    dsl = DSLInput(
+        title="pin-test",
+        description="pin-test",
+        entrypoint=DSLEntrypoint(ref="a"),
+        actions=[
+            ActionStatement(ref="a", action="core.noop"),
+            ActionStatement(ref="b", action="core.noop", depends_on=["a"]),
+            ActionStatement(ref="c", action="core.noop", depends_on=["b"]),
+        ],
+    )
+    wf_id = WorkflowUUID.new_uuid4()
+    test_role = Role(
+        type="service",
+        service_id="tracecat-runner",
+        workspace_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-runner"],
+    )
+    test_run_context = RunContext(
+        wf_id=wf_id,
+        wf_exec_id=f"{wf_id.short()}/exec_test",
+        wf_run_id=uuid.uuid4(),
+        environment="test",
+        logical_time=datetime.now(UTC),
+    )
+    scheduler = DSLScheduler(
+        executor=executor,
+        dsl=dsl,
+        max_pending_tasks=16,
+        context=ExecutionContext(ACTIONS={}, TRIGGER=None),
+        role=test_role,
+        run_context=test_run_context,
+        pinned_action_results={"c": TaskResult.from_result({"value": "pinned"})},
+    )
+
+    assert scheduler.force_skip_refs == frozenset({"a", "b"})
+
+
+@pytest.mark.anyio
+async def test_downstream_pin_reuses_result_without_executing_upstream() -> None:
+    executed_refs: list[str] = []
+
+    async def executor(stmt: ActionStatement) -> None:
+        executed_refs.append(stmt.ref)
+
+    dsl = DSLInput(
+        title="pin-run-test",
+        description="pin-run-test",
+        entrypoint=DSLEntrypoint(ref="a"),
+        actions=[
+            ActionStatement(ref="a", action="core.noop"),
+            ActionStatement(ref="b", action="core.noop", depends_on=["a"]),
+            ActionStatement(ref="c", action="core.noop", depends_on=["b"]),
+        ],
+    )
+    wf_id = WorkflowUUID.new_uuid4()
+    test_role = Role(
+        type="service",
+        service_id="tracecat-runner",
+        workspace_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-runner"],
+    )
+    pinned_result = TaskResult.from_result({"value": "pinned"})
+    context = ExecutionContext(
+        ACTIONS={"c": pinned_result},
+        TRIGGER=None,
+    )
+    test_run_context = RunContext(
+        wf_id=wf_id,
+        wf_exec_id=f"{wf_id.short()}/exec_test",
+        wf_run_id=uuid.uuid4(),
+        environment="test",
+        logical_time=datetime.now(UTC),
+    )
+    scheduler = DSLScheduler(
+        executor=executor,
+        dsl=dsl,
+        max_pending_tasks=16,
+        context=context,
+        role=test_role,
+        run_context=test_run_context,
+        pinned_action_results={"c": pinned_result},
+    )
+
+    task_exceptions = await scheduler.start()
+
+    assert task_exceptions is None
+    assert executed_refs == []
+    assert scheduler.get_context(ROOT_STREAM)["ACTIONS"]["c"].get_data() == {
+        "value": "pinned"
+    }

@@ -15,6 +15,11 @@ export type WorkflowExecutionEventCompact =
 export type WorkflowExecutionReadCompact =
   WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
 
+export type SyntheticPinnedEventMeta = {
+  source_execution_id: string
+  source_event_id: number
+}
+
 // Safe because refs are slugified. Use `workflow` to namespace from regular action refs.
 export const WF_FAILURE_EVENT_REF = "__workflow_failure__"
 export const WF_FAILURE_EVENT_LABEL = "Workflow Failure"
@@ -163,6 +168,51 @@ export function getWorkflowExecutionUrl(
   exec: string
 ) {
   return `${baseUrl}/workspaces/${encodeURIComponent(workspaceId)}/workflows/${encodeURIComponent(wf)}/executions/${encodeURIComponent(exec)}`
+}
+
+export function getSyntheticPinnedEventMeta(
+  event: WorkflowExecutionEventCompact
+): SyntheticPinnedEventMeta | null {
+  const raw = event as WorkflowExecutionEventCompact & {
+    synthetic_kind?: unknown
+    pinned_source_execution_id?: unknown
+    pinned_source_event_id?: unknown
+  }
+  if (
+    raw.synthetic_kind !== "pinned" ||
+    typeof raw.pinned_source_execution_id !== "string" ||
+    typeof raw.pinned_source_event_id !== "number"
+  ) {
+    return null
+  }
+  return {
+    source_execution_id: raw.pinned_source_execution_id,
+    source_event_id: raw.pinned_source_event_id,
+  }
+}
+
+export function isSyntheticPinnedEvent(
+  event: WorkflowExecutionEventCompact
+): boolean {
+  return getSyntheticPinnedEventMeta(event) !== null
+}
+
+export function getEffectiveEventExecutionId(
+  event: WorkflowExecutionEventCompact,
+  defaultExecutionId: string
+): string {
+  return (
+    getSyntheticPinnedEventMeta(event)?.source_execution_id ??
+    defaultExecutionId
+  )
+}
+
+export function getEffectiveEventSourceEventId(
+  event: WorkflowExecutionEventCompact
+): number {
+  return (
+    getSyntheticPinnedEventMeta(event)?.source_event_id ?? event.source_event_id
+  )
 }
 
 export function groupEventsByActionRef(

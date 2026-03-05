@@ -131,7 +131,11 @@ class TestDraftWorkflowRegistryLock:
 
         # Create DraftWorkflowContext as validate_draft_workflow does
         # The fix ensures registry_lock is None for draft executions
-        draft_context = DraftWorkflowContext(dsl=built_dsl, registry_lock=None)
+        draft_context = DraftWorkflowContext(
+            dsl=built_dsl,
+            registry_lock=None,
+            draft_pins=None,
+        )
 
         # Verify registry_lock is None (will resolve at runtime)
         assert draft_context.registry_lock is None

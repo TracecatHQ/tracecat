@@ -602,8 +602,20 @@ class DSLWorkflow:
         # Prepare user facing context
         # trigger_inputs is already a StoredObject from args or normalize_trigger_inputs_activity
         # TRIGGER is always present - None signals no trigger inputs were provided
+        dsl_refs = {task.ref for task in self.dsl.actions}
+        pinned_action_results = {
+            ref: result.model_copy(deep=True)
+            for ref, result in args.pinned_action_results.items()
+            if ref in dsl_refs
+        }
+        if pinned_action_results:
+            self.logger.info(
+                "Loaded pinned draft action results",
+                pinned_action_refs=sorted(pinned_action_results),
+                pinned_count=len(pinned_action_results),
+            )
         self.context = ExecutionContext(
-            ACTIONS={},
+            ACTIONS=pinned_action_results,
             TRIGGER=trigger_inputs,
             ENV=DSLEnvironment(
                 workflow={
@@ -646,6 +658,7 @@ class DSLWorkflow:
             context=self.context,
             role=self.role,
             run_context=self.run_context,
+            pinned_action_results=pinned_action_results,
             logger=self.logger.bind(unit="dsl-scheduler"),
         )
         try:

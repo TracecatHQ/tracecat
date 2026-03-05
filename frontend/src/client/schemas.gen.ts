@@ -7398,6 +7398,30 @@ export const $DSLRunArgs = {
       description:
         "Registry version lock for action execution. Contains origins (origin -> version) and actions (action_name -> origin) mappings.",
     },
+    pinned_action_results: {
+      additionalProperties: {
+        $ref: "#/components/schemas/TaskResult",
+      },
+      type: "object",
+      title: "Pinned Action Results",
+      description:
+        "Pinned action results for draft executions. Keys are action refs and values are TaskResult objects to reuse.",
+    },
+    pinned_source_execution_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern:
+            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pinned Source Execution Id",
+      description:
+        "Source workflow execution ID used to resolve pinned action results for this run. Used for compact event synthesis in read APIs.",
+    },
   },
   type: "object",
   required: ["role", "wf_id"],
@@ -20550,6 +20574,28 @@ export const $WorkflowDirectoryItem = {
   title: "WorkflowDirectoryItem",
 } as const
 
+export const $WorkflowDraftPins = {
+  properties: {
+    source_execution_id: {
+      type: "string",
+      pattern:
+        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+      title: "Source Execution Id",
+    },
+    action_refs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Action Refs",
+    },
+  },
+  type: "object",
+  required: ["source_execution_id"],
+  title: "WorkflowDraftPins",
+  description: "Draft-run pin configuration stored on Workflow.",
+} as const
+
 export const $WorkflowDslPublish = {
   properties: {
     message: {
@@ -21203,6 +21249,46 @@ export const $WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_ =
             type: "null",
           },
         ],
+      },
+      synthetic_kind: {
+        anyOf: [
+          {
+            type: "string",
+            const: "pinned",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Synthetic Kind",
+        description:
+          "Synthetic compact event marker. Set for stitched non-Temporal rows.",
+      },
+      pinned_source_execution_id: {
+        anyOf: [
+          {
+            type: "string",
+            pattern:
+              "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Pinned Source Execution Id",
+        description: "Source execution ID when synthetic_kind is pinned.",
+      },
+      pinned_source_event_id: {
+        anyOf: [
+          {
+            type: "integer",
+          },
+          {
+            type: "null",
+          },
+        ],
+        title: "Pinned Source Event Id",
+        description: "Source compact event ID when synthetic_kind is pinned.",
       },
     },
     type: "object",
@@ -22009,6 +22095,16 @@ export const $WorkflowRead = {
       title: "Graph Version",
       default: 1,
     },
+    draft_pins: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowDraftPins",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
   },
   type: "object",
   required: [
@@ -22403,6 +22499,16 @@ export const $WorkflowUpdate = {
         },
       ],
       title: "Error Handler",
+    },
+    draft_pins: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowDraftPins",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
   },
   type: "object",

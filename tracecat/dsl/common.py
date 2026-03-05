@@ -67,7 +67,11 @@ from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import ActionID
 from tracecat.identifiers.schedules import ScheduleUUID
-from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
+from tracecat.identifiers.workflow import (
+    AnyWorkflowID,
+    WorkflowExecutionID,
+    WorkflowUUID,
+)
 from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
@@ -883,6 +887,20 @@ class DSLRunArgs(BaseModel):
     registry_lock: RegistryLock | None = Field(
         default=None,
         description="Registry version lock for action execution. Contains origins (origin -> version) and actions (action_name -> origin) mappings.",
+    )
+    pinned_action_results: dict[str, TaskResult] = Field(
+        default_factory=dict,
+        description=(
+            "Pinned action results for draft executions. "
+            "Keys are action refs and values are TaskResult objects to reuse."
+        ),
+    )
+    pinned_source_execution_id: WorkflowExecutionID | None = Field(
+        default=None,
+        description=(
+            "Source workflow execution ID used to resolve pinned action results "
+            "for this run. Used for compact event synthesis in read APIs."
+        ),
     )
 
     @field_validator("wf_id", mode="before")

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from collections.abc import AsyncGenerator, Awaitable, Sequence
 from typing import Any
 
@@ -28,9 +28,14 @@ from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Interaction
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import RETRY_POLICIES, DSLInput, DSLRunArgs
+from tracecat.dsl.common import (
+    RETRY_POLICIES,
+    DSLInput,
+    DSLRunArgs,
+    edge_components_from_dep,
+)
 from tracecat.dsl.enums import PlatformAction
-from tracecat.dsl.schemas import TriggerInputs
+from tracecat.dsl.schemas import ROOT_STREAM, TaskResult, TriggerInputs
 from tracecat.dsl.types import Task
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.schemas import InteractionInput
@@ -39,6 +44,7 @@ from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
     WorkflowExecutionID,
     WorkflowID,
+    exec_id_to_parts,
     generate_exec_id,
 )
 from tracecat.logger import logger
@@ -49,6 +55,7 @@ from tracecat.storage.collection import (
 from tracecat.storage.object import (
     CollectionObject,
     ExternalObject,
+    InlineObject,
     StoredObject,
     StoredObjectValidator,
     get_object_storage,
@@ -81,6 +88,7 @@ from tracecat.workflow.executions.schemas import (
     WorkflowExecutionEvent,
     WorkflowExecutionEventCompact,
 )
+from tracecat.workflow.management.schemas import WorkflowDraftPins
 from tracecat.workspaces.service import WorkspaceService
 
 
@@ -150,6 +158,335 @@ class WorkflowExecutionsService:
         if message:
             return message
         return str(cause) or current.__class__.__name__
+
+    @staticmethod
+    def _pin_event_sort_key(
+        event: WorkflowExecutionEventCompact,
+    ) -> tuple[bool, datetime.datetime, int]:
+        return (
+            event.stream_id == ROOT_STREAM,
+            event.close_time or event.start_time or event.schedule_time,
+            event.source_event_id,
+        )
+
+    @staticmethod
+    def _coerce_pinned_task_result(result: Any) -> TaskResult:
+        if isinstance(result, TaskResult):
+            return result
+        try:
+            return TaskResult.model_validate(result)
+        except ValidationError:
+            pass
+        try:
+            stored = StoredObjectValidator.validate_python(result)
+        except ValidationError:
+            return TaskResult.from_result(result)
+
+        match stored:
+            case InlineObject(data=data):
+                result_typename = stored.typename or type(data).__name__
+            case CollectionObject():
+                result_typename = stored.typename or "list"
+            case ExternalObject():
+                result_typename = stored.typename or "external"
+
+        return TaskResult(
+            result=stored,
+            result_typename=result_typename,
+        )
+
+    @staticmethod
+    def parse_draft_pins(
+        draft_pins: dict[str, Any] | None,
+    ) -> WorkflowDraftPins | None:
+        if not draft_pins:
+            return None
+        try:
+            return WorkflowDraftPins.model_validate(draft_pins)
+        except ValidationError:
+            return None
+
+    @classmethod
+    def _select_latest_completed_events_by_ref(
+        cls,
+        events: Sequence[WorkflowExecutionEventCompact],
+        target_refs: set[str],
+    ) -> dict[str, WorkflowExecutionEventCompact]:
+        selected_events: dict[str, WorkflowExecutionEventCompact] = {}
+        for event in events:
+            if event.action_ref not in target_refs:
+                continue
+            if event.status != WorkflowExecutionEventStatus.COMPLETED:
+                continue
+            if event.action_error is not None:
+                continue
+            existing = selected_events.get(event.action_ref)
+            if existing is None or cls._pin_event_sort_key(
+                event
+            ) > cls._pin_event_sort_key(existing):
+                selected_events[event.action_ref] = event
+        return selected_events
+
+    async def _get_start_run_context(
+        self, wf_exec_id: WorkflowExecutionID
+    ) -> tuple[DSLRunArgs, datetime.datetime] | None:
+        handle = self.handle(wf_exec_id)
+        async for event in handle.fetch_history_events():
+            if event.event_type != EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
+                continue
+            attrs = event.workflow_execution_started_event_attributes
+            run_args_data = await extract_first(attrs.input)
+            started_at = event.event_time.ToDatetime(datetime.UTC)
+            try:
+                return DSLRunArgs(**run_args_data), started_at
+            except ValidationError as e:
+                self.logger.warning(
+                    "Failed to parse workflow start args",
+                    wf_exec_id=wf_exec_id,
+                    error=e,
+                )
+                return None
+        return None
+
+    @staticmethod
+    def _compute_dag_ref_order(dsl: DSLInput | None) -> dict[str, int]:
+        if dsl is None or not dsl.actions:
+            return {}
+
+        action_refs = [action.ref for action in dsl.actions]
+        ref_set = set(action_refs)
+        ref_position = {ref: idx for idx, ref in enumerate(action_refs)}
+        indegrees = dict.fromkeys(action_refs, 0)
+        adjacency: dict[str, set[str]] = {ref: set() for ref in action_refs}
+
+        for action in dsl.actions:
+            for dep_ref in action.depends_on:
+                source_ref, _edge_type = edge_components_from_dep(dep_ref)
+                if source_ref not in ref_set:
+                    continue
+                if action.ref in adjacency[source_ref]:
+                    continue
+                adjacency[source_ref].add(action.ref)
+                indegrees[action.ref] += 1
+
+        queue: deque[str] = deque(
+            ref for ref in action_refs if indegrees.get(ref, 0) == 0
+        )
+        sorted_refs: list[str] = []
+        while queue:
+            ref = queue.popleft()
+            sorted_refs.append(ref)
+            for child_ref in sorted(adjacency[ref], key=ref_position.__getitem__):
+                indegrees[child_ref] -= 1
+                if indegrees[child_ref] == 0:
+                    queue.append(child_ref)
+
+        if len(sorted_refs) != len(action_refs):
+            already_sorted = set(sorted_refs)
+            for ref in action_refs:
+                if ref not in already_sorted:
+                    sorted_refs.append(ref)
+
+        return {ref: idx for idx, ref in enumerate(sorted_refs)}
+
+    @classmethod
+    def _order_compact_events_by_dag(
+        cls,
+        events: list[WorkflowExecutionEventCompact],
+        dsl: DSLInput | None,
+    ) -> list[WorkflowExecutionEventCompact]:
+        dag_order = cls._compute_dag_ref_order(dsl)
+        if not dag_order:
+            return events
+
+        fallback_rank = len(dag_order) + 1
+        indexed = list(enumerate(events))
+        indexed.sort(
+            key=lambda item: (
+                dag_order.get(item[1].action_ref, fallback_rank),
+                item[0],
+            )
+        )
+        return [event for _, event in indexed]
+
+    async def _stitch_pinned_compact_events(
+        self,
+        *,
+        wf_exec_id: WorkflowExecutionID,
+        compact_events: list[WorkflowExecutionEventCompact],
+    ) -> list[WorkflowExecutionEventCompact]:
+        run_context = await self._get_start_run_context(wf_exec_id)
+        if run_context is None:
+            return compact_events
+
+        run_args, run_started_at = run_context
+        if not run_args.pinned_action_results:
+            return compact_events
+
+        pinned_refs = set(run_args.pinned_action_results)
+        if not pinned_refs:
+            return compact_events
+
+        existing_refs = {event.action_ref for event in compact_events}
+        refs_to_stitch = sorted(pinned_refs - existing_refs)
+        if not refs_to_stitch:
+            return compact_events
+
+        source_execution_id = run_args.pinned_source_execution_id
+        if source_execution_id is None:
+            self.logger.debug(
+                "Pinned refs present but no source execution ID on run args",
+                wf_exec_id=wf_exec_id,
+                pinned_refs=sorted(pinned_refs),
+            )
+            return compact_events
+        if source_execution_id == wf_exec_id:
+            return compact_events
+
+        try:
+            source_events = await self.list_workflow_execution_events_compact(
+                source_execution_id,
+                include_pinned_synthetic=False,
+            )
+        except Exception as e:
+            self.logger.warning(
+                "Failed to load pinned source execution compact events",
+                wf_exec_id=wf_exec_id,
+                source_execution_id=source_execution_id,
+                error=e,
+            )
+            return compact_events
+
+        selected_source = self._select_latest_completed_events_by_ref(
+            source_events, set(refs_to_stitch)
+        )
+        if not selected_source:
+            return compact_events
+
+        stitched_events = list(compact_events)
+        unresolved_refs: list[str] = []
+        for ref in refs_to_stitch:
+            source_event = selected_source.get(ref)
+            if source_event is None:
+                unresolved_refs.append(ref)
+                continue
+            stitched_event = source_event.model_copy(deep=True)
+            stitched_event.synthetic_kind = "pinned"
+            stitched_event.pinned_source_execution_id = source_execution_id
+            stitched_event.pinned_source_event_id = source_event.source_event_id
+            stitched_event.schedule_time = run_started_at
+            stitched_event.start_time = run_started_at
+            stitched_event.close_time = run_started_at
+            stitched_event.session = None
+            stitched_events.append(stitched_event)
+
+        if unresolved_refs:
+            self.logger.warning(
+                "Some pinned refs could not be stitched into compact events",
+                wf_exec_id=wf_exec_id,
+                source_execution_id=source_execution_id,
+                unresolved_refs=unresolved_refs,
+            )
+
+        return self._order_compact_events_by_dag(stitched_events, run_args.dsl)
+
+    async def resolve_draft_pinned_action_results(
+        self,
+        *,
+        wf_id: WorkflowID,
+        dsl: DSLInput,
+        draft_pins: dict[str, Any] | None,
+    ) -> dict[str, TaskResult]:
+        """Best-effort resolve draft pin config to action TaskResults.
+
+        Fail-open behavior:
+        - Invalid config returns empty pins.
+        - Missing execution/refs return empty or partial pins.
+        - Resolution warnings are logged but never raised to callers.
+        """
+        if not draft_pins:
+            return {}
+
+        pins = self.parse_draft_pins(draft_pins)
+        if pins is None:
+            self.logger.warning("Invalid draft pin config; ignoring")
+            return {}
+
+        if not pins.action_refs:
+            return {}
+
+        try:
+            source_wf_id, _ = exec_id_to_parts(pins.source_execution_id)
+        except ValueError as e:
+            self.logger.warning(
+                "Invalid draft pin source execution ID; ignoring",
+                source_execution_id=pins.source_execution_id,
+                error=e,
+            )
+            return {}
+
+        if source_wf_id != wf_id:
+            self.logger.warning(
+                "Draft pin source execution workflow mismatch; ignoring",
+                source_workflow_id=source_wf_id,
+                target_workflow_id=wf_id,
+                source_execution_id=pins.source_execution_id,
+            )
+            return {}
+
+        source_execution = await self.get_execution(pins.source_execution_id)
+        if source_execution is None:
+            self.logger.warning(
+                "Draft pin source execution not found or inaccessible; ignoring",
+                source_execution_id=pins.source_execution_id,
+            )
+            return {}
+
+        dsl_refs = {task.ref for task in dsl.actions}
+        target_refs = [ref for ref in pins.action_refs if ref in dsl_refs]
+        missing_refs = sorted(set(pins.action_refs) - dsl_refs)
+        if missing_refs:
+            self.logger.warning(
+                "Some pinned refs are missing in current draft DSL",
+                missing_refs=missing_refs,
+                source_execution_id=pins.source_execution_id,
+            )
+        if not target_refs:
+            return {}
+
+        try:
+            events = await self.list_workflow_execution_events_compact(
+                pins.source_execution_id
+            )
+        except Exception as e:
+            self.logger.warning(
+                "Failed to load source execution events for draft pins; ignoring",
+                source_execution_id=pins.source_execution_id,
+                error=e,
+            )
+            return {}
+
+        selected_events = self._select_latest_completed_events_by_ref(
+            events, set(target_refs)
+        )
+
+        pinned_results: dict[str, TaskResult] = {}
+        unresolved_refs: list[str] = []
+        for ref in target_refs:
+            event = selected_events.get(ref)
+            if event is None:
+                unresolved_refs.append(ref)
+                continue
+            pinned_results[ref] = self._coerce_pinned_task_result(event.action_result)
+
+        if unresolved_refs:
+            self.logger.warning(
+                "Could not resolve all pinned refs from source execution",
+                unresolved_refs=unresolved_refs,
+                source_execution_id=pins.source_execution_id,
+            )
+
+        return pinned_results
 
     @staticmethod
     async def connect(role: Role | None = None) -> WorkflowExecutionsService:
@@ -326,6 +663,8 @@ class WorkflowExecutionsService:
     async def list_workflow_execution_events_compact(
         self,
         wf_exec_id: WorkflowExecutionID,
+        *,
+        include_pinned_synthetic: bool = False,
         **kwargs,
     ) -> list[WorkflowExecutionEventCompact]:
         """List the event history of a workflow execution."""
@@ -500,7 +839,13 @@ class WorkflowExecutionsService:
                 if event.loop_index is not None:
                     task2events[task].action_result = [event.action_result]
 
-        return list(task2events.values())
+        compact_events = list(task2events.values())
+        if include_pinned_synthetic:
+            compact_events = await self._stitch_pinned_compact_events(
+                wf_exec_id=wf_exec_id,
+                compact_events=compact_events,
+            )
+        return compact_events
 
     async def get_external_action_result(
         self,
@@ -1032,6 +1377,8 @@ class WorkflowExecutionsService:
         trigger_type: TriggerType = TriggerType.MANUAL,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        pinned_action_results: dict[str, TaskResult] | None = None,
+        pinned_source_execution_id: WorkflowExecutionID | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a new draft workflow execution.
 
@@ -1048,6 +1395,8 @@ class WorkflowExecutionsService:
             registry_lock=registry_lock,
             trigger_inputs=payload,
             execution_type=ExecutionType.DRAFT,
+            pinned_action_results=pinned_action_results,
+            pinned_source_execution_id=pinned_source_execution_id,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
@@ -1068,6 +1417,8 @@ class WorkflowExecutionsService:
         wf_exec_id: WorkflowExecutionID | None = None,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        pinned_action_results: dict[str, TaskResult] | None = None,
+        pinned_source_execution_id: WorkflowExecutionID | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a draft workflow execution and wait until Temporal acknowledges start."""
         if wf_exec_id is None:
@@ -1082,6 +1433,8 @@ class WorkflowExecutionsService:
             execution_type=ExecutionType.DRAFT,
             time_anchor=time_anchor,
             registry_lock=registry_lock,
+            pinned_action_results=pinned_action_results,
+            pinned_source_execution_id=pinned_source_execution_id,
         )
 
         return WorkflowExecutionCreateResponse(
@@ -1101,6 +1454,8 @@ class WorkflowExecutionsService:
         wf_exec_id: WorkflowExecutionID | None = None,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        pinned_action_results: dict[str, TaskResult] | None = None,
+        pinned_source_execution_id: WorkflowExecutionID | None = None,
     ) -> WorkflowDispatchResponse:
         """Create a new draft workflow execution.
 
@@ -1118,6 +1473,8 @@ class WorkflowExecutionsService:
             execution_type=ExecutionType.DRAFT,
             time_anchor=time_anchor,
             registry_lock=registry_lock,
+            pinned_action_results=pinned_action_results,
+            pinned_source_execution_id=pinned_source_execution_id,
         )
 
     @audit_log(resource_type="workflow_execution", action="create")
@@ -1165,6 +1522,8 @@ class WorkflowExecutionsService:
         execution_type: ExecutionType = ExecutionType.PUBLISHED,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        pinned_action_results: dict[str, TaskResult] | None = None,
+        pinned_source_execution_id: WorkflowExecutionID | None = None,
         **kwargs: Any,
     ) -> WorkflowDispatchResponse:
         if self.role is None:
@@ -1239,6 +1598,8 @@ class WorkflowExecutionsService:
                     execution_type=execution_type,
                     time_anchor=time_anchor,
                     registry_lock=registry_lock,
+                    pinned_action_results=pinned_action_results or {},
+                    pinned_source_execution_id=pinned_source_execution_id,
                 ),
                 id=wf_exec_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
@@ -1300,6 +1661,8 @@ class WorkflowExecutionsService:
         execution_type: ExecutionType = ExecutionType.PUBLISHED,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        pinned_action_results: dict[str, TaskResult] | None = None,
+        pinned_source_execution_id: WorkflowExecutionID | None = None,
         **kwargs: Any,
     ) -> None:
         if self.role is None:
@@ -1387,6 +1750,8 @@ class WorkflowExecutionsService:
                         execution_type=execution_type,
                         time_anchor=time_anchor,
                         registry_lock=registry_lock,
+                        pinned_action_results=pinned_action_results or {},
+                        pinned_source_execution_id=pinned_source_execution_id,
                     ),
                     id=wf_exec_id,
                     task_queue=config.TEMPORAL__CLUSTER_QUEUE,

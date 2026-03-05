@@ -11,6 +11,7 @@ import {
   EyeOffIcon,
   LayoutListIcon,
   LoaderIcon,
+  PinIcon,
   Repeat2Icon,
   ScanEyeIcon,
   SquareArrowOutUpRightIcon,
@@ -49,7 +50,9 @@ import {
   executionId,
   getLatestLoopEventMeta,
   getLoopEventMeta,
+  getSyntheticPinnedEventMeta,
   groupEventsByActionRef,
+  isSyntheticPinnedEvent,
   refToLabel,
   WF_COMPLETED_EVENT_REF,
   WF_FAILURE_EVENT_REF,
@@ -337,6 +340,10 @@ export function WorkflowEvents({
     ({ actionRef, relatedEvents, latestEvent }) => {
       const aggregateStatus = getAggregateWorkflowEventStatus(relatedEvents)
       const latestStartTime = getLatestStartTime(relatedEvents)
+      const syntheticPinnedMeta = latestEvent
+        ? getSyntheticPinnedEventMeta(latestEvent)
+        : null
+      const hasSyntheticPinnedEvent = relatedEvents.some(isSyntheticPinnedEvent)
       const isLoopAction =
         latestEvent?.action_name === "core.loop.start" ||
         latestEvent?.action_name === "core.loop.end"
@@ -353,7 +360,20 @@ export function WorkflowEvents({
 
       return {
         key: actionRef,
-        label: refToLabel(actionRef),
+        label: hasSyntheticPinnedEvent ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate">{refToLabel(actionRef)}</span>
+            <Badge
+              variant="outline"
+              className="h-4 border-dashed px-1.5 text-[10px] font-medium"
+            >
+              <PinIcon className="mr-1 size-2.5" />
+              Pinned
+            </Badge>
+          </div>
+        ) : (
+          refToLabel(actionRef)
+        ),
         meta: loopBadge,
         time: latestStartTime
           ? new Date(latestStartTime).toLocaleTimeString()
@@ -383,71 +403,88 @@ export function WorkflowEvents({
         selected: selectedActionEventRef === actionRef,
         count: instanceCount,
         subflowLink: childWorkflowRunLink,
+        variant: hasSyntheticPinnedEvent ? "pinned" : "default",
         onSelect: () => handleRowClick(actionRef),
         trailing: (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                className="size-4 p-0 focus-visible:ring-0"
-                variant="ghost"
-              >
-                <DotsHorizontalIcon className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              className={cn(
-                "flex flex-col",
-                "[&_[data-radix-collection-item]]:flex",
-                "[&_[data-radix-collection-item]]:items-center",
-                "[&_[data-radix-collection-item]]:gap-2",
-                "[&_[data-radix-collection-item]]:text-xs",
-                "[&_[data-radix-collection-item]]:text-foreground/80"
-              )}
-            >
-              <DropdownMenuItem
-                disabled={!isActionRefValid(actionRef)}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  sidebarRef.current?.setOpen(true)
-                  sidebarRef.current?.setActiveTab("action-input")
-                  setSelectedActionEventRef(actionRef)
-                }}
-              >
-                <LayoutListIcon className="size-3" />
-                <span>View last input</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={
-                  !isActionRefValid(actionRef) &&
-                  actionRef !== WF_FAILURE_EVENT_REF &&
-                  actionRef !== WF_COMPLETED_EVENT_REF
-                }
-                onClick={(e) => {
-                  e.stopPropagation()
-                  sidebarRef.current?.setOpen(true)
-                  sidebarRef.current?.setActiveTab("action-result")
-                  setSelectedActionEventRef(actionRef)
-                }}
-              >
-                <CircleCheckBigIcon className="size-3" />
-                <span>View last result</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!isActionRefValid(actionRef)}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  centerNode(actionRef)
-                }}
-              >
-                {!isActionRefValid(actionRef) ? (
-                  <EyeOffIcon className="size-3" />
-                ) : (
-                  <ScanEyeIcon className="size-3" />
+          <div className="flex items-center gap-1">
+            {syntheticPinnedMeta && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="inline-flex size-4 items-center justify-center rounded-sm border border-dashed border-zinc-400 text-zinc-700">
+                    <PinIcon className="size-2.5" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  <span>
+                    Pinned from {syntheticPinnedMeta.source_execution_id}
+                  </span>
+                </TooltipContent>
+              </Tooltip>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  className="size-4 p-0 focus-visible:ring-0"
+                  variant="ghost"
+                >
+                  <DotsHorizontalIcon className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                className={cn(
+                  "flex flex-col",
+                  "[&_[data-radix-collection-item]]:flex",
+                  "[&_[data-radix-collection-item]]:items-center",
+                  "[&_[data-radix-collection-item]]:gap-2",
+                  "[&_[data-radix-collection-item]]:text-xs",
+                  "[&_[data-radix-collection-item]]:text-foreground/80"
                 )}
-                <span>Focus action</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              >
+                <DropdownMenuItem
+                  disabled={!isActionRefValid(actionRef)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    sidebarRef.current?.setOpen(true)
+                    sidebarRef.current?.setActiveTab("action-input")
+                    setSelectedActionEventRef(actionRef)
+                  }}
+                >
+                  <LayoutListIcon className="size-3" />
+                  <span>View last input</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={
+                    !isActionRefValid(actionRef) &&
+                    actionRef !== WF_FAILURE_EVENT_REF &&
+                    actionRef !== WF_COMPLETED_EVENT_REF
+                  }
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    sidebarRef.current?.setOpen(true)
+                    sidebarRef.current?.setActiveTab("action-result")
+                    setSelectedActionEventRef(actionRef)
+                  }}
+                >
+                  <CircleCheckBigIcon className="size-3" />
+                  <span>View last result</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!isActionRefValid(actionRef)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    centerNode(actionRef)
+                  }}
+                >
+                  {!isActionRefValid(actionRef) ? (
+                    <EyeOffIcon className="size-3" />
+                  ) : (
+                    <ScanEyeIcon className="size-3" />
+                  )}
+                  <span>Focus action</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         ),
       }
     }
