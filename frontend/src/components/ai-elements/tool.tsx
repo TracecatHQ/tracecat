@@ -35,17 +35,22 @@ export const Tool = ({ className, ...props }: ToolProps) => (
 )
 
 type AnyToolUIPart = ToolUIPart | DynamicToolUIPart
+type LegacyToolState =
+  | "approval-requested"
+  | "approval-responded"
+  | "output-denied"
+type ToolState = AnyToolUIPart["state"] | LegacyToolState
 
 export type ToolHeaderProps = {
   title?: string
   type: AnyToolUIPart["type"]
-  state: AnyToolUIPart["state"]
+  state: ToolState
   className?: string
   icon?: ReactNode
 }
 
-const getStatusBadge = (status: AnyToolUIPart["state"]) => {
-  const labels: Record<AnyToolUIPart["state"], string> = {
+const getStatusBadge = (status: ToolState) => {
+  const labels: Record<ToolState, string> = {
     "input-streaming": "Pending",
     "input-available": "Running",
     "approval-requested": "Needs approval",
@@ -55,7 +60,7 @@ const getStatusBadge = (status: AnyToolUIPart["state"]) => {
     "output-denied": "Denied",
   }
 
-  const icons: Record<AnyToolUIPart["state"], ReactNode> = {
+  const icons: Record<ToolState, ReactNode> = {
     "input-streaming": (
       <CircleIcon className="size-3.5 text-muted-foreground animate-pulse" />
     ),

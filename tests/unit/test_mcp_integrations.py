@@ -223,6 +223,65 @@ class TestMCPIntegrationCRUD:
         assert headers.get("Authorization") == "Bearer test_access_token"
         assert headers.get("X-Wiz-Tenant") == "tenant-a"
 
+    async def test_resolve_oauth2_mcp_filters_authorization_header_variants(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Test OAUTH2 MCP rejects Authorization header override with any casing."""
+        params = MCPHttpIntegrationCreate(
+            name="Wiz MCP with auth variants",
+            server_uri="https://mcp.app.wiz.io/",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration.id,
+            custom_credentials=SecretStr(
+                '{"authorization":"Bearer bad-lower","AUTHORIZATION":"Bearer bad-upper","X-Wiz-Tenant":"tenant-a"}'
+            ),
+        )
+        created = await integration_service.create_mcp_integration(params=params)
+
+        preset_service = AgentPresetService(
+            session=integration_service.session,
+            role=integration_service.role,
+        )
+        resolved = await preset_service._resolve_mcp_integrations([str(created.id)])
+
+        assert resolved is not None
+        assert len(resolved) == 1
+        headers = resolved[0].get("headers")
+        assert isinstance(headers, dict)
+        assert headers.get("Authorization") == "Bearer test_access_token"
+        assert headers.get("X-Wiz-Tenant") == "tenant-a"
+        assert "authorization" not in headers
+        assert "AUTHORIZATION" not in headers
+
+    async def test_resolve_oauth2_mcp_ignores_invalid_optional_headers(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Test malformed optional OAuth2 headers do not disable MCP resolution."""
+        params = MCPHttpIntegrationCreate(
+            name="Wiz MCP invalid headers",
+            server_uri="https://mcp.app.wiz.io/",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration.id,
+            custom_credentials=SecretStr("not valid json"),
+        )
+        created = await integration_service.create_mcp_integration(params=params)
+
+        preset_service = AgentPresetService(
+            session=integration_service.session,
+            role=integration_service.role,
+        )
+        resolved = await preset_service._resolve_mcp_integrations([str(created.id)])
+
+        assert resolved is not None
+        assert len(resolved) == 1
+        headers = resolved[0].get("headers")
+        assert isinstance(headers, dict)
+        assert headers == {"Authorization": "Bearer test_access_token"}
+
     async def test_get_mcp_integration_not_found(
         self,
         integration_service: IntegrationService,
@@ -677,6 +736,31 @@ class TestMCPIntegrationAuthTypeSwapping:
         assert updated is not None
         assert updated.auth_type == MCPAuthType.OAUTH2
         assert updated.encrypted_headers == original_encrypted_headers
+
+    async def test_oauth2_headers_cleared_with_empty_custom_credentials(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Test OAUTH2 additional headers clear when updated with empty credentials."""
+        params = MCPHttpIntegrationCreate(
+            name="Test MCP",
+            server_uri="https://api.example.com/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration.id,
+            custom_credentials=SecretStr('{"X-Wiz-Tenant": "tenant-a"}'),
+        )
+        created = await integration_service.create_mcp_integration(params=params)
+        assert created.encrypted_headers is not None
+
+        update_params = MCPIntegrationUpdate(custom_credentials=SecretStr(""))
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=created.id, params=update_params
+        )
+
+        assert updated is not None
+        assert updated.auth_type == MCPAuthType.OAUTH2
+        assert updated.encrypted_headers is None
 
 
 @pytest.mark.anyio

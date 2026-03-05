@@ -469,17 +469,27 @@ class AgentPresetService(BaseWorkspaceService):
                         mcp_integration_name=mcp_integration.name,
                     )
                     if custom_headers is None:
-                        continue
-                    if "Authorization" in custom_headers:
+                        # OAuth2 additional headers are optional; malformed values should
+                        # not disable the integration when an access token is available.
+                        custom_headers = {}
+
+                    auth_header_keys = [
+                        key
+                        for key in custom_headers
+                        if key.strip().casefold() == "authorization"
+                    ]
+                    if auth_header_keys:
                         logger.warning(
-                            "Ignoring custom Authorization header for OAUTH2 MCP integration %r",
+                            "Ignoring custom Authorization header variants for OAUTH2 MCP integration %r",
                             mcp_integration.name,
                             extra={
                                 "workspace_id": str(self.workspace_id),
                                 "mcp_integration_id": str(mcp_integration.id),
+                                "dropped_header_keys": auth_header_keys,
                             },
                         )
-                        custom_headers.pop("Authorization")
+                        for auth_header_key in auth_header_keys:
+                            custom_headers.pop(auth_header_key, None)
                     headers.update(custom_headers)
 
             elif mcp_integration.auth_type == MCPAuthType.CUSTOM:

@@ -435,6 +435,26 @@ export function MCPIntegrationDialog({
         description: values.description?.trim() || undefined,
         timeout: values.timeout,
       }
+      const trimmedCustomCredentials = values.custom_credentials?.trim() ?? ""
+      const customCredentialsWasEdited = Boolean(
+        form.formState.dirtyFields.custom_credentials
+      )
+
+      let customCredentialsForCreate: string | undefined
+      if (values.auth_type !== "NONE" && trimmedCustomCredentials !== "") {
+        customCredentialsForCreate = trimmedCustomCredentials
+      }
+
+      let customCredentialsForUpdate: string | undefined
+      if (values.auth_type !== "NONE") {
+        if (trimmedCustomCredentials !== "") {
+          customCredentialsForUpdate = trimmedCustomCredentials
+        } else if (customCredentialsWasEdited) {
+          // Explicitly send an empty string when a user clears the editor in edit mode.
+          customCredentialsForUpdate = ""
+        }
+      }
+
       if (isEditMode && mcpIntegrationId) {
         const params: MCPIntegrationUpdate =
           values.server_type === "stdio"
@@ -452,10 +472,7 @@ export function MCPIntegrationDialog({
                   values.auth_type === "OAUTH2" && values.oauth_integration_id
                     ? values.oauth_integration_id
                     : undefined,
-                custom_credentials:
-                  values.auth_type !== "NONE" && values.custom_credentials
-                    ? values.custom_credentials.trim()
-                    : undefined,
+                custom_credentials: customCredentialsForUpdate,
               }
         await updateMcpIntegration({
           mcpIntegrationId,
@@ -481,10 +498,7 @@ export function MCPIntegrationDialog({
               values.auth_type === "OAUTH2" && values.oauth_integration_id
                 ? values.oauth_integration_id
                 : undefined,
-            custom_credentials:
-              values.auth_type !== "NONE" && values.custom_credentials
-                ? values.custom_credentials.trim()
-                : undefined,
+            custom_credentials: customCredentialsForCreate,
           }
           await createMcpIntegration(params)
         }

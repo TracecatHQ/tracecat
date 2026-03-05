@@ -5,6 +5,11 @@ import type { ApprovalCard } from "@/hooks/use-chat"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 
 type ServerToolPart = Extract<UIMessage["parts"][number], { state: string }>
+type LegacyToolState =
+  | "approval-requested"
+  | "approval-responded"
+  | "output-denied"
+type ToolState = ai.ToolUIPart["state"] | LegacyToolState
 
 export function isAgentSessionEntity(
   value: unknown
@@ -102,7 +107,9 @@ export function toUIMessage(message: UIMessage): ai.UIMessage {
 function normalizeToolPartForServer(
   part: ai.ToolUIPart | ai.DynamicToolUIPart
 ): ServerToolPart {
-  switch (part.state) {
+  const state = part.state as ToolState
+
+  switch (state) {
     case "input-streaming":
     case "input-available":
     case "output-available":
@@ -110,21 +117,25 @@ function normalizeToolPartForServer(
       return part as unknown as ServerToolPart
     case "approval-requested":
     case "approval-responded": {
-      const { approval: _approval, ...rest } = part
+      const { approval: _approval, ...rest } = part as ai.DynamicToolUIPart & {
+        approval?: unknown
+      }
       return { ...rest, state: "input-available" } as unknown as ServerToolPart
     }
     case "output-denied": {
-      const { approval, ...rest } = part
+      const { approval, ...rest } = part as ai.DynamicToolUIPart & {
+        approval?: { reason?: string | null }
+      }
       return {
         ...rest,
         state: "output-error",
         errorText:
-          approval.reason?.trim() ||
+          approval?.reason?.trim() ||
           "Tool execution was denied by user approval.",
       } as unknown as ServerToolPart
     }
     default: {
-      const _exhaustive: never = part
+      const _exhaustive: never = state
       throw new Error(
         `Unhandled tool part state in server conversion: ${JSON.stringify(_exhaustive)}`
       )
