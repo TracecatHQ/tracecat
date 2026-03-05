@@ -314,6 +314,9 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - **Reduce round-trips when beneficial**: Consolidate multiple database calls into a single query (e.g., using joins, subqueries, CTEs, or `RETURNING` clauses) *only when it meaningfully reduces latency, simplifies the code, or avoids consistency issues*. Do not force everything into one query if it sacrifices readability or correctness — multiple clear queries are preferable to one convoluted one.
 - **Prefer `select()` projections**: Select only the columns you need rather than loading entire ORM models when only a few fields are required, especially for list/search endpoints.
 - **Use `RETURNING`**: For insert/update/delete operations that need the resulting row, use the `RETURNING` clause instead of issuing a separate SELECT.
+- **Use PostgreSQL `INSERT ... ON CONFLICT`** for upserts via `sqlalchemy.dialects.postgresql.insert` — do not emulate upsert with SELECT-then-INSERT/UPDATE.
+- **Use `EXISTS`** (`select(exists().where(...))`) to check row existence instead of fetching full rows and checking in Python.
+- **Batch queries to avoid N+1 round-trips**: Use `IN` clauses, joins, or eager loading instead of issuing one query per item in a loop. More broadly, minimize round-trips on all paths — consolidate related queries where it doesn't sacrifice clarity.
 
 ### Type Organization Guidelines
 When adding new types, follow this pattern:
