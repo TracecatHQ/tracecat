@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 from cryptography.fernet import InvalidToken
 from pydantic import ValidationError
 from slack_sdk.web.async_client import AsyncWebClient
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
 
 from tracecat import config
@@ -352,12 +352,14 @@ class AgentChannelService(BaseWorkspaceService):
         )
 
     async def _require_workspace_preset(self, preset_id: uuid.UUID) -> None:
-        stmt = select(AgentPreset.id).where(
-            AgentPreset.id == preset_id,
-            AgentPreset.workspace_id == self.workspace_id,
+        stmt = select(
+            exists().where(
+                AgentPreset.id == preset_id,
+                AgentPreset.workspace_id == self.workspace_id,
+            )
         )
         result = await self.session.execute(stmt)
-        if result.scalar_one_or_none() is None:
+        if not result.scalar():
             raise TracecatNotFoundError(
                 f"Agent preset with ID '{preset_id}' not found in workspace"
             )

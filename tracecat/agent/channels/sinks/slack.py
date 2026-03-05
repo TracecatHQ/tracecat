@@ -1,10 +1,10 @@
-"""Stream sinks for external agent channels."""
+"""Slack stream sink for external agent channels."""
 
 from __future__ import annotations
 
 import json
 from time import monotonic
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
@@ -16,20 +16,6 @@ from tracecat.agent.channels.handlers.slack_helpers import (
 )
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.logger import logger
-
-
-@runtime_checkable
-class ExternalChannelSink(Protocol):
-    """Sink interface used by LoopbackHandler for external channels."""
-
-    async def append(self, event: UnifiedStreamEvent) -> None:
-        """Append a runtime stream event."""
-
-    async def error(self, error: str) -> None:
-        """Emit a terminal error."""
-
-    async def done(self) -> None:
-        """Emit a terminal completion signal."""
 
 
 class SlackStreamSink:
@@ -77,15 +63,13 @@ class SlackStreamSink:
 
     @staticmethod
     def _extract_stream_ts(response: dict[str, Any]) -> str | None:
-        ts = response.get("ts")
-        if isinstance(ts, str):
-            return ts
-        message = response.get("message")
-        if isinstance(message, dict):
-            message_ts = message.get("ts")
-            if isinstance(message_ts, str):
-                return message_ts
-        return None
+        match response:
+            case {"ts": str(ts)}:
+                return ts
+            case {"message": {"ts": str(ts)}}:
+                return ts
+            case _:
+                return None
 
     async def _ensure_stream_started(self) -> None:
         if self._stream_ts is not None:

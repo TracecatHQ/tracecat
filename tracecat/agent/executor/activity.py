@@ -43,6 +43,7 @@ from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
+    LoopbackResult,
 )
 from tracecat.agent.mcp.executor import ActionExecutionError, execute_action
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
@@ -128,7 +129,7 @@ class SandboxedAgentExecutor:
     _process: asyncio.subprocess.Process | None = field(
         default=None, init=False, repr=False
     )
-    _loopback_result: asyncio.Future | None = field(
+    _loopback_result: asyncio.Future[LoopbackResult] | None = field(
         default=None, init=False, repr=False
     )
     _llm_proxy: LLMSocketProxy | None = field(default=None, init=False, repr=False)
@@ -288,7 +289,7 @@ class SandboxedAgentExecutor:
 
                 try:
 
-                    def _apply_loopback_result(loopback_result: Any) -> None:
+                    def _apply_loopback_result(loopback_result: LoopbackResult) -> None:
                         """Copy loopback result fields into the activity result."""
                         result.success = loopback_result.success
                         result.error = loopback_result.error

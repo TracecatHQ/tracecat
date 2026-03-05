@@ -27,7 +27,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from tracecat.agent.channels.schemas import ChannelType
 from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
-from tracecat.agent.channels.sinks import ExternalChannelSink, SlackStreamSink
+from tracecat.agent.channels.sinks import ExternalChannelSink
+from tracecat.agent.channels.sinks.slack import SlackStreamSink
 from tracecat.agent.common.protocol import RuntimeEventEnvelope, RuntimeInitPayload
 from tracecat.agent.common.socket_io import MessageType, build_message, read_message
 from tracecat.agent.common.stream_types import (
@@ -88,6 +89,43 @@ class LoopbackResult:
     output: Any = None
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ResolvedSlackContext:
+    """Parsed and validated Slack channel context for sink construction."""
+
+    channel_id: str
+    thread_ts: str
+    recipient_user_id: str | None = None
+    recipient_team_id: str | None = None
+    reaction_ts: str | None = None
+
+    @classmethod
+    def from_channel_context(cls, ctx: dict[str, Any]) -> ResolvedSlackContext | None:
+        """Parse a channel_context dict into a validated context, or None on failure."""
+        channel_id = ctx.get("channel_id")
+        thread_ts = ctx.get("thread_ts")
+        if not isinstance(channel_id, str) or not isinstance(thread_ts, str):
+            return None
+
+        recipient_user_id = ctx.get("user_id")
+        recipient_team_id = ctx.get("team_id")
+        reaction_ts = ctx.get("message_ts")
+        if not isinstance(reaction_ts, str):
+            reaction_ts = ctx.get("event_ts")
+
+        return cls(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            recipient_user_id=recipient_user_id
+            if isinstance(recipient_user_id, str)
+            else None,
+            recipient_team_id=recipient_team_id
+            if isinstance(recipient_team_id, str)
+            else None,
+            reaction_ts=reaction_ts if isinstance(reaction_ts, str) else None,
+        )
 
 
 class LoopbackEventSink(Protocol):
@@ -327,26 +365,14 @@ class LoopbackHandler:
                 )
                 return None
 
-            channel_id = channel_context.get("channel_id")
-            thread_ts = channel_context.get("thread_ts")
-            if not isinstance(channel_id, str) or not isinstance(thread_ts, str):
+            slack_ctx = ResolvedSlackContext.from_channel_context(channel_context)
+            if slack_ctx is None:
                 logger.warning(
                     "Slack channel context missing channel_id/thread_ts; falling back to Redis",
                     session_id=self.input.session_id,
                     channel_context=channel_context,
                 )
                 return None
-            recipient_user_id = channel_context.get("user_id")
-            recipient_team_id = channel_context.get("team_id")
-            reaction_ts = channel_context.get("message_ts")
-            if not isinstance(reaction_ts, str):
-                reaction_ts = channel_context.get("event_ts")
-            if not isinstance(recipient_user_id, str):
-                recipient_user_id = None
-            if not isinstance(recipient_team_id, str):
-                recipient_team_id = None
-            if not isinstance(reaction_ts, str):
-                reaction_ts = None
 
             preset_id = agent_session.agent_preset_id or agent_session.entity_id
             token_stmt = (
@@ -388,8 +414,8 @@ class LoopbackHandler:
                 session_id=self.input.session_id,
                 workspace_id=self.input.workspace_id,
                 channel_type=ChannelType.SLACK.value,
-                slack_channel_id=channel_id,
-                reaction_ts=reaction_ts,
+                slack_channel_id=slack_ctx.channel_id,
+                reaction_ts=slack_ctx.reaction_ts,
             )
             if config.slack_bot_token == PENDING_SLACK_BOT_TOKEN:
                 logger.warning(
@@ -400,11 +426,11 @@ class LoopbackHandler:
                 return None
             return SlackStreamSink(
                 slack_bot_token=config.slack_bot_token,
-                channel_id=channel_id,
-                thread_ts=thread_ts,
-                recipient_user_id=recipient_user_id,
-                recipient_team_id=recipient_team_id,
-                reaction_ts=reaction_ts,
+                channel_id=slack_ctx.channel_id,
+                thread_ts=slack_ctx.thread_ts,
+                recipient_user_id=slack_ctx.recipient_user_id,
+                recipient_team_id=slack_ctx.recipient_team_id,
+                reaction_ts=slack_ctx.reaction_ts,
                 session_id=str(self.input.session_id),
                 workspace_id=str(self.input.workspace_id),
             )

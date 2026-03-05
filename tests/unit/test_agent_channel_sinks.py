@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from tracecat.agent.channels.sinks import SlackStreamSink
+from tracecat.agent.channels.sinks.slack import SlackStreamSink
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
@@ -48,7 +48,9 @@ def patched_slack_client(monkeypatch: pytest.MonkeyPatch) -> _FakeSlackClient:
         assert token == "xoxb-test"
         return fake_client
 
-    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.slack.AsyncWebClient", _make_client
+    )
     return fake_client
 
 
