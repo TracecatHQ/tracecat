@@ -778,7 +778,7 @@ export function ChatSessionPane({
           <ConversationScrollButton />
         </Conversation>
       </div>
-      <div className="relative px-2 pb-4">
+      <div className="relative px-2 pb-2">
         {mentionEnabled && toolMention && (
           <div className="absolute inset-x-2 bottom-full z-30 mb-2">
             <div className="overflow-hidden rounded-md border bg-popover shadow-md">
