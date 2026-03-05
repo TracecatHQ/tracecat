@@ -1,0 +1,45 @@
+tests/unit/test_mcp_integrations.py
+  ea987ffb69ac4f64 40,65-97,163,182,190,199,450-493,498-524,529,969
+tests/unit/test_user_mcp_client.py
+  ea987ffb69ac4f64 1-260
+tests/unit/test_route_scope_guards.py
+  ea987ffb69ac4f64 169
+tracecat/integrations/service.py
+  ea987ffb69ac4f64 3,8,13,17-18,21,27,31,36,39,44-46,1092,1107-1109,1124-1127,1188-1215,1217-1232,1234-1278,1280-1285,1287-1435,1437-1483,1485-1499,1503-1505,1509-1516,1518-1685,1687-1690,1692-1734,1736-1765,1767-1768,1770-1771,1773-1806,1823,1844,1880,1902-1906,2003-2004,2073-2077
+tracecat/db/models.py
+  ea987ffb69ac4f64 3352-3358
+tracecat/integrations/schemas.py
+  ea987ffb69ac4f64 29,383-386,485,578
+tracecat/integrations/enums.py
+  ea987ffb69ac4f64 41-62
+tracecat/agent/preset/service.py
+  ea987ffb69ac4f64 329-332
+tracecat/agent/mcp/user_client.py
+  ea987ffb69ac4f64 12-15,17-18,21,27-42,44-47,49-67,81-259,263-300,368-370,374-375
+tracecat/agent/worker.py
+  ea987ffb69ac4f64 66-69,274-275,334-335
+tracecat/integrations/router.py
+  ea987ffb69ac4f64 29,96-100,995-1008,1014-1018
+tracecat/integrations/mcp_discovery_workflow.py
+  ea987ffb69ac4f64 1-4,6-9,14-19,21-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "cc438249c58e39e6a74dbb3be0aa5b960bcb662f",
+  "prompts": {
+    "ea987ffb69ac4f64": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc029-ee0c-77b3-89cf-a50ef3b463a6",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1508,
+      "total_deletions": 253,
+      "accepted_lines": 1425,
+      "overriden_lines": 25
+    }
+  }
+}
