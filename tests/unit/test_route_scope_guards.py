@@ -166,6 +166,7 @@ async def test_workflow_execution_stop_scope_guards(
         (integrations_router.list_mcp_integrations, "integration:read"),
         (integrations_router.get_mcp_integration, "integration:read"),
         (integrations_router.update_mcp_integration, "integration:update"),
+        (integrations_router.refresh_mcp_integration, "integration:update"),
         (integrations_router.delete_mcp_integration, "integration:delete"),
     ],
 )

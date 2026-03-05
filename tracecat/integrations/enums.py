@@ -38,6 +38,28 @@ class MCPDiscoveryStatus(StrEnum):
     STALE = "stale"
 
 
+class MCPDiscoveryAttemptStatus(StrEnum):
+    """Status of an individual MCP discovery attempt."""
+
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class MCPDiscoveryTrigger(StrEnum):
+    """Source that initiated an MCP discovery run."""
+
+    CREATE = "create"
+    UPDATE = "update"
+    REFRESH = "refresh"
+
+
+class MCPTransport(StrEnum):
+    """Transport used to connect to a remote MCP server."""
+
+    HTTP = "http"
+    SSE = "sse"
+
+
 class MCPCatalogArtifactType(StrEnum):
     """Supported MCP catalog artifact types."""
 

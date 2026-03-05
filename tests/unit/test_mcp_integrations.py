@@ -9,14 +9,18 @@ This test suite covers MCP integration functionality including:
 """
 
 import uuid
+from datetime import UTC, datetime, timedelta
+from typing import cast
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
 from pydantic import SecretStr, TypeAdapter
 from sqlalchemy import func, insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.mcp import user_client as mcp_user_client
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
@@ -24,14 +28,19 @@ from tracecat.db.models import (
     AgentPreset,
     MCPIntegration,
     MCPIntegrationCatalogEntry,
+    MCPIntegrationDiscoveryAttempt,
     OAuthIntegration,
 )
 from tracecat.integrations.enums import (
     MCPAuthType,
     MCPCatalogArtifactType,
+    MCPDiscoveryAttemptStatus,
     MCPDiscoveryStatus,
+    MCPDiscoveryTrigger,
+    MCPTransport,
     OAuthGrantType,
 )
+from tracecat.integrations.mcp_discovery_types import MCPDiscoveryWorkflowArgs
 from tracecat.integrations.providers.base import (
     MCPAuthProvider,
     OAuthDiscoveryResult,
@@ -51,6 +60,39 @@ from tracecat.integrations.schemas import (
 from tracecat.integrations.service import IntegrationService
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+class FakeTemporalClient:
+    """Minimal Temporal client stub for MCP discovery enqueue tests."""
+
+    def __init__(self) -> None:
+        self.started_workflows: list[dict[str, object]] = []
+
+    async def start_workflow(
+        self, workflow: object, args: object, **kwargs: object
+    ) -> None:
+        self.started_workflows.append(
+            {
+                "workflow": workflow,
+                "args": args,
+                "kwargs": kwargs,
+            }
+        )
+
+
+@pytest.fixture(autouse=True)
+def temporal_client_stub(monkeypatch: pytest.MonkeyPatch) -> FakeTemporalClient:
+    """Stub Temporal workflow starts for MCP discovery enqueue paths."""
+    client = FakeTemporalClient()
+
+    async def _get_temporal_client() -> FakeTemporalClient:
+        return client
+
+    monkeypatch.setattr(
+        "tracecat.integrations.service.get_temporal_client",
+        _get_temporal_client,
+    )
+    return client
 
 
 @pytest.fixture
@@ -83,10 +125,42 @@ async def oauth_integration(
 class TestMCPIntegrationCRUD:
     """Test basic CRUD operations for MCP integrations."""
 
+    async def _insert_catalog_entry(
+        self,
+        *,
+        integration_service: IntegrationService,
+        mcp_integration_id: uuid.UUID,
+        integration_name: str,
+        artifact_type: MCPCatalogArtifactType,
+        artifact_key: str,
+        artifact_ref: str,
+        is_active: bool = True,
+    ) -> None:
+        await integration_service.session.execute(
+            insert(MCPIntegrationCatalogEntry).values(
+                id=uuid.uuid4(),
+                mcp_integration_id=mcp_integration_id,
+                workspace_id=integration_service.workspace_id,
+                integration_name=integration_name,
+                artifact_type=artifact_type.value,
+                artifact_key=artifact_key,
+                artifact_ref=artifact_ref,
+                display_name=artifact_ref,
+                description=None,
+                input_schema={"type": "object"},
+                artifact_metadata=None,
+                raw_payload={"name": artifact_ref},
+                content_hash=artifact_key.ljust(64, "0"),
+                is_active=is_active,
+                search_vector=func.to_tsvector("simple", artifact_ref),
+            )
+        )
+
     async def test_create_mcp_integration_with_oauth2(
         self,
         integration_service: IntegrationService,
         oauth_integration: OAuthIntegration,
+        temporal_client_stub: FakeTemporalClient,
     ) -> None:
         """Test creating an MCP integration with OAuth2 authentication."""
         params = MCPHttpIntegrationCreate(
@@ -105,6 +179,7 @@ class TestMCPIntegrationCRUD:
         assert mcp_integration.name == "Test OAuth MCP"
         assert mcp_integration.slug == "test-oauth-mcp"
         assert mcp_integration.description == "Test description"
+        assert mcp_integration.transport == MCPTransport.HTTP.value
         assert mcp_integration.server_uri == "https://api.example.com/mcp"
         assert mcp_integration.auth_type == MCPAuthType.OAUTH2
         assert mcp_integration.oauth_integration_id == oauth_integration.id
@@ -112,7 +187,7 @@ class TestMCPIntegrationCRUD:
         assert len(mcp_integration.scope_namespace) == 16
         assert mcp_integration.discovery_status == MCPDiscoveryStatus.PENDING.value
         assert mcp_integration.catalog_version == 0
-        assert mcp_integration.last_discovery_attempt_at is None
+        assert mcp_integration.last_discovery_attempt_at is not None
         assert mcp_integration.last_discovered_at is None
         assert mcp_integration.last_discovery_error_code is None
         assert mcp_integration.last_discovery_error_summary is None
@@ -121,6 +196,7 @@ class TestMCPIntegrationCRUD:
         assert mcp_integration.sandbox_egress_denylist is None
         assert mcp_integration.created_at is not None
         assert mcp_integration.updated_at is not None
+        assert len(temporal_client_stub.started_workflows) == 1
 
     async def test_create_mcp_integration_with_oauth2_additional_headers(
         self,
@@ -371,6 +447,87 @@ class TestMCPIntegrationCRUD:
         assert updated.scope_namespace == original_scope_namespace
         assert updated.server_uri == created.server_uri  # Unchanged
 
+    async def test_create_mcp_integration_with_sse_transport(
+        self,
+        integration_service: IntegrationService,
+        temporal_client_stub: FakeTemporalClient,
+    ) -> None:
+        """Test remote MCP integrations persist the requested transport."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="SSE MCP",
+                server_uri="https://api.example.com/sse",
+                transport=MCPTransport.SSE,
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+
+        assert created.transport == MCPTransport.SSE.value
+        assert len(temporal_client_stub.started_workflows) == 1
+
+    async def test_update_mcp_integration_enqueues_remote_discovery(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+        temporal_client_stub: FakeTemporalClient,
+    ) -> None:
+        """Test updating an HTTP MCP integration re-enqueues discovery."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Refreshable MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+        temporal_client_stub.started_workflows.clear()
+
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=created.id,
+            params=MCPIntegrationUpdate(transport=MCPTransport.SSE),
+        )
+
+        assert updated is not None
+        assert updated.transport == MCPTransport.SSE.value
+        assert updated.last_discovery_attempt_at is not None
+        assert len(temporal_client_stub.started_workflows) == 1
+        args = cast(
+            MCPDiscoveryWorkflowArgs,
+            temporal_client_stub.started_workflows[0]["args"],
+        )
+        assert args.trigger == MCPDiscoveryTrigger.UPDATE
+
+    async def test_refresh_mcp_integration_discovery_enqueues_remote_discovery(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+        temporal_client_stub: FakeTemporalClient,
+    ) -> None:
+        """Test explicit refresh re-enqueues discovery for HTTP MCP integrations."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Manual refresh MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+        temporal_client_stub.started_workflows.clear()
+
+        refreshed = await integration_service.refresh_mcp_integration_discovery(
+            mcp_integration_id=created.id
+        )
+
+        assert refreshed is not None
+        assert refreshed.discovery_status == MCPDiscoveryStatus.PENDING.value
+        assert refreshed.last_discovery_attempt_at is not None
+        assert len(temporal_client_stub.started_workflows) == 1
+        args = cast(
+            MCPDiscoveryWorkflowArgs,
+            temporal_client_stub.started_workflows[0]["args"],
+        )
+        assert args.trigger == MCPDiscoveryTrigger.REFRESH
+
     async def test_get_mcp_catalog_counts(
         self,
         integration_service: IntegrationService,
@@ -394,59 +551,34 @@ class TestMCPIntegrationCRUD:
             )
         )
 
-        async def insert_catalog_entry(
-            *,
-            mcp_integration_id: uuid.UUID,
-            integration_name: str,
-            artifact_type: MCPCatalogArtifactType,
-            artifact_key: str,
-            artifact_ref: str,
-            is_active: bool = True,
-        ) -> None:
-            await integration_service.session.execute(
-                insert(MCPIntegrationCatalogEntry).values(
-                    id=uuid.uuid4(),
-                    mcp_integration_id=mcp_integration_id,
-                    workspace_id=integration_service.workspace_id,
-                    integration_name=integration_name,
-                    artifact_type=artifact_type.value,
-                    artifact_key=artifact_key,
-                    artifact_ref=artifact_ref,
-                    display_name=artifact_ref,
-                    description=None,
-                    input_schema={"type": "object"},
-                    artifact_metadata=None,
-                    raw_payload={"name": artifact_ref},
-                    content_hash=artifact_key.ljust(64, "0"),
-                    is_active=is_active,
-                    search_vector=func.to_tsvector("simple", artifact_ref),
-                )
-            )
-
-        await insert_catalog_entry(
+        await self._insert_catalog_entry(
             mcp_integration_id=created.id,
+            integration_service=integration_service,
             integration_name=created.name,
             artifact_type=MCPCatalogArtifactType.TOOL,
             artifact_key="tool-alpha-1234567890",
             artifact_ref="tool.alpha",
         )
-        await insert_catalog_entry(
+        await self._insert_catalog_entry(
             mcp_integration_id=created.id,
+            integration_service=integration_service,
             integration_name=created.name,
             artifact_type=MCPCatalogArtifactType.RESOURCE,
             artifact_key="resource-alpha-1234567890",
             artifact_ref="resource://alpha",
         )
-        await insert_catalog_entry(
+        await self._insert_catalog_entry(
             mcp_integration_id=created.id,
+            integration_service=integration_service,
             integration_name=created.name,
             artifact_type=MCPCatalogArtifactType.PROMPT,
             artifact_key="prompt-inactive-1234567890",
             artifact_ref="prompt.inactive",
             is_active=False,
         )
-        await insert_catalog_entry(
+        await self._insert_catalog_entry(
             mcp_integration_id=other.id,
+            integration_service=integration_service,
             integration_name=other.name,
             artifact_type=MCPCatalogArtifactType.PROMPT,
             artifact_key="prompt-beta-1234567890",
@@ -463,6 +595,234 @@ class TestMCPIntegrationCRUD:
             MCPCatalogArtifactType.RESOURCE: 1,
         }
         assert counts[other.id] == {MCPCatalogArtifactType.PROMPT: 1}
+
+    async def test_run_remote_mcp_discovery_persists_catalog_and_deactivates_removed(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test remote discovery upserts catalog rows and deactivates removed ones."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Catalog refresh MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+        assert created.last_discovery_attempt_at is not None
+
+        async def _discover_first(_: object) -> dict[str, object]:
+            return {
+                "artifacts": [
+                    {
+                        "artifact_type": MCPCatalogArtifactType.TOOL.value,
+                        "artifact_ref": "search",
+                        "display_name": "Search",
+                        "description": "Search everything",
+                        "input_schema": {"type": "object"},
+                        "metadata": {"source": "tool"},
+                        "raw_payload": {"name": "search"},
+                        "content_hash": "a" * 64,
+                    },
+                    {
+                        "artifact_type": MCPCatalogArtifactType.PROMPT.value,
+                        "artifact_ref": "triage",
+                        "display_name": "Triage",
+                        "description": "Triage incidents",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {"ticket": {"type": "string"}},
+                        },
+                        "metadata": {"source": "prompt"},
+                        "raw_payload": {"name": "triage"},
+                        "content_hash": "b" * 64,
+                    },
+                ]
+            }
+
+        monkeypatch.setattr(
+            mcp_user_client,
+            "discover_mcp_server_catalog",
+            _discover_first,
+        )
+        first_started_at = created.last_discovery_attempt_at + timedelta(seconds=1)
+        first_result = await integration_service.run_remote_mcp_discovery(
+            mcp_integration_id=created.id,
+            trigger=MCPDiscoveryTrigger.CREATE,
+            started_at=first_started_at,
+        )
+        first_attempt_result = await integration_service.session.execute(
+            select(MCPIntegrationDiscoveryAttempt).where(
+                MCPIntegrationDiscoveryAttempt.mcp_integration_id == created.id
+            )
+        )
+        first_attempt = first_attempt_result.scalars().one()
+
+        assert first_result.status == MCPDiscoveryStatus.SUCCEEDED.value, (
+            first_result.model_dump(),
+            first_attempt.error_details,
+        )
+        assert first_result.catalog_version == 1
+
+        async def _discover_second(_: object) -> dict[str, object]:
+            return {
+                "artifacts": [
+                    {
+                        "artifact_type": MCPCatalogArtifactType.TOOL.value,
+                        "artifact_ref": "search",
+                        "display_name": "Search",
+                        "description": "Search everything",
+                        "input_schema": {"type": "object"},
+                        "metadata": {"source": "tool"},
+                        "raw_payload": {"name": "search"},
+                        "content_hash": "c" * 64,
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(
+            mcp_user_client,
+            "discover_mcp_server_catalog",
+            _discover_second,
+        )
+        second_started_at = first_started_at + timedelta(seconds=1)
+        second_result = await integration_service.run_remote_mcp_discovery(
+            mcp_integration_id=created.id,
+            trigger=MCPDiscoveryTrigger.REFRESH,
+            started_at=second_started_at,
+        )
+
+        assert second_result.status == MCPDiscoveryStatus.SUCCEEDED.value
+        assert second_result.catalog_version == 2
+
+        refreshed = await integration_service.get_mcp_integration(
+            mcp_integration_id=created.id
+        )
+        assert refreshed is not None
+        assert refreshed.discovery_status == MCPDiscoveryStatus.SUCCEEDED.value
+        assert refreshed.catalog_version == 2
+        assert refreshed.last_discovered_at is not None
+        assert refreshed.last_discovery_error_code is None
+        assert refreshed.last_discovery_error_summary is None
+
+        catalog_result = await integration_service.session.execute(
+            select(MCPIntegrationCatalogEntry).where(
+                MCPIntegrationCatalogEntry.mcp_integration_id == created.id
+            )
+        )
+        catalog_entries = catalog_result.scalars().all()
+        assert len(catalog_entries) == 2
+        active_entries = [entry for entry in catalog_entries if entry.is_active]
+        inactive_entries = [entry for entry in catalog_entries if not entry.is_active]
+        assert len(active_entries) == 1
+        assert active_entries[0].artifact_type == MCPCatalogArtifactType.TOOL.value
+        assert active_entries[0].content_hash == "c" * 64
+        assert len(inactive_entries) == 1
+        assert inactive_entries[0].artifact_type == MCPCatalogArtifactType.PROMPT.value
+
+        attempts_result = await integration_service.session.execute(
+            select(MCPIntegrationDiscoveryAttempt)
+            .where(MCPIntegrationDiscoveryAttempt.mcp_integration_id == created.id)
+            .order_by(MCPIntegrationDiscoveryAttempt.started_at)
+        )
+        attempts = attempts_result.scalars().all()
+        assert [attempt.status for attempt in attempts] == [
+            MCPDiscoveryAttemptStatus.SUCCEEDED.value,
+            MCPDiscoveryAttemptStatus.SUCCEEDED.value,
+        ]
+        assert attempts[0].catalog_version == 1
+        assert attempts[0].artifact_counts == {
+            MCPCatalogArtifactType.TOOL.value: 1,
+            MCPCatalogArtifactType.RESOURCE.value: 0,
+            MCPCatalogArtifactType.PROMPT.value: 1,
+        }
+        assert attempts[1].catalog_version == 2
+        assert attempts[1].artifact_counts == {
+            MCPCatalogArtifactType.TOOL.value: 1,
+            MCPCatalogArtifactType.RESOURCE.value: 0,
+            MCPCatalogArtifactType.PROMPT.value: 0,
+        }
+
+    async def test_run_remote_mcp_discovery_failure_marks_stale_and_keeps_catalog(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test failed discovery preserves active catalog and marks integration stale."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Stale MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+        assert created.last_discovery_attempt_at is not None
+
+        await self._insert_catalog_entry(
+            integration_service=integration_service,
+            mcp_integration_id=created.id,
+            integration_name=created.name,
+            artifact_type=MCPCatalogArtifactType.TOOL,
+            artifact_key="existing-tool-1234567890",
+            artifact_ref="existing.tool",
+        )
+        created.catalog_version = 1
+        created.discovery_status = MCPDiscoveryStatus.SUCCEEDED.value
+        created.last_discovered_at = datetime.now(UTC)
+        integration_service.session.add(created)
+        await integration_service.session.commit()
+
+        request = httpx.Request("GET", "https://api.example.com/mcp")
+
+        async def _fail_discovery(_: object) -> dict[str, object]:
+            raise httpx.ConnectError("connection refused", request=request)
+
+        monkeypatch.setattr(
+            mcp_user_client,
+            "discover_mcp_server_catalog",
+            _fail_discovery,
+        )
+        started_at = created.last_discovery_attempt_at + timedelta(seconds=1)
+        result = await integration_service.run_remote_mcp_discovery(
+            mcp_integration_id=created.id,
+            trigger=MCPDiscoveryTrigger.REFRESH,
+            started_at=started_at,
+        )
+
+        assert result.status == MCPDiscoveryStatus.STALE.value
+        assert result.catalog_version == 1
+        assert result.error_code == "connection_error"
+
+        refreshed = await integration_service.get_mcp_integration(
+            mcp_integration_id=created.id
+        )
+        assert refreshed is not None
+        assert refreshed.discovery_status == MCPDiscoveryStatus.STALE.value
+        assert refreshed.catalog_version == 1
+        assert refreshed.last_discovery_error_code == "connection_error"
+        assert (
+            refreshed.last_discovery_error_summary
+            == "Could not connect to the MCP server."
+        )
+
+        catalog_result = await integration_service.session.execute(
+            select(MCPIntegrationCatalogEntry).where(
+                MCPIntegrationCatalogEntry.mcp_integration_id == created.id
+            )
+        )
+        catalog_entries = catalog_result.scalars().all()
+        assert len(catalog_entries) == 1
+        assert catalog_entries[0].is_active is True
+
+        attempt_result = await integration_service.session.execute(
+            select(MCPIntegrationDiscoveryAttempt).where(
+                MCPIntegrationDiscoveryAttempt.mcp_integration_id == created.id
+            )
+        )
+        attempt = attempt_result.scalars().one()
+        assert attempt.status == MCPDiscoveryAttemptStatus.FAILED.value
+        assert attempt.trigger == MCPDiscoveryTrigger.REFRESH.value
+        assert attempt.error_code == "connection_error"
 
     async def test_update_mcp_integration_partial(
         self,
@@ -606,6 +966,7 @@ class TestMCPIntegrationCRUD:
         assert mcp_integration.slug == "github_mcp"
         assert len(mcp_integration.scope_namespace) == 16
         assert mcp_integration.discovery_status == MCPDiscoveryStatus.PENDING.value
+        assert mcp_integration.last_discovery_attempt_at is not None
         assert mcp_integration.catalog_version == 0
 
         await integration_service.delete_mcp_integration(
