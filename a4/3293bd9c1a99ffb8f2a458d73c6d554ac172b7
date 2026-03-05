@@ -1,0 +1,23 @@
+packages/tracecat-ee/tracecat_ee/watchtower/service.py
+  74d6c5bb1a7b78b4 70-71,93-102,106,135-136,138,159-160,162,166-167,169,171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "a43293bd9c1a99ffb8f2a458d73c6d554ac172b7",
+  "prompts": {
+    "74d6c5bb1a7b78b4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ac344ff1-3d58-4428-af1d-2e59b4feb3d5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 48,
+      "total_deletions": 53,
+      "accepted_lines": 23,
+      "overriden_lines": 0
+    }
+  }
+}
