@@ -375,21 +375,27 @@ class WatchtowerService(BaseOrgService):
         await self.session.commit()
 
     async def _assert_agent_exists(self, agent_id: uuid.UUID) -> None:
-        stmt = select(WatchtowerAgent.id).where(
-            WatchtowerAgent.organization_id == self.organization_id,
-            WatchtowerAgent.id == agent_id,
+        stmt = select(
+            select(WatchtowerAgent.id)
+            .where(
+                WatchtowerAgent.organization_id == self.organization_id,
+                WatchtowerAgent.id == agent_id,
+            )
+            .exists()
         )
-        result = await self.session.execute(stmt)
-        if result.scalar_one_or_none() is None:
+        if not await self.session.scalar(stmt):
             raise TracecatNotFoundError("Watchtower agent not found")
 
     async def _assert_session_exists(self, session_id: uuid.UUID) -> None:
-        stmt = select(WatchtowerAgentSession.id).where(
-            WatchtowerAgentSession.organization_id == self.organization_id,
-            WatchtowerAgentSession.id == session_id,
+        stmt = select(
+            select(WatchtowerAgentSession.id)
+            .where(
+                WatchtowerAgentSession.organization_id == self.organization_id,
+                WatchtowerAgentSession.id == session_id,
+            )
+            .exists()
         )
-        result = await self.session.execute(stmt)
-        if result.scalar_one_or_none() is None:
+        if not await self.session.scalar(stmt):
             raise TracecatNotFoundError("Watchtower session not found")
 
 
