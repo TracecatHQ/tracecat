@@ -11203,17 +11203,6 @@ export const $MCPIntegrationUpdate = {
   description: "Request model for updating an MCP integration.",
 } as const
 
-export const $MCPServerConfig = {
-  anyOf: [
-    {
-      $ref: "#/components/schemas/MCPHttpServerConfig",
-    },
-    {
-      $ref: "#/components/schemas/MCPStdioServerConfig",
-    },
-  ],
-} as const
-
 export const $MCPServerType = {
   type: "string",
   enum: ["http", "stdio"],

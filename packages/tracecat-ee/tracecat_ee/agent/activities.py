@@ -4,7 +4,10 @@ import uuid
 from collections.abc import Callable
 from typing import Any, TypeGuard
 
-from pydantic import UUID4, BaseModel
+from pydantic import (
+    UUID4,
+    BaseModel,
+)
 from temporalio import activity
 
 from tracecat.agent.common.types import (
@@ -187,7 +190,8 @@ class AgentActivities:
             except Exception as e:
                 logger.error(
                     "Failed to discover user MCP tools",
-                    error=str(e),
+                    error_type=type(e).__name__,
+                    server_count=len(http_servers),
                 )
                 # Continue without user MCP tools - don't fail the whole operation
 

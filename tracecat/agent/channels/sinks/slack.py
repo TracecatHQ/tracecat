@@ -249,22 +249,16 @@ class SlackStreamSink:
         return value
 
     @classmethod
-    def _format_tool_output(
-        cls, value: Any, *, is_error: bool, max_len: int = 3000
-    ) -> str | None:
-        normalized = cls._normalize_tool_output(value)
-
-        if normalized is None:
-            return None
-
-        if isinstance(normalized, (dict, list)):
-            formatted = json.dumps(normalized, indent=2, sort_keys=True, default=str)
-            formatted = cls._coerce_output_text(formatted, max_len=max_len)
-            return f"```json\n{formatted}\n```"
-
-        # Keep scalar outputs as-is (including errors), just cap extreme length.
-        formatted = cls._coerce_output_text(normalized, max_len=max_len)
-        return f"```\n{formatted}\n```"
+    def _format_tool_error_output(cls, value: Any) -> str:
+        match cls._normalize_tool_output(value):
+            case str() as text if message := text.strip():
+                return message
+            case {"message": str(message)} if message := message.strip():
+                return message
+            case {"error": str(message)} if message := message.strip():
+                return message
+            case _:
+                return "Tool execution failed"
 
     def _resolve_task(
         self,
@@ -288,7 +282,6 @@ class SlackStreamSink:
         tool_name: str | None,
         status: str,
         details: str | None = None,
-        output: Any | None = None,
     ) -> None:
         task_id, title = self._resolve_task(
             tool_call_id=tool_call_id,
@@ -303,12 +296,6 @@ class SlackStreamSink:
         }
         if details:
             chunk["details"] = details
-        if output is not None:
-            formatted_output = self._format_tool_output(
-                output, is_error=(status == "error")
-            )
-            if formatted_output:
-                chunk["output"] = formatted_output
         logger.info(
             "Sending Slack task_update chunk",
             session_id=self._session_id,
@@ -553,12 +540,18 @@ class SlackStreamSink:
                 )
                 return
             self._pending_approval_tool_ids.discard(event.tool_call_id)
+
+            status = "error" if event.is_error else "complete"
+            details: str | None = None
+            if event.is_error:
+                details = self._format_tool_error_output(event.tool_output)
+
             await self._flush_delta_buffer(force=True)
             await self._emit_task_update(
                 tool_call_id=event.tool_call_id,
                 tool_name=event.tool_name,
-                status="error" if event.is_error else "complete",
-                output=event.tool_output,
+                status=status,
+                details=details,
             )
             return
 

@@ -58,6 +58,11 @@ def _set_role_context(claims: MCPTokenClaims) -> Role:
     return role
 
 
+def _safe_error_type(exc: Exception) -> str:
+    """Return only the exception class name for log-safe reporting."""
+    return type(exc).__name__
+
+
 @mcp.tool
 async def execute_action_tool(
     action_name: str,
@@ -77,7 +82,7 @@ async def execute_action_tool(
     try:
         claims = verify_mcp_token(auth_token)
     except ValueError as e:
-        logger.warning("MCP token verification failed", error=str(e))
+        logger.warning("MCP token verification failed", error_type=_safe_error_type(e))
         raise ToolError("Authentication failed") from None
 
     normalized_action_name = normalize_mcp_tool_name(action_name)
@@ -121,8 +126,7 @@ async def execute_action_tool(
             "Action execution failed",
             action_name=normalized_action_name,
             workspace_id=str(claims.workspace_id),
-            error=str(e),
-            error_type=type(e).__name__,
+            error_type=_safe_error_type(e),
         )
         raise ToolError("Action execution failed") from None
 
@@ -152,7 +156,7 @@ async def execute_user_mcp_tool(
     try:
         claims = verify_mcp_token(auth_token)
     except ValueError as e:
-        logger.warning("MCP token verification failed", error=str(e))
+        logger.warning("MCP token verification failed", error_type=_safe_error_type(e))
         raise ToolError("Authentication failed") from None
 
     _set_role_context(claims)
@@ -167,9 +171,9 @@ async def execute_user_mcp_tool(
         logger.warning(
             "User MCP server not found in claims",
             server_name=server_name,
-            available_servers=[s.name for s in claims.user_mcp_servers],
+            workspace_id=str(claims.workspace_id),
         )
-        raise ToolError(f"User MCP server '{server_name}' not authorized")
+        raise ToolError(server_name) from None
 
     try:
         config_dict: MCPHttpServerConfig = {
@@ -201,9 +205,9 @@ async def execute_user_mcp_tool(
             server_name=server_name,
             tool_name=tool_name,
             workspace_id=str(claims.workspace_id),
-            error=str(e),
+            error_type=_safe_error_type(e),
         )
-        raise ToolError("Tool execution failed") from None
+        raise ToolError(server_name) from None
 
 
 @mcp.tool
@@ -229,7 +233,7 @@ async def execute_internal_tool(
     try:
         claims = verify_mcp_token(auth_token)
     except ValueError as e:
-        logger.warning("MCP token verification failed", error=str(e))
+        logger.warning("MCP token verification failed", error_type=_safe_error_type(e))
         raise ToolError("Authentication failed") from None
 
     _set_role_context(claims)
@@ -257,7 +261,7 @@ async def execute_internal_tool(
             "Internal tool execution error",
             tool_name=tool_name,
             workspace_id=str(claims.workspace_id),
-            error=str(e),
+            error_type=_safe_error_type(e),
         )
         raise ToolError(str(e)) from e
 
@@ -266,7 +270,7 @@ async def execute_internal_tool(
             "Internal tool execution failed",
             tool_name=tool_name,
             workspace_id=str(claims.workspace_id),
-            error=str(e),
+            error_type=_safe_error_type(e),
         )
         raise ToolError("Internal tool execution failed") from None
 
