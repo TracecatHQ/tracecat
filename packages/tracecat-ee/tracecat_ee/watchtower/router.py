@@ -18,7 +18,6 @@ from tracecat_ee.watchtower.schemas import (
     WatchtowerAgentSessionListResponse,
     WatchtowerAgentToolCallListResponse,
     WatchtowerDisableAgentRequest,
-    WatchtowerEnableAgentRequest,
     WatchtowerRevokeAgentSessionRequest,
 )
 from tracecat_ee.watchtower.service import WatchtowerService
@@ -207,9 +206,7 @@ async def enable_watchtower_agent(
     role: OrgUserRole,
     session: AsyncDBSession,
     agent_id: uuid.UUID,
-    payload: WatchtowerEnableAgentRequest,
 ) -> None:
-    del payload
     service = WatchtowerService(session, role=role)
     try:
         await service.enable_agent(agent_id)

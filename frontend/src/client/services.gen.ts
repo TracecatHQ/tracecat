@@ -4558,7 +4558,6 @@ export const watchtowerDisableWatchtowerAgent = (
  * Enable Watchtower Agent
  * @param data The data for the request.
  * @param data.agentId
- * @param data.requestBody
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -4571,8 +4570,6 @@ export const watchtowerEnableWatchtowerAgent = (
     path: {
       agent_id: data.agentId,
     },
-    body: data.requestBody,
-    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

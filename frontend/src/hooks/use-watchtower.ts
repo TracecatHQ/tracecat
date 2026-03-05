@@ -129,12 +129,9 @@ export function useWatchtowerActions() {
   })
 
   const enableAgent = useMutation({
-    mutationFn: (params: { agentId: string; reason?: string }) =>
+    mutationFn: (params: { agentId: string }) =>
       watchtowerEnableWatchtowerAgent({
         agentId: params.agentId,
-        requestBody: {
-          reason: params.reason,
-        },
       }),
     onSuccess: invalidate,
   })

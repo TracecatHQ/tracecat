@@ -6486,13 +6486,6 @@ export type WatchtowerDisableAgentRequest = {
 }
 
 /**
- * Request payload for enabling an agent.
- */
-export type WatchtowerEnableAgentRequest = {
-  reason?: string | null
-}
-
-/**
  * Request payload for session revocation.
  */
 export type WatchtowerRevokeAgentSessionRequest = {
@@ -8676,7 +8669,6 @@ export type WatchtowerDisableWatchtowerAgentResponse = void
 
 export type WatchtowerEnableWatchtowerAgentData = {
   agentId: string
-  requestBody: WatchtowerEnableAgentRequest
 }
 
 export type WatchtowerEnableWatchtowerAgentResponse = void

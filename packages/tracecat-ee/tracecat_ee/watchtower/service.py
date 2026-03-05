@@ -65,6 +65,7 @@ class WatchtowerService(BaseOrgService):
         status: str | None,
     ) -> WatchtowerAgentListResponse:
         retention_cutoff = _retention_cutoff()
+        stale_cutoff = _session_stale_cutoff()
         stmt = select(WatchtowerAgent).where(
             WatchtowerAgent.organization_id == self.organization_id,
             WatchtowerAgent.last_seen_at >= retention_cutoff,
@@ -73,8 +74,16 @@ class WatchtowerService(BaseOrgService):
             stmt = stmt.where(WatchtowerAgent.agent_type == agent_type)
         if status == "blocked":
             stmt = stmt.where(WatchtowerAgent.blocked_at.is_not(None))
-        elif status in {"active", "idle"}:
-            stmt = stmt.where(WatchtowerAgent.blocked_at.is_(None))
+        elif status == "active":
+            stmt = stmt.where(
+                WatchtowerAgent.blocked_at.is_(None),
+                WatchtowerAgent.last_seen_at >= stale_cutoff,
+            )
+        elif status == "idle":
+            stmt = stmt.where(
+                WatchtowerAgent.blocked_at.is_(None),
+                WatchtowerAgent.last_seen_at < stale_cutoff,
+            )
 
         stmt = _apply_desc_cursor_filter(
             stmt,
@@ -107,6 +116,7 @@ class WatchtowerService(BaseOrgService):
                                 and_(
                                     WatchtowerAgentSession.session_state == "connected",
                                     WatchtowerAgentSession.revoked_at.is_(None),
+                                    WatchtowerAgentSession.last_seen_at >= stale_cutoff,
                                 ),
                                 1,
                             )
@@ -417,9 +427,7 @@ def _apply_desc_cursor_filter(
 def _derive_agent_status(agent: WatchtowerAgent) -> str:
     if agent.blocked_at is not None:
         return "blocked"
-    if agent.last_seen_at >= datetime.now(UTC) - timedelta(
-        minutes=SESSION_STALE_WINDOW_MINUTES
-    ):
+    if agent.last_seen_at >= _session_stale_cutoff():
         return "active"
     return "idle"
 
@@ -427,9 +435,7 @@ def _derive_agent_status(agent: WatchtowerAgent) -> str:
 def _derive_session_status(session: WatchtowerAgentSession) -> str:
     if session.session_state == "revoked" or session.revoked_at is not None:
         return "revoked"
-    if session.last_seen_at >= datetime.now(UTC) - timedelta(
-        minutes=SESSION_STALE_WINDOW_MINUTES
-    ):
+    if session.last_seen_at >= _session_stale_cutoff():
         return "active"
     return "idle"
 
@@ -548,6 +554,7 @@ async def maybe_create_oauth_provisional_session(
     user_agent: str | None,
 ) -> None:
     """Create/update a provisional session at OAuth callback when org is unambiguous."""
+    del user_agent
     if not config.TRACECAT__EE_MULTI_TENANT:
         return
 
@@ -575,54 +582,6 @@ async def maybe_create_oauth_provisional_session(
 
         now = datetime.now(UTC)
         display_name = _display_name(user)
-        agent_type, agent_source, icon_key = normalize_agent_identity(
-            user_agent=user_agent,
-            client_info=None,
-        )
-        fingerprint_hash = _build_agent_fingerprint(
-            organization_id=organization_id,
-            auth_client_id=auth_client_id,
-            agent_type=agent_type,
-            user_agent=user_agent,
-            client_info=None,
-        )
-
-        agent_result = await session.execute(
-            select(WatchtowerAgent).where(
-                WatchtowerAgent.organization_id == organization_id,
-                WatchtowerAgent.fingerprint_hash == fingerprint_hash,
-            )
-        )
-        agent = agent_result.scalar_one_or_none()
-        if agent is None:
-            agent = WatchtowerAgent(
-                id=uuid.uuid4(),
-                organization_id=organization_id,
-                fingerprint_hash=fingerprint_hash,
-                agent_type=agent_type,
-                agent_source=agent_source,
-                agent_icon_key=icon_key,
-                raw_user_agent=user_agent,
-                raw_client_info=None,
-                auth_client_id=auth_client_id,
-                last_user_id=user.id,
-                last_user_email=user.email,
-                last_user_name=display_name,
-                first_seen_at=now,
-                last_seen_at=now,
-            )
-            session.add(agent)
-        else:
-            agent.agent_type = agent_type
-            agent.agent_source = agent_source
-            agent.agent_icon_key = icon_key
-            agent.raw_user_agent = user_agent
-            agent.raw_client_info = None
-            agent.auth_client_id = auth_client_id
-            agent.last_user_id = user.id
-            agent.last_user_email = user.email
-            agent.last_user_name = display_name
-            agent.last_seen_at = now
 
         auth_client_clause = (
             WatchtowerAgentSession.auth_client_id == auth_client_id
@@ -650,7 +609,7 @@ async def maybe_create_oauth_provisional_session(
                 WatchtowerAgentSession(
                     id=uuid.uuid4(),
                     organization_id=organization_id,
-                    agent_id=agent.id,
+                    agent_id=None,
                     session_state="awaiting_initialize",
                     auth_transaction_id=auth_transaction_id,
                     auth_client_id=auth_client_id,
@@ -663,7 +622,9 @@ async def maybe_create_oauth_provisional_session(
                 )
             )
         else:
-            existing.agent_id = agent.id
+            # OAuth callback metadata can be browser-mediated and may not match
+            # the eventual MCP initialize fingerprint. Associate the agent later.
+            existing.agent_id = None
             existing.auth_transaction_id = auth_transaction_id
             existing.oauth_callback_seen_at = now
             existing.last_seen_at = now
@@ -983,6 +944,11 @@ def _sanitize_error_redacted(error_summary: str | None) -> str | None:
 def _retention_cutoff(now: datetime | None = None) -> datetime:
     reference = now or datetime.now(UTC)
     return reference - timedelta(days=WATCHTOWER_RETENTION_DAYS)
+
+
+def _session_stale_cutoff(now: datetime | None = None) -> datetime:
+    reference = now or datetime.now(UTC)
+    return reference - timedelta(minutes=SESSION_STALE_WINDOW_MINUTES)
 
 
 async def prune_watchtower_retention(

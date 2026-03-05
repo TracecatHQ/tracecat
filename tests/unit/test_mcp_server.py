@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import uuid
 from collections.abc import Callable, Coroutine
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -958,6 +959,53 @@ async def test_timeout_middleware_raises_on_slow_calls():
         return ToolResult(content=None)
 
     with pytest.raises(ToolError, match="timed out"):
+        await mw.on_call_tool(ctx, _call_next)
+
+
+@pytest.mark.anyio
+async def test_watchtower_middleware_blocks_when_telemetry_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastmcp.server.context import Context
+
+    from tracecat.mcp.auth import MCPTokenIdentity
+    from tracecat.mcp.middleware import WatchtowerMonitorMiddleware
+
+    mw = WatchtowerMonitorMiddleware()
+    ctx = MiddlewareContext(
+        message=CallToolRequestParams(name="test_tool", arguments=None),
+        method="tools/call",
+        fastmcp_context=cast(Context, SimpleNamespace(session_id="test-session-id")),
+    )
+
+    async def _get_watchtower_context(**_kwargs: object) -> tuple[object, str]:
+        return object(), "blocked by policy"
+
+    async def _record_watchtower_call(**_kwargs: object) -> None:
+        raise RuntimeError("telemetry unavailable")
+
+    ee_mod = ModuleType("tracecat_ee")
+    watchtower_mod = ModuleType("tracecat_ee.watchtower")
+    service_mod = ModuleType("tracecat_ee.watchtower.service")
+    cast(Any, service_mod).get_watchtower_tool_call_context = _get_watchtower_context
+    cast(Any, service_mod).record_watchtower_tool_call = _record_watchtower_call
+    cast(Any, watchtower_mod).service = service_mod
+    cast(Any, ee_mod).watchtower = watchtower_mod
+    monkeypatch.setitem(sys.modules, "tracecat_ee", ee_mod)
+    monkeypatch.setitem(sys.modules, "tracecat_ee.watchtower", watchtower_mod)
+    monkeypatch.setitem(sys.modules, "tracecat_ee.watchtower.service", service_mod)
+
+    monkeypatch.setattr(
+        "tracecat.mcp.middleware._safe_get_token_identity",
+        lambda: MCPTokenIdentity(client_id="client", email="user@example.com"),
+    )
+
+    async def _call_next(
+        context: MiddlewareContext[CallToolRequestParams],
+    ) -> ToolResult:
+        raise AssertionError("blocked calls should not execute downstream tools")
+
+    with pytest.raises(ToolError, match="blocked by policy"):
         await mw.on_call_tool(ctx, _call_next)
 
 

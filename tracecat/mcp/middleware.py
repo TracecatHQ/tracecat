@@ -186,16 +186,22 @@ class WatchtowerMonitorMiddleware(Middleware):
 
         if block_reason is not None:
             if call_context is not None:
-                await record_watchtower_tool_call(
-                    call_context=call_context,
-                    tool_name=context.message.name,
-                    call_status="blocked",
-                    latency_ms=0,
-                    workspace_id=workspace_id,
-                    tool_args=_tool_args_for_storage(context.message.arguments),
-                    error_redacted=block_reason,
-                    email=identity.email,
-                )
+                try:
+                    await record_watchtower_tool_call(
+                        call_context=call_context,
+                        tool_name=context.message.name,
+                        call_status="blocked",
+                        latency_ms=0,
+                        workspace_id=workspace_id,
+                        tool_args=_tool_args_for_storage(context.message.arguments),
+                        error_redacted=block_reason,
+                        email=identity.email,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to persist Watchtower blocked tool call",
+                        error=str(exc),
+                    )
             raise ToolError(block_reason)
 
         if call_context is None:

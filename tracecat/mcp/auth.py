@@ -156,7 +156,12 @@ def get_token_identity() -> MCPTokenIdentity:
     claim_azp_text = (
         claim_azp.strip() if isinstance(claim_azp, str) and claim_azp.strip() else None
     )
-    token_client_id = access_token.client_id.strip()
+    raw_token_client_id = access_token.client_id
+    token_client_id = (
+        raw_token_client_id.strip()
+        if isinstance(raw_token_client_id, str) and raw_token_client_id.strip()
+        else None
+    )
     claim_sub_text = (
         claim_sub.strip() if isinstance(claim_sub, str) and claim_sub.strip() else None
     )

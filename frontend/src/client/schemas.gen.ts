@@ -20981,26 +20981,6 @@ export const $WatchtowerDisableAgentRequest = {
   description: "Request payload for disabling an agent.",
 } as const
 
-export const $WatchtowerEnableAgentRequest = {
-  properties: {
-    reason: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 2000,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Reason",
-    },
-  },
-  type: "object",
-  title: "WatchtowerEnableAgentRequest",
-  description: "Request payload for enabling an agent.",
-} as const
-
 export const $WatchtowerRevokeAgentSessionRequest = {
   properties: {
     reason: {

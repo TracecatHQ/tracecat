@@ -18,7 +18,7 @@ import {
   WrenchIcon,
   XIcon,
 } from "lucide-react"
-import { type ReactNode, useEffect, useMemo, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import type { WatchtowerAgentRead, WatchtowerAgentToolCallRead } from "@/client"
 import { Tool, ToolContent, ToolHeader } from "@/components/ai-elements/tool"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
@@ -257,6 +257,7 @@ export function WatchtowerMonitor() {
     string | null
   >(null)
   const [revokeReason, setRevokeReason] = useState("")
+  const didAutoExpandGroupsRef = useRef(false)
 
   const agents = agentsResponse?.items ?? []
   const selectedAgent =
@@ -330,12 +331,14 @@ export function WatchtowerMonitor() {
 
   useEffect(() => {
     if (groupedAgents.length === 0) {
+      didAutoExpandGroupsRef.current = false
       if (expandedGroups.length > 0) {
         setExpandedGroups([])
       }
       return
     }
-    if (expandedGroups.length === 0) {
+    if (!didAutoExpandGroupsRef.current && expandedGroups.length === 0) {
+      didAutoExpandGroupsRef.current = true
       setExpandedGroups(groupedAgents.map((group) => group.agentType))
     }
   }, [groupedAgents, expandedGroups.length])
@@ -351,7 +354,7 @@ export function WatchtowerMonitor() {
   }
 
   const handleDisableAgent = async () => {
-    if (!disableDialogAgent) return
+    if (!disableDialogAgent || disableAgent.isPending) return
     try {
       await disableAgent.mutateAsync({
         agentId: disableDialogAgent.id,
@@ -383,7 +386,7 @@ export function WatchtowerMonitor() {
   }
 
   const handleRevokeSession = async () => {
-    if (!revokeDialogSessionId) return
+    if (!revokeDialogSessionId || revokeSession.isPending) return
     try {
       await revokeSession.mutateAsync({
         sessionId: revokeDialogSessionId,
@@ -841,7 +844,10 @@ export function WatchtowerMonitor() {
             <AlertDialogAction
               variant="destructive"
               disabled={disableAgent.isPending}
-              onClick={handleDisableAgent}
+              onClick={(event) => {
+                event.preventDefault()
+                void handleDisableAgent()
+              }}
             >
               Disable
             </AlertDialogAction>
@@ -883,7 +889,10 @@ export function WatchtowerMonitor() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               disabled={revokeSession.isPending}
-              onClick={handleRevokeSession}
+              onClick={(event) => {
+                event.preventDefault()
+                void handleRevokeSession()
+              }}
             >
               Revoke
             </AlertDialogAction>
