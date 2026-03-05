@@ -10862,7 +10862,7 @@ export const $MCPHttpIntegrationCreate = {
       ],
       title: "Custom Credentials",
       description:
-        "Custom credentials (API key, bearer token, or JSON headers) for custom auth_type",
+        "Custom credentials as JSON headers. Required for custom auth type; optional additional headers for OAuth2 auth type.",
     },
   },
   type: "object",
@@ -11138,7 +11138,7 @@ export const $MCPIntegrationUpdate = {
       ],
       title: "Custom Credentials",
       description:
-        "Custom credentials (API key, bearer token, or JSON headers) for custom auth_type",
+        "Custom credentials as JSON headers. Required for custom auth type; optional additional headers for OAuth2 auth type.",
     },
     stdio_command: {
       anyOf: [

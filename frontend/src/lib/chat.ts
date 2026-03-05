@@ -4,6 +4,13 @@ import type { AgentSessionEntity, UIMessage } from "@/client"
 import type { ApprovalCard } from "@/hooks/use-chat"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 
+type ServerToolPart = Extract<UIMessage["parts"][number], { state: string }>
+type LegacyToolState =
+  | "approval-requested"
+  | "approval-responded"
+  | "output-denied"
+type ToolState = ai.ToolUIPart["state"] | LegacyToolState
+
 export function isAgentSessionEntity(
   value: unknown
 ): value is AgentSessionEntity {
@@ -94,6 +101,61 @@ export function toUIMessage(message: UIMessage): ai.UIMessage {
         )
       }
     ),
+  }
+}
+
+function normalizeToolPartForServer(
+  part: ai.ToolUIPart | ai.DynamicToolUIPart
+): ServerToolPart {
+  const state = part.state as ToolState
+
+  switch (state) {
+    case "input-streaming":
+    case "input-available":
+    case "output-available":
+    case "output-error":
+      return part as unknown as ServerToolPart
+    case "approval-requested":
+    case "approval-responded": {
+      const { approval: _approval, ...rest } = part as ai.DynamicToolUIPart & {
+        approval?: unknown
+      }
+      return { ...rest, state: "input-available" } as unknown as ServerToolPart
+    }
+    case "output-denied": {
+      const { approval, ...rest } = part as ai.DynamicToolUIPart & {
+        approval?: { reason?: string | null }
+      }
+      return {
+        ...rest,
+        state: "output-error",
+        errorText:
+          approval?.reason?.trim() ||
+          "Tool execution was denied by user approval.",
+      } as unknown as ServerToolPart
+    }
+    default: {
+      const _exhaustive: never = state
+      throw new Error(
+        `Unhandled tool part state in server conversion: ${JSON.stringify(_exhaustive)}`
+      )
+    }
+  }
+}
+
+export function toServerUIMessage(message: ai.UIMessage): UIMessage {
+  const parts = message.parts.map((part): UIMessage["parts"][number] => {
+    if (ai.isToolUIPart(part)) {
+      return normalizeToolPartForServer(part)
+    }
+    return part as UIMessage["parts"][number]
+  })
+
+  return {
+    id: message.id,
+    role: message.role,
+    metadata: message.metadata,
+    parts,
   }
 }
 
@@ -303,7 +365,10 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
         // Handle output parts
         const { toolCallId } = part
         const currState = states.get(toolCallId)
-        const newPart: ai.ToolUIPart = {
+        const newPart: Extract<
+          ai.UIMessagePart<ai.UIDataTypes, ai.UITools>,
+          { state: "output-available" | "output-error" }
+        > = {
           ...part,
         }
         if (currState?.open) {

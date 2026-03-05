@@ -71,6 +71,7 @@ function getMcpProviderId(slug: string): string | undefined {
     runreveal: "runreveal_mcp",
     "secure-annex": "secureannex_mcp",
     secureannex: "secureannex_mcp",
+    wiz: "wiz_mcp",
   }
 
   const normalized = slug.toLowerCase()

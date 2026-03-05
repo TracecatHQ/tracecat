@@ -3508,7 +3508,7 @@ export type MCPHttpIntegrationCreate = {
    */
   oauth_integration_id?: string | null
   /**
-   * Custom credentials (API key, bearer token, or JSON headers) for custom auth_type
+   * Custom credentials as JSON headers. Required for custom auth type; optional additional headers for OAuth2 auth type.
    */
   custom_credentials?: string | null
 }
@@ -3576,7 +3576,7 @@ export type MCPIntegrationUpdate = {
   auth_type?: MCPAuthType | null
   oauth_integration_id?: string | null
   /**
-   * Custom credentials (API key, bearer token, or JSON headers) for custom auth_type
+   * Custom credentials as JSON headers. Required for custom auth type; optional additional headers for OAuth2 auth type.
    */
   custom_credentials?: string | null
   /**

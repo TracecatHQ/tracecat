@@ -218,6 +218,58 @@ class AgentPresetService(BaseWorkspaceService):
                 f"{len(missing_ids)} MCP integrations were not found in this workspace: {missing_str}"
             )
 
+    def _decrypt_mcp_headers(
+        self,
+        *,
+        encrypted_headers: bytes,
+        encryption_key: str,
+        mcp_integration_id: uuid.UUID,
+        mcp_integration_name: str,
+    ) -> dict[str, str] | None:
+        """Decrypt and validate MCP custom headers from encrypted storage."""
+        try:
+            decrypted_bytes = decrypt_value(encrypted_headers, key=encryption_key)
+            custom_credentials_str = decrypted_bytes.decode("utf-8")
+            parsed_headers = json.loads(custom_credentials_str)
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as err:
+            logger.warning(
+                "Failed to parse custom credentials for MCP integration %r: %s",
+                mcp_integration_name,
+                str(err),
+                extra={
+                    "workspace_id": str(self.workspace_id),
+                    "mcp_integration_id": str(mcp_integration_id),
+                },
+            )
+            return None
+
+        if not isinstance(parsed_headers, dict):
+            logger.warning(
+                "Custom credentials for MCP integration %r must be a JSON object",
+                mcp_integration_name,
+                extra={
+                    "workspace_id": str(self.workspace_id),
+                    "mcp_integration_id": str(mcp_integration_id),
+                },
+            )
+            return None
+
+        custom_headers: dict[str, str] = {}
+        for key, value in parsed_headers.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                logger.warning(
+                    "Custom credentials for MCP integration %r must contain string header values",
+                    mcp_integration_name,
+                    extra={
+                        "workspace_id": str(self.workspace_id),
+                        "mcp_integration_id": str(mcp_integration_id),
+                    },
+                )
+                return None
+            custom_headers[key] = value
+
+        return custom_headers
+
     async def _resolve_mcp_integrations(
         self, mcp_integrations: list[str] | None
     ) -> list[MCPServerConfig] | None:
@@ -409,6 +461,37 @@ class AgentPresetService(BaseWorkspaceService):
                     f"{token_type} {access_token.get_secret_value()}"
                 )
 
+                if mcp_integration.encrypted_headers:
+                    custom_headers = self._decrypt_mcp_headers(
+                        encrypted_headers=mcp_integration.encrypted_headers,
+                        encryption_key=encryption_key,
+                        mcp_integration_id=mcp_integration.id,
+                        mcp_integration_name=mcp_integration.name,
+                    )
+                    if custom_headers is None:
+                        # OAuth2 additional headers are optional; malformed values should
+                        # not disable the integration when an access token is available.
+                        custom_headers = {}
+
+                    auth_header_keys = [
+                        key
+                        for key in custom_headers
+                        if key.strip().casefold() == "authorization"
+                    ]
+                    if auth_header_keys:
+                        logger.warning(
+                            "Ignoring custom Authorization header variants for OAUTH2 MCP integration %r",
+                            mcp_integration.name,
+                            extra={
+                                "workspace_id": str(self.workspace_id),
+                                "mcp_integration_id": str(mcp_integration.id),
+                                "dropped_header_keys": auth_header_keys,
+                            },
+                        )
+                        for auth_header_key in auth_header_keys:
+                            custom_headers.pop(auth_header_key, None)
+                    headers.update(custom_headers)
+
             elif mcp_integration.auth_type == MCPAuthType.CUSTOM:
                 # CUSTOM: Decrypt and parse custom credentials (JSON string with headers)
                 if not mcp_integration.encrypted_headers:
@@ -422,38 +505,16 @@ class AgentPresetService(BaseWorkspaceService):
                     )
                     continue
 
-                try:
-                    decrypted_bytes = decrypt_value(
-                        mcp_integration.encrypted_headers, key=encryption_key
-                    )
-                    custom_credentials_str = decrypted_bytes.decode("utf-8")
-                    custom_headers = json.loads(custom_credentials_str)
-
-                    if not isinstance(custom_headers, dict):
-                        logger.warning(
-                            "Custom credentials for MCP integration %r must be a JSON object",
-                            mcp_integration.name,
-                            extra={
-                                "workspace_id": str(self.workspace_id),
-                                "mcp_integration_id": str(mcp_integration.id),
-                            },
-                        )
-                        continue
-
-                    # Merge custom headers (e.g., {"Authorization": "Bearer ...", "X-API-Key": "..."})
-                    headers.update(custom_headers)
-
-                except (json.JSONDecodeError, ValueError) as e:
-                    logger.warning(
-                        "Failed to parse custom credentials for MCP integration %r: %s",
-                        mcp_integration.name,
-                        str(e),
-                        extra={
-                            "workspace_id": str(self.workspace_id),
-                            "mcp_integration_id": str(mcp_integration.id),
-                        },
-                    )
+                custom_headers = self._decrypt_mcp_headers(
+                    encrypted_headers=mcp_integration.encrypted_headers,
+                    encryption_key=encryption_key,
+                    mcp_integration_id=mcp_integration.id,
+                    mcp_integration_name=mcp_integration.name,
+                )
+                if custom_headers is None:
                     continue
+                # Merge custom headers (e.g., {"Authorization": "Bearer ...", "X-API-Key": "..."})
+                headers.update(custom_headers)
 
             elif mcp_integration.auth_type == MCPAuthType.NONE:
                 pass

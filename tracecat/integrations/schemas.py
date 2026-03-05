@@ -384,7 +384,10 @@ class MCPHttpIntegrationCreate(_MCPIntegrationCreateBase):
     )
     custom_credentials: SecretStr | None = Field(
         default=None,
-        description="Custom credentials (API key, bearer token, or JSON headers) for custom auth_type",
+        description=(
+            "Custom credentials as JSON headers. Required for custom auth type; "
+            "optional additional headers for OAuth2 auth type."
+        ),
     )
 
     @field_validator("server_uri", mode="before")
@@ -473,7 +476,10 @@ class MCPIntegrationUpdate(BaseModel):
     oauth_integration_id: uuid.UUID | None = None
     custom_credentials: SecretStr | None = Field(
         default=None,
-        description="Custom credentials (API key, bearer token, or JSON headers) for custom auth_type",
+        description=(
+            "Custom credentials as JSON headers. Required for custom auth type; "
+            "optional additional headers for OAuth2 auth type."
+        ),
     )
     # Stdio-type server fields
     stdio_command: str | None = Field(
