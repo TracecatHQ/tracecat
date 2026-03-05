@@ -10,6 +10,7 @@ import type {
   MCPIntegrationUpdate,
   MCPStdioIntegrationCreate,
 } from "@/client/types.gen"
+import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { ProviderIcon } from "@/components/icons"
 import { Button, type ButtonProps } from "@/components/ui/button"
 import {
@@ -87,6 +88,28 @@ function isAllowedCommand(
   return ALLOWED_COMMANDS.includes(command as (typeof ALLOWED_COMMANDS)[number])
 }
 
+function isValidHeadersJson(value: string): boolean {
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return false
+    }
+    const headers = parsed as Record<string, unknown>
+    for (const headerValue of Object.values(headers)) {
+      if (typeof headerValue !== "string") {
+        return false
+      }
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
 const formSchema = z
   .object({
     name: z
@@ -157,17 +180,31 @@ const formSchema = z
         if (!data.custom_credentials || data.custom_credentials.trim() === "") {
           return false
         }
-        try {
-          JSON.parse(data.custom_credentials)
-          return true
-        } catch {
-          return false
-        }
+        return isValidHeadersJson(data.custom_credentials)
       }
       return true
     },
     {
-      message: "Custom credentials must be valid JSON",
+      message:
+        "Custom credentials must be a valid JSON object with string values",
+      path: ["custom_credentials"],
+    }
+  )
+  .refine(
+    (data) => {
+      if (
+        data.server_type === "http" &&
+        data.auth_type === "OAUTH2" &&
+        data.custom_credentials &&
+        data.custom_credentials.trim() !== ""
+      ) {
+        return isValidHeadersJson(data.custom_credentials)
+      }
+      return true
+    },
+    {
+      message:
+        "Additional headers must be a valid JSON object with string values",
       path: ["custom_credentials"],
     }
   )
@@ -416,7 +453,7 @@ export function MCPIntegrationDialog({
                     ? values.oauth_integration_id
                     : undefined,
                 custom_credentials:
-                  values.auth_type === "CUSTOM" && values.custom_credentials
+                  values.auth_type !== "NONE" && values.custom_credentials
                     ? values.custom_credentials.trim()
                     : undefined,
               }
@@ -445,7 +482,7 @@ export function MCPIntegrationDialog({
                 ? values.oauth_integration_id
                 : undefined,
             custom_credentials:
-              values.auth_type === "CUSTOM" && values.custom_credentials
+              values.auth_type !== "NONE" && values.custom_credentials
                 ? values.custom_credentials.trim()
                 : undefined,
           }
@@ -951,29 +988,40 @@ export function MCPIntegrationDialog({
                   />
                 )}
 
-                {/* Custom Credentials Fields (only for HTTP type) */}
-                {serverType === "http" && authType === "CUSTOM" && (
-                  <FormField
-                    control={form.control}
-                    name="custom_credentials"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Custom Credentials (JSON)</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            placeholder='{"Authorization": "Bearer token123"} or {"X-API-Key": "key123"}'
-                            className="font-mono text-sm min-h-[100px]"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormDescription className="text-xs">
-                          Enter custom headers as a JSON object.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
+                {/* Header credentials field (HTTP auth types) */}
+                {serverType === "http" &&
+                  (authType === "CUSTOM" || authType === "OAUTH2") && (
+                    <FormField
+                      control={form.control}
+                      name="custom_credentials"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            {authType === "OAUTH2"
+                              ? "Additional headers (JSON)"
+                              : "Custom credentials (JSON)"}
+                          </FormLabel>
+                          <FormControl>
+                            <CodeEditor
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              language="json"
+                              className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[120px]"
+                            />
+                          </FormControl>
+                          <FormDescription className="text-xs">
+                            {authType === "OAUTH2"
+                              ? "Optional: add extra request headers as JSON. Authorization is set from OAuth and cannot be overridden."
+                              : "Enter headers as a JSON object, for example "}
+                            {authType !== "OAUTH2" && (
+                              <code>{`{"Authorization":"Bearer token123"}`}</code>
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
 
                 <DialogFooter className="flex flex-col gap-2 sm:flex-row">
                   <div className="flex w-full items-center justify-end gap-2">
