@@ -230,6 +230,34 @@ async def test_list_agents_active_session_count_uses_stale_cutoff() -> None:
 
 
 @pytest.mark.anyio
+async def test_list_agents_session_counts_scoped_to_page() -> None:
+    """Regression: session count aggregation must only scan agents in the
+    current page, not the entire organization."""
+    org_id = uuid.uuid4()
+    fake_session = _FakeSession([_ExecuteResult(tuples_rows=[])])
+    service = _build_service(fake_session, org_id)
+
+    await service.list_agents(
+        limit=10,
+        cursor=None,
+        agent_type=None,
+        status=None,
+    )
+
+    stmt_text = str(fake_session.statements[0])
+    # The counts subquery must scope session aggregation to the paginated
+    # agent IDs via an IN clause referencing the page subquery.
+    assert "agent_id IN (SELECT page.id" in stmt_text, (
+        "session counts must be scoped to the page subquery via IN"
+    )
+    # The page subquery must be LIMIT-bounded so only a fixed number of
+    # agent IDs are considered.
+    assert "LIMIT" in stmt_text, (
+        "page subquery must contain a LIMIT to bound the agent set"
+    )
+
+
+@pytest.mark.anyio
 async def test_oauth_provisional_session_does_not_create_agent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -68,6 +68,40 @@ class WatchtowerService(BaseOrgService):
         retention_cutoff = _retention_cutoff()
         stale_cutoff = _session_stale_cutoff()
 
+        # 1. Select paginated agent IDs with all filters applied first,
+        #    so the counts aggregation is scoped to only the page.
+        page_stmt = select(WatchtowerAgent.id).where(
+            WatchtowerAgent.organization_id == self.organization_id,
+            WatchtowerAgent.last_seen_at >= retention_cutoff,
+        )
+        if agent_type:
+            page_stmt = page_stmt.where(WatchtowerAgent.agent_type == agent_type)
+        if status == "blocked":
+            page_stmt = page_stmt.where(WatchtowerAgent.blocked_at.is_not(None))
+        elif status == "active":
+            page_stmt = page_stmt.where(
+                WatchtowerAgent.blocked_at.is_(None),
+                WatchtowerAgent.last_seen_at >= stale_cutoff,
+            )
+        elif status == "idle":
+            page_stmt = page_stmt.where(
+                WatchtowerAgent.blocked_at.is_(None),
+                WatchtowerAgent.last_seen_at < stale_cutoff,
+            )
+
+        page_stmt = _apply_desc_cursor_filter(
+            page_stmt,
+            model=WatchtowerAgent,
+            cursor=cursor,
+            sort_attr="last_seen_at",
+        )
+        page_stmt = page_stmt.order_by(
+            WatchtowerAgent.last_seen_at.desc(), WatchtowerAgent.id.desc()
+        )
+        page_stmt = page_stmt.limit(limit + 1)
+        page_subq = page_stmt.subquery("page")
+
+        # 2. Aggregate session counts only for agents in the page.
         counts_subq = (
             select(
                 WatchtowerAgentSession.agent_id,
@@ -88,48 +122,23 @@ class WatchtowerService(BaseOrgService):
             .where(
                 WatchtowerAgentSession.organization_id == self.organization_id,
                 WatchtowerAgentSession.last_seen_at >= retention_cutoff,
+                WatchtowerAgentSession.agent_id.in_(select(page_subq.c.id)),
             )
             .group_by(WatchtowerAgentSession.agent_id)
-            .subquery()
+            .subquery("counts")
         )
 
+        # 3. Join full agent objects with counts for the page.
         stmt = (
             select(
                 WatchtowerAgent,
                 func.coalesce(counts_subq.c.total, 0).label("total_sessions"),
                 func.coalesce(counts_subq.c.active, 0).label("active_sessions"),
             )
+            .join(page_subq, WatchtowerAgent.id == page_subq.c.id)
             .outerjoin(counts_subq, WatchtowerAgent.id == counts_subq.c.agent_id)
-            .where(
-                WatchtowerAgent.organization_id == self.organization_id,
-                WatchtowerAgent.last_seen_at >= retention_cutoff,
-            )
+            .order_by(WatchtowerAgent.last_seen_at.desc(), WatchtowerAgent.id.desc())
         )
-        if agent_type:
-            stmt = stmt.where(WatchtowerAgent.agent_type == agent_type)
-        if status == "blocked":
-            stmt = stmt.where(WatchtowerAgent.blocked_at.is_not(None))
-        elif status == "active":
-            stmt = stmt.where(
-                WatchtowerAgent.blocked_at.is_(None),
-                WatchtowerAgent.last_seen_at >= stale_cutoff,
-            )
-        elif status == "idle":
-            stmt = stmt.where(
-                WatchtowerAgent.blocked_at.is_(None),
-                WatchtowerAgent.last_seen_at < stale_cutoff,
-            )
-
-        stmt = _apply_desc_cursor_filter(
-            stmt,
-            model=WatchtowerAgent,
-            cursor=cursor,
-            sort_attr="last_seen_at",
-        )
-        stmt = stmt.order_by(
-            WatchtowerAgent.last_seen_at.desc(), WatchtowerAgent.id.desc()
-        )
-        stmt = stmt.limit(limit + 1)
 
         result = await self.session.execute(stmt)
         rows: list[tuple[WatchtowerAgent, int, int]] = list(result.tuples().all())
