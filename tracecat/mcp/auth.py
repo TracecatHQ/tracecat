@@ -608,6 +608,8 @@ def create_mcp_auth() -> AuthProvider:
         client_secret=oidc_config.client_secret,
         base_url=base_url,
         client_storage=client_storage,
+        # TODO: Replace long-lived access tokens with refresh-token support.
+        fallback_access_token_expiry_seconds=24 * 60 * 60,
     )
 
 
