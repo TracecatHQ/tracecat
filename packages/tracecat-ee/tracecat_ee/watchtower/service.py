@@ -479,6 +479,8 @@ def _classify_agent_text(value: str) -> WatchtowerAgentType:
         return WatchtowerAgentType.WINDSURF
     if "opencode" in text:
         return WatchtowerAgentType.OPENCODE
+    if "openclaw" in text:
+        return WatchtowerAgentType.OPENCLAW
     return WatchtowerAgentType.UNKNOWN
 
 

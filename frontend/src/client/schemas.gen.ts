@@ -20962,7 +20962,15 @@ export const $WatchtowerAgentToolCallRead = {
 
 export const $WatchtowerAgentType = {
   type: "string",
-  enum: ["claude_code", "codex", "cursor", "windsurf", "opencode", "unknown"],
+  enum: [
+    "claude_code",
+    "codex",
+    "cursor",
+    "windsurf",
+    "opencode",
+    "openclaw",
+    "unknown",
+  ],
   title: "WatchtowerAgentType",
   description: "Normalized local-agent classifications stored by Watchtower.",
 } as const

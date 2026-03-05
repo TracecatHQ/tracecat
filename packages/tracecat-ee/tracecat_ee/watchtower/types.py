@@ -13,4 +13,5 @@ class WatchtowerAgentType(StrEnum):
     CURSOR = "cursor"
     WINDSURF = "windsurf"
     OPENCODE = "opencode"
+    OPENCLAW = "openclaw"
     UNKNOWN = "unknown"

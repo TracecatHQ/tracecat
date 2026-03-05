@@ -6487,6 +6487,7 @@ export type WatchtowerAgentType =
   | "cursor"
   | "windsurf"
   | "opencode"
+  | "openclaw"
   | "unknown"
 
 /**
