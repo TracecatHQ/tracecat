@@ -257,6 +257,13 @@ class ContinueRunRequest(BaseModel):
 
     kind: Literal["continue"] = Field(default="continue", frozen=True)
     decisions: list[ApprovalDecision]
+    source: Literal["inbox", "slack"] = Field(
+        default="inbox",
+        description=(
+            "Origin of the approval decision submission. "
+            "Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions."
+        ),
+    )
 
 
 # Union type for chat requests - supports both simple and Vercel formats

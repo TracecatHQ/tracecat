@@ -302,6 +302,7 @@ export function useVercelChat({
           const body: ContinueRunRequest = {
             kind: "continue",
             decisions: dataPart.data.decisions,
+            source: dataPart.data.source ?? "inbox",
           }
           return { body }
         }
@@ -356,7 +357,8 @@ export type ApprovalCard = {
  * Pass this message to your chat messages array before sending.
  */
 export function makeContinueMessage(
-  decisions: ContinueRunRequest["decisions"]
+  decisions: ContinueRunRequest["decisions"],
+  source: ContinueRunRequest["source"] = "inbox"
 ): UIMessage {
   return {
     id: `continue-${Date.now()}`,
@@ -364,7 +366,7 @@ export function makeContinueMessage(
     parts: [
       {
         type: "data-continue",
-        data: { format: "continue", decisions },
+        data: { kind: "continue", source, decisions },
       } as UIMessage["parts"][number],
     ],
   }

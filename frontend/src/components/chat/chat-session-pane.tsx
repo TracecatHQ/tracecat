@@ -725,6 +725,7 @@ function ApprovalRequestPart({
                 />
                 <div className="flex w-full flex-wrap justify-start gap-1 sm:w-auto [&>button]:h-6 [&>button]:rounded-lg">
                   <Button
+                    type="button"
                     size="sm"
                     variant={
                       decision?.action === "approve" ? "default" : "outline"
@@ -746,6 +747,7 @@ function ApprovalRequestPart({
                     Approve
                   </Button>
                   <Button
+                    type="button"
                     size="sm"
                     variant={
                       decision?.action === "override" ? "default" : "outline"
@@ -766,6 +768,7 @@ function ApprovalRequestPart({
                     Approve + change
                   </Button>
                   <Button
+                    type="button"
                     size="sm"
                     variant={
                       decision?.action === "deny" ? "destructive" : "outline"
@@ -829,6 +832,7 @@ function ApprovalRequestPart({
           Reset
         </Button>
         <Button
+          type="button"
           onClick={handleSubmit}
           disabled={disabled || submitting || !readyToSubmit}
           className="h-7 px-2"

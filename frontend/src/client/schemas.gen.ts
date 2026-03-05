@@ -6813,6 +6813,14 @@ export const $ContinueRunRequest = {
       type: "array",
       title: "Decisions",
     },
+    source: {
+      type: "string",
+      enum: ["inbox", "slack"],
+      title: "Source",
+      description:
+        "Origin of the approval decision submission. Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions.",
+      default: "inbox",
+    },
   },
   type: "object",
   required: ["decisions"],

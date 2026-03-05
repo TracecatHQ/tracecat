@@ -2008,7 +2008,16 @@ export type element_kind = "value" | "stored_object"
 export type ContinueRunRequest = {
   kind?: "continue"
   decisions: Array<ApprovalDecision>
+  /**
+   * Origin of the approval decision submission. Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions.
+   */
+  source?: "inbox" | "slack"
 }
+
+/**
+ * Origin of the approval decision submission. Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions.
+ */
+export type source = "inbox" | "slack"
 
 /**
  * Event for when a case is created.

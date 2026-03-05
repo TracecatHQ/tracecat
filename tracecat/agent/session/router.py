@@ -342,7 +342,7 @@ async def send_message(
         )
 
         # Create stream and return with Vercel format
-        stream = await AgentStream.new(agent_session.id, workspace_id)
+        stream = await AgentStream.new(session_id, workspace_id)
         return StreamingResponse(
             stream.sse(http_request.is_disconnected, last_id=start_id, format="vercel"),
             media_type="text/event-stream",

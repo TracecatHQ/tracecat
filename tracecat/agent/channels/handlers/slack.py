@@ -32,7 +32,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ApprovalDecision, BasicChatRequest, ContinueRunRequest
 from tracecat.db.models import AgentSession
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 
@@ -251,7 +251,11 @@ class SlackChannelHandler:
         session_row = result.scalar_one_or_none()
         if session_row is None:
             return False
-        session_row.channel_context = dict(context.to_channel_context())
+        channel_context: dict[str, Any] = {}
+        if isinstance(session_row.channel_context, dict):
+            channel_context = dict(session_row.channel_context)
+        channel_context.update(context.to_channel_context())
+        session_row.channel_context = channel_context
         await self.session.commit()
         return True
 
@@ -397,15 +401,19 @@ class SlackChannelHandler:
         channel_id: str,
         user_id: str,
         text: str,
+        thread_ts: str | None = None,
     ) -> None:
+        payload: dict[str, str] = {
+            "channel": channel_id,
+            "user": user_id,
+            "text": text,
+        }
+        if thread_ts:
+            payload["thread_ts"] = thread_ts
         try:
             await client.api_call(
                 api_method="chat.postEphemeral",
-                json={
-                    "channel": channel_id,
-                    "user": user_id,
-                    "text": text,
-                },
+                json=payload,
             )
         except Exception:
             logger.exception(
@@ -551,20 +559,12 @@ class SlackChannelHandler:
                     },
                 )
                 for tool_call_id, decision in decisions_by_tool.items()
-            ]
+            ],
+            source="slack",
         )
 
         session_service = AgentSessionService(self.session, role=self.role)
         await session_service.run_turn(session_id, continuation)
-
-        await slack_client.api_call(
-            api_method="chat.postMessage",
-            json={
-                "channel": context.channel_id,
-                "thread_ts": context.thread_ts,
-                "text": "All approvals received. Continuing execution.",
-            },
-        )
 
     async def _handle_approval_action(
         self,
@@ -589,6 +589,7 @@ class SlackChannelHandler:
                 channel_id=context.channel_id,
                 user_id=context.user_id,
                 text="This approval request is no longer active.",
+                thread_ts=context.thread_ts,
             )
             return
 
@@ -598,6 +599,7 @@ class SlackChannelHandler:
                 channel_id=context.channel_id,
                 user_id=context.user_id,
                 text="This approval action is not valid in this channel.",
+                thread_ts=context.thread_ts,
             )
             return
         if batch_context.get("workspace_id") != str(token.workspace_id):
@@ -606,6 +608,7 @@ class SlackChannelHandler:
                 channel_id=context.channel_id,
                 user_id=context.user_id,
                 text="This approval action is not valid for this workspace.",
+                thread_ts=context.thread_ts,
             )
             return
 
@@ -619,6 +622,43 @@ class SlackChannelHandler:
                 channel_id=context.channel_id,
                 user_id=context.user_id,
                 text="This approval request is no longer active.",
+                thread_ts=context.thread_ts,
+            )
+            return
+
+        session_id_raw = batch_context.get("session_id")
+        if not isinstance(session_id_raw, str):
+            await self._post_ephemeral_notice(
+                slack_client,
+                channel_id=context.channel_id,
+                user_id=context.user_id,
+                text="This approval request is no longer active.",
+                thread_ts=context.thread_ts,
+            )
+            return
+        try:
+            session_id = uuid.UUID(session_id_raw)
+        except ValueError:
+            await self._post_ephemeral_notice(
+                slack_client,
+                channel_id=context.channel_id,
+                user_id=context.user_id,
+                text="This approval request is no longer active.",
+                thread_ts=context.thread_ts,
+            )
+            return
+
+        session_service = AgentSessionService(self.session, role=self.role)
+        try:
+            if await session_service.get_session(session_id) is None:
+                raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        except TracecatNotFoundError:
+            await self._post_ephemeral_notice(
+                slack_client,
+                channel_id=context.channel_id,
+                user_id=context.user_id,
+                text="This approval request is no longer active.",
+                thread_ts=context.thread_ts,
             )
             return
 
@@ -629,6 +669,7 @@ class SlackChannelHandler:
                 channel_id=context.channel_id,
                 user_id=context.user_id,
                 text="A decision has already been recorded for this tool call.",
+                thread_ts=context.thread_ts,
             )
             return
 
@@ -660,6 +701,14 @@ class SlackChannelHandler:
                 redis_client=redis_client,
                 context=context,
                 batch_context=batch_context,
+            )
+        except ValueError as exc:
+            await self._post_ephemeral_notice(
+                slack_client,
+                channel_id=context.channel_id,
+                user_id=context.user_id,
+                text=str(exc),
+                thread_ts=context.thread_ts,
             )
         except Exception:
             logger.exception(
@@ -733,6 +782,19 @@ class SlackChannelHandler:
                 slack_client=slack_client,
             )
             session_service = AgentSessionService(self.session, role=self.role)
+            if await session_service.has_pending_approvals(session_id):
+                await slack_client.api_call(
+                    api_method="chat.postMessage",
+                    json={
+                        "channel": context.channel_id,
+                        "thread_ts": context.thread_ts,
+                        "text": (
+                            "This session is waiting for approval decisions. "
+                            "Approve or deny the pending actions before sending a new message."
+                        ),
+                    },
+                )
+                return
             await session_service.run_turn(
                 session_id,
                 BasicChatRequest(message=self._extract_prompt_text(event)),

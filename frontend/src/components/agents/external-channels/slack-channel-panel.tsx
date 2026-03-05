@@ -15,7 +15,6 @@ import { CopyButton } from "@/components/copy-button"
 import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -35,6 +34,7 @@ import {
   useRotateAgentChannelToken,
   useStartSlackOAuth,
 } from "@/hooks"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { copyToClipboard } from "@/lib/utils"
 
 type SetupMethod = "existing" | "new"
@@ -76,7 +76,7 @@ export function buildSlackManifest({
 
   return {
     display_information: {
-      name: `${appName} agent`,
+      name: appName,
       description: "Tracecat external channel agent",
       background_color: "#111827",
     },
@@ -87,7 +87,7 @@ export function buildSlackManifest({
         messages_tab_read_only_enabled: true,
       },
       bot_user: {
-        display_name: `${appName} agent`,
+        display_name: appName,
         always_online: true,
       },
     },
@@ -153,6 +153,29 @@ export function SlackChannelPanel({
   workspaceId: string
   preset: AgentPresetRead | null
 }) {
+  const {
+    isFeatureEnabled: isFeatureEnabledFlag,
+    isLoading: isLoadingFeatures,
+  } = useFeatureFlag()
+  const channelsEnabled = isFeatureEnabledFlag("agent-channels")
+
+  if (isLoadingFeatures) {
+    return <CenteredSpinner />
+  }
+
+  if (!channelsEnabled) {
+    return (
+      <div className="size-full p-6">
+        <Alert>
+          <AlertTitle>Feature not enabled</AlertTitle>
+          <AlertDescription>
+            External channels are unavailable for this workspace.
+          </AlertDescription>
+        </Alert>
+      </div>
+    )
+  }
+
   const { tokens, tokensIsLoading, tokensError } = useAgentChannelTokens(
     workspaceId,
     {
@@ -208,7 +231,7 @@ export function SlackChannelPanel({
         endpointUrl,
         oauthRedirectUrl,
         appName: preset?.name ?? "Tracecat",
-        includeEventSubscriptions: setupMethod !== "new",
+        includeEventSubscriptions: true,
       }),
       null,
       2
@@ -377,8 +400,6 @@ export function SlackChannelPanel({
     await handleConnectToSlack()
   }
 
-  const integrationStatus = token?.is_active ? "Connected" : "Not connected"
-
   async function handleSelectMethod(method: SetupMethod): Promise<void> {
     setSetupMethod(method)
     const presetId = preset?.id
@@ -429,9 +450,6 @@ export function SlackChannelPanel({
                 Handle `app_mention` events and respond in-thread.
               </p>
             </div>
-            <Badge variant={token?.is_active ? "default" : "secondary"}>
-              {integrationStatus}
-            </Badge>
             <Button type="button" size="sm" onClick={() => setDialogOpen(true)}>
               {token ? "Manage" : "Connect"}
             </Button>

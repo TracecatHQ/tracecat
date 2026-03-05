@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.executor.loopback import (
     AgentStreamSink,
+    FanoutStreamSink,
     LoopbackHandler,
     LoopbackInput,
 )
@@ -18,6 +19,13 @@ from tracecat.agent.types import AgentConfig
 
 
 class _FakeStream:
+    def __init__(self) -> None:
+        self.append = AsyncMock()
+        self.error = AsyncMock()
+        self.done = AsyncMock()
+
+
+class _FakeExternalSink:
     def __init__(self) -> None:
         self.append = AsyncMock()
         self.error = AsyncMock()
@@ -61,6 +69,30 @@ async def test_initialize_stream_sink_falls_back_to_redis_on_external_lookup_err
         session_id=loopback_input.session_id,
         workspace_id=loopback_input.workspace_id,
     )
+
+
+@pytest.mark.anyio
+async def test_initialize_stream_sink_uses_fanout_when_external_sink_available(
+    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
+) -> None:
+    handler = LoopbackHandler(input=loopback_input)
+    external_sink = _FakeExternalSink()
+    monkeypatch.setattr(
+        handler,
+        "_build_external_channel_sink",
+        AsyncMock(return_value=external_sink),
+    )
+    fake_stream = _FakeStream()
+    stream_new = AsyncMock(return_value=fake_stream)
+    monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
+
+    sink = await handler._initialize_stream_sink()
+    event = UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="hello")
+    await sink.append(event)
+
+    assert isinstance(sink, FanoutStreamSink)
+    fake_stream.append.assert_awaited_once_with(event)
+    external_sink.append.assert_awaited_once_with(event)
 
 
 @pytest.mark.anyio

@@ -4611,7 +4611,6 @@ export const agentSessionsForkSession = (
  * Raises:
  * HTTPException 400: If the approval submission fails validation.
  * HTTPException 404: If the agent session/workflow is not found.
- * HTTPException 502: If communication with Temporal fails.
  * HTTPException 500: For unexpected errors.
  * @param data The data for the request.
  * @param data.sessionId

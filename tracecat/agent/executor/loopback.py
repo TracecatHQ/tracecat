@@ -157,6 +157,43 @@ class AgentStreamSink:
         await self.stream.done()
 
 
+@dataclass(kw_only=True, slots=True)
+class FanoutStreamSink:
+    """Broadcasts stream events to multiple sinks.
+
+    Used for external-channel sessions where we need Slack thread updates and
+    Redis stream updates (for inbox/UI) in parallel.
+    """
+
+    sinks: tuple[LoopbackEventSink, ...]
+
+    async def _broadcast(self, method_name: str, *args: Any) -> None:
+        failures = 0
+        for sink in self.sinks:
+            method = getattr(sink, method_name)
+            try:
+                await method(*args)
+            except Exception as exc:
+                failures += 1
+                logger.warning(
+                    "Fanout stream sink target failed",
+                    method=method_name,
+                    sink_type=type(sink).__name__,
+                    error=str(exc),
+                )
+        if failures == len(self.sinks):
+            raise RuntimeError(f"All fanout sinks failed for method '{method_name}'")
+
+    async def append(self, event: UnifiedStreamEvent) -> None:
+        await self._broadcast("append", event)
+
+    async def error(self, error: str) -> None:
+        await self._broadcast("error", error)
+
+    async def done(self) -> None:
+        await self._broadcast("done")
+
+
 class LoopbackHandler:
     """Handles socket communication with the NSJail runtime.
 
@@ -347,10 +384,11 @@ class LoopbackHandler:
             )
             external_sink = None
 
+        redis_sink = await self._build_redis_stream_sink()
         if external_sink is not None:
-            return external_sink
+            return FanoutStreamSink(sinks=(redis_sink, external_sink))
 
-        return await self._build_redis_stream_sink()
+        return redis_sink
 
     async def _build_redis_stream_sink(self) -> AgentStreamSink:
         """Build Redis-backed stream sink."""
