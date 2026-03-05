@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from tracecat.agent.channels.sinks.slack import SlackStreamSink
 from tracecat import config
+from tracecat.agent.channels.sinks.slack import SlackStreamSink
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
@@ -356,7 +356,9 @@ async def test_slack_stream_sink_coalesces_in_progress_by_tool_name(
         assert token == "xoxb-test"
         return fake_client
 
-    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.slack.AsyncWebClient", _make_client
+    )
 
     sink = SlackStreamSink(
         slack_bot_token="xoxb-test",
@@ -407,7 +409,9 @@ async def test_slack_stream_sink_reuses_initial_id_for_same_tool_name(
         assert token == "xoxb-test"
         return fake_client
 
-    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.slack.AsyncWebClient", _make_client
+    )
 
     sink = SlackStreamSink(
         slack_bot_token="xoxb-test",
@@ -458,7 +462,9 @@ async def test_slack_stream_sink_skips_tool_updates_without_tool_call_id(
         assert token == "xoxb-test"
         return fake_client
 
-    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.slack.AsyncWebClient", _make_client
+    )
 
     sink = SlackStreamSink(
         slack_bot_token="xoxb-test",
@@ -511,9 +517,11 @@ async def test_slack_stream_sink_emits_approval_cards(
     async def _get_redis() -> _FakeRedisClient:
         return fake_redis
 
-    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
     monkeypatch.setattr(
-        "tracecat.agent.channels.sinks.get_redis_client",
+        "tracecat.agent.channels.sinks.slack.AsyncWebClient", _make_client
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.slack.get_redis_client",
         _get_redis,
     )
     monkeypatch.setattr(config, "TRACECAT__SIGNING_SECRET", "test-signing-secret")
@@ -623,7 +631,9 @@ async def test_slack_stream_sink_skips_synthetic_approval_interrupt_error(
         assert token == "xoxb-test"
         return fake_client
 
-    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.slack.AsyncWebClient", _make_client
+    )
 
     sink = SlackStreamSink(
         slack_bot_token="xoxb-test",

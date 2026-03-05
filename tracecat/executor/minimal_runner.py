@@ -32,8 +32,16 @@ try:
             data = data.encode()
         return orjson.loads(data)
 
+    def _orjson_default(obj: Any) -> Any:
+        if hasattr(obj, "model_dump"):
+            try:
+                return obj.model_dump(mode="json")
+            except Exception:
+                pass
+        raise TypeError(f"Type is not JSON serializable: {type(obj).__name__}")
+
     def json_dumps(obj: dict) -> bytes:
-        return orjson.dumps(obj)
+        return orjson.dumps(obj, default=_orjson_default)
 
     JSON_OUTPUT_IS_BYTES = True
 except ImportError:
