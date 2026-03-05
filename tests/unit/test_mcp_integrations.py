@@ -9,6 +9,7 @@ This test suite covers MCP integration functionality including:
 """
 
 import uuid
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from pydantic import SecretStr, TypeAdapter
@@ -24,6 +25,7 @@ from tracecat.integrations.providers.base import (
     MCPAuthProvider,
     OAuthDiscoveryResult,
 )
+from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
 from tracecat.integrations.schemas import (
     MCPHttpIntegrationCreate,
     MCPIntegrationCreate,
@@ -1112,4 +1114,49 @@ class TestMCPProviderOAuth:
         assert (
             getattr(provider.client, "token_endpoint_auth_method", None)
             == "client_secret_post"
+        )
+
+    async def test_sentry_provider_uses_mcp_resource_path(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Sentry MCP must send a /mcp resource target to avoid invalid_target."""
+
+        discovery = OAuthDiscoveryResult(
+            authorization_endpoint="https://mcp.sentry.dev/oauth/authorize",
+            token_endpoint="https://mcp.sentry.dev/oauth/token",
+            token_methods=["none"],
+            registration_endpoint="https://mcp.sentry.dev/oauth/register",
+        )
+
+        async def fake_discover(
+            cls,
+            logger_instance,
+            *,
+            discovered_auth_endpoint=None,
+            discovered_token_endpoint=None,
+        ) -> OAuthDiscoveryResult:
+            _ = (
+                cls,
+                logger_instance,
+                discovered_auth_endpoint,
+                discovered_token_endpoint,
+            )
+            return discovery
+
+        monkeypatch.setattr(
+            SentryMCPProvider,
+            "_discover_oauth_endpoints_async",
+            classmethod(fake_discover),
+        )
+
+        provider = await SentryMCPProvider.instantiate(client_id="dummy-client")
+
+        auth_url, _ = await provider.get_authorization_url(state="test-state")
+        auth_query = parse_qs(urlparse(auth_url).query)
+
+        assert auth_query["resource"] == [SentryMCPProvider.mcp_server_uri]
+        assert (
+            provider._get_additional_token_params()["resource"]
+            == SentryMCPProvider.mcp_server_uri
         )
