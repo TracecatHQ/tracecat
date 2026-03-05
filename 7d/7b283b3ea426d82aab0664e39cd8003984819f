@@ -1,0 +1,23 @@
+frontend/src/components/watchtower/watchtower-monitor.tsx
+  3f68e0534bde1a53 78,119-124,1235-1236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "7d7b283b3ea426d82aab0664e39cd8003984819f",
+  "prompts": {
+    "3f68e0534bde1a53": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cba8d-2124-7380-a0eb-5abb0575e113",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 10,
+      "total_deletions": 0,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  }
+}
