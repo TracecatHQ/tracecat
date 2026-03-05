@@ -405,6 +405,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     // URLScan namespace
     "tools.urlscan": createIconRenderer(UrlscanIcon),
     "tools.virustotal": createIconRenderer(VirusTotalIcon),
+    "tools.wiz": createIconRenderer(WizIcon),
     "tools.pagerduty": createIconRenderer(PagerDutyToolIcon, {
       wrapperClassName: "rounded-xl",
     }),
@@ -545,6 +546,7 @@ export const providerIcons: Record<
   jira_mcp: (props) => <JiraIcon {...props} />,
   runreveal_mcp: (props) => <RunRevealIcon {...props} />,
   secureannex_mcp: (props) => <SecureAnnexIcon {...props} />,
+  wiz_mcp: (props) => <WizIcon {...props} />,
   github_mcp: ({ className, ...rest }) => (
     <div className={className}>
       <GitHubIcon {...rest} />
@@ -1618,6 +1620,24 @@ export function SentryIcon({ className, ...rest }: IconProps) {
       <path
         d="M29,2.26a4.67,4.67,0,0,0-8,0L14.42,13.53A32.21,32.21,0,0,1,32.17,40.19H27.55A27.68,27.68,0,0,0,12.09,17.47L6,28a15.92,15.92,0,0,1,9.23,12.17H4.62A.76.76,0,0,1,4,39.06l2.94-5a10.74,10.74,0,0,0-3.36-1.9l-2.91,5a4.54,4.54,0,0,0,1.69,6.24A4.66,4.66,0,0,0,4.62,44H19.15a19.4,19.4,0,0,0-8-17.31l2.31-4A23.87,23.87,0,0,1,23.76,44H36.07a35.88,35.88,0,0,0-16.41-31.8l4.67-8a.77.77,0,0,1,1.05-.27c.53.29,20.29,34.77,20.66,35.17a.76.76,0,0,1-.68,1.13H40.6q.09,1.91,0,3.81h4.78A4.59,4.59,0,0,0,50,39.43a4.49,4.49,0,0,0-.62-2.28Z"
         fill="#362d59"
+      />
+    </svg>
+  )
+}
+
+export function WizIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 33 33"
+      width="100%"
+      height="100%"
+      className={className}
+      {...rest}
+    >
+      <path
+        fill="currentColor"
+        d="M16.77.312c-.085-.416-.978-.416-1.063 0-.666 3.246-2.05 8.14-4.652 10.741-2.6 2.601-7.498 3.986-10.743 4.652-.416.085-.416.977 0 1.062 3.245.667 8.142 2.051 10.743 4.652 3.4 3.4 4.57 8.038 4.972 10.827.026.177.58.202.615.027.609-2.996 2-8.074 4.78-10.854 2.601-2.6 7.497-3.985 10.743-4.652.416-.085.416-.977 0-1.062-3.246-.666-8.142-2.05-10.744-4.652-2.6-2.6-3.985-7.495-4.651-10.741Z"
       />
     </svg>
   )

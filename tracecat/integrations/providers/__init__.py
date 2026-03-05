@@ -36,6 +36,7 @@ from tracecat.integrations.providers.secureannex.mcp import SecureAnnexMCPProvid
 from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
 from tracecat.integrations.providers.servicenow.oauth import ServiceNowOAuthProvider
 from tracecat.integrations.providers.slack.oauth import SlackOAuthProvider
+from tracecat.integrations.providers.wiz.mcp import WizMCPProvider
 from tracecat.integrations.schemas import ProviderKey
 
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
@@ -52,6 +53,7 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     RunRevealMCPProvider,
     SecureAnnexMCPProvider,
     SentryMCPProvider,
+    WizMCPProvider,
     AzureManagementACProvider,
     AzureManagementCCProvider,
     MicrosoftSentinelACProvider,
