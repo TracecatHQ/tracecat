@@ -431,6 +431,7 @@ class ApprovalManagerStatus(StrEnum):
 class ApprovalManager:
     def __init__(self, role: Role) -> None:
         self._approvals: ApprovalMap = {}
+        self._decision_metadata_by_tool_call_id: dict[str, dict[str, Any]] = {}
         self._status: ApprovalManagerStatus = ApprovalManagerStatus.IDLE
         self.role = role
         agent_ctx = AgentContext.get()
@@ -452,17 +453,23 @@ class ApprovalManager:
         return self._status == ApprovalManagerStatus.READY
 
     def set(
-        self, approvals: ApprovalMap, *, approved_by: uuid.UUID | None = None
+        self,
+        approvals: ApprovalMap,
+        *,
+        approved_by: uuid.UUID | None = None,
+        decision_metadata: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         self._approvals = approvals
         self._status = ApprovalManagerStatus.READY
         self._approved_by = approved_by
+        self._decision_metadata_by_tool_call_id = decision_metadata or {}
 
     async def wait(self) -> None:
         await workflow.wait_condition(lambda: self.is_ready())
 
     async def prepare(self, approvals: list[ToolCallPart]) -> None:
         self._approvals.clear()
+        self._decision_metadata_by_tool_call_id.clear()
         self._status = ApprovalManagerStatus.IDLE
         self._expected_tool_calls = {
             approval.tool_call_id: approval for approval in approvals
@@ -589,6 +596,9 @@ class ApprovalManager:
                     approved=approved,
                     reason=reason,
                     decision=decision,
+                    decision_metadata=self._decision_metadata_by_tool_call_id.get(
+                        tool_call_id
+                    ),
                     approved_by=self._approved_by,
                 )
             )
@@ -603,6 +613,7 @@ class ApprovalManager:
                 start_to_close_timeout=timedelta(seconds=30),
             )
         self._approved_by = None
+        self._decision_metadata_by_tool_call_id.clear()
 
     @staticmethod
     @activity.defn
@@ -654,8 +665,22 @@ class ApprovalManager:
                     "reason": decision.reason,
                     "approved_by": decision.approved_by,
                 }
-                if decision.decision is not None:
-                    update_data["decision"] = decision.decision
+                resolved_decision = decision.decision
+                if decision.decision_metadata:
+                    if isinstance(resolved_decision, dict):
+                        resolved_decision = {
+                            **resolved_decision,
+                            "metadata": decision.decision_metadata,
+                        }
+                    elif isinstance(resolved_decision, bool):
+                        resolved_decision = {
+                            "value": resolved_decision,
+                            "metadata": decision.decision_metadata,
+                        }
+                    elif resolved_decision is None:
+                        resolved_decision = {"metadata": decision.decision_metadata}
+                if resolved_decision is not None:
+                    update_data["decision"] = resolved_decision
 
                 # Update the approval with decision
                 await service.update_approval(

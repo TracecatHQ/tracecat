@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from slack_sdk.errors import SlackApiError
@@ -23,16 +25,20 @@ from tracecat.agent.channels.schemas import (
     SlackChannelContext,
     ValidatedChannelToken,
 )
+from tracecat.agent.channels.service import AgentChannelService
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
-from tracecat.chat.schemas import BasicChatRequest
+from tracecat.chat.schemas import ApprovalDecision, BasicChatRequest, ContinueRunRequest
 from tracecat.db.models import AgentSession
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 
 SLACK_EVENT_DEDUP_TTL_SECONDS = 600
+SLACK_APPROVAL_REDIS_PREFIX = "slack-approval"
+SLACK_APPROVAL_TTL_SECONDS = 24 * 60 * 60
 SLACK_MENTION_PATTERN = re.compile(r"<@[^>]+>")
 
 
@@ -59,6 +65,18 @@ class SlackAppMentionContext:
             "event_ts": self.event_ts,
             "bot_user_id": self.bot_user_id,
         }
+
+
+@dataclass(frozen=True)
+class SlackApprovalActionContext:
+    batch_id: str
+    tool_call_id: str
+    action: str
+    channel_id: str
+    thread_ts: str
+    message_ts: str
+    user_id: str
+    user_name: str | None = None
 
 
 class SlackChannelHandler:
@@ -233,7 +251,11 @@ class SlackChannelHandler:
         session_row = result.scalar_one_or_none()
         if session_row is None:
             return False
-        session_row.channel_context = dict(context.to_channel_context())
+        channel_context: dict[str, Any] = {}
+        if isinstance(session_row.channel_context, dict):
+            channel_context = dict(session_row.channel_context)
+        channel_context.update(context.to_channel_context())
+        session_row.channel_context = channel_context
         await self.session.commit()
         return True
 
@@ -291,10 +313,429 @@ class SlackChannelHandler:
             return without_mentions
         return raw_text.strip() or "Please respond in this thread."
 
+    @staticmethod
+    def _batch_key(batch_id: str) -> str:
+        return f"{SLACK_APPROVAL_REDIS_PREFIX}:batch:{batch_id}"
+
+    @classmethod
+    def _decision_key(cls, batch_id: str, tool_call_id: str) -> str:
+        return f"{cls._batch_key(batch_id)}:decision:{tool_call_id}"
+
+    @classmethod
+    def _submission_key(cls, batch_id: str) -> str:
+        return f"{cls._batch_key(batch_id)}:submitted"
+
+    @staticmethod
+    def _build_decision_text(
+        *,
+        action: str,
+        tool_name: str,
+        actor_user_id: str,
+    ) -> str:
+        if action == "approve":
+            status_text = "Approved"
+        else:
+            status_text = "Denied"
+        return f"{status_text} by <@{actor_user_id}> for `{tool_name}`"
+
+    @classmethod
+    def _parse_approval_action_context(
+        cls, payload: dict[str, Any]
+    ) -> SlackApprovalActionContext:
+        if payload.get("type") != "block_actions":
+            raise ValueError("Expected Slack block_actions payload")
+
+        actions = payload.get("actions")
+        if not isinstance(actions, list) or not actions:
+            raise ValueError("Missing Slack actions list")
+        first_action = actions[0]
+        if not isinstance(first_action, dict):
+            raise ValueError("Invalid Slack action payload")
+
+        raw_value = first_action.get("value")
+        if not isinstance(raw_value, str):
+            raise ValueError("Missing Slack action value")
+        action_token = AgentChannelService.parse_slack_approval_action_token(raw_value)
+
+        user = payload.get("user")
+        if not isinstance(user, dict):
+            raise ValueError("Missing Slack user context")
+        user_id = user.get("id")
+        if not isinstance(user_id, str):
+            raise ValueError("Missing Slack user ID")
+        user_name_raw = user.get("username") or user.get("name")
+        user_name = user_name_raw if isinstance(user_name_raw, str) else None
+
+        channel = payload.get("channel")
+        if not isinstance(channel, dict):
+            raise ValueError("Missing Slack channel context")
+        channel_id = channel.get("id")
+        if not isinstance(channel_id, str):
+            raise ValueError("Missing Slack channel ID")
+
+        container = payload.get("container")
+        if not isinstance(container, dict):
+            raise ValueError("Missing Slack container context")
+        message_ts = container.get("message_ts")
+        if not isinstance(message_ts, str):
+            raise ValueError("Missing Slack message timestamp")
+        thread_ts = container.get("thread_ts")
+        if not isinstance(thread_ts, str):
+            thread_ts = message_ts
+
+        return SlackApprovalActionContext(
+            batch_id=action_token["batch_id"],
+            tool_call_id=action_token["tool_call_id"],
+            action=action_token["action"],
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            message_ts=message_ts,
+            user_id=user_id,
+            user_name=user_name,
+        )
+
+    @staticmethod
+    async def _post_ephemeral_notice(
+        client: AsyncWebClient,
+        *,
+        channel_id: str,
+        user_id: str,
+        text: str,
+        thread_ts: str | None = None,
+    ) -> None:
+        payload: dict[str, str] = {
+            "channel": channel_id,
+            "user": user_id,
+            "text": text,
+        }
+        if thread_ts:
+            payload["thread_ts"] = thread_ts
+        try:
+            await client.api_call(
+                api_method="chat.postEphemeral",
+                json=payload,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to post Slack ephemeral notice",
+                channel_id=channel_id,
+                user_id=user_id,
+            )
+
+    async def _load_batch_context(
+        self,
+        client: RedisClient,
+        *,
+        batch_id: str,
+    ) -> dict[str, Any] | None:
+        batch_raw = await client.get(self._batch_key(batch_id))
+        if batch_raw is None:
+            return None
+        try:
+            batch_context = json.loads(batch_raw)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(batch_context, dict):
+            return None
+        return batch_context
+
+    async def _record_tool_decision(
+        self,
+        client: RedisClient,
+        *,
+        context: SlackApprovalActionContext,
+    ) -> bool:
+        decision_payload = json.dumps(
+            {
+                "action": context.action,
+                "user_id": context.user_id,
+                "user_name": context.user_name,
+                "decided_at": datetime.now(tz=UTC).isoformat(),
+            },
+            separators=(",", ":"),
+        )
+        return await client.set_if_not_exists(
+            self._decision_key(context.batch_id, context.tool_call_id),
+            decision_payload,
+            expire_seconds=SLACK_APPROVAL_TTL_SECONDS,
+        )
+
+    async def _update_approval_message(
+        self,
+        slack_client: AsyncWebClient,
+        *,
+        context: SlackApprovalActionContext,
+        tool_name: str,
+    ) -> None:
+        decision_text = self._build_decision_text(
+            action=context.action,
+            tool_name=tool_name,
+            actor_user_id=context.user_id,
+        )
+        await slack_client.api_call(
+            api_method="chat.update",
+            json={
+                "channel": context.channel_id,
+                "ts": context.message_ts,
+                "text": decision_text,
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": decision_text,
+                        },
+                    }
+                ],
+            },
+        )
+
+    async def _submit_batch_if_ready(
+        self,
+        *,
+        slack_client: AsyncWebClient,
+        redis_client: RedisClient,
+        context: SlackApprovalActionContext,
+        batch_context: dict[str, Any],
+    ) -> None:
+        tool_call_ids_raw = batch_context.get("tool_call_ids")
+        if not isinstance(tool_call_ids_raw, list):
+            return
+        tool_call_ids = [item for item in tool_call_ids_raw if isinstance(item, str)]
+        if not tool_call_ids:
+            return
+
+        decisions_by_tool: dict[str, dict[str, Any]] = {}
+        for tool_call_id in tool_call_ids:
+            decision_raw = await redis_client.get(
+                self._decision_key(context.batch_id, tool_call_id)
+            )
+            if decision_raw is None:
+                return
+            try:
+                parsed = json.loads(decision_raw)
+            except json.JSONDecodeError:
+                logger.warning(
+                    "Malformed Slack approval decision payload",
+                    batch_id=context.batch_id,
+                    tool_call_id=tool_call_id,
+                )
+                return
+            if not isinstance(parsed, dict):
+                return
+            decisions_by_tool[tool_call_id] = parsed
+
+        inserted = await redis_client.set_if_not_exists(
+            self._submission_key(context.batch_id),
+            "1",
+            expire_seconds=SLACK_APPROVAL_TTL_SECONDS,
+        )
+        if not inserted:
+            return
+
+        session_id_raw = batch_context.get("session_id")
+        if not isinstance(session_id_raw, str):
+            return
+        try:
+            session_id = uuid.UUID(session_id_raw)
+        except ValueError:
+            logger.warning("Invalid session id in Slack approval batch")
+            return
+
+        continuation = ContinueRunRequest(
+            decisions=[
+                ApprovalDecision(
+                    tool_call_id=tool_call_id,
+                    action="approve" if decision["action"] == "approve" else "deny",
+                    reason="Denied from Slack thread"
+                    if decision["action"] == "deny"
+                    else None,
+                    metadata={
+                        "source": "slack",
+                        "actor": {
+                            "user_id": decision.get("user_id"),
+                            "display_name": decision.get("user_name"),
+                        },
+                    },
+                )
+                for tool_call_id, decision in decisions_by_tool.items()
+            ],
+            source="slack",
+        )
+
+        session_service = AgentSessionService(self.session, role=self.role)
+        await session_service.run_turn(session_id, continuation)
+
+    async def _handle_approval_action(
+        self,
+        *,
+        payload: dict[str, Any],
+        token: ValidatedChannelToken,
+    ) -> None:
+        slack_client = AsyncWebClient(token=token.config.slack_bot_token)
+        try:
+            context = self._parse_approval_action_context(payload)
+        except (ValueError, TracecatValidationError):
+            logger.warning("Invalid Slack approval action payload")
+            return
+
+        redis_client = await get_redis_client()
+        batch_context = await self._load_batch_context(
+            redis_client, batch_id=context.batch_id
+        )
+        if batch_context is None:
+            await self._post_ephemeral_notice(
+                slack_client,
+                channel_id=context.channel_id,
+                user_id=context.user_id,
+                text="This approval request is no longer active.",
+                thread_ts=context.thread_ts,
+            )
+            return
+
+        if batch_context.get("channel_id") != context.channel_id:
+            await self._post_ephemeral_notice(
+                slack_client,
+                channel_id=context.channel_id,
+                user_id=context.user_id,
+                text="This approval action is not valid in this channel.",
+                thread_ts=context.thread_ts,
+            )
+            return
+        if batch_context.get("workspace_id") != str(token.workspace_id):
+            await self._post_ephemeral_notice(
+                slack_client,
+                channel_id=context.channel_id,
+                user_id=context.user_id,
+                text="This approval action is not valid for this workspace.",
+                thread_ts=context.thread_ts,
+            )
+            return
+
+        tool_call_ids = batch_context.get("tool_call_ids")
+        if (
+            not isinstance(tool_call_ids, list)
+            or context.tool_call_id not in tool_call_ids
+        ):
+            await self._post_ephemeral_notice(
+                slack_client,
+                channel_id=context.channel_id,
+                user_id=context.user_id,
+                text="This approval request is no longer active.",
+                thread_ts=context.thread_ts,
+            )
+            return
+
+        session_id_raw = batch_context.get("session_id")
+        if not isinstance(session_id_raw, str):
+            await self._post_ephemeral_notice(
+                slack_client,
+                channel_id=context.channel_id,
+                user_id=context.user_id,
+                text="This approval request is no longer active.",
+                thread_ts=context.thread_ts,
+            )
+            return
+        try:
+            session_id = uuid.UUID(session_id_raw)
+        except ValueError:
+            await self._post_ephemeral_notice(
+                slack_client,
+                channel_id=context.channel_id,
+                user_id=context.user_id,
+                text="This approval request is no longer active.",
+                thread_ts=context.thread_ts,
+            )
+            return
+
+        session_service = AgentSessionService(self.session, role=self.role)
+        try:
+            if await session_service.get_session(session_id) is None:
+                raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        except TracecatNotFoundError:
+            await self._post_ephemeral_notice(
+                slack_client,
+                channel_id=context.channel_id,
+                user_id=context.user_id,
+                text="This approval request is no longer active.",
+                thread_ts=context.thread_ts,
+            )
+            return
+
+        inserted = await self._record_tool_decision(redis_client, context=context)
+        if not inserted:
+            await self._post_ephemeral_notice(
+                slack_client,
+                channel_id=context.channel_id,
+                user_id=context.user_id,
+                text="A decision has already been recorded for this tool call.",
+                thread_ts=context.thread_ts,
+            )
+            return
+
+        tool_name = ""
+        tool_names_raw = batch_context.get("tool_names")
+        if isinstance(tool_names_raw, dict):
+            candidate = tool_names_raw.get(context.tool_call_id)
+            if isinstance(candidate, str):
+                tool_name = candidate
+        if not tool_name:
+            tool_name = context.tool_call_id
+
+        try:
+            await self._update_approval_message(
+                slack_client,
+                context=context,
+                tool_name=tool_name,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to update Slack approval message",
+                tool_call_id=context.tool_call_id,
+                action=context.action,
+            )
+
+        try:
+            await self._submit_batch_if_ready(
+                slack_client=slack_client,
+                redis_client=redis_client,
+                context=context,
+                batch_context=batch_context,
+            )
+        except ValueError as exc:
+            await self._post_ephemeral_notice(
+                slack_client,
+                channel_id=context.channel_id,
+                user_id=context.user_id,
+                text=str(exc),
+                thread_ts=context.thread_ts,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to submit Slack approval batch",
+                session_id=batch_context.get("session_id"),
+                batch_id=context.batch_id,
+            )
+            await slack_client.api_call(
+                api_method="chat.postMessage",
+                json={
+                    "channel": context.channel_id,
+                    "thread_ts": context.thread_ts,
+                    "text": (
+                        "Received the approval decision, but failed to continue the run. "
+                        "Please retry from the Tracecat UI."
+                    ),
+                },
+            )
+
     async def handle(
         self, *, payload: dict[str, Any], token: ValidatedChannelToken
     ) -> None:
-        if payload.get("type") != "event_callback":
+        payload_type = payload.get("type")
+        if payload_type == "block_actions":
+            await self._handle_approval_action(payload=payload, token=token)
+            return
+        if payload_type != "event_callback":
             return
 
         event = payload.get("event")
@@ -341,6 +782,19 @@ class SlackChannelHandler:
                 slack_client=slack_client,
             )
             session_service = AgentSessionService(self.session, role=self.role)
+            if await session_service.has_pending_approvals(session_id):
+                await slack_client.api_call(
+                    api_method="chat.postMessage",
+                    json={
+                        "channel": context.channel_id,
+                        "thread_ts": context.thread_ts,
+                        "text": (
+                            "This session is waiting for approval decisions. "
+                            "Approve or deny the pending actions before sending a new message."
+                        ),
+                    },
+                )
+                return
             await session_service.run_turn(
                 session_id,
                 BasicChatRequest(message=self._extract_prompt_text(event)),

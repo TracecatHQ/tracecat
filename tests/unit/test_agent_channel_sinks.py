@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from tracecat.agent.channels.sinks.slack import SlackStreamSink
+from tracecat import config
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
@@ -38,6 +39,22 @@ class _FakeSlackClient:
         if api_method == "chat.startStream":
             return _FakeSlackResponse(data={"ts": "1234.56"})
         return _FakeSlackResponse(data={"ok": True})
+
+
+class _FakeRedisClient:
+    def __init__(self) -> None:
+        self.values: dict[str, str] = {}
+
+    async def set(
+        self,
+        key: str,
+        value: str,
+        *,
+        expire_seconds: int | None = None,
+    ) -> bool:
+        del expire_seconds
+        self.values[key] = value
+        return True
 
 
 @pytest.fixture
@@ -155,9 +172,10 @@ async def test_slack_stream_sink_emits_task_updates_for_tool_events(
 
     await sink.append(
         UnifiedStreamEvent(
-            type=StreamEventType.TOOL_CALL_START,
+            type=StreamEventType.TOOL_CALL_STOP,
             tool_call_id="tool-call-1",
             tool_name="core.cases.create_case",
+            tool_input={"summary": "hello"},
         )
     )
     await sink.append(
@@ -187,8 +205,8 @@ async def test_slack_stream_sink_emits_task_updates_for_tool_events(
         if payload.get("chunks") and payload["chunks"][0].get("type") == "markdown_text"
     ]
     statuses = [chunk["status"] for chunk in task_chunks]
-    assert "in_progress" in statuses
     assert "complete" in statuses
+    assert "in_progress" not in statuses
     assert not markdown_chunks
 
 
@@ -210,9 +228,10 @@ async def test_slack_stream_sink_does_not_close_on_text_stop(
     await sink.append(UnifiedStreamEvent(type=StreamEventType.TEXT_STOP))
     await sink.append(
         UnifiedStreamEvent(
-            type=StreamEventType.TOOL_CALL_START,
+            type=StreamEventType.TOOL_CALL_STOP,
             tool_call_id="tool-call-2",
             tool_name="core.cases.create_case",
+            tool_input={"summary": "hello"},
         )
     )
     await sink.done()
@@ -227,7 +246,7 @@ async def test_slack_stream_sink_does_not_close_on_text_stop(
         for payload in append_payloads
         if payload.get("chunks") and payload["chunks"][0].get("type") == "task_update"
     ]
-    assert any(chunk["status"] == "in_progress" for chunk in task_updates)
+    assert not task_updates
 
 
 @pytest.mark.anyio
@@ -309,6 +328,7 @@ async def test_slack_stream_sink_dedupes_in_progress_task_updates(
             type=StreamEventType.TOOL_CALL_STOP,
             tool_call_id="tool-call-4",
             tool_name="core.cases.create_case",
+            tool_input={"summary": "hello"},
         )
     )
     await sink.done()
@@ -318,14 +338,230 @@ async def test_slack_stream_sink_dedupes_in_progress_task_updates(
         for method, payload in fake_client.calls
         if method == "chat.appendStream"
     ]
-    in_progress_chunks = [
+    task_chunks = [
         payload["chunks"][0]
         for payload in append_payloads
-        if payload.get("chunks")
-        and payload["chunks"][0].get("type") == "task_update"
-        and payload["chunks"][0].get("status") == "in_progress"
+        if payload.get("chunks") and payload["chunks"][0].get("type") == "task_update"
     ]
-    assert len(in_progress_chunks) == 1
+    assert not task_chunks
+
+
+@pytest.mark.anyio
+async def test_slack_stream_sink_coalesces_in_progress_by_tool_name(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    fake_client = _FakeSlackClient(token="xoxb-test")
+
+    def _make_client(*, token: str) -> _FakeSlackClient:
+        assert token == "xoxb-test"
+        return fake_client
+
+    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+
+    sink = SlackStreamSink(
+        slack_bot_token="xoxb-test",
+        channel_id="C123",
+        thread_ts="1700000000.000001",
+        session_id="session-coalesce",
+        workspace_id="workspace-coalesce",
+    )
+
+    await sink.append(
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_CALL_STOP,
+            tool_call_id="tool-call-a",
+            tool_name="core.cases.create_case",
+            tool_input={"summary": "same"},
+        )
+    )
+    await sink.append(
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_CALL_STOP,
+            tool_call_id="tool-call-b",
+            tool_name="core.cases.create_case",
+            tool_input={"summary": "same"},
+        )
+    )
+    await sink.done()
+
+    append_payloads = [
+        payload
+        for method, payload in fake_client.calls
+        if method == "chat.appendStream"
+    ]
+    task_chunks = [
+        payload["chunks"][0]
+        for payload in append_payloads
+        if payload.get("chunks") and payload["chunks"][0].get("type") == "task_update"
+    ]
+    assert not task_chunks
+
+
+@pytest.mark.anyio
+async def test_slack_stream_sink_reuses_initial_id_for_same_tool_name(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    fake_client = _FakeSlackClient(token="xoxb-test")
+
+    def _make_client(*, token: str) -> _FakeSlackClient:
+        assert token == "xoxb-test"
+        return fake_client
+
+    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+
+    sink = SlackStreamSink(
+        slack_bot_token="xoxb-test",
+        channel_id="C123",
+        thread_ts="1700000000.000001",
+        session_id="session-signature",
+        workspace_id="workspace-signature",
+    )
+
+    await sink.append(
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_CALL_STOP,
+            tool_call_id="tool-call-x",
+            tool_name="core.cases.create_case",
+            tool_input={"summary": "first"},
+        )
+    )
+    await sink.append(
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_CALL_STOP,
+            tool_call_id="tool-call-y",
+            tool_name="core.cases.create_case",
+            tool_input={"summary": "second"},
+        )
+    )
+    await sink.done()
+
+    append_payloads = [
+        payload
+        for method, payload in fake_client.calls
+        if method == "chat.appendStream"
+    ]
+    task_chunks = [
+        payload["chunks"][0]
+        for payload in append_payloads
+        if payload.get("chunks") and payload["chunks"][0].get("type") == "task_update"
+    ]
+    assert not task_chunks
+
+
+@pytest.mark.anyio
+async def test_slack_stream_sink_skips_tool_updates_without_tool_call_id(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    fake_client = _FakeSlackClient(token="xoxb-test")
+
+    def _make_client(*, token: str) -> _FakeSlackClient:
+        assert token == "xoxb-test"
+        return fake_client
+
+    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+
+    sink = SlackStreamSink(
+        slack_bot_token="xoxb-test",
+        channel_id="C123",
+        thread_ts="1700000000.000001",
+        session_id="session-no-tool-call-id",
+        workspace_id="workspace-no-tool-call-id",
+    )
+
+    await sink.append(
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_CALL_START,
+            tool_name="core.cases.create_case",
+        )
+    )
+    await sink.append(
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_RESULT,
+            tool_name="core.cases.create_case",
+            tool_output={"id": "case-123"},
+            is_error=False,
+        )
+    )
+    await sink.done()
+
+    append_payloads = [
+        payload
+        for method, payload in fake_client.calls
+        if method == "chat.appendStream"
+    ]
+    task_updates = [
+        payload["chunks"][0]
+        for payload in append_payloads
+        if payload.get("chunks") and payload["chunks"][0].get("type") == "task_update"
+    ]
+    assert not task_updates
+
+
+@pytest.mark.anyio
+async def test_slack_stream_sink_emits_approval_cards(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    fake_client = _FakeSlackClient(token="xoxb-test")
+    fake_redis = _FakeRedisClient()
+
+    def _make_client(*, token: str) -> _FakeSlackClient:
+        assert token == "xoxb-test"
+        return fake_client
+
+    async def _get_redis() -> _FakeRedisClient:
+        return fake_redis
+
+    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.get_redis_client",
+        _get_redis,
+    )
+    monkeypatch.setattr(config, "TRACECAT__SIGNING_SECRET", "test-signing-secret")
+
+    sink = SlackStreamSink(
+        slack_bot_token="xoxb-test",
+        channel_id="C123",
+        thread_ts="1700000000.000001",
+        session_id="session-8",
+        workspace_id="workspace-8",
+    )
+
+    await sink.append(
+        UnifiedStreamEvent.approval_request_event(
+            items=[
+                ToolCallContent(
+                    id="tool-call-approve-1",
+                    name="core.http_request",
+                    input={"url": "https://example.com", "method": "GET"},
+                ),
+                ToolCallContent(
+                    id="tool-call-approve-2",
+                    name="core.cases.create_case",
+                    input={"summary": "hello"},
+                ),
+            ]
+        )
+    )
+    await sink.done()
+
+    post_messages = [
+        payload for method, payload in fake_client.calls if method == "chat.postMessage"
+    ]
+    assert len(post_messages) == 2
+
+    batch_entries = [
+        json.loads(value)
+        for key, value in fake_redis.values.items()
+        if key.startswith("slack-approval:batch:")
+    ]
+    assert len(batch_entries) == 1
+    batch = batch_entries[0]
+    assert batch["session_id"] == "session-8"
+    assert batch["workspace_id"] == "workspace-8"
+    assert sorted(batch["tool_call_ids"]) == [
+        "tool-call-approve-1",
+        "tool-call-approve-2",
+    ]
 
 
 @pytest.mark.anyio
@@ -338,17 +574,10 @@ async def test_slack_stream_sink_ignores_pending_approval_interrupt_errors(
         slack_bot_token="xoxb-test",
         channel_id="C123",
         thread_ts="1700000000.000001",
-        session_id="session-8",
-        workspace_id="workspace-8",
+        session_id="session-approval-pending",
+        workspace_id="workspace-approval-pending",
     )
 
-    await sink.append(
-        UnifiedStreamEvent(
-            type=StreamEventType.TOOL_CALL_START,
-            tool_call_id="tool-call-approval",
-            tool_name="core.http_request",
-        )
-    )
     await sink.append(
         UnifiedStreamEvent.approval_request_event(
             items=[
@@ -360,7 +589,6 @@ async def test_slack_stream_sink_ignores_pending_approval_interrupt_errors(
             ]
         )
     )
-
     await sink.append(
         UnifiedStreamEvent(
             type=StreamEventType.TOOL_RESULT,
@@ -383,3 +611,50 @@ async def test_slack_stream_sink_ignores_pending_approval_interrupt_errors(
 
     assert "pending" in statuses
     assert "error" not in statuses
+
+
+@pytest.mark.anyio
+async def test_slack_stream_sink_skips_synthetic_approval_interrupt_error(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    fake_client = _FakeSlackClient(token="xoxb-test")
+
+    def _make_client(*, token: str) -> _FakeSlackClient:
+        assert token == "xoxb-test"
+        return fake_client
+
+    monkeypatch.setattr("tracecat.agent.channels.sinks.AsyncWebClient", _make_client)
+
+    sink = SlackStreamSink(
+        slack_bot_token="xoxb-test",
+        channel_id="C123",
+        thread_ts="1700000000.000001",
+        session_id="session-9",
+        workspace_id="workspace-9",
+    )
+
+    await sink.append(
+        UnifiedStreamEvent(
+            type=StreamEventType.TOOL_RESULT,
+            tool_call_id="tool-call-interrupt-1",
+            tool_name="core.cases.create_case",
+            tool_output=(
+                "The user doesn't want to take this action right now. "
+                "STOP what you are doing and wait for the user to tell you how to proceed."
+            ),
+            is_error=True,
+        )
+    )
+    await sink.done()
+
+    append_payloads = [
+        payload
+        for method, payload in fake_client.calls
+        if method == "chat.appendStream"
+    ]
+    task_updates = [
+        payload["chunks"][0]
+        for payload in append_payloads
+        if payload.get("chunks") and payload["chunks"][0].get("type") == "task_update"
+    ]
+    assert not task_updates

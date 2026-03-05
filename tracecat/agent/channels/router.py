@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlunparse
 
+import orjson
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -156,10 +157,35 @@ async def handle_channel_event(
         session=session,
     )
     try:
-        body = await request.json()
+        raw_body = await request.body()
     except ValueError:
         return Response(status_code=status.HTTP_200_OK)
-    if not isinstance(body, dict):
+
+    content_type = request.headers.get("content-type", "").lower()
+    body: dict[str, Any] | None = None
+    if content_type.startswith("application/x-www-form-urlencoded"):
+        try:
+            decoded_body = raw_body.decode("utf-8")
+        except UnicodeDecodeError:
+            return Response(status_code=status.HTTP_200_OK)
+        parsed = parse_qs(decoded_body, keep_blank_values=True)
+        payload_values = parsed.get("payload")
+        if payload_values:
+            try:
+                parsed_payload = orjson.loads(payload_values[0])
+            except orjson.JSONDecodeError:
+                return Response(status_code=status.HTTP_200_OK)
+            if isinstance(parsed_payload, dict):
+                body = parsed_payload
+    else:
+        try:
+            parsed_payload = orjson.loads(raw_body)
+        except orjson.JSONDecodeError:
+            return Response(status_code=status.HTTP_200_OK)
+        if isinstance(parsed_payload, dict):
+            body = parsed_payload
+
+    if body is None:
         return Response(status_code=status.HTTP_200_OK)
 
     event_type = body.get("type")
@@ -169,7 +195,7 @@ async def handle_channel_event(
             return {"challenge": challenge}
         return Response(status_code=status.HTTP_200_OK)
 
-    if event_type != "event_callback":
+    if event_type not in {"event_callback", "block_actions"}:
         return Response(status_code=status.HTTP_200_OK)
 
     background_tasks.add_task(

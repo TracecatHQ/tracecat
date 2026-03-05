@@ -2543,6 +2543,20 @@ export const $ApprovalDecision = {
       ],
       title: "Reason",
     },
+    metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metadata",
+      description:
+        "Optional metadata captured with the decision (e.g. external actor identity).",
+    },
   },
   type: "object",
   required: ["tool_call_id", "action"],
@@ -6798,6 +6812,14 @@ export const $ContinueRunRequest = {
       },
       type: "array",
       title: "Decisions",
+    },
+    source: {
+      type: "string",
+      enum: ["inbox", "slack"],
+      title: "Source",
+      description:
+        "Origin of the approval decision submission. Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions.",
+      default: "inbox",
     },
   },
   type: "object",

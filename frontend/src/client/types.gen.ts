@@ -641,6 +641,12 @@ export type ApprovalDecision = {
     [key: string]: unknown
   } | null
   reason?: string | null
+  /**
+   * Optional metadata captured with the decision (e.g. external actor identity).
+   */
+  metadata?: {
+    [key: string]: unknown
+  } | null
 }
 
 export type action = "approve" | "override" | "deny"
@@ -2002,7 +2008,16 @@ export type element_kind = "value" | "stored_object"
 export type ContinueRunRequest = {
   kind?: "continue"
   decisions: Array<ApprovalDecision>
+  /**
+   * Origin of the approval decision submission. Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions.
+   */
+  source?: "inbox" | "slack"
 }
+
+/**
+ * Origin of the approval decision submission. Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions.
+ */
+export type source = "inbox" | "slack"
 
 /**
  * Event for when a case is created.

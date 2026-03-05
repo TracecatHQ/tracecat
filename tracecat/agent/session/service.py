@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import orjson
 from pydantic_ai.exceptions import AgentRunError, UserError
@@ -34,11 +35,12 @@ from tracecat.agent.session.schemas import (
 )
 from tracecat.agent.session.title_generator import generate_session_title
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA
+from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA, StreamKey
 from tracecat.audit.logger import audit_log
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
 from tracecat.cases.service import CasesService
+from tracecat.chat import tokens
 from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import (
     ApprovalRead,
@@ -58,6 +60,7 @@ from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
+from tracecat.redis.client import get_redis_client
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.entitlements import Entitlement, check_entitlement
 from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
@@ -66,6 +69,7 @@ if TYPE_CHECKING:
     from tracecat.agent.executor.activity import ToolExecutionResult
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
+APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
 
 
 @dataclass
@@ -484,6 +488,78 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is None
 
+    async def has_pending_approvals(self, session_id: uuid.UUID) -> bool:
+        """Return whether the session has pending approval decisions."""
+        stmt = (
+            select(Approval.id)
+            .where(
+                Approval.workspace_id == self.workspace_id,
+                Approval.session_id == session_id,
+                Approval.status == ApprovalStatus.PENDING,
+            )
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
+    async def claim_external_channel_approval_sink(
+        self,
+        *,
+        session_id: uuid.UUID,
+        source: Literal["inbox", "slack"],
+    ) -> Literal["inbox", "slack"]:
+        """Legacy no-op sink claim kept for backwards compatibility.
+
+        External-channel approvals are no longer source-locked. Decisions can be
+        submitted from Slack or inbox; first accepted continuation wins.
+        """
+        stmt = select(AgentSession).where(
+            AgentSession.id == session_id,
+            AgentSession.workspace_id == self.workspace_id,
+        )
+        result = await self.session.execute(stmt)
+        agent_session = result.scalar_one_or_none()
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        return source
+
+    async def _emit_noop_continuation_done(self, *, session_id: uuid.UUID) -> None:
+        """Emit an end marker so duplicate/no-op continuations don't hang SSE clients."""
+        if self.workspace_id is None:
+            return
+        try:
+            redis_client = await get_redis_client()
+            await redis_client.xadd(
+                str(StreamKey(self.workspace_id, session_id)),
+                {
+                    tokens.DATA_KEY: orjson.dumps(
+                        {tokens.END_TOKEN: tokens.END_TOKEN_VALUE},
+                        default=str,
+                    ).decode()
+                },
+                maxlen=10000,
+                approximate=True,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to emit no-op continuation done marker",
+                session_id=str(session_id),
+                error=str(exc),
+            )
+
+    @staticmethod
+    def _approval_dedup_key(
+        *,
+        workspace_id: uuid.UUID,
+        session_id: uuid.UUID,
+        run_id: uuid.UUID,
+        tool_call_ids: Sequence[str],
+    ) -> str:
+        digest = hashlib.sha256(
+            ",".join(sorted(tool_call_ids)).encode("utf-8")
+        ).hexdigest()[:16]
+        return f"agent-approval-submit:{workspace_id}:{session_id}:{run_id}:{digest}"
+
     async def auto_title_session_on_first_prompt(
         self,
         agent_session: AgentSession,
@@ -721,6 +797,12 @@ class AgentSessionService(BaseWorkspaceService):
         if is_continuation and isinstance(request, ContinueRunRequest):
             return await self._continue_with_approvals(session_id, request)
 
+        if await self.has_pending_approvals(session_id):
+            raise ValueError(
+                "This session is waiting for approval decisions. "
+                "Submit all pending approvals before sending another message."
+            )
+
         if user_prompt is not None:
             await self.auto_title_session_on_first_prompt(agent_session, user_prompt)
 
@@ -816,13 +898,29 @@ class AgentSessionService(BaseWorkspaceService):
             raise TracecatNotFoundError(
                 f"No active agent session found with ID {session_id}"
             )
-        if agent_session.curr_run_id is None:
+        curr_run_id = agent_session.curr_run_id
+        if curr_run_id is None:
             raise TracecatNotFoundError(
                 f"No active workflow run for session {session_id}"
             )
 
+        source: Literal["inbox", "slack"] = request.source
+
+        # Idempotency path: if approvals are already resolved, accept duplicate
+        # submissions as a no-op (cross-surface races Slack <-> inbox).
+        if not await self.has_pending_approvals(session_id):
+            logger.info(
+                "Ignoring approval continuation without pending approvals",
+                session_id=str(session_id),
+                run_id=str(curr_run_id),
+                source=source,
+            )
+            await self._emit_noop_continuation_done(session_id=session_id)
+            return None
+
         # Build ApprovalMap from the request decisions
         approval_map: ApprovalMap = {}
+        decision_metadata: dict[str, dict[str, Any]] = {}
         for decision in request.decisions:
             if decision.action == "approve":
                 if decision.override_args:
@@ -835,16 +933,57 @@ class AgentSessionService(BaseWorkspaceService):
                 approval_map[decision.tool_call_id] = ToolDenied(
                     message=decision.reason or "Tool denied by user"
                 )
+            merged_metadata: dict[str, Any] = {"source": source}
+            if decision.metadata:
+                merged_metadata.update(decision.metadata)
+                merged_metadata["source"] = source
+            decision_metadata[decision.tool_call_id] = merged_metadata
+
+        # First decision submission wins per (session, run, pending tool-set).
+        dedup_client = None
+        dedup_key: str | None = None
+        if self.workspace_id is not None:
+            dedup_key = self._approval_dedup_key(
+                workspace_id=self.workspace_id,
+                session_id=session_id,
+                run_id=curr_run_id,
+                tool_call_ids=tuple(approval_map.keys()),
+            )
+            try:
+                dedup_client = await get_redis_client()
+                inserted = await dedup_client.set_if_not_exists(
+                    dedup_key,
+                    source,
+                    expire_seconds=APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS,
+                )
+                if not inserted:
+                    logger.info(
+                        "Skipping duplicate approval continuation submission",
+                        session_id=str(session_id),
+                        run_id=str(curr_run_id),
+                        source=source,
+                        dedup_key=dedup_key,
+                    )
+                    await self._emit_noop_continuation_done(session_id=session_id)
+                    return None
+            except Exception as exc:
+                logger.warning(
+                    "Approval continuation dedup unavailable; proceeding best-effort",
+                    session_id=str(session_id),
+                    run_id=str(curr_run_id),
+                    source=source,
+                    error=str(exc),
+                )
 
         # Get workflow handle using curr_run_id
         client = await get_temporal_client()
-        workflow_id = AgentWorkflowID(agent_session.curr_run_id)
+        workflow_id = AgentWorkflowID(curr_run_id)
 
         logger.info(
             "Submitting approval decisions to workflow",
             workflow_id=str(workflow_id),
-            session_id=str(agent_session.id),
-            run_id=str(agent_session.curr_run_id),
+            session_id=str(session_id),
+            run_id=str(curr_run_id),
             num_decisions=len(approval_map),
         )
 
@@ -853,18 +992,26 @@ class AgentSessionService(BaseWorkspaceService):
             str(workflow_id),
         )
 
-        await handle.execute_update(
-            DurableAgentWorkflow.set_approvals,
-            WorkflowApprovalSubmission(
-                approvals=approval_map,
-                approved_by=self.role.user_id,
-            ),
-        )
+        try:
+            await handle.execute_update(
+                DurableAgentWorkflow.set_approvals,
+                WorkflowApprovalSubmission(
+                    approvals=approval_map,
+                    approved_by=self.role.user_id,
+                    decision_metadata=decision_metadata or None,
+                ),
+            )
+        except Exception:
+            # Allow retriable failures to be resubmitted by clearing dedup marker.
+            if dedup_client is not None and dedup_key is not None:
+                with contextlib.suppress(Exception):
+                    await dedup_client.delete(dedup_key)
+            raise
 
         logger.info(
             "Approval decisions submitted successfully",
             workflow_id=str(workflow_id),
-            session_id=str(agent_session.id),
+            session_id=str(session_id),
         )
 
         return None

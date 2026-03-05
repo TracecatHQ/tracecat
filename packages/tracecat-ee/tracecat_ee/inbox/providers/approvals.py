@@ -2,19 +2,33 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy import and_, or_, select
+from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import AgentSession, Approval, Workflow
+from tracecat.dsl.client import get_temporal_client
 from tracecat.inbox.schemas import InboxItemRead, WorkflowSummary
 from tracecat.inbox.types import InboxItemStatus, InboxItemType
 from tracecat.logger import logger
 from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
+from tracecat_ee.agent.types import AgentWorkflowID
+
+RUNNING_STATUSES = {
+    WorkflowExecutionStatus.RUNNING,
+    WorkflowExecutionStatus.CONTINUED_AS_NEW,
+}
+FAILED_STATUSES = {
+    WorkflowExecutionStatus.FAILED,
+    WorkflowExecutionStatus.TIMED_OUT,
+    WorkflowExecutionStatus.TERMINATED,
+}
 
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
@@ -30,6 +44,57 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
         super().__init__(session)
         self.role = role
         self.workspace_id = role.workspace_id
+
+    async def _resolve_temporal_statuses(
+        self,
+        sessions: Sequence[AgentSession],
+    ) -> dict[uuid.UUID, WorkflowExecutionStatus]:
+        if not sessions:
+            return {}
+
+        session_pairs = [
+            (session.id, session.curr_run_id)
+            for session in sessions
+            if session.curr_run_id is not None
+        ]
+        if not session_pairs:
+            return {}
+
+        from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
+
+        client = await get_temporal_client()
+
+        async def describe_status(
+            session_id: uuid.UUID, run_id: uuid.UUID
+        ) -> tuple[uuid.UUID, WorkflowExecutionStatus | None]:
+            try:
+                workflow_id = AgentWorkflowID(run_id)
+                handle = client.get_workflow_handle_for(
+                    DurableAgentWorkflow.run,
+                    str(workflow_id),
+                )
+                description = await handle.describe()
+                return session_id, description.status
+            except Exception as exc:
+                logger.warning(
+                    "Failed to describe agent workflow for inbox status",
+                    session_id=str(session_id),
+                    run_id=str(run_id),
+                    error=str(exc),
+                )
+                return session_id, None
+
+        results = await asyncio.gather(
+            *(
+                describe_status(session_id, run_id)
+                for session_id, run_id in session_pairs
+            )
+        )
+        statuses: dict[uuid.UUID, WorkflowExecutionStatus] = {}
+        for session_id, status in results:
+            if status is not None:
+                statuses[session_id] = status
+        return statuses
 
     async def list_items(
         self,
@@ -48,7 +113,7 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
             .where(
                 AgentSession.workspace_id == self.workspace_id,
                 AgentSession.parent_session_id.is_(None),
-                AgentSession.entity_type == "workflow",
+                AgentSession.entity_type.in_(["workflow", "external_channel"]),
             )
             .distinct()
         )
@@ -233,6 +298,7 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
         # Fetch workflow metadata for sessions with entity_id
         workflow_ids = {s.entity_id for s in sessions if s.entity_id}
         workflows_by_id: dict[uuid.UUID, Workflow] = {}
+        temporal_statuses = await self._resolve_temporal_statuses(sessions)
 
         if workflow_ids:
             workflow_stmt = select(Workflow).where(Workflow.id.in_(list(workflow_ids)))
@@ -252,9 +318,13 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
             failed_count = sum(
                 1 for a in session_approvals if a.status == ApprovalStatus.REJECTED
             )
+            temporal_status = temporal_statuses.get(session.id)
+            temporal_status_name = temporal_status.name if temporal_status else None
 
             if pending_count > 0:
                 status = InboxItemStatus.PENDING
+            elif temporal_status in FAILED_STATUSES:
+                status = InboxItemStatus.FAILED
             elif failed_count > 0:
                 status = InboxItemStatus.FAILED
             else:
@@ -263,10 +333,14 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
             # Build preview text
             if pending_count > 0:
                 preview = f"{pending_count} pending approval{'s' if pending_count != 1 else ''}"
+            elif temporal_status in RUNNING_STATUSES:
+                preview = "Execution in progress"
+            elif temporal_status in FAILED_STATUSES:
+                preview = "Execution failed"
             elif failed_count > 0:
                 preview = f"{failed_count} rejected"
             else:
-                preview = "All approvals completed"
+                preview = "Execution completed"
 
             # Get workflow info
             workflow_summary: WorkflowSummary | None = None
@@ -288,6 +362,7 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
                 "entity_id": str(session.entity_id) if session.entity_id else None,
                 "pending_count": pending_count,
                 "total_approvals": len(session_approvals),
+                "temporal_status": temporal_status_name,
                 "approvals": [
                     {
                         "id": str(a.id),

@@ -9,7 +9,12 @@ import {
   type InboxListItemsResponse,
   inboxListItems,
 } from "@/client"
-import type { AgentStatusTone, InboxSessionItem } from "@/lib/agents"
+import {
+  type AgentDerivedStatus,
+  type AgentStatusTone,
+  getAgentStatusMetadata,
+  type InboxSessionItem,
+} from "@/lib/agents"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -46,12 +51,40 @@ export interface UseInboxResult {
 /**
  * Maps InboxItemStatus to the derived status and display properties used by the UI.
  */
-function mapInboxStatusToAgentStatus(status: InboxItemStatus): {
+const TEMPORAL_DERIVED_STATUSES = new Set<AgentDerivedStatus>([
+  "RUNNING",
+  "CONTINUED_AS_NEW",
+  "FAILED",
+  "TIMED_OUT",
+  "TERMINATED",
+  "COMPLETED",
+  "CANCELED",
+  "UNKNOWN",
+])
+
+function mapInboxStatusToAgentStatus(
+  status: InboxItemStatus,
+  temporalStatusRaw: string | null
+): {
   derivedStatus: InboxSessionItem["derivedStatus"]
   statusLabel: string
   statusPriority: number
   statusTone: AgentStatusTone
 } {
+  if (
+    temporalStatusRaw &&
+    TEMPORAL_DERIVED_STATUSES.has(temporalStatusRaw as AgentDerivedStatus) &&
+    status !== "pending"
+  ) {
+    const temporalStatus = temporalStatusRaw as AgentDerivedStatus
+    const metadata = getAgentStatusMetadata(temporalStatus)
+    return {
+      derivedStatus: temporalStatus,
+      statusLabel: metadata.label,
+      statusPriority: metadata.priority,
+      statusTone: metadata.tone,
+    }
+  }
   switch (status) {
     case "pending":
       return {
@@ -74,6 +107,13 @@ function mapInboxStatusToAgentStatus(status: InboxItemStatus): {
         statusPriority: 7,
         statusTone: "success",
       }
+    default:
+      return {
+        derivedStatus: "UNKNOWN",
+        statusLabel: "Unknown",
+        statusPriority: 8,
+        statusTone: "neutral",
+      }
   }
 }
 
@@ -82,7 +122,11 @@ function mapInboxStatusToAgentStatus(status: InboxItemStatus): {
  * This bridges the inbox API with inbox UI components.
  */
 function inboxItemToSessionItem(item: InboxItemRead): InboxSessionItem {
-  const statusInfo = mapInboxStatusToAgentStatus(item.status)
+  const temporalStatusRaw =
+    typeof item.metadata?.temporal_status === "string"
+      ? item.metadata.temporal_status
+      : null
+  const statusInfo = mapInboxStatusToAgentStatus(item.status, temporalStatusRaw)
 
   return {
     // Core session fields - use source_id as the session identifier
@@ -179,7 +223,13 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
       const hasPendingApproval = data.items.some(
         (item) => item.status === "pending"
       )
-      if (hasPendingApproval) {
+      const hasRunningExecution = data.items.some(
+        (item) =>
+          typeof item.metadata?.temporal_status === "string" &&
+          (item.metadata.temporal_status === "RUNNING" ||
+            item.metadata.temporal_status === "CONTINUED_AS_NEW")
+      )
+      if (hasPendingApproval || hasRunningExecution) {
         return 3000
       }
 

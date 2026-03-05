@@ -5,20 +5,15 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from temporalio.exceptions import ApplicationError
-from temporalio.service import RPCError
 
 from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.types import ToolApproved, ToolDenied
 from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.chat.schemas import ApprovalDecision, ContinueRunRequest
 from tracecat.db.engine import get_async_session
-from tracecat.dsl.client import get_temporal_client
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat_ee.agent.approvals.service import ApprovalMap
-from tracecat_ee.agent.types import AgentWorkflowID
-from tracecat_ee.agent.workflows.durable import (
-    DurableAgentWorkflow,
-    WorkflowApprovalSubmission,
-)
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 
@@ -27,6 +22,51 @@ class ApprovalSubmission(BaseModel):
     """Request model for submitting approval decisions."""
 
     approvals: ApprovalMap
+
+
+def _to_approval_decisions(approvals: ApprovalMap) -> list[ApprovalDecision]:
+    decisions: list[ApprovalDecision] = []
+    for tool_call_id, value in approvals.items():
+        if isinstance(value, bool):
+            decisions.append(
+                ApprovalDecision(
+                    tool_call_id=tool_call_id,
+                    action="approve" if value else "deny",
+                    reason=None if value else "Tool denied by user",
+                )
+            )
+            continue
+        if isinstance(value, ToolApproved):
+            if value.override_args:
+                decisions.append(
+                    ApprovalDecision(
+                        tool_call_id=tool_call_id,
+                        action="override",
+                        override_args=value.override_args,
+                    )
+                )
+            else:
+                decisions.append(
+                    ApprovalDecision(
+                        tool_call_id=tool_call_id,
+                        action="approve",
+                    )
+                )
+            continue
+        if isinstance(value, ToolDenied):
+            decisions.append(
+                ApprovalDecision(
+                    tool_call_id=tool_call_id,
+                    action="deny",
+                    reason=value.message or "Tool denied by user",
+                )
+            )
+            continue
+        raise ValueError(
+            "Invalid approval payload for tool call "
+            f"'{tool_call_id}': expected bool, ToolApproved, or ToolDenied."
+        )
+    return decisions
 
 
 @router.post("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -51,7 +91,6 @@ async def submit_approvals(
     Raises:
         HTTPException 400: If the approval submission fails validation.
         HTTPException 404: If the agent session/workflow is not found.
-        HTTPException 502: If communication with Temporal fails.
         HTTPException 500: For unexpected errors.
     """
     workspace_id = role.workspace_id
@@ -71,55 +110,37 @@ async def submit_approvals(
             detail="Agent session not found",
         )
 
-    # Use the session's current run_id to target the correct workflow
-    if agent_session.curr_run_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No active workflow run for this session",
-        )
-
-    workflow_id = AgentWorkflowID(agent_session.curr_run_id)
-    client = await get_temporal_client()
-    handle = client.get_workflow_handle_for(DurableAgentWorkflow.run, workflow_id)
-
     try:
-        submission = WorkflowApprovalSubmission(
-            approvals=payload.approvals,
-            approved_by=role.user_id,
+        decisions = _to_approval_decisions(payload.approvals)
+        continuation = ContinueRunRequest(
+            decisions=decisions,
+            source="inbox",
         )
-        await handle.execute_update(DurableAgentWorkflow.set_approvals, submission)
-    except ApplicationError as exc:
+        await session_service.run_turn(session_id, continuation)
+    except TracecatNotFoundError as exc:
+        logger.warning(
+            "Agent session not found while submitting approvals",
+            session_id=session_id,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
         logger.warning(
             "Failed to submit approvals",
             session_id=session_id,
-            workflow_id=workflow_id,
             error=str(exc),
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
-    except RPCError as exc:
-        logger.error(
-            "Temporal RPC error while submitting approvals",
-            session_id=session_id,
-            workflow_id=workflow_id,
-            error=str(exc),
-        )
-        if "workflow not found" in str(exc).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Agent session not found",
-            ) from exc
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to reach workflow service",
-        ) from exc
     except Exception as exc:
         logger.exception(
             "Unexpected error while submitting approvals",
             session_id=session_id,
-            workflow_id=workflow_id,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
