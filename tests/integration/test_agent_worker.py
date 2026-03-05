@@ -27,6 +27,7 @@ from temporalio.client import Client, WorkflowFailureError
 from temporalio.worker import Worker
 from tracecat_ee.agent.activities import AgentActivities
 from tracecat_ee.agent.approvals.service import ApprovalManager
+from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs, DurableAgentWorkflow
 
 from tests.conftest import AGENT_TASK_QUEUE
@@ -274,7 +275,7 @@ class TestAgentWorkerSingleTenant:
             wf_handle = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args,
-                id=f"test-agent-single-{session_id}",
+                id=AgentWorkflowID(session_id),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=30),
@@ -323,7 +324,7 @@ class TestAgentWorkerSingleTenant:
             wf_handle = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args,
-                id=f"test-agent-stream-{session_id}",
+                id=AgentWorkflowID(session_id),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=30),
@@ -384,7 +385,7 @@ class TestAgentWorkerSingleTenant:
             wf_handle = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args,
-                id=f"test-agent-error-{session_id}",
+                id=AgentWorkflowID(session_id),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=30),
@@ -466,7 +467,7 @@ class TestAgentWorkerMultiTenant:
             wf_handle_a = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args_a,
-                id=f"test-agent-multi-a-{session_a}",
+                id=AgentWorkflowID(session_a),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=30),
@@ -475,7 +476,7 @@ class TestAgentWorkerMultiTenant:
             wf_handle_b = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args_b,
-                id=f"test-agent-multi-b-{session_b}",
+                id=AgentWorkflowID(session_b),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=30),
@@ -533,7 +534,7 @@ class TestAgentWorkerMultiTenant:
             wf_handle = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args,
-                id=f"test-agent-single-ws-{session_id}",
+                id=AgentWorkflowID(session_id),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=30),
@@ -595,7 +596,7 @@ class TestAgentWorkerMultiTenant:
                 await temporal_client.start_workflow(
                     DurableAgentWorkflow.run,
                     args,
-                    id=f"test-agent-concurrent-{args.agent_args.session_id}",
+                    id=AgentWorkflowID(args.agent_args.session_id),
                     task_queue=queue,
                     retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                     execution_timeout=timedelta(seconds=30),
@@ -664,7 +665,7 @@ class TestAgentWorkerThrashing:
                 handle = await temporal_client.start_workflow(
                     DurableAgentWorkflow.run,
                     args,
-                    id=f"test-agent-thrash-{session_id}",
+                    id=AgentWorkflowID(session_id),
                     task_queue=queue,
                     retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                     execution_timeout=timedelta(seconds=60),
@@ -724,7 +725,7 @@ class TestAgentWorkerThrashing:
                 handle = await temporal_client.start_workflow(
                     DurableAgentWorkflow.run,
                     args,
-                    id=f"test-agent-burst-a-{session_id}",
+                    id=AgentWorkflowID(session_id),
                     task_queue=queue,
                     retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                     execution_timeout=timedelta(seconds=60),
@@ -754,7 +755,7 @@ class TestAgentWorkerThrashing:
                 handle = await temporal_client.start_workflow(
                     DurableAgentWorkflow.run,
                     args,
-                    id=f"test-agent-burst-b-{session_id}",
+                    id=AgentWorkflowID(session_id),
                     task_queue=queue,
                     retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                     execution_timeout=timedelta(seconds=60),
@@ -815,7 +816,7 @@ class TestAgentWorkerThrashing:
                     handle = await temporal_client.start_workflow(
                         DurableAgentWorkflow.run,
                         args,
-                        id=f"test-agent-interleave-{label}-{session_id}",
+                        id=AgentWorkflowID(session_id),
                         task_queue=queue,
                         retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                         execution_timeout=timedelta(seconds=60),
