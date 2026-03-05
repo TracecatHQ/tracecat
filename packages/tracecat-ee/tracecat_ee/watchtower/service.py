@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from sqlalchemy import and_, case, delete, func, or_, select
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -46,6 +46,11 @@ SESSION_STALE_WINDOW_MINUTES = 30
 OAUTH_PROVISIONAL_MATCH_WINDOW_MINUTES = 30
 WATCHTOWER_RETENTION_DAYS = 30
 WATCHTOWER_MAX_REDACTED_ITEMS = 32
+WATCHTOWER_RETENTION_PRUNE_INTERVAL_SECONDS = 300
+
+# Process-local throttle for opportunistic retention pruning. This is
+# best-effort and intentionally avoids per-request cleanup on hot write paths.
+_PRUNE_LAST_RUN_BY_ORG: dict[uuid.UUID, datetime] = {}
 
 
 @dataclass(slots=True)
@@ -70,6 +75,10 @@ class WatchtowerService(BaseOrgService):
         agent_type: WatchtowerAgentType | None,
         status: WatchtowerAgentStatus | None,
     ) -> WatchtowerAgentListResponse:
+        await maybe_prune_watchtower_retention(
+            self.session,
+            organization_id=self.organization_id,
+        )
         retention_cutoff = _retention_cutoff()
         stale_cutoff = _session_stale_cutoff()
 
@@ -200,6 +209,10 @@ class WatchtowerService(BaseOrgService):
         workspace_id: uuid.UUID | None,
         state: str | None,
     ) -> WatchtowerAgentSessionListResponse:
+        await maybe_prune_watchtower_retention(
+            self.session,
+            organization_id=self.organization_id,
+        )
         await self._assert_agent_exists(agent_id)
         retention_cutoff = _retention_cutoff()
         stmt = select(WatchtowerAgentSession).where(
@@ -277,6 +290,10 @@ class WatchtowerService(BaseOrgService):
         cursor: str | None,
         status: WatchtowerToolCallStatus | None,
     ) -> WatchtowerAgentToolCallListResponse:
+        await maybe_prune_watchtower_retention(
+            self.session,
+            organization_id=self.organization_id,
+        )
         await self._assert_session_exists(session_id)
         retention_cutoff = _retention_cutoff()
 
@@ -339,53 +356,65 @@ class WatchtowerService(BaseOrgService):
         )
 
     async def revoke_session(self, session_id: uuid.UUID, reason: str | None) -> None:
-        stmt = select(WatchtowerAgentSession).where(
-            WatchtowerAgentSession.organization_id == self.organization_id,
-            WatchtowerAgentSession.id == session_id,
-        )
-        result = await self.session.execute(stmt)
-        session = result.scalar_one_or_none()
-        if session is None:
-            raise TracecatNotFoundError("Watchtower session not found")
-
         now = datetime.now(UTC)
-        session.session_state = "revoked"
-        session.revoked_at = now
-        session.revoked_reason = reason
-        session.revoked_by_user_id = self.role.user_id
-        session.last_seen_at = now
+        stmt = (
+            update(WatchtowerAgentSession)
+            .where(
+                WatchtowerAgentSession.organization_id == self.organization_id,
+                WatchtowerAgentSession.id == session_id,
+            )
+            .values(
+                session_state="revoked",
+                revoked_at=now,
+                revoked_reason=reason,
+                revoked_by_user_id=self.role.user_id,
+                last_seen_at=now,
+            )
+            .returning(WatchtowerAgentSession.id)
+        )
+        updated_id = await self.session.scalar(stmt)
+        if updated_id is None:
+            raise TracecatNotFoundError("Watchtower session not found")
         await self.session.commit()
 
     async def disable_agent(self, agent_id: uuid.UUID, reason: str | None) -> None:
-        stmt = select(WatchtowerAgent).where(
-            WatchtowerAgent.organization_id == self.organization_id,
-            WatchtowerAgent.id == agent_id,
-        )
-        result = await self.session.execute(stmt)
-        agent = result.scalar_one_or_none()
-        if agent is None:
-            raise TracecatNotFoundError("Watchtower agent not found")
-
         now = datetime.now(UTC)
-        agent.blocked_at = now
-        agent.blocked_reason = reason
-        agent.blocked_by_user_id = self.role.user_id
-        agent.last_seen_at = now
+        stmt = (
+            update(WatchtowerAgent)
+            .where(
+                WatchtowerAgent.organization_id == self.organization_id,
+                WatchtowerAgent.id == agent_id,
+            )
+            .values(
+                blocked_at=now,
+                blocked_reason=reason,
+                blocked_by_user_id=self.role.user_id,
+                last_seen_at=now,
+            )
+            .returning(WatchtowerAgent.id)
+        )
+        updated_id = await self.session.scalar(stmt)
+        if updated_id is None:
+            raise TracecatNotFoundError("Watchtower agent not found")
         await self.session.commit()
 
     async def enable_agent(self, agent_id: uuid.UUID) -> None:
-        stmt = select(WatchtowerAgent).where(
-            WatchtowerAgent.organization_id == self.organization_id,
-            WatchtowerAgent.id == agent_id,
+        stmt = (
+            update(WatchtowerAgent)
+            .where(
+                WatchtowerAgent.organization_id == self.organization_id,
+                WatchtowerAgent.id == agent_id,
+            )
+            .values(
+                blocked_at=None,
+                blocked_reason=None,
+                blocked_by_user_id=None,
+            )
+            .returning(WatchtowerAgent.id)
         )
-        result = await self.session.execute(stmt)
-        agent = result.scalar_one_or_none()
-        if agent is None:
+        updated_id = await self.session.scalar(stmt)
+        if updated_id is None:
             raise TracecatNotFoundError("Watchtower agent not found")
-
-        agent.blocked_at = None
-        agent.blocked_reason = None
-        agent.blocked_by_user_id = None
         await self.session.commit()
 
     async def _assert_agent_exists(self, agent_id: uuid.UUID) -> None:
@@ -629,11 +658,6 @@ async def maybe_create_oauth_provisional_session(
         if not await is_org_entitled(session, organization_id, Entitlement.WATCHTOWER):
             return
 
-        await prune_watchtower_retention(
-            session,
-            organization_id=organization_id,
-        )
-
         now = datetime.now(UTC)
         display_name = _display_name(user)
 
@@ -739,11 +763,6 @@ async def ingest_watchtower_initialize_event(
 
         if not await is_org_entitled(session, organization_id, Entitlement.WATCHTOWER):
             return None
-
-        await prune_watchtower_retention(
-            session,
-            organization_id=organization_id,
-        )
 
         # Classify the agent from client_info (MCP initialize params) and
         # user-agent header, then build a stable fingerprint for dedup.
@@ -910,46 +929,46 @@ async def get_watchtower_tool_call_context(
         if not await is_org_entitled(session, organization_id, Entitlement.WATCHTOWER):
             return None, None
 
-        # Look up the session by MCP session ID. Sessions older than the
-        # retention window are ignored (they've been pruned or are stale).
         retention_cutoff = _retention_cutoff()
-        session_result = await session.execute(
-            select(WatchtowerAgentSession).where(
+        context_result = await session.execute(
+            select(
+                WatchtowerAgentSession.id,
+                WatchtowerAgentSession.session_state,
+                WatchtowerAgentSession.revoked_at,
+                WatchtowerAgent.id,
+                WatchtowerAgent.blocked_at,
+            )
+            .join(
+                WatchtowerAgent,
+                and_(
+                    WatchtowerAgent.id == WatchtowerAgentSession.agent_id,
+                    WatchtowerAgent.organization_id
+                    == WatchtowerAgentSession.organization_id,
+                    WatchtowerAgent.last_seen_at >= retention_cutoff,
+                ),
+            )
+            .where(
                 WatchtowerAgentSession.organization_id == organization_id,
                 WatchtowerAgentSession.agent_session_id == mcp_session_id,
                 WatchtowerAgentSession.last_seen_at >= retention_cutoff,
             )
         )
-        tracked_session = session_result.scalar_one_or_none()
-        # If no session or the session hasn't been associated with an agent
-        # yet (still awaiting_initialize), we can't enforce policy.
-        if tracked_session is None or tracked_session.agent_id is None:
+        row = context_result.tuples().one_or_none()
+        if row is None:
             return None, None
 
-        agent_result = await session.execute(
-            select(WatchtowerAgent).where(
-                WatchtowerAgent.organization_id == organization_id,
-                WatchtowerAgent.id == tracked_session.agent_id,
-                WatchtowerAgent.last_seen_at >= retention_cutoff,
-            )
-        )
-        agent = agent_result.scalar_one_or_none()
-        if agent is None:
-            return None, None
+        session_row_id, session_state, revoked_at, agent_id, blocked_at = row
 
         ctx = WatchtowerAgentCallContext(
             organization_id=organization_id,
-            agent_id=agent.id,
-            session_row_id=tracked_session.id,
+            agent_id=agent_id,
+            session_row_id=session_row_id,
         )
 
         # Check agent-level and session-level access controls.
-        if agent.blocked_at is not None:
+        if blocked_at is not None:
             return ctx, "This local agent has been disabled by your organization admin."
-        if (
-            tracked_session.session_state == "revoked"
-            or tracked_session.revoked_at is not None
-        ):
+        if session_state == "revoked" or revoked_at is not None:
             return (
                 ctx,
                 "This local agent session has been revoked by your organization admin.",
@@ -974,23 +993,17 @@ async def record_watchtower_tool_call(
     Called from ``WatchtowerMonitorMiddleware.on_call_tool`` after the tool
     executes (or is blocked).  Each invocation:
 
-    1. Prunes expired telemetry for the org (opportunistic retention).
-    2. Re-resolves the session and agent rows (they may have been revoked
+    1. Re-resolves the session and agent rows (they may have been revoked
        or pruned between the context lookup and the actual recording).
-    3. Refreshes ``last_seen_at`` on both the session and agent so the
+    2. Refreshes ``last_seen_at`` on both the session and agent so the
        dashboard reflects recent activity.
-    4. Inserts a ``WatchtowerAgentToolCall`` row with redacted arguments
+    3. Inserts a ``WatchtowerAgentToolCall`` row with redacted arguments
        and an optional truncated error summary.
     """
     if not config.TRACECAT__EE_MULTI_TENANT:
         return
 
     async with get_async_session_context_manager() as session:
-        await prune_watchtower_retention(
-            session,
-            organization_id=call_context.organization_id,
-        )
-
         # Re-fetch session and agent — they may have been revoked or pruned
         # between the context lookup and now.
         tracked_session_result = await session.execute(
@@ -1071,6 +1084,32 @@ def _retention_cutoff(now: datetime | None = None) -> datetime:
 def _session_stale_cutoff(now: datetime | None = None) -> datetime:
     reference = now or datetime.now(UTC)
     return reference - timedelta(minutes=SESSION_STALE_WINDOW_MINUTES)
+
+
+async def maybe_prune_watchtower_retention(
+    session: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    now: datetime | None = None,
+) -> None:
+    """Prune retention at a throttled cadence to avoid hot-path write overhead."""
+    if not isinstance(session, AsyncSession):
+        return
+
+    reference = now or datetime.now(UTC)
+    last_run = _PRUNE_LAST_RUN_BY_ORG.get(organization_id)
+    if (
+        last_run is not None
+        and (reference - last_run).total_seconds()
+        < WATCHTOWER_RETENTION_PRUNE_INTERVAL_SECONDS
+    ):
+        return
+    await prune_watchtower_retention(
+        session,
+        organization_id=organization_id,
+        now=reference,
+    )
+    _PRUNE_LAST_RUN_BY_ORG[organization_id] = reference
 
 
 async def prune_watchtower_retention(
