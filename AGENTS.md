@@ -317,6 +317,7 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - **Use PostgreSQL `INSERT ... ON CONFLICT`** for upserts via `sqlalchemy.dialects.postgresql.insert` — do not emulate upsert with SELECT-then-INSERT/UPDATE.
 - **Use `EXISTS`** (`select(exists().where(...))`) to check row existence instead of fetching full rows and checking in Python.
 - **Batch queries to avoid N+1 round-trips**: Use `IN` clauses, joins, or eager loading instead of issuing one query per item in a loop. More broadly, minimize round-trips on all paths — consolidate related queries where it doesn't sacrifice clarity.
+- **Use `result.tuples().all()` for multi-column destructuring**: When iterating over multi-column `select()` results, use `.tuples().all()` to get plain tuples instead of `Row` objects — e.g., `for id, kind, n in result.tuples().all()`.
 
 ### Type Organization Guidelines
 When adding new types, follow this pattern:
