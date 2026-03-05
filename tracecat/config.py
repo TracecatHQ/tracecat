@@ -571,9 +571,9 @@ When False (default), metrics are not emitted to reduce log noise.
 
 # === Agent Sandbox (NSJail for ClaudeAgentRuntime) === #
 TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT") or 600
+    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT") or 1800
 )
-"""Default timeout for agent sandbox execution in seconds (10 minutes)."""
+"""Default timeout for agent sandbox execution in seconds (30 minutes)."""
 
 TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
     os.environ.get("TRACECAT__AGENT_SANDBOX_MEMORY_MB") or 4096
