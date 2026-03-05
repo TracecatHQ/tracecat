@@ -34,7 +34,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -3303,6 +3303,7 @@ class MCPIntegration(TimestampMixin, Base):
         UniqueConstraint(
             "workspace_id", "slug", name="uq_mcp_integration_workspace_slug"
         ),
+        UniqueConstraint("scope_namespace", name="uq_mcp_integration_scope_namespace"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -3334,6 +3335,11 @@ class MCPIntegration(TimestampMixin, Base):
         String,
         nullable=False,
         doc="Slug of the MCP integration",
+    )
+    scope_namespace: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        doc="Immutable RBAC namespace for this MCP integration",
     )
     # Server type: 'http' (HTTP/SSE) or 'stdio' (stdio)
     server_type: Mapped[str] = mapped_column(
@@ -3387,12 +3393,273 @@ class MCPIntegration(TimestampMixin, Base):
         nullable=True,
         doc="Timeout in seconds (HTTP timeout for http type, process timeout for stdio type)",
     )
+    discovery_status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+        doc="Current catalog discovery status",
+    )
+    catalog_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+        doc="Monotonic version of the persisted MCP catalog",
+    )
+    last_discovery_attempt_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When the most recent discovery attempt started",
+    )
+    last_discovered_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When the catalog was most recently refreshed successfully",
+    )
+    last_discovery_error_code: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="Last user-safe discovery error code",
+    )
+    last_discovery_error_summary: Mapped[str | None] = mapped_column(
+        String(1024),
+        nullable=True,
+        doc="Last user-safe discovery error summary",
+    )
+    sandbox_allow_network: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+        doc="Whether sandboxed stdio discovery/execution may access the network",
+    )
+    sandbox_egress_allowlist: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Optional sandbox egress allowlist",
+    )
+    sandbox_egress_denylist: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Optional sandbox egress denylist",
+    )
 
     oauth_integration: Mapped[OAuthIntegration | None] = relationship(
         "OAuthIntegration",
         uselist=False,
         lazy="selectin",
     )
+    catalog_entries: Mapped[list[MCPIntegrationCatalogEntry]] = relationship(
+        "MCPIntegrationCatalogEntry",
+        back_populates="mcp_integration",
+        passive_deletes=True,
+    )
+    discovery_attempts: Mapped[list[MCPIntegrationDiscoveryAttempt]] = relationship(
+        "MCPIntegrationDiscoveryAttempt",
+        back_populates="mcp_integration",
+        passive_deletes=True,
+    )
+
+
+class MCPIntegrationCatalogEntry(TimestampMixin, Base):
+    """Persisted MCP catalog entry for a discovered integration artifact."""
+
+    __tablename__ = "mcp_integration_catalog_entry"
+    __table_args__ = (
+        UniqueConstraint(
+            "mcp_integration_id",
+            "artifact_type",
+            "artifact_key",
+            name="uq_mcp_integration_catalog_entry_integration_artifact",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Unique MCP catalog entry identifier",
+    )
+    mcp_integration_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("mcp_integration.id", ondelete="CASCADE"),
+        nullable=False,
+        doc="Owning MCP integration",
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        doc="Workspace ID associated with this catalog entry",
+    )
+    integration_name: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        doc="Cached integration display name at discovery time",
+    )
+    artifact_type: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        doc="Catalog artifact type",
+    )
+    artifact_key: Mapped[str] = mapped_column(
+        String(96),
+        nullable=False,
+        doc="Stable per-integration artifact key used for RBAC scopes",
+    )
+    artifact_ref: Mapped[str] = mapped_column(
+        String(512),
+        nullable=False,
+        doc="Canonical original MCP identifier",
+    )
+    display_name: Mapped[str | None] = mapped_column(
+        String(512),
+        nullable=True,
+        doc="Optional display name for the MCP artifact",
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Optional artifact description",
+    )
+    input_schema: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Artifact input schema payload",
+    )
+    artifact_metadata: Mapped[dict[str, Any] | None] = mapped_column(
+        "metadata",
+        JSONB,
+        nullable=True,
+        doc="Artifact metadata payload",
+    )
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        doc="Raw discovered MCP payload",
+    )
+    content_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="Hash of the normalized discovered artifact payload",
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
+        doc="Whether the artifact is part of the active catalog",
+    )
+    search_vector: Mapped[str] = mapped_column(
+        TSVECTOR,
+        nullable=False,
+        doc="Lexical search vector for the catalog entry",
+    )
+
+    mcp_integration: Mapped[MCPIntegration] = relationship(
+        "MCPIntegration",
+        back_populates="catalog_entries",
+    )
+
+
+class MCPIntegrationDiscoveryAttempt(Base):
+    """History of MCP catalog discovery attempts for an integration."""
+
+    __tablename__ = "mcp_integration_discovery_attempt"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Unique MCP discovery attempt identifier",
+    )
+    mcp_integration_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("mcp_integration.id", ondelete="CASCADE"),
+        nullable=False,
+        doc="Owning MCP integration",
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        doc="Workspace ID associated with this discovery attempt",
+    )
+    trigger: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        doc="Discovery trigger source",
+    )
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        doc="Discovery attempt status",
+    )
+    catalog_version: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="Catalog version produced by this attempt",
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        doc="When discovery started",
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When discovery finished",
+    )
+    duration_ms: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="Discovery duration in milliseconds",
+    )
+    artifact_counts: Mapped[dict[str, int] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Artifact counts recorded for this attempt",
+    )
+    error_code: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="Optional machine-readable error code",
+    )
+    error_summary: Mapped[str | None] = mapped_column(
+        String(1024),
+        nullable=True,
+        doc="User-safe error summary",
+    )
+    error_details: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Structured internal error details",
+    )
+
+    mcp_integration: Mapped[MCPIntegration] = relationship(
+        "MCPIntegration",
+        back_populates="discovery_attempts",
+    )
+
+
+Index(
+    "ix_mcp_integration_catalog_entry_workspace_active_type",
+    MCPIntegrationCatalogEntry.workspace_id,
+    MCPIntegrationCatalogEntry.is_active,
+    MCPIntegrationCatalogEntry.artifact_type,
+)
+Index(
+    "ix_mcp_integration_catalog_entry_search_vector",
+    MCPIntegrationCatalogEntry.search_vector,
+    postgresql_using="gin",
+)
 
 
 class OAuthStateDB(TimestampMixin, Base):

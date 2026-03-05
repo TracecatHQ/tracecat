@@ -3479,6 +3479,20 @@ export type JoinStrategy = "any" | "all"
 export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
 
 /**
+ * Active catalog counts grouped by artifact type.
+ */
+export type MCPCatalogCounts = {
+  tools?: number
+  resources?: number
+  prompts?: number
+}
+
+/**
+ * Discovery status for a persisted MCP integration catalog.
+ */
+export type MCPDiscoveryStatus = "pending" | "succeeded" | "failed" | "stale"
+
+/**
  * Request model for creating an HTTP MCP integration.
  */
 export type MCPHttpIntegrationCreate = {
@@ -3554,6 +3568,7 @@ export type MCPIntegrationRead = {
   name: string
   description: string | null
   slug: string
+  scope_namespace: string
   server_type: MCPServerType
   server_uri: string | null
   auth_type: MCPAuthType
@@ -3562,6 +3577,14 @@ export type MCPIntegrationRead = {
   stdio_args: Array<string> | null
   has_stdio_env?: boolean
   timeout: number | null
+  discovery_status: MCPDiscoveryStatus
+  catalog_version: number
+  last_discovery_attempt_at: string | null
+  last_discovered_at: string | null
+  last_discovery_error_code: string | null
+  last_discovery_error_summary: string | null
+  catalog_counts?: MCPCatalogCounts
+  has_catalog?: boolean
   created_at: string
   updated_at: string
 }

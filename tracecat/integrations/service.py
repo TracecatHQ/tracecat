@@ -1,6 +1,7 @@
 """Service for managing user integrations with external services."""
 
 import os
+import secrets
 import uuid
 from collections.abc import Sequence
 from datetime import datetime, timedelta
@@ -11,18 +12,24 @@ from uuid import uuid4
 import orjson
 from pydantic import SecretStr
 from slugify import slugify
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 
 from tracecat import config
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
     MCPIntegration,
+    MCPIntegrationCatalogEntry,
     OAuthIntegration,
     WorkspaceOAuthProvider,
 )
 from tracecat.identifiers import UserID
-from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
+from tracecat.integrations.enums import (
+    MCPAuthType,
+    MCPCatalogArtifactType,
+    MCPDiscoveryStatus,
+    OAuthGrantType,
+)
 from tracecat.integrations.mcp_validation import (
     MAX_SERVER_NAME_LENGTH,
     MCPValidationError,
@@ -1064,9 +1071,13 @@ class IntegrationService(BaseWorkspaceService):
                 name=metadata.name,
                 description=metadata.description,
                 slug=slug,
+                scope_namespace=await self._generate_mcp_scope_namespace(),
                 server_uri=provider_impl.mcp_server_uri,
                 auth_type=MCPAuthType.OAUTH2,
                 oauth_integration_id=integration.id,
+                discovery_status=MCPDiscoveryStatus.PENDING.value,
+                catalog_version=0,
+                sandbox_allow_network=False,
             )
             self.session.add(mcp_integration)
             await self.session.commit()
@@ -1134,6 +1145,21 @@ class IntegrationService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().first() is not None
 
+    async def _mcp_scope_namespace_taken(self, scope_namespace: str) -> bool:
+        """Check if an MCP scope namespace is already taken."""
+        statement = select(MCPIntegration).where(
+            MCPIntegration.scope_namespace == scope_namespace
+        )
+        result = await self.session.execute(statement)
+        return result.scalars().first() is not None
+
+    async def _generate_mcp_scope_namespace(self) -> str:
+        """Generate an immutable scope namespace for a new MCP integration."""
+        while True:
+            candidate = secrets.token_hex(8)
+            if not await self._mcp_scope_namespace_taken(candidate):
+                return candidate
+
     @require_scope("integration:create")
     async def create_mcp_integration(
         self, *, params: MCPIntegrationCreate
@@ -1198,6 +1224,7 @@ class IntegrationService(BaseWorkspaceService):
             name=params.name.strip(),
             description=params.description.strip() if params.description else None,
             slug=slug,
+            scope_namespace=await self._generate_mcp_scope_namespace(),
             server_uri=server_uri,
             auth_type=auth_type,
             oauth_integration_id=oauth_integration_id,
@@ -1207,6 +1234,9 @@ class IntegrationService(BaseWorkspaceService):
             stdio_args=stdio_args,
             encrypted_stdio_env=encrypted_stdio_env,
             timeout=params.timeout,
+            discovery_status=MCPDiscoveryStatus.PENDING.value,
+            catalog_version=0,
+            sandbox_allow_network=False,
         )
 
         self.session.add(mcp_integration)
@@ -1241,6 +1271,38 @@ class IntegrationService(BaseWorkspaceService):
         )
         result = await self.session.execute(statement)
         return result.scalars().first()
+
+    async def get_mcp_catalog_counts(
+        self, *, mcp_integration_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, dict[MCPCatalogArtifactType, int]]:
+        """Return active catalog counts grouped by integration and artifact type."""
+        if not mcp_integration_ids:
+            return {}
+
+        statement = (
+            select(
+                MCPIntegrationCatalogEntry.mcp_integration_id,
+                MCPIntegrationCatalogEntry.artifact_type,
+                func.count(MCPIntegrationCatalogEntry.id),
+            )
+            .where(
+                MCPIntegrationCatalogEntry.workspace_id == self.workspace_id,
+                MCPIntegrationCatalogEntry.is_active.is_(True),
+                MCPIntegrationCatalogEntry.mcp_integration_id.in_(
+                    list(mcp_integration_ids)
+                ),
+            )
+            .group_by(
+                MCPIntegrationCatalogEntry.mcp_integration_id,
+                MCPIntegrationCatalogEntry.artifact_type,
+            )
+        )
+        result = await self.session.execute(statement)
+        counts_by_integration: dict[uuid.UUID, dict[MCPCatalogArtifactType, int]] = {}
+        for integration_id, artifact_type, count in result.all():
+            by_type = counts_by_integration.setdefault(integration_id, {})
+            by_type[MCPCatalogArtifactType(artifact_type)] = count
+        return counts_by_integration
 
     @require_scope("integration:update")
     async def update_mcp_integration(

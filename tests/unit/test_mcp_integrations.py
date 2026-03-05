@@ -13,21 +13,31 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from pydantic import SecretStr, TypeAdapter
-from sqlalchemy import select
+from sqlalchemy import func, insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
-from tracecat.db.models import AgentPreset, MCPIntegration, OAuthIntegration
-from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
+from tracecat.db.models import (
+    AgentPreset,
+    MCPIntegration,
+    MCPIntegrationCatalogEntry,
+    OAuthIntegration,
+)
+from tracecat.integrations.enums import (
+    MCPAuthType,
+    MCPCatalogArtifactType,
+    MCPDiscoveryStatus,
+    OAuthGrantType,
+)
 from tracecat.integrations.providers.base import (
     MCPAuthProvider,
     OAuthDiscoveryResult,
 )
-from tracecat.integrations.providers.wiz.mcp import WizMCPProvider
 from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
+from tracecat.integrations.providers.wiz.mcp import WizMCPProvider
 from tracecat.integrations.schemas import (
     MCPHttpIntegrationCreate,
     MCPIntegrationCreate,
@@ -99,6 +109,16 @@ class TestMCPIntegrationCRUD:
         assert mcp_integration.auth_type == MCPAuthType.OAUTH2
         assert mcp_integration.oauth_integration_id == oauth_integration.id
         assert mcp_integration.encrypted_headers is None
+        assert len(mcp_integration.scope_namespace) == 16
+        assert mcp_integration.discovery_status == MCPDiscoveryStatus.PENDING.value
+        assert mcp_integration.catalog_version == 0
+        assert mcp_integration.last_discovery_attempt_at is None
+        assert mcp_integration.last_discovered_at is None
+        assert mcp_integration.last_discovery_error_code is None
+        assert mcp_integration.last_discovery_error_summary is None
+        assert mcp_integration.sandbox_allow_network is False
+        assert mcp_integration.sandbox_egress_allowlist is None
+        assert mcp_integration.sandbox_egress_denylist is None
         assert mcp_integration.created_at is not None
         assert mcp_integration.updated_at is not None
 
@@ -334,6 +354,7 @@ class TestMCPIntegrationCRUD:
             oauth_integration_id=oauth_integration.id,
         )
         created = await integration_service.create_mcp_integration(params=params)
+        original_scope_namespace = created.scope_namespace
 
         update_params = MCPIntegrationUpdate(
             name="Updated MCP",
@@ -347,7 +368,101 @@ class TestMCPIntegrationCRUD:
         assert updated.name == "Updated MCP"
         assert updated.description == "Updated description"
         assert updated.slug == "updated-mcp"  # Slug regenerated when name changes
+        assert updated.scope_namespace == original_scope_namespace
         assert updated.server_uri == created.server_uri  # Unchanged
+
+    async def test_get_mcp_catalog_counts(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Test active catalog counts are grouped by integration and artifact type."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Catalog MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+        other = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Other Catalog MCP",
+                server_uri="https://api2.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+
+        async def insert_catalog_entry(
+            *,
+            mcp_integration_id: uuid.UUID,
+            integration_name: str,
+            artifact_type: MCPCatalogArtifactType,
+            artifact_key: str,
+            artifact_ref: str,
+            is_active: bool = True,
+        ) -> None:
+            await integration_service.session.execute(
+                insert(MCPIntegrationCatalogEntry).values(
+                    id=uuid.uuid4(),
+                    mcp_integration_id=mcp_integration_id,
+                    workspace_id=integration_service.workspace_id,
+                    integration_name=integration_name,
+                    artifact_type=artifact_type.value,
+                    artifact_key=artifact_key,
+                    artifact_ref=artifact_ref,
+                    display_name=artifact_ref,
+                    description=None,
+                    input_schema={"type": "object"},
+                    artifact_metadata=None,
+                    raw_payload={"name": artifact_ref},
+                    content_hash=artifact_key.ljust(64, "0"),
+                    is_active=is_active,
+                    search_vector=func.to_tsvector("simple", artifact_ref),
+                )
+            )
+
+        await insert_catalog_entry(
+            mcp_integration_id=created.id,
+            integration_name=created.name,
+            artifact_type=MCPCatalogArtifactType.TOOL,
+            artifact_key="tool-alpha-1234567890",
+            artifact_ref="tool.alpha",
+        )
+        await insert_catalog_entry(
+            mcp_integration_id=created.id,
+            integration_name=created.name,
+            artifact_type=MCPCatalogArtifactType.RESOURCE,
+            artifact_key="resource-alpha-1234567890",
+            artifact_ref="resource://alpha",
+        )
+        await insert_catalog_entry(
+            mcp_integration_id=created.id,
+            integration_name=created.name,
+            artifact_type=MCPCatalogArtifactType.PROMPT,
+            artifact_key="prompt-inactive-1234567890",
+            artifact_ref="prompt.inactive",
+            is_active=False,
+        )
+        await insert_catalog_entry(
+            mcp_integration_id=other.id,
+            integration_name=other.name,
+            artifact_type=MCPCatalogArtifactType.PROMPT,
+            artifact_key="prompt-beta-1234567890",
+            artifact_ref="prompt.beta",
+        )
+        await integration_service.session.commit()
+
+        counts = await integration_service.get_mcp_catalog_counts(
+            mcp_integration_ids=[created.id, other.id]
+        )
+
+        assert counts[created.id] == {
+            MCPCatalogArtifactType.TOOL: 1,
+            MCPCatalogArtifactType.RESOURCE: 1,
+        }
+        assert counts[other.id] == {MCPCatalogArtifactType.PROMPT: 1}
 
     async def test_update_mcp_integration_partial(
         self,
@@ -489,6 +604,9 @@ class TestMCPIntegrationCRUD:
         mcp_integration = auto_created.scalars().first()
         assert mcp_integration is not None
         assert mcp_integration.slug == "github_mcp"
+        assert len(mcp_integration.scope_namespace) == 16
+        assert mcp_integration.discovery_status == MCPDiscoveryStatus.PENDING.value
+        assert mcp_integration.catalog_version == 0
 
         await integration_service.delete_mcp_integration(
             mcp_integration_id=mcp_integration.id
@@ -1003,6 +1121,7 @@ class TestMCPIntegrationValidation:
             name="Existing MCP",
             description=None,
             slug="github_mcp",
+            scope_namespace="0" * 16,
             server_uri="https://api.example.com/mcp",
             auth_type=MCPAuthType.NONE,
             oauth_integration_id=None,

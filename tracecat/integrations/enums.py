@@ -27,3 +27,20 @@ class MCPAuthType(StrEnum):
     OAUTH2 = "OAUTH2"
     CUSTOM = "CUSTOM"
     NONE = "NONE"
+
+
+class MCPDiscoveryStatus(StrEnum):
+    """Discovery status for a persisted MCP integration catalog."""
+
+    PENDING = "pending"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    STALE = "stale"
+
+
+class MCPCatalogArtifactType(StrEnum):
+    """Supported MCP catalog artifact types."""
+
+    TOOL = "tool"
+    RESOURCE = "resource"
+    PROMPT = "prompt"
