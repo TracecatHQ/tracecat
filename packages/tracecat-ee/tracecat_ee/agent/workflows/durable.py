@@ -97,6 +97,11 @@ def _resolve_agent_output(
     return None
 
 
+UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH = (
+    "durable-agent-upsert-tracecat-search-attributes-v1"
+)
+
+
 @workflow.defn
 class DurableAgentWorkflow:
     @workflow.init
@@ -130,43 +135,45 @@ class DurableAgentWorkflow:
         """Ensure direct agent runs have core Tracecat search attributes.
 
         For workflows started with existing Tracecat attributes (e.g. DSL child
-        workflows), this re-upserts the current values and only fills missing
-        keys from role/defaults.
+        workflows), this only fills missing keys from role/defaults and does
+        not overwrite existing values.
         """
         search_attributes = (
             workflow.info().typed_search_attributes or TypedSearchAttributes.empty
         )
-        trigger_type = (
-            search_attributes.get(TemporalSearchAttr.TRIGGER_TYPE.key)
-            or TriggerType.MANUAL.value
-        )
-        execution_type = (
-            search_attributes.get(TemporalSearchAttr.EXECUTION_TYPE.key)
-            or ExecutionType.PUBLISHED.value
-        )
-        workspace_id = search_attributes.get(TemporalSearchAttr.WORKSPACE_ID.key)
-        if workspace_id is None and self.role.workspace_id is not None:
-            workspace_id = str(self.role.workspace_id)
-        triggered_by_user_id = search_attributes.get(
-            TemporalSearchAttr.TRIGGERED_BY_USER_ID.key
-        )
-        if triggered_by_user_id is None and self.role.user_id is not None:
-            triggered_by_user_id = str(self.role.user_id)
+        updates = []
 
-        updates = [
-            TemporalSearchAttr.TRIGGER_TYPE.key.value_set(trigger_type),
-            TemporalSearchAttr.EXECUTION_TYPE.key.value_set(execution_type),
-        ]
-        if triggered_by_user_id is not None:
+        if search_attributes.get(TemporalSearchAttr.TRIGGER_TYPE.key) is None:
             updates.append(
-                TemporalSearchAttr.TRIGGERED_BY_USER_ID.key.value_set(
-                    triggered_by_user_id
+                TemporalSearchAttr.TRIGGER_TYPE.key.value_set(TriggerType.MANUAL.value)
+            )
+        if search_attributes.get(TemporalSearchAttr.EXECUTION_TYPE.key) is None:
+            updates.append(
+                TemporalSearchAttr.EXECUTION_TYPE.key.value_set(
+                    ExecutionType.PUBLISHED.value
                 )
             )
-        if workspace_id is not None:
-            updates.append(TemporalSearchAttr.WORKSPACE_ID.key.value_set(workspace_id))
+        if (
+            search_attributes.get(TemporalSearchAttr.TRIGGERED_BY_USER_ID.key) is None
+            and self.role.user_id is not None
+        ):
+            updates.append(
+                TemporalSearchAttr.TRIGGERED_BY_USER_ID.key.value_set(
+                    str(self.role.user_id)
+                )
+            )
+        if (
+            search_attributes.get(TemporalSearchAttr.WORKSPACE_ID.key) is None
+            and self.role.workspace_id is not None
+        ):
+            updates.append(
+                TemporalSearchAttr.WORKSPACE_ID.key.value_set(
+                    str(self.role.workspace_id)
+                )
+            )
 
-        workflow.upsert_search_attributes(updates)
+        if updates:
+            workflow.upsert_search_attributes(updates)
 
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
         if args.agent_args.preset_slug:
@@ -208,7 +215,8 @@ class DurableAgentWorkflow:
     @workflow.run
     async def run(self, args: AgentWorkflowArgs) -> AgentOutput:
         """Run the agent until completion. The agent will call tools until it needs human approval."""
-        self._upsert_tracecat_search_attributes()
+        if workflow.patched(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH):
+            self._upsert_tracecat_search_attributes()
         logger.info(
             "DurableAgentWorkflow run", args=args, harness_type=self.harness_type
         )

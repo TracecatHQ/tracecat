@@ -5,13 +5,17 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from temporalio.common import TypedSearchAttributes
-from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs, DurableAgentWorkflow
+from tracecat_ee.agent.workflows.durable import (
+    UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,
+    AgentWorkflowArgs,
+    DurableAgentWorkflow,
+)
 
-from tracecat.agent.schemas import RunAgentArgs
+from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -113,10 +117,50 @@ async def test_upsert_tracecat_search_attributes_preserves_existing_values() -> 
     ):
         workflow_instance._upsert_tracecat_search_attributes()
 
-    upsert_mock.assert_called_once()
-    updates = upsert_mock.call_args.args[0]
-    values = _update_map(updates)
-    assert values[TemporalSearchAttr.TRIGGER_TYPE.value] == TriggerType.SCHEDULED.value
-    assert values[TemporalSearchAttr.EXECUTION_TYPE.value] == ExecutionType.DRAFT.value
-    assert values[TemporalSearchAttr.WORKSPACE_ID.value] == existing_workspace
-    assert values[TemporalSearchAttr.TRIGGERED_BY_USER_ID.value] == existing_user
+    upsert_mock.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_args = _build_workflow_args(role)
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    cfg = cast(Any, workflow_args.agent_args.config)
+    expected_output = AgentOutput(
+        output="ok",
+        duration=0.1,
+        session_id=workflow_args.agent_args.session_id,
+    )
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched",
+            return_value=False,
+        ) as patched_mock,
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
+            return_value=False,
+        ),
+        patch.object(
+            workflow_instance, "_upsert_tracecat_search_attributes"
+        ) as upsert_mock,
+        patch.object(workflow_instance, "_build_config", AsyncMock(return_value=cfg)),
+        patch.object(
+            workflow_instance,
+            "_run_with_nsjail",
+            AsyncMock(return_value=expected_output),
+        ) as run_mock,
+    ):
+        result = await workflow_instance.run(workflow_args)
+
+    patched_mock.assert_called_once_with(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH)
+    upsert_mock.assert_not_called()
+    run_mock.assert_awaited_once_with(workflow_args, cfg)
+    assert result == expected_output
