@@ -296,7 +296,7 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - You must *NEVER* put import statements in function bodies.
 - If you are facing issues with circular imports you should try use `if TYPE_CHECKING: ...` instead.
 - Use PEP 695 generic syntax for new generics: `class Name[T: Bound]` over `TypeVar`
-- Use `StrEnum` for string-based enumerations (JSON/YAML serialization)
+- **Prefer enum types over plain `str` for finite value sets** in schemas and domain types. When a Pydantic field, function argument, or `types.py` type has a known set of string values, prefer `StrEnum`; `Literal` is acceptable when it fits — use your discretion. For database models representing these finite sets, store values as `String`/`Text` columns rather than Postgres enums unless the value set is truly stable — `ALTER TYPE ... ADD VALUE` migrations are painful and irreversible. Reserve bare `str` for free-form text.
 - Use `frozen=True` dataclasses for immutable value objects
 - Use `TypedDict` with `NotRequired` for configuration types
 - Use `@runtime_checkable` protocols for structural typing
