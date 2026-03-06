@@ -145,7 +145,7 @@ class MCPCatalogPolicyService(BaseOrgService):
                 artifact_type=artifact_type,
                 artifact_key=artifact_key,
             )
-            if not is_org_admin and scope_name not in effective_scopes:
+            if not is_org_admin and not has_scope(effective_scopes, scope_name):
                 continue
             allowed_scope_names.add(scope_name)
             entries.append(
@@ -184,6 +184,6 @@ class MCPCatalogPolicyService(BaseOrgService):
         return organization_id
 
     async def _get_effective_scopes(self) -> frozenset[str]:
-        if self.role.scopes:
+        if self.role.scopes is not None:
             return frozenset(self.role.scopes)
         return frozenset(await compute_effective_scopes(self.role))

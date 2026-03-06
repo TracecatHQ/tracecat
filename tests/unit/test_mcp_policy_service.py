@@ -257,6 +257,75 @@ class TestMCPCatalogPolicyService:
         assert result.allowed_entry_ids == frozenset({allowed_entry})
         assert len(result.entries) == 1
 
+    async def test_authorize_catalog_search_accepts_wildcard_scope_grants(
+        self,
+        session: AsyncSession,
+        member_role: Role,
+        workspace: Workspace,
+    ) -> None:
+        integration = await _create_mcp_integration(
+            session=session, workspace=workspace
+        )
+        allowed_entry = await _insert_catalog_entry(
+            session=session,
+            integration=integration,
+            artifact_type=MCPCatalogArtifactType.TOOL,
+            artifact_key="github-list-repos-a1b2c3d4e5",
+            artifact_ref="list_repos",
+        )
+        wildcard_scope = f"mcp-tool:{integration.scope_namespace}.*:execute"
+        role = member_role.model_copy(update={"scopes": frozenset({wildcard_scope})})
+
+        service = MCPCatalogPolicyService(session=session, role=role)
+        result = await service.authorize_catalog_search(workspace_id=workspace.id)
+
+        assert result.is_org_admin is False
+        assert result.allowed_entry_ids == frozenset({allowed_entry})
+        assert len(result.entries) == 1
+        assert result.entries[0].scope_name == (
+            f"mcp-tool:{integration.scope_namespace}.github-list-repos-a1b2c3d4e5:execute"
+        )
+
+    async def test_get_effective_scopes_uses_rbac_fallback_when_scopes_unset(
+        self,
+        session: AsyncSession,
+        member_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        expected_scopes = frozenset({"mcp-tool:mcppolicy0000001.*:execute"})
+
+        async def _compute_effective_scopes(_: Role) -> frozenset[str]:
+            return expected_scopes
+
+        monkeypatch.setattr(
+            "tracecat.mcp.policy.service.compute_effective_scopes",
+            _compute_effective_scopes,
+        )
+        role = member_role.model_copy(update={"scopes": None})
+
+        service = MCPCatalogPolicyService(session=session, role=role)
+
+        assert await service._get_effective_scopes() == expected_scopes
+
+    async def test_get_effective_scopes_does_not_fallback_for_explicit_empty_scopes(
+        self,
+        session: AsyncSession,
+        member_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def _compute_effective_scopes(_: Role) -> frozenset[str]:
+            return frozenset({"mcp-tool:mcppolicy0000001.*:execute"})
+
+        monkeypatch.setattr(
+            "tracecat.mcp.policy.service.compute_effective_scopes",
+            _compute_effective_scopes,
+        )
+        role = member_role.model_copy(update={"scopes": frozenset()})
+
+        service = MCPCatalogPolicyService(session=session, role=role)
+
+        assert await service._get_effective_scopes() == frozenset()
+
     async def test_authorize_catalog_entry_rejects_unauthorized_entry(
         self,
         session: AsyncSession,
