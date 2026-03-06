@@ -1,0 +1,27 @@
+tracecat/agent/stream/connector.py
+  382e84aab41d9987 72-78,117,134,176,200-202
+tests/unit/test_agent_stream_connector.py
+  382e84aab41d9987 1-100
+tracecat/agent/session/service.py
+  382e84aab41d9987 344,350
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "bde08e0a85a0b989908e27e656d63a867bc37f71",
+  "prompts": {
+    "382e84aab41d9987": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc091-7db7-7133-8ec5-930ee5a3c899",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 117,
+      "total_deletions": 5,
+      "accepted_lines": 115,
+      "overriden_lines": 0
+    }
+  }
+}
