@@ -8,6 +8,18 @@ import pytest
 from tracecat.mcp import auth as mcp_auth
 
 
+def _mock_oidc_discovery_config(
+    *, scopes_supported: list[str] | None = None
+) -> MagicMock:
+    config = MagicMock()
+    config.issuer = "https://issuer.example.com"
+    config.authorization_endpoint = "https://issuer.example.com/oauth2/authorize"
+    config.token_endpoint = "https://issuer.example.com/oauth2/token"
+    config.jwks_uri = "https://issuer.example.com/.well-known/jwks.json"
+    config.scopes_supported = scopes_supported
+    return config
+
+
 def test_oidc_consent_html_escapes_values() -> None:
     page = mcp_auth._build_oidc_consent_html(
         client_id='client-"one"',
@@ -46,12 +58,13 @@ def test_create_mcp_auth_uses_oidc_mode(
         patch.object(
             mcp_auth.OIDCProxy,
             "get_oidc_configuration",
-            return_value=MagicMock(),
+            return_value=_mock_oidc_discovery_config(),
         ),
     ):
         auth = mcp_auth.create_mcp_auth()
 
     assert isinstance(auth, mcp_auth.OIDCProxy)
+    assert getattr(auth, "_fallback_access_token_expiry_seconds", None) == 3600
 
 
 def test_create_mcp_auth_raises_when_base_url_missing(
@@ -86,6 +99,37 @@ def test_create_mcp_auth_raises_when_oidc_issuer_missing(
             match="OIDC_ISSUER must be configured for the MCP server",
         ):
             mcp_auth.create_mcp_auth()
+
+
+def test_append_scope_if_missing_adds_unique_scope() -> None:
+    scopes = ["openid", "profile"]
+    assert mcp_auth.append_scope_if_missing(scopes, "offline_access") == [
+        "openid",
+        "profile",
+        "offline_access",
+    ]
+
+
+def test_append_scope_if_missing_does_not_duplicate_scope() -> None:
+    scopes = ["openid", "offline_access"]
+    assert mcp_auth.append_scope_if_missing(scopes, "offline_access") == scopes
+
+
+def test_remove_scope_removes_only_target_scope() -> None:
+    scopes = ["openid", "offline_access", "email"]
+    assert mcp_auth.remove_scope(scopes, "offline_access") == ["openid", "email"]
+
+
+def test_supports_refresh_scope_when_provider_metadata_missing() -> None:
+    assert mcp_auth.supports_refresh_scope(None) is True
+
+
+def test_supports_refresh_scope_when_scope_supported() -> None:
+    assert mcp_auth.supports_refresh_scope(["openid", "offline_access"]) is True
+
+
+def test_supports_refresh_scope_when_scope_not_supported() -> None:
+    assert mcp_auth.supports_refresh_scope(["openid", "profile", "email"]) is False
 
 
 def test_get_token_identity_extracts_ids_from_claims_and_scopes(
