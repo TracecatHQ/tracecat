@@ -15,6 +15,13 @@ from fastmcp import Client
 from fastmcp.client.transports import SSETransport, StreamableHttpTransport
 
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
+from tracecat.agent.mcp.catalog import (
+    MCPServerCatalog,
+    list_optional_capability,
+    normalize_prompt,
+    normalize_resource,
+    normalize_tool,
+)
 from tracecat.logger import logger
 
 
@@ -29,6 +36,53 @@ def _create_transport(
         return SSETransport(url=url, headers=headers, sse_read_timeout=timeout)
     # Default to HTTP (Streamable HTTP transport)
     return StreamableHttpTransport(url=url, headers=headers, sse_read_timeout=timeout)
+
+
+async def discover_mcp_server_catalog(
+    config: MCPHttpServerConfig,
+) -> MCPServerCatalog:
+    """Discover normalized tools/resources/prompts for a single MCP server."""
+    server_name = config["name"]
+    url = config["url"]
+    transport_type: Literal["http", "sse"] = config.get("transport", "http")
+    headers = config.get("headers")
+    timeout = config.get("timeout")
+
+    transport = _create_transport(url, transport_type, headers, timeout)
+
+    async with Client(transport) as client:
+        tools = tuple(normalize_tool(tool) for tool in await client.list_tools())
+        resources = tuple(
+            normalize_resource(resource)
+            for resource in await list_optional_capability(
+                server_name=server_name,
+                capability_name="resources",
+                list_fn=client.list_resources,
+            )
+        )
+        prompts = tuple(
+            normalize_prompt(prompt)
+            for prompt in await list_optional_capability(
+                server_name=server_name,
+                capability_name="prompts",
+                list_fn=client.list_prompts,
+            )
+        )
+
+    logger.debug(
+        "Discovered remote MCP server catalog",
+        server_name=server_name,
+        tool_count=len(tools),
+        resource_count=len(resources),
+        prompt_count=len(prompts),
+    )
+
+    return MCPServerCatalog(
+        server_name=server_name,
+        tools=tools,
+        resources=resources,
+        prompts=prompts,
+    )
 
 
 class UserMCPClient:
@@ -96,36 +150,15 @@ class UserMCPClient:
             Dict mapping prefixed tool names to definitions.
 
         """
-        url = config["url"]
-        transport_type: Literal["http", "sse"] = config.get("transport", "http")
-        headers = config.get("headers")
-        timeout = config.get("timeout")
-
-        transport = _create_transport(url, transport_type, headers, timeout)
-        tools: dict[str, MCPToolDefinition] = {}
-
-        async with Client(transport) as client:
-            # List tools from the server
-            server_tools = await client.list_tools()
-
-            for tool in server_tools:
-                # Create prefixed tool name: mcp__{server_name}__{tool_name}
-                prefixed_name = f"mcp__{server_name}__{tool.name}"
-
-                # Convert MCP tool schema to our format
-                tools[prefixed_name] = MCPToolDefinition(
-                    name=prefixed_name,
-                    description=tool.description or f"Tool from {server_name}",
-                    parameters_json_schema=tool.inputSchema or {},
-                )
-
-                logger.debug(
-                    "Discovered user MCP tool",
-                    server_name=server_name,
-                    tool_name=tool.name,
-                    prefixed_name=prefixed_name,
-                )
-
+        catalog = await discover_mcp_server_catalog(config)
+        tools = catalog.to_tool_definitions()
+        for tool_name in tools:
+            logger.debug(
+                "Discovered user MCP tool",
+                server_name=server_name,
+                tool_name=tool_name.removeprefix(f"mcp__{server_name}__"),
+                prefixed_name=tool_name,
+            )
         return tools
 
     async def call_tool(

@@ -309,6 +309,12 @@ agentExecutor:
       cpu: "2000m"
       memory: "4096Mi"
   queue: "shared-agent-queue"
+  mcpQueue: "shared-mcp-queue"
+  mcpMaxConcurrentActivities: 25
+  mcpThreadpoolMaxWorkers: 25
+  mcpMaxConcurrentLocalSandboxes: 10
+  # Shared with TRACECAT__MCP_SANDBOX_CACHE_DIR and the corresponding volume mount.
+  mcpSandboxCacheDir: "/var/lib/tracecat/mcp-sandbox-cache"
   workerPoolSize: ""
   contextCompression:
     enabled: false

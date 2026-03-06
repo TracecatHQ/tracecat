@@ -63,6 +63,8 @@ spec:
           volumeMounts:
             - name: sandbox-cache
               mountPath: /var/lib/tracecat/sandbox-cache
+            - name: mcp-sandbox-cache
+              mountPath: {{ include "tracecat.agentExecutor.mcpSandboxCacheDir" . }}
             - name: tmp
               mountPath: /tmp
             {{- if not .Values.tracecat.sandbox.disableNsjail }}
@@ -73,6 +75,8 @@ spec:
             {{- toYaml .Values.agentExecutor.resources | nindent 12 }}
       volumes:
         - name: sandbox-cache
+          emptyDir: {}
+        - name: mcp-sandbox-cache
           emptyDir: {}
         - name: tmp
           emptyDir: {}

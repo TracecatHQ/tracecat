@@ -330,6 +330,8 @@ import type {
   McpIntegrationsGetMcpIntegrationResponse,
   McpIntegrationsListMcpIntegrationsData,
   McpIntegrationsListMcpIntegrationsResponse,
+  McpIntegrationsRefreshMcpIntegrationData,
+  McpIntegrationsRefreshMcpIntegrationResponse,
   McpIntegrationsUpdateMcpIntegrationData,
   McpIntegrationsUpdateMcpIntegrationResponse,
   OrganizationAcceptInvitationData,
@@ -9288,6 +9290,33 @@ export const mcpIntegrationsDeleteMcpIntegration = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/mcp-integrations/{mcp_integration_id}",
+    path: {
+      mcp_integration_id: data.mcpIntegrationId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Refresh Mcp Integration
+ * Enqueue persisted discovery refresh for an MCP integration.
+ * @param data The data for the request.
+ * @param data.mcpIntegrationId
+ * @param data.workspaceId
+ * @returns MCPIntegrationRead Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsRefreshMcpIntegration = (
+  data: McpIntegrationsRefreshMcpIntegrationData
+): CancelablePromise<McpIntegrationsRefreshMcpIntegrationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/mcp-integrations/{mcp_integration_id}/refresh",
     path: {
       mcp_integration_id: data.mcpIntegrationId,
     },

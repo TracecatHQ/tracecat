@@ -26,6 +26,7 @@ from tracecat.integrations.enums import (
     MCPAuthType,
     MCPCatalogArtifactType,
     MCPDiscoveryStatus,
+    MCPTransport,
     OAuthGrantType,
 )
 from tracecat.integrations.types import MCPServerType
@@ -379,6 +380,10 @@ class MCPHttpIntegrationCreate(_MCPIntegrationCreateBase):
     """Request model for creating an HTTP MCP integration."""
 
     server_type: Literal["http"] = Field(default="http")
+    transport: MCPTransport = Field(
+        default=MCPTransport.HTTP,
+        description="Transport used to connect to the remote MCP server",
+    )
     server_uri: str = Field(
         ..., description="MCP server endpoint URL (required for http type)"
     )
@@ -477,6 +482,7 @@ class MCPIntegrationUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=512)
     # Server type cannot be changed after creation (would require migrating fields)
     # HTTP-type server fields
+    transport: MCPTransport | None = None
     server_uri: str | None = None
     auth_type: MCPAuthType | None = None
     oauth_integration_id: uuid.UUID | None = None
@@ -569,6 +575,7 @@ class MCPIntegrationRead(BaseModel):
     # Server type
     server_type: MCPServerType
     # HTTP-type server fields
+    transport: MCPTransport | None
     server_uri: str | None
     auth_type: MCPAuthType
     oauth_integration_id: UUID4 | None

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import importlib
+from pathlib import Path
+
 import pytest
 
+import tracecat.config as tracecat_config
 from tracecat.config import bound_env
 
 
@@ -61,3 +65,16 @@ def test_bound_env_rejects_invalid_bounds() -> None:
         ValueError, match="lower \\(10\\) cannot be greater than upper \\(8\\)"
     ):
         bound_env("TEST_BOUND_ENV", 16, lower=10, upper=8)
+
+
+def test_mcp_sandbox_cache_dir_uses_default_for_empty_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with monkeypatch.context() as patch:
+        patch.setenv("TRACECAT__MCP_SANDBOX_CACHE_DIR", "")
+        reloaded = importlib.reload(tracecat_config)
+        assert reloaded.TRACECAT__MCP_SANDBOX_CACHE_DIR == Path(
+            "/var/lib/tracecat/mcp-sandbox-cache"
+        )
+
+    importlib.reload(tracecat_config)

@@ -26,6 +26,7 @@ from tracecat.integrations.enums import (
     IntegrationStatus,
     MCPCatalogArtifactType,
     MCPDiscoveryStatus,
+    MCPTransport,
     OAuthGrantType,
 )
 from tracecat.integrations.providers import all_providers
@@ -92,6 +93,11 @@ def _serialize_mcp_integration(
         description=integration.description,
         slug=integration.slug,
         scope_namespace=integration.scope_namespace,
+        transport=(
+            MCPTransport(integration.transport)
+            if integration.server_type == "http"
+            else None
+        ),
         server_uri=integration.server_uri,
         auth_type=integration.auth_type,
         oauth_integration_id=integration.oauth_integration_id,
@@ -976,6 +982,40 @@ async def update_mcp_integration(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+    catalog_counts = await svc.get_mcp_catalog_counts(
+        mcp_integration_ids=[integration.id]
+    )
+    return _serialize_mcp_integration(
+        integration,
+        counts_by_type=catalog_counts.get(integration.id),
+    )
+
+
+@mcp_router.post("/{mcp_integration_id}/refresh")
+@require_scope("integration:update")
+async def refresh_mcp_integration(
+    *,
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    mcp_integration_id: uuid.UUID,
+) -> MCPIntegrationRead:
+    """Enqueue persisted discovery refresh for an MCP integration."""
+    svc = IntegrationService(session, role=role)
+    try:
+        integration = await svc.refresh_mcp_integration_discovery(
+            mcp_integration_id=mcp_integration_id
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="MCP integration not found",
+        )
 
     catalog_counts = await svc.get_mcp_catalog_counts(
         mcp_integration_ids=[integration.id]

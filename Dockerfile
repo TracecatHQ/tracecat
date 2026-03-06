@@ -20,6 +20,25 @@ RUN git clone https://github.com/google/nsjail.git /tmp/nsjail && \
     rm -rf /tmp/nsjail
 
 # ====================
+# Stage 1b: Build MCP egress guard
+# ====================
+FROM debian:bookworm-slim AS mcp-egress-guard-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY tracecat/agent/mcp/local_runtime/tracecat_mcp_egress_guard.c /tmp/tracecat_mcp_egress_guard.c
+
+RUN mkdir -p /out && \
+    gcc -shared -fPIC -O2 -Wall -Wextra \
+      -o /out/libtracecat_mcp_egress_guard.so \
+      /tmp/tracecat_mcp_egress_guard.c \
+      -ldl -pthread
+
+# ====================
 # Stage 2: Create minimal sandbox rootfs
 # ====================
 FROM node:22.13.1-slim AS node-bin
@@ -32,6 +51,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.9.15 /uv /usr/local/bin/uv
 COPY --from=ghcr.io/astral-sh/uv:0.9.15 /uvx /usr/local/bin/uvx
 COPY --from=node-bin /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-bin /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=mcp-egress-guard-builder /out/libtracecat_mcp_egress_guard.so /usr/local/lib/libtracecat_mcp_egress_guard.so
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 

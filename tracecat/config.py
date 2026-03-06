@@ -1,6 +1,7 @@
 import logging
 import os
 import uuid
+from pathlib import Path
 from typing import Literal, cast
 
 from tracecat.auth.enums import AuthType
@@ -585,6 +586,30 @@ TRACECAT__AGENT_QUEUE = os.environ.get("TRACECAT__AGENT_QUEUE", "shared-agent-qu
 
 This is the dedicated queue for agent workflow execution, separate from the main
 tracecat-task-queue used by DSLWorkflow."""
+
+TRACECAT__MCP_QUEUE = os.environ.get("TRACECAT__MCP_QUEUE", "shared-mcp-queue")
+"""Task queue for persisted local MCP discovery workflows."""
+
+TRACECAT__MCP_MAX_CONCURRENT_ACTIVITIES = int(
+    os.environ.get("TRACECAT__MCP_MAX_CONCURRENT_ACTIVITIES") or 25
+)
+"""Maximum concurrent activities for the MCP discovery worker."""
+
+TRACECAT__MCP_THREADPOOL_MAX_WORKERS = int(
+    os.environ.get("TRACECAT__MCP_THREADPOOL_MAX_WORKERS") or 25
+)
+"""Thread pool size for the MCP discovery worker."""
+
+TRACECAT__MCP_MAX_CONCURRENT_LOCAL_SANDBOXES = int(
+    os.environ.get("TRACECAT__MCP_MAX_CONCURRENT_LOCAL_SANDBOXES") or 10
+)
+"""Maximum number of local MCP discovery sandboxes allowed in-flight."""
+
+TRACECAT__MCP_SANDBOX_CACHE_DIR = Path(
+    os.environ.get("TRACECAT__MCP_SANDBOX_CACHE_DIR")
+    or "/var/lib/tracecat/mcp-sandbox-cache"
+)
+"""Base directory for per-organization local MCP discovery caches."""
 
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (
