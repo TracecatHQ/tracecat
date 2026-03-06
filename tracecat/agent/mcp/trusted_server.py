@@ -208,7 +208,7 @@ async def execute_user_mcp_tool(
             error_type=_safe_error_type(e),
         )
         raise ToolError(
-            f"User MCP tool '{tool_name}' on server '{server_name}' failed: {e}"
+            f"User MCP tool '{tool_name}' on server '{server_name}' failed"
         ) from None
 
 
