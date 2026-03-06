@@ -14,6 +14,7 @@
 
 #define MAX_RULES 128
 #define MAX_ENTRY_LEN 256
+#define MAX_RESOLVED_ENDPOINTS 1024
 
 typedef struct {
   char host[MAX_ENTRY_LEN];
@@ -26,14 +27,25 @@ typedef struct {
   size_t count;
 } egress_rule_list_t;
 
+typedef struct {
+  char host[INET6_ADDRSTRLEN];
+  char port[16];
+} resolved_endpoint_t;
+
 static pthread_once_t guard_init_once = PTHREAD_ONCE_INIT;
+static pthread_mutex_t resolved_allow_mutex = PTHREAD_MUTEX_INITIALIZER;
 static egress_rule_list_t allow_rules = {0};
 static egress_rule_list_t deny_rules = {0};
+static resolved_endpoint_t resolved_allow_endpoints[MAX_RESOLVED_ENDPOINTS] = {0};
+static size_t resolved_allow_count = 0;
 static bool has_allow_rules = false;
 
 static int (*real_connect)(int, const struct sockaddr *, socklen_t) = NULL;
 static int (*real_getaddrinfo)(const char *, const char *, const struct addrinfo *,
                                struct addrinfo **) = NULL;
+
+static void sockaddr_to_host_port(
+    const struct sockaddr *addr, char *host, size_t host_len, char *port, size_t port_len);
 
 static void trim_copy(char *dst, size_t dst_size, const char *src, size_t src_len) {
   while (src_len > 0 && (*src == ' ' || *src == '"' || *src == '\'')) {
@@ -124,8 +136,7 @@ static bool port_matches(const egress_rule_t *rule, const char *port) {
   return port != NULL && strcmp(rule->port, port) == 0;
 }
 
-static bool list_matches(
-    const egress_rule_list_t *rules, const char *host, const char *port) {
+static bool list_matches(const egress_rule_list_t *rules, const char *host, const char *port) {
   for (size_t i = 0; i < rules->count; ++i) {
     if (host_matches(rules->rules[i].host, host) && port_matches(&rules->rules[i], port)) {
       return true;
@@ -134,14 +145,83 @@ static bool list_matches(
   return false;
 }
 
-static bool is_blocked_request(const char *host, const char *port) {
-  if (list_matches(&deny_rules, host, port)) {
+static bool resolution_matches(
+    const egress_rule_list_t *rules, const char *node, const char *service,
+    const struct addrinfo *res) {
+  if (list_matches(rules, node, service)) {
     return true;
   }
-  if (has_allow_rules && !list_matches(&allow_rules, host, port)) {
+
+  for (const struct addrinfo *entry = res; entry != NULL; entry = entry->ai_next) {
+    char host[INET6_ADDRSTRLEN] = {0};
+    char port[16] = {0};
+    sockaddr_to_host_port(entry->ai_addr, host, sizeof(host), port, sizeof(port));
+    if (host[0] == '\0') {
+      continue;
+    }
+    if (list_matches(rules, host, port) || list_matches(rules, node, port)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool is_blocked_resolution(
+    const char *node, const char *service, const struct addrinfo *res) {
+  if (resolution_matches(&deny_rules, node, service, res)) {
+    return true;
+  }
+  if (has_allow_rules && !resolution_matches(&allow_rules, node, service, res)) {
     return true;
   }
   return false;
+}
+
+static bool resolved_allow_matches(const char *host, const char *port) {
+  bool matched = false;
+  pthread_mutex_lock(&resolved_allow_mutex);
+  for (size_t i = 0; i < resolved_allow_count; ++i) {
+    if (strcmp(resolved_allow_endpoints[i].host, host) == 0 &&
+        strcmp(resolved_allow_endpoints[i].port, port) == 0) {
+      matched = true;
+      break;
+    }
+  }
+  pthread_mutex_unlock(&resolved_allow_mutex);
+  return matched;
+}
+
+static void cache_allowed_resolution(const struct addrinfo *res) {
+  pthread_mutex_lock(&resolved_allow_mutex);
+  for (const struct addrinfo *entry = res; entry != NULL; entry = entry->ai_next) {
+    char host[INET6_ADDRSTRLEN] = {0};
+    char port[16] = {0};
+    bool exists = false;
+    sockaddr_to_host_port(entry->ai_addr, host, sizeof(host), port, sizeof(port));
+    if (host[0] == '\0' || port[0] == '\0') {
+      continue;
+    }
+
+    for (size_t i = 0; i < resolved_allow_count; ++i) {
+      if (strcmp(resolved_allow_endpoints[i].host, host) == 0 &&
+          strcmp(resolved_allow_endpoints[i].port, port) == 0) {
+        exists = true;
+        break;
+      }
+    }
+    if (exists || resolved_allow_count >= MAX_RESOLVED_ENDPOINTS) {
+      continue;
+    }
+
+    snprintf(
+        resolved_allow_endpoints[resolved_allow_count].host,
+        sizeof(resolved_allow_endpoints[resolved_allow_count].host), "%s", host);
+    snprintf(
+        resolved_allow_endpoints[resolved_allow_count].port,
+        sizeof(resolved_allow_endpoints[resolved_allow_count].port), "%s", port);
+    resolved_allow_count++;
+  }
+  pthread_mutex_unlock(&resolved_allow_mutex);
 }
 
 static void sockaddr_to_host_port(
@@ -172,19 +252,50 @@ static void sockaddr_to_host_port(
 int getaddrinfo(const char *node, const char *service, const struct addrinfo *hints,
                 struct addrinfo **res) {
   pthread_once(&guard_init_once, init_guard);
-  if (is_blocked_request(node, service)) {
+  if (real_getaddrinfo == NULL) {
+    errno = ENOSYS;
+    return EAI_SYSTEM;
+  }
+  if (node == NULL) {
+    return real_getaddrinfo(node, service, hints, res);
+  }
+  if (list_matches(&deny_rules, node, service)) {
     return EAI_FAIL;
   }
-  return real_getaddrinfo(node, service, hints, res);
+  int rc = real_getaddrinfo(node, service, hints, res);
+  if (rc != 0 || res == NULL || *res == NULL) {
+    return rc;
+  }
+  if (is_blocked_resolution(node, service, *res)) {
+    freeaddrinfo(*res);
+    *res = NULL;
+    return EAI_FAIL;
+  }
+  if (has_allow_rules) {
+    cache_allowed_resolution(*res);
+  }
+  return rc;
 }
 
 int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
-  (void)addrlen;
   pthread_once(&guard_init_once, init_guard);
+  if (real_connect == NULL) {
+    errno = ENOSYS;
+    return -1;
+  }
   char host[INET6_ADDRSTRLEN] = {0};
   char port[16] = {0};
   sockaddr_to_host_port(addr, host, sizeof(host), port, sizeof(port));
-  if (is_blocked_request(host, port)) {
+  if (host[0] == '\0') {
+    return real_connect(sockfd, addr, addrlen);
+  }
+  if (list_matches(&deny_rules, host, port)) {
+    errno = EACCES;
+    return -1;
+  }
+  if (has_allow_rules &&
+      !list_matches(&allow_rules, host, port) &&
+      !resolved_allow_matches(host, port)) {
     errno = EACCES;
     return -1;
   }

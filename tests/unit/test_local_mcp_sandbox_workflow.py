@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 
+from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.mcp.sandbox import workflow as workflow_module
 
 
@@ -107,3 +108,26 @@ def test_build_stdio_client_config_wraps_with_nsjail(
     )
     assert temp_dir is not None
     assert (temp_dir / "nsjail.cfg").exists()
+
+
+def test_build_stdio_nsjail_config_rejects_unsafe_stdio_args(
+    tmp_path: Path,
+) -> None:
+    command_path = tmp_path / "server"
+    command_path.write_text("")
+    cache_root = tmp_path / "cache"
+    cache_root.mkdir()
+    rootfs_path = tmp_path / "rootfs"
+    for subdir in ("usr", "lib", "bin", "etc"):
+        (rootfs_path / subdir).mkdir(parents=True, exist_ok=True)
+
+    with pytest.raises(
+        AgentSandboxValidationError, match="Invalid stdio arg at index 1"
+    ):
+        workflow_module._build_stdio_nsjail_config(
+            command_path=str(command_path),
+            command_args=["safe", 'unsafe" arg'],
+            cache_root=cache_root,
+            rootfs=rootfs_path,
+            allow_network=False,
+        )

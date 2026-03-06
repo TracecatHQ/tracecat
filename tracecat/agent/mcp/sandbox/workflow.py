@@ -16,12 +16,13 @@ from mcp.types import BlobResourceContents, GetPromptResult, TextResourceContent
 from temporalio import activity, workflow
 
 from tracecat import config
+from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.mcp.sandbox.types import (
     LocalMCPArtifactOperation,
     RunLocalMCPArtifactWorkflowInput,
     RunLocalMCPArtifactWorkflowResult,
 )
-from tracecat.agent.sandbox.config import _validate_path
+from tracecat.agent.sandbox.config import _contains_dangerous_chars, _validate_path
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.mcp.catalog.artifact_service import MCPCatalogArtifactService
@@ -100,6 +101,32 @@ def _is_supported_nsjail_command_path(command_path: str) -> bool:
     return command_path.startswith(supported_prefixes)
 
 
+def _validate_stdio_nsjail_arg(arg: str, index: int) -> None:
+    """Reject stdio args that could break protobuf text-format parsing."""
+    is_dangerous, reason = _contains_dangerous_chars(arg)
+    if is_dangerous:
+        raise AgentSandboxValidationError(
+            f"Invalid stdio arg at index {index}: {reason}"
+        )
+
+    dangerous_chars = ('"', "'", "\\", "{", "}", "\n", "\r", "\t")
+    if found_chars := [char for char in dangerous_chars if char in arg]:
+        raise AgentSandboxValidationError(
+            f"Invalid stdio arg at index {index}: contains dangerous characters {found_chars!r}"
+        )
+
+
+def _validate_stdio_nsjail_args(command_args: list[str]) -> tuple[str, ...]:
+    """Validate stdio args before interpolating them into nsjail config."""
+    for index, arg in enumerate(command_args):
+        if not isinstance(arg, str):
+            raise AgentSandboxValidationError(
+                f"Invalid stdio arg at index {index}: expected str, got {type(arg).__name__}"
+            )
+        _validate_stdio_nsjail_arg(arg, index)
+    return tuple(command_args)
+
+
 def _build_stdio_nsjail_config(
     *,
     command_path: str,
@@ -112,6 +139,7 @@ def _build_stdio_nsjail_config(
     _validate_path(rootfs, "rootfs")
     _validate_path(cache_root, "cache_root")
     _validate_path(Path(command_path), "command_path")
+    validated_command_args = _validate_stdio_nsjail_args(command_args)
 
     clone_newnet = not allow_network
     lines = [
@@ -180,7 +208,7 @@ def _build_stdio_nsjail_config(
     )
 
     exec_parts = [f'exec_bin {{ path: "{command_path}"']
-    for arg in command_args:
+    for arg in validated_command_args:
         exec_parts.append(f' arg: "{arg}"')
     exec_parts.append(" }")
     lines.append("".join(exec_parts))

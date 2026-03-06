@@ -47,6 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.15 /uv /usr/local/bin/uv
 COPY --from=ghcr.io/astral-sh/uv:0.9.15 /uvx /usr/local/bin/uvx
+COPY --from=mcp-egress-guard-builder /usr/local/lib/libtracecat_mcp_egress_guard.so /usr/local/lib/libtracecat_mcp_egress_guard.so
 COPY --from=node-bin /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-bin /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \

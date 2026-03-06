@@ -707,4 +707,7 @@ class TestMCPCatalogArtifactService:
         assert result.result["structuredContent"] == {"status": "queued"}
         assert recorded["input"].artifact_ref_or_id == str(entry_id)
         assert recorded["input"].workspace_id == workspace.id
-        assert recorded["kwargs"]["task_queue"]
+        assert (
+            recorded["kwargs"]["task_queue"]
+            == artifact_service_module.config.TRACECAT__MCP_QUEUE
+        )
