@@ -69,7 +69,13 @@ class AgentStream:
         logger.debug("Adding end-of-turn marker", stream_key=self._stream_key)
         await self.append({tokens.END_TOKEN: tokens.END_TOKEN_VALUE})
 
-    async def _set_last_stream_id(self, last_stream_id: str) -> None:
+    async def clear(self) -> None:
+        """Delete the persisted stream buffer and reset the saved cursor."""
+        logger.debug("Clearing agent stream buffer", stream_key=self._stream_key)
+        await self.client.delete(self._stream_key)
+        await self._set_last_stream_id(None)
+
+    async def _set_last_stream_id(self, last_stream_id: str | None) -> None:
         """Update last stream ID for reconnection support."""
 
         async with AgentSessionService.with_session() as session_svc:
@@ -108,6 +114,7 @@ class AgentStream:
         """
         current_id = last_id
         last_keepalive = monotonic()
+        stream_completed = False
         try:
             while not await stop_condition():
                 try:
@@ -124,6 +131,7 @@ class AgentStream:
                                 match data:
                                     case {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}:
                                         logger.debug("End-of-stream marker")
+                                        stream_completed = True
                                         yield StreamEnd(id=msg_id)
                                     case {"event_kind": event_kind}:
                                         legacy_event = (
@@ -188,7 +196,10 @@ class AgentStream:
             yield StreamError(error="Fatal stream error")
         finally:
             logger.info("Chat stream ended", stream_key=self._stream_key)
-            await self._set_last_stream_id(current_id)
+            if stream_completed:
+                await self.clear()
+            else:
+                await self._set_last_stream_id(current_id)
 
     async def stream_events(
         self, stop_condition: Callable[[], Awaitable[bool]], last_id: str
