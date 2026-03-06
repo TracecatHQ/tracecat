@@ -32,6 +32,7 @@ def test_build_stdio_client_config_warns_on_direct_fallback(
 ) -> None:
     monkeypatch.setattr(workflow_module.config, "TRACECAT__DISABLE_NSJAIL", True)
     monkeypatch.setattr(workflow_module, "_DIRECT_SANDBOX_WARNING_EMITTED", False)
+    monkeypatch.setattr(workflow_module, "_EGRESS_POLICY_DIRECT_WARNING_EMITTED", False)
     caplog.set_level(logging.WARNING)
 
     server_config, temp_dir = workflow_module._build_stdio_client_config(
@@ -42,6 +43,24 @@ def test_build_stdio_client_config_warns_on_direct_fallback(
     assert server_config["command"] == "npx"
     assert temp_dir is None
     assert workflow_module._DIRECT_SANDBOX_WARNING_EMITTED is True
+    assert workflow_module._EGRESS_POLICY_DIRECT_WARNING_EMITTED is False
+
+
+def test_build_stdio_client_config_warns_when_egress_policy_degrades_in_direct_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(workflow_module.config, "TRACECAT__DISABLE_NSJAIL", True)
+    monkeypatch.setattr(workflow_module, "_DIRECT_SANDBOX_WARNING_EMITTED", False)
+    monkeypatch.setattr(workflow_module, "_EGRESS_POLICY_DIRECT_WARNING_EMITTED", False)
+
+    server_config, temp_dir = workflow_module._build_stdio_client_config(
+        target=_build_target(sandbox_egress_allowlist=["api.github.com:443"]),
+        stdio_env={"PATH": "/usr/local/bin:/usr/bin:/bin"},
+    )
+
+    assert server_config["command"] == "npx"
+    assert temp_dir is None
+    assert workflow_module._EGRESS_POLICY_DIRECT_WARNING_EMITTED is True
 
 
 def test_build_stdio_client_config_wraps_with_nsjail(
@@ -82,5 +101,9 @@ def test_build_stdio_client_config_wraps_with_nsjail(
     assert server_config["command"] == str(nsjail_path)
     assert "--config" in server_config["args"]
     assert "TRACECAT__MCP_SANDBOX_EGRESS_ALLOWLIST" in server_config["env"]
+    assert (
+        server_config["env"]["LD_PRELOAD"]
+        == "/usr/local/lib/libtracecat_mcp_egress_guard.so"
+    )
     assert temp_dir is not None
     assert (temp_dir / "nsjail.cfg").exists()

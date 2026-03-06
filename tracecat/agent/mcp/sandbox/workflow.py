@@ -31,6 +31,7 @@ _LOCAL_MCP_SANDBOX_SEMAPHORE = asyncio.Semaphore(
     config.TRACECAT__MCP_MAX_CONCURRENT_LOCAL_SANDBOXES
 )
 _DIRECT_SANDBOX_WARNING_EMITTED = False
+_EGRESS_POLICY_DIRECT_WARNING_EMITTED = False
 
 
 def _cache_env(
@@ -192,7 +193,7 @@ def _build_stdio_client_config(
     stdio_env: dict[str, str],
 ) -> tuple[dict[str, Any], Path | None]:
     """Build a FastMCP stdio client config, using nsjail when available."""
-    global _DIRECT_SANDBOX_WARNING_EMITTED
+    global _DIRECT_SANDBOX_WARNING_EMITTED, _EGRESS_POLICY_DIRECT_WARNING_EMITTED
 
     direct_config = {
         "transport": "stdio",
@@ -220,6 +221,14 @@ def _build_stdio_client_config(
                 mcp_integration_id=target.mcp_integration_id,
             )
             _DIRECT_SANDBOX_WARNING_EMITTED = True
+        if not _EGRESS_POLICY_DIRECT_WARNING_EMITTED and (
+            target.sandbox_egress_allowlist or target.sandbox_egress_denylist
+        ):
+            logger.warning(
+                "Egress allowlist/denylist is not enforced without nsjail; local MCP process will use degraded policy mode",
+                mcp_integration_id=target.mcp_integration_id,
+            )
+            _EGRESS_POLICY_DIRECT_WARNING_EMITTED = True
         return direct_config, None
 
     command_path = _resolve_stdio_command_path(target.stdio_command, stdio_env)
@@ -264,6 +273,8 @@ def _build_stdio_client_config(
         nsjail_env["TRACECAT__MCP_SANDBOX_EGRESS_DENYLIST"] = orjson.dumps(
             target.sandbox_egress_denylist
         ).decode()
+    if target.sandbox_egress_allowlist or target.sandbox_egress_denylist:
+        nsjail_env["LD_PRELOAD"] = "/usr/local/lib/libtracecat_mcp_egress_guard.so"
 
     nsjail_args = ["--config", str(config_path)]
     for key in sorted(nsjail_env):
