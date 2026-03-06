@@ -991,25 +991,25 @@ class CasesClient:
             params["cursor"] = cursor
         if is_set(reverse):
             params["reverse"] = reverse
-        return await self._client.get(f"/internal/cases/{case_id}/rows", params=params)
+        return await self._client.get(f"/cases/{case_id}/rows", params=params)
 
     async def link_case_row(
         self, case_id: str, *, table_id: str, row_id: str
     ) -> types.CaseTableRowRead:
         return await self._client.post(
-            f"/internal/cases/{case_id}/rows",
+            f"/cases/{case_id}/rows",
             json={"table_id": table_id, "row_id": row_id},
         )
 
     async def unlink_case_row(
         self, case_id: str, *, table_id: str, row_id: str
     ) -> None:
-        await self._client.delete(f"/internal/cases/{case_id}/rows/{table_id}/{row_id}")
+        await self._client.delete(f"/cases/{case_id}/rows/{table_id}/{row_id}")
 
     async def insert_case_row(
         self, case_id: str, *, table_id: str, row: dict[str, Any]
     ) -> types.CaseTableRowRead:
         return await self._client.post(
-            f"/internal/cases/{case_id}/rows/insert",
+            f"/cases/{case_id}/rows/insert",
             json={"table_id": table_id, "row": {"data": row}},
         )
