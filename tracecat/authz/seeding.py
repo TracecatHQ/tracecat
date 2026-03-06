@@ -545,6 +545,7 @@ async def seed_system_roles_for_org(
     role_result = await session.execute(role_stmt)
 
     role_scope_values = []
+    missing_scope_count = 0
     for role_id, role_slug in role_result.tuples().all():
         if role_slug is None:
             continue
@@ -554,11 +555,12 @@ async def seed_system_roles_for_org(
         for scope_name in role_def.scopes:
             scope_id = scope_id_by_name.get(scope_name)
             if scope_id is None:
-                logger.warning(
+                logger.debug(
                     "Scope not found for system role",
                     scope_name=scope_name,
                     role_slug=role_slug,
                 )
+                missing_scope_count += 1
                 continue
             role_scope_values.append({"role_id": role_id, "scope_id": scope_id})
 
@@ -569,7 +571,12 @@ async def seed_system_roles_for_org(
         )
         await session.execute(role_scope_stmt)
 
-    logger.info("System roles seeded for organization", organization_id=str(org_id))
+    logger.info(
+        "System roles seeded for organization",
+        organization_id=str(org_id),
+        role_scope_count=len(role_scope_values),
+        missing_scope_count=missing_scope_count,
+    )
 
 
 async def seed_system_roles_for_all_orgs(session: AsyncSession) -> list[UUID]:
