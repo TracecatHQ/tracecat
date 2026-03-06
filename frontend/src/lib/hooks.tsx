@@ -141,6 +141,7 @@ import {
   mcpIntegrationsDeleteMcpIntegration,
   mcpIntegrationsGetMcpIntegration,
   mcpIntegrationsListMcpIntegrations,
+  mcpIntegrationsRefreshMcpIntegration,
   mcpIntegrationsUpdateMcpIntegration,
   type OAuthGrantType,
   type OrganizationDeleteOrgMemberData,
@@ -4599,7 +4600,13 @@ export function useListMcpIntegrations(workspaceId: string) {
     queryFn: async () =>
       await mcpIntegrationsListMcpIntegrations({ workspaceId }),
     enabled: Boolean(workspaceId),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 30 * 1000,
+    refetchInterval: ({ state }) =>
+      state.data?.some(
+        (integration) => integration.discovery_status === "pending"
+      )
+        ? 5000
+        : false,
     refetchOnWindowFocus: false,
   })
 
@@ -4626,7 +4633,9 @@ export function useGetMcpIntegration(
         mcpIntegrationId: mcpIntegrationId!,
       }),
     enabled: Boolean(workspaceId && mcpIntegrationId),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 30 * 1000,
+    refetchInterval: ({ state }) =>
+      state.data?.discovery_status === "pending" ? 5000 : false,
     refetchOnWindowFocus: false,
   })
 
@@ -4634,6 +4643,51 @@ export function useGetMcpIntegration(
     mcpIntegration,
     mcpIntegrationIsLoading,
     mcpIntegrationError,
+  }
+}
+
+export function useRefreshMcpIntegration(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: refreshMcpIntegration,
+    isPending: refreshMcpIntegrationIsPending,
+    error: refreshMcpIntegrationError,
+    variables: refreshMcpIntegrationVariables,
+  } = useMutation({
+    mutationFn: async (mcpIntegrationId: string) => {
+      return await mcpIntegrationsRefreshMcpIntegration({
+        workspaceId,
+        mcpIntegrationId,
+      })
+    },
+    onSuccess: (integration) => {
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integrations", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["mcp-integration", workspaceId, integration.id],
+      })
+      toast({
+        title: "MCP refresh queued",
+        description: `Refreshing ${integration.name}`,
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to refresh MCP integration:", error)
+      toast({
+        title: "Failed to refresh MCP integration",
+        description: `${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    refreshMcpIntegration,
+    refreshMcpIntegrationIsPending,
+    refreshMcpIntegrationError,
+    refreshMcpIntegrationVariables,
   }
 }
 

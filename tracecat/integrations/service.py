@@ -1369,6 +1369,33 @@ class IntegrationService(BaseWorkspaceService):
         return counts_by_integration
 
     @require_scope("integration:update")
+    async def refresh_mcp_integration(
+        self, *, mcp_integration_id: uuid.UUID
+    ) -> MCPIntegration | None:
+        """Mark an MCP integration for discovery refresh."""
+        mcp_integration = await self.get_mcp_integration(
+            mcp_integration_id=mcp_integration_id
+        )
+        if not mcp_integration:
+            return None
+
+        mcp_integration.discovery_status = MCPDiscoveryStatus.PENDING.value
+        mcp_integration.last_discovery_error_code = None
+        mcp_integration.last_discovery_error_summary = None
+
+        self.session.add(mcp_integration)
+        await self.session.commit()
+        await self.session.refresh(mcp_integration)
+
+        self.logger.info(
+            "Queued MCP integration refresh",
+            mcp_integration_id=mcp_integration.id,
+            workspace_id=self.workspace_id,
+        )
+
+        return mcp_integration
+
+    @require_scope("integration:update")
     async def update_mcp_integration(
         self, *, mcp_integration_id: uuid.UUID, params: MCPIntegrationUpdate
     ) -> MCPIntegration | None:
@@ -1379,6 +1406,7 @@ class IntegrationService(BaseWorkspaceService):
         if not mcp_integration:
             return None
         previous_auth_type = mcp_integration.auth_type
+        should_refresh_discovery = False
 
         # Validate OAuth integration if auth_type is being changed to oauth2
         if params.auth_type == MCPAuthType.OAUTH2:
@@ -1411,10 +1439,13 @@ class IntegrationService(BaseWorkspaceService):
             )
         if params.server_uri is not None:
             mcp_integration.server_uri = params.server_uri.strip()
+            should_refresh_discovery = True
         if params.auth_type is not None:
             mcp_integration.auth_type = params.auth_type
+            should_refresh_discovery = True
         if params.oauth_integration_id is not None:
             mcp_integration.oauth_integration_id = params.oauth_integration_id
+            should_refresh_discovery = True
 
         if mcp_integration.server_type == "stdio" and (
             params.stdio_command is not None
@@ -1436,8 +1467,10 @@ class IntegrationService(BaseWorkspaceService):
             mcp_integration.stdio_command = (
                 params.stdio_command.strip() if params.stdio_command else None
             )
+            should_refresh_discovery = True
         if params.stdio_args is not None:
             mcp_integration.stdio_args = params.stdio_args
+            should_refresh_discovery = True
         if params.stdio_env is not None:
             if params.stdio_env:
                 mcp_integration.encrypted_stdio_env = self._encrypt_token(
@@ -1446,8 +1479,10 @@ class IntegrationService(BaseWorkspaceService):
             else:
                 # Empty dict means clear the env vars
                 mcp_integration.encrypted_stdio_env = None
+            should_refresh_discovery = True
         if params.timeout is not None:
             mcp_integration.timeout = params.timeout
+            should_refresh_discovery = True
 
         # Handle encrypted header credentials for CUSTOM/OAUTH2 auth types.
         if params.custom_credentials is not None:
@@ -1469,6 +1504,13 @@ class IntegrationService(BaseWorkspaceService):
             ):
                 # Avoid carrying CUSTOM credentials into OAuth unless explicitly set.
                 mcp_integration.encrypted_headers = None
+        if params.custom_credentials is not None:
+            should_refresh_discovery = True
+
+        if should_refresh_discovery:
+            mcp_integration.discovery_status = MCPDiscoveryStatus.PENDING.value
+            mcp_integration.last_discovery_error_code = None
+            mcp_integration.last_discovery_error_summary = None
 
         self.session.add(mcp_integration)
         await self.session.commit()
