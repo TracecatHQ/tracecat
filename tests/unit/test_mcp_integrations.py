@@ -824,6 +824,155 @@ class TestMCPIntegrationCRUD:
         assert attempt.trigger == MCPDiscoveryTrigger.REFRESH.value
         assert attempt.error_code == "connection_error"
 
+    async def test_run_remote_mcp_discovery_failure_persists_when_config_resolution_raises(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test config resolution exceptions are persisted as discovery failures."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Broken config MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+        assert created.last_discovery_attempt_at is not None
+
+        async def _raise_config_error(**_: object) -> None:
+            raise ValueError("missing server configuration")
+
+        monkeypatch.setattr(
+            integration_service,
+            "resolve_mcp_http_server_config",
+            _raise_config_error,
+        )
+        started_at = created.last_discovery_attempt_at + timedelta(seconds=1)
+        result = await integration_service.run_remote_mcp_discovery(
+            mcp_integration_id=created.id,
+            trigger=MCPDiscoveryTrigger.REFRESH,
+            started_at=started_at,
+        )
+
+        assert result.status == MCPDiscoveryStatus.FAILED.value
+        assert result.catalog_version == 0
+        assert result.error_code == "invalid_config"
+
+        refreshed = await integration_service.get_mcp_integration(
+            mcp_integration_id=created.id
+        )
+        assert refreshed is not None
+        assert refreshed.discovery_status == MCPDiscoveryStatus.FAILED.value
+        assert refreshed.last_discovery_error_code == "invalid_config"
+        assert (
+            refreshed.last_discovery_error_summary
+            == "The MCP integration configuration is incomplete."
+        )
+
+        attempt_result = await integration_service.session.execute(
+            select(MCPIntegrationDiscoveryAttempt).where(
+                MCPIntegrationDiscoveryAttempt.mcp_integration_id == created.id
+            )
+        )
+        attempt = attempt_result.scalars().one()
+        assert attempt.status == MCPDiscoveryAttemptStatus.FAILED.value
+        assert attempt.trigger == MCPDiscoveryTrigger.REFRESH.value
+        assert attempt.error_code == "invalid_config"
+
+    async def test_run_remote_mcp_discovery_keeps_artifact_keys_stable_when_display_name_changes(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test display-name changes reuse the same catalog row."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Stable key MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+        assert created.last_discovery_attempt_at is not None
+
+        async def _discover_first(_: object) -> dict[str, object]:
+            return {
+                "artifacts": [
+                    {
+                        "artifact_type": MCPCatalogArtifactType.TOOL.value,
+                        "artifact_ref": "search",
+                        "display_name": "Search",
+                        "description": "Search everything",
+                        "input_schema": {"type": "object"},
+                        "metadata": {"source": "tool"},
+                        "raw_payload": {"name": "search"},
+                        "content_hash": "d" * 64,
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(
+            mcp_user_client,
+            "discover_mcp_server_catalog",
+            _discover_first,
+        )
+        first_started_at = created.last_discovery_attempt_at + timedelta(seconds=1)
+        first_result = await integration_service.run_remote_mcp_discovery(
+            mcp_integration_id=created.id,
+            trigger=MCPDiscoveryTrigger.CREATE,
+            started_at=first_started_at,
+        )
+        assert first_result.status == MCPDiscoveryStatus.SUCCEEDED.value
+
+        first_catalog_result = await integration_service.session.execute(
+            select(MCPIntegrationCatalogEntry).where(
+                MCPIntegrationCatalogEntry.mcp_integration_id == created.id
+            )
+        )
+        first_catalog_entries = first_catalog_result.scalars().all()
+        assert len(first_catalog_entries) == 1
+        original_artifact_key = first_catalog_entries[0].artifact_key
+
+        async def _discover_second(_: object) -> dict[str, object]:
+            return {
+                "artifacts": [
+                    {
+                        "artifact_type": MCPCatalogArtifactType.TOOL.value,
+                        "artifact_ref": "search",
+                        "display_name": "Search docs",
+                        "description": "Search everything",
+                        "input_schema": {"type": "object"},
+                        "metadata": {"source": "tool"},
+                        "raw_payload": {"name": "search"},
+                        "content_hash": "e" * 64,
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(
+            mcp_user_client,
+            "discover_mcp_server_catalog",
+            _discover_second,
+        )
+        second_started_at = first_started_at + timedelta(seconds=1)
+        second_result = await integration_service.run_remote_mcp_discovery(
+            mcp_integration_id=created.id,
+            trigger=MCPDiscoveryTrigger.REFRESH,
+            started_at=second_started_at,
+        )
+        assert second_result.status == MCPDiscoveryStatus.SUCCEEDED.value
+        assert second_result.catalog_version == 2
+
+        second_catalog_result = await integration_service.session.execute(
+            select(MCPIntegrationCatalogEntry)
+            .where(MCPIntegrationCatalogEntry.mcp_integration_id == created.id)
+            .execution_options(populate_existing=True)
+        )
+        second_catalog_entries = second_catalog_result.scalars().all()
+        assert len(second_catalog_entries) == 1
+        assert second_catalog_entries[0].artifact_key == original_artifact_key
+        assert second_catalog_entries[0].display_name == "Search docs"
+        assert second_catalog_entries[0].is_active is True
+
     async def test_update_mcp_integration_partial(
         self,
         integration_service: IntegrationService,

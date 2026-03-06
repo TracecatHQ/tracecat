@@ -1205,11 +1205,9 @@ class IntegrationService(BaseWorkspaceService):
         *,
         artifact_type: MCPCatalogArtifactType,
         artifact_ref: str,
-        display_name: str | None,
     ) -> str:
         """Build the stable per-integration artifact key."""
-        slug_source = display_name or artifact_ref
-        prefix = slugify(slug_source, separator="-")[:48].rstrip("-")
+        prefix = slugify(artifact_ref, separator="-")[:48].rstrip("-")
         if not prefix:
             prefix = artifact_type.value
         digest = hashlib.sha256(
@@ -1467,7 +1465,6 @@ class IntegrationService(BaseWorkspaceService):
             artifact_key = self._build_mcp_artifact_key(
                 artifact_type=artifact.artifact_type,
                 artifact_ref=artifact.artifact_ref,
-                display_name=artifact.display_name,
             )
             active_pairs.append((artifact.artifact_type.value, artifact_key))
             upsert_rows.append(
@@ -1742,27 +1739,13 @@ class IntegrationService(BaseWorkspaceService):
         if mcp_integration is None:
             raise ValueError("MCP integration not found")
 
-        http_config = await self.resolve_mcp_http_server_config(
-            mcp_integration=mcp_integration,
-            server_name=mcp_integration.scope_namespace,
-        )
-        if http_config is None:
-            updated = await self.persist_mcp_remote_discovery_failure(
-                mcp_integration_id=mcp_integration_id,
-                trigger=trigger,
-                started_at=started_at,
-                finished_at=datetime.now(UTC),
-                exc=ValueError("MCP integration could not be resolved for discovery"),
-            )
-            return MCPDiscoveryWorkflowResult(
-                mcp_integration_id=mcp_integration_id,
-                status=updated.discovery_status,
-                catalog_version=updated.catalog_version,
-                error_code=updated.last_discovery_error_code,
-                error_summary=updated.last_discovery_error_summary,
-            )
-
         try:
+            http_config = await self.resolve_mcp_http_server_config(
+                mcp_integration=mcp_integration,
+                server_name=mcp_integration.scope_namespace,
+            )
+            if http_config is None:
+                raise ValueError("MCP integration could not be resolved for discovery")
             raw_catalog: object = await user_client.discover_mcp_server_catalog(
                 http_config
             )
