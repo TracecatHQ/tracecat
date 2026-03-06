@@ -19,13 +19,13 @@ from temporalio.exceptions import TimeoutError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from tracecat.agent.worker import new_sandbox_runner
 from tracecat.agent.workflow_config import (
     agent_config_from_payload,
     agent_config_to_payload,
 )
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.dsl._converter import get_data_converter
-from tracecat.dsl.worker import new_sandbox_runner
 
 with workflow.unsafe.imports_passed_through():
     from tracecat_registry.sdk.agents import AgentConfig as RegistryAgentConfig

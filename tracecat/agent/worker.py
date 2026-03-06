@@ -73,10 +73,16 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
     )
     del invalid_module_member_children["datetime"]
 
-    # Add beartype to passthrough modules to avoid circular import issues
-    # with its custom import hooks conflicting with Temporal's sandbox
-    passthrough_modules = set(SandboxRestrictions.passthrough_modules_default)
-    passthrough_modules.add("beartype")
+    # Match the DSL worker passthrough set so both workflow sandboxes resolve
+    # Tracecat/runtime annotations consistently.
+    passthrough_modules = SandboxRestrictions.passthrough_modules_default | {
+        "tracecat",
+        "tracecat_ee",
+        "tracecat_registry",
+        "jsonpath_ng",
+        "dateparser",
+        "beartype",
+    }
 
     return SandboxedWorkflowRunner(
         restrictions=dataclasses.replace(
