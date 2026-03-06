@@ -252,8 +252,10 @@ def _classify_local_mcp_failure(
             if context.server_name.lower() in combined
             or context.command.lower() in combined
         ),
-        next(iter(servers.values())),
+        None,
     )
+    if server is None:
+        return None
     phase = _infer_mcp_phase(combined)
     message = _redact_sensitive_text(str(error)) or "Unknown MCP runtime failure"
     redacted_stderr_tail = tuple(_redact_sensitive_text(line) for line in stderr_tail)

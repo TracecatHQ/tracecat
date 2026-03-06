@@ -477,6 +477,7 @@ class TestLocalMCPFailureClassification:
                 )
             },
             stderr_tail=(
+                "github-local initialize timed out after 15s",
                 "Authorization: Bearer secret-token",
                 "GITHUB_TOKEN=super-secret-value",
             ),
@@ -488,3 +489,20 @@ class TestLocalMCPFailureClassification:
         assert details.timeout == 15
         assert all("secret-token" not in line for line in details.stderr_tail)
         assert all("super-secret-value" not in line for line in details.stderr_tail)
+
+    def test_ignores_generic_timeout_without_matching_server(self) -> None:
+        """Generic runtime failures should not blame an unrelated local MCP server."""
+        details = _classify_local_mcp_failure(
+            error=RuntimeError("Tool server timeout while calling upstream API"),
+            servers={
+                "github-local": LocalMCPServerContext(
+                    server_name="github-local",
+                    command="github-mcp",
+                    timeout=15,
+                    env_keys=("GITHUB_TOKEN",),
+                )
+            },
+            stderr_tail=(),
+        )
+
+        assert details is None
