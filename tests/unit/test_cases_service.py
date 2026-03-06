@@ -2,10 +2,11 @@ import uuid  # noqa: I001
 import asyncio
 from datetime import UTC, datetime
 from typing import Literal
-from unittest.mock import patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -28,7 +29,7 @@ from tracecat.cases.schemas import (
 from tracecat.tags.schemas import TagCreate
 from tracecat.cases.service import CaseFieldsService, CasesService
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.models import Case
+from tracecat.db.models import Case, Workspace
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.enums import SqlType
@@ -216,6 +217,187 @@ class TestCasesService:
         case_ids = {case.id for case in cases}
         assert case1.id in case_ids
         assert case2.id in case_ids
+
+    async def test_create_case_allocates_consecutive_workspace_case_numbers(
+        self, cases_service: CasesService
+    ) -> None:
+        """Case numbers should advance monotonically within one workspace."""
+        first_case = await cases_service.create_case(
+            CaseCreate(
+                summary="First numbered case",
+                description="First numbered case",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        second_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Second numbered case",
+                description="Second numbered case",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+        assert first_case.case_number == 1
+        assert first_case.short_id == "CASE-0001"
+        assert second_case.case_number == 2
+        assert second_case.short_id == "CASE-0002"
+
+    async def test_create_case_allows_duplicate_short_ids_across_workspaces(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+        svc_organization,
+    ) -> None:
+        """Different workspaces should each be able to allocate CASE-0001."""
+        first_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Workspace one",
+                description="Workspace one",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        second_workspace = Workspace(
+            name="second-workspace",
+            organization_id=svc_organization.id,
+        )
+        session.add(second_workspace)
+        await session.commit()
+
+        second_role = cases_service.role.model_copy(
+            update={
+                "workspace_id": second_workspace.id,
+                "organization_id": second_workspace.organization_id,
+            }
+        )
+        second_service = CasesService(session=session, role=second_role)
+        second_case = await second_service.create_case(
+            CaseCreate(
+                summary="Workspace two",
+                description="Workspace two",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+        assert first_case.case_number == 1
+        assert second_case.case_number == 1
+        assert first_case.short_id == second_case.short_id == "CASE-0001"
+
+    async def test_search_cases_short_id_is_workspace_scoped(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+        svc_organization,
+    ) -> None:
+        """Exact short ID search should not cross workspace boundaries."""
+        target_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Workspace one target",
+                description="Workspace one target",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        second_workspace = Workspace(
+            name="search-scope-workspace",
+            organization_id=svc_organization.id,
+        )
+        session.add(second_workspace)
+        await session.commit()
+
+        second_role = cases_service.role.model_copy(
+            update={
+                "workspace_id": second_workspace.id,
+                "organization_id": second_workspace.organization_id,
+            }
+        )
+        second_service = CasesService(session=session, role=second_role)
+        second_case = await second_service.create_case(
+            CaseCreate(
+                summary="Workspace two target",
+                description="Workspace two target",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+        assert target_case.short_id == second_case.short_id == "CASE-0001"
+
+        params = CursorPaginationParams(limit=20, cursor=None, reverse=False)
+        response = await cases_service.search_cases(
+            params=params,
+            short_id="CASE-0001",
+            order_by="created_at",
+            sort="asc",
+        )
+
+        result_ids = {item.id for item in response.items}
+        assert target_case.id in result_ids
+        assert second_case.id not in result_ids
+
+    async def test_create_case_concurrently_allocates_unique_workspace_numbers(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+        svc_role: Role,
+        svc_workspace: Workspace,
+    ) -> None:
+        """Concurrent creates should serialize on the workspace counter row."""
+        await cases_service.fields._ensure_schema_ready()
+        await cases_service.session.commit()
+        assert session.bind is not None
+        session_factory = async_sessionmaker(bind=session.bind, expire_on_commit=False)
+
+        async def create_case(index: int) -> int:
+            async with session_factory() as concurrent_session:
+                service = CasesService(
+                    session=concurrent_session,
+                    role=svc_role.model_copy(deep=True),
+                )
+                case = await service.create_case(
+                    CaseCreate(
+                        summary=f"Concurrent case {index}",
+                        description=f"Concurrent case {index}",
+                        status=CaseStatus.NEW,
+                        priority=CasePriority.MEDIUM,
+                        severity=CaseSeverity.LOW,
+                    )
+                )
+                return case.case_number
+
+        with patch.object(
+            CaseFieldsService,
+            "_ensure_schema_ready",
+            new=AsyncMock(return_value=None),
+        ):
+            case_numbers = await asyncio.gather(*(create_case(i) for i in range(5)))
+
+        assert sorted(case_numbers) == [1, 2, 3, 4, 5]
+
+        async with session_factory() as verification_session:
+            workspace = await verification_session.scalar(
+                select(Workspace).where(Workspace.id == svc_workspace.id)
+            )
+            assert workspace is not None
+            assert workspace.last_case_number == 5
+
+            stored_case_numbers = (
+                await verification_session.execute(
+                    select(Case.case_number).where(
+                        Case.workspace_id == svc_workspace.id
+                    )
+                )
+            ).scalars()
+            assert sorted(stored_case_numbers.all()) == [1, 2, 3, 4, 5]
 
     async def test_list_cases_with_limit(
         self, cases_service: CasesService, case_create_params: CaseCreate
@@ -944,6 +1126,7 @@ class TestCasesService:
             [
                 Case(
                     workspace_id=cases_service.workspace_id,
+                    case_number=1,
                     summary="Case A",
                     description="A",
                     status=CaseStatus.NEW,
@@ -954,6 +1137,7 @@ class TestCasesService:
                 ),
                 Case(
                     workspace_id=cases_service.workspace_id,
+                    case_number=2,
                     summary="Case B",
                     description="B",
                     status=CaseStatus.IN_PROGRESS,
@@ -964,6 +1148,7 @@ class TestCasesService:
                 ),
                 Case(
                     workspace_id=cases_service.workspace_id,
+                    case_number=3,
                     summary="Case C",
                     description="C",
                     status=CaseStatus.ON_HOLD,
@@ -974,6 +1159,7 @@ class TestCasesService:
                 ),
                 Case(
                     workspace_id=cases_service.workspace_id,
+                    case_number=4,
                     summary="Case D",
                     description="D",
                     status=CaseStatus.RESOLVED,
@@ -984,6 +1170,7 @@ class TestCasesService:
                 ),
                 Case(
                     workspace_id=cases_service.workspace_id,
+                    case_number=5,
                     summary="Case E",
                     description="E",
                     status=CaseStatus.CLOSED,

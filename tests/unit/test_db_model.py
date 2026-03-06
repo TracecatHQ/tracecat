@@ -157,6 +157,7 @@ class TestToDict:
         # Create a case with enum fields
         case = Case(
             workspace_id=svc_workspace.id,
+            case_number=1,
             summary="Test Case",
             description="Test description",
             priority=CasePriority.HIGH,

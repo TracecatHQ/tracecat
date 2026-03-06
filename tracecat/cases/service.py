@@ -81,6 +81,7 @@ from tracecat.db.models import (
     CaseTask,
     User,
     Workflow,
+    Workspace,
 )
 from tracecat.db.session_events import add_after_commit_callback
 from tracecat.exceptions import (
@@ -762,6 +763,20 @@ class CasesService(BaseWorkspaceService):
 
         return case
 
+    async def _allocate_next_case_number(self) -> int:
+        stmt = (
+            sa.update(Workspace)
+            .where(Workspace.id == self.workspace_id)
+            .values(last_case_number=Workspace.last_case_number + 1)
+            .returning(Workspace.last_case_number)
+        )
+        next_case_number = await self.session.scalar(stmt)
+        if next_case_number is None:
+            raise TracecatNotFoundError(
+                f"Workspace {self.workspace_id} not found while allocating case number"
+            )
+        return next_case_number
+
     @require_scope("case:create")
     @audit_log(resource_type="case", action="create")
     async def create_case(self, params: CaseCreate) -> Case:
@@ -773,9 +788,10 @@ class CasesService(BaseWorkspaceService):
             await self.fields._ensure_schema_ready()
 
             now = datetime.now(UTC)
-            # Create the base case first
+            next_case_number = await self._allocate_next_case_number()
             case = Case(
                 workspace_id=self.workspace_id,
+                case_number=next_case_number,
                 summary=params.summary,
                 description=params.description,
                 priority=params.priority,

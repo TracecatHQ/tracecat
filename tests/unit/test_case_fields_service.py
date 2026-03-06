@@ -36,6 +36,7 @@ async def test_case(session: AsyncSession, svc_role: Role) -> Case:
     # Create a case directly using SQLAlchemy
     case = Case(
         workspace_id=svc_role.workspace_id if svc_role.workspace_id else uuid.uuid4(),
+        case_number=1,
         summary="Test Case for Fields",
         description="This is a test case for testing fields",
         status=CaseStatus.NEW,
