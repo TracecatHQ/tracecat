@@ -62,12 +62,14 @@ from tracecat.identifiers.workflow import (
     WorkflowUUID,
     exec_id_to_parts,
 )
+from tracecat.integrations.enums import MCPCatalogArtifactType
 from tracecat.logger import logger
 from tracecat.mcp.auth import (
     create_mcp_auth,
     list_workspaces_for_request,
     resolve_role_for_request,
 )
+from tracecat.mcp.catalog.service import MCPCatalogSearchService
 from tracecat.mcp.config import (
     TRACECAT_MCP__RATE_LIMIT_BURST,
     TRACECAT_MCP__RATE_LIMIT_RPS,
@@ -78,6 +80,7 @@ from tracecat.mcp.middleware import (
     WatchtowerMonitorMiddleware,
     get_mcp_client_id,
 )
+from tracecat.mcp.schemas import MCPCatalogSearchItem, MCPCatalogSearchResponse
 from tracecat.pagination import CursorPaginationParams
 from tracecat.registry.actions.schemas import TemplateAction
 from tracecat.registry.actions.service import (
@@ -1354,6 +1357,99 @@ async def list_workspaces() -> str:
     except Exception as e:
         logger.error("Failed to list workspaces", error=str(e))
         raise ToolError(f"Failed to list workspaces: {e}") from None
+
+
+@mcp.tool()
+async def search_mcp_catalog(
+    workspace_id: str,
+    query: str = "",
+    artifact_types_json: str | None = None,
+    integration_ids_json: str | None = None,
+    limit: int = 20,
+) -> str:
+    """Search persisted MCP catalog artifacts visible to the caller.
+
+    Args:
+        workspace_id: The workspace ID (from list_workspaces).
+        query: Search query text. Empty queries list authorized artifacts.
+        artifact_types_json: Optional JSON array of artifact types (`tool`,
+            `resource`, `prompt`).
+        integration_ids_json: Optional JSON array of MCP integration UUIDs.
+        limit: Max results to return. Must be between 1 and 50.
+
+    Returns:
+        JSON payload containing the filtered persisted catalog results.
+    """
+    if limit < 1 or limit > 50:
+        raise ToolError("limit must be between 1 and 50")
+
+    raw_artifact_types = _parse_json_arg(artifact_types_json, "artifact_types_json")
+    raw_integration_ids = _parse_json_arg(integration_ids_json, "integration_ids_json")
+    if raw_artifact_types is not None and not isinstance(raw_artifact_types, list):
+        raise ToolError("artifact_types_json must be a JSON array of strings")
+    if raw_integration_ids is not None and not isinstance(raw_integration_ids, list):
+        raise ToolError("integration_ids_json must be a JSON array of UUIDs")
+
+    artifact_types: list[MCPCatalogArtifactType] | None = None
+    if raw_artifact_types is not None:
+        artifact_types = []
+        for raw_artifact_type in raw_artifact_types:
+            if not isinstance(raw_artifact_type, str):
+                raise ToolError("artifact_types_json must be a JSON array of strings")
+            try:
+                artifact_types.append(MCPCatalogArtifactType(raw_artifact_type))
+            except ValueError as exc:
+                raise ToolError(f"Invalid artifact type: {raw_artifact_type}") from exc
+
+    integration_ids: list[uuid.UUID] | None = None
+    if raw_integration_ids is not None:
+        integration_ids = []
+        for raw_integration_id in raw_integration_ids:
+            if not isinstance(raw_integration_id, str):
+                raise ToolError("integration_ids_json must be a JSON array of UUIDs")
+            try:
+                integration_ids.append(uuid.UUID(raw_integration_id))
+            except ValueError as exc:
+                raise ToolError(
+                    f"Invalid integration ID: {raw_integration_id}"
+                ) from exc
+
+    try:
+        ws_id, role = await _resolve_workspace_role(workspace_id)
+        async with MCPCatalogSearchService.with_session(role=role) as svc:
+            results = await svc.search_catalog(
+                workspace_id=ws_id,
+                query=query,
+                artifact_types=artifact_types,
+                integration_ids=integration_ids,
+                limit=limit,
+            )
+        payload = MCPCatalogSearchResponse(
+            workspace_id=str(results.workspace_id),
+            query=results.query,
+            results=[
+                MCPCatalogSearchItem(
+                    id=str(item.id),
+                    mcp_integration_id=str(item.mcp_integration_id),
+                    workspace_id=str(item.workspace_id),
+                    artifact_type=item.artifact_type,
+                    artifact_key=item.artifact_key,
+                    artifact_ref=item.artifact_ref,
+                    display_name=item.display_name,
+                    description=item.description,
+                    input_schema=item.input_schema,
+                    scope_name=item.scope_name,
+                    rank=item.rank,
+                )
+                for item in results.results
+            ],
+        )
+        return payload.model_dump_json()
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+    except Exception as exc:
+        logger.error("Failed to search MCP catalog", error=str(exc))
+        raise ToolError(f"Failed to search MCP catalog: {exc}") from None
 
 
 # ---------------------------------------------------------------------------
