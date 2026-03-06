@@ -60,6 +60,8 @@ SLACK_OAUTH_SCOPES = (
     "mpim:history",
     "reactions:read",
     "reactions:write",
+    "users:read",
+    "users:read.email",
 )
 
 

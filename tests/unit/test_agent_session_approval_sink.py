@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -10,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
-from tracecat.chat.schemas import ApprovalDecision, ContinueRunRequest
+from tracecat.chat.schemas import ApprovalDecision, BasicChatRequest, ContinueRunRequest
 from tracecat.db.models import AgentSession, Approval
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -298,3 +300,57 @@ async def test_run_turn_continue_duplicate_submission_is_noop(
     assert result is None
     fake_redis.set_if_not_exists.assert_awaited_once()
     fake_handle.execute_update.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_run_turn_merges_basic_chat_request_instructions(
+    session: AsyncSession,
+    svc_role: Role,
+    external_agent_session: AgentSession,
+) -> None:
+    service = AgentSessionService(session=session, role=svc_role)
+    fake_client = SimpleNamespace(start_workflow=AsyncMock(return_value=None))
+
+    @contextlib.asynccontextmanager
+    async def _fake_build_agent_config(_session: AgentSession):
+        yield AgentConfig(
+            instructions="Base preset instructions",
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            actions=[],
+        )
+
+    with (
+        patch.object(service, "_build_agent_config", _fake_build_agent_config),
+        patch.object(
+            service,
+            "has_pending_approvals",
+            AsyncMock(return_value=False),
+        ),
+        patch.object(
+            service,
+            "auto_title_session_on_first_prompt",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "tracecat.agent.session.service.get_temporal_client",
+            AsyncMock(return_value=fake_client),
+        ),
+    ):
+        response = await service.run_turn(
+            external_agent_session.id,
+            BasicChatRequest(
+                message="summarize this thread",
+                instructions="Slack actor context for this turn:\n- Slack email: jordan@example.com",
+            ),
+        )
+
+    assert response is not None
+    await_args = fake_client.start_workflow.await_args
+    assert await_args is not None
+    workflow_args = await_args.args[1]
+    assert (
+        workflow_args.agent_args.config.instructions
+        == "Base preset instructions\n\nSlack actor context for this turn:\n- Slack email: jordan@example.com"
+    )
+    assert workflow_args.agent_args.user_prompt == "summarize this thread"

@@ -29,6 +29,9 @@ def test_build_slack_oauth_authorization_url_includes_redirect_uri(
     assert query["redirect_uri"] == [
         "https://api.example.com/agent/channels/slack/oauth/callback"
     ]
+    assert query["scope"] == [
+        "app_mentions:read,channels:history,chat:write,chat:write.customize,groups:history,im:history,mpim:history,reactions:read,reactions:write,users:read,users:read.email"
+    ]
 
 
 @pytest.mark.anyio
