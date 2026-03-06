@@ -5,6 +5,7 @@ import uuid
 from collections.abc import AsyncIterator, Iterator
 
 from pydantic import SecretStr
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry._internal import secrets as registry_secrets
 
@@ -19,10 +20,11 @@ from tracecat.agent.schemas import (
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import OrganizationSecret
+from tracecat.db.models import OrganizationSecret, Secret
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
@@ -180,13 +182,20 @@ class AgentManagementService(BaseOrgService):
             )
 
     async def check_provider_credentials(self, provider: str) -> bool:
-        """Check if credentials exist for a provider at organization level."""
+        """Check if credentials exist for a provider at organization level.
+
+        Uses a direct DB query to avoid requiring org:secret:read scope,
+        since this is an internal check gated by agent:read at the router level.
+        """
         secret_name = self._get_credential_secret_name(provider)
-        try:
-            await self.secrets_service.get_org_secret_by_name(secret_name)
-            return True
-        except TracecatNotFoundError:
-            return False
+        result = await self.session.execute(
+            select(OrganizationSecret.id).where(
+                OrganizationSecret.organization_id == self.organization_id,
+                OrganizationSecret.name == secret_name,
+                OrganizationSecret.environment == DEFAULT_SECRETS_ENVIRONMENT,
+            )
+        )
+        return result.scalar_one_or_none() is not None
 
     async def get_providers_status(self) -> dict[str, bool]:
         """Get credential status for all providers at organization level."""
@@ -197,13 +206,23 @@ class AgentManagementService(BaseOrgService):
         return status
 
     async def check_workspace_provider_credentials(self, provider: str) -> bool:
-        """Check if credentials exist for a provider at workspace level."""
+        """Check if credentials exist for a provider at workspace level.
+
+        Uses a direct DB query to avoid requiring secret:read scope,
+        since this is an internal check gated by agent:read at the router level.
+        """
         secret_name = self._get_workspace_credential_secret_name(provider)
-        try:
-            await self.secrets_service.get_secret_by_name(secret_name)
-            return True
-        except TracecatNotFoundError:
+        workspace_id = self.role.workspace_id
+        if workspace_id is None:
             return False
+        result = await self.session.execute(
+            select(Secret.id).where(
+                Secret.workspace_id == workspace_id,
+                Secret.name == secret_name,
+                Secret.environment == DEFAULT_SECRETS_ENVIRONMENT,
+            )
+        )
+        return result.scalar_one_or_none() is not None
 
     async def get_workspace_providers_status(self) -> dict[str, bool]:
         """Get credential status for all providers at workspace level."""

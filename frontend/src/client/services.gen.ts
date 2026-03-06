@@ -81,6 +81,18 @@ import type {
   AdminUpdateRegistrySettingsResponse,
   AdminUpdateTierData,
   AdminUpdateTierResponse,
+  AgentChannelsCreateChannelTokenData,
+  AgentChannelsCreateChannelTokenResponse,
+  AgentChannelsDeleteChannelTokenData,
+  AgentChannelsDeleteChannelTokenResponse,
+  AgentChannelsListChannelTokensData,
+  AgentChannelsListChannelTokensResponse,
+  AgentChannelsRotateChannelTokenData,
+  AgentChannelsRotateChannelTokenResponse,
+  AgentChannelsStartSlackOauthData,
+  AgentChannelsStartSlackOauthResponse,
+  AgentChannelsUpdateChannelTokenData,
+  AgentChannelsUpdateChannelTokenResponse,
   AgentCreateProviderCredentialsData,
   AgentCreateProviderCredentialsResponse,
   AgentDeleteProviderCredentialsData,
@@ -365,6 +377,10 @@ import type {
   ProvidersListProvidersResponse,
   PublicCheckHealthResponse,
   PublicCheckReadyResponse,
+  PublicHandleChannelEventData,
+  PublicHandleChannelEventResponse,
+  PublicHandleSlackOauthCallbackData,
+  PublicHandleSlackOauthCallbackResponse,
   PublicIncomingWebhookDraftData,
   PublicIncomingWebhookDraftResponse,
   PublicIncomingWebhookGetData,
@@ -596,6 +612,20 @@ import type {
   VcsGithubWebhookResponse,
   VcsSaveGithubAppCredentialsData,
   VcsSaveGithubAppCredentialsResponse,
+  WatchtowerDisableWatchtowerAgentData,
+  WatchtowerDisableWatchtowerAgentResponse,
+  WatchtowerEnableWatchtowerAgentData,
+  WatchtowerEnableWatchtowerAgentResponse,
+  WatchtowerListWatchtowerAgentSessionsData,
+  WatchtowerListWatchtowerAgentSessionsResponse,
+  WatchtowerListWatchtowerAgentsData,
+  WatchtowerListWatchtowerAgentsResponse,
+  WatchtowerListWatchtowerSessionToolCallsData,
+  WatchtowerListWatchtowerSessionToolCallsResponse,
+  WatchtowerRevokeWatchtowerSessionData,
+  WatchtowerRevokeWatchtowerSessionResponse,
+  WorkflowExecutionsBulkResetWorkflowExecutionsData,
+  WorkflowExecutionsBulkResetWorkflowExecutionsResponse,
   WorkflowExecutionsCancelWorkflowExecutionData,
   WorkflowExecutionsCancelWorkflowExecutionResponse,
   WorkflowExecutionsCreateDraftWorkflowExecutionData,
@@ -612,8 +642,14 @@ import type {
   WorkflowExecutionsGetWorkflowExecutionObjectPreviewData,
   WorkflowExecutionsGetWorkflowExecutionObjectPreviewResponse,
   WorkflowExecutionsGetWorkflowExecutionResponse,
+  WorkflowExecutionsListWorkflowExecutionResetPointsData,
+  WorkflowExecutionsListWorkflowExecutionResetPointsResponse,
   WorkflowExecutionsListWorkflowExecutionsData,
   WorkflowExecutionsListWorkflowExecutionsResponse,
+  WorkflowExecutionsResetWorkflowExecutionData,
+  WorkflowExecutionsResetWorkflowExecutionResponse,
+  WorkflowExecutionsSearchWorkflowExecutionsData,
+  WorkflowExecutionsSearchWorkflowExecutionsResponse,
   WorkflowExecutionsTerminateWorkflowExecutionData,
   WorkflowExecutionsTerminateWorkflowExecutionResponse,
   WorkflowsAddTagData,
@@ -862,6 +898,59 @@ export const publicReceiveInteraction = (
     },
     headers: {
       "content-type": data.contentType,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Handle Channel Event
+ * Receive public external channel events.
+ * @param data The data for the request.
+ * @param data.channelType
+ * @param data.token
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const publicHandleChannelEvent = (
+  data: PublicHandleChannelEventData
+): CancelablePromise<PublicHandleChannelEventResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/channels/{channel_type}/{token}",
+    path: {
+      channel_type: data.channelType,
+      token: data.token,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Handle Slack Oauth Callback
+ * @param data The data for the request.
+ * @param data.state
+ * @param data.code
+ * @param data.error
+ * @param data.errorDescription
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const publicHandleSlackOauthCallback = (
+  data: PublicHandleSlackOauthCallbackData
+): CancelablePromise<PublicHandleSlackOauthCallbackResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/channels/slack/oauth/callback",
+    query: {
+      code: data.code,
+      state: data.state,
+      error: data.error,
+      error_description: data.errorDescription,
     },
     errors: {
       422: "Validation Error",
@@ -1940,6 +2029,142 @@ export const workflowExecutionsCreateWorkflowExecution = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/workflow-executions",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Search Workflow Executions
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.trigger
+ * @param data.userId
+ * @param data.status
+ * @param data.statusMode
+ * @param data.startTimeFrom
+ * @param data.startTimeTo
+ * @param data.closeTimeFrom
+ * @param data.closeTimeTo
+ * @param data.durationGteSeconds
+ * @param data.durationLteSeconds
+ * @param data.searchTerm Filter by workflow title or alias.
+ * @param data.relation
+ * @param data.workflowId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_WorkflowRunReadMinimal_ Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsSearchWorkflowExecutions = (
+  data: WorkflowExecutionsSearchWorkflowExecutionsData
+): CancelablePromise<WorkflowExecutionsSearchWorkflowExecutionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workflow-executions/search",
+    query: {
+      trigger: data.trigger,
+      user_id: data.userId,
+      status: data.status,
+      status_mode: data.statusMode,
+      start_time_from: data.startTimeFrom,
+      start_time_to: data.startTimeTo,
+      close_time_from: data.closeTimeFrom,
+      close_time_to: data.closeTimeTo,
+      duration_gte_seconds: data.durationGteSeconds,
+      duration_lte_seconds: data.durationLteSeconds,
+      search_term: data.searchTerm,
+      relation: data.relation,
+      workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Workflow Execution Reset Points
+ * @param data The data for the request.
+ * @param data.executionId
+ * @param data.workspaceId
+ * @param data.limit
+ * @returns WorkflowExecutionResetPointRead Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsListWorkflowExecutionResetPoints = (
+  data: WorkflowExecutionsListWorkflowExecutionResetPointsData
+): CancelablePromise<WorkflowExecutionsListWorkflowExecutionResetPointsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workflow-executions/{execution_id}/reset-points",
+    path: {
+      execution_id: data.executionId,
+    },
+    query: {
+      limit: data.limit,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Reset Workflow Execution
+ * @param data The data for the request.
+ * @param data.executionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowExecutionResetResponse Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsResetWorkflowExecution = (
+  data: WorkflowExecutionsResetWorkflowExecutionData
+): CancelablePromise<WorkflowExecutionsResetWorkflowExecutionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflow-executions/{execution_id}/reset",
+    path: {
+      execution_id: data.executionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Bulk Reset Workflow Executions
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowExecutionBulkResetResponse Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsBulkResetWorkflowExecutions = (
+  data: WorkflowExecutionsBulkResetWorkflowExecutionsData
+): CancelablePromise<WorkflowExecutionsBulkResetWorkflowExecutionsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflow-executions/reset/bulk",
     query: {
       workspace_id: data.workspaceId,
     },
@@ -3773,6 +3998,163 @@ export const agentGetWorkspaceProvidersStatus = (
 }
 
 /**
+ * Create Channel Token
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentChannelTokenRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelsCreateChannelToken = (
+  data: AgentChannelsCreateChannelTokenData
+): CancelablePromise<AgentChannelsCreateChannelTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/channels/tokens",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Channel Tokens
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.agentPresetId Filter by agent preset
+ * @param data.channelType Filter by channel type
+ * @returns AgentChannelTokenRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelsListChannelTokens = (
+  data: AgentChannelsListChannelTokensData
+): CancelablePromise<AgentChannelsListChannelTokensResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/channels/tokens",
+    query: {
+      agent_preset_id: data.agentPresetId,
+      channel_type: data.channelType,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Channel Token
+ * @param data The data for the request.
+ * @param data.tokenId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentChannelTokenRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelsUpdateChannelToken = (
+  data: AgentChannelsUpdateChannelTokenData
+): CancelablePromise<AgentChannelsUpdateChannelTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/agent/channels/tokens/{token_id}",
+    path: {
+      token_id: data.tokenId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Channel Token
+ * @param data The data for the request.
+ * @param data.tokenId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentChannelsDeleteChannelToken = (
+  data: AgentChannelsDeleteChannelTokenData
+): CancelablePromise<AgentChannelsDeleteChannelTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/channels/tokens/{token_id}",
+    path: {
+      token_id: data.tokenId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Rotate Channel Token
+ * @param data The data for the request.
+ * @param data.tokenId
+ * @param data.workspaceId
+ * @returns AgentChannelTokenRead Successful Response
+ * @throws ApiError
+ */
+export const agentChannelsRotateChannelToken = (
+  data: AgentChannelsRotateChannelTokenData
+): CancelablePromise<AgentChannelsRotateChannelTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/channels/tokens/{token_id}/rotate",
+    path: {
+      token_id: data.tokenId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Start Slack Oauth
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns SlackOAuthStartResponse Successful Response
+ * @throws ApiError
+ */
+export const agentChannelsStartSlackOauth = (
+  data: AgentChannelsStartSlackOauthData
+): CancelablePromise<AgentChannelsStartSlackOauthResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/channels/tokens/slack/oauth/start",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Agent Presets
  * List all agent presets for the current workspace.
  * @param data The data for the request.
@@ -4229,7 +4611,6 @@ export const agentSessionsForkSession = (
  * Raises:
  * HTTPException 400: If the approval submission fails validation.
  * HTTPException 404: If the agent session/workflow is not found.
- * HTTPException 502: If communication with Temporal fails.
  * HTTPException 500: For unexpected errors.
  * @param data The data for the request.
  * @param data.sessionId
@@ -4252,6 +4633,168 @@ export const approvalsSubmitApprovals = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Watchtower Agents
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @param data.agentType
+ * @param data.status
+ * @returns WatchtowerAgentListResponse Successful Response
+ * @throws ApiError
+ */
+export const watchtowerListWatchtowerAgents = (
+  data: WatchtowerListWatchtowerAgentsData = {}
+): CancelablePromise<WatchtowerListWatchtowerAgentsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/watchtower/monitor/agents",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      agent_type: data.agentType,
+      status: data.status,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Watchtower Agent Sessions
+ * @param data The data for the request.
+ * @param data.agentId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.workspaceId
+ * @param data.state
+ * @returns WatchtowerAgentSessionListResponse Successful Response
+ * @throws ApiError
+ */
+export const watchtowerListWatchtowerAgentSessions = (
+  data: WatchtowerListWatchtowerAgentSessionsData
+): CancelablePromise<WatchtowerListWatchtowerAgentSessionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/watchtower/monitor/agents/{agent_id}/sessions",
+    path: {
+      agent_id: data.agentId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      workspace_id: data.workspaceId,
+      state: data.state,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Watchtower Session Tool Calls
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.status
+ * @returns WatchtowerAgentToolCallListResponse Successful Response
+ * @throws ApiError
+ */
+export const watchtowerListWatchtowerSessionToolCalls = (
+  data: WatchtowerListWatchtowerSessionToolCallsData
+): CancelablePromise<WatchtowerListWatchtowerSessionToolCallsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/watchtower/monitor/sessions/{session_id}/tool-calls",
+    path: {
+      session_id: data.sessionId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      status: data.status,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Watchtower Session
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const watchtowerRevokeWatchtowerSession = (
+  data: WatchtowerRevokeWatchtowerSessionData
+): CancelablePromise<WatchtowerRevokeWatchtowerSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/watchtower/monitor/sessions/{session_id}/revoke",
+    path: {
+      session_id: data.sessionId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Disable Watchtower Agent
+ * @param data The data for the request.
+ * @param data.agentId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const watchtowerDisableWatchtowerAgent = (
+  data: WatchtowerDisableWatchtowerAgentData
+): CancelablePromise<WatchtowerDisableWatchtowerAgentResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/watchtower/monitor/agents/{agent_id}/disable",
+    path: {
+      agent_id: data.agentId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Enable Watchtower Agent
+ * @param data The data for the request.
+ * @param data.agentId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const watchtowerEnableWatchtowerAgent = (
+  data: WatchtowerEnableWatchtowerAgentData
+): CancelablePromise<WatchtowerEnableWatchtowerAgentResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/watchtower/monitor/agents/{agent_id}/enable",
+    path: {
+      agent_id: data.agentId,
+    },
     errors: {
       422: "Validation Error",
     },

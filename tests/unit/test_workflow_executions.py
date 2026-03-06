@@ -93,7 +93,11 @@ def workflow_executions_service(
     mock_client: Mock, mock_role: Role
 ) -> WorkflowExecutionsService:
     """Create a WorkflowExecutionsService instance with mocked client."""
-    return WorkflowExecutionsService(client=mock_client, role=mock_role)
+    service = WorkflowExecutionsService(client=mock_client, role=mock_role)
+    # Event-compaction tests in this module focus on history transformation, not
+    # workspace visibility behavior (covered in dedicated workspace-scoping tests).
+    service._is_execution_visible_in_workspace = Mock(return_value=True)
+    return service
 
 
 def create_mock_history_event(

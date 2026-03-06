@@ -28,6 +28,7 @@ from tracecat_ee.agent.approvals.service import (
     ApprovalMap,
     ApprovalService,
 )
+from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import (
     AgentWorkflowArgs,
     DurableAgentWorkflow,
@@ -407,7 +408,7 @@ async def test_agent_workflow_simple_execution(
         wf_handle = await temporal_client.start_workflow(
             DurableAgentWorkflow.run,
             agent_workflow_args,
-            id=f"test-agent-{mock_session_id}",
+            id=AgentWorkflowID(mock_session_id),
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             execution_timeout=timedelta(seconds=30),
@@ -467,7 +468,7 @@ async def test_agent_workflow_uses_agent_config_model_settings(
         wf_handle = await temporal_client.start_workflow(
             DurableAgentWorkflow.run,
             workflow_args,
-            id=f"test-agent-settings-{mock_session_id}",
+            id=AgentWorkflowID(mock_session_id),
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             execution_timeout=timedelta(seconds=30),
@@ -550,7 +551,7 @@ async def test_agent_workflow_with_single_approval(
             wf_handle = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args,
-                id=f"test-agent-approval-{mock_session_id}",
+                id=AgentWorkflowID(mock_session_id),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=60),
@@ -669,7 +670,7 @@ async def test_agent_workflow_with_multiple_approvals(
             wf_handle = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args,
-                id=f"test-agent-multi-approval-{mock_session_id}",
+                id=AgentWorkflowID(mock_session_id),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=60),
@@ -780,7 +781,7 @@ async def test_agent_workflow_approval_with_override_args(
             wf_handle = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args,
-                id=f"test-agent-override-{mock_session_id}",
+                id=AgentWorkflowID(mock_session_id),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=60),
@@ -908,7 +909,7 @@ async def test_agent_workflow_mixed_approvals_and_rejections(
             wf_handle = await temporal_client.start_workflow(
                 DurableAgentWorkflow.run,
                 workflow_args,
-                id=f"test-agent-mixed-{mock_session_id}",
+                id=AgentWorkflowID(mock_session_id),
                 task_queue=queue,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=60),

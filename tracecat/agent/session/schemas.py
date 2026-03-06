@@ -97,6 +97,7 @@ class AgentSessionRead(BaseModel):
     created_by: uuid.UUID | None
     entity_type: str
     entity_id: uuid.UUID
+    channel_context: dict[str, Any] | None
     tools: list[str] | None
     agent_preset_id: uuid.UUID | None
     # Harness

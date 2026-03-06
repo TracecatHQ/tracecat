@@ -68,8 +68,7 @@ class UserMCPClient:
                 logger.error(
                     "Failed to discover tools from user MCP server",
                     server_name=server_name,
-                    url=config.get("url"),
-                    error=str(e),
+                    error_type=type(e).__name__,
                 )
                 # Continue with other servers - don't fail completely
 
@@ -191,8 +190,11 @@ class UserMCPClient:
             Tuple of (server_name, original_tool_name), or None if not a user MCP tool.
 
         """
-        # Skip tracecat-registry tools (handled separately)
-        if tool_name.startswith("mcp__tracecat-registry__"):
+        # Skip tracecat registry-reserved prefixes (handled separately).
+        # Support both alias forms.
+        if tool_name.startswith("mcp__tracecat-registry__") or tool_name.startswith(
+            "mcp__tracecat_registry__"
+        ):
             return None
 
         # Check for user MCP pattern

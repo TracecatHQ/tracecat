@@ -131,6 +131,7 @@ async def get_session(
             created_by=agent_session.created_by,
             entity_type=agent_session.entity_type,
             entity_id=agent_session.entity_id,
+            channel_context=agent_session.channel_context,
             tools=agent_session.tools,
             agent_preset_id=agent_session.agent_preset_id,
             harness_type=agent_session.harness_type,
@@ -192,6 +193,7 @@ async def get_session_vercel(
             created_by=agent_session.created_by,
             entity_type=agent_session.entity_type,
             entity_id=agent_session.entity_id,
+            channel_context=agent_session.channel_context,
             tools=agent_session.tools,
             agent_preset_id=agent_session.agent_preset_id,
             harness_type=agent_session.harness_type,
@@ -340,7 +342,7 @@ async def send_message(
         )
 
         # Create stream and return with Vercel format
-        stream = await AgentStream.new(agent_session.id, workspace_id)
+        stream = await AgentStream.new(session_id, workspace_id)
         return StreamingResponse(
             stream.sse(http_request.is_disconnected, last_id=start_id, format="vercel"),
             media_type="text/event-stream",

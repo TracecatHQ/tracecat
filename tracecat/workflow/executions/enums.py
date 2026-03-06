@@ -2,8 +2,20 @@ from __future__ import annotations
 
 from enum import StrEnum
 from functools import cached_property
+from typing import Literal
 
 from temporalio.common import SearchAttributeKey, SearchAttributePair
+
+WorkflowExecutionStatusLiteral = Literal[
+    "RUNNING",
+    "COMPLETED",
+    "FAILED",
+    "CANCELED",
+    "TERMINATED",
+    "CONTINUED_AS_NEW",
+    "TIMED_OUT",
+]
+"""Mapped literal types for workflow execution statuses."""
 
 
 class WorkflowExecutionEventStatus(StrEnum):

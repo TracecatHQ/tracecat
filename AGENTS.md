@@ -296,7 +296,7 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - You must *NEVER* put import statements in function bodies.
 - If you are facing issues with circular imports you should try use `if TYPE_CHECKING: ...` instead.
 - Use PEP 695 generic syntax for new generics: `class Name[T: Bound]` over `TypeVar`
-- Use `StrEnum` for string-based enumerations (JSON/YAML serialization)
+- **Prefer enum types over plain `str` for finite value sets** in schemas and domain types. When a Pydantic field, function argument, or `types.py` type has a known set of string values, prefer `StrEnum`; `Literal` is acceptable when it fits — use your discretion. For database models representing these finite sets, store values as `String`/`Text` columns rather than Postgres enums unless the value set is truly stable — `ALTER TYPE ... ADD VALUE` migrations are painful and irreversible. Reserve bare `str` for free-form text.
 - Use `frozen=True` dataclasses for immutable value objects
 - Use `TypedDict` with `NotRequired` for configuration types
 - Use `@runtime_checkable` protocols for structural typing
@@ -305,6 +305,8 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - Always use the explicit `default=` keyword in `pydantic.Field()` (e.g., `Field(default=None)`, `Field(default="value")`) instead of a positional argument (e.g., `Field(None)`). Static type checkers like basedpyright do not recognize positional defaults and will report the field as required.
 - In `tracecat/config.py`, use `int(os.environ.get("VAR") or default)` instead of `int(os.environ.get("VAR", default))`. The latter fails with `int("")` when the env var is set to an empty string, which commonly happens in deployed environments.
 - Prefer `orjson` over the stdlib `json` module for serialization/deserialization where the dependency is available (i.e., the `orjson` package is installed in the environment). `orjson` is significantly faster and handles `datetime`, `UUID`, and `numpy` types natively. Fall back to stdlib `json` only when pure-stdlib usage is required (e.g., scripts or packages that must not pull in extra dependencies).
+- **Use walrus operator (`:=`) to avoid redundant method calls in conditionals.** When a method result is needed both in the condition and the value, assign it once with `:=` instead of calling it twice. Example: `value = c if isinstance(x, str) and (c := x.strip()) else None` — not `value = x.strip() if isinstance(x, str) and x.strip() else None`.
+- **Prefer `match`/`case` with mapping patterns for dict extraction.** Use structural pattern matching instead of chained `.get()` + `isinstance` checks when extracting values from nested dicts with type guards. Mapping patterns make the expected shape immediately visible. Use `str(ts)` for concise capture; use `str() as ts` when the `as` binding aids readability in longer patterns. Example: `case {"message": {"ts": str(ts)}}` — not `msg = d.get("message"); if isinstance(msg, dict): ts = msg.get("ts"); ...`.
 
 ### SQLAlchemy Query Guidelines
 - **Push logic to the database**: Avoid fetching rows and post-processing in Python when the same operation can be expressed in SQL via SQLAlchemy. PostgreSQL is capable of filtering, aggregating, sorting, JSONB manipulation, and window functions — use them.
@@ -312,6 +314,10 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - **Reduce round-trips when beneficial**: Consolidate multiple database calls into a single query (e.g., using joins, subqueries, CTEs, or `RETURNING` clauses) *only when it meaningfully reduces latency, simplifies the code, or avoids consistency issues*. Do not force everything into one query if it sacrifices readability or correctness — multiple clear queries are preferable to one convoluted one.
 - **Prefer `select()` projections**: Select only the columns you need rather than loading entire ORM models when only a few fields are required, especially for list/search endpoints.
 - **Use `RETURNING`**: For insert/update/delete operations that need the resulting row, use the `RETURNING` clause instead of issuing a separate SELECT.
+- **Use PostgreSQL `INSERT ... ON CONFLICT`** for upserts via `sqlalchemy.dialects.postgresql.insert` — do not emulate upsert with SELECT-then-INSERT/UPDATE.
+- **Use `EXISTS`** (`select(exists().where(...))`) to check row existence instead of fetching full rows and checking in Python.
+- **Batch queries to avoid N+1 round-trips**: Use `IN` clauses, joins, or eager loading instead of issuing one query per item in a loop. More broadly, minimize round-trips on all paths — consolidate related queries where it doesn't sacrifice clarity.
+- **Use `result.tuples().all()` for multi-column destructuring**: When iterating over multi-column `select()` results, use `.tuples().all()` to get plain tuples instead of `Row` objects — e.g., `for id, kind, n in result.tuples().all()`.
 
 ### Type Organization Guidelines
 When adding new types, follow this pattern:

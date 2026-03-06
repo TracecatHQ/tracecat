@@ -120,6 +120,18 @@ import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
+const EMPTY_TEMPLATE_EXPRESSION_RE = /^\$\{\{\s*\}\}$/
+
+function normalizeOptionalExpression(
+  value: string | null | undefined
+): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed || EMPTY_TEMPLATE_EXPRESSION_RE.test(trimmed)) {
+    return undefined
+  }
+  return trimmed
+}
+
 // These are YAML strings
 const actionFormSchema = z.object({
   title: z
@@ -142,10 +154,11 @@ const actionFormSchema = z.object({
     .transform((val) => {
       if (Array.isArray(val)) {
         // Trim each expression and drop any that are empty after trimming.
-        return val.map((item) => item.trim()).filter((item) => item !== "")
+        return val
+          .map((item) => normalizeOptionalExpression(item))
+          .filter((item): item is string => item !== undefined)
       } else if (typeof val === "string") {
-        const trimmed = val.trim()
-        return trimmed !== "" ? trimmed : undefined
+        return normalizeOptionalExpression(val)
       }
       return val
     })
@@ -153,7 +166,7 @@ const actionFormSchema = z.object({
   run_if: z
     .string()
     .max(1000, "Run if must be less than 1000 characters")
-    .transform((val) => (val?.trim() ? val.trim() : undefined))
+    .transform((val) => normalizeOptionalExpression(val))
     .optional(),
   // Retry policy fields
   max_attempts: z.number().int().min(0).optional(),
@@ -161,7 +174,7 @@ const actionFormSchema = z.object({
   retry_until: z
     .string()
     .max(1000, "Retry until must be less than 1000 characters")
-    .transform((val) => (val?.trim() ? val.trim() : undefined))
+    .transform((val) => normalizeOptionalExpression(val))
     .optional(),
   // Control flow options fields
   start_delay: z.number().min(0).optional(),
@@ -169,12 +182,12 @@ const actionFormSchema = z.object({
   wait_until: z
     .string()
     .max(1000, "Wait until must be less than 1000 characters")
-    .transform((val) => (val?.trim() ? val.trim() : undefined))
+    .transform((val) => normalizeOptionalExpression(val))
     .optional(),
   environment: z
     .string()
     .max(1000, "Environment must be less than 1000 characters")
-    .transform((val) => (val?.trim() ? val.trim() : undefined))
+    .transform((val) => normalizeOptionalExpression(val))
     .optional(),
   is_interactive: z.boolean().default(false),
   interaction: z
@@ -566,7 +579,7 @@ function ActionPanelContent({
           inputs: inputsYaml, // Use preserved/raw YAML
           control_flow: {
             for_each: values.for_each,
-            run_if: values.run_if,
+            run_if: values.run_if ?? null,
             retry_policy: {
               max_attempts: values.max_attempts,
               timeout: values.timeout,

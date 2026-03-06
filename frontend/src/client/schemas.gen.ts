@@ -965,6 +965,129 @@ export const $AdminUserRead = {
   description: "Admin view of a user.",
 } as const
 
+export const $AgentChannelTokenCreate = {
+  properties: {
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+      description: "Preset to link this channel token to",
+    },
+    channel_type: {
+      $ref: "#/components/schemas/ChannelType",
+      description: "External channel type",
+    },
+    config: {
+      $ref: "#/components/schemas/SlackChannelTokenConfig",
+      description: "Channel-specific configuration payload",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+      description: "Whether this token is active",
+      default: true,
+    },
+  },
+  type: "object",
+  required: ["agent_preset_id", "channel_type", "config"],
+  title: "AgentChannelTokenCreate",
+  description: "Request schema for creating an external channel token.",
+} as const
+
+export const $AgentChannelTokenRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+    },
+    channel_type: {
+      $ref: "#/components/schemas/ChannelType",
+    },
+    config: {
+      $ref: "#/components/schemas/SlackChannelTokenConfig",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    public_token: {
+      type: "string",
+      title: "Public Token",
+    },
+    endpoint_url: {
+      type: "string",
+      title: "Endpoint Url",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "agent_preset_id",
+    "channel_type",
+    "config",
+    "is_active",
+    "public_token",
+    "endpoint_url",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentChannelTokenRead",
+  description: "Response schema for an external channel token.",
+} as const
+
+export const $AgentChannelTokenUpdate = {
+  properties: {
+    config: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SlackChannelTokenConfig",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Updated channel configuration payload",
+    },
+    is_active: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Is Active",
+      description: "Activation state",
+    },
+  },
+  type: "object",
+  title: "AgentChannelTokenUpdate",
+  description: "Request schema for updating an external channel token.",
+} as const
+
 export const $AgentOutput = {
   properties: {
     output: {
@@ -1680,6 +1803,7 @@ export const $AgentSessionEntity = {
     "copilot",
     "workflow",
     "approval",
+    "external_channel",
   ],
   title: "AgentSessionEntity",
   description: `The type of entity associated with an agent session.
@@ -1690,7 +1814,8 @@ Determines the context and behavior of the session:
 - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
 - COPILOT: Workspace-level copilot assistant
 - WORKFLOW: Workflow-initiated agent run (from action)
-- APPROVAL: Inbox approval continuation (hidden from main chat list)`,
+- APPROVAL: Inbox approval continuation (hidden from main chat list)
+- EXTERNAL_CHANNEL: External channel session (e.g. Slack thread)`,
 } as const
 
 export const $AgentSessionForkRequest = {
@@ -1749,6 +1874,18 @@ export const $AgentSessionRead = {
       type: "string",
       format: "uuid",
       title: "Entity Id",
+    },
+    channel_context: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Channel Context",
     },
     tools: {
       anyOf: [
@@ -1829,6 +1966,7 @@ export const $AgentSessionRead = {
     "created_by",
     "entity_type",
     "entity_id",
+    "channel_context",
     "tools",
     "agent_preset_id",
     "harness_type",
@@ -1875,6 +2013,18 @@ export const $AgentSessionReadVercel = {
       type: "string",
       format: "uuid",
       title: "Entity Id",
+    },
+    channel_context: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Channel Context",
     },
     tools: {
       anyOf: [
@@ -1963,6 +2113,7 @@ export const $AgentSessionReadVercel = {
     "created_by",
     "entity_type",
     "entity_id",
+    "channel_context",
     "tools",
     "agent_preset_id",
     "harness_type",
@@ -2009,6 +2160,18 @@ export const $AgentSessionReadWithMessages = {
       type: "string",
       format: "uuid",
       title: "Entity Id",
+    },
+    channel_context: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Channel Context",
     },
     tools: {
       anyOf: [
@@ -2095,6 +2258,7 @@ export const $AgentSessionReadWithMessages = {
     "created_by",
     "entity_type",
     "entity_id",
+    "channel_context",
     "tools",
     "agent_preset_id",
     "harness_type",
@@ -2378,6 +2542,20 @@ export const $ApprovalDecision = {
         },
       ],
       title: "Reason",
+    },
+    metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metadata",
+      description:
+        "Optional metadata captured with the decision (e.g. external actor identity).",
     },
   },
   type: "object",
@@ -6100,6 +6278,13 @@ export const $CaseViewedEventRead = {
   description: "Event for when a case is viewed.",
 } as const
 
+export const $ChannelType = {
+  type: "string",
+  enum: ["slack"],
+  title: "ChannelType",
+  description: "Supported external channel types.",
+} as const
+
 export const $ChatMessage = {
   properties: {
     id: {
@@ -6628,6 +6813,14 @@ export const $ContinueRunRequest = {
       type: "array",
       title: "Decisions",
     },
+    source: {
+      type: "string",
+      enum: ["inbox", "slack"],
+      title: "Source",
+      description:
+        "Origin of the approval decision submission. Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions.",
+      default: "inbox",
+    },
   },
   type: "object",
   required: ["decisions"],
@@ -6994,6 +7187,69 @@ export const $CursorPaginatedResponse_WorkflowReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[WorkflowReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_WorkflowRunReadMinimal_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/WorkflowRunReadMinimal",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[WorkflowRunReadMinimal]",
 } as const
 
 export const $CustomOAuthProviderCreate = {
@@ -7983,6 +8239,13 @@ export const $EffectiveEntitlements = {
         "Whether RBAC add-ons are enabled (custom roles, groups, and assignments)",
       default: false,
     },
+    watchtower: {
+      type: "boolean",
+      title: "Watchtower",
+      description:
+        "Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -8020,6 +8283,12 @@ export const $EntitlementsDict = {
       title: "Rbac Addons",
       description:
         "Whether RBAC add-ons are enabled (custom roles, groups, and assignments)",
+    },
+    watchtower: {
+      type: "boolean",
+      title: "Watchtower",
+      description:
+        "Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)",
     },
   },
   type: "object",
@@ -8564,7 +8833,7 @@ export const $ExternalObject = {
 
 export const $FeatureFlag = {
   type: "string",
-  enum: ["ai-ranking", "workflow-concurrency-limits"],
+  enum: ["ai-ranking", "workflow-concurrency-limits", "agent-channels"],
   title: "FeatureFlag",
   description: "Feature flag enum reserved for engineering rollouts.",
 } as const
@@ -10593,7 +10862,7 @@ export const $MCPHttpIntegrationCreate = {
       ],
       title: "Custom Credentials",
       description:
-        "Custom credentials (API key, bearer token, or JSON headers) for custom auth_type",
+        "Custom credentials as JSON headers. Required for custom auth type; optional additional headers for OAuth2 auth type.",
     },
   },
   type: "object",
@@ -10869,7 +11138,7 @@ export const $MCPIntegrationUpdate = {
       ],
       title: "Custom Credentials",
       description:
-        "Custom credentials (API key, bearer token, or JSON headers) for custom auth_type",
+        "Custom credentials as JSON headers. Required for custom auth type; optional additional headers for OAuth2 auth type.",
     },
     stdio_command: {
       anyOf: [
@@ -10932,17 +11201,6 @@ export const $MCPIntegrationUpdate = {
   type: "object",
   title: "MCPIntegrationUpdate",
   description: "Request model for updating an MCP integration.",
-} as const
-
-export const $MCPServerConfig = {
-  anyOf: [
-    {
-      $ref: "#/components/schemas/MCPHttpServerConfig",
-    },
-    {
-      $ref: "#/components/schemas/MCPStdioServerConfig",
-    },
-  ],
 } as const
 
 export const $MCPServerType = {
@@ -16311,6 +16569,127 @@ export const $SeverityChangedEventRead = {
   description: "Event for when a case severity is changed.",
 } as const
 
+export const $SlackChannelTokenConfig = {
+  properties: {
+    slack_bot_token: {
+      type: "string",
+      minLength: 1,
+      title: "Slack Bot Token",
+      description: "Slack bot token used for API calls",
+    },
+    slack_client_id: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slack Client Id",
+      description: "Slack app client ID used for OAuth install",
+    },
+    slack_client_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slack Client Secret",
+      description: "Slack app client secret used for OAuth install",
+    },
+    slack_signing_secret: {
+      type: "string",
+      minLength: 1,
+      title: "Slack Signing Secret",
+      description: "Slack signing secret used for request verification",
+    },
+  },
+  type: "object",
+  required: ["slack_bot_token", "slack_signing_secret"],
+  title: "SlackChannelTokenConfig",
+  description: "Slack channel token configuration.",
+} as const
+
+export const $SlackOAuthStartRequest = {
+  properties: {
+    token_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Token Id",
+      description: "Existing channel token ID. If omitted, creates one.",
+    },
+    agent_preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Preset Id",
+      description: "Agent preset to associate with the channel token.",
+    },
+    client_id: {
+      type: "string",
+      minLength: 1,
+      title: "Client Id",
+      description: "Slack app client ID",
+    },
+    client_secret: {
+      type: "string",
+      minLength: 1,
+      title: "Client Secret",
+      description: "Slack app client secret",
+    },
+    signing_secret: {
+      type: "string",
+      minLength: 1,
+      title: "Signing Secret",
+      description: "Slack app signing secret",
+    },
+    return_url: {
+      type: "string",
+      minLength: 1,
+      title: "Return Url",
+      description: "URL to return users to after OAuth callback",
+    },
+  },
+  type: "object",
+  required: [
+    "agent_preset_id",
+    "client_id",
+    "client_secret",
+    "signing_secret",
+    "return_url",
+  ],
+  title: "SlackOAuthStartRequest",
+  description: "Request schema for starting Slack OAuth install flow.",
+} as const
+
+export const $SlackOAuthStartResponse = {
+  properties: {
+    authorization_url: {
+      type: "string",
+      title: "Authorization Url",
+    },
+    token: {
+      $ref: "#/components/schemas/AgentChannelTokenRead",
+    },
+  },
+  type: "object",
+  required: ["authorization_url", "token"],
+  title: "SlackOAuthStartResponse",
+  description: "Response schema for Slack OAuth start.",
+} as const
+
 export const $SourceDocumentUIPart = {
   properties: {
     type: {
@@ -20327,6 +20706,636 @@ export const $WaitStrategy = {
   title: "WaitStrategy",
 } as const
 
+export const $WatchtowerAgentListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/WatchtowerAgentRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "WatchtowerAgentListResponse",
+  description: "Paginated response for Watchtower agents.",
+} as const
+
+export const $WatchtowerAgentRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    fingerprint_hash: {
+      type: "string",
+      title: "Fingerprint Hash",
+    },
+    agent_type: {
+      $ref: "#/components/schemas/WatchtowerAgentType",
+    },
+    agent_source: {
+      type: "string",
+      title: "Agent Source",
+    },
+    agent_icon_key: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Icon Key",
+    },
+    raw_user_agent: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Raw User Agent",
+    },
+    raw_client_info: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Raw Client Info",
+    },
+    auth_client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Auth Client Id",
+    },
+    last_user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last User Id",
+    },
+    last_user_email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last User Email",
+    },
+    last_user_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last User Name",
+    },
+    first_seen_at: {
+      type: "string",
+      format: "date-time",
+      title: "First Seen At",
+    },
+    last_seen_at: {
+      type: "string",
+      format: "date-time",
+      title: "Last Seen At",
+    },
+    blocked_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Blocked At",
+    },
+    blocked_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Blocked Reason",
+    },
+    status: {
+      $ref: "#/components/schemas/WatchtowerAgentStatus",
+    },
+    active_session_count: {
+      type: "integer",
+      title: "Active Session Count",
+      default: 0,
+    },
+    inactive_session_count: {
+      type: "integer",
+      title: "Inactive Session Count",
+      default: 0,
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "fingerprint_hash",
+    "agent_type",
+    "agent_source",
+    "agent_icon_key",
+    "raw_user_agent",
+    "raw_client_info",
+    "auth_client_id",
+    "last_user_id",
+    "last_user_email",
+    "last_user_name",
+    "first_seen_at",
+    "last_seen_at",
+    "blocked_at",
+    "blocked_reason",
+    "status",
+  ],
+  title: "WatchtowerAgentRead",
+  description: "Watchtower agent row for monitor list views.",
+} as const
+
+export const $WatchtowerAgentSessionListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/WatchtowerAgentSessionRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "WatchtowerAgentSessionListResponse",
+  description: "Paginated response for Watchtower sessions.",
+} as const
+
+export const $WatchtowerAgentSessionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    agent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Id",
+    },
+    session_state: {
+      type: "string",
+      title: "Session State",
+    },
+    auth_transaction_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Auth Transaction Id",
+    },
+    auth_client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Auth Client Id",
+    },
+    oauth_callback_seen_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Oauth Callback Seen At",
+    },
+    agent_session_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Session Id",
+    },
+    initialize_seen_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Initialize Seen At",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+    },
+    user_email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Email",
+    },
+    user_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Name",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    first_seen_at: {
+      type: "string",
+      format: "date-time",
+      title: "First Seen At",
+    },
+    last_seen_at: {
+      type: "string",
+      format: "date-time",
+      title: "Last Seen At",
+    },
+    revoked_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Revoked At",
+    },
+    revoked_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Revoked Reason",
+    },
+    status: {
+      $ref: "#/components/schemas/WatchtowerAgentSessionStatus",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "agent_id",
+    "session_state",
+    "auth_transaction_id",
+    "auth_client_id",
+    "oauth_callback_seen_at",
+    "agent_session_id",
+    "initialize_seen_at",
+    "user_id",
+    "user_email",
+    "user_name",
+    "workspace_id",
+    "first_seen_at",
+    "last_seen_at",
+    "revoked_at",
+    "revoked_reason",
+    "status",
+  ],
+  title: "WatchtowerAgentSessionRead",
+  description: "Watchtower agent session row for monitor list views.",
+} as const
+
+export const $WatchtowerAgentSessionStatus = {
+  type: "string",
+  enum: ["active", "idle", "revoked"],
+  title: "WatchtowerAgentSessionStatus",
+  description: "Derived status for Watchtower agent sessions in monitor APIs.",
+} as const
+
+export const $WatchtowerAgentStatus = {
+  type: "string",
+  enum: ["active", "idle", "blocked"],
+  title: "WatchtowerAgentStatus",
+  description: "Derived status for Watchtower agents in monitor APIs.",
+} as const
+
+export const $WatchtowerAgentToolCallListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/WatchtowerAgentToolCallRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "WatchtowerAgentToolCallListResponse",
+  description: "Paginated response for Watchtower tool calls.",
+} as const
+
+export const $WatchtowerAgentToolCallRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    agent_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Id",
+    },
+    agent_session_id: {
+      type: "string",
+      format: "uuid",
+      title: "Agent Session Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    tool_name: {
+      type: "string",
+      title: "Tool Name",
+    },
+    call_status: {
+      $ref: "#/components/schemas/WatchtowerToolCallStatus",
+    },
+    latency_ms: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Latency Ms",
+    },
+    args_redacted: {
+      additionalProperties: true,
+      type: "object",
+      title: "Args Redacted",
+    },
+    error_redacted: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error Redacted",
+    },
+    called_at: {
+      type: "string",
+      format: "date-time",
+      title: "Called At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "agent_id",
+    "agent_session_id",
+    "workspace_id",
+    "tool_name",
+    "call_status",
+    "latency_ms",
+    "args_redacted",
+    "error_redacted",
+    "called_at",
+  ],
+  title: "WatchtowerAgentToolCallRead",
+  description: "Watchtower tool-call event row.",
+} as const
+
+export const $WatchtowerAgentType = {
+  type: "string",
+  enum: [
+    "claude_code",
+    "codex",
+    "cursor",
+    "windsurf",
+    "opencode",
+    "openclaw",
+    "unknown",
+  ],
+  title: "WatchtowerAgentType",
+  description: "Normalized local-agent classifications stored by Watchtower.",
+} as const
+
+export const $WatchtowerDisableAgentRequest = {
+  properties: {
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+  },
+  type: "object",
+  title: "WatchtowerDisableAgentRequest",
+  description: "Request payload for disabling an agent.",
+} as const
+
+export const $WatchtowerRevokeAgentSessionRequest = {
+  properties: {
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+  },
+  type: "object",
+  title: "WatchtowerRevokeAgentSessionRequest",
+  description: "Request payload for session revocation.",
+} as const
+
+export const $WatchtowerToolCallStatus = {
+  type: "string",
+  enum: ["success", "error", "timeout", "rejected", "blocked"],
+  title: "WatchtowerToolCallStatus",
+  description: "Tool call result status for Watchtower monitor APIs.",
+} as const
+
 export const $WebhookApiKeyGenerateResponse = {
   properties: {
     api_key: {
@@ -21081,6 +22090,109 @@ export const $WorkflowEventType = {
   ],
   title: "WorkflowEventType",
   description: "The event types we care about.",
+} as const
+
+export const $WorkflowExecutionBulkResetItemResult = {
+  properties: {
+    execution_id: {
+      type: "string",
+      pattern:
+        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+      title: "Execution Id",
+    },
+    ok: {
+      type: "boolean",
+      title: "Ok",
+      default: false,
+    },
+    new_run_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Run Id",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+  },
+  type: "object",
+  required: ["execution_id"],
+  title: "WorkflowExecutionBulkResetItemResult",
+} as const
+
+export const $WorkflowExecutionBulkResetRequest = {
+  properties: {
+    execution_ids: {
+      items: {
+        type: "string",
+        pattern:
+          "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Execution Ids",
+    },
+    event_id: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Event Id",
+      description:
+        "Temporal history event id to reset from. If omitted, reset uses start.",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1024,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+    reapply_type: {
+      $ref: "#/components/schemas/WorkflowExecutionResetReapplyType",
+      default: "all_eligible",
+    },
+  },
+  type: "object",
+  title: "WorkflowExecutionBulkResetRequest",
+} as const
+
+export const $WorkflowExecutionBulkResetResponse = {
+  properties: {
+    results: {
+      items: {
+        $ref: "#/components/schemas/WorkflowExecutionBulkResetItemResult",
+      },
+      type: "array",
+      title: "Results",
+    },
+  },
+  type: "object",
+  title: "WorkflowExecutionBulkResetResponse",
 } as const
 
 export const $WorkflowExecutionCollectionPageItem = {
@@ -22066,6 +23178,112 @@ export const $WorkflowExecutionReadMinimal = {
   title: "WorkflowExecutionReadMinimal",
 } as const
 
+export const $WorkflowExecutionRelationFilter = {
+  type: "string",
+  enum: ["all", "root", "child"],
+  title: "WorkflowExecutionRelationFilter",
+} as const
+
+export const $WorkflowExecutionResetPointRead = {
+  properties: {
+    event_id: {
+      type: "integer",
+      minimum: 1,
+      title: "Event Id",
+    },
+    event_time: {
+      type: "string",
+      format: "date-time",
+      title: "Event Time",
+    },
+    event_type: {
+      type: "string",
+      title: "Event Type",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    is_start: {
+      type: "boolean",
+      title: "Is Start",
+      description:
+        "True when this point maps to the earliest resettable point.",
+      default: false,
+    },
+    is_resettable: {
+      type: "boolean",
+      title: "Is Resettable",
+      description: "Whether the event can be used directly as a reset target.",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["event_id", "event_time", "event_type", "label"],
+  title: "WorkflowExecutionResetPointRead",
+} as const
+
+export const $WorkflowExecutionResetReapplyType = {
+  type: "string",
+  enum: ["all_eligible", "signal_only", "none"],
+  title: "WorkflowExecutionResetReapplyType",
+} as const
+
+export const $WorkflowExecutionResetRequest = {
+  properties: {
+    event_id: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Event Id",
+      description:
+        "Temporal history event id to reset from. If omitted, reset uses start.",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1024,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+    reapply_type: {
+      $ref: "#/components/schemas/WorkflowExecutionResetReapplyType",
+      default: "all_eligible",
+    },
+  },
+  type: "object",
+  title: "WorkflowExecutionResetRequest",
+} as const
+
+export const $WorkflowExecutionResetResponse = {
+  properties: {
+    execution_id: {
+      type: "string",
+      pattern:
+        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+      title: "Execution Id",
+    },
+    new_run_id: {
+      type: "string",
+      title: "New Run Id",
+    },
+  },
+  type: "object",
+  required: ["execution_id", "new_run_id"],
+  title: "WorkflowExecutionResetResponse",
+} as const
+
 export const $WorkflowExecutionStatus = {
   type: "integer",
   enum: [1, 2, 3, 4, 5, 6, 7],
@@ -22073,6 +23291,12 @@ export const $WorkflowExecutionStatus = {
   description: `Status of a workflow execution.
 
 See :py:class:\`temporalio.api.enums.v1.WorkflowExecutionStatus\`.`,
+} as const
+
+export const $WorkflowExecutionStatusFilterMode = {
+  type: "string",
+  enum: ["include", "exclude"],
+  title: "WorkflowExecutionStatusFilterMode",
 } as const
 
 export const $WorkflowExecutionTerminate = {
@@ -22513,6 +23737,149 @@ export const $WorkflowReadMinimal = {
   ],
   title: "WorkflowReadMinimal",
   description: "Minimal version of WorkflowRead model for list endpoints.",
+} as const
+
+export const $WorkflowRunReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "The ID of the workflow execution",
+    },
+    run_id: {
+      type: "string",
+      title: "Run Id",
+      description: "The run ID of the workflow execution",
+    },
+    start_time: {
+      type: "string",
+      format: "date-time",
+      title: "Start Time",
+      description: "The start time of the workflow execution",
+    },
+    execution_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Execution Time",
+      description: "When this workflow run started or should start.",
+    },
+    close_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Close Time",
+      description: "When the workflow was closed if closed.",
+    },
+    status: {
+      type: "string",
+      enum: [
+        "RUNNING",
+        "COMPLETED",
+        "FAILED",
+        "CANCELED",
+        "TERMINATED",
+        "CONTINUED_AS_NEW",
+        "TIMED_OUT",
+      ],
+    },
+    workflow_type: {
+      type: "string",
+      title: "Workflow Type",
+    },
+    task_queue: {
+      type: "string",
+      title: "Task Queue",
+    },
+    history_length: {
+      type: "integer",
+      title: "History Length",
+      description: "Number of events in the history",
+    },
+    parent_wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern:
+            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Wf Exec Id",
+    },
+    trigger_type: {
+      $ref: "#/components/schemas/TriggerType",
+    },
+    execution_type: {
+      $ref: "#/components/schemas/ExecutionType",
+      description:
+        "Execution type (draft or published). Draft uses the draft workflow graph.",
+      default: "published",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+      description: "Short workflow ID parsed from workflow execution ID.",
+    },
+    workflow_title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Title",
+      description: "Workflow title from workspace metadata when available.",
+    },
+    workflow_alias: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Alias",
+      description:
+        "Workflow alias from workspace metadata or execution search attributes.",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "run_id",
+    "start_time",
+    "status",
+    "workflow_type",
+    "task_queue",
+    "history_length",
+    "trigger_type",
+  ],
+  title: "WorkflowRunReadMinimal",
 } as const
 
 export const $WorkflowSummary = {

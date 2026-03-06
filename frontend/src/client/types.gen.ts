@@ -251,6 +251,58 @@ export type AdminUserRead = {
   last_login_at?: string | null
 }
 
+/**
+ * Request schema for creating an external channel token.
+ */
+export type AgentChannelTokenCreate = {
+  /**
+   * Preset to link this channel token to
+   */
+  agent_preset_id: string
+  /**
+   * External channel type
+   */
+  channel_type: ChannelType
+  /**
+   * Channel-specific configuration payload
+   */
+  config: SlackChannelTokenConfig
+  /**
+   * Whether this token is active
+   */
+  is_active?: boolean
+}
+
+/**
+ * Response schema for an external channel token.
+ */
+export type AgentChannelTokenRead = {
+  id: string
+  workspace_id: string
+  agent_preset_id: string
+  channel_type: ChannelType
+  config: SlackChannelTokenConfig
+  is_active: boolean
+  public_token: string
+  endpoint_url: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Request schema for updating an external channel token.
+ */
+export type AgentChannelTokenUpdate = {
+  /**
+   * Updated channel configuration payload
+   */
+  config?: SlackChannelTokenConfig | null
+  /**
+   * Activation state
+   */
+  is_active?: boolean | null
+}
+
 export type AgentOutput = {
   output: unknown
   message_history?: Array<ChatMessage> | null
@@ -394,6 +446,7 @@ export type AgentSessionCreate = {
  * - COPILOT: Workspace-level copilot assistant
  * - WORKFLOW: Workflow-initiated agent run (from action)
  * - APPROVAL: Inbox approval continuation (hidden from main chat list)
+ * - EXTERNAL_CHANNEL: External channel session (e.g. Slack thread)
  */
 export type AgentSessionEntity =
   | "case"
@@ -402,6 +455,7 @@ export type AgentSessionEntity =
   | "copilot"
   | "workflow"
   | "approval"
+  | "external_channel"
 
 /**
  * Request schema for forking an agent session.
@@ -423,6 +477,9 @@ export type AgentSessionRead = {
   created_by: string | null
   entity_type: string
   entity_id: string
+  channel_context: {
+    [key: string]: unknown
+  } | null
   tools: Array<string> | null
   agent_preset_id: string | null
   harness_type: string | null
@@ -442,6 +499,9 @@ export type AgentSessionReadVercel = {
   created_by: string | null
   entity_type: string
   entity_id: string
+  channel_context: {
+    [key: string]: unknown
+  } | null
   tools: Array<string> | null
   agent_preset_id: string | null
   harness_type: string | null
@@ -465,6 +525,9 @@ export type AgentSessionReadWithMessages = {
   created_by: string | null
   entity_type: string
   entity_id: string
+  channel_context: {
+    [key: string]: unknown
+  } | null
   tools: Array<string> | null
   agent_preset_id: string | null
   harness_type: string | null
@@ -578,6 +641,12 @@ export type ApprovalDecision = {
     [key: string]: unknown
   } | null
   reason?: string | null
+  /**
+   * Optional metadata captured with the decision (e.g. external actor identity).
+   */
+  metadata?: {
+    [key: string]: unknown
+  } | null
 }
 
 export type action = "approve" | "override" | "deny"
@@ -1679,6 +1748,11 @@ export type CaseViewedEventRead = {
 }
 
 /**
+ * Supported external channel types.
+ */
+export type ChannelType = "slack"
+
+/**
  * Model for a chat message with typed message payload.
  *
  * This model supports both regular messages and approval bubbles:
@@ -1934,7 +2008,16 @@ export type element_kind = "value" | "stored_object"
 export type ContinueRunRequest = {
   kind?: "continue"
   decisions: Array<ApprovalDecision>
+  /**
+   * Origin of the approval decision submission. Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions.
+   */
+  source?: "inbox" | "slack"
 }
+
+/**
+ * Origin of the approval decision submission. Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions.
+ */
+export type source = "inbox" | "slack"
 
 /**
  * Event for when a case is created.
@@ -2053,6 +2136,30 @@ export type CursorPaginatedResponse_TableRowRead_ = {
 
 export type CursorPaginatedResponse_WorkflowReadMinimal_ = {
   items: Array<WorkflowReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_WorkflowRunReadMinimal_ = {
+  items: Array<WorkflowRunReadMinimal>
   /**
    * Cursor for next page
    */
@@ -2426,6 +2533,10 @@ export type EffectiveEntitlements = {
    * Whether RBAC add-ons are enabled (custom roles, groups, and assignments)
    */
   rbac_addons?: boolean
+  /**
+   * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
+   */
+  watchtower?: boolean
 }
 
 /**
@@ -2454,6 +2565,10 @@ export type EntitlementsDict = {
    * Whether RBAC add-ons are enabled (custom roles, groups, and assignments)
    */
   rbac_addons?: boolean
+  /**
+   * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
+   */
+  watchtower?: boolean
 }
 
 export type ErrorDetails = {
@@ -2607,7 +2722,10 @@ export type ExternalObject = {
 /**
  * Feature flag enum reserved for engineering rollouts.
  */
-export type FeatureFlag = "ai-ranking" | "workflow-concurrency-limits"
+export type FeatureFlag =
+  | "ai-ranking"
+  | "workflow-concurrency-limits"
+  | "agent-channels"
 
 /**
  * Response model for feature flags.
@@ -3390,7 +3508,7 @@ export type MCPHttpIntegrationCreate = {
    */
   oauth_integration_id?: string | null
   /**
-   * Custom credentials (API key, bearer token, or JSON headers) for custom auth_type
+   * Custom credentials as JSON headers. Required for custom auth type; optional additional headers for OAuth2 auth type.
    */
   custom_credentials?: string | null
 }
@@ -3458,7 +3576,7 @@ export type MCPIntegrationUpdate = {
   auth_type?: MCPAuthType | null
   oauth_integration_id?: string | null
   /**
-   * Custom credentials (API key, bearer token, or JSON headers) for custom auth_type
+   * Custom credentials as JSON headers. Required for custom auth type; optional additional headers for OAuth2 auth type.
    */
   custom_credentials?: string | null
   /**
@@ -3480,8 +3598,6 @@ export type MCPIntegrationUpdate = {
    */
   timeout?: number | null
 }
-
-export type MCPServerConfig = MCPHttpServerConfig | MCPStdioServerConfig
 
 export type MCPServerType = "http" | "stdio"
 
@@ -5108,6 +5224,66 @@ export type SeverityChangedEventRead = {
 }
 
 /**
+ * Slack channel token configuration.
+ */
+export type SlackChannelTokenConfig = {
+  /**
+   * Slack bot token used for API calls
+   */
+  slack_bot_token: string
+  /**
+   * Slack app client ID used for OAuth install
+   */
+  slack_client_id?: string | null
+  /**
+   * Slack app client secret used for OAuth install
+   */
+  slack_client_secret?: string | null
+  /**
+   * Slack signing secret used for request verification
+   */
+  slack_signing_secret: string
+}
+
+/**
+ * Request schema for starting Slack OAuth install flow.
+ */
+export type SlackOAuthStartRequest = {
+  /**
+   * Existing channel token ID. If omitted, creates one.
+   */
+  token_id?: string | null
+  /**
+   * Agent preset to associate with the channel token.
+   */
+  agent_preset_id: string
+  /**
+   * Slack app client ID
+   */
+  client_id: string
+  /**
+   * Slack app client secret
+   */
+  client_secret: string
+  /**
+   * Slack app signing secret
+   */
+  signing_secret: string
+  /**
+   * URL to return users to after OAuth callback
+   */
+  return_url: string
+}
+
+/**
+ * Response schema for Slack OAuth start.
+ */
+export type SlackOAuthStartResponse = {
+  authorization_url: string
+  token: AgentChannelTokenRead
+}
+
+/**
  * A document source part of a message.
  */
 export type SourceDocumentUIPart = {
@@ -6349,6 +6525,149 @@ export type WaitResultOutput =
 
 export type WaitStrategy = "wait" | "detach"
 
+/**
+ * Paginated response for Watchtower agents.
+ */
+export type WatchtowerAgentListResponse = {
+  items: Array<WatchtowerAgentRead>
+  next_cursor?: string | null
+  has_more?: boolean
+}
+
+/**
+ * Watchtower agent row for monitor list views.
+ */
+export type WatchtowerAgentRead = {
+  id: string
+  organization_id: string
+  fingerprint_hash: string
+  agent_type: WatchtowerAgentType
+  agent_source: string
+  agent_icon_key: string | null
+  raw_user_agent: string | null
+  raw_client_info: {
+    [key: string]: unknown
+  } | null
+  auth_client_id: string | null
+  last_user_id: string | null
+  last_user_email: string | null
+  last_user_name: string | null
+  first_seen_at: string
+  last_seen_at: string
+  blocked_at: string | null
+  blocked_reason: string | null
+  status: WatchtowerAgentStatus
+  active_session_count?: number
+  inactive_session_count?: number
+}
+
+/**
+ * Paginated response for Watchtower sessions.
+ */
+export type WatchtowerAgentSessionListResponse = {
+  items: Array<WatchtowerAgentSessionRead>
+  next_cursor?: string | null
+  has_more?: boolean
+}
+
+/**
+ * Watchtower agent session row for monitor list views.
+ */
+export type WatchtowerAgentSessionRead = {
+  id: string
+  organization_id: string
+  agent_id: string | null
+  session_state: string
+  auth_transaction_id: string | null
+  auth_client_id: string | null
+  oauth_callback_seen_at: string | null
+  agent_session_id: string | null
+  initialize_seen_at: string | null
+  user_id: string | null
+  user_email: string | null
+  user_name: string | null
+  workspace_id: string | null
+  first_seen_at: string
+  last_seen_at: string
+  revoked_at: string | null
+  revoked_reason: string | null
+  status: WatchtowerAgentSessionStatus
+}
+
+/**
+ * Derived status for Watchtower agent sessions in monitor APIs.
+ */
+export type WatchtowerAgentSessionStatus = "active" | "idle" | "revoked"
+
+/**
+ * Derived status for Watchtower agents in monitor APIs.
+ */
+export type WatchtowerAgentStatus = "active" | "idle" | "blocked"
+
+/**
+ * Paginated response for Watchtower tool calls.
+ */
+export type WatchtowerAgentToolCallListResponse = {
+  items: Array<WatchtowerAgentToolCallRead>
+  next_cursor?: string | null
+  has_more?: boolean
+}
+
+/**
+ * Watchtower tool-call event row.
+ */
+export type WatchtowerAgentToolCallRead = {
+  id: string
+  organization_id: string
+  agent_id: string
+  agent_session_id: string
+  workspace_id: string | null
+  tool_name: string
+  call_status: WatchtowerToolCallStatus
+  latency_ms: number | null
+  args_redacted: {
+    [key: string]: unknown
+  }
+  error_redacted: string | null
+  called_at: string
+}
+
+/**
+ * Normalized local-agent classifications stored by Watchtower.
+ */
+export type WatchtowerAgentType =
+  | "claude_code"
+  | "codex"
+  | "cursor"
+  | "windsurf"
+  | "opencode"
+  | "openclaw"
+  | "unknown"
+
+/**
+ * Request payload for disabling an agent.
+ */
+export type WatchtowerDisableAgentRequest = {
+  reason?: string | null
+}
+
+/**
+ * Request payload for session revocation.
+ */
+export type WatchtowerRevokeAgentSessionRequest = {
+  reason?: string | null
+}
+
+/**
+ * Tool call result status for Watchtower monitor APIs.
+ */
+export type WatchtowerToolCallStatus =
+  | "success"
+  | "error"
+  | "timeout"
+  | "rejected"
+  | "blocked"
+
 export type WebhookApiKeyGenerateResponse = {
   api_key: string
   preview: string
@@ -6531,6 +6850,27 @@ export type WorkflowEventType =
   | "WORKFLOW_EXECUTION_UPDATE_ACCEPTED"
   | "WORKFLOW_EXECUTION_UPDATE_REJECTED"
   | "WORKFLOW_EXECUTION_UPDATE_COMPLETED"
+
+export type WorkflowExecutionBulkResetItemResult = {
+  execution_id: string
+  ok?: boolean
+  new_run_id?: string | null
+  error?: string | null
+}
+
+export type WorkflowExecutionBulkResetRequest = {
+  execution_ids?: Array<string>
+  /**
+   * Temporal history event id to reset from. If omitted, reset uses start.
+   */
+  event_id?: number | null
+  reason?: string | null
+  reapply_type?: WorkflowExecutionResetReapplyType
+}
+
+export type WorkflowExecutionBulkResetResponse = {
+  results?: Array<WorkflowExecutionBulkResetItemResult>
+}
 
 export type WorkflowExecutionCollectionPageItem = {
   /**
@@ -6890,12 +7230,50 @@ export type WorkflowExecutionReadMinimal = {
   execution_type?: ExecutionType
 }
 
+export type WorkflowExecutionRelationFilter = "all" | "root" | "child"
+
+export type WorkflowExecutionResetPointRead = {
+  event_id: number
+  event_time: string
+  event_type: string
+  label: string
+  /**
+   * True when this point maps to the earliest resettable point.
+   */
+  is_start?: boolean
+  /**
+   * Whether the event can be used directly as a reset target.
+   */
+  is_resettable?: boolean
+}
+
+export type WorkflowExecutionResetReapplyType =
+  | "all_eligible"
+  | "signal_only"
+  | "none"
+
+export type WorkflowExecutionResetRequest = {
+  /**
+   * Temporal history event id to reset from. If omitted, reset uses start.
+   */
+  event_id?: number | null
+  reason?: string | null
+  reapply_type?: WorkflowExecutionResetReapplyType
+}
+
+export type WorkflowExecutionResetResponse = {
+  execution_id: string
+  new_run_id: string
+}
+
 /**
  * Status of a workflow execution.
  *
  * See :py:class:`temporalio.api.enums.v1.WorkflowExecutionStatus`.
  */
 export type WorkflowExecutionStatus = 1 | 2 | 3 | 4 | 5 | 6 | 7
+
+export type WorkflowExecutionStatusFilterMode = "include" | "exclude"
 
 export type WorkflowExecutionTerminate = {
   reason?: string | null
@@ -6978,6 +7356,61 @@ export type WorkflowReadMinimal = {
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
   trigger_summary?: WorkflowTriggerSummary | null
+}
+
+export type WorkflowRunReadMinimal = {
+  /**
+   * The ID of the workflow execution
+   */
+  id: string
+  /**
+   * The run ID of the workflow execution
+   */
+  run_id: string
+  /**
+   * The start time of the workflow execution
+   */
+  start_time: string
+  /**
+   * When this workflow run started or should start.
+   */
+  execution_time?: string | null
+  /**
+   * When the workflow was closed if closed.
+   */
+  close_time?: string | null
+  status:
+    | "RUNNING"
+    | "COMPLETED"
+    | "FAILED"
+    | "CANCELED"
+    | "TERMINATED"
+    | "CONTINUED_AS_NEW"
+    | "TIMED_OUT"
+  workflow_type: string
+  task_queue: string
+  /**
+   * Number of events in the history
+   */
+  history_length: number
+  parent_wf_exec_id?: string | null
+  trigger_type: TriggerType
+  /**
+   * Execution type (draft or published). Draft uses the draft workflow graph.
+   */
+  execution_type?: ExecutionType
+  /**
+   * Short workflow ID parsed from workflow execution ID.
+   */
+  workflow_id?: string | null
+  /**
+   * Workflow title from workspace metadata when available.
+   */
+  workflow_title?: string | null
+  /**
+   * Workflow alias from workspace metadata or execution search attributes.
+   */
+  workflow_alias?: string | null
 }
 
 /**
@@ -7337,6 +7770,22 @@ export type PublicReceiveInteractionData = {
 
 export type PublicReceiveInteractionResponse = ReceiveInteractionResponse
 
+export type PublicHandleChannelEventData = {
+  channelType: ChannelType
+  token: string
+}
+
+export type PublicHandleChannelEventResponse = unknown
+
+export type PublicHandleSlackOauthCallbackData = {
+  code?: string | null
+  error?: string | null
+  errorDescription?: string | null
+  state: string
+}
+
+export type PublicHandleSlackOauthCallbackResponse = unknown
+
 export type WorkspacesListWorkspacesResponse = Array<WorkspaceReadMinimal>
 
 export type WorkspacesCreateWorkspaceData = {
@@ -7636,6 +8085,66 @@ export type WorkflowExecutionsCreateWorkflowExecutionData = {
 
 export type WorkflowExecutionsCreateWorkflowExecutionResponse =
   WorkflowExecutionCreateResponse
+
+export type WorkflowExecutionsSearchWorkflowExecutionsData = {
+  closeTimeFrom?: string | null
+  closeTimeTo?: string | null
+  cursor?: string | null
+  durationGteSeconds?: number | null
+  durationLteSeconds?: number | null
+  limit?: number
+  relation?: WorkflowExecutionRelationFilter
+  reverse?: boolean
+  /**
+   * Filter by workflow title or alias.
+   */
+  searchTerm?: string | null
+  startTimeFrom?: string | null
+  startTimeTo?: string | null
+  status?: Array<
+    | "RUNNING"
+    | "COMPLETED"
+    | "FAILED"
+    | "CANCELED"
+    | "TERMINATED"
+    | "CONTINUED_AS_NEW"
+    | "TIMED_OUT"
+  > | null
+  statusMode?: WorkflowExecutionStatusFilterMode
+  trigger?: Array<TriggerType> | null
+  userId?: string | SpecialUserID | null
+  workflowId?: string | null
+  workspaceId: string
+}
+
+export type WorkflowExecutionsSearchWorkflowExecutionsResponse =
+  CursorPaginatedResponse_WorkflowRunReadMinimal_
+
+export type WorkflowExecutionsListWorkflowExecutionResetPointsData = {
+  executionId: string
+  limit?: number
+  workspaceId: string
+}
+
+export type WorkflowExecutionsListWorkflowExecutionResetPointsResponse =
+  Array<WorkflowExecutionResetPointRead>
+
+export type WorkflowExecutionsResetWorkflowExecutionData = {
+  executionId: string
+  requestBody: WorkflowExecutionResetRequest
+  workspaceId: string
+}
+
+export type WorkflowExecutionsResetWorkflowExecutionResponse =
+  WorkflowExecutionResetResponse
+
+export type WorkflowExecutionsBulkResetWorkflowExecutionsData = {
+  requestBody: WorkflowExecutionBulkResetRequest
+  workspaceId: string
+}
+
+export type WorkflowExecutionsBulkResetWorkflowExecutionsResponse =
+  WorkflowExecutionBulkResetResponse
 
 export type WorkflowExecutionsGetWorkflowExecutionData = {
   executionId: string
@@ -8161,6 +8670,57 @@ export type AgentGetWorkspaceProvidersStatusResponse = {
   [key: string]: boolean
 }
 
+export type AgentChannelsCreateChannelTokenData = {
+  requestBody: AgentChannelTokenCreate
+  workspaceId: string
+}
+
+export type AgentChannelsCreateChannelTokenResponse = AgentChannelTokenRead
+
+export type AgentChannelsListChannelTokensData = {
+  /**
+   * Filter by agent preset
+   */
+  agentPresetId?: string | null
+  /**
+   * Filter by channel type
+   */
+  channelType?: ChannelType | null
+  workspaceId: string
+}
+
+export type AgentChannelsListChannelTokensResponse =
+  Array<AgentChannelTokenRead>
+
+export type AgentChannelsUpdateChannelTokenData = {
+  requestBody: AgentChannelTokenUpdate
+  tokenId: string
+  workspaceId: string
+}
+
+export type AgentChannelsUpdateChannelTokenResponse = AgentChannelTokenRead
+
+export type AgentChannelsDeleteChannelTokenData = {
+  tokenId: string
+  workspaceId: string
+}
+
+export type AgentChannelsDeleteChannelTokenResponse = void
+
+export type AgentChannelsRotateChannelTokenData = {
+  tokenId: string
+  workspaceId: string
+}
+
+export type AgentChannelsRotateChannelTokenResponse = AgentChannelTokenRead
+
+export type AgentChannelsStartSlackOauthData = {
+  requestBody: SlackOAuthStartRequest
+  workspaceId: string
+}
+
+export type AgentChannelsStartSlackOauthResponse = SlackOAuthStartResponse
+
 export type AgentPresetsListAgentPresetsData = {
   workspaceId: string
 }
@@ -8305,6 +8865,56 @@ export type ApprovalsSubmitApprovalsData = {
 }
 
 export type ApprovalsSubmitApprovalsResponse = void
+
+export type WatchtowerListWatchtowerAgentsData = {
+  agentType?: WatchtowerAgentType | null
+  cursor?: string | null
+  limit?: number
+  status?: WatchtowerAgentStatus | null
+}
+
+export type WatchtowerListWatchtowerAgentsResponse = WatchtowerAgentListResponse
+
+export type WatchtowerListWatchtowerAgentSessionsData = {
+  agentId: string
+  cursor?: string | null
+  limit?: number
+  state?: string | null
+  workspaceId?: string | null
+}
+
+export type WatchtowerListWatchtowerAgentSessionsResponse =
+  WatchtowerAgentSessionListResponse
+
+export type WatchtowerListWatchtowerSessionToolCallsData = {
+  cursor?: string | null
+  limit?: number
+  sessionId: string
+  status?: WatchtowerToolCallStatus | null
+}
+
+export type WatchtowerListWatchtowerSessionToolCallsResponse =
+  WatchtowerAgentToolCallListResponse
+
+export type WatchtowerRevokeWatchtowerSessionData = {
+  requestBody: WatchtowerRevokeAgentSessionRequest
+  sessionId: string
+}
+
+export type WatchtowerRevokeWatchtowerSessionResponse = void
+
+export type WatchtowerDisableWatchtowerAgentData = {
+  agentId: string
+  requestBody: WatchtowerDisableAgentRequest
+}
+
+export type WatchtowerDisableWatchtowerAgentResponse = void
+
+export type WatchtowerEnableWatchtowerAgentData = {
+  agentId: string
+}
+
+export type WatchtowerEnableWatchtowerAgentResponse = void
 
 export type AdminListOrganizationsResponse =
   Array<tracecat_ee__admin__organizations__schemas__OrgRead>
@@ -10096,6 +10706,36 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/agent/channels/{channel_type}/{token}": {
+    post: {
+      req: PublicHandleChannelEventData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/channels/slack/oauth/callback": {
+    get: {
+      req: PublicHandleSlackOauthCallbackData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces": {
     get: {
       res: {
@@ -10635,6 +11275,66 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkflowExecutionCreateResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/search": {
+    get: {
+      req: WorkflowExecutionsSearchWorkflowExecutionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_WorkflowRunReadMinimal_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/{execution_id}/reset-points": {
+    get: {
+      req: WorkflowExecutionsListWorkflowExecutionResetPointsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkflowExecutionResetPointRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/{execution_id}/reset": {
+    post: {
+      req: WorkflowExecutionsResetWorkflowExecutionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowExecutionResetResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/reset/bulk": {
+    post: {
+      req: WorkflowExecutionsBulkResetWorkflowExecutionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowExecutionBulkResetResponse
         /**
          * Validation Error
          */
@@ -11672,6 +12372,92 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/agent/channels/tokens": {
+    post: {
+      req: AgentChannelsCreateChannelTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentChannelTokenRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: AgentChannelsListChannelTokensData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentChannelTokenRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/channels/tokens/{token_id}": {
+    patch: {
+      req: AgentChannelsUpdateChannelTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentChannelTokenRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentChannelsDeleteChannelTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/channels/tokens/{token_id}/rotate": {
+    post: {
+      req: AgentChannelsRotateChannelTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentChannelTokenRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/channels/tokens/slack/oauth/start": {
+    post: {
+      req: AgentChannelsStartSlackOauthData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SlackOAuthStartResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/agent/presets": {
     get: {
       req: AgentPresetsListAgentPresetsData
@@ -11888,6 +12674,96 @@ export type $OpenApiTs = {
   "/approvals/{session_id}": {
     post: {
       req: ApprovalsSubmitApprovalsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/watchtower/monitor/agents": {
+    get: {
+      req: WatchtowerListWatchtowerAgentsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WatchtowerAgentListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/watchtower/monitor/agents/{agent_id}/sessions": {
+    get: {
+      req: WatchtowerListWatchtowerAgentSessionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WatchtowerAgentSessionListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/watchtower/monitor/sessions/{session_id}/tool-calls": {
+    get: {
+      req: WatchtowerListWatchtowerSessionToolCallsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WatchtowerAgentToolCallListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/watchtower/monitor/sessions/{session_id}/revoke": {
+    post: {
+      req: WatchtowerRevokeWatchtowerSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/watchtower/monitor/agents/{agent_id}/disable": {
+    post: {
+      req: WatchtowerDisableWatchtowerAgentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/watchtower/monitor/agents/{agent_id}/enable": {
+    post: {
+      req: WatchtowerEnableWatchtowerAgentData
       res: {
         /**
          * Successful Response

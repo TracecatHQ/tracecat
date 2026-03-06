@@ -57,6 +57,8 @@ EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
         "table:update",
         "schedule:create",
         "schedule:update",
+        "agent:create",
+        "agent:update",
         "agent:execute",
         "secret:create",
         "secret:update",
@@ -77,8 +79,6 @@ ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
         "secret:delete",
         "tag:delete",
         "variable:delete",
-        "agent:create",
-        "agent:update",
         "agent:delete",
         "integration:delete",
         "workspace:update",
@@ -293,6 +293,8 @@ ORG_MEMBER_SCOPES: frozenset[str] = frozenset(
         "org:read",
         "org:member:read",
         "org:registry:read",
+        "agent:read",
+        "agent:execute",
     }
 )
 

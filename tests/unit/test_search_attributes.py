@@ -8,9 +8,10 @@ Objectives
 4. Test workspace_id search attribute is properly included
 """
 
+import asyncio
 import uuid
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from temporalio.client import Client
@@ -23,7 +24,11 @@ from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.identifiers import UserID, WorkflowID
 from tracecat.workflow.executions.common import build_query
-from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
+from tracecat.workflow.executions.enums import (
+    ExecutionType,
+    TemporalSearchAttr,
+    TriggerType,
+)
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.schedules.bridge import build_schedule_search_attributes
 
@@ -89,6 +94,110 @@ def mock_dsl() -> DSLInput:
 @pytest.mark.anyio
 class TestWorkflowExecutionSearchAttributes:
     """Test search attributes on workflow executions."""
+
+    @pytest.mark.parametrize(
+        ("method_name", "temporal_method"),
+        [
+            ("create_workflow_execution", "execute_workflow"),
+            ("create_draft_workflow_execution", "execute_workflow"),
+            ("create_workflow_execution_wait_for_start", "start_workflow"),
+            ("create_draft_workflow_execution_wait_for_start", "start_workflow"),
+        ],
+    )
+    async def test_all_blocking_execution_entrypoints_include_workspace_search_attr(
+        self,
+        mock_client: Mock,
+        mock_role_with_workspace: Role,
+        mock_dsl: DSLInput,
+        test_workflow_id: WorkflowID,
+        method_name: str,
+        temporal_method: str,
+    ) -> None:
+        """Every blocking workflow creation entrypoint must set TracecatWorkspaceId."""
+        service = WorkflowExecutionsService(
+            client=mock_client, role=mock_role_with_workspace
+        )
+        mock_client.execute_workflow = AsyncMock(return_value={"status": "completed"})
+        mock_client.start_workflow = AsyncMock(return_value=Mock())
+
+        method = getattr(service, method_name)
+        with patch.object(service, "_resolve_execution_timeout", return_value=None):
+            await method(
+                dsl=mock_dsl,
+                wf_id=test_workflow_id,
+                trigger_type=TriggerType.MANUAL,
+            )
+
+        if temporal_method == "execute_workflow":
+            await_args = mock_client.execute_workflow.await_args
+        else:
+            await_args = mock_client.start_workflow.await_args
+
+        assert await_args is not None
+        search_attrs = await_args.kwargs["search_attributes"]
+        assert isinstance(search_attrs, TypedSearchAttributes)
+
+        ws_key = TemporalSearchAttr.WORKSPACE_ID.key
+        workspace_pairs = [
+            pair for pair in search_attrs.search_attributes if pair.key == ws_key
+        ]
+        assert workspace_pairs, "TracecatWorkspaceId search attribute missing"
+        assert workspace_pairs[0].value == str(mock_role_with_workspace.workspace_id)
+
+    @pytest.mark.parametrize(
+        "method_name",
+        [
+            "create_workflow_execution_nowait",
+            "create_draft_workflow_execution_nowait",
+        ],
+    )
+    async def test_all_nowait_execution_entrypoints_include_workspace_search_attr(
+        self,
+        mock_client: Mock,
+        mock_role_with_workspace: Role,
+        mock_dsl: DSLInput,
+        test_workflow_id: WorkflowID,
+        method_name: str,
+    ) -> None:
+        """Every nowait workflow creation entrypoint must set TracecatWorkspaceId."""
+        service = WorkflowExecutionsService(
+            client=mock_client, role=mock_role_with_workspace
+        )
+        mock_client.start_workflow = AsyncMock(return_value=Mock())
+        created_tasks: list[asyncio.Task[None]] = []
+
+        def _capture_ensure_future(coro: Any) -> asyncio.Task[None]:
+            task = asyncio.create_task(coro)
+            created_tasks.append(task)
+            return task
+
+        method = getattr(service, method_name)
+        with (
+            patch.object(service, "_resolve_execution_timeout", return_value=None),
+            patch.object(service, "_handle_background_task_exception", Mock()),
+            patch(
+                "tracecat.workflow.executions.service.asyncio.ensure_future",
+                side_effect=_capture_ensure_future,
+            ),
+        ):
+            method(
+                dsl=mock_dsl,
+                wf_id=test_workflow_id,
+                trigger_type=TriggerType.MANUAL,
+            )
+            await asyncio.gather(*created_tasks)
+
+        await_args = mock_client.start_workflow.await_args
+        assert await_args is not None
+        search_attrs = await_args.kwargs["search_attributes"]
+        assert isinstance(search_attrs, TypedSearchAttributes)
+
+        ws_key = TemporalSearchAttr.WORKSPACE_ID.key
+        workspace_pairs = [
+            pair for pair in search_attrs.search_attributes if pair.key == ws_key
+        ]
+        assert workspace_pairs, "TracecatWorkspaceId search attribute missing"
+        assert workspace_pairs[0].value == str(mock_role_with_workspace.workspace_id)
 
     async def test_manual_trigger_with_user_sets_all_attributes(
         self,
@@ -322,14 +431,20 @@ class TestScheduleSearchAttributes:
         assert isinstance(search_attrs, TypedSearchAttributes)
         pairs = search_attrs.search_attributes
 
-        # Should have trigger_type and workspace_id
-        assert len(pairs) == 2
+        # Should have trigger_type, execution_type, and workspace_id
+        assert len(pairs) == 3
 
         # Verify trigger type is SCHEDULED
         trigger_pair = next(
             p for p in pairs if p.key.name == TemporalSearchAttr.TRIGGER_TYPE.value
         )
         assert trigger_pair.value == TriggerType.SCHEDULED.value
+
+        # Verify execution type is PUBLISHED
+        execution_pair = next(
+            p for p in pairs if p.key.name == TemporalSearchAttr.EXECUTION_TYPE.value
+        )
+        assert execution_pair.value == ExecutionType.PUBLISHED.value
 
         # Verify workspace ID
         workspace_pair = next(
@@ -346,12 +461,18 @@ class TestScheduleSearchAttributes:
         assert isinstance(search_attrs, TypedSearchAttributes)
         pairs = search_attrs.search_attributes
 
-        # Should only have trigger_type (no workspace_id)
-        assert len(pairs) == 1
+        # Should only have trigger_type and execution_type (no workspace_id)
+        assert len(pairs) == 2
 
-        # Verify only trigger type is set
-        assert pairs[0].key.name == TemporalSearchAttr.TRIGGER_TYPE.value
-        assert pairs[0].value == TriggerType.SCHEDULED.value
+        # Verify trigger and execution types are set
+        trigger_pair = next(
+            p for p in pairs if p.key.name == TemporalSearchAttr.TRIGGER_TYPE.value
+        )
+        assert trigger_pair.value == TriggerType.SCHEDULED.value
+        execution_pair = next(
+            p for p in pairs if p.key.name == TemporalSearchAttr.EXECUTION_TYPE.value
+        )
+        assert execution_pair.value == ExecutionType.PUBLISHED.value
 
 
 @pytest.mark.anyio
@@ -362,11 +483,12 @@ class TestSearchAttributeQueries:
         self, mock_role_with_workspace: Role, test_workflow_id: WorkflowID
     ) -> None:
         """Test that build_query constructs queries with search attributes."""
+        assert mock_role_with_workspace.workspace_id is not None
         query = build_query(
+            workspace_id=mock_role_with_workspace.workspace_id,
             workflow_id=test_workflow_id,
             trigger_types={TriggerType.MANUAL},
             triggered_by_user_id=mock_role_with_workspace.user_id,
-            workspace_id=str(mock_role_with_workspace.workspace_id),
         )
 
         # Verify query includes workspace, trigger type, and user ID
@@ -381,6 +503,7 @@ class TestSearchAttributeQueries:
     ) -> None:
         """Test building queries with multiple trigger types."""
         query = build_query(
+            workspace_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
             workflow_id=test_workflow_id,
             trigger_types={TriggerType.SCHEDULED, TriggerType.WEBHOOK},
         )
@@ -394,7 +517,10 @@ class TestSearchAttributeQueries:
         self, test_workflow_id: WorkflowID
     ) -> None:
         """Test building queries with just workflow ID."""
-        query = build_query(workflow_id=test_workflow_id)
+        query = build_query(
+            workspace_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            workflow_id=test_workflow_id,
+        )
 
         # Verify query includes workflow ID
         assert test_workflow_id.short() in query

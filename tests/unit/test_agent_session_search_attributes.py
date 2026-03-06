@@ -95,6 +95,7 @@ async def test_run_turn_stamps_tracecat_search_attributes(
 
     with (
         patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch.object(service, "has_pending_approvals", AsyncMock(return_value=False)),
         patch.object(service, "auto_title_session_on_first_prompt", AsyncMock()),
         patch.object(service, "_build_agent_config", _mock_agent_config_context),
         patch(
@@ -137,6 +138,7 @@ async def test_run_turn_omits_triggered_by_when_role_has_no_user_id(
 
     with (
         patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch.object(service, "has_pending_approvals", AsyncMock(return_value=False)),
         patch.object(service, "auto_title_session_on_first_prompt", AsyncMock()),
         patch.object(service, "_build_agent_config", _mock_agent_config_context),
         patch(

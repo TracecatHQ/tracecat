@@ -23,7 +23,10 @@ import type {
   WorkspaceMember,
 } from "@/client"
 import { CaseItem } from "@/components/cases/case-item"
-import type { FilterMode, SortDirection } from "@/components/cases/cases-header"
+import type {
+  FilterMode,
+  SortDirection,
+} from "@/components/filters/filter-multi-select"
 import { cn } from "@/lib/utils"
 
 type StatusGroup =

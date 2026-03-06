@@ -1171,10 +1171,15 @@ class IntegrationService(BaseWorkspaceService):
             server_uri = params.server_uri.strip()
             auth_type = params.auth_type
             oauth_integration_id = params.oauth_integration_id
-            if params.auth_type == MCPAuthType.CUSTOM and params.custom_credentials:
-                encrypted_custom_credentials = self._encrypt_token(
-                    params.custom_credentials.get_secret_value()
-                )
+            if (
+                params.auth_type in {MCPAuthType.CUSTOM, MCPAuthType.OAUTH2}
+                and params.custom_credentials
+            ):
+                custom_credentials = params.custom_credentials.get_secret_value()
+                if custom_credentials:
+                    encrypted_custom_credentials = self._encrypt_token(
+                        custom_credentials
+                    )
         else:
             self._validate_stdio_server_config(
                 command=params.stdio_command,
@@ -1247,6 +1252,7 @@ class IntegrationService(BaseWorkspaceService):
         )
         if not mcp_integration:
             return None
+        previous_auth_type = mcp_integration.auth_type
 
         # Validate OAuth integration if auth_type is being changed to oauth2
         if params.auth_type == MCPAuthType.OAUTH2:
@@ -1317,18 +1323,26 @@ class IntegrationService(BaseWorkspaceService):
         if params.timeout is not None:
             mcp_integration.timeout = params.timeout
 
-        # Handle custom credentials encryption/update (for CUSTOM auth type)
+        # Handle encrypted header credentials for CUSTOM/OAUTH2 auth types.
         if params.custom_credentials is not None:
-            if params.custom_credentials.get_secret_value():
+            custom_credentials = params.custom_credentials.get_secret_value()
+            if custom_credentials:
                 mcp_integration.encrypted_headers = self._encrypt_token(
-                    params.custom_credentials.get_secret_value()
+                    custom_credentials
                 )
             else:
                 # Empty string means clear the credentials
                 mcp_integration.encrypted_headers = None
-        elif params.auth_type is not None and params.auth_type != MCPAuthType.CUSTOM:
-            # If changing away from CUSTOM, clear the credentials
-            mcp_integration.encrypted_headers = None
+        elif params.auth_type is not None:
+            if params.auth_type == MCPAuthType.NONE:
+                # NONE auth should never keep custom header credentials.
+                mcp_integration.encrypted_headers = None
+            elif (
+                previous_auth_type == MCPAuthType.CUSTOM
+                and params.auth_type == MCPAuthType.OAUTH2
+            ):
+                # Avoid carrying CUSTOM credentials into OAuth unless explicitly set.
+                mcp_integration.encrypted_headers = None
 
         self.session.add(mcp_integration)
         await self.session.commit()

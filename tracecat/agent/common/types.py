@@ -55,7 +55,7 @@ class MCPStdioServerConfig(TypedDict):
     timeout: NotRequired[int]
 
 
-type MCPServerConfig = MCPHttpServerConfig | MCPStdioServerConfig
+MCPServerConfig = MCPHttpServerConfig | MCPStdioServerConfig
 
 
 @dataclass(kw_only=True, slots=True)

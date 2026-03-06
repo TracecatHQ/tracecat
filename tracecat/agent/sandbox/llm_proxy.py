@@ -153,6 +153,16 @@ class LLMSocketProxy:
             if self._on_error:
                 self._on_error(message)
 
+    @staticmethod
+    def _is_client_disconnect_error(exc: Exception) -> bool:
+        """Return True for expected writer-close errors during teardown."""
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError)):
+            return True
+        if isinstance(exc, RuntimeError):
+            message = str(exc).lower()
+            return "handler is closed" in message or "transport closed" in message
+        return False
+
     async def _handle_connection(
         self,
         reader: asyncio.StreamReader,
@@ -180,6 +190,9 @@ class LLMSocketProxy:
             # Transport closed during shutdown - not a fatal error
             logger.debug("Connection closed during proxy request")
         except Exception as e:
+            if self._is_client_disconnect_error(e) or writer.is_closing():
+                logger.debug("Client disconnected during proxy request")
+                return
             # Don't emit fatal error if server is already shutting down
             if self._server is None:
                 logger.debug("Proxy error during shutdown (ignored)", error=str(e))
@@ -338,18 +351,28 @@ class LLMSocketProxy:
                 response_line = (
                     f"HTTP/1.1 {response.status_code} {response.reason_phrase}\r\n"
                 )
-                writer.write(response_line.encode())
+                try:
+                    writer.write(response_line.encode())
 
-                # Forward response headers
-                for key, value in response.headers.items():
-                    # Skip hop-by-hop headers
-                    if key.lower() in ("connection", "keep-alive", "transfer-encoding"):
-                        continue
-                    header_line = f"{key}: {value}\r\n"
-                    writer.write(header_line.encode())
+                    # Forward response headers
+                    for key, value in response.headers.items():
+                        # Skip hop-by-hop headers
+                        if key.lower() in (
+                            "connection",
+                            "keep-alive",
+                            "transfer-encoding",
+                        ):
+                            continue
+                        header_line = f"{key}: {value}\r\n"
+                        writer.write(header_line.encode())
 
-                writer.write(b"\r\n")
-                await writer.drain()
+                    writer.write(b"\r\n")
+                    await writer.drain()
+                except Exception as e:
+                    if self._is_client_disconnect_error(e) or writer.is_closing():
+                        logger.debug("Client disconnected before response headers")
+                        return
+                    raise
 
                 # Stream response body
                 try:
@@ -357,7 +380,12 @@ class LLMSocketProxy:
                         try:
                             writer.write(chunk)
                             await writer.drain()
-                        except (ConnectionResetError, BrokenPipeError):
+                        except Exception as e:
+                            if (
+                                not self._is_client_disconnect_error(e)
+                                and not writer.is_closing()
+                            ):
+                                raise
                             # Client disconnected - this is normal when sandbox exits
                             logger.debug(
                                 "Client disconnected during response streaming"
@@ -387,6 +415,8 @@ class LLMSocketProxy:
                 logger.debug("Connection closed after client disconnect")
             else:
                 logger.warning("Upstream connection closed unexpectedly")
-        except (ConnectionResetError, BrokenPipeError):
+        except Exception as e:
+            if not self._is_client_disconnect_error(e) and not writer.is_closing():
+                raise
             # Client disconnected - this is normal when sandbox exits
             logger.debug("Client disconnected during request forwarding")

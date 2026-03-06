@@ -124,7 +124,7 @@ spec:
                 port:
                   number: {{ .Values.mcp.port }}
           - path: /.well-known/oauth-protected-resource
-            pathType: ImplementationSpecific
+            pathType: Prefix
             backend:
               service:
                 name: {{ include "tracecat.fullname" . }}-mcp
@@ -221,7 +221,7 @@ spec:
                 port:
                   number: {{ .Values.mcp.port }}
           - path: /.well-known/oauth-protected-resource
-            pathType: ImplementationSpecific
+            pathType: Prefix
             backend:
               service:
                 name: {{ include "tracecat.fullname" . }}-mcp

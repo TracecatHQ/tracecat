@@ -42,6 +42,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.agent.types import AgentConfig
     from tracecat.auth.types import Role
+    from tracecat.config import TRACECAT__AGENT_SANDBOX_TIMEOUT
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.logger import logger
@@ -57,6 +58,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat_ee.agent.approvals.service import ApprovalManager, ApprovalMap
     from tracecat_ee.agent.context import AgentContext
+    from tracecat_ee.agent.types import AgentWorkflowID
 
 
 class AgentWorkflowArgs(BaseModel):
@@ -85,6 +87,7 @@ class AgentWorkflowArgs(BaseModel):
 class WorkflowApprovalSubmission(BaseModel):
     approvals: ApprovalMap
     approved_by: uuid.UUID | None = None
+    decision_metadata: dict[str, dict[str, Any]] | None = None
 
 
 def _resolve_agent_output(
@@ -217,14 +220,14 @@ class DurableAgentWorkflow:
         """Run the agent until completion. The agent will call tools until it needs human approval."""
         if workflow.patched(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH):
             self._upsert_tracecat_search_attributes()
-        logger.info(
+        logger.debug(
             "DurableAgentWorkflow run", args=args, harness_type=self.harness_type
         )
         logger.debug("AGENT CONTEXT", agent_context=AgentContext.get())
         if workflow.unsafe.is_replaying():
-            logger.info("Workflow is replaying")
+            logger.debug("Workflow is replaying")
         else:
-            logger.info("Starting agent", prompt=args.agent_args.user_prompt)
+            logger.debug("Starting agent", prompt=args.agent_args.user_prompt)
 
         cfg = await self._build_config(args)
 
@@ -239,7 +242,11 @@ class DurableAgentWorkflow:
             approvals=submission.approvals,
             approved_by=submission.approved_by,
         )
-        self.approvals.set(submission.approvals, approved_by=submission.approved_by)
+        self.approvals.set(
+            submission.approvals,
+            approved_by=submission.approved_by,
+            decision_metadata=submission.decision_metadata,
+        )
 
     @set_approvals.validator
     def validate_set_approvals(self, submission: WorkflowApprovalSubmission) -> None:
@@ -251,6 +258,15 @@ class DurableAgentWorkflow:
             approved_by=submission.approved_by,
         )
         self.approvals.validate_responses(submission.approvals)
+        if submission.decision_metadata:
+            unexpected_metadata_ids = set(submission.decision_metadata) - set(
+                submission.approvals
+            )
+            if unexpected_metadata_ids:
+                raise ValueError(
+                    "Received decision metadata for unknown tool calls: "
+                    + ", ".join(sorted(unexpected_metadata_ids))
+                )
 
     async def _run_with_nsjail(
         self, args: AgentWorkflowArgs, cfg: AgentConfig
@@ -267,8 +283,14 @@ class DurableAgentWorkflow:
         """
         logger.info("Running agent with NSJail harness", session_id=self.session_id)
 
+        # Persist the workflow-id UUID token used to start this execution so
+        # approval continuation can target the exact live workflow later.
+        curr_run_id = AgentWorkflowID.from_workflow_id(
+            workflow.info().workflow_id
+        ).session_id
+
         # Create or get the AgentSession - idempotent, safe to call on resume
-        # Pass session_id as curr_run_id since the workflow ID is agent/<session_id>
+        # Persist the active workflow token as curr_run_id for approval lookups.
         create_result = await workflow.execute_activity(
             create_session_activity,
             CreateSessionInput(
@@ -281,7 +303,7 @@ class DurableAgentWorkflow:
                 tools=args.tools,
                 agent_preset_id=args.agent_preset_id,
                 harness_type=HarnessType(self.harness_type),
-                curr_run_id=self.session_id,
+                curr_run_id=curr_run_id,
                 initial_user_prompt=args.agent_args.user_prompt,
             ),
             start_to_close_timeout=timedelta(seconds=30),
@@ -396,7 +418,9 @@ class DurableAgentWorkflow:
             result = await workflow.execute_activity(
                 run_agent_activity,
                 executor_input,
-                start_to_close_timeout=timedelta(seconds=600),
+                start_to_close_timeout=timedelta(
+                    seconds=TRACECAT__AGENT_SANDBOX_TIMEOUT
+                ),
                 heartbeat_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )

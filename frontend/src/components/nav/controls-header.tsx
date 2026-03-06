@@ -1166,6 +1166,12 @@ function getPageConfig(
     }
   }
 
+  if (pagePath.startsWith("/runs")) {
+    return {
+      title: "Runs",
+    }
+  }
+
   if (pagePath.startsWith("/agents")) {
     // Check if this is an agent preset detail page
     const agentPresetMatch = pagePath.match(/^\/agents\/([^/]+)$/)

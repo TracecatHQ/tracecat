@@ -11,3 +11,4 @@ class Entitlement(StrEnum):
     AGENT_ADDONS = "agent_addons"
     CASE_ADDONS = "case_addons"
     RBAC_ADDONS = "rbac_addons"
+    WATCHTOWER = "watchtower"

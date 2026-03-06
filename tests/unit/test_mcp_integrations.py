@@ -9,6 +9,7 @@ This test suite covers MCP integration functionality including:
 """
 
 import uuid
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from pydantic import SecretStr, TypeAdapter
@@ -16,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.db.models import AgentPreset, MCPIntegration, OAuthIntegration
@@ -24,6 +26,8 @@ from tracecat.integrations.providers.base import (
     MCPAuthProvider,
     OAuthDiscoveryResult,
 )
+from tracecat.integrations.providers.wiz.mcp import WizMCPProvider
+from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
 from tracecat.integrations.schemas import (
     MCPHttpIntegrationCreate,
     MCPIntegrationCreate,
@@ -98,6 +102,29 @@ class TestMCPIntegrationCRUD:
         assert mcp_integration.created_at is not None
         assert mcp_integration.updated_at is not None
 
+    async def test_create_mcp_integration_with_oauth2_additional_headers(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Test creating OAuth2 MCP integration with extra custom headers."""
+        custom_headers = '{"X-Wiz-Tenant": "tenant-a"}'
+        params = MCPHttpIntegrationCreate(
+            name="Test OAuth MCP with headers",
+            server_uri="https://api.example.com/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration.id,
+            custom_credentials=SecretStr(custom_headers),
+        )
+
+        mcp_integration = await integration_service.create_mcp_integration(
+            params=params
+        )
+
+        assert mcp_integration.auth_type == MCPAuthType.OAUTH2
+        assert mcp_integration.encrypted_headers is not None
+        assert custom_headers.encode() not in mcp_integration.encrypted_headers
+
     async def test_create_mcp_integration_with_custom_auth(
         self,
         integration_service: IntegrationService,
@@ -165,6 +192,97 @@ class TestMCPIntegrationCRUD:
         assert retrieved.id == created.id
         assert retrieved.name == created.name
         assert retrieved.server_uri == created.server_uri
+
+    async def test_resolve_oauth2_mcp_with_additional_headers(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Test OAUTH2 MCP includes additional headers without overriding Authorization."""
+        params = MCPHttpIntegrationCreate(
+            name="Wiz MCP",
+            server_uri="https://mcp.app.wiz.io/",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration.id,
+            custom_credentials=SecretStr(
+                '{"Authorization":"Bearer bad-token","X-Wiz-Tenant":"tenant-a"}'
+            ),
+        )
+        created = await integration_service.create_mcp_integration(params=params)
+
+        preset_service = AgentPresetService(
+            session=integration_service.session,
+            role=integration_service.role,
+        )
+        resolved = await preset_service._resolve_mcp_integrations([str(created.id)])
+
+        assert resolved is not None
+        assert len(resolved) == 1
+        http_config = resolved[0]
+        assert http_config.get("type") == "http"
+        headers = http_config.get("headers")
+        assert isinstance(headers, dict)
+        assert headers.get("Authorization") == "Bearer test_access_token"
+        assert headers.get("X-Wiz-Tenant") == "tenant-a"
+
+    async def test_resolve_oauth2_mcp_filters_authorization_header_variants(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Test OAUTH2 MCP rejects Authorization header override with any casing."""
+        params = MCPHttpIntegrationCreate(
+            name="Wiz MCP with auth variants",
+            server_uri="https://mcp.app.wiz.io/",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration.id,
+            custom_credentials=SecretStr(
+                '{"authorization":"Bearer bad-lower","AUTHORIZATION":"Bearer bad-upper","X-Wiz-Tenant":"tenant-a"}'
+            ),
+        )
+        created = await integration_service.create_mcp_integration(params=params)
+
+        preset_service = AgentPresetService(
+            session=integration_service.session,
+            role=integration_service.role,
+        )
+        resolved = await preset_service._resolve_mcp_integrations([str(created.id)])
+
+        assert resolved is not None
+        assert len(resolved) == 1
+        headers = resolved[0].get("headers")
+        assert isinstance(headers, dict)
+        assert headers.get("Authorization") == "Bearer test_access_token"
+        assert headers.get("X-Wiz-Tenant") == "tenant-a"
+        assert "authorization" not in headers
+        assert "AUTHORIZATION" not in headers
+
+    async def test_resolve_oauth2_mcp_ignores_invalid_optional_headers(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Test malformed optional OAuth2 headers do not disable MCP resolution."""
+        params = MCPHttpIntegrationCreate(
+            name="Wiz MCP invalid headers",
+            server_uri="https://mcp.app.wiz.io/",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration.id,
+            custom_credentials=SecretStr("not valid json"),
+        )
+        created = await integration_service.create_mcp_integration(params=params)
+
+        preset_service = AgentPresetService(
+            session=integration_service.session,
+            role=integration_service.role,
+        )
+        resolved = await preset_service._resolve_mcp_integrations([str(created.id)])
+
+        assert resolved is not None
+        assert len(resolved) == 1
+        headers = resolved[0].get("headers")
+        assert isinstance(headers, dict)
+        assert headers == {"Authorization": "Bearer test_access_token"}
 
     async def test_get_mcp_integration_not_found(
         self,
@@ -592,6 +710,59 @@ class TestMCPIntegrationAuthTypeSwapping:
 
         assert updated is not None
         assert updated.oauth_integration_id == oauth_integration2.id
+
+    async def test_oauth2_headers_preserved_when_updating_oauth2(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Test OAUTH2 headers are preserved when auth_type remains OAUTH2."""
+        params = MCPHttpIntegrationCreate(
+            name="Test MCP",
+            server_uri="https://api.example.com/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration.id,
+            custom_credentials=SecretStr('{"X-Wiz-Tenant": "tenant-a"}'),
+        )
+        created = await integration_service.create_mcp_integration(params=params)
+        original_encrypted_headers = created.encrypted_headers
+
+        update_params = MCPIntegrationUpdate(
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration.id,
+        )
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=created.id, params=update_params
+        )
+
+        assert updated is not None
+        assert updated.auth_type == MCPAuthType.OAUTH2
+        assert updated.encrypted_headers == original_encrypted_headers
+
+    async def test_oauth2_headers_cleared_with_empty_custom_credentials(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Test OAUTH2 additional headers clear when updated with empty credentials."""
+        params = MCPHttpIntegrationCreate(
+            name="Test MCP",
+            server_uri="https://api.example.com/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=oauth_integration.id,
+            custom_credentials=SecretStr('{"X-Wiz-Tenant": "tenant-a"}'),
+        )
+        created = await integration_service.create_mcp_integration(params=params)
+        assert created.encrypted_headers is not None
+
+        update_params = MCPIntegrationUpdate(custom_credentials=SecretStr(""))
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=created.id, params=update_params
+        )
+
+        assert updated is not None
+        assert updated.auth_type == MCPAuthType.OAUTH2
+        assert updated.encrypted_headers is None
 
 
 @pytest.mark.anyio
@@ -1055,6 +1226,25 @@ class TestMCPIntegrationEdgeCases:
 class TestMCPProviderOAuth:
     """Test MCP OAuth provider behavior and OAuth discovery."""
 
+    async def test_wiz_provider_resource_uses_trailing_slash(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Wiz provider must send resource with trailing slash for OAuth calls."""
+        monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "https://app.test")
+        provider = WizMCPProvider(
+            client_id="wiz-client",
+            client_secret="wiz-secret",
+            discovered_auth_endpoint="https://mcp.app.wiz.io/oauth/authorize",
+            discovered_token_endpoint="https://mcp.app.wiz.io/oauth/token",
+        )
+
+        assert provider._get_additional_authorize_params()["resource"] == (
+            "https://mcp.app.wiz.io/"
+        )
+        assert provider._get_additional_token_params()["resource"] == (
+            "https://mcp.app.wiz.io/"
+        )
+
     async def test_mcp_provider_preserves_token_methods(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -1112,4 +1302,49 @@ class TestMCPProviderOAuth:
         assert (
             getattr(provider.client, "token_endpoint_auth_method", None)
             == "client_secret_post"
+        )
+
+    async def test_sentry_provider_uses_mcp_resource_path(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Sentry MCP must send a /mcp resource target to avoid invalid_target."""
+
+        discovery = OAuthDiscoveryResult(
+            authorization_endpoint="https://mcp.sentry.dev/oauth/authorize",
+            token_endpoint="https://mcp.sentry.dev/oauth/token",
+            token_methods=["none"],
+            registration_endpoint="https://mcp.sentry.dev/oauth/register",
+        )
+
+        async def fake_discover(
+            cls,
+            logger_instance,
+            *,
+            discovered_auth_endpoint=None,
+            discovered_token_endpoint=None,
+        ) -> OAuthDiscoveryResult:
+            _ = (
+                cls,
+                logger_instance,
+                discovered_auth_endpoint,
+                discovered_token_endpoint,
+            )
+            return discovery
+
+        monkeypatch.setattr(
+            SentryMCPProvider,
+            "_discover_oauth_endpoints_async",
+            classmethod(fake_discover),
+        )
+
+        provider = await SentryMCPProvider.instantiate(client_id="dummy-client")
+
+        auth_url, _ = await provider.get_authorization_url(state="test-state")
+        auth_query = parse_qs(urlparse(auth_url).query)
+
+        assert auth_query["resource"] == [SentryMCPProvider.mcp_server_uri]
+        assert (
+            provider._get_additional_token_params()["resource"]
+            == SentryMCPProvider.mcp_server_uri
         )

@@ -235,6 +235,10 @@ class ApprovalDecision(BaseModel):
     action: Literal["approve", "override", "deny"]
     override_args: dict[str, Any] | None = None
     reason: str | None = None
+    metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional metadata captured with the decision (e.g. external actor identity).",
+    )
 
     def to_deferred_result(self) -> bool | ToolApproved | ToolDenied:
         match self.action:
@@ -253,6 +257,13 @@ class ContinueRunRequest(BaseModel):
 
     kind: Literal["continue"] = Field(default="continue", frozen=True)
     decisions: list[ApprovalDecision]
+    source: Literal["inbox", "slack"] = Field(
+        default="inbox",
+        description=(
+            "Origin of the approval decision submission. "
+            "Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions."
+        ),
+    )
 
 
 # Union type for chat requests - supports both simple and Vercel formats

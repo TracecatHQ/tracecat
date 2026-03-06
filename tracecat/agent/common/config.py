@@ -13,12 +13,12 @@ from pathlib import Path
 # === Agent Sandbox Config (read directly from env) === #
 
 TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT", "600")
+    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT") or 1800
 )
-"""Default timeout for agent sandbox execution in seconds (10 minutes)."""
+"""Default timeout for agent sandbox execution in seconds (30 minutes)."""
 
 TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_MEMORY_MB", "4096")
+    os.environ.get("TRACECAT__AGENT_SANDBOX_MEMORY_MB") or 4096
 )
 """Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
 

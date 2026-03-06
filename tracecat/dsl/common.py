@@ -1087,7 +1087,10 @@ class AgentActionMemo(BaseModel):
                     "Error parsing agent action memo field",
                     error=e,
                     key=key,
-                    value=value,
+                    encoding=value.metadata.get("encoding", b"").decode(
+                        "utf-8", errors="replace"
+                    ),
+                    payload_size_bytes=len(value.data),
                 )
         if not data.get("action_ref"):
             data["action_ref"] = "unknown_agent_action"

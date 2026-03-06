@@ -27,7 +27,7 @@ import {
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { getBaseUrl } from "@/lib/api"
-import type { ModelInfo } from "@/lib/chat"
+import { type ModelInfo, toServerUIMessage } from "@/lib/chat"
 
 const DEFAULT_CHAT_ERROR_MESSAGE =
   "The assistant couldn't complete that request. Please try again."
@@ -302,6 +302,7 @@ export function useVercelChat({
           const body: ContinueRunRequest = {
             kind: "continue",
             decisions: dataPart.data.decisions,
+            source: dataPart.data.source ?? "inbox",
           }
           return { body }
         }
@@ -311,7 +312,7 @@ export function useVercelChat({
           kind: "vercel",
           model: modelInfo?.name,
           model_provider: modelInfo?.provider,
-          message: last,
+          message: toServerUIMessage(last),
         }
         const baseUrl = (modelInfo as { baseUrl?: string | null })?.baseUrl
         if (baseUrl != null) body.base_url = baseUrl
@@ -356,7 +357,8 @@ export type ApprovalCard = {
  * Pass this message to your chat messages array before sending.
  */
 export function makeContinueMessage(
-  decisions: ContinueRunRequest["decisions"]
+  decisions: ContinueRunRequest["decisions"],
+  source: ContinueRunRequest["source"] = "inbox"
 ): UIMessage {
   return {
     id: `continue-${Date.now()}`,
@@ -364,7 +366,7 @@ export function makeContinueMessage(
     parts: [
       {
         type: "data-continue",
-        data: { format: "continue", decisions },
+        data: { kind: "continue", source, decisions },
       } as UIMessage["parts"][number],
     ],
   }

@@ -267,6 +267,26 @@ class TestWorkflowTagsService:
         assert retrieved_wf_tag.workflow_id == workflow_id
         assert retrieved_wf_tag.tag_id == tag.id
 
+    async def test_add_workflow_tag_is_idempotent(
+        self,
+        workflow_tags_service: WorkflowTagsService,
+        tags_service: TagsService,
+        tag_create_params: TagCreate,
+        workflow_id: WorkflowID,
+    ) -> None:
+        """Test adding the same workflow tag twice is a no-op."""
+        tag = await tags_service.create_tag(tag_create_params)
+
+        first_link = await workflow_tags_service.add_workflow_tag(workflow_id, tag.id)
+        second_link = await workflow_tags_service.add_workflow_tag(workflow_id, tag.id)
+
+        assert first_link.workflow_id == second_link.workflow_id
+        assert first_link.tag_id == second_link.tag_id
+
+        workflow_tags = await workflow_tags_service.list_tags_for_workflow(workflow_id)
+        assert len(workflow_tags) == 1
+        assert workflow_tags[0].id == tag.id
+
     async def test_list_tags_for_workflow(
         self,
         workflow_tags_service: WorkflowTagsService,

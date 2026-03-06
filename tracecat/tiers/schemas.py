@@ -62,6 +62,11 @@ class EffectiveEntitlements(Schema):
         description="Whether RBAC add-ons are enabled"
         " (custom roles, groups, and assignments)",
     )
+    watchtower: bool = Field(
+        default=False,
+        description="Whether Watchtower agent monitoring is enabled"
+        " (agent sessions, tool-call telemetry, and controls)",
+    )
 
 
 class TierRead(Schema):

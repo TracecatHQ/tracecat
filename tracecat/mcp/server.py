@@ -75,6 +75,7 @@ from tracecat.mcp.config import (
 from tracecat.mcp.middleware import (
     MCPInputSizeLimitMiddleware,
     MCPTimeoutMiddleware,
+    WatchtowerMonitorMiddleware,
     get_mcp_client_id,
 )
 from tracecat.pagination import CursorPaginationParams
@@ -780,6 +781,7 @@ mcp.add_middleware(
     )
 )
 mcp.add_middleware(MCPInputSizeLimitMiddleware())
+mcp.add_middleware(WatchtowerMonitorMiddleware())
 mcp.add_middleware(MCPTimeoutMiddleware())
 mcp.add_middleware(
     ErrorHandlingMiddleware(include_traceback=False, transform_errors=True)
