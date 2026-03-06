@@ -35,17 +35,31 @@ def _evaluate_expression(expr: str, operand: ExprOperand[str] | None) -> Any:
 
 
 def _eval_templated_obj_rec[T: (str, list[Any], dict[str, Any])](
-    obj: T, operator: Callable[[str], Any]
+    obj: T,
+    operator: Callable[[str], Any],
+    *,
+    key_operator: Callable[[str], str] | None = None,
 ) -> T:
     match obj:
         case str():
             return operator(obj)
         case list():
-            return [_eval_templated_obj_rec(item, operator) for item in obj]
+            return [
+                _eval_templated_obj_rec(item, operator, key_operator=key_operator)
+                for item in obj
+            ]
         case dict():
             return {
-                operator(key) if isinstance(key, str) else key: _eval_templated_obj_rec(
-                    value, operator
+                (
+                    key_operator(key)
+                    if isinstance(key, str) and key_operator is not None
+                    else operator(key)
+                    if isinstance(key, str)
+                    else key
+                ): _eval_templated_obj_rec(
+                    value,
+                    operator,
+                    key_operator=key_operator,
                 )
                 for key, value in obj.items()
             }
@@ -54,7 +68,9 @@ def _eval_templated_obj_rec[T: (str, list[Any], dict[str, Any])](
 
 
 def _eval_expression_op(match: re.Match[str], operand: ExprOperand[str] | None) -> str:
-    expr = match.group("template")
+    expr = match.group("expr")
+    if expr is None:
+        raise ValueError("Template match missing expression group")
     result = _evaluate_expression(expr, operand)
     return str(result)
 
@@ -84,7 +100,10 @@ def eval_mcp_templated_object(
             return _evaluate_expression(expr, operand)
         return pattern.sub(evaluator, line)
 
-    return _eval_templated_obj_rec(obj, operator)
+    def key_operator(line: str) -> str:
+        return pattern.sub(evaluator, line)
+
+    return _eval_templated_obj_rec(obj, operator, key_operator=key_operator)
 
 
 def collect_mcp_expressions(templated_obj: Any) -> CollectedMCPExpressions:

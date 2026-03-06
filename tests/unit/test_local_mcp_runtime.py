@@ -317,3 +317,17 @@ async def test_discover_local_mcp_server_catalog_classifies_package_fetch_failur
         await runtime.discover_local_mcp_server_catalog(_config(tmp_path))
 
     assert exc_info.value.phase == LocalMCPDiscoveryPhase.PACKAGE_FETCH_INSTALL
+
+
+def test_build_exec_bin_line_escapes_textproto_strings() -> None:
+    arg = '--header=Bearer "token"\nnext-line'
+
+    line = runtime._build_exec_bin_line(
+        command_path="/usr/bin/node",
+        args=[arg],
+        policy=runtime._ResolvedEgressPolicy(),
+    )
+
+    assert line.startswith('exec_bin { path: "/usr/bin/node"')
+    assert r'arg: "--header=Bearer \"token\"\nnext-line"' in line
+    assert arg not in line

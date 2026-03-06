@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include <arpa/inet.h>
+#include <ctype.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <netinet/in.h>
@@ -35,6 +36,39 @@ static int (*real_connect)(int, const struct sockaddr *, socklen_t) = NULL;
 static ssize_t (*real_sendto)(int, const void *, size_t, int, const struct sockaddr *,
                               socklen_t) = NULL;
 
+static char *trim_ascii_whitespace(char *text) {
+  if (text == NULL) {
+    return NULL;
+  }
+
+  while (*text != '\0' && isspace((unsigned char)*text)) {
+    text++;
+  }
+
+  char *end = text + strlen(text);
+  while (end > text && isspace((unsigned char)*(end - 1))) {
+    end--;
+  }
+  *end = '\0';
+  return text;
+}
+
+static bool parse_prefix_len(const char *text, long max_bits, uint8_t *out) {
+  if (text == NULL || *text == '\0' || out == NULL) {
+    return false;
+  }
+
+  errno = 0;
+  char *end = NULL;
+  long parsed = strtol(text, &end, 10);
+  if (errno != 0 || end == text || *end != '\0' || parsed < 0 || parsed > max_bits) {
+    return false;
+  }
+
+  *out = (uint8_t)parsed;
+  return true;
+}
+
 static bool parse_cidr_token(const char *token, cidr_rule_t *rule) {
   if (token == NULL || *token == '\0') {
     return false;
@@ -48,21 +82,28 @@ static bool parse_cidr_token(const char *token, cidr_rule_t *rule) {
 
   char *slash = strchr(buffer, '/');
   char *addr_text = buffer;
-  int prefix_len = -1;
+  bool has_prefix = false;
+  uint8_t prefix_len = 0;
   if (slash != NULL) {
     *slash = '\0';
-    prefix_len = atoi(slash + 1);
+    if (!parse_prefix_len(slash + 1, 128, &prefix_len)) {
+      return false;
+    }
+    has_prefix = true;
   }
 
   if (inet_pton(AF_INET, addr_text, rule->addr) == 1) {
     rule->family = AF_INET;
-    rule->prefix_len = (uint8_t)(prefix_len >= 0 ? prefix_len : 32);
-    return rule->prefix_len <= 32;
+    if (has_prefix && prefix_len > 32) {
+      return false;
+    }
+    rule->prefix_len = has_prefix ? prefix_len : 32;
+    return true;
   }
   if (inet_pton(AF_INET6, addr_text, rule->addr) == 1) {
     rule->family = AF_INET6;
-    rule->prefix_len = (uint8_t)(prefix_len >= 0 ? prefix_len : 128);
-    return rule->prefix_len <= 128;
+    rule->prefix_len = has_prefix ? prefix_len : 128;
+    return true;
   }
   return false;
 }
@@ -89,8 +130,9 @@ static void load_rule_set(const char *env_name, cidr_rule_set_t *target) {
   char *saveptr = NULL;
   for (char *token = strtok_r(raw, ",", &saveptr); token != NULL;
        token = strtok_r(NULL, ",", &saveptr)) {
+    char *trimmed = trim_ascii_whitespace(token);
     cidr_rule_t rule = {0};
-    if (!parse_cidr_token(token, &rule)) {
+    if (!parse_cidr_token(trimmed, &rule)) {
       continue;
     }
     if (count == capacity) {

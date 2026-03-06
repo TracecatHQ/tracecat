@@ -290,10 +290,10 @@ def get_activities() -> list[Callable[..., object]]:
 async def main() -> None:
     """Run the AgentWorker."""
     agent_max_concurrent = int(
-        os.environ.get("TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES", 100)
+        os.environ.get("TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES") or 100
     )
     agent_threadpool_max_workers = int(
-        os.environ.get("TEMPORAL__THREADPOOL_MAX_WORKERS", 100)
+        os.environ.get("TEMPORAL__THREADPOOL_MAX_WORKERS") or 100
     )
     mcp_max_concurrent = config.TRACECAT__MCP_MAX_CONCURRENT_ACTIVITIES
     mcp_threadpool_max_workers = config.TRACECAT__MCP_THREADPOOL_MAX_WORKERS

@@ -64,7 +64,7 @@ spec:
             - name: sandbox-cache
               mountPath: /var/lib/tracecat/sandbox-cache
             - name: mcp-sandbox-cache
-              mountPath: /var/lib/tracecat/mcp-sandbox-cache
+              mountPath: {{ include "tracecat.agentExecutor.mcpSandboxCacheDir" . }}
             - name: tmp
               mountPath: /tmp
             {{- if not .Values.tracecat.sandbox.disableNsjail }}

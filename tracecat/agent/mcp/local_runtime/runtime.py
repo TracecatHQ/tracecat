@@ -166,13 +166,32 @@ def _normalize_cidr_or_ip(entry: str) -> str | None:
         return None
 
 
-def _resolve_hostname_targets(hostname: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+def _quote_nsjail_string(value: str) -> str:
+    if "\x00" in value:
+        raise _config_validation_error(
+            "Local MCP discovery received a null byte in sandbox configuration."
+        )
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+    return f'"{escaped}"'
+
+
+async def _resolve_hostname_targets(
+    hostname: str,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     try:
-        infos = socket.getaddrinfo(
+        infos = await asyncio.to_thread(
+            socket.getaddrinfo,
             hostname,
             None,
-            type=socket.SOCK_STREAM,
-            proto=socket.IPPROTO_TCP,
+            0,
+            socket.SOCK_STREAM,
+            socket.IPPROTO_TCP,
         )
     except socket.gaierror as exc:
         raise _config_validation_error(
@@ -200,7 +219,7 @@ def _resolve_hostname_targets(hostname: str) -> tuple[tuple[str, ...], tuple[str
     return tuple(dict.fromkeys(cidrs)), tuple(dict.fromkeys(hosts_lines))
 
 
-def _resolve_egress_policy(
+async def _resolve_egress_policy(
     config_data: LocalMCPDiscoveryConfig,
 ) -> _ResolvedEgressPolicy:
     allow_cidrs: list[str] = []
@@ -217,7 +236,7 @@ def _resolve_egress_policy(
         if cidr := _normalize_cidr_or_ip(entry):
             allow_cidrs.append(cidr)
             continue
-        resolved_cidrs, resolved_hosts = _resolve_hostname_targets(entry)
+        resolved_cidrs, resolved_hosts = await _resolve_hostname_targets(entry)
         allow_cidrs.extend(resolved_cidrs)
         hosts_lines.extend(resolved_hosts)
         use_hosts_only_resolution = True
@@ -231,7 +250,7 @@ def _resolve_egress_policy(
         if cidr := _normalize_cidr_or_ip(entry):
             deny_cidrs.append(cidr)
             continue
-        resolved_cidrs, _resolved_hosts = _resolve_hostname_targets(entry)
+        resolved_cidrs, _resolved_hosts = await _resolve_hostname_targets(entry)
         deny_cidrs.extend(resolved_cidrs)
 
     return _ResolvedEgressPolicy(
@@ -295,25 +314,25 @@ def _build_exec_bin_line(
     policy: _ResolvedEgressPolicy,
 ) -> str:
     if not policy.requires_guard:
-        exec_args = " ".join(f'arg: "{arg}"' for arg in args)
-        return f'exec_bin {{ path: "{command_path}" {exec_args} }}'
+        exec_args = " ".join(f"arg: {_quote_nsjail_string(arg)}" for arg in args)
+        return f"exec_bin {{ path: {_quote_nsjail_string(command_path)} {exec_args} }}"
 
-    guard_env_args = [f'arg: "LD_PRELOAD={_JAILED_EGRESS_GUARD_LIB}"']
+    guard_env_args = [
+        f"arg: {_quote_nsjail_string(f'LD_PRELOAD={_JAILED_EGRESS_GUARD_LIB}')}"
+    ]
     if policy.allow_cidrs:
         guard_env_args.append(
-            'arg: "TRACECAT_MCP_EGRESS_ALLOW_CIDRS='
-            + ",".join(policy.allow_cidrs)
-            + '"'
+            f"arg: {_quote_nsjail_string('TRACECAT_MCP_EGRESS_ALLOW_CIDRS=' + ','.join(policy.allow_cidrs))}"
         )
     if policy.deny_cidrs:
         guard_env_args.append(
-            'arg: "TRACECAT_MCP_EGRESS_DENY_CIDRS=' + ",".join(policy.deny_cidrs) + '"'
+            f"arg: {_quote_nsjail_string('TRACECAT_MCP_EGRESS_DENY_CIDRS=' + ','.join(policy.deny_cidrs))}"
         )
-    command_args = " ".join(f'arg: "{arg}"' for arg in args)
+    command_args = " ".join(f"arg: {_quote_nsjail_string(arg)}" for arg in args)
     segments = [
-        'exec_bin { path: "/usr/bin/env"',
+        f"exec_bin {{ path: {_quote_nsjail_string('/usr/bin/env')}",
         *guard_env_args,
-        f'arg: "{command_path}"',
+        f"arg: {_quote_nsjail_string(command_path)}",
         command_args,
         "}",
     ]
@@ -354,16 +373,16 @@ def _build_nsjail_config(
         f'gidmap {{ inside_id: "1000" outside_id: "{os.getgid()}" count: 1 }}',
         "",
         "# Rootfs mounts - read-only base system",
-        f'mount {{ src: "{rootfs}/usr" dst: "/usr" is_bind: true rw: false }}',
-        f'mount {{ src: "{rootfs}/lib" dst: "/lib" is_bind: true rw: false }}',
-        f'mount {{ src: "{rootfs}/bin" dst: "/bin" is_bind: true rw: false }}',
-        f'mount {{ src: "{rootfs}/etc" dst: "/etc" is_bind: true rw: false }}',
+        f"mount {{ src: {_quote_nsjail_string(str(rootfs / 'usr'))} dst: {_quote_nsjail_string('/usr')} is_bind: true rw: false }}",
+        f"mount {{ src: {_quote_nsjail_string(str(rootfs / 'lib'))} dst: {_quote_nsjail_string('/lib')} is_bind: true rw: false }}",
+        f"mount {{ src: {_quote_nsjail_string(str(rootfs / 'bin'))} dst: {_quote_nsjail_string('/bin')} is_bind: true rw: false }}",
+        f"mount {{ src: {_quote_nsjail_string(str(rootfs / 'etc'))} dst: {_quote_nsjail_string('/etc')} is_bind: true rw: false }}",
     ]
     for optional_mount in ("lib64", "sbin"):
         optional_path = rootfs / optional_mount
         if optional_path.exists():
             lines.append(
-                f'mount {{ src: "{optional_path}" dst: "/{optional_mount}" is_bind: true rw: false }}'
+                f"mount {{ src: {_quote_nsjail_string(str(optional_path))} dst: {_quote_nsjail_string(f'/{optional_mount}')} is_bind: true rw: false }}"
             )
     if network_enabled:
         if hosts_resolution_files is None:
@@ -382,9 +401,9 @@ def _build_nsjail_config(
                 [
                     "",
                     "# DNS config - use job-local hosts-only resolution for allowlisted hosts",
-                    f'mount {{ src: "{resolv_path}" dst: "/etc/resolv.conf" is_bind: true rw: false }}',
-                    f'mount {{ src: "{hosts_path}" dst: "/etc/hosts" is_bind: true rw: false }}',
-                    f'mount {{ src: "{nsswitch_path}" dst: "/etc/nsswitch.conf" is_bind: true rw: false }}',
+                    f"mount {{ src: {_quote_nsjail_string(str(resolv_path))} dst: {_quote_nsjail_string('/etc/resolv.conf')} is_bind: true rw: false }}",
+                    f"mount {{ src: {_quote_nsjail_string(str(hosts_path))} dst: {_quote_nsjail_string('/etc/hosts')} is_bind: true rw: false }}",
+                    f"mount {{ src: {_quote_nsjail_string(str(nsswitch_path))} dst: {_quote_nsjail_string('/etc/nsswitch.conf')} is_bind: true rw: false }}",
                 ]
             )
     exec_line = _build_exec_bin_line(
@@ -407,10 +426,10 @@ def _build_nsjail_config(
             "",
             "# Writable directories",
             'mount { dst: "/tmp" fstype: "tmpfs" rw: true options: "size=256M" }',
-            f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}',
-            f'mount {{ src: "{home_dir}" dst: "{_JAILED_HOME_DIR}" is_bind: true rw: true }}',
-            f'mount {{ src: "{uv_cache_dir}" dst: "{_JAILED_UV_CACHE_DIR}" is_bind: true rw: true }}',
-            f'mount {{ src: "{npm_cache_dir}" dst: "{_JAILED_NPM_CACHE_DIR}" is_bind: true rw: true }}',
+            f"mount {{ src: {_quote_nsjail_string(str(job_dir))} dst: {_quote_nsjail_string('/work')} is_bind: true rw: true }}",
+            f"mount {{ src: {_quote_nsjail_string(str(home_dir))} dst: {_quote_nsjail_string(str(_JAILED_HOME_DIR))} is_bind: true rw: true }}",
+            f"mount {{ src: {_quote_nsjail_string(str(uv_cache_dir))} dst: {_quote_nsjail_string(str(_JAILED_UV_CACHE_DIR))} is_bind: true rw: true }}",
+            f"mount {{ src: {_quote_nsjail_string(str(npm_cache_dir))} dst: {_quote_nsjail_string(str(_JAILED_NPM_CACHE_DIR))} is_bind: true rw: true }}",
             "",
             "# Resource limits",
             f"rlimit_as: {config.TRACECAT__AGENT_SANDBOX_MEMORY_MB * 1024 * 1024}",
@@ -421,14 +440,14 @@ def _build_nsjail_config(
             f"time_limit: {timeout_seconds}",
             "",
             "# Execution - launch the MCP stdio server directly",
-            'cwd: "/work"',
+            f"cwd: {_quote_nsjail_string('/work')}",
             exec_line,
         ]
     )
     return "\n".join(lines)
 
 
-def _build_stdio_transport(
+async def _build_stdio_transport(
     *,
     config_data: LocalMCPDiscoveryConfig,
     job_dir: Path,
@@ -443,7 +462,7 @@ def _build_stdio_transport(
         config_data.egress_allowlist or config_data.egress_denylist
     )
     requires_network_isolation = not config_data.allow_network or has_egress_policy
-    policy = _resolve_egress_policy(config_data)
+    policy = await _resolve_egress_policy(config_data)
     hosts_resolution_files = _write_hosts_resolution_files(
         policy=policy,
         job_dir=job_dir,
@@ -591,7 +610,7 @@ async def _discover_local_mcp_server_catalog_inner(
 ) -> MCPServerCatalog:
     server = config_data.server
     initialized = False
-    transport = _build_stdio_transport(
+    transport = await _build_stdio_transport(
         config_data=config_data,
         job_dir=job_dir,
         stderr_path=stderr_path,

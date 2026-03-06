@@ -606,9 +606,8 @@ TRACECAT__MCP_MAX_CONCURRENT_LOCAL_SANDBOXES = int(
 """Maximum number of local MCP discovery sandboxes allowed in-flight."""
 
 TRACECAT__MCP_SANDBOX_CACHE_DIR = Path(
-    os.environ.get(
-        "TRACECAT__MCP_SANDBOX_CACHE_DIR", "/var/lib/tracecat/mcp-sandbox-cache"
-    )
+    os.environ.get("TRACECAT__MCP_SANDBOX_CACHE_DIR")
+    or "/var/lib/tracecat/mcp-sandbox-cache"
 )
 """Base directory for per-organization local MCP discovery caches."""
 
