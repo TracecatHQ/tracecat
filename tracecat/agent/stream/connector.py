@@ -173,7 +173,8 @@ class AgentStream:
                                             message_id=msg_id,
                                         )
 
-                        await self._set_last_stream_id(current_id)
+                        if not stream_completed:
+                            await self._set_last_stream_id(current_id)
 
                     now = monotonic()
                     if now - last_keepalive >= self.KEEPALIVE_INTERVAL_SECONDS:
