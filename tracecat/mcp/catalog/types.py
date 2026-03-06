@@ -49,11 +49,18 @@ class MCPCatalogResolvedArtifact:
     display_name: str | None
     description: str | None
     scope_name: str
+    integration_slug: str
     server_type: str
     server_uri: str | None
     auth_type: MCPAuthType
     oauth_integration_id: UUID | None
     encrypted_headers: bytes | None
+    stdio_command: str | None
+    stdio_args: list[str] | None
+    encrypted_stdio_env: bytes | None
+    sandbox_allow_network: bool
+    sandbox_egress_allowlist: list[str] | None
+    sandbox_egress_denylist: list[str] | None
     timeout: int | None
 
 

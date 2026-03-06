@@ -20,6 +20,7 @@ from pydantic import AnyUrl, SecretStr
 from sqlalchemy import func, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.mcp.sandbox.types import RunLocalMCPArtifactWorkflowResult
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     MCPIntegration,
@@ -31,7 +32,6 @@ from tracecat.db.models import (
     User,
     Workspace,
 )
-from tracecat.exceptions import TracecatValidationError
 from tracecat.integrations.enums import (
     MCPAuthType,
     MCPCatalogArtifactType,
@@ -656,11 +656,12 @@ class TestMCPCatalogArtifactService:
 
         assert fake_client.last_prompt_arguments == {}
 
-    async def test_stdio_artifacts_are_rejected_for_now(
+    async def test_stdio_artifacts_dispatch_through_mcp_queue(
         self,
         session: AsyncSession,
         org_admin_role: Role,
         workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         integration = await _create_mcp_integration(
             session=session,
@@ -675,10 +676,35 @@ class TestMCPCatalogArtifactService:
             artifact_ref="list_repos",
         )
         service = MCPCatalogArtifactService(session=session, role=org_admin_role)
+        recorded: dict[str, Any] = {}
 
-        with pytest.raises(TracecatValidationError):
-            await service.execute_tool(
-                workspace_id=workspace.id,
-                artifact_ref_or_id=str(entry_id),
-                arguments={"owner": "tracecat"},
-            )
+        class _FakeTemporalClient:
+            async def execute_workflow(
+                self, workflow: Any, input: Any, **kwargs: Any
+            ) -> Any:
+                recorded["workflow"] = workflow
+                recorded["input"] = input
+                recorded["kwargs"] = kwargs
+                return RunLocalMCPArtifactWorkflowResult(
+                    result={"structuredContent": {"status": "queued"}}
+                )
+
+        async def fake_get_temporal_client() -> _FakeTemporalClient:
+            return _FakeTemporalClient()
+
+        monkeypatch.setattr(
+            artifact_service_module,
+            "get_temporal_client",
+            fake_get_temporal_client,
+        )
+
+        result = await service.execute_tool(
+            workspace_id=workspace.id,
+            artifact_ref_or_id=str(entry_id),
+            arguments={"owner": "tracecat"},
+        )
+
+        assert result.result["structuredContent"] == {"status": "queued"}
+        assert recorded["input"].artifact_ref_or_id == str(entry_id)
+        assert recorded["input"].workspace_id == workspace.id
+        assert recorded["kwargs"]["task_queue"]

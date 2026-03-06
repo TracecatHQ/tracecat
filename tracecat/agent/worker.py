@@ -55,6 +55,10 @@ with workflow.unsafe.imports_passed_through():
         execute_approved_tools_activity,
         run_agent_activity,
     )
+    from tracecat.agent.mcp.sandbox.workflow import (
+        LocalMCPArtifactActivities,
+        RunLocalMCPArtifactWorkflow,
+    )
     from tracecat.agent.mcp.trusted_server import app
     from tracecat.agent.preset.activities import (
         resolve_agent_preset_config_activity,
@@ -322,23 +326,38 @@ async def main() -> None:
             ],
         )
 
-        with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-            workflows: list[type] = [DurableAgentWorkflow]
+        mcp_max_concurrent = config.TRACECAT__MCP_MAX_CONCURRENT_ACTIVITIES
+        mcp_threadpool_max_workers = config.TRACECAT__MCP_THREADPOOL_MAX_WORKERS
 
-            async with Worker(
-                client,
-                task_queue=config.TRACECAT__AGENT_QUEUE,
-                activities=activities,
-                workflows=workflows,
-                workflow_runner=new_sandbox_runner(),
-                interceptors=interceptors,
-                max_concurrent_activities=max_concurrent,
-                disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
-                activity_executor=executor,
+        with (
+            ThreadPoolExecutor(max_workers=threadpool_max_workers) as agent_executor,
+            ThreadPoolExecutor(max_workers=mcp_threadpool_max_workers) as mcp_executor,
+        ):
+            async with (
+                Worker(
+                    client,
+                    task_queue=config.TRACECAT__AGENT_QUEUE,
+                    activities=activities,
+                    workflows=[DurableAgentWorkflow],
+                    workflow_runner=new_sandbox_runner(),
+                    interceptors=interceptors,
+                    max_concurrent_activities=max_concurrent,
+                    disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+                    activity_executor=agent_executor,
+                ),
+                Worker(
+                    client,
+                    task_queue=config.TRACECAT__MCP_QUEUE,
+                    activities=LocalMCPArtifactActivities.get_activities(),
+                    workflows=[RunLocalMCPArtifactWorkflow],
+                    workflow_runner=new_sandbox_runner(),
+                    interceptors=interceptors,
+                    max_concurrent_activities=mcp_max_concurrent,
+                    disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+                    activity_executor=mcp_executor,
+                ),
             ):
-                logger.info(
-                    "AgentWorker started, ctrl+c to exit",
-                )
+                logger.info("AgentWorker started, ctrl+c to exit")
                 await interrupt_event.wait()
                 logger.info("Shutting down AgentWorker")
 
