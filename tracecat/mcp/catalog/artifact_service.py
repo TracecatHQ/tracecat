@@ -39,13 +39,17 @@ def _sanitize_remote_endpoint_for_log(server_uri: str | None) -> str | None:
     parsed = urlsplit(server_uri)
     if parsed.hostname is None:
         return server_uri.split("?", 1)[0].rsplit("@", 1)[-1]
+    try:
+        port = parsed.port
+    except ValueError:
+        return server_uri.split("?", 1)[0].rsplit("@", 1)[-1]
 
     hostname = parsed.hostname
     if ":" in hostname and not hostname.startswith("["):
         hostname = f"[{hostname}]"
     netloc = hostname
-    if parsed.port is not None:
-        netloc = f"{netloc}:{parsed.port}"
+    if port is not None:
+        netloc = f"{netloc}:{port}"
     return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
 
 

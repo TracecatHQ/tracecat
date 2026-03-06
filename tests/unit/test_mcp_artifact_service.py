@@ -324,6 +324,15 @@ def test_sanitize_remote_endpoint_for_log_strips_credentials_and_query() -> None
     )
 
 
+def test_sanitize_remote_endpoint_for_log_tolerates_malformed_port() -> None:
+    assert (
+        _sanitize_remote_endpoint_for_log(
+            "https://user:secret@example.com:badport/mcp?access_token=abc"
+        )
+        == "example.com:badport/mcp"
+    )
+
+
 @pytest.mark.anyio
 class TestMCPCatalogArtifactService:
     async def test_build_headers_combines_custom_headers_and_oauth_token(
