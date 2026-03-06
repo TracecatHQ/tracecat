@@ -124,6 +124,10 @@ def test_supports_refresh_scope_when_provider_metadata_missing() -> None:
     assert mcp_auth.supports_refresh_scope(None) is True
 
 
+def test_supports_refresh_scope_when_provider_advertises_no_scopes() -> None:
+    assert mcp_auth.supports_refresh_scope([]) is False
+
+
 def test_supports_refresh_scope_when_scope_supported() -> None:
     assert mcp_auth.supports_refresh_scope(["openid", "offline_access"]) is True
 

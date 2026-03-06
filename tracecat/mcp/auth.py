@@ -87,7 +87,7 @@ def remove_scope(scopes: list[str], scope: str) -> list[str]:
 
 def supports_refresh_scope(scopes_supported: Sequence[str] | None) -> bool:
     """Return whether provider metadata supports MCP refresh scope requests."""
-    if not scopes_supported:
+    if scopes_supported is None:
         # If provider metadata omits scopes_supported, optimistically request.
         return True
     return _MCP_REFRESH_SCOPE in scopes_supported
