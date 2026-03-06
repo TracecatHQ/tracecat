@@ -492,6 +492,7 @@ interface WorkflowsHeaderProps {
   onPreviousPage: () => void
   onNextPage: () => void
   isPaginationLoading?: boolean
+  selectionActions?: ReactNode
 }
 
 export function WorkflowsHeader({
@@ -520,6 +521,7 @@ export function WorkflowsHeader({
   onPreviousPage,
   onNextPage,
   isPaginationLoading = false,
+  selectionActions,
 }: WorkflowsHeaderProps) {
   const hasFilters =
     searchQuery.trim().length > 0 ||
@@ -671,7 +673,8 @@ export function WorkflowsHeader({
           </button>
         )}
 
-        <div className="ml-auto flex items-center">
+        <div className="ml-auto flex items-center gap-2">
+          {selectionActions}
           <Select
             value={`${limit}`}
             onValueChange={(value) => onLimitChange(Number(value))}

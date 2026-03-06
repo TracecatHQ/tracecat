@@ -243,7 +243,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
             )
 
         # Add eager loading for tags since they're accessed in the router
-        stmt = stmt.options(selectinload(Workflow.tags))
+        stmt = stmt.options(selectinload(Workflow.tags), selectinload(Workflow.folder))
 
         results = await self.session.execute(stmt)
         res = []
@@ -434,7 +434,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         stmt = stmt.limit(params.limit + 1)
 
         # Add eager loading for tags since they're accessed in the router
-        stmt = stmt.options(selectinload(Workflow.tags))
+        stmt = stmt.options(selectinload(Workflow.tags), selectinload(Workflow.folder))
 
         results = await self.session.execute(stmt)
         raw_items = list(results.all())

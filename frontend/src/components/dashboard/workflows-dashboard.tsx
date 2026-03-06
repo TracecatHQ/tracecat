@@ -9,6 +9,7 @@ import {
   Clock3,
   FlagTriangleRight,
   FolderIcon,
+  GitBranchIcon,
   HistoryIcon,
   WebhookIcon,
   WorkflowIcon,
@@ -38,6 +39,7 @@ import {
   WorkflowActions,
 } from "@/components/dashboard/table-actions"
 import { ActiveDialog } from "@/components/dashboard/table-common"
+import { WorkflowBulkPushDialog } from "@/components/dashboard/workflow-bulk-push-dialog"
 import { WorkflowMoveDialog } from "@/components/dashboard/workflow-move-dialog"
 import {
   DEFAULT_WORKFLOW_SORT,
@@ -50,6 +52,8 @@ import {
 } from "@/components/dashboard/workflows-header"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -93,6 +97,42 @@ function normalizeFolderPath(rawPath: string | null): string {
   return withLeadingSlash.endsWith("/") && withLeadingSlash !== "/"
     ? withLeadingSlash.slice(0, -1)
     : withLeadingSlash
+}
+
+function isPathWithinFolder(path: string, folderPath: string): boolean {
+  const normalizedPath = normalizeFolderPath(path)
+  const normalizedFolderPath = normalizeFolderPath(folderPath)
+
+  if (normalizedFolderPath === "/") {
+    return true
+  }
+
+  return (
+    normalizedPath === normalizedFolderPath ||
+    normalizedPath.startsWith(`${normalizedFolderPath}/`)
+  )
+}
+
+function isFolderCoveredBySelection(
+  folderPath: string,
+  selectedFolderPaths: string[]
+): boolean {
+  const normalizedFolderPath = normalizeFolderPath(folderPath)
+  return selectedFolderPaths.some(
+    (selectedPath) =>
+      selectedPath !== normalizedFolderPath &&
+      isPathWithinFolder(normalizedFolderPath, selectedPath)
+  )
+}
+
+function isWorkflowCoveredBySelection(
+  folderPath: string | null | undefined,
+  selectedFolderPaths: string[]
+): boolean {
+  const normalizedFolderPath = normalizeFolderPath(folderPath ?? "/")
+  return selectedFolderPaths.some((selectedPath) =>
+    isPathWithinFolder(normalizedFolderPath, selectedPath)
+  )
 }
 
 function getRelativeDateLabel(dateValue: string): string {
@@ -782,6 +822,10 @@ function WorkflowsListRow({
   setSelectedFolder,
   setActiveDialog,
   availableTags,
+  showSelectionControl,
+  isSelected,
+  isSelectionDisabled,
+  onToggleSelection,
 }: {
   item: DirectoryItem
   onOpenWorkflow: (workflowId: string) => void
@@ -790,6 +834,10 @@ function WorkflowsListRow({
   setSelectedFolder: (folder: FolderDirectoryItem | null) => void
   setActiveDialog: (activeDialog: ActiveDialog | null) => void
   availableTags?: TagRead[]
+  showSelectionControl?: boolean
+  isSelected?: boolean
+  isSelectionDisabled?: boolean
+  onToggleSelection?: (checked: boolean) => void
 }) {
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false)
 
@@ -803,6 +851,18 @@ function WorkflowsListRow({
               isContextMenuOpen && "bg-muted/70"
             )}
           >
+            {showSelectionControl ? (
+              <div className="flex shrink-0 items-center">
+                <Checkbox
+                  checked={isSelected}
+                  disabled={isSelectionDisabled}
+                  aria-label={`Select folder ${item.name}`}
+                  onCheckedChange={(checked) =>
+                    onToggleSelection?.(checked === true)
+                  }
+                />
+              </div>
+            ) : null}
             <button
               type="button"
               onClick={() => onOpenFolder(item.path)}
@@ -836,6 +896,18 @@ function WorkflowsListRow({
             isContextMenuOpen && "bg-muted/70"
           )}
         >
+          {showSelectionControl ? (
+            <div className="flex shrink-0 items-center">
+              <Checkbox
+                checked={isSelected}
+                disabled={isSelectionDisabled}
+                aria-label={`Select workflow ${item.title}`}
+                onCheckedChange={(checked) =>
+                  onToggleSelection?.(checked === true)
+                }
+              />
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={() => onOpenWorkflow(item.id)}
@@ -873,6 +945,7 @@ export function WorkflowsDashboard() {
   const searchParams = useSearchParams()
   const { hasEntitlement } = useEntitlements()
   const caseAddonsEnabled = hasEntitlement("case_addons")
+  const gitSyncEnabled = hasEntitlement("git_sync")
 
   const view = parseWorkflowsViewMode(searchParams?.get("view"))
   const currentPath = normalizeFolderPath(searchParams?.get("path"))
@@ -893,10 +966,13 @@ export function WorkflowsDashboard() {
   const [listPage, setListPage] = useState(0)
 
   const [activeDialog, setActiveDialog] = useState<ActiveDialog | null>(null)
+  const [bulkPushOpen, setBulkPushOpen] = useState(false)
   const [selectedWorkflow, setSelectedWorkflow] =
     useState<WorkflowReadMinimal | null>(null)
   const [selectedFolder, setSelectedFolder] =
     useState<FolderDirectoryItem | null>(null)
+  const [selectedWorkflowIds, setSelectedWorkflowIds] = useState<string[]>([])
+  const [selectedFolderPaths, setSelectedFolderPaths] = useState<string[]>([])
 
   const { tags } = useWorkflowTags(workspaceId)
 
@@ -921,6 +997,20 @@ export function WorkflowsDashboard() {
     () => new Set(caseTriggerFilter),
     [caseTriggerFilter]
   )
+  const normalizedSelectedFolderPaths = useMemo(
+    () => selectedFolderPaths.map((path) => normalizeFolderPath(path)),
+    [selectedFolderPaths]
+  )
+  const selectedFolderPathSet = useMemo(
+    () => new Set(normalizedSelectedFolderPaths),
+    [normalizedSelectedFolderPaths]
+  )
+  const selectedWorkflowIdSet = useMemo(
+    () => new Set(selectedWorkflowIds),
+    [selectedWorkflowIds]
+  )
+  const selectedItemCount =
+    selectedWorkflowIds.length + normalizedSelectedFolderPaths.length
   const hasTriggerFiltersActive =
     webhookFilter !== "all" ||
     scheduleFilter !== "all" ||
@@ -978,6 +1068,13 @@ export function WorkflowsDashboard() {
     nextParams.set("path", normalizeFolderPath(path))
     router.push(buildRoute(nextParams))
   }
+
+  const handleOpenWorkflow = useCallback(
+    (workflowId: string) => {
+      router.push(`/workspaces/${workspaceId}/workflows/${workflowId}`)
+    },
+    [router, workspaceId]
+  )
 
   const matchesFilters = useCallback(
     (item: DirectoryItem): boolean => {
@@ -1087,6 +1184,20 @@ export function WorkflowsDashboard() {
   }, [caseAddonsEnabled, caseTriggerFilter])
 
   useEffect(() => {
+    if (!gitSyncEnabled) {
+      setBulkPushOpen(false)
+      setSelectedWorkflowIds([])
+      setSelectedFolderPaths([])
+    }
+  }, [gitSyncEnabled])
+
+  useEffect(() => {
+    if (bulkPushOpen && selectedItemCount === 0) {
+      setBulkPushOpen(false)
+    }
+  }, [bulkPushOpen, selectedItemCount])
+
+  useEffect(() => {
     setFolderPage(0)
     setListPage(0)
   }, [
@@ -1178,6 +1289,160 @@ export function WorkflowsDashboard() {
     })
   }
 
+  const handleToggleWorkflowSelection = useCallback(
+    (workflowId: string, checked: boolean) => {
+      setSelectedWorkflowIds((current) => {
+        const next = new Set(current)
+        if (checked) {
+          next.add(workflowId)
+        } else {
+          next.delete(workflowId)
+        }
+        return [...next]
+      })
+    },
+    []
+  )
+
+  const handleToggleFolderSelection = useCallback(
+    (folderPath: string, checked: boolean) => {
+      const normalizedPath = normalizeFolderPath(folderPath)
+      setSelectedFolderPaths((current) => {
+        const next = new Set(current.map((path) => normalizeFolderPath(path)))
+        if (checked) {
+          next.add(normalizedPath)
+        } else {
+          next.delete(normalizedPath)
+        }
+        return [...next]
+      })
+    },
+    []
+  )
+
+  const clearBulkPushSelection = useCallback(() => {
+    setSelectedWorkflowIds([])
+    setSelectedFolderPaths([])
+  }, [])
+
+  const isCurrentFolderExplicitlySelected =
+    view === "folders" && selectedFolderPathSet.has(currentPath)
+  const isCurrentFolderCoveredBySelection =
+    view === "folders" &&
+    isFolderCoveredBySelection(currentPath, normalizedSelectedFolderPaths)
+  const showCurrentFolderSelectionAction = gitSyncEnabled && view === "folders"
+  const hasSelectionActions =
+    showCurrentFolderSelectionAction || selectedItemCount > 0
+
+  const selectionActions = hasSelectionActions ? (
+    <div className="flex items-center gap-2">
+      {showCurrentFolderSelectionAction ? (
+        <Button
+          type="button"
+          variant="outline"
+          className="h-6 gap-1.5 px-2 text-xs"
+          onClick={() => {
+            if (isCurrentFolderExplicitlySelected) {
+              handleToggleFolderSelection(currentPath, false)
+              return
+            }
+            handleToggleFolderSelection(currentPath, true)
+          }}
+          disabled={isCurrentFolderCoveredBySelection}
+        >
+          <FolderIcon className="size-3.5" />
+          {isCurrentFolderCoveredBySelection
+            ? "Folder selected"
+            : isCurrentFolderExplicitlySelected
+              ? currentPath === "/"
+                ? "Deselect all"
+                : "Deselect folder"
+              : currentPath === "/"
+                ? "Select all"
+                : "Select folder"}
+        </Button>
+      ) : null}
+      {selectedItemCount > 0 ? (
+        <>
+          <span className="text-xs text-muted-foreground">
+            {selectedItemCount} selected
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-6 gap-1.5 px-2 text-xs"
+            onClick={() => setBulkPushOpen(true)}
+          >
+            <GitBranchIcon className="size-3.5" />
+            Push to GitHub
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-6 px-2 text-xs text-muted-foreground"
+            onClick={clearBulkPushSelection}
+          >
+            Clear
+          </Button>
+        </>
+      ) : null}
+    </div>
+  ) : undefined
+
+  const renderWorkflowRow = (item: DirectoryItem) => {
+    if (item.type === "folder") {
+      const normalizedPath = normalizeFolderPath(item.path)
+      const isExplicitlySelected = selectedFolderPathSet.has(normalizedPath)
+      const isCoveredBySelection = isFolderCoveredBySelection(
+        normalizedPath,
+        normalizedSelectedFolderPaths
+      )
+
+      return (
+        <WorkflowsListRow
+          key={`${item.type}-${item.id}`}
+          item={item}
+          availableTags={tags}
+          showSelectionControl={gitSyncEnabled}
+          isSelected={isExplicitlySelected || isCoveredBySelection}
+          isSelectionDisabled={isCoveredBySelection && !isExplicitlySelected}
+          onToggleSelection={(checked) =>
+            handleToggleFolderSelection(item.path, checked)
+          }
+          onOpenWorkflow={handleOpenWorkflow}
+          onOpenFolder={handleOpenFolder}
+          setSelectedWorkflow={setSelectedWorkflow}
+          setSelectedFolder={setSelectedFolder}
+          setActiveDialog={setActiveDialog}
+        />
+      )
+    }
+
+    const isCoveredBySelection = isWorkflowCoveredBySelection(
+      item.folder_path,
+      normalizedSelectedFolderPaths
+    )
+
+    return (
+      <WorkflowsListRow
+        key={`${item.type}-${item.id}`}
+        item={item}
+        availableTags={tags}
+        showSelectionControl={gitSyncEnabled}
+        isSelected={selectedWorkflowIdSet.has(item.id) || isCoveredBySelection}
+        isSelectionDisabled={isCoveredBySelection}
+        onToggleSelection={(checked) =>
+          handleToggleWorkflowSelection(item.id, checked)
+        }
+        onOpenWorkflow={handleOpenWorkflow}
+        onOpenFolder={handleOpenFolder}
+        setSelectedWorkflow={setSelectedWorkflow}
+        setSelectedFolder={setSelectedFolder}
+        setActiveDialog={setActiveDialog}
+      />
+    )
+  }
+
   return (
     <DeleteWorkflowAlertDialog
       selectedWorkflow={selectedWorkflow}
@@ -1211,6 +1476,7 @@ export function WorkflowsDashboard() {
             onPreviousPage={handlePreviousPage}
             onNextPage={handleNextPage}
             isPaginationLoading={isLoading}
+            selectionActions={selectionActions}
           />
 
           <div className="min-h-0 flex-1 overflow-auto">
@@ -1237,22 +1503,7 @@ export function WorkflowsDashboard() {
               </div>
             ) : (
               <div className="divide-y">
-                {visibleItems.map((item) => (
-                  <WorkflowsListRow
-                    key={`${item.type}-${item.id}`}
-                    item={item}
-                    availableTags={tags}
-                    onOpenWorkflow={(workflowId) => {
-                      router.push(
-                        `/workspaces/${workspaceId}/workflows/${workflowId}`
-                      )
-                    }}
-                    onOpenFolder={handleOpenFolder}
-                    setSelectedWorkflow={setSelectedWorkflow}
-                    setSelectedFolder={setSelectedFolder}
-                    setActiveDialog={setActiveDialog}
-                  />
-                ))}
+                {visibleItems.map(renderWorkflowRow)}
               </div>
             )}
           </div>
@@ -1282,6 +1533,14 @@ export function WorkflowsDashboard() {
         onOpenChange={() => setActiveDialog(null)}
         selectedFolder={selectedFolder}
         setSelectedFolder={setSelectedFolder}
+      />
+      <WorkflowBulkPushDialog
+        open={bulkPushOpen}
+        onOpenChange={setBulkPushOpen}
+        workspaceId={workspaceId}
+        selectedWorkflowIds={selectedWorkflowIds}
+        selectedFolderPaths={selectedFolderPaths}
+        onSuccess={clearBulkPushSelection}
       />
     </DeleteWorkflowAlertDialog>
   )

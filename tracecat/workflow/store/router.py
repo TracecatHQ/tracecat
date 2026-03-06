@@ -18,6 +18,10 @@ from tracecat.sync import PullOptions, PullResult
 from tracecat.vcs.github.app import GitHubAppError
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.store.schemas import (
+    WorkflowBulkPushPreviewRequest,
+    WorkflowBulkPushPreviewResponse,
+    WorkflowBulkPushRequest,
+    WorkflowBulkPushResult,
     WorkflowDslPublish,
     WorkflowDslPublishResult,
     WorkflowSyncPullRequest,
@@ -62,6 +66,71 @@ async def publish_workflow(
             params=params,
             workflow=defn.workflow,
         )
+    except TracecatSettingsError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except TracecatCredentialsNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except GitHubAppError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@router.post(
+    "/push/preview",
+    response_model=WorkflowBulkPushPreviewResponse,
+)
+@require_scope("workflow:update")
+async def preview_bulk_push_workflows(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    params: WorkflowBulkPushPreviewRequest,
+) -> WorkflowBulkPushPreviewResponse:
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+    store_svc = WorkflowStoreService(session=session, role=role)
+    try:
+        return await store_svc.preview_bulk_push(params)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@router.post(
+    "/push",
+    response_model=WorkflowBulkPushResult,
+)
+@require_scope("workflow:update")
+async def bulk_push_workflows(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    params: WorkflowBulkPushRequest,
+) -> WorkflowBulkPushResult:
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+    store_svc = WorkflowStoreService(session=session, role=role)
+    try:
+        return await store_svc.bulk_push(params)
     except TracecatSettingsError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
