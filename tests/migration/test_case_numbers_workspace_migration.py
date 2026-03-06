@@ -148,28 +148,36 @@ def test_case_numbers_are_scoped_to_workspace(migration_db_url: str) -> None:
     engine = create_engine(migration_db_url, poolclass=NullPool)
     try:
         with engine.connect() as conn:
-            workspace_a_cases = conn.execute(
-                text(
-                    """
+            workspace_a_cases = (
+                conn.execute(
+                    text(
+                        """
                     SELECT summary, case_number
                     FROM "case"
                     WHERE workspace_id = :workspace_id
                     ORDER BY case_number
                     """
-                ),
-                {"workspace_id": workspace_a_id},
-            ).all()
-            workspace_b_cases = conn.execute(
-                text(
-                    """
+                    ),
+                    {"workspace_id": workspace_a_id},
+                )
+                .tuples()
+                .all()
+            )
+            workspace_b_cases = (
+                conn.execute(
+                    text(
+                        """
                     SELECT summary, case_number
                     FROM "case"
                     WHERE workspace_id = :workspace_id
                     ORDER BY case_number
                     """
-                ),
-                {"workspace_id": workspace_b_id},
-            ).all()
+                    ),
+                    {"workspace_id": workspace_b_id},
+                )
+                .tuples()
+                .all()
+            )
 
             assert workspace_a_cases == [("A-1", 1), ("A-3", 2)]
             assert workspace_b_cases == [("B-2", 1), ("B-4", 2)]
