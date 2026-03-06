@@ -10338,6 +10338,13 @@ export type McpIntegrationsDeleteMcpIntegrationData = {
 
 export type McpIntegrationsDeleteMcpIntegrationResponse = void
 
+export type McpIntegrationsRefreshMcpIntegrationData = {
+  mcpIntegrationId: string
+  workspaceId: string
+}
+
+export type McpIntegrationsRefreshMcpIntegrationResponse = MCPIntegrationRead
+
 export type FeatureFlagsGetFeatureFlagsResponse = FeatureFlagsRead
 
 export type VcsGetGithubAppManifestResponse = GitHubAppManifestResponse
@@ -15153,6 +15160,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/mcp-integrations/{mcp_integration_id}/refresh": {
+    post: {
+      req: McpIntegrationsRefreshMcpIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPIntegrationRead
         /**
          * Validation Error
          */

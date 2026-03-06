@@ -986,6 +986,39 @@ async def update_mcp_integration(
     )
 
 
+@mcp_router.post("/{mcp_integration_id}/refresh")
+@require_scope("integration:update")
+async def refresh_mcp_integration(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    mcp_integration_id: uuid.UUID,
+) -> MCPIntegrationRead:
+    """Queue an MCP integration discovery refresh."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    integration = await svc.refresh_mcp_integration(
+        mcp_integration_id=mcp_integration_id
+    )
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="MCP integration not found",
+        )
+
+    catalog_counts = await svc.get_mcp_catalog_counts(
+        mcp_integration_ids=[integration.id]
+    )
+    return _serialize_mcp_integration(
+        integration,
+        counts_by_type=catalog_counts.get(integration.id),
+    )
+
+
 @mcp_router.delete("/{mcp_integration_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("integration:delete")
 async def delete_mcp_integration(

@@ -359,7 +359,13 @@ class TestMCPIntegrationCRUD:
         update_params = MCPIntegrationUpdate(
             name="Updated MCP",
             description="Updated description",
+            server_uri="https://api-2.example.com/mcp",
         )
+        created.discovery_status = MCPDiscoveryStatus.FAILED.value
+        created.last_discovery_error_code = "connect_error"
+        created.last_discovery_error_summary = "Timed out talking to MCP server."
+        integration_service.session.add(created)
+        await integration_service.session.commit()
         updated = await integration_service.update_mcp_integration(
             mcp_integration_id=created.id, params=update_params
         )
@@ -369,7 +375,39 @@ class TestMCPIntegrationCRUD:
         assert updated.description == "Updated description"
         assert updated.slug == "updated-mcp"  # Slug regenerated when name changes
         assert updated.scope_namespace == original_scope_namespace
-        assert updated.server_uri == created.server_uri  # Unchanged
+        assert updated.server_uri == "https://api-2.example.com/mcp"
+        assert updated.discovery_status == MCPDiscoveryStatus.PENDING.value
+        assert updated.last_discovery_error_code is None
+        assert updated.last_discovery_error_summary is None
+
+    async def test_refresh_mcp_integration_marks_status_pending(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+    ) -> None:
+        """Test refresh resets discovery status back to pending."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Refresh MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+        created.discovery_status = MCPDiscoveryStatus.FAILED.value
+        created.last_discovery_error_code = "connect_error"
+        created.last_discovery_error_summary = "Timed out talking to MCP server."
+        integration_service.session.add(created)
+        await integration_service.session.commit()
+
+        refreshed = await integration_service.refresh_mcp_integration(
+            mcp_integration_id=created.id
+        )
+
+        assert refreshed is not None
+        assert refreshed.discovery_status == MCPDiscoveryStatus.PENDING.value
+        assert refreshed.last_discovery_error_code is None
+        assert refreshed.last_discovery_error_summary is None
 
     async def test_get_mcp_catalog_counts(
         self,
