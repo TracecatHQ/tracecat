@@ -26,6 +26,15 @@ def _serializer(obj: Any) -> Any:
     return to_jsonable_python(obj, fallback=str)
 
 
+def _format_type_hint(type_hint: type[Any] | None) -> str:
+    """Return a stable, non-data-bearing label for a payload type hint."""
+    if type_hint is None:
+        return "untyped payload"
+    if name := getattr(type_hint, "__name__", None):
+        return f"type {name}"
+    return f"type {type_hint}"
+
+
 class PydanticORJSONPayloadConverter(JSONPlainPayloadConverter):
     """Pydantic ORJSON payload converter.
 
@@ -40,15 +49,33 @@ class PydanticORJSONPayloadConverter(JSONPlainPayloadConverter):
         converter is expected to be the last in the chain, so it can fail if
         unable to convert.
         """
-        # We let JSON conversion errors be thrown to caller
-        return Payload(
-            metadata={"encoding": self.encoding.encode()},
-            data=orjson.dumps(
+        try:
+            data = orjson.dumps(
                 value,
                 default=_serializer,
                 option=orjson.OPT_SORT_KEYS | orjson.OPT_NON_STR_KEYS,
-            ),
+            )
+        except Exception:
+            raise RuntimeError(
+                f"Failed to encode payload value of type {type(value).__name__}"
+            ) from None
+        return Payload(
+            metadata={"encoding": self.encoding.encode()},
+            data=data,
         )
+
+    def from_payload(
+        self,
+        payload: Payload,
+        type_hint: type[Any] | None = None,
+    ) -> Any:
+        """Decode payloads without surfacing raw payload data in errors."""
+        try:
+            return super().from_payload(payload, type_hint)
+        except Exception:
+            raise RuntimeError(
+                f"Failed to decode payload for {_format_type_hint(type_hint)}"
+            ) from None
 
 
 class PydanticPayloadConverter(CompositePayloadConverter):
