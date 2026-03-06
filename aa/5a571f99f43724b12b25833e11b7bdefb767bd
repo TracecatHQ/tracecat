@@ -1,0 +1,44 @@
+frontend/src/components/dashboard/workflow-bulk-push-dialog.tsx
+  23aa94fac2f2f9dd 285-286,293-294
+tracecat/workflow/store/service.py
+  23aa94fac2f2f9dd 397-398,402-413,418,452
+tests/unit/test_workflow_sync_service.py
+  23aa94fac2f2f9dd 408-409,411,414-419,421-430,432-442,444
+tests/unit/api/test_api_workflow_store_publish.py
+  23aa94fac2f2f9dd 252-268,341-359
+tracecat/workflow/store/schemas.py
+  23aa94fac2f2f9dd 101,132-143,180,182-189
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "aa5a571f99f43724b12b25833e11b7bdefb767bd",
+  "prompts": {
+    "23aa94fac2f2f9dd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc4b5-03f3-7fb2-9f8c-cccba0cab51b",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 117,
+      "total_deletions": 20,
+      "accepted_lines": 112,
+      "overriden_lines": 0
+    },
+    "d9ce791d59d273c6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc4ba-41c2-7570-a527-a123c66b92a5",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 1,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  }
+}
