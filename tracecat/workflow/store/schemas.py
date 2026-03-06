@@ -98,6 +98,7 @@ class WorkflowSyncPullRequest(BaseModel):
 class WorkflowBulkPushExclusionReason(StrEnum):
     NOT_FOUND = "not_found"
     NOT_PUBLISHED = "not_published"
+    INVALID_CONFIGURATION = "invalid_configuration"
 
 
 class WorkflowBulkPushWorkflowStatus(StrEnum):
@@ -128,8 +129,18 @@ class WorkflowBulkPushPreviewRequest(BaseModel):
 
     @field_validator("folder_paths", mode="before")
     @classmethod
-    def validate_folder_paths(cls, value: list[str] | None) -> list[str]:
-        paths = [path.strip() for path in value or [] if path.strip()]
+    def validate_folder_paths(cls, value: object) -> list[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("folder_paths must be a list of strings")
+
+        paths: list[str] = []
+        for path in value:
+            if not isinstance(path, str):
+                raise ValueError("folder_paths must contain only strings")
+            if stripped := path.strip():
+                paths.append(stripped)
         return list(dict.fromkeys(paths))
 
     @model_validator(mode="after")
@@ -166,9 +177,16 @@ class WorkflowBulkPushRequest(BaseModel):
     def validate_branch(cls, value: str) -> str:
         return validate_short_branch_name(value.strip(), field_name="branch")
 
-    @field_validator("commit_message", "pr_title", "pr_body")
+    @field_validator("commit_message", "pr_title")
     @classmethod
-    def strip_text_fields(cls, value: str) -> str:
+    def validate_required_text_fields(cls, value: str) -> str:
+        if not (stripped := value.strip()):
+            raise ValueError("value cannot be empty")
+        return stripped
+
+    @field_validator("pr_body")
+    @classmethod
+    def strip_pr_body(cls, value: str) -> str:
         return value.strip()
 
 

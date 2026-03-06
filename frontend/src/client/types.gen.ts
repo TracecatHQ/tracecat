@@ -6747,7 +6747,10 @@ export type WorkflowBulkPushExcludedWorkflow = {
   message: string
 }
 
-export type WorkflowBulkPushExclusionReason = "not_found" | "not_published"
+export type WorkflowBulkPushExclusionReason =
+  | "not_found"
+  | "not_published"
+  | "invalid_configuration"
 
 export type WorkflowBulkPushPreviewRequest = {
   workflow_ids?: Array<string>

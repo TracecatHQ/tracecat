@@ -21679,7 +21679,7 @@ export const $WorkflowBulkPushExcludedWorkflow = {
 
 export const $WorkflowBulkPushExclusionReason = {
   type: "string",
-  enum: ["not_found", "not_published"],
+  enum: ["not_found", "not_published", "invalid_configuration"],
   title: "WorkflowBulkPushExclusionReason",
 } as const
 

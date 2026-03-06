@@ -249,6 +249,24 @@ async def test_preview_bulk_push_success(
 
 
 @pytest.mark.anyio
+async def test_preview_bulk_push_invalid_folder_paths_type_returns_422(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test POST /workflows/push/preview rejects non-list folder_paths."""
+    response = client.post(
+        "/workflows/push/preview",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+        json={
+            "workflow_ids": ["wf_123abc"],
+            "folder_paths": "/security",
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+@pytest.mark.anyio
 async def test_bulk_push_success(
     client: TestClient,
     test_admin_role: Role,
@@ -318,6 +336,27 @@ async def test_bulk_push_success(
     assert called_params.commit_message == "Push workflows to GitHub"
     assert called_params.pr_title == "Push workflows to GitHub"
     assert called_params.pr_body == "Bulk push body"
+
+
+@pytest.mark.anyio
+async def test_bulk_push_whitespace_required_fields_return_422(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test POST /workflows/push rejects whitespace-only required text fields."""
+    response = client.post(
+        "/workflows/push",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+        json={
+            "workflow_ids": ["wf_123abc"],
+            "branch": "feature/bulk-push",
+            "commit_message": "   ",
+            "pr_title": "   ",
+            "pr_body": "body",
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 @pytest.mark.anyio

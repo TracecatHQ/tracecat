@@ -394,15 +394,28 @@ class WorkflowStoreService(BaseWorkspaceService):
                 continue
 
             dsl = DSLInput.model_validate(definition.content)
+            try:
+                remote_definition = self._build_remote_workflow_definition(
+                    workflow_id=workflow_id,
+                    dsl=dsl,
+                    workflow=workflow,
+                )
+            except TracecatValidationError as e:
+                excluded_workflows.append(
+                    WorkflowBulkPushExcludedWorkflow(
+                        workflow_id=workflow_short_id,
+                        title=workflow.title,
+                        reason=WorkflowBulkPushExclusionReason.INVALID_CONFIGURATION,
+                        message=str(e),
+                    )
+                )
+                continue
+
             prepared_items.append(
                 PreparedBulkPushItem(
                     workflow=workflow,
                     definition=definition,
-                    remote_definition=self._build_remote_workflow_definition(
-                        workflow_id=workflow_id,
-                        dsl=dsl,
-                        workflow=workflow,
-                    ),
+                    remote_definition=remote_definition,
                     path=get_definition_path(workflow_id),
                 )
             )
@@ -436,7 +449,8 @@ class WorkflowStoreService(BaseWorkspaceService):
             )
         else:
             path_filters = [
-                WorkflowFolder.path.startswith(path) for path in normalized_paths
+                WorkflowFolder.path.startswith(path, autoescape=True)
+                for path in normalized_paths
             ]
             statement = (
                 select(Workflow.id)

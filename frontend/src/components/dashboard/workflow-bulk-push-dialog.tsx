@@ -280,8 +280,9 @@ export function WorkflowBulkPushDialog({
       prTitle: previewQuery.data.pr_title,
       prBody: previewQuery.data.pr_body,
     })
-    setIsCreatingBranch(true)
   }, [form, open, previewQuery.data])
+
+  const selectedBranch = form.watch("branch")
 
   useEffect(() => {
     if (!open || !repoBranches || repoBranches.length === 0) {
@@ -289,9 +290,8 @@ export function WorkflowBulkPushDialog({
     }
 
     const branchNames = new Set(repoBranches.map((branch) => branch.name))
-    const currentBranch = form.getValues("branch")
-    setIsCreatingBranch(!currentBranch || !branchNames.has(currentBranch))
-  }, [form, open, repoBranches])
+    setIsCreatingBranch(!selectedBranch || !branchNames.has(selectedBranch))
+  }, [open, repoBranches, selectedBranch])
 
   const pushMutation = useMutation({
     mutationFn: async (values: BulkPushFormValues) => {
@@ -341,7 +341,6 @@ export function WorkflowBulkPushDialog({
     },
   })
 
-  const selectedBranch = form.watch("branch")
   const selectedBranchInfo = repoBranches?.find(
     (branch) => branch.name === selectedBranch
   )

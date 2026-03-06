@@ -405,15 +405,44 @@ class TestWorkflowSyncService:
             await workflow_sync_service.push(objects=[], url=git_url, options=options)
 
     @pytest.mark.anyio
-    async def test_push_objects_empty_objects(self, workflow_sync_service, git_url):
-        """Test push fails with empty objects list."""
+    async def test_push_legacy_rejects_multiple_objects(
+        self, workflow_sync_service, git_url, sample_remote_workflow
+    ):
+        """Test legacy publish mode rejects multi-object pushes."""
         author = Author(name="Test User", email="test@example.com")
         options = PushOptions(message="Update workflows", author=author)
+        push_objects = [
+            PushObject(data=sample_remote_workflow, path="workflows/test-workflow.yml"),
+            PushObject(
+                data=sample_remote_workflow, path="workflows/test-workflow-2.yml"
+            ),
+        ]
 
-        with pytest.raises(
-            ValueError, match="At least one workflow object is required"
+        mock_repo = Mock()
+        mock_github_client = Mock()
+        mock_github_client.get_repo.return_value = mock_repo
+        mock_github_client.close = Mock()
+
+        with (
+            patch(
+                "tracecat.workflow.store.sync.GitHubAppService"
+            ) as mock_gh_service_class,
+            patch("asyncio.to_thread") as mock_to_thread,
         ):
-            await workflow_sync_service.push(objects=[], url=git_url, options=options)
+            mock_gh_service = AsyncMock()
+            mock_gh_service.get_github_client_for_repo = AsyncMock(
+                return_value=mock_github_client
+            )
+            mock_gh_service_class.return_value = mock_gh_service
+            mock_to_thread.side_effect = _mock_to_thread
+
+            with pytest.raises(
+                ValueError,
+                match="Legacy publish mode only supports pushing one workflow object at a time",
+            ):
+                await workflow_sync_service.push(
+                    objects=push_objects, url=git_url, options=options
+                )
 
     @pytest.mark.anyio
     async def test_push_workflows_github_failure(
