@@ -1,4 +1,16 @@
-"""Tests for workspace-scoped case number migration."""
+"""Tests for workspace-scoped case number migration.
+
+Seeds 4 cases across 2 workspaces with globally sequential case numbers
+(workspace A gets cases 1, 3; workspace B gets cases 2, 4), then runs the
+migration and verifies:
+
+1. Case numbers are compacted per workspace (A: 1,3 → 1,2; B: 2,4 → 1,2)
+2. workspace.last_case_number is backfilled to the max per workspace
+3. Cross-workspace duplicate case numbers are allowed
+4. The identity property is dropped from case_number
+5. The uq_case_workspace_case_number unique constraint exists
+6. The unique constraint is enforced (duplicate within a workspace raises IntegrityError)
+"""
 
 from __future__ import annotations
 
