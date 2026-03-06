@@ -37,8 +37,11 @@ function isToolPart(
     typeof (part as { state?: string }).state === "string" &&
     ((part as { state: string }).state === "input-streaming" ||
       (part as { state: string }).state === "input-available" ||
+      (part as { state: string }).state === "approval-requested" ||
+      (part as { state: string }).state === "approval-responded" ||
       (part as { state: string }).state === "output-available" ||
-      (part as { state: string }).state === "output-error")
+      (part as { state: string }).state === "output-error" ||
+      (part as { state: string }).state === "output-denied")
   )
 }
 
@@ -303,7 +306,7 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
         // Handle output parts
         const { toolCallId } = part
         const currState = states.get(toolCallId)
-        const newPart: ai.ToolUIPart = {
+        const newPart = {
           ...part,
         }
         if (currState?.open) {

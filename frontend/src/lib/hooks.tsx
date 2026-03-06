@@ -1219,7 +1219,6 @@ export function useLastExecution({
         workspaceId,
         workflowId,
         limit: 1,
-        userId: "current",
         trigger: triggerTypes,
       })
 

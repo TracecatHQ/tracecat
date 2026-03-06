@@ -5,7 +5,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { DefaultChatTransport, type UIMessage } from "ai"
+import { type UIMessage as AiUIMessage, DefaultChatTransport } from "ai"
 import { useMemo, useState } from "react"
 import {
   type AgentSessionCreate,
@@ -16,6 +16,7 @@ import {
   type AgentSessionsListSessionsResponse,
   type AgentSessionUpdate,
   type ApiError,
+  type UIMessage as ApiUIMessage,
   agentSessionsCreateSession,
   agentSessionsDeleteSession,
   agentSessionsGetSession,
@@ -270,7 +271,7 @@ export function useVercelChat({
 }: {
   chatId?: string
   workspaceId: string
-  messages: UIMessage[]
+  messages: AiUIMessage[]
   modelInfo: ModelInfo
 }) {
   const queryClient = useQueryClient()
@@ -312,7 +313,7 @@ export function useVercelChat({
           kind: "vercel",
           model: modelInfo?.name,
           model_provider: modelInfo?.provider,
-          message: last,
+          message: last as ApiUIMessage,
         }
         const baseUrl = (modelInfo as { baseUrl?: string | null })?.baseUrl
         if (baseUrl != null) body.base_url = baseUrl
@@ -359,7 +360,7 @@ export type ApprovalCard = {
 export function makeContinueMessage(
   decisions: ContinueRunRequest["decisions"],
   source: ContinueRunRequest["source"] = "inbox"
-): UIMessage {
+): AiUIMessage {
   return {
     id: `continue-${Date.now()}`,
     role: "user",
@@ -367,7 +368,7 @@ export function makeContinueMessage(
       {
         type: "data-continue",
         data: { kind: "continue", source, decisions },
-      } as UIMessage["parts"][number],
+      } as AiUIMessage["parts"][number],
     ],
   }
 }
