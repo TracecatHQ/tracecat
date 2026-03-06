@@ -13,8 +13,11 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import tempfile
 import uuid
+from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -107,6 +110,163 @@ INTERNET_TOOLS = [
 # forms, so we keep both aliases valid.
 REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
 REGISTRY_MCP_SERVER_NAME_ALIAS = "tracecat_registry"
+MAX_LOCAL_MCP_STDERR_TAIL_LINES = 8
+MAX_LOCAL_MCP_STDERR_LINE_CHARS = 300
+
+
+@dataclass(frozen=True, slots=True)
+class LocalMCPServerContext:
+    """Log-safe metadata for a configured local stdio MCP server."""
+
+    server_name: str
+    command: str
+    timeout: int | None
+    env_keys: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class LocalMCPFailureDetails:
+    """Derived MCP failure details for logging and user-facing errors."""
+
+    server_name: str
+    phase: str
+    message: str
+    timeout: int | None = None
+    exit_code: int | None = None
+    stderr_tail: tuple[str, ...] = ()
+
+
+def _truncate_stderr_line(line: str) -> str:
+    """Bound stderr lines before storing or logging them."""
+    normalized = " ".join(line.strip().split())
+    if len(normalized) <= MAX_LOCAL_MCP_STDERR_LINE_CHARS:
+        return normalized
+    return f"{normalized[: MAX_LOCAL_MCP_STDERR_LINE_CHARS - 3]}..."
+
+
+def _redact_sensitive_text(value: str) -> str:
+    """Redact common secret-bearing fragments from error and stderr text."""
+    redacted = re.sub(
+        r"(?i)(authorization\s*:\s*)(.+)",
+        r"\1<redacted>",
+        value,
+    )
+    redacted = re.sub(
+        r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+",
+        r"\1<redacted>",
+        redacted,
+    )
+    redacted = re.sub(
+        r"(?i)\b([A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY|KEY))=(\S+)",
+        r"\1=<redacted>",
+        redacted,
+    )
+    return redacted
+
+
+def _extract_exit_code(message: str) -> int | None:
+    """Extract a process exit code from an error message when present."""
+    if match := re.search(r"(?i)\bexit(?:ed)?(?:\s+with)?\s+code\s+(-?\d+)\b", message):
+        return int(match.group(1))
+    return None
+
+
+def _infer_mcp_phase(message: str) -> str:
+    """Infer the most likely MCP lifecycle phase from an error message."""
+    phase_patterns: tuple[tuple[str, tuple[str, ...]], ...] = (
+        ("config_validate", ("invalid mcp", "validation", "config", "malformed")),
+        ("spawn", ("spawn", "enoent", "no such file or directory", "not found")),
+        ("initialize", ("initialize", "initialization", "handshake")),
+        ("list_tools", ("list_tools", "tools/list", "list tools")),
+        ("list_resources", ("list_resources", "resources/list", "list resources")),
+        ("list_prompts", ("list_prompts", "prompts/list", "list prompts")),
+        ("call_tool", ("call_tool", "tools/call", "tool call", "call tool")),
+        (
+            "read_resource",
+            ("read_resource", "resources/read", "read resource"),
+        ),
+        ("get_prompt", ("get_prompt", "prompts/get", "get prompt")),
+        ("shutdown", ("shutdown", "close", "terminate")),
+    )
+    for phase, patterns in phase_patterns:
+        if any(pattern in message for pattern in patterns):
+            return phase
+    if "timed out" in message or "timeout" in message:
+        return "initialize"
+    return "initialize"
+
+
+def _format_local_mcp_error(details: LocalMCPFailureDetails) -> str:
+    """Format a bounded user-facing error for local MCP failures."""
+    prefix = f"Local MCP server '{details.server_name}' failed during {details.phase}"
+    if details.phase == "spawn" and "not found" in details.message.lower():
+        return f"{prefix}: command not found."
+    if details.phase == "spawn" and "npm err" in details.message.lower():
+        return f"{prefix}: package install or startup failed."
+    if details.phase == "initialize" and (
+        "timed out" in details.message.lower() or "timeout" in details.message.lower()
+    ):
+        return f"{prefix}: handshake timed out."
+    return f"{prefix}: {details.message}"
+
+
+def _classify_local_mcp_failure(
+    *,
+    error: Exception,
+    servers: dict[str, LocalMCPServerContext],
+    stderr_tail: tuple[str, ...],
+) -> LocalMCPFailureDetails | None:
+    """Best-effort attribution of a runtime failure to a local stdio MCP server."""
+    if not servers:
+        return None
+
+    combined = _redact_sensitive_text(
+        " ".join([str(error), *stderr_tail]).strip()
+    ).lower()
+    if not combined:
+        return None
+
+    if not any(
+        signal in combined
+        for signal in (
+            "mcp",
+            "stdio",
+            "server",
+            "spawn",
+            "initialize",
+            "tool",
+            "resource",
+            "prompt",
+            "timed out",
+            "timeout",
+            "enoent",
+            "not found",
+        )
+    ):
+        return None
+
+    server = next(
+        (
+            context
+            for context in servers.values()
+            if context.server_name.lower() in combined
+            or context.command.lower() in combined
+        ),
+        next(iter(servers.values())),
+    )
+    phase = _infer_mcp_phase(combined)
+    message = _redact_sensitive_text(str(error)) or "Unknown MCP runtime failure"
+    redacted_stderr_tail = tuple(_redact_sensitive_text(line) for line in stderr_tail)
+    return LocalMCPFailureDetails(
+        server_name=server.server_name,
+        phase=phase,
+        message=message,
+        timeout=server.timeout
+        if "timeout" in combined or "timed out" in combined
+        else None,
+        exit_code=_extract_exit_code(combined),
+        stderr_tail=redacted_stderr_tail,
+    )
 
 
 class ClaudeAgentRuntime:
@@ -465,6 +625,8 @@ class ClaudeAgentRuntime:
                 # Count lines from the session data we just wrote to disk (avoid I/O).
                 self._last_seen_line_index = len(payload.sdk_session_data.splitlines())
 
+        local_mcp_servers: dict[str, LocalMCPServerContext] = {}
+        stderr_tail: deque[str] = deque(maxlen=MAX_LOCAL_MCP_STDERR_TAIL_LINES)
         try:
             # Build MCP servers config for registry actions and stdio servers
             mcp_servers: dict[str, Any] = {}
@@ -503,10 +665,27 @@ class ClaudeAgentRuntime:
                         server_config["timeout"] = timeout
 
                     mcp_servers[server_name] = server_config
+                    local_mcp_servers[server_name] = LocalMCPServerContext(
+                        server_name=server_name,
+                        command=stdio_config["command"],
+                        timeout=stdio_config.get("timeout"),
+                        env_keys=tuple(sorted((stdio_config.get("env") or {}).keys())),
+                    )
+                    await self._socket_writer.send_log(
+                        "debug",
+                        "Configured local MCP stdio server",
+                        server_name=server_name,
+                        phase="config_validate",
+                        command=stdio_config["command"],
+                        timeout=stdio_config.get("timeout"),
+                        env_keys=sorted((stdio_config.get("env") or {}).keys()),
+                    )
 
             def handle_claude_stderr(line: str) -> None:
                 """Forward Claude CLI stderr to loopback via queue."""
-                stderr_queue.put_nowait(line)
+                redacted_line = _truncate_stderr_line(_redact_sensitive_text(line))
+                stderr_tail.append(redacted_line)
+                stderr_queue.put_nowait(redacted_line)
 
             await self._socket_writer.send_log(
                 "debug",
@@ -561,7 +740,11 @@ class ClaudeAgentRuntime:
                 """Background task to drain stderr queue to loopback."""
                 while True:
                     line = await stderr_queue.get()
-                    await self._socket_writer.send_log("warning", f"[stderr] {line}")
+                    await self._socket_writer.send_log(
+                        "warning",
+                        "Claude runtime stderr",
+                        stderr_line=line,
+                    )
 
             logger.debug(
                 "Creating ClaudeSDKClient",
@@ -705,13 +888,31 @@ class ClaudeAgentRuntime:
                         pass
 
         except Exception as e:
-            await self._socket_writer.send_log(
-                "error",
-                "Runtime error",
-                error_type=type(e).__name__,
-                error_message=str(e),
-            )
-            await self._socket_writer.send_error(str(e))
+            if details := _classify_local_mcp_failure(
+                error=e,
+                servers=local_mcp_servers,
+                stderr_tail=tuple(stderr_tail),
+            ):
+                await self._socket_writer.send_log(
+                    "error",
+                    "Local MCP server failure",
+                    server_name=details.server_name,
+                    phase=details.phase,
+                    timeout=details.timeout,
+                    exit_code=details.exit_code,
+                    stderr_tail=list(details.stderr_tail) or None,
+                    error_type=type(e).__name__,
+                    error_message=details.message,
+                )
+                await self._socket_writer.send_error(_format_local_mcp_error(details))
+            else:
+                await self._socket_writer.send_log(
+                    "error",
+                    "Runtime error",
+                    error_type=type(e).__name__,
+                    error_message=_redact_sensitive_text(str(e)),
+                )
+                await self._socket_writer.send_error(_redact_sensitive_text(str(e)))
             raise
         finally:
             self.client = None

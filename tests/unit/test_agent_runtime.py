@@ -27,7 +27,11 @@ from tracecat.agent.common.types import (
 from tracecat.agent.common.types import (
     MCPToolDefinition as SharedMCPToolDefinition,
 )
-from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
+from tracecat.agent.runtime.claude_code.runtime import (
+    ClaudeAgentRuntime,
+    LocalMCPServerContext,
+    _classify_local_mcp_failure,
+)
 from tracecat.agent.types import AgentConfig
 
 
@@ -103,6 +107,7 @@ def sample_init_payload(
 def mock_socket_writer() -> MagicMock:
     """Create a mock SocketStreamWriter."""
     writer = MagicMock(spec=SocketStreamWriter)
+    writer.send_log = AsyncMock()
     writer.send_stream_event = AsyncMock()
     writer.send_message = AsyncMock()
     writer.send_session_line = AsyncMock()
@@ -261,6 +266,66 @@ class TestClaudeAgentRuntimeRun:
         mock_socket_writer.send_done.assert_awaited_once()
 
     @pytest.mark.anyio
+    async def test_surfaces_local_mcp_spawn_failures_with_context(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        """Test that local stdio MCP spawn failures become actionable runtime errors."""
+        mock_claude_sdk_client.query = AsyncMock(
+            side_effect=FileNotFoundError(
+                "MCP server github-local failed to spawn: npx not found"
+            )
+        )
+        payload = replace(
+            sample_init_payload,
+            config=replace(
+                sample_init_payload.config,
+                mcp_servers=[
+                    {
+                        "type": "stdio",
+                        "name": "github-local",
+                        "command": "npx",
+                        "args": ["@modelcontextprotocol/server-github"],
+                        "env": {"GITHUB_TOKEN": "super-secret-token"},
+                        "timeout": 20,
+                    }
+                ],
+            ),
+        )
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_claude_sdk_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+            pytest.raises(FileNotFoundError, match="github-local"),
+        ):
+            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            await runtime.run(payload)
+
+        assert mock_socket_writer.send_log.await_count >= 1
+        error_logs = [
+            call
+            for call in mock_socket_writer.send_log.await_args_list
+            if call.args[:2] == ("error", "Local MCP server failure")
+        ]
+        assert error_logs
+        assert error_logs[0].kwargs["server_name"] == "github-local"
+        assert error_logs[0].kwargs["phase"] == "spawn"
+        assert error_logs[0].kwargs["stderr_tail"] is None
+        mock_socket_writer.send_error.assert_awaited_once()
+        assert (
+            "Local MCP server 'github-local' failed during spawn"
+            in (mock_socket_writer.send_error.await_args.args[0])
+        )
+
+    @pytest.mark.anyio
     async def test_adds_registry_mcp_alias_on_resume(
         self,
         mock_socket_writer: MagicMock,
@@ -394,3 +459,32 @@ class TestClaudeAgentRuntimePreToolUseHook:
         # Should have sent approval request and interrupted
         mock_socket_writer.send_stream_event.assert_awaited()
         runtime.client.interrupt.assert_awaited()
+
+
+class TestLocalMCPFailureClassification:
+    """Tests for local MCP runtime failure attribution helpers."""
+
+    def test_classifies_local_mcp_initialize_timeout_and_redacts_stderr(self) -> None:
+        """Timeout failures should identify the server and redact sensitive stderr."""
+        details = _classify_local_mcp_failure(
+            error=RuntimeError("MCP initialize timed out after 15s"),
+            servers={
+                "github-local": LocalMCPServerContext(
+                    server_name="github-local",
+                    command="npx",
+                    timeout=15,
+                    env_keys=("GITHUB_TOKEN", "DEBUG"),
+                )
+            },
+            stderr_tail=(
+                "Authorization: Bearer secret-token",
+                "GITHUB_TOKEN=super-secret-value",
+            ),
+        )
+
+        assert details is not None
+        assert details.server_name == "github-local"
+        assert details.phase == "initialize"
+        assert details.timeout == 15
+        assert all("secret-token" not in line for line in details.stderr_tail)
+        assert all("super-secret-value" not in line for line in details.stderr_tail)
