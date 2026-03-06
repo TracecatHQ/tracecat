@@ -127,9 +127,7 @@ class MCPCatalogArtifactService(BaseOrgService):
         )
         client = await self._create_remote_client(target)
         async with client as remote_client:
-            result = await remote_client.get_prompt(
-                target.artifact_ref, arguments or None
-            )
+            result = await remote_client.get_prompt(target.artifact_ref, arguments)
         return MCPCatalogPromptResult(
             workspace_id=workspace_id,
             artifact=target,
@@ -307,10 +305,13 @@ class MCPCatalogArtifactService(BaseOrgService):
                 raise TracecatValidationError(
                     "OAuth access token is not available for MCP integration"
                 )
-            headers.setdefault(
-                "Authorization",
-                f"Bearer {access_token.get_secret_value()}",
-            )
+            if auth_header_keys := [
+                key for key in headers if key.strip().casefold() == "authorization"
+            ]:
+                for auth_header_key in auth_header_keys:
+                    headers.pop(auth_header_key, None)
+            token_type = oauth_integration.token_type or "Bearer"
+            headers["Authorization"] = f"{token_type} {access_token.get_secret_value()}"
         return headers
 
     @staticmethod

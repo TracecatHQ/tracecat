@@ -20,7 +20,7 @@ from tracecat.db.models import (
 )
 from tracecat.integrations.enums import MCPAuthType, MCPCatalogArtifactType
 from tracecat.integrations.mcp_scopes import build_mcp_scope_name
-from tracecat.mcp.catalog.service import MCPCatalogSearchService
+from tracecat.mcp.catalog.service import MCPCatalogSearchService, _escape_like_pattern
 
 
 @pytest.fixture
@@ -110,7 +110,7 @@ async def _create_mcp_integration(
     *,
     session: AsyncSession,
     workspace: Workspace,
-    scope_namespace: str = "mcpcatalog000001",
+    scope_namespace: str | None = None,
 ) -> MCPIntegration:
     integration = MCPIntegration(
         id=uuid.uuid4(),
@@ -118,7 +118,7 @@ async def _create_mcp_integration(
         name="Catalog MCP",
         description="Catalog MCP",
         slug=f"catalog-mcp-{uuid.uuid4().hex[:6]}",
-        scope_namespace=scope_namespace,
+        scope_namespace=scope_namespace or uuid.uuid4().hex[:16],
         server_type="http",
         server_uri="https://api.example.com/mcp",
         auth_type=MCPAuthType.NONE,
@@ -169,6 +169,11 @@ async def _insert_catalog_entry(
 
 @pytest.mark.anyio
 class TestMCPCatalogSearchService:
+    async def test_escape_like_pattern_treats_wildcards_literally(self) -> None:
+        assert _escape_like_pattern(r"tools.%_catalog\name") == (
+            r"tools.\%\_catalog\\name"
+        )
+
     async def test_search_catalog_ranks_exact_matches_first(
         self,
         session: AsyncSession,

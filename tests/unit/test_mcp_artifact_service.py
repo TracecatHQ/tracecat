@@ -16,7 +16,7 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
-from pydantic import AnyUrl
+from pydantic import AnyUrl, SecretStr
 from sqlalchemy import func, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,8 +61,6 @@ class _FakeIntegrationService:
         token = self._decrypt_token(integration.encrypted_access_token)
         if token is None:
             return None
-        from pydantic import SecretStr
-
         return SecretStr(token)
 
 
@@ -146,6 +144,7 @@ async def _create_oauth_integration(
     workspace: Workspace,
     user: User,
     access_token: str = "oauth-token",
+    token_type: str = "Bearer",
 ) -> OAuthIntegration:
     integration = OAuthIntegration(
         id=uuid.uuid4(),
@@ -161,7 +160,7 @@ async def _create_oauth_integration(
             b"client-secret", key=TEST_ENCRYPTION_KEY
         ),
         use_workspace_credentials=False,
-        token_type="Bearer",
+        token_type=token_type,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
         scope=None,
         requested_scopes=None,
@@ -259,6 +258,7 @@ class _FakeClient:
         self.call_tool_result = call_tool_result
         self.read_resource_result = read_resource_result or []
         self.get_prompt_result = get_prompt_result
+        self.last_prompt_arguments: dict[str, Any] | None = None
 
     async def __aenter__(self) -> _FakeClient:
         return self
@@ -277,6 +277,7 @@ class _FakeClient:
         self, name: str, arguments: dict[str, Any] | None
     ) -> GetPromptResult:
         assert self.get_prompt_result is not None
+        self.last_prompt_arguments = arguments
         return self.get_prompt_result
 
 
@@ -320,6 +321,51 @@ class TestMCPCatalogArtifactService:
 
         assert headers["X-Tracecat"] == "1"
         assert headers["Authorization"] == "Bearer secret-token"
+
+    async def test_build_headers_oauth_overrides_custom_authorization_variants(
+        self,
+        session: AsyncSession,
+        org_admin_role: Role,
+        workspace: Workspace,
+        user: User,
+    ) -> None:
+        oauth_integration = await _create_oauth_integration(
+            session=session,
+            workspace=workspace,
+            user=user,
+            access_token="secret-token",
+            token_type="Token",
+        )
+        integration = await _create_mcp_integration(
+            session=session,
+            workspace=workspace,
+            oauth_integration=oauth_integration,
+            auth_type=MCPAuthType.OAUTH2,
+            custom_headers={
+                "Authorization": "Bearer stale-token",
+                "authorization": "Bearer stale-lower",
+                "X-Tracecat": "1",
+            },
+        )
+        entry_id = await _insert_catalog_entry(
+            session=session,
+            integration=integration,
+            artifact_type=MCPCatalogArtifactType.TOOL,
+            artifact_key="tool-a2",
+            artifact_ref="describe_repo",
+        )
+        service = MCPCatalogArtifactService(session=session, role=org_admin_role)
+        target = await service.resolve_artifact(
+            workspace_id=workspace.id,
+            artifact_ref_or_id=str(entry_id),
+            artifact_type=MCPCatalogArtifactType.TOOL,
+        )
+
+        headers = await service._build_headers(target)
+
+        assert headers["Authorization"] == "Token secret-token"
+        assert headers["X-Tracecat"] == "1"
+        assert "authorization" not in headers
 
     async def test_execute_tool_returns_remote_call_result(
         self,
@@ -457,6 +503,53 @@ class TestMCPCatalogArtifactService:
 
         assert result.result["messages"][0]["role"] == "user"
         assert result.result["messages"][0]["content"]["text"] == "Investigate this"
+
+    async def test_get_prompt_preserves_explicit_empty_dict_arguments(
+        self,
+        session: AsyncSession,
+        org_admin_role: Role,
+        workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        integration = await _create_mcp_integration(
+            session=session, workspace=workspace
+        )
+        entry_id = await _insert_catalog_entry(
+            session=session,
+            integration=integration,
+            artifact_type=MCPCatalogArtifactType.PROMPT,
+            artifact_key="prompt-a2",
+            artifact_ref="triage_incident",
+        )
+        service = MCPCatalogArtifactService(session=session, role=org_admin_role)
+        fake_client = _FakeClient(
+            get_prompt_result=GetPromptResult(
+                description="Prompt description",
+                messages=[
+                    PromptMessage(
+                        role="user",
+                        content=TextContent(type="text", text="Investigate this"),
+                    )
+                ],
+            )
+        )
+
+        async def fake_create_remote_client(target: Any) -> _FakeClient:
+            return fake_client
+
+        monkeypatch.setattr(
+            service,
+            "_create_remote_client",
+            fake_create_remote_client,
+        )
+
+        await service.get_prompt(
+            workspace_id=workspace.id,
+            artifact_ref_or_id=str(entry_id),
+            arguments={},
+        )
+
+        assert fake_client.last_prompt_arguments == {}
 
     async def test_stdio_artifacts_are_rejected_for_now(
         self,

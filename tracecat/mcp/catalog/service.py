@@ -15,6 +15,16 @@ from tracecat.mcp.catalog.types import MCPCatalogSearchResult, MCPCatalogSearchR
 from tracecat.mcp.policy.service import MCPCatalogPolicyService
 from tracecat.service import BaseOrgService
 
+_LIKE_ESCAPE_CHAR = "\\"
+
+
+def _escape_like_pattern(value: str) -> str:
+    return (
+        value.replace(_LIKE_ESCAPE_CHAR, _LIKE_ESCAPE_CHAR * 2)
+        .replace("%", f"{_LIKE_ESCAPE_CHAR}%")
+        .replace("_", f"{_LIKE_ESCAPE_CHAR}_")
+    )
+
 
 class MCPCatalogSearchService(BaseOrgService):
     """Search active persisted catalog entries visible to the current caller."""
@@ -84,6 +94,8 @@ class MCPCatalogSearchService(BaseOrgService):
 
         if normalized_query:
             tsquery = func.websearch_to_tsquery("simple", query)
+            prefix_pattern = f"{_escape_like_pattern(normalized_query)}%"
+            prefix_match = display_name.like(prefix_pattern, escape=_LIKE_ESCAPE_CHAR)
             similarity_score = func.greatest(
                 func.similarity(display_name, normalized_query_text),
                 func.similarity(artifact_ref, normalized_query_text),
@@ -104,7 +116,7 @@ class MCPCatalogSearchService(BaseOrgService):
                     Float,
                 )
                 + cast(
-                    case((display_name.like(f"{normalized_query}%"), 0.35), else_=0.0),
+                    case((prefix_match, 0.35), else_=0.0),
                     Float,
                 )
                 + cast(similarity_score * 0.20, Float)
@@ -116,7 +128,7 @@ class MCPCatalogSearchService(BaseOrgService):
                         MCPIntegrationCatalogEntry.search_vector.op("@@")(tsquery),
                         display_name == normalized_query,
                         artifact_ref == normalized_query,
-                        display_name.like(f"{normalized_query}%"),
+                        prefix_match,
                         func.similarity(display_name, normalized_query_text) >= 0.1,
                         func.similarity(artifact_ref, normalized_query_text) >= 0.1,
                     )

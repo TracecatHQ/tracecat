@@ -18,6 +18,21 @@ def test_mcp_startup_retry_settings_parse_from_env(
     assert reloaded.TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS == 1.25
 
 
+def test_numeric_mcp_settings_fall_back_when_env_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TRACECAT_MCP__PORT", "")
+    monkeypatch.setenv("TRACECAT_MCP__MAX_RESOURCE_CONTENT_CHARS", "")
+    monkeypatch.setenv("TRACECAT_MCP__STARTUP_MAX_ATTEMPTS", "")
+    monkeypatch.setenv("TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS", "")
+    reloaded = importlib.reload(mcp_config)
+
+    assert reloaded.TRACECAT_MCP__PORT == 8099
+    assert reloaded.TRACECAT_MCP__MAX_RESOURCE_CONTENT_CHARS == 32768
+    assert reloaded.TRACECAT_MCP__STARTUP_MAX_ATTEMPTS == 3
+    assert reloaded.TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS == 2.0
+
+
 def test_removed_auth_mode_env_has_no_effect(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
