@@ -9304,7 +9304,7 @@ export const mcpIntegrationsDeleteMcpIntegration = (
 
 /**
  * Refresh Mcp Integration
- * Enqueue remote discovery refresh for an HTTP/SSE MCP integration.
+ * Enqueue persisted discovery refresh for an MCP integration.
  * @param data The data for the request.
  * @param data.mcpIntegrationId
  * @param data.workspaceId

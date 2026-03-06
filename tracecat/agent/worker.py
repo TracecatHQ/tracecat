@@ -64,6 +64,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.interceptor import SentryInterceptor
     from tracecat.dsl.plugins import TracecatPydanticAIPlugin
     from tracecat.integrations.mcp_discovery_workflow import (
+        MCPLocalStdioDiscoveryWorkflow,
         MCPRemoteDiscoveryWorkflow,
         get_mcp_discovery_activities,
     )
@@ -288,12 +289,14 @@ def get_activities() -> list[Callable[..., object]]:
 
 async def main() -> None:
     """Run the AgentWorker."""
-    max_concurrent = int(
+    agent_max_concurrent = int(
         os.environ.get("TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES", 100)
     )
-    threadpool_max_workers = int(
+    agent_threadpool_max_workers = int(
         os.environ.get("TEMPORAL__THREADPOOL_MAX_WORKERS", 100)
     )
+    mcp_max_concurrent = config.TRACECAT__MCP_MAX_CONCURRENT_ACTIVITIES
+    mcp_threadpool_max_workers = config.TRACECAT__MCP_THREADPOOL_MAX_WORKERS
 
     logger.info(
         "Starting AgentWorker",
@@ -322,6 +325,7 @@ async def main() -> None:
             interceptors.append(SentryInterceptor())
 
         activities = get_activities()
+        mcp_discovery_activities = get_mcp_discovery_activities()
         logger.debug(
             "Activities loaded",
             activities=[
@@ -329,25 +333,46 @@ async def main() -> None:
             ],
         )
 
-        with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-            workflows: list[type] = [
+        with (
+            ThreadPoolExecutor(
+                max_workers=agent_threadpool_max_workers
+            ) as agent_executor,
+            ThreadPoolExecutor(max_workers=mcp_threadpool_max_workers) as mcp_executor,
+        ):
+            agent_workflows: list[type] = [
                 DurableAgentWorkflow,
                 MCPRemoteDiscoveryWorkflow,
             ]
+            mcp_workflows: list[type] = [MCPLocalStdioDiscoveryWorkflow]
 
-            async with Worker(
-                client,
-                task_queue=config.TRACECAT__AGENT_QUEUE,
-                activities=activities,
-                workflows=workflows,
-                workflow_runner=new_sandbox_runner(),
-                interceptors=interceptors,
-                max_concurrent_activities=max_concurrent,
-                disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
-                activity_executor=executor,
+            async with (
+                Worker(
+                    client,
+                    task_queue=config.TRACECAT__AGENT_QUEUE,
+                    activities=activities,
+                    workflows=agent_workflows,
+                    workflow_runner=new_sandbox_runner(),
+                    interceptors=interceptors,
+                    max_concurrent_activities=agent_max_concurrent,
+                    disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+                    activity_executor=agent_executor,
+                ),
+                Worker(
+                    client,
+                    task_queue=config.TRACECAT__MCP_QUEUE,
+                    activities=mcp_discovery_activities,
+                    workflows=mcp_workflows,
+                    workflow_runner=new_sandbox_runner(),
+                    interceptors=interceptors,
+                    max_concurrent_activities=mcp_max_concurrent,
+                    disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+                    activity_executor=mcp_executor,
+                ),
             ):
                 logger.info(
                     "AgentWorker started, ctrl+c to exit",
+                    agent_queue=config.TRACECAT__AGENT_QUEUE,
+                    mcp_queue=config.TRACECAT__MCP_QUEUE,
                 )
                 await interrupt_event.wait()
                 logger.info("Shutting down AgentWorker")

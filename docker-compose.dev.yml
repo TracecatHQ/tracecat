@@ -270,6 +270,11 @@ services:
       TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
       # Agent Worker configuration
       TRACECAT__AGENT_QUEUE: ${TRACECAT__AGENT_QUEUE:-shared-agent-queue}
+      TRACECAT__MCP_QUEUE: ${TRACECAT__MCP_QUEUE:-shared-mcp-queue}
+      TRACECAT__MCP_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__MCP_MAX_CONCURRENT_ACTIVITIES:-25}
+      TRACECAT__MCP_THREADPOOL_MAX_WORKERS: ${TRACECAT__MCP_THREADPOOL_MAX_WORKERS:-25}
+      TRACECAT__MCP_MAX_CONCURRENT_LOCAL_SANDBOXES: ${TRACECAT__MCP_MAX_CONCURRENT_LOCAL_SANDBOXES:-10}
+      TRACECAT__MCP_SANDBOX_CACHE_DIR: /var/lib/tracecat/mcp-sandbox-cache
       # Pool size auto-scales based on available CPUs if not set
       TRACECAT__EXECUTOR_WORKER_POOL_SIZE: ${TRACECAT__EXECUTOR_WORKER_POOL_SIZE:-}
       # Redis
@@ -283,6 +288,7 @@ services:
       - ./packages:/app/packages
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
       - sandbox-cache:/var/lib/tracecat/sandbox-cache
+      - mcp-sandbox-cache:/var/lib/tracecat/mcp-sandbox-cache
     command: ["python", "-m", "tracecat.agent.worker"]
     depends_on:
       migrations:
@@ -495,3 +501,4 @@ volumes:
   minio-data:
   redis-data:
   sandbox-cache:
+  mcp-sandbox-cache:

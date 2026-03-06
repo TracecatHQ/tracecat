@@ -1000,7 +1000,7 @@ async def refresh_mcp_integration(
     session: AsyncDBSession,
     mcp_integration_id: uuid.UUID,
 ) -> MCPIntegrationRead:
-    """Enqueue remote discovery refresh for an HTTP/SSE MCP integration."""
+    """Enqueue persisted discovery refresh for an MCP integration."""
     svc = IntegrationService(session, role=role)
     try:
         integration = await svc.refresh_mcp_integration_discovery(

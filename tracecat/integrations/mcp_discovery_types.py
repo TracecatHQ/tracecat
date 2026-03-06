@@ -1,4 +1,4 @@
-"""Shared types for persisted remote MCP discovery."""
+"""Shared types for persisted MCP discovery."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class NormalizedMCPArtifact(BaseModel):
 
 
 class MCPDiscoveryWorkflowArgs(BaseModel):
-    """Arguments for the remote MCP discovery workflow."""
+    """Arguments for a persisted MCP discovery workflow."""
 
     role: Role
     mcp_integration_id: uuid.UUID
@@ -35,7 +35,7 @@ class MCPDiscoveryWorkflowArgs(BaseModel):
 
 
 class MCPDiscoveryWorkflowResult(BaseModel):
-    """Result for a remote MCP discovery workflow run."""
+    """Result for a persisted MCP discovery workflow run."""
 
     mcp_integration_id: uuid.UUID
     status: str

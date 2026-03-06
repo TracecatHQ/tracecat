@@ -9,10 +9,10 @@ from typing import cast
 from slugify import slugify
 from sqlalchemy import select
 
+from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.types import (
     AgentConfig,
-    MCPServerConfig,
     OutputType,
 )
 from tracecat.audit.logger import audit_log
@@ -20,10 +20,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
 )
-from tracecat.dsl.common import create_default_execution_context
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.executor.service import get_workspace_variables
-from tracecat.expressions.eval import collect_expressions, eval_templated_object
 from tracecat.integrations.mcp_validation import (
     MCPValidationError,
     validate_mcp_command_config,
@@ -31,7 +28,6 @@ from tracecat.integrations.mcp_validation import (
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.secrets import secrets_manager
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
 
@@ -272,7 +268,7 @@ class AgentPresetService(BaseWorkspaceService):
                 stdio_env = integrations_service.decrypt_stdio_env(mcp_integration)
                 if stdio_env:
                     try:
-                        stdio_env = await self._resolve_stdio_env(
+                        stdio_env = await integrations_service.resolve_mcp_stdio_env(
                             stdio_env=stdio_env,
                             mcp_integration_id=mcp_integration.id,
                             mcp_integration_slug=mcp_integration.slug,
@@ -338,58 +334,6 @@ class AgentPresetService(BaseWorkspaceService):
             )
 
         return mcp_servers
-
-    async def _resolve_stdio_env(
-        self,
-        *,
-        stdio_env: dict[str, str],
-        mcp_integration_id: uuid.UUID,
-        mcp_integration_slug: str,
-    ) -> dict[str, str]:
-        """Resolve template expressions in stdio_env using workspace secrets/vars."""
-        collected = collect_expressions(stdio_env)
-        if not collected.secrets and not collected.variables:
-            return stdio_env
-
-        secrets = await secrets_manager.get_action_secrets(
-            secret_exprs=collected.secrets,
-            action_secrets=set(),
-        )
-        vars_map = await get_workspace_variables(
-            variable_exprs=collected.variables,
-            role=self.role,
-        )
-
-        context = create_default_execution_context()
-        context["SECRETS"] = secrets
-        context["VARS"] = vars_map
-
-        resolved = eval_templated_object(stdio_env, operand=context)
-        if not isinstance(resolved, dict):
-            raise TracecatValidationError(
-                "Resolved stdio_env must be a JSON object with string values"
-            )
-
-        non_string_keys = [
-            key for key, value in resolved.items() if not isinstance(value, str)
-        ]
-        if non_string_keys:
-            raise TracecatValidationError(
-                "Resolved stdio_env values must be strings "
-                f"(invalid keys: {sorted(non_string_keys)})"
-            )
-
-        logger.info(
-            "Resolved stdio_env template expressions",
-            workspace_id=str(self.workspace_id),
-            mcp_integration_id=str(mcp_integration_id),
-            mcp_integration_slug=mcp_integration_slug,
-            env_key_count=len(resolved),
-            secret_ref_count=len(collected.secrets),
-            var_ref_count=len(collected.variables),
-        )
-
-        return cast(dict[str, str], resolved)
 
     async def _normalize_and_validate_slug(
         self,
