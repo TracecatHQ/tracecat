@@ -20,7 +20,13 @@ from sqlalchemy import func, insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.agent.mcp import user_client as mcp_user_client
+from tracecat.agent.mcp.catalog import MCPServerCatalog
+from tracecat.agent.mcp.local_runtime.types import (
+    LocalMCPDiscoveryError,
+    LocalMCPDiscoveryPhase,
+)
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
@@ -81,6 +87,16 @@ class FakeTemporalClient:
 
 
 @pytest.fixture(autouse=True)
+def encryption_key(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Set up encryption key for integration service tests."""
+    from cryptography.fernet import Fernet
+
+    key = Fernet.generate_key().decode()
+    monkeypatch.setenv("TRACECAT__DB_ENCRYPTION_KEY", key)
+    return key
+
+
+@pytest.fixture(autouse=True)
 def temporal_client_stub(monkeypatch: pytest.MonkeyPatch) -> FakeTemporalClient:
     """Stub Temporal workflow starts for MCP discovery enqueue paths."""
     client = FakeTemporalClient()
@@ -97,7 +113,7 @@ def temporal_client_stub(monkeypatch: pytest.MonkeyPatch) -> FakeTemporalClient:
 
 @pytest.fixture
 async def integration_service(
-    session: AsyncSession, svc_role: Role
+    session: AsyncSession, svc_role: Role, encryption_key: str
 ) -> IntegrationService:
     """Create an integration service instance for testing."""
     return IntegrationService(session=session, role=svc_role)
@@ -197,6 +213,31 @@ class TestMCPIntegrationCRUD:
         assert mcp_integration.created_at is not None
         assert mcp_integration.updated_at is not None
         assert len(temporal_client_stub.started_workflows) == 1
+
+    async def test_create_stdio_mcp_integration_enqueues_local_discovery(
+        self,
+        integration_service: IntegrationService,
+        temporal_client_stub: FakeTemporalClient,
+    ) -> None:
+        """Test creating a stdio MCP integration enqueues local discovery."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Local MCP",
+                stdio_command="uvx",
+                stdio_args=["example-mcp"],
+            )
+        )
+
+        assert created.server_type == "stdio"
+        assert created.discovery_status == MCPDiscoveryStatus.PENDING.value
+        assert created.last_discovery_attempt_at is not None
+        assert len(temporal_client_stub.started_workflows) == 1
+        started = cast(dict[str, object], temporal_client_stub.started_workflows[0])
+        kwargs = cast(dict[str, object], started["kwargs"])
+        assert started["workflow"] == "mcp_local_stdio_discovery"
+        assert kwargs["task_queue"] == config.TRACECAT__MCP_QUEUE
+        args = cast(MCPDiscoveryWorkflowArgs, started["args"])
+        assert args.trigger == MCPDiscoveryTrigger.CREATE
 
     async def test_create_mcp_integration_with_oauth2_additional_headers(
         self,
@@ -526,6 +567,36 @@ class TestMCPIntegrationCRUD:
             MCPDiscoveryWorkflowArgs,
             temporal_client_stub.started_workflows[0]["args"],
         )
+        assert args.trigger == MCPDiscoveryTrigger.REFRESH
+
+    async def test_refresh_stdio_mcp_integration_discovery_enqueues_local_discovery(
+        self,
+        integration_service: IntegrationService,
+        temporal_client_stub: FakeTemporalClient,
+    ) -> None:
+        """Test explicit refresh re-enqueues discovery for stdio MCP integrations."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Manual local refresh MCP",
+                stdio_command="uvx",
+                stdio_args=["example-mcp"],
+            )
+        )
+        temporal_client_stub.started_workflows.clear()
+
+        refreshed = await integration_service.refresh_mcp_integration_discovery(
+            mcp_integration_id=created.id
+        )
+
+        assert refreshed is not None
+        assert refreshed.discovery_status == MCPDiscoveryStatus.PENDING.value
+        assert refreshed.last_discovery_attempt_at is not None
+        assert len(temporal_client_stub.started_workflows) == 1
+        started = cast(dict[str, object], temporal_client_stub.started_workflows[0])
+        kwargs = cast(dict[str, object], started["kwargs"])
+        assert started["workflow"] == "mcp_local_stdio_discovery"
+        assert kwargs["task_queue"] == config.TRACECAT__MCP_QUEUE
+        args = cast(MCPDiscoveryWorkflowArgs, started["args"])
         assert args.trigger == MCPDiscoveryTrigger.REFRESH
 
     async def test_get_mcp_catalog_counts(
@@ -972,6 +1043,131 @@ class TestMCPIntegrationCRUD:
         assert second_catalog_entries[0].artifact_key == original_artifact_key
         assert second_catalog_entries[0].display_name == "Search docs"
         assert second_catalog_entries[0].is_active is True
+
+    async def test_run_local_mcp_discovery_persists_catalog(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test local stdio discovery persists normalized catalog rows."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Local catalog MCP",
+                stdio_command="uvx",
+                stdio_args=["example-mcp"],
+            )
+        )
+        assert created.last_discovery_attempt_at is not None
+
+        async def _discover_local(_: object) -> MCPServerCatalog:
+            return MCPServerCatalog(
+                server_name="local-scope",
+                tools=(
+                    {
+                        "artifact_type": MCPCatalogArtifactType.TOOL.value,
+                        "artifact_ref": "search",
+                        "display_name": "Search",
+                        "description": "Search everything",
+                        "input_schema": {"type": "object"},
+                        "metadata": {"source": "tool"},
+                        "raw_payload": {"name": "search"},
+                        "content_hash": "d" * 64,
+                    },
+                ),
+                resources=(
+                    {
+                        "artifact_type": MCPCatalogArtifactType.RESOURCE.value,
+                        "artifact_ref": "resource://playbook",
+                        "display_name": "Playbook",
+                        "description": "Playbook resource",
+                        "input_schema": None,
+                        "metadata": {"source": "resource"},
+                        "raw_payload": {"uri": "resource://playbook"},
+                        "content_hash": "e" * 64,
+                    },
+                ),
+                prompts=(),
+            )
+
+        monkeypatch.setattr(
+            "tracecat.integrations.service.discover_local_mcp_server_catalog",
+            _discover_local,
+        )
+        started_at = created.last_discovery_attempt_at + timedelta(seconds=1)
+        result = await integration_service.run_local_mcp_discovery(
+            mcp_integration_id=created.id,
+            trigger=MCPDiscoveryTrigger.CREATE,
+            started_at=started_at,
+        )
+
+        assert result.status == MCPDiscoveryStatus.SUCCEEDED.value
+        assert result.catalog_version == 1
+
+        refreshed = await integration_service.get_mcp_integration(
+            mcp_integration_id=created.id
+        )
+        assert refreshed is not None
+        assert refreshed.discovery_status == MCPDiscoveryStatus.SUCCEEDED.value
+        assert refreshed.catalog_version == 1
+        assert refreshed.last_discovery_error_code is None
+
+        catalog_result = await integration_service.session.execute(
+            select(MCPIntegrationCatalogEntry).where(
+                MCPIntegrationCatalogEntry.mcp_integration_id == created.id
+            )
+        )
+        catalog_entries = catalog_result.scalars().all()
+        assert len(catalog_entries) == 2
+        assert {entry.artifact_type for entry in catalog_entries} == {
+            MCPCatalogArtifactType.TOOL.value,
+            MCPCatalogArtifactType.RESOURCE.value,
+        }
+
+    async def test_run_local_mcp_discovery_failure_persists_phase_specific_error(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test local stdio discovery stores a phase-specific error code."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Broken local MCP",
+                stdio_command="uvx",
+                stdio_args=["broken-mcp"],
+            )
+        )
+        assert created.last_discovery_attempt_at is not None
+
+        async def _fail_local(_: object) -> MCPServerCatalog:
+            raise LocalMCPDiscoveryError(
+                phase=LocalMCPDiscoveryPhase.LIST_TOOLS,
+                summary="The local MCP server failed while listing tools.",
+                details={"stderr": "boom"},
+            )
+
+        monkeypatch.setattr(
+            "tracecat.integrations.service.discover_local_mcp_server_catalog",
+            _fail_local,
+        )
+        started_at = created.last_discovery_attempt_at + timedelta(seconds=1)
+        result = await integration_service.run_local_mcp_discovery(
+            mcp_integration_id=created.id,
+            trigger=MCPDiscoveryTrigger.REFRESH,
+            started_at=started_at,
+        )
+
+        assert result.status == MCPDiscoveryStatus.FAILED.value
+        assert result.error_code == LocalMCPDiscoveryPhase.LIST_TOOLS.value
+
+        refreshed = await integration_service.get_mcp_integration(
+            mcp_integration_id=created.id
+        )
+        assert refreshed is not None
+        assert refreshed.discovery_status == MCPDiscoveryStatus.FAILED.value
+        assert (
+            refreshed.last_discovery_error_code
+            == LocalMCPDiscoveryPhase.LIST_TOOLS.value
+        )
 
     async def test_update_mcp_integration_partial(
         self,

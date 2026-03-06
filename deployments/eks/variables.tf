@@ -368,6 +368,36 @@ variable "agent_executor_queue" {
   default     = "shared-agent-queue"
 }
 
+variable "agent_executor_mcp_queue" {
+  description = "Queue name for persisted MCP discovery workflows"
+  type        = string
+  default     = "shared-mcp-queue"
+}
+
+variable "agent_executor_mcp_max_concurrent_activities" {
+  description = "Maximum concurrent MCP discovery activities per agent-executor"
+  type        = number
+  default     = 25
+}
+
+variable "agent_executor_mcp_threadpool_max_workers" {
+  description = "Threadpool size for MCP discovery activities"
+  type        = number
+  default     = 25
+}
+
+variable "agent_executor_mcp_max_concurrent_local_sandboxes" {
+  description = "Maximum concurrent local MCP discovery sandboxes per agent-executor"
+  type        = number
+  default     = 10
+}
+
+variable "agent_executor_mcp_sandbox_cache_dir" {
+  description = "Cache directory for local MCP discovery package-manager caches"
+  type        = string
+  default     = "/var/lib/tracecat/mcp-sandbox-cache"
+}
+
 variable "agent_executor_backend" {
   description = "Agent executor backend: 'pool', 'ephemeral', 'direct', or 'auto'"
   type        = string

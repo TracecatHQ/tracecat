@@ -18,7 +18,12 @@ from sqlalchemy import and_, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 
 from tracecat import config
-from tracecat.agent.common.types import MCPHttpServerConfig
+from tracecat.agent.common.types import MCPHttpServerConfig, MCPStdioServerConfig
+from tracecat.agent.mcp.local_runtime.runtime import discover_local_mcp_server_catalog
+from tracecat.agent.mcp.local_runtime.types import (
+    LocalMCPDiscoveryConfig,
+    LocalMCPDiscoveryError,
+)
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
@@ -29,6 +34,7 @@ from tracecat.db.models import (
     WorkspaceOAuthProvider,
 )
 from tracecat.dsl.client import get_temporal_client
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.integrations.enums import (
     MCPAuthType,
@@ -43,6 +49,10 @@ from tracecat.integrations.mcp_discovery_types import (
     MCPDiscoveryWorkflowArgs,
     MCPDiscoveryWorkflowResult,
     NormalizedMCPArtifact,
+)
+from tracecat.integrations.mcp_templating import (
+    collect_mcp_expressions,
+    eval_mcp_templated_object,
 )
 from tracecat.integrations.mcp_validation import (
     MAX_SERVER_NAME_LENGTH,
@@ -66,8 +76,13 @@ from tracecat.integrations.schemas import (
     ProviderMetadata,
     ProviderScopes,
 )
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_value, encrypt_value, is_set
+from tracecat.secrets.schemas import SecretSearch
+from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseWorkspaceService
+from tracecat.variables.schemas import VariableSearch
+from tracecat.variables.service import VariablesService
 
 
 class InsecureOAuthEndpointError(ValueError):
@@ -1381,6 +1396,130 @@ class IntegrationService(BaseWorkspaceService):
             http_config["timeout"] = mcp_integration.timeout
         return http_config
 
+    @require_scope("integration:read")
+    async def resolve_mcp_stdio_env(
+        self,
+        *,
+        stdio_env: dict[str, str],
+        mcp_integration_id: uuid.UUID,
+        mcp_integration_slug: str,
+    ) -> dict[str, str]:
+        """Resolve template expressions in stdio env using workspace secrets/vars."""
+        collected = collect_mcp_expressions(stdio_env)
+        if not collected.secrets and not collected.variables:
+            return stdio_env
+
+        async with SecretsService.with_session(role=self.role) as secrets_service:
+            secret_models = await secrets_service.search_secrets(
+                SecretSearch(
+                    names=collected.secrets,
+                    environment=DEFAULT_SECRETS_ENVIRONMENT,
+                )
+            )
+            secrets = {
+                secret.name: {
+                    key.key: key.value.get_secret_value()
+                    for key in secrets_service.decrypt_keys(secret.encrypted_keys)
+                }
+                for secret in secret_models
+            }
+        async with VariablesService.with_session(role=self.role) as variables_service:
+            variables = await variables_service.search_variables(
+                VariableSearch(names=collected.variables)
+            )
+        vars_map = {variable.name: variable.values for variable in variables}
+
+        context: dict[str, Any] = {
+            "SECRETS": secrets,
+            "VARS": vars_map,
+        }
+        resolved = eval_mcp_templated_object(stdio_env, operand=context)
+        if not isinstance(resolved, dict):
+            raise TracecatValidationError(
+                "Resolved stdio_env must be a JSON object with string values"
+            )
+
+        non_string_values = [
+            key for key, value in resolved.items() if not isinstance(value, str)
+        ]
+        if non_string_values:
+            raise TracecatValidationError(
+                "Resolved stdio_env values must be strings "
+                f"(invalid keys: {sorted(non_string_values)})"
+            )
+
+        self.logger.info(
+            "Resolved stdio_env template expressions",
+            workspace_id=self.workspace_id,
+            mcp_integration_id=mcp_integration_id,
+            mcp_integration_slug=mcp_integration_slug,
+            env_key_count=len(resolved),
+            secret_ref_count=len(collected.secrets),
+            var_ref_count=len(collected.variables),
+        )
+        return cast(dict[str, str], resolved)
+
+    @require_scope("integration:read")
+    async def resolve_mcp_stdio_server_config(
+        self,
+        *,
+        mcp_integration: MCPIntegration,
+        server_name: str | None = None,
+    ) -> MCPStdioServerConfig | None:
+        """Resolve a stored stdio MCP integration into a live client config."""
+        if mcp_integration.server_type != "stdio":
+            return None
+        if not mcp_integration.stdio_command:
+            self.logger.warning(
+                "Stdio-type MCP integration has no command",
+                mcp_integration_id=mcp_integration.id,
+            )
+            return None
+
+        stdio_env = self.decrypt_stdio_env(mcp_integration)
+        if stdio_env:
+            try:
+                stdio_env = await self.resolve_mcp_stdio_env(
+                    stdio_env=stdio_env,
+                    mcp_integration_id=mcp_integration.id,
+                    mcp_integration_slug=mcp_integration.slug,
+                )
+            except Exception as exc:
+                self.logger.warning(
+                    "Failed to resolve stdio env for MCP integration",
+                    mcp_integration_id=mcp_integration.id,
+                    error=str(exc),
+                )
+                return None
+
+        try:
+            validate_mcp_command_config(
+                command=mcp_integration.stdio_command,
+                args=mcp_integration.stdio_args,
+                env=stdio_env,
+                name=mcp_integration.slug,
+            )
+        except MCPValidationError as exc:
+            self.logger.warning(
+                "Stdio-type MCP integration failed validation",
+                mcp_integration_id=mcp_integration.id,
+                error=str(exc),
+            )
+            return None
+
+        stdio_config: MCPStdioServerConfig = {
+            "type": "stdio",
+            "name": server_name or mcp_integration.scope_namespace,
+            "command": mcp_integration.stdio_command,
+        }
+        if mcp_integration.stdio_args:
+            stdio_config["args"] = mcp_integration.stdio_args
+        if stdio_env:
+            stdio_config["env"] = stdio_env
+        if mcp_integration.timeout is not None:
+            stdio_config["timeout"] = mcp_integration.timeout
+        return stdio_config
+
     async def _integration_has_active_catalog(
         self, *, mcp_integration_id: uuid.UUID
     ) -> bool:
@@ -1424,7 +1563,7 @@ class IntegrationService(BaseWorkspaceService):
             )
         )
 
-    async def persist_mcp_remote_discovery_success(
+    async def persist_mcp_discovery_success(
         self,
         *,
         mcp_integration_id: uuid.UUID,
@@ -1433,7 +1572,7 @@ class IntegrationService(BaseWorkspaceService):
         finished_at: datetime,
         artifacts: Sequence[NormalizedMCPArtifact],
     ) -> MCPIntegration:
-        """Persist a successful remote MCP discovery run."""
+        """Persist a successful MCP discovery run."""
         mcp_integration = await self._get_mcp_integration_for_update(
             mcp_integration_id=mcp_integration_id
         )
@@ -1575,6 +1714,14 @@ class IntegrationService(BaseWorkspaceService):
             "message": str(exc),
         }
 
+        if isinstance(exc, LocalMCPDiscoveryError):
+            details.update(exc.details)
+            return (
+                exc.phase.value,
+                exc.summary,
+                discovery_status,
+                details,
+            )
         if isinstance(exc, httpx.TimeoutException):
             return (
                 "timeout",
@@ -1603,7 +1750,7 @@ class IntegrationService(BaseWorkspaceService):
             details,
         )
 
-    async def persist_mcp_remote_discovery_failure(
+    async def persist_mcp_discovery_failure(
         self,
         *,
         mcp_integration_id: uuid.UUID,
@@ -1612,7 +1759,7 @@ class IntegrationService(BaseWorkspaceService):
         finished_at: datetime,
         exc: Exception,
     ) -> MCPIntegration:
-        """Persist a failed remote MCP discovery run without touching active rows."""
+        """Persist a failed MCP discovery run without touching active rows."""
         mcp_integration = await self._get_mcp_integration_for_update(
             mcp_integration_id=mcp_integration_id
         )
@@ -1698,7 +1845,7 @@ class IntegrationService(BaseWorkspaceService):
                 trigger=trigger.value,
                 error=str(exc),
             )
-            return await self.persist_mcp_remote_discovery_failure(
+            return await self.persist_mcp_discovery_failure(
                 mcp_integration_id=mcp_integration_id,
                 trigger=trigger,
                 started_at=started_at,
@@ -1708,17 +1855,95 @@ class IntegrationService(BaseWorkspaceService):
 
         return mcp_integration
 
+    async def enqueue_mcp_local_discovery(
+        self,
+        *,
+        mcp_integration_id: uuid.UUID,
+        trigger: MCPDiscoveryTrigger,
+    ) -> MCPIntegration:
+        """Schedule persisted discovery for a local stdio MCP integration."""
+        mcp_integration = await self.get_mcp_integration(
+            mcp_integration_id=mcp_integration_id
+        )
+        if mcp_integration is None:
+            raise ValueError("MCP integration not found")
+        if mcp_integration.server_type != "stdio":
+            raise ValueError("Only stdio MCP integrations support local discovery")
+
+        started_at = datetime.now(UTC)
+        mcp_integration.discovery_status = MCPDiscoveryStatus.PENDING.value
+        mcp_integration.last_discovery_attempt_at = started_at
+        self.session.add(mcp_integration)
+        await self.session.commit()
+        await self.session.refresh(mcp_integration)
+
+        workflow_args = MCPDiscoveryWorkflowArgs(
+            role=self.role,
+            mcp_integration_id=mcp_integration_id,
+            trigger=trigger,
+            started_at=started_at,
+        )
+        workflow_id = f"mcp-local-discovery-{mcp_integration_id}-{started_at.strftime('%Y%m%d%H%M%S%f')}"
+
+        try:
+            client = await get_temporal_client()
+            await client.start_workflow(
+                "mcp_local_stdio_discovery",
+                workflow_args,
+                id=workflow_id,
+                task_queue=config.TRACECAT__MCP_QUEUE,
+                execution_timeout=timedelta(minutes=10),
+            )
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to enqueue local MCP discovery",
+                mcp_integration_id=mcp_integration_id,
+                trigger=trigger.value,
+                error=str(exc),
+            )
+            return await self.persist_mcp_discovery_failure(
+                mcp_integration_id=mcp_integration_id,
+                trigger=trigger,
+                started_at=started_at,
+                finished_at=datetime.now(UTC),
+                exc=exc,
+            )
+
+        return mcp_integration
+
+    async def enqueue_mcp_discovery(
+        self,
+        *,
+        mcp_integration_id: uuid.UUID,
+        trigger: MCPDiscoveryTrigger,
+    ) -> MCPIntegration:
+        """Schedule persisted discovery based on MCP integration server type."""
+        mcp_integration = await self.get_mcp_integration(
+            mcp_integration_id=mcp_integration_id
+        )
+        if mcp_integration is None:
+            raise ValueError("MCP integration not found")
+        if mcp_integration.server_type == "http":
+            return await self.enqueue_mcp_http_discovery(
+                mcp_integration_id=mcp_integration_id,
+                trigger=trigger,
+            )
+        return await self.enqueue_mcp_local_discovery(
+            mcp_integration_id=mcp_integration_id,
+            trigger=trigger,
+        )
+
     @require_scope("integration:update")
     async def refresh_mcp_integration_discovery(
         self, *, mcp_integration_id: uuid.UUID
     ) -> MCPIntegration | None:
-        """Enqueue a remote discovery refresh for an HTTP/SSE MCP integration."""
+        """Enqueue a persisted discovery refresh for an MCP integration."""
         mcp_integration = await self.get_mcp_integration(
             mcp_integration_id=mcp_integration_id
         )
         if mcp_integration is None:
             return None
-        return await self.enqueue_mcp_http_discovery(
+        return await self.enqueue_mcp_discovery(
             mcp_integration_id=mcp_integration_id,
             trigger=MCPDiscoveryTrigger.REFRESH,
         )
@@ -1738,7 +1963,6 @@ class IntegrationService(BaseWorkspaceService):
         )
         if mcp_integration is None:
             raise ValueError("MCP integration not found")
-
         try:
             http_config = await self.resolve_mcp_http_server_config(
                 mcp_integration=mcp_integration,
@@ -1760,7 +1984,7 @@ class IntegrationService(BaseWorkspaceService):
                 else NormalizedMCPArtifact.model_validate(artifact)
                 for artifact in raw_artifacts
             ]
-            updated = await self.persist_mcp_remote_discovery_success(
+            updated = await self.persist_mcp_discovery_success(
                 mcp_integration_id=mcp_integration_id,
                 trigger=trigger,
                 started_at=started_at,
@@ -1773,7 +1997,89 @@ class IntegrationService(BaseWorkspaceService):
                 catalog_version=updated.catalog_version,
             )
         except Exception as exc:
-            updated = await self.persist_mcp_remote_discovery_failure(
+            updated = await self.persist_mcp_discovery_failure(
+                mcp_integration_id=mcp_integration_id,
+                trigger=trigger,
+                started_at=started_at,
+                finished_at=datetime.now(UTC),
+                exc=exc,
+            )
+            return MCPDiscoveryWorkflowResult(
+                mcp_integration_id=mcp_integration_id,
+                status=updated.discovery_status,
+                catalog_version=updated.catalog_version,
+                error_code=updated.last_discovery_error_code,
+                error_summary=updated.last_discovery_error_summary,
+            )
+
+    async def run_local_mcp_discovery(
+        self,
+        *,
+        mcp_integration_id: uuid.UUID,
+        trigger: MCPDiscoveryTrigger,
+        started_at: datetime,
+    ) -> MCPDiscoveryWorkflowResult:
+        """Discover and persist the catalog for a local stdio MCP integration."""
+        mcp_integration = await self.get_mcp_integration(
+            mcp_integration_id=mcp_integration_id
+        )
+        if mcp_integration is None:
+            raise ValueError("MCP integration not found")
+
+        stdio_config = await self.resolve_mcp_stdio_server_config(
+            mcp_integration=mcp_integration,
+            server_name=mcp_integration.scope_namespace,
+        )
+        if stdio_config is None:
+            updated = await self.persist_mcp_discovery_failure(
+                mcp_integration_id=mcp_integration_id,
+                trigger=trigger,
+                started_at=started_at,
+                finished_at=datetime.now(UTC),
+                exc=ValueError("MCP integration could not be resolved for discovery"),
+            )
+            return MCPDiscoveryWorkflowResult(
+                mcp_integration_id=mcp_integration_id,
+                status=updated.discovery_status,
+                catalog_version=updated.catalog_version,
+                error_code=updated.last_discovery_error_code,
+                error_summary=updated.last_discovery_error_summary,
+            )
+
+        try:
+            catalog = await discover_local_mcp_server_catalog(
+                LocalMCPDiscoveryConfig(
+                    organization_id=str(self.organization_id),
+                    server=stdio_config,
+                    sandbox_cache_dir=config.TRACECAT__MCP_SANDBOX_CACHE_DIR,
+                    allow_network=mcp_integration.sandbox_allow_network,
+                    egress_allowlist=tuple(
+                        mcp_integration.sandbox_egress_allowlist or ()
+                    ),
+                    egress_denylist=tuple(
+                        mcp_integration.sandbox_egress_denylist or ()
+                    ),
+                    timeout_seconds=mcp_integration.timeout,
+                )
+            )
+            artifacts = [
+                NormalizedMCPArtifact.model_validate(artifact)
+                for artifact in catalog.artifacts
+            ]
+            updated = await self.persist_mcp_discovery_success(
+                mcp_integration_id=mcp_integration_id,
+                trigger=trigger,
+                started_at=started_at,
+                finished_at=datetime.now(UTC),
+                artifacts=artifacts,
+            )
+            return MCPDiscoveryWorkflowResult(
+                mcp_integration_id=mcp_integration_id,
+                status=updated.discovery_status,
+                catalog_version=updated.catalog_version,
+            )
+        except Exception as exc:
+            updated = await self.persist_mcp_discovery_failure(
                 mcp_integration_id=mcp_integration_id,
                 trigger=trigger,
                 started_at=started_at,
@@ -1882,12 +2188,10 @@ class IntegrationService(BaseWorkspaceService):
             server_type=params.server_type,
         )
 
-        if params.server_type == "http":
-            return await self.enqueue_mcp_http_discovery(
-                mcp_integration_id=mcp_integration.id,
-                trigger=MCPDiscoveryTrigger.CREATE,
-            )
-        return mcp_integration
+        return await self.enqueue_mcp_discovery(
+            mcp_integration_id=mcp_integration.id,
+            trigger=MCPDiscoveryTrigger.CREATE,
+        )
 
     async def list_mcp_integrations(self) -> Sequence[MCPIntegration]:
         """List all MCP integrations for the workspace."""
@@ -2053,12 +2357,10 @@ class IntegrationService(BaseWorkspaceService):
             mcp_integration_id=mcp_integration.id,
         )
 
-        if mcp_integration.server_type == "http":
-            return await self.enqueue_mcp_http_discovery(
-                mcp_integration_id=mcp_integration.id,
-                trigger=MCPDiscoveryTrigger.UPDATE,
-            )
-        return mcp_integration
+        return await self.enqueue_mcp_discovery(
+            mcp_integration_id=mcp_integration.id,
+            trigger=MCPDiscoveryTrigger.UPDATE,
+        )
 
     @require_scope("integration:delete")
     async def delete_mcp_integration(self, *, mcp_integration_id: uuid.UUID) -> bool:

@@ -624,6 +624,13 @@ Sandbox environment variables (shared by executor + agent executor)
 {{- end }}
 
 {{/*
+Agent executor local MCP sandbox cache mount path
+*/}}
+{{- define "tracecat.agentExecutor.mcpSandboxCacheDir" -}}
+{{- .Values.agentExecutor.mcpSandboxCacheDir | default "/var/lib/tracecat/mcp-sandbox-cache" -}}
+{{- end }}
+
+{{/*
 API service environment variables
 Merges: common + temporal + postgres + redis + api-specific
 */}}
@@ -779,6 +786,16 @@ Merges: common + temporal + postgres + redis + agent-executor-specific
   value: {{ .Values.agentExecutor.backend | quote }}
 - name: TRACECAT__AGENT_QUEUE
   value: {{ .Values.agentExecutor.queue | quote }}
+- name: TRACECAT__MCP_QUEUE
+  value: {{ .Values.agentExecutor.mcpQueue | quote }}
+- name: TRACECAT__MCP_MAX_CONCURRENT_ACTIVITIES
+  value: {{ .Values.agentExecutor.mcpMaxConcurrentActivities | quote }}
+- name: TRACECAT__MCP_THREADPOOL_MAX_WORKERS
+  value: {{ .Values.agentExecutor.mcpThreadpoolMaxWorkers | quote }}
+- name: TRACECAT__MCP_MAX_CONCURRENT_LOCAL_SANDBOXES
+  value: {{ .Values.agentExecutor.mcpMaxConcurrentLocalSandboxes | quote }}
+- name: TRACECAT__MCP_SANDBOX_CACHE_DIR
+  value: {{ include "tracecat.agentExecutor.mcpSandboxCacheDir" . | quote }}
 - name: TRACECAT__EXECUTOR_WORKER_POOL_SIZE
   value: {{ .Values.agentExecutor.workerPoolSize | quote }}
 {{- end }}

@@ -130,16 +130,21 @@ locals {
       local.tracecat_db_configs,
       local.tracecat_db_configs_executor,
       {
-        TRACECAT__API_URL                   = local.internal_api_url
-        TRACECAT__DB_ENDPOINT               = local.core_db_hostname
-        TRACECAT__EXECUTOR_BACKEND          = "direct"
-        TRACECAT__AGENT_QUEUE               = var.agent_queue
-        TRACECAT__EXECUTOR_WORKER_POOL_SIZE = var.agent_executor_worker_pool_size
-        TRACECAT__UNSAFE_DISABLE_SM_MASKING = "false"
-        TRACECAT__DISABLE_NSJAIL            = "true"
-        TRACECAT__SANDBOX_NSJAIL_PATH       = "/usr/local/bin/nsjail"
-        TRACECAT__SANDBOX_ROOTFS_PATH       = "/var/lib/tracecat/sandbox-rootfs"
-        TRACECAT__SANDBOX_CACHE_DIR         = "/var/lib/tracecat/sandbox-cache"
+        TRACECAT__API_URL                            = local.internal_api_url
+        TRACECAT__DB_ENDPOINT                        = local.core_db_hostname
+        TRACECAT__EXECUTOR_BACKEND                   = "direct"
+        TRACECAT__AGENT_QUEUE                        = var.agent_queue
+        TRACECAT__MCP_QUEUE                          = var.agent_mcp_queue
+        TRACECAT__MCP_MAX_CONCURRENT_ACTIVITIES      = var.agent_mcp_max_concurrent_activities
+        TRACECAT__MCP_THREADPOOL_MAX_WORKERS         = var.agent_mcp_threadpool_max_workers
+        TRACECAT__MCP_MAX_CONCURRENT_LOCAL_SANDBOXES = var.agent_mcp_max_concurrent_local_sandboxes
+        TRACECAT__MCP_SANDBOX_CACHE_DIR              = var.agent_mcp_sandbox_cache_dir
+        TRACECAT__EXECUTOR_WORKER_POOL_SIZE          = var.agent_executor_worker_pool_size
+        TRACECAT__UNSAFE_DISABLE_SM_MASKING          = "false"
+        TRACECAT__DISABLE_NSJAIL                     = "true"
+        TRACECAT__SANDBOX_NSJAIL_PATH                = "/usr/local/bin/nsjail"
+        TRACECAT__SANDBOX_ROOTFS_PATH                = "/var/lib/tracecat/sandbox-rootfs"
+        TRACECAT__SANDBOX_CACHE_DIR                  = "/var/lib/tracecat/sandbox-cache"
       }
     ) :
     { name = k, value = tostring(v) } if v != null
@@ -148,10 +153,10 @@ locals {
   migrations_env = [
     for k, v in merge(
       {
-        LOG_LEVEL                  = var.log_level
-        TRACECAT__DB_SSLMODE       = "require"
-        TRACECAT__DB_ENDPOINT      = local.core_db_hostname
-        TRACECAT__FEATURE_FLAGS    = var.feature_flags
+        LOG_LEVEL               = var.log_level
+        TRACECAT__DB_SSLMODE    = "require"
+        TRACECAT__DB_ENDPOINT   = local.core_db_hostname
+        TRACECAT__FEATURE_FLAGS = var.feature_flags
       },
       local.tracecat_db_configs
     ) :

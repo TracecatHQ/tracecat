@@ -267,6 +267,31 @@ resource "helm_release" "tracecat" {
   }
 
   set {
+    name  = "agentExecutor.mcpQueue"
+    value = var.agent_executor_mcp_queue
+  }
+
+  set {
+    name  = "agentExecutor.mcpMaxConcurrentActivities"
+    value = var.agent_executor_mcp_max_concurrent_activities
+  }
+
+  set {
+    name  = "agentExecutor.mcpThreadpoolMaxWorkers"
+    value = var.agent_executor_mcp_threadpool_max_workers
+  }
+
+  set {
+    name  = "agentExecutor.mcpMaxConcurrentLocalSandboxes"
+    value = var.agent_executor_mcp_max_concurrent_local_sandboxes
+  }
+
+  set {
+    name  = "agentExecutor.mcpSandboxCacheDir"
+    value = var.agent_executor_mcp_sandbox_cache_dir
+  }
+
+  set {
     name  = "agentExecutor.backend"
     value = var.agent_executor_backend
   }
