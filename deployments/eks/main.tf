@@ -81,6 +81,11 @@ module "eks" {
   executor_replicas                        = var.executor_replicas
   executor_queue                           = var.executor_queue
   executor_backend                         = var.executor_backend
+  executor_warm_cache_enabled              = var.executor_warm_cache_enabled
+  executor_warm_cache_timeout_seconds      = var.executor_warm_cache_timeout_seconds
+  executor_warm_cache_concurrency          = var.executor_warm_cache_concurrency
+  executor_warm_cache_max_locked_versions  = var.executor_warm_cache_max_locked_versions
+  executor_warm_cache_max_tarballs         = var.executor_warm_cache_max_tarballs
   agent_executor_replicas                  = var.agent_executor_replicas
   agent_executor_queue                     = var.agent_executor_queue
   agent_executor_backend                   = var.agent_executor_backend

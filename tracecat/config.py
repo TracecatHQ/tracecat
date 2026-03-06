@@ -125,6 +125,36 @@ TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR = os.environ.get(
 )
 """Directory for caching extracted registry tarballs in subprocess mode. Uses /tmp for ephemeral storage."""
 
+TRACECAT__EXECUTOR_WARM_CACHE_ENABLED = os.environ.get(
+    "TRACECAT__EXECUTOR_WARM_CACHE_ENABLED", "false"
+).lower() in ("true", "1")
+"""Enable startup warmup of executor registry cache."""
+
+TRACECAT__EXECUTOR_WARM_CACHE_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__EXECUTOR_WARM_CACHE_TIMEOUT_SECONDS") or 20
+)
+"""Maximum duration of executor warmup at startup in seconds."""
+
+TRACECAT__EXECUTOR_WARM_CACHE_CONCURRENCY = int(
+    os.environ.get("TRACECAT__EXECUTOR_WARM_CACHE_CONCURRENCY") or 4
+)
+"""Maximum concurrent tarball warmup operations at executor startup."""
+
+TRACECAT__EXECUTOR_WARM_CACHE_MAX_LOCKED_VERSIONS = int(
+    os.environ.get("TRACECAT__EXECUTOR_WARM_CACHE_MAX_LOCKED_VERSIONS") or 100
+)
+"""Maximum number of distinct locked platform versions to inspect for warmup."""
+
+TRACECAT__EXECUTOR_WARM_CACHE_MAX_TARBALLS = int(
+    os.environ.get("TRACECAT__EXECUTOR_WARM_CACHE_MAX_TARBALLS") or 2000
+)
+"""Maximum number of unique tarballs to warm at executor startup."""
+
+TRACECAT__EXECUTOR_WARM_READY_FILE = os.environ.get(
+    "TRACECAT__EXECUTOR_WARM_READY_FILE", "/tmp/tracecat/executor-warm.ready"
+)
+"""Readiness marker path written after startup warmup and Temporal connect."""
+
 # TODO: Set this as an environment variable
 TRACECAT__SERVICE_ROLES_WHITELIST = [
     "tracecat-api",
