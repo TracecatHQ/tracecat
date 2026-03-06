@@ -448,6 +448,9 @@ Available predefined roles:
 ### Action Templates and Registry
 - **Templates**: `packages/tracecat-registry/tracecat_registry/templates/` - YAML-based integration templates
 - **Integrations**: `packages/tracecat-registry/tracecat_registry/integrations/` - Python client integrations
+- **Registry SDK client paths**: `packages/tracecat-registry/tracecat_registry/sdk/client.py` already appends `/internal` to the base URL. When adding methods in SDK subclients, pass paths relative to that prefix (for example, use `"/cases/{case_id}/rows"` rather than `"/internal/cases/{case_id}/rows"`).
+- **Check prefix ownership before adding endpoints**: Before introducing a new SDK helper, inspect the parent client's `base_url` normalization and existing call sites so you do not duplicate path segments such as `/internal/internal/...`.
+- **Add exact-path regression tests for SDK helpers**: When you add or change SDK subclient methods, add or update a mocked test that asserts the exact path passed to `self._client`, especially for internal routes.
 - **Reference file**: `tracecat/expressions/expectations.py` – Source of primitive type mappings (e.g., `str`, `int`, `Any`) used when defining `expects:` sections in templates.
 - **Naming**: `tools.{integration_name}` namespace, titles < 5 words
 
