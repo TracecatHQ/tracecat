@@ -261,12 +261,6 @@ def upgrade() -> None:
             },
         )
 
-    op.alter_column(
-        "mcp_integration",
-        "scope_namespace",
-        existing_type=sa.String(length=16),
-        nullable=False,
-    )
     op.create_unique_constraint(
         "uq_mcp_integration_scope_namespace",
         "mcp_integration",

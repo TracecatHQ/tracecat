@@ -1299,7 +1299,7 @@ class IntegrationService(BaseWorkspaceService):
         )
         result = await self.session.execute(statement)
         counts_by_integration: dict[uuid.UUID, dict[MCPCatalogArtifactType, int]] = {}
-        for integration_id, artifact_type, count in result.all():
+        for integration_id, artifact_type, count in result.tuples().all():
             by_type = counts_by_integration.setdefault(integration_id, {})
             by_type[MCPCatalogArtifactType(artifact_type)] = count
         return counts_by_integration
