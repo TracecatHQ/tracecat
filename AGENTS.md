@@ -470,6 +470,7 @@ Available predefined roles:
 - Always ask clarifying questions when lacking full context
 - When handling frontend types, don't import variables prefixed with '$' unless you are importing the schema object
 - **NEVER** use `--no-gpg-sign` or `--no-verify` to bypass commit signing. If GPG/SSH signing fails (e.g., 1Password agent not running), stop and ask the user to fix their signing setup rather than creating an unverified commit.
+- **NEVER use PostgreSQL superuser commands** in migrations, queries, or scripts. Deployed environments may use restricted database roles without superuser privileges. All SQL must work under a standard (non-superuser) role. If a migration needs to handle foreign keys, use proper row ordering or `ON DELETE`/`ON UPDATE` clauses instead of bypassing constraints.
 
 - For infrastructure changes, always verify and update all relevant deployment targets together: `docker-compose*.yml`, Terraform Fargate (`deployments/fargate/`), Terraform EKS (`deployments/eks/` and `deployments/eks/modules/eks/`), and Helm (`deployments/helm/`).
 - As part of that infra review, explicitly check `values.yaml`, `variables.tf`, and `main.tf` in the relevant deployment directories before marking the change complete.
