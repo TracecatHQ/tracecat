@@ -38,7 +38,10 @@ from tracecat.integrations.enums import (
     OAuthGrantType,
 )
 from tracecat.mcp.catalog import artifact_service as artifact_service_module
-from tracecat.mcp.catalog.artifact_service import MCPCatalogArtifactService
+from tracecat.mcp.catalog.artifact_service import (
+    MCPCatalogArtifactService,
+    _sanitize_remote_endpoint_for_log,
+)
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 
 TEST_ENCRYPTION_KEY = Fernet.generate_key().decode()
@@ -181,6 +184,7 @@ async def _create_mcp_integration(
     oauth_integration: OAuthIntegration | None = None,
     auth_type: MCPAuthType = MCPAuthType.NONE,
     server_type: str = "http",
+    server_uri: str | None = None,
     custom_headers: dict[str, str] | None = None,
 ) -> MCPIntegration:
     encrypted_headers = None
@@ -197,7 +201,13 @@ async def _create_mcp_integration(
         slug=f"artifact-mcp-{uuid.uuid4().hex[:6]}",
         scope_namespace="mcpartifact00001",
         server_type=server_type,
-        server_uri="https://api.example.com/mcp" if server_type == "http" else None,
+        server_uri=(
+            server_uri
+            if server_uri is not None
+            else "https://api.example.com/mcp"
+            if server_type == "http"
+            else None
+        ),
         auth_type=auth_type,
         oauth_integration_id=oauth_integration.id if oauth_integration else None,
         encrypted_headers=encrypted_headers,
@@ -255,9 +265,9 @@ class _FakeClient:
         read_resource_result: list[TextResourceContents] | None = None,
         get_prompt_result: GetPromptResult | None = None,
     ) -> None:
-        self.call_tool_result = call_tool_result
-        self.read_resource_result = read_resource_result or []
-        self.get_prompt_result = get_prompt_result
+        self._call_tool_result = call_tool_result
+        self._read_resource_result = read_resource_result or []
+        self._get_prompt_result = get_prompt_result
         self.last_prompt_arguments: dict[str, Any] | None = None
 
     async def __aenter__(self) -> _FakeClient:
@@ -266,19 +276,61 @@ class _FakeClient:
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         return None
 
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> CallToolResult:
-        assert self.call_tool_result is not None
-        return self.call_tool_result
+    async def call_tool_result(
+        self,
+        server_name: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> CallToolResult:
+        assert server_name
+        assert tool_name
+        assert self._call_tool_result is not None
+        return self._call_tool_result
 
-    async def read_resource(self, uri: str) -> list[TextResourceContents]:
-        return self.read_resource_result
+    async def read_resource(
+        self, server_name: str, resource_uri: str
+    ) -> list[TextResourceContents]:
+        assert server_name
+        assert resource_uri
+        return self._read_resource_result
 
     async def get_prompt(
-        self, name: str, arguments: dict[str, Any] | None
+        self,
+        server_name: str,
+        prompt_name: str,
+        arguments: dict[str, Any] | None,
     ) -> GetPromptResult:
-        assert self.get_prompt_result is not None
+        assert server_name
+        assert prompt_name
         self.last_prompt_arguments = arguments
-        return self.get_prompt_result
+        assert self._get_prompt_result is not None
+        return self._get_prompt_result
+
+
+class _LoggerCapture:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def error(self, event: str, **kwargs: Any) -> None:
+        self.calls.append((event, kwargs))
+
+
+def test_sanitize_remote_endpoint_for_log_strips_credentials_and_query() -> None:
+    assert (
+        _sanitize_remote_endpoint_for_log(
+            "https://user:secret@example.com:8443/mcp?access_token=abc#frag"
+        )
+        == "https://example.com:8443/mcp"
+    )
+
+
+def test_sanitize_remote_endpoint_for_log_tolerates_malformed_port() -> None:
+    assert (
+        _sanitize_remote_endpoint_for_log(
+            "https://user:secret@example.com:badport/mcp?access_token=abc"
+        )
+        == "example.com:badport/mcp"
+    )
 
 
 @pytest.mark.anyio
@@ -410,6 +462,59 @@ class TestMCPCatalogArtifactService:
 
         assert result.result["structuredContent"] == {"status": "ok"}
         assert result.artifact.artifact_ref == "list_repos"
+
+    async def test_execute_tool_logs_sanitized_remote_endpoint_on_failure(
+        self,
+        session: AsyncSession,
+        org_admin_role: Role,
+        workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        integration = await _create_mcp_integration(
+            session=session,
+            workspace=workspace,
+            server_uri="https://user:secret@example.com:8443/mcp?token=abc",
+        )
+        entry_id = await _insert_catalog_entry(
+            session=session,
+            integration=integration,
+            artifact_type=MCPCatalogArtifactType.TOOL,
+            artifact_key="tool-a2",
+            artifact_ref="list_repos",
+        )
+        service = MCPCatalogArtifactService(session=session, role=org_admin_role)
+        logger_capture = _LoggerCapture()
+        monkeypatch.setattr(service, "logger", logger_capture)
+
+        class _FailingClient(_FakeClient):
+            async def call_tool_result(
+                self,
+                server_name: str,
+                tool_name: str,
+                arguments: dict[str, Any],
+            ) -> CallToolResult:
+                raise RuntimeError("boom")
+
+        async def fake_create_remote_client(target: Any) -> _FailingClient:
+            return _FailingClient()
+
+        monkeypatch.setattr(
+            service,
+            "_create_remote_client",
+            fake_create_remote_client,
+        )
+
+        with pytest.raises(RuntimeError, match="boom"):
+            await service.execute_tool(
+                workspace_id=workspace.id,
+                artifact_ref_or_id=str(entry_id),
+                arguments={"owner": "tracecat"},
+            )
+
+        assert logger_capture.calls
+        event, kwargs = logger_capture.calls[0]
+        assert event == "Remote MCP tool execution failed"
+        assert kwargs["remote_endpoint"] == "https://example.com:8443/mcp"
 
     async def test_read_resource_truncates_large_content(
         self,
