@@ -191,8 +191,10 @@ static bool resolved_allow_matches(const char *host, const char *port) {
   return matched;
 }
 
-static void cache_allowed_resolution(const struct addrinfo *res) {
+static bool cache_allowed_resolution(const struct addrinfo *res) {
+  bool overflowed = false;
   pthread_mutex_lock(&resolved_allow_mutex);
+  size_t original_count = resolved_allow_count;
   for (const struct addrinfo *entry = res; entry != NULL; entry = entry->ai_next) {
     char host[INET6_ADDRSTRLEN] = {0};
     char port[16] = {0};
@@ -209,8 +211,12 @@ static void cache_allowed_resolution(const struct addrinfo *res) {
         break;
       }
     }
-    if (exists || resolved_allow_count >= MAX_RESOLVED_ENDPOINTS) {
+    if (exists) {
       continue;
+    }
+    if (resolved_allow_count >= MAX_RESOLVED_ENDPOINTS) {
+      overflowed = true;
+      break;
     }
 
     snprintf(
@@ -221,7 +227,11 @@ static void cache_allowed_resolution(const struct addrinfo *res) {
         sizeof(resolved_allow_endpoints[resolved_allow_count].port), "%s", port);
     resolved_allow_count++;
   }
+  if (overflowed) {
+    resolved_allow_count = original_count;
+  }
   pthread_mutex_unlock(&resolved_allow_mutex);
+  return !overflowed;
 }
 
 static void sockaddr_to_host_port(
@@ -271,8 +281,11 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
     *res = NULL;
     return EAI_FAIL;
   }
-  if (has_allow_rules) {
-    cache_allowed_resolution(*res);
+  if (has_allow_rules && !cache_allowed_resolution(*res)) {
+    freeaddrinfo(*res);
+    *res = NULL;
+    errno = ENOSPC;
+    return EAI_SYSTEM;
   }
   return rc;
 }
