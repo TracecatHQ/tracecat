@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from temporalio import workflow
+from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
@@ -46,6 +47,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
+    from tracecat.workflow.executions.enums import (
+        ExecutionType,
+        TemporalSearchAttr,
+        TriggerType,
+    )
     from tracecat_ee.agent.activities import (
         AgentActivities,
         BuildToolDefsArgs,
@@ -94,6 +100,11 @@ def _resolve_agent_output(
     return None
 
 
+UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH = (
+    "durable-agent-upsert-tracecat-search-attributes-v1"
+)
+
+
 @workflow.defn
 class DurableAgentWorkflow:
     @workflow.init
@@ -122,6 +133,50 @@ class DurableAgentWorkflow:
         self._sdk_session_data: str | None = None
         # Registry lock for action resolution (set after build_tool_definitions)
         self._registry_lock: RegistryLock | None = None
+
+    def _upsert_tracecat_search_attributes(self) -> None:
+        """Ensure direct agent runs have core Tracecat search attributes.
+
+        For workflows started with existing Tracecat attributes (e.g. DSL child
+        workflows), this only fills missing keys from role/defaults and does
+        not overwrite existing values.
+        """
+        search_attributes = (
+            workflow.info().typed_search_attributes or TypedSearchAttributes.empty
+        )
+        updates = []
+
+        if search_attributes.get(TemporalSearchAttr.TRIGGER_TYPE.key) is None:
+            updates.append(
+                TemporalSearchAttr.TRIGGER_TYPE.key.value_set(TriggerType.MANUAL.value)
+            )
+        if search_attributes.get(TemporalSearchAttr.EXECUTION_TYPE.key) is None:
+            updates.append(
+                TemporalSearchAttr.EXECUTION_TYPE.key.value_set(
+                    ExecutionType.PUBLISHED.value
+                )
+            )
+        if (
+            search_attributes.get(TemporalSearchAttr.TRIGGERED_BY_USER_ID.key) is None
+            and self.role.user_id is not None
+        ):
+            updates.append(
+                TemporalSearchAttr.TRIGGERED_BY_USER_ID.key.value_set(
+                    str(self.role.user_id)
+                )
+            )
+        if (
+            search_attributes.get(TemporalSearchAttr.WORKSPACE_ID.key) is None
+            and self.role.workspace_id is not None
+        ):
+            updates.append(
+                TemporalSearchAttr.WORKSPACE_ID.key.value_set(
+                    str(self.role.workspace_id)
+                )
+            )
+
+        if updates:
+            workflow.upsert_search_attributes(updates)
 
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
         if args.agent_args.preset_slug:
@@ -163,6 +218,8 @@ class DurableAgentWorkflow:
     @workflow.run
     async def run(self, args: AgentWorkflowArgs) -> AgentOutput:
         """Run the agent until completion. The agent will call tools until it needs human approval."""
+        if workflow.patched(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH):
+            self._upsert_tracecat_search_attributes()
         logger.debug(
             "DurableAgentWorkflow run", args=args, harness_type=self.harness_type
         )

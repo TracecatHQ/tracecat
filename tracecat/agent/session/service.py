@@ -19,6 +19,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.tools import ToolApproved, ToolDenied
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import SQLAlchemyError
+from temporalio.common import TypedSearchAttributes
 from tracecat_registry._internal.exceptions import SecretNotFoundError
 
 import tracecat.agent.adapter.vercel
@@ -63,6 +64,11 @@ from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.entitlements import Entitlement, check_entitlement
+from tracecat.workflow.executions.enums import (
+    ExecutionType,
+    TemporalSearchAttr,
+    TriggerType,
+)
 from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 
 if TYPE_CHECKING:
@@ -85,6 +91,24 @@ class AgentSessionService(BaseWorkspaceService):
     """Service for managing agent sessions and history."""
 
     service_name = "agent-session"
+
+    def _build_direct_agent_search_attributes(self) -> TypedSearchAttributes:
+        """Build Temporal search attributes for direct (non-child) agent runs."""
+        pairs = [
+            TriggerType.MANUAL.to_temporal_search_attr_pair(),
+            ExecutionType.PUBLISHED.to_temporal_search_attr_pair(),
+        ]
+        if self.role.user_id is not None:
+            pairs.append(
+                TemporalSearchAttr.TRIGGERED_BY_USER_ID.create_pair(
+                    str(self.role.user_id)
+                )
+            )
+        if self.role.workspace_id is not None:
+            pairs.append(
+                TemporalSearchAttr.WORKSPACE_ID.create_pair(str(self.role.workspace_id))
+            )
+        return TypedSearchAttributes(search_attributes=pairs)
 
     async def create_session(
         self,
@@ -874,6 +898,7 @@ class AgentSessionService(BaseWorkspaceService):
                 task_queue=config.TRACECAT__AGENT_QUEUE,
                 execution_timeout=timedelta(hours=1),
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                search_attributes=self._build_direct_agent_search_attributes(),
             )
 
         # Return ChatResponse with session_id for streaming
