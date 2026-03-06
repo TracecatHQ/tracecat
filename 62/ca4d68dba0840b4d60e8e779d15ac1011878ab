@@ -1,0 +1,45 @@
+tracecat/agent/preset/service.py
+  140538dcceef4c5f 12,271
+tracecat/integrations/router.py
+  140538dcceef4c5f 1003
+tracecat/integrations/mcp_templating.py
+  140538dcceef4c5f 1-97
+tracecat/agent/mcp/user_client.py
+  140538dcceef4c5f 12,18-24,54,56-57,64-65
+tracecat/config.py
+  140538dcceef4c5f 4,590-613
+tracecat/integrations/service.py
+  140538dcceef4c5f 21-26,37,53-56,79,81-82,84-85,1401-1523,1568,1577,1720-1727,1756,1765,1851,1861-1902,1907,1916-1937,1943,1949,1975,2005,2018-2085,2087,2100,2209,2212,2378,2381
+tests/unit/test_local_mcp_runtime.py
+  140538dcceef4c5f 1-167,169-210,212-214,240,272,274-275,278,280,293-319
+tracecat/agent/mcp/catalog.py
+  140538dcceef4c5f 1-229
+tracecat/agent/worker.py
+  140538dcceef4c5f 67,292,295,298-299,328,336-342,346-348,353-364,367,369-370,374-375
+tests/unit/test_mcp_integrations.py
+  140538dcceef4c5f 23,25-29,89-92,94-96,98,116,217-233,235-240,572-588,590-599,898-1021
+tracecat/integrations/mcp_discovery_types.py
+  140538dcceef4c5f 1,29,38
+tracecat/integrations/mcp_discovery_workflow.py
+  140538dcceef4c5f 1,48-75,79-80,85,87-88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "62ca4d68dba0840b4d60e8e779d15ac1011878ab",
+  "prompts": {
+    "140538dcceef4c5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc05c-e126-77b1-85e7-13877221c0b9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1226,
+      "total_deletions": 338,
+      "accepted_lines": 1202,
+      "overriden_lines": 7
+    }
+  }
+}
