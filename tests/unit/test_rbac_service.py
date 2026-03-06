@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.rbac.service import RBACService
 
@@ -14,8 +14,11 @@ from tracecat.authz.enums import ScopeSource
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
+    MCPIntegration,
+    MCPIntegrationCatalogEntry,
     Organization,
     OrganizationMembership,
+    RoleScope,
     Scope,
     User,
     Workspace,
@@ -25,6 +28,7 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.integrations.enums import MCPAuthType, MCPCatalogArtifactType
 
 
 @pytest.fixture
@@ -94,6 +98,67 @@ def role(org: Organization, user: User) -> Role:
         service_id="tracecat-api",
         scopes=ORG_ADMIN_SCOPES,
     )
+
+
+async def _create_mcp_integration(
+    *,
+    session: AsyncSession,
+    workspace: Workspace,
+    name: str = "GitHub MCP",
+    scope_namespace: str = "mcpnamespace0001",
+) -> MCPIntegration:
+    """Insert a test MCP integration for RBAC sync coverage."""
+    integration = MCPIntegration(
+        id=uuid.uuid4(),
+        workspace_id=workspace.id,
+        name=name,
+        description="Test MCP integration",
+        slug=f"{name.lower().replace(' ', '-')}-{uuid.uuid4().hex[:6]}",
+        scope_namespace=scope_namespace,
+        server_type="http",
+        server_uri="https://api.example.com/mcp",
+        auth_type=MCPAuthType.NONE,
+        discovery_status="succeeded",
+        catalog_version=1,
+    )
+    session.add(integration)
+    await session.commit()
+    await session.refresh(integration)
+    return integration
+
+
+async def _insert_catalog_entry(
+    *,
+    session: AsyncSession,
+    integration: MCPIntegration,
+    artifact_type: MCPCatalogArtifactType,
+    artifact_key: str,
+    artifact_ref: str,
+    display_name: str,
+    description: str | None,
+    is_active: bool = True,
+) -> None:
+    """Insert a persisted MCP catalog entry for RBAC sync coverage."""
+    await session.execute(
+        insert(MCPIntegrationCatalogEntry).values(
+            id=uuid.uuid4(),
+            mcp_integration_id=integration.id,
+            workspace_id=integration.workspace_id,
+            integration_name=integration.name,
+            artifact_type=artifact_type.value,
+            artifact_key=artifact_key,
+            artifact_ref=artifact_ref,
+            display_name=display_name,
+            description=description,
+            input_schema={"type": "object"},
+            artifact_metadata={"origin": "test"},
+            raw_payload={"name": artifact_ref},
+            content_hash=artifact_key.ljust(64, "0"),
+            is_active=is_active,
+            search_vector=func.to_tsvector("simple", artifact_ref),
+        )
+    )
+    await session.commit()
 
 
 @pytest.mark.anyio
@@ -181,6 +246,152 @@ class TestRBACServiceScopes:
 
         with pytest.raises(TracecatAuthorizationError):
             await service.delete_scope(system_scope.id)
+
+    async def test_sync_mcp_integration_scopes_creates_custom_scopes(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ) -> None:
+        """Active MCP catalog entries should map to org-scoped custom scopes."""
+        integration = await _create_mcp_integration(
+            session=session,
+            workspace=workspace,
+            scope_namespace="syncscope0000001",
+        )
+        await _insert_catalog_entry(
+            session=session,
+            integration=integration,
+            artifact_type=MCPCatalogArtifactType.TOOL,
+            artifact_key="github-list-repos-a1b2c3d4e5",
+            artifact_ref="github.list_repos",
+            display_name="List repos",
+            description="List GitHub repositories",
+        )
+        await _insert_catalog_entry(
+            session=session,
+            integration=integration,
+            artifact_type=MCPCatalogArtifactType.RESOURCE,
+            artifact_key="docs-readme-7f8e9d0c1b",
+            artifact_ref="docs://README",
+            display_name="README",
+            description="Read the repository README",
+        )
+        await _insert_catalog_entry(
+            session=session,
+            integration=integration,
+            artifact_type=MCPCatalogArtifactType.PROMPT,
+            artifact_key="triage-incident-6a5b4c3d2e",
+            artifact_ref="triage_incident",
+            display_name="Triage incident",
+            description="Guide incident triage",
+        )
+
+        service = RBACService(session, role=role)
+        scopes = await service.sync_mcp_integration_scopes(
+            mcp_integration_id=integration.id
+        )
+
+        assert [scope.name for scope in scopes] == [
+            "mcp-prompt:syncscope0000001.triage-incident-6a5b4c3d2e:use",
+            "mcp-resource:syncscope0000001.docs-readme-7f8e9d0c1b:read",
+            "mcp-tool:syncscope0000001.github-list-repos-a1b2c3d4e5:execute",
+        ]
+        assert {scope.resource for scope in scopes} == {
+            "mcp-tool",
+            "mcp-resource",
+            "mcp-prompt",
+        }
+        assert {scope.action for scope in scopes} == {"execute", "read", "use"}
+        assert all(scope.source == ScopeSource.CUSTOM for scope in scopes)
+        assert all(scope.organization_id == org.id for scope in scopes)
+        assert {scope.source_ref for scope in scopes} == {
+            f"mcp:{integration.id}:tool:github-list-repos-a1b2c3d4e5",
+            f"mcp:{integration.id}:resource:docs-readme-7f8e9d0c1b",
+            f"mcp:{integration.id}:prompt:triage-incident-6a5b4c3d2e",
+        }
+
+    async def test_sync_mcp_integration_scopes_updates_and_deletes_removed_entries(
+        self,
+        session: AsyncSession,
+        role: Role,
+        workspace: Workspace,
+    ) -> None:
+        """Resync should update descriptions and delete removed MCP scopes."""
+        integration = await _create_mcp_integration(
+            session=session,
+            workspace=workspace,
+            scope_namespace="syncscope0000002",
+        )
+        await _insert_catalog_entry(
+            session=session,
+            integration=integration,
+            artifact_type=MCPCatalogArtifactType.TOOL,
+            artifact_key="github-list-repos-a1b2c3d4e5",
+            artifact_ref="github.list_repos",
+            display_name="List repos",
+            description="Initial tool description",
+        )
+        await _insert_catalog_entry(
+            session=session,
+            integration=integration,
+            artifact_type=MCPCatalogArtifactType.PROMPT,
+            artifact_key="triage-incident-6a5b4c3d2e",
+            artifact_ref="triage_incident",
+            display_name="Triage incident",
+            description="Initial prompt description",
+        )
+
+        service = RBACService(session, role=role)
+        scopes = await service.sync_mcp_integration_scopes(
+            mcp_integration_id=integration.id
+        )
+        tool_scope = next(scope for scope in scopes if scope.resource == "mcp-tool")
+        role_with_scope = await service.create_role(
+            name="MCP Operator",
+            scope_ids=[tool_scope.id],
+        )
+
+        tool_entry_stmt = select(MCPIntegrationCatalogEntry).where(
+            MCPIntegrationCatalogEntry.mcp_integration_id == integration.id,
+            MCPIntegrationCatalogEntry.artifact_type
+            == MCPCatalogArtifactType.TOOL.value,
+        )
+        tool_entry = (await session.execute(tool_entry_stmt)).scalar_one()
+        tool_entry.is_active = False
+
+        prompt_entry_stmt = select(MCPIntegrationCatalogEntry).where(
+            MCPIntegrationCatalogEntry.mcp_integration_id == integration.id,
+            MCPIntegrationCatalogEntry.artifact_type
+            == MCPCatalogArtifactType.PROMPT.value,
+        )
+        prompt_entry = (await session.execute(prompt_entry_stmt)).scalar_one()
+        prompt_entry.description = "Updated prompt description"
+        session.add_all([tool_entry, prompt_entry])
+        await session.commit()
+
+        updated_scopes = await service.sync_mcp_integration_scopes(
+            mcp_integration_id=integration.id
+        )
+
+        assert [scope.name for scope in updated_scopes] == [
+            "mcp-prompt:syncscope0000002.triage-incident-6a5b4c3d2e:use"
+        ]
+        assert updated_scopes[0].description is not None
+        assert "Updated prompt description" in updated_scopes[0].description
+
+        removed_scope = await session.execute(
+            select(Scope).where(Scope.id == tool_scope.id)
+        )
+        assert removed_scope.scalar_one_or_none() is None
+
+        role_scope_count = await session.execute(
+            select(func.count())
+            .select_from(RoleScope)
+            .where(RoleScope.role_id == role_with_scope.id)
+        )
+        assert role_scope_count.scalar_one() == 0
 
 
 @pytest.mark.anyio
