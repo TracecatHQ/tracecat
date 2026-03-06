@@ -1,0 +1,35 @@
+tests/migration/test_case_numbers_workspace_migration.py
+  ef025ea712401975 1-176,178-193,195-271
+tests/unit/test_db_model.py
+  ef025ea712401975 160
+tracecat/cases/service.py
+  ef025ea712401975 84,766-779,791,794
+tests/unit/test_cases_service.py
+  ef025ea712401975 5,8-9,32,221-401,1129,1140,1151,1162,1173
+tracecat/db/models.py
+  ef025ea712401975 413-419,2012-2016,2030
+tests/unit/test_case_fields_service.py
+  ef025ea712401975 39
+alembic/versions/13cfd6e83e36_scope_case_numbers_to_workspace.py
+  ef025ea712401975 1-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "dc928f800be4dc57a281630f9a70a82853b9904c",
+  "prompts": {
+    "ef025ea712401975": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc452-e4f4-78e1-830b-f0d7f1755ae1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 560,
+      "total_deletions": 8,
+      "accepted_lines": 566,
+      "overriden_lines": 1
+    }
+  }
+}
