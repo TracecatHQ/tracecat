@@ -324,10 +324,14 @@ async def send_message(
                 detail="Session not found",
             )
 
-        # Use last_stream_id if available (valid cursor from previous turn),
-        # otherwise "$" to only read new events (avoids replaying old events
-        # when cursor wasn't updated due to race conditions).
-        start_id = agent_session.last_stream_id or "$"
+        # Each execution turn gets a fresh Redis stream buffer. Clear any
+        # leftover entries before starting the next workflow so resumed session
+        # history doesn't get mixed with stale stream events from the prior turn.
+        stream = await AgentStream.new(session_id, workspace_id)
+        await stream.clear()
+        # Read from the beginning of the freshly cleared stream so we still pick
+        # up events emitted before the SSE response starts consuming.
+        start_id = "0-0"
 
         # Run session turn (spawns DurableAgentWorkflow)
         await svc.run_turn(
@@ -342,7 +346,6 @@ async def send_message(
         )
 
         # Create stream and return with Vercel format
-        stream = await AgentStream.new(session_id, workspace_id)
         return StreamingResponse(
             stream.sse(http_request.is_disconnected, last_id=start_id, format="vercel"),
             media_type="text/event-stream",

@@ -53,7 +53,10 @@ async def test_send_message_continue_uses_path_session_id_for_stream_key() -> No
         get_session=AsyncMock(return_value=_SessionSentinel()),
         run_turn=AsyncMock(return_value=None),
     )
-    fake_stream = SimpleNamespace(sse=Mock(return_value=_empty_event_stream()))
+    fake_stream = SimpleNamespace(
+        clear=AsyncMock(return_value=None),
+        sse=Mock(return_value=_empty_event_stream()),
+    )
 
     with (
         patch(
@@ -78,3 +81,10 @@ async def test_send_message_continue_uses_path_session_id_for_stream_key() -> No
 
     assert isinstance(response, StreamingResponse)
     stream_new_mock.assert_awaited_once_with(session_id, workspace_id)
+    fake_stream.clear.assert_awaited_once()
+    fake_stream.sse.assert_called_once()
+    assert fake_stream.sse.call_args.kwargs["last_id"] == "0-0"
+    fake_svc.run_turn.assert_awaited_once_with(
+        session_id=session_id,
+        request=request,
+    )

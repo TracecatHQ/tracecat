@@ -365,13 +365,13 @@ class AgentSessionService(BaseWorkspaceService):
     async def update_last_stream_id(
         self,
         agent_session: AgentSession,
-        last_stream_id: str,
+        last_stream_id: str | None,
     ) -> AgentSession:
         """Update the last stream ID for an agent session.
 
         Args:
             agent_session: The agent session to update.
-            last_stream_id: The Redis stream ID to store.
+            last_stream_id: The Redis stream ID to store, or None to clear it.
 
         Returns:
             The updated AgentSession.
