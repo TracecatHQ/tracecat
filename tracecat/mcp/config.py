@@ -39,6 +39,11 @@ TRACECAT_MCP__MAX_INPUT_SIZE_BYTES: int = int(
 )
 """Maximum size in bytes for any single string argument to a tool call (default 512KB)."""
 
+TRACECAT_MCP__MAX_RESOURCE_CONTENT_CHARS: int = int(
+    os.environ.get("TRACECAT_MCP__MAX_RESOURCE_CONTENT_CHARS", "32768")
+)
+"""Maximum characters returned for any single MCP resource content payload."""
+
 TRACECAT_MCP__STARTUP_MAX_ATTEMPTS: int = int(
     os.environ.get("TRACECAT_MCP__STARTUP_MAX_ATTEMPTS", "3")
 )

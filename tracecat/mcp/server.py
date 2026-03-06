@@ -69,6 +69,7 @@ from tracecat.mcp.auth import (
     list_workspaces_for_request,
     resolve_role_for_request,
 )
+from tracecat.mcp.catalog.artifact_service import MCPCatalogArtifactService
 from tracecat.mcp.catalog.service import MCPCatalogSearchService
 from tracecat.mcp.config import (
     TRACECAT_MCP__RATE_LIMIT_BURST,
@@ -80,7 +81,14 @@ from tracecat.mcp.middleware import (
     WatchtowerMonitorMiddleware,
     get_mcp_client_id,
 )
-from tracecat.mcp.schemas import MCPCatalogSearchItem, MCPCatalogSearchResponse
+from tracecat.mcp.schemas import (
+    MCPCatalogArtifactSummary,
+    MCPCatalogPromptResponse,
+    MCPCatalogResourceReadResponse,
+    MCPCatalogSearchItem,
+    MCPCatalogSearchResponse,
+    MCPCatalogToolExecutionResponse,
+)
 from tracecat.pagination import CursorPaginationParams
 from tracecat.registry.actions.schemas import TemplateAction
 from tracecat.registry.actions.service import (
@@ -1450,6 +1458,152 @@ async def search_mcp_catalog(
     except Exception as exc:
         logger.error("Failed to search MCP catalog", error=str(exc))
         raise ToolError(f"Failed to search MCP catalog: {exc}") from None
+
+
+def _catalog_artifact_summary_payload(
+    *,
+    id: str,
+    mcp_integration_id: str,
+    workspace_id: str,
+    artifact_type: MCPCatalogArtifactType,
+    artifact_key: str,
+    artifact_ref: str,
+    display_name: str | None,
+    description: str | None,
+    scope_name: str,
+) -> MCPCatalogArtifactSummary:
+    return MCPCatalogArtifactSummary(
+        id=id,
+        mcp_integration_id=mcp_integration_id,
+        workspace_id=workspace_id,
+        artifact_type=artifact_type,
+        artifact_key=artifact_key,
+        artifact_ref=artifact_ref,
+        display_name=display_name,
+        description=description,
+        scope_name=scope_name,
+    )
+
+
+@mcp.tool()
+async def execute_mcp_tool(
+    workspace_id: str,
+    artifact_ref_or_id: str,
+    arguments_json: str | None = None,
+) -> str:
+    """Execute a persisted MCP tool artifact through the wrapper surface."""
+    raw_arguments = _parse_json_arg(arguments_json, "arguments_json")
+    if raw_arguments is not None and not isinstance(raw_arguments, dict):
+        raise ToolError("arguments_json must decode to a JSON object")
+    try:
+        ws_id, role = await _resolve_workspace_role(workspace_id)
+        async with MCPCatalogArtifactService.with_session(role=role) as svc:
+            result = await svc.execute_tool(
+                workspace_id=ws_id,
+                artifact_ref_or_id=artifact_ref_or_id,
+                arguments=raw_arguments,
+            )
+        payload = MCPCatalogToolExecutionResponse(
+            workspace_id=str(result.workspace_id),
+            artifact=_catalog_artifact_summary_payload(
+                id=str(result.artifact.id),
+                mcp_integration_id=str(result.artifact.mcp_integration_id),
+                workspace_id=str(result.artifact.workspace_id),
+                artifact_type=result.artifact.artifact_type,
+                artifact_key=result.artifact.artifact_key,
+                artifact_ref=result.artifact.artifact_ref,
+                display_name=result.artifact.display_name,
+                description=result.artifact.description,
+                scope_name=result.artifact.scope_name,
+            ),
+            result=result.result,
+        )
+        return payload.model_dump_json()
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+    except Exception as exc:
+        logger.error("Failed to execute MCP tool", error=str(exc))
+        raise ToolError(f"Failed to execute MCP tool: {exc}") from None
+
+
+@mcp.tool()
+async def read_mcp_resource(
+    workspace_id: str,
+    artifact_ref_or_id: str,
+) -> str:
+    """Read a persisted MCP resource artifact through the wrapper surface."""
+    try:
+        ws_id, role = await _resolve_workspace_role(workspace_id)
+        async with MCPCatalogArtifactService.with_session(role=role) as svc:
+            result = await svc.read_resource(
+                workspace_id=ws_id,
+                artifact_ref_or_id=artifact_ref_or_id,
+            )
+        payload = MCPCatalogResourceReadResponse(
+            workspace_id=str(result.workspace_id),
+            artifact=_catalog_artifact_summary_payload(
+                id=str(result.artifact.id),
+                mcp_integration_id=str(result.artifact.mcp_integration_id),
+                workspace_id=str(result.artifact.workspace_id),
+                artifact_type=result.artifact.artifact_type,
+                artifact_key=result.artifact.artifact_key,
+                artifact_ref=result.artifact.artifact_ref,
+                display_name=result.artifact.display_name,
+                description=result.artifact.description,
+                scope_name=result.artifact.scope_name,
+            ),
+            contents=list(result.contents),
+            truncated=result.truncated,
+            max_content_chars=result.max_content_chars,
+            total_content_chars=result.total_content_chars,
+        )
+        return payload.model_dump_json()
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+    except Exception as exc:
+        logger.error("Failed to read MCP resource", error=str(exc))
+        raise ToolError(f"Failed to read MCP resource: {exc}") from None
+
+
+@mcp.tool()
+async def get_mcp_prompt(
+    workspace_id: str,
+    artifact_ref_or_id: str,
+    arguments_json: str | None = None,
+) -> str:
+    """Get a persisted MCP prompt artifact through the wrapper surface."""
+    raw_arguments = _parse_json_arg(arguments_json, "arguments_json")
+    if raw_arguments is not None and not isinstance(raw_arguments, dict):
+        raise ToolError("arguments_json must decode to a JSON object")
+    try:
+        ws_id, role = await _resolve_workspace_role(workspace_id)
+        async with MCPCatalogArtifactService.with_session(role=role) as svc:
+            result = await svc.get_prompt(
+                workspace_id=ws_id,
+                artifact_ref_or_id=artifact_ref_or_id,
+                arguments=raw_arguments,
+            )
+        payload = MCPCatalogPromptResponse(
+            workspace_id=str(result.workspace_id),
+            artifact=_catalog_artifact_summary_payload(
+                id=str(result.artifact.id),
+                mcp_integration_id=str(result.artifact.mcp_integration_id),
+                workspace_id=str(result.artifact.workspace_id),
+                artifact_type=result.artifact.artifact_type,
+                artifact_key=result.artifact.artifact_key,
+                artifact_ref=result.artifact.artifact_ref,
+                display_name=result.artifact.display_name,
+                description=result.artifact.description,
+                scope_name=result.artifact.scope_name,
+            ),
+            result=result.result,
+        )
+        return payload.model_dump_json()
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+    except Exception as exc:
+        logger.error("Failed to get MCP prompt", error=str(exc))
+        raise ToolError(f"Failed to get MCP prompt: {exc}") from None
 
 
 # ---------------------------------------------------------------------------
