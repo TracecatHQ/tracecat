@@ -33,6 +33,7 @@ class AgentStream:
     """Stream adapter backed by Redis streams."""
 
     KEEPALIVE_INTERVAL_SECONDS = 10
+    COMPLETED_STREAM_TTL_SECONDS = 5 * 60
 
     def __init__(
         self,
@@ -74,6 +75,26 @@ class AgentStream:
         logger.debug("Resetting agent stream buffer", stream_key=self._stream_key)
         await self.client.delete(self._stream_key)
         await self._set_last_stream_id(None)
+
+    async def _expire_completed_stream(self) -> None:
+        """Keep completed streams briefly for reconnects, then let Redis evict them."""
+        try:
+            redis_client = await self.client._get_client()
+            await redis_client.expire(
+                name=self._stream_key,
+                time=self.COMPLETED_STREAM_TTL_SECONDS,
+            )
+            logger.debug(
+                "Shortened completed stream TTL",
+                stream_key=self._stream_key,
+                expire_seconds=self.COMPLETED_STREAM_TTL_SECONDS,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to shorten completed stream TTL",
+                stream_key=self._stream_key,
+                error=str(exc),
+            )
 
     async def _set_last_stream_id(self, last_stream_id: str | None) -> None:
         """Update last stream ID for reconnection support."""
@@ -199,6 +220,7 @@ class AgentStream:
             logger.info("Chat stream ended", stream_key=self._stream_key)
             if stream_completed:
                 await self._set_last_stream_id(None)
+                await self._expire_completed_stream()
             else:
                 await self._set_last_stream_id(current_id)
 

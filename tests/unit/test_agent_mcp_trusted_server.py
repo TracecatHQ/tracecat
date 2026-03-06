@@ -71,9 +71,7 @@ async def test_execute_user_mcp_tool_returns_descriptive_error_on_execution_erro
 
     with pytest.raises(
         ToolError,
-        match=(
-            "^User MCP tool 'getIssue' on server 'Jira' failed: failed converting from"
-        ),
+        match="^User MCP tool 'getIssue' on server 'Jira' failed$",
     ):
         await execute_user_mcp_tool(
             "Jira",

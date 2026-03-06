@@ -17,6 +17,7 @@ from tracecat.redis.client import RedisClient
 async def test_stream_events_clears_buffer_after_terminal_marker() -> None:
     workspace_id = uuid.uuid4()
     session_id = uuid.uuid4()
+    raw_client = SimpleNamespace(expire=AsyncMock(return_value=None))
     client = SimpleNamespace(
         xread=AsyncMock(
             return_value=[
@@ -34,6 +35,7 @@ async def test_stream_events_clears_buffer_after_terminal_marker() -> None:
             ]
         ),
         delete=AsyncMock(return_value=1),
+        _get_client=AsyncMock(return_value=raw_client),
     )
     stream = AgentStream(
         client=cast(RedisClient, client),
@@ -54,12 +56,17 @@ async def test_stream_events_clears_buffer_after_terminal_marker() -> None:
     assert isinstance(event, StreamEnd)
 
     stream._set_last_stream_id.assert_awaited_once_with(None)
+    raw_client.expire.assert_awaited_once_with(
+        name=stream._stream_key,
+        time=stream.COMPLETED_STREAM_TTL_SECONDS,
+    )
 
 
 @pytest.mark.anyio
 async def test_stream_events_preserves_cursor_when_stream_not_completed() -> None:
     workspace_id = uuid.uuid4()
     session_id = uuid.uuid4()
+    raw_client = SimpleNamespace(expire=AsyncMock(return_value=None))
     client = SimpleNamespace(
         xread=AsyncMock(
             return_value=[
@@ -77,6 +84,7 @@ async def test_stream_events_preserves_cursor_when_stream_not_completed() -> Non
             ]
         ),
         delete=AsyncMock(return_value=1),
+        _get_client=AsyncMock(return_value=raw_client),
     )
     stream = AgentStream(
         client=cast(RedisClient, client),
@@ -94,3 +102,4 @@ async def test_stream_events_preserves_cursor_when_stream_not_completed() -> Non
     assert len(events) == 1
     assert isinstance(events[0], StreamDelta)
     stream._set_last_stream_id.assert_awaited()
+    raw_client.expire.assert_not_awaited()
