@@ -1,0 +1,67 @@
+tests/conftest.py
+  ff5d87845ecaac7c 81-128,301,333-335
+tests/unit/test_mcp_integrations.py
+  ff5d87845ecaac7c 30
+alembic/versions/13cfd6e83e36_scope_case_numbers_to_workspace.py
+  ef025ea712401975 1-32,34-68,70-75
+  ff5d87845ecaac7c 33
+tests/unit/test_case_fields_service.py
+  ef025ea712401975 39
+tests/unit/test_db_model.py
+  ef025ea712401975 160
+tests/migration/test_case_numbers_workspace_migration.py
+  76a50a7f565409f1 1
+  ff5d87845ecaac7c 150
+  ef025ea712401975 2-149,154-158,165-169,173-176,178-193,195-236,238-271
+tests/unit/test_cases_service.py
+  ef025ea712401975 5,8-9,32,221-401,1129,1140,1151,1162,1173
+tracecat/db/models.py
+  ef025ea712401975 413-419,2012-2016
+  ff5d87845ecaac7c 2030
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "1d78ba4a9f32c49a789dff1ead4b786fc1560663",
+  "prompts": {
+    "76a50a7f565409f1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fefccffe-56fb-4128-9602-eda769852f57",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 13,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "ef025ea712401975": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc452-e4f4-78e1-830b-f0d7f1755ae1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 531,
+      "overriden_lines": 0
+    },
+    "ff5d87845ecaac7c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc535-2a81-7e00-b75d-1d641367b67a",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 142,
+      "total_deletions": 23,
+      "accepted_lines": 56,
+      "overriden_lines": 0
+    }
+  }
+}
