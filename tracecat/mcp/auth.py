@@ -5,8 +5,10 @@ from __future__ import annotations
 import html
 import json
 import re
+import time
 import uuid
 from base64 import urlsafe_b64decode
+from collections.abc import Sequence
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -17,7 +19,11 @@ from fastmcp.server.dependencies import get_access_token
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
-from mcp.server.auth.provider import TokenError
+from mcp.server.auth.provider import (
+    AuthorizationParams,
+    TokenError,
+)
+from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
@@ -61,6 +67,30 @@ _UUID_SCOPE_PATTERNS: dict[str, re.Pattern[str]] = {
     ),
     "workspace": re.compile(r"^(?:workspace|workspace_id):(?P<uuid>[0-9a-fA-F-]{36})$"),
 }
+
+_MCP_REFRESH_SCOPE = "offline_access"
+_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 60 * 60
+_MCP_OAUTH_TRANSACTION_TTL_SECONDS = 15 * 60
+
+
+def append_scope_if_missing(scopes: list[str], scope: str) -> list[str]:
+    """Append a scope only if it is not already present."""
+    if scope in scopes:
+        return scopes
+    return [*scopes, scope]
+
+
+def remove_scope(scopes: list[str], scope: str) -> list[str]:
+    """Return a scope list with the target scope removed."""
+    return [value for value in scopes if value != scope]
+
+
+def supports_refresh_scope(scopes_supported: Sequence[str] | None) -> bool:
+    """Return whether provider metadata supports MCP refresh scope requests."""
+    if scopes_supported is None:
+        # If provider metadata omits scopes_supported, optimistically request.
+        return True
+    return _MCP_REFRESH_SCOPE in scopes_supported
 
 
 def _coerce_uuid(value: object) -> uuid.UUID | None:
@@ -422,6 +452,76 @@ def create_mcp_auth() -> AuthProvider:
     class TracecatOIDCProxy(OIDCProxy):
         """OIDC proxy with user-existence validation and a custom consent page."""
 
+        def _should_request_refresh_scope(self) -> bool:
+            """Return whether the upstream IdP appears to support offline refresh scopes."""
+            return supports_refresh_scope(self.oidc_config.scopes_supported)
+
+        async def authorize(
+            self,
+            client: OAuthClientInformationFull,
+            params: AuthorizationParams,
+        ) -> str:
+            """Inject refresh scope by default for MCP clients."""
+            scopes = list(params.scopes or [])
+            if self._should_request_refresh_scope():
+                scopes = append_scope_if_missing(scopes, _MCP_REFRESH_SCOPE)
+            else:
+                logger.info(
+                    "Skipping refresh scope request: upstream metadata does not advertise scope",
+                    scope=_MCP_REFRESH_SCOPE,
+                    issuer=self.oidc_config.issuer,
+                )
+
+            params_with_refresh = params.model_copy(update={"scopes": scopes})
+            return await super().authorize(client, params_with_refresh)
+
+        async def _retry_without_refresh_scope(
+            self,
+            *,
+            request: Request,
+        ) -> RedirectResponse | None:
+            """Retry OAuth authorization once without refresh scope on invalid_scope."""
+            if request.query_params.get("error") != "invalid_scope":
+                return None
+
+            txn_id = request.query_params.get("state")
+            if not txn_id:
+                return None
+
+            txn_model = await self._transaction_store.get(key=txn_id)
+            if txn_model is None:
+                return None
+
+            scopes = list(txn_model.scopes or [])
+            if _MCP_REFRESH_SCOPE not in scopes:
+                # We already retried (or refresh scope was never requested).
+                return None
+
+            updated_scopes = remove_scope(scopes, _MCP_REFRESH_SCOPE)
+            updated_txn = txn_model.model_copy(update={"scopes": updated_scopes})
+
+            age_seconds = max(0.0, time.time() - float(txn_model.created_at))
+            remaining_ttl = max(
+                1, int(_MCP_OAUTH_TRANSACTION_TTL_SECONDS - age_seconds)
+            )
+            await self._transaction_store.put(
+                key=txn_id,
+                value=updated_txn,
+                ttl=remaining_ttl,
+            )
+
+            logger.warning(
+                "OIDC provider rejected refresh scope; retrying authorization without refresh scope",
+                scope=_MCP_REFRESH_SCOPE,
+                transaction_id=txn_id,
+            )
+
+            retry_url = self._build_upstream_authorize_url(
+                txn_id,
+                updated_txn.model_dump(),
+            )
+            return RedirectResponse(url=retry_url)
+
         async def _extract_upstream_claims(
             self, idp_tokens: dict[str, Any]
         ) -> dict[str, Any] | None:
@@ -475,6 +575,11 @@ def create_mcp_auth() -> AuthProvider:
         async def _handle_idp_callback(
             self, request: Request
         ) -> HTMLResponse | RedirectResponse:
+            if fallback_response := await self._retry_without_refresh_scope(
+                request=request
+            ):
+                return fallback_response
+
             response = await super()._handle_idp_callback(request)
             if not isinstance(response, RedirectResponse):
                 return response
@@ -608,6 +713,7 @@ def create_mcp_auth() -> AuthProvider:
         client_secret=oidc_config.client_secret,
         base_url=base_url,
         client_storage=client_storage,
+        fallback_access_token_expiry_seconds=_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
     )
 
 
