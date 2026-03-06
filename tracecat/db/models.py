@@ -19,6 +19,7 @@ from sqlalchemy import (
     TIMESTAMP,
     Boolean,
     Enum,
+    FetchedValue,
     Float,
     ForeignKey,
     Identity,
@@ -410,6 +411,13 @@ class Workspace(OrganizationModel):
         unique=True,
     )
     name: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    last_case_number: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default=text("0"),
+        nullable=False,
+        doc="Last allocated workspace-scoped case number.",
+    )
     settings: Mapped[WorkspaceSettings] = mapped_column(
         JSONB,
         default=WorkspaceSettings(workflow_unlimited_timeout_enabled=True),
@@ -2002,6 +2010,11 @@ class Case(WorkspaceModel):
 
     __tablename__ = "case"
     __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "case_number",
+            name="uq_case_workspace_case_number",
+        ),
         Index("ix_case_cursor_pagination", "workspace_id", "created_at", "id"),
     )
 
@@ -2014,11 +2027,9 @@ class Case(WorkspaceModel):
     )
     case_number: Mapped[int] = mapped_column(
         Integer,
-        Identity(start=1, increment=1),
-        unique=True,
+        server_default=FetchedValue(),
         nullable=False,
-        index=True,
-        doc="Auto-incrementing case number for human readable IDs like CASE-1234",
+        doc="Server-generated workspace-scoped case number for human readable IDs like CASE-1234",
     )
     summary: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(String(5000), nullable=False)

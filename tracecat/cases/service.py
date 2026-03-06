@@ -773,7 +773,6 @@ class CasesService(BaseWorkspaceService):
             await self.fields._ensure_schema_ready()
 
             now = datetime.now(UTC)
-            # Create the base case first
             case = Case(
                 workspace_id=self.workspace_id,
                 summary=params.summary,

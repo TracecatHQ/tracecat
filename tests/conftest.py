@@ -78,6 +78,56 @@ else:
 
 # Port configuration - reads from environment for worktree cluster support
 # Default ports are for cluster 1, override with PG_PORT, TEMPORAL_PORT, MINIO_PORT, REDIS_PORT
+
+
+def _install_case_number_allocator(conn: Any) -> None:
+    """Mirror the production trigger used to allocate workspace-local case numbers."""
+    conn.execute(
+        text(
+            """
+            CREATE OR REPLACE FUNCTION assign_workspace_case_number()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                IF NEW.case_number IS NULL THEN
+                    UPDATE workspace
+                    SET last_case_number = last_case_number + 1
+                    WHERE id = NEW.workspace_id
+                    RETURNING last_case_number INTO NEW.case_number;
+                ELSE
+                    UPDATE workspace
+                    SET last_case_number = GREATEST(last_case_number, NEW.case_number)
+                    WHERE id = NEW.workspace_id;
+                END IF;
+
+                IF NOT FOUND THEN
+                    RAISE EXCEPTION
+                        'Workspace % not found while allocating case number',
+                        NEW.workspace_id;
+                END IF;
+
+                RETURN NEW;
+            END;
+            $$;
+            """
+        )
+    )
+    conn.execute(
+        text('DROP TRIGGER IF EXISTS trg_case_assign_workspace_case_number ON "case"')
+    )
+    conn.execute(
+        text(
+            """
+            CREATE TRIGGER trg_case_assign_workspace_case_number
+            BEFORE INSERT ON "case"
+            FOR EACH ROW
+            EXECUTE FUNCTION assign_workspace_case_number()
+            """
+        )
+    )
+
+
 PG_PORT = int(os.environ.get("PG_PORT", "5432"))
 TEMPORAL_PORT = int(os.environ.get("TEMPORAL_PORT", "7233"))
 MINIO_PORT = int(os.environ.get("MINIO_PORT", "9000"))
@@ -248,6 +298,7 @@ def db() -> Iterator[None]:
         with test_engine.begin() as conn:
             logger.info("Creating all tables")
             Base.metadata.create_all(conn)
+            _install_case_number_allocator(conn)
         yield
     finally:
         if test_engine is not None:
@@ -279,7 +330,9 @@ def default_org(db: None, env_sandbox: None) -> Iterator[None]:
         sync_engine = create_engine(sync_db_uri)
 
         # Ensure schema exists for service sessions that target the default DB.
-        Base.metadata.create_all(sync_engine)
+        with sync_engine.begin() as conn:
+            Base.metadata.create_all(conn)
+            _install_case_number_allocator(conn)
 
         with Session(sync_engine) as session:
             base_org_slug = f"test-org-{TEST_ORG_ID.hex[:8]}"
