@@ -268,7 +268,7 @@ class AgentPresetService(BaseWorkspaceService):
                 stdio_env = integrations_service.decrypt_stdio_env(mcp_integration)
                 if stdio_env:
                     try:
-                        stdio_env = await integrations_service.resolve_mcp_stdio_env(
+                        stdio_env = await integrations_service.resolve_stdio_env(
                             stdio_env=stdio_env,
                             mcp_integration_id=mcp_integration.id,
                             mcp_integration_slug=mcp_integration.slug,

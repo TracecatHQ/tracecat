@@ -821,11 +821,18 @@ class IntegrationService(BaseWorkspaceService):
         self, mcp_integration: MCPIntegration
     ) -> dict[str, str] | None:
         """Decrypt and return stdio_env for an MCP integration."""
-        if not mcp_integration.encrypted_stdio_env:
+        return self.decrypt_marshaled_stdio_env(mcp_integration.encrypted_stdio_env)
+
+    @require_scope("integration:read")
+    def decrypt_marshaled_stdio_env(
+        self, encrypted_stdio_env: bytes | None
+    ) -> dict[str, str] | None:
+        """Decrypt and return serialized stdio_env bytes."""
+        if not encrypted_stdio_env:
             return None
-        if not is_set(mcp_integration.encrypted_stdio_env):
+        if not is_set(encrypted_stdio_env):
             return None
-        decrypted = self._decrypt_token(mcp_integration.encrypted_stdio_env)
+        decrypted = self._decrypt_token(encrypted_stdio_env)
         if not decrypted:
             return None
         loaded = orjson.loads(decrypted)
@@ -838,6 +845,63 @@ class IntegrationService(BaseWorkspaceService):
                 return None
             env[key] = value
         return env
+
+    @require_scope("integration:read")
+    async def resolve_stdio_env(
+        self,
+        *,
+        stdio_env: dict[str, str],
+        mcp_integration_id: uuid.UUID,
+        mcp_integration_slug: str,
+    ) -> dict[str, str]:
+        """Resolve template expressions in stdio_env using workspace secrets/vars."""
+        from tracecat.dsl.common import create_default_execution_context
+        from tracecat.executor.service import get_workspace_variables
+        from tracecat.expressions.eval import collect_expressions, eval_templated_object
+        from tracecat.secrets import secrets_manager
+
+        collected = collect_expressions(stdio_env)
+        if not collected.secrets and not collected.variables:
+            return stdio_env
+
+        secrets = await secrets_manager.get_action_secrets(
+            secret_exprs=collected.secrets,
+            action_secrets=set(),
+        )
+        vars_map = await get_workspace_variables(
+            variable_exprs=collected.variables,
+            role=self.role,
+        )
+
+        context = create_default_execution_context()
+        context["SECRETS"] = secrets
+        context["VARS"] = vars_map
+
+        resolved = eval_templated_object(stdio_env, operand=context)
+        if not isinstance(resolved, dict):
+            raise ValueError(
+                "Resolved stdio_env must be a JSON object with string values"
+            )
+
+        invalid_keys = [
+            key for key, value in resolved.items() if not isinstance(value, str)
+        ]
+        if invalid_keys:
+            raise ValueError(
+                "Resolved stdio_env values must be strings "
+                f"(invalid keys: {sorted(invalid_keys)})"
+            )
+
+        self.logger.info(
+            "Resolved stdio_env template expressions",
+            workspace_id=str(self.workspace_id),
+            mcp_integration_id=str(mcp_integration_id),
+            mcp_integration_slug=mcp_integration_slug,
+            env_key_count=len(resolved),
+            secret_ref_count=len(collected.secrets),
+            var_ref_count=len(collected.variables),
+        )
+        return cast(dict[str, str], resolved)
 
     @require_scope("integration:create", "integration:update", require_all=False)
     async def store_provider_config(
@@ -2245,6 +2309,15 @@ class IntegrationService(BaseWorkspaceService):
         return counts_by_integration
 
     @require_scope("integration:update")
+    async def refresh_mcp_integration(
+        self, *, mcp_integration_id: uuid.UUID
+    ) -> MCPIntegration | None:
+        """Enqueue discovery refresh for an MCP integration."""
+        return await self.refresh_mcp_integration_discovery(
+            mcp_integration_id=mcp_integration_id
+        )
+
+    @require_scope("integration:update")
     async def update_mcp_integration(
         self, *, mcp_integration_id: uuid.UUID, params: MCPIntegrationUpdate
     ) -> MCPIntegration | None:
@@ -2255,6 +2328,7 @@ class IntegrationService(BaseWorkspaceService):
         if not mcp_integration:
             return None
         previous_auth_type = mcp_integration.auth_type
+        should_refresh_discovery = False
 
         # Validate OAuth integration if auth_type is being changed to oauth2
         if params.auth_type == MCPAuthType.OAUTH2:
@@ -2287,12 +2361,16 @@ class IntegrationService(BaseWorkspaceService):
             )
         if params.server_uri is not None:
             mcp_integration.server_uri = params.server_uri.strip()
+            should_refresh_discovery = True
         if params.transport is not None and mcp_integration.server_type == "http":
             mcp_integration.transport = params.transport.value
+            should_refresh_discovery = True
         if params.auth_type is not None:
             mcp_integration.auth_type = params.auth_type
+            should_refresh_discovery = True
         if params.oauth_integration_id is not None:
             mcp_integration.oauth_integration_id = params.oauth_integration_id
+            should_refresh_discovery = True
 
         if mcp_integration.server_type == "stdio" and (
             params.stdio_command is not None
@@ -2314,8 +2392,10 @@ class IntegrationService(BaseWorkspaceService):
             mcp_integration.stdio_command = (
                 params.stdio_command.strip() if params.stdio_command else None
             )
+            should_refresh_discovery = True
         if params.stdio_args is not None:
             mcp_integration.stdio_args = params.stdio_args
+            should_refresh_discovery = True
         if params.stdio_env is not None:
             if params.stdio_env:
                 mcp_integration.encrypted_stdio_env = self._encrypt_token(
@@ -2324,8 +2404,10 @@ class IntegrationService(BaseWorkspaceService):
             else:
                 # Empty dict means clear the env vars
                 mcp_integration.encrypted_stdio_env = None
+            should_refresh_discovery = True
         if params.timeout is not None:
             mcp_integration.timeout = params.timeout
+            should_refresh_discovery = True
 
         # Handle encrypted header credentials for CUSTOM/OAUTH2 auth types.
         if params.custom_credentials is not None:
@@ -2347,6 +2429,13 @@ class IntegrationService(BaseWorkspaceService):
             ):
                 # Avoid carrying CUSTOM credentials into OAuth unless explicitly set.
                 mcp_integration.encrypted_headers = None
+        if params.custom_credentials is not None:
+            should_refresh_discovery = True
+
+        if should_refresh_discovery:
+            mcp_integration.discovery_status = MCPDiscoveryStatus.PENDING.value
+            mcp_integration.last_discovery_error_code = None
+            mcp_integration.last_discovery_error_summary = None
 
         self.session.add(mcp_integration)
         await self.session.commit()

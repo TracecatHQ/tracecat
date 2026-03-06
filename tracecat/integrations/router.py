@@ -995,15 +995,20 @@ async def update_mcp_integration(
 @mcp_router.post("/{mcp_integration_id}/refresh")
 @require_scope("integration:update")
 async def refresh_mcp_integration(
-    *,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     mcp_integration_id: uuid.UUID,
 ) -> MCPIntegrationRead:
     """Enqueue persisted discovery refresh for an MCP integration."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
     svc = IntegrationService(session, role=role)
     try:
-        integration = await svc.refresh_mcp_integration_discovery(
+        integration = await svc.refresh_mcp_integration(
             mcp_integration_id=mcp_integration_id
         )
     except ValueError as exc:

@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -17,6 +18,8 @@ from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
+    MCPIntegration,
+    MCPIntegrationCatalogEntry,
     OrganizationMembership,
     RoleScope,
     Scope,
@@ -33,6 +36,8 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.identifiers import WorkspaceID
+from tracecat.integrations.enums import MCPCatalogArtifactType
+from tracecat.integrations.mcp_scopes import build_mcp_scope_name
 from tracecat.service import BaseOrgService
 
 
@@ -153,6 +158,147 @@ class RBACService(BaseOrgService):
 
         await self.session.delete(scope)
         await self.session.commit()
+
+    def _build_mcp_scope_name(
+        self,
+        *,
+        scope_namespace: str,
+        artifact_type: MCPCatalogArtifactType,
+        artifact_key: str,
+    ) -> tuple[str, str, str]:
+        """Build the scope name plus resource/action columns for an MCP artifact."""
+        return build_mcp_scope_name(
+            scope_namespace=scope_namespace,
+            artifact_type=artifact_type,
+            artifact_key=artifact_key,
+        )
+
+    def _build_mcp_scope_description(
+        self,
+        *,
+        integration_name: str,
+        artifact_type: MCPCatalogArtifactType,
+        display_name: str | None,
+        artifact_ref: str,
+        description: str | None,
+    ) -> str:
+        """Build a stable user-facing description for an MCP-derived scope."""
+        artifact_label = display_name or artifact_ref
+        summary = (
+            description.strip()
+            if isinstance(description, str) and (description := description.strip())
+            else None
+        )
+        noun = artifact_type.value
+        if summary is not None:
+            return f"{integration_name} {noun} {artifact_label}: {summary}"[:512]
+        return f"Access {integration_name} {noun} {artifact_label}"[:512]
+
+    async def sync_mcp_integration_scopes(
+        self,
+        *,
+        mcp_integration_id: UUID,
+    ) -> Sequence[Scope]:
+        """Synchronize active MCP catalog entries into org-scoped custom scopes."""
+        integration_stmt = (
+            select(MCPIntegration)
+            .join(Workspace, Workspace.id == MCPIntegration.workspace_id)
+            .where(
+                MCPIntegration.id == mcp_integration_id,
+                Workspace.organization_id == self.organization_id,
+            )
+        )
+        integration_result = await self.session.execute(integration_stmt)
+        mcp_integration = integration_result.scalar_one_or_none()
+        if mcp_integration is None:
+            raise TracecatNotFoundError("MCP integration not found")
+
+        entries_stmt = (
+            select(MCPIntegrationCatalogEntry)
+            .where(
+                MCPIntegrationCatalogEntry.mcp_integration_id == mcp_integration_id,
+                MCPIntegrationCatalogEntry.workspace_id == mcp_integration.workspace_id,
+                MCPIntegrationCatalogEntry.is_active.is_(True),
+            )
+            .order_by(
+                MCPIntegrationCatalogEntry.artifact_type,
+                MCPIntegrationCatalogEntry.artifact_key,
+            )
+        )
+        entries_result = await self.session.execute(entries_stmt)
+        active_entries = entries_result.scalars().all()
+
+        scope_rows: list[dict[str, str | UUID]] = []
+        desired_source_refs: list[str] = []
+        for entry in active_entries:
+            artifact_type = MCPCatalogArtifactType(entry.artifact_type)
+            name, resource, action = self._build_mcp_scope_name(
+                scope_namespace=mcp_integration.scope_namespace,
+                artifact_type=artifact_type,
+                artifact_key=entry.artifact_key,
+            )
+            source_ref = (
+                f"mcp:{mcp_integration.id}:{artifact_type.value}:{entry.artifact_key}"
+            )
+            desired_source_refs.append(source_ref)
+            scope_rows.append(
+                {
+                    "name": name,
+                    "resource": resource,
+                    "action": action,
+                    "description": self._build_mcp_scope_description(
+                        integration_name=mcp_integration.name,
+                        artifact_type=artifact_type,
+                        display_name=entry.display_name,
+                        artifact_ref=entry.artifact_ref,
+                        description=entry.description,
+                    ),
+                    "source": ScopeSource.CUSTOM,
+                    "source_ref": source_ref,
+                    "organization_id": self.organization_id,
+                }
+            )
+
+        if scope_rows:
+            stmt = pg_insert(Scope).values(scope_rows)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["organization_id", "name"],
+                set_={
+                    "resource": stmt.excluded.resource,
+                    "action": stmt.excluded.action,
+                    "description": stmt.excluded.description,
+                    "source": stmt.excluded.source,
+                    "source_ref": stmt.excluded.source_ref,
+                },
+            )
+            await self.session.execute(stmt)
+
+        delete_stmt = delete(Scope).where(
+            Scope.organization_id == self.organization_id,
+            Scope.source == ScopeSource.CUSTOM,
+            Scope.source_ref.like(f"mcp:{mcp_integration.id}:%"),
+        )
+        if desired_source_refs:
+            delete_stmt = delete_stmt.where(
+                Scope.source_ref.not_in(desired_source_refs)
+            )
+        await self.session.execute(delete_stmt)
+        await self.session.commit()
+
+        if not desired_source_refs:
+            return []
+
+        scopes_stmt = (
+            select(Scope)
+            .where(
+                Scope.organization_id == self.organization_id,
+                Scope.source_ref.in_(desired_source_refs),
+            )
+            .execution_options(populate_existing=True)
+            .order_by(Scope.name)
+        )
+        scopes_result = await self.session.execute(scopes_stmt)
+        return scopes_result.scalars().all()
 
     # =========================================================================
     # Role Management

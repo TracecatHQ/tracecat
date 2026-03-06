@@ -55,6 +55,10 @@ with workflow.unsafe.imports_passed_through():
         execute_approved_tools_activity,
         run_agent_activity,
     )
+    from tracecat.agent.mcp.sandbox.workflow import (
+        LocalMCPArtifactActivities,
+        RunLocalMCPArtifactWorkflow,
+    )
     from tracecat.agent.mcp.trusted_server import app
     from tracecat.agent.preset.activities import (
         resolve_agent_preset_config_activity,
@@ -333,24 +337,22 @@ async def main() -> None:
             ],
         )
 
+        mcp_worker_activities = [
+            *LocalMCPArtifactActivities.get_activities(),
+            *mcp_discovery_activities,
+        ]
         with (
             ThreadPoolExecutor(
                 max_workers=agent_threadpool_max_workers
             ) as agent_executor,
             ThreadPoolExecutor(max_workers=mcp_threadpool_max_workers) as mcp_executor,
         ):
-            agent_workflows: list[type] = [
-                DurableAgentWorkflow,
-                MCPRemoteDiscoveryWorkflow,
-            ]
-            mcp_workflows: list[type] = [MCPLocalStdioDiscoveryWorkflow]
-
             async with (
                 Worker(
                     client,
                     task_queue=config.TRACECAT__AGENT_QUEUE,
-                    activities=activities,
-                    workflows=agent_workflows,
+                    activities=[*activities, *mcp_discovery_activities],
+                    workflows=[DurableAgentWorkflow, MCPRemoteDiscoveryWorkflow],
                     workflow_runner=new_sandbox_runner(),
                     interceptors=interceptors,
                     max_concurrent_activities=agent_max_concurrent,
@@ -360,8 +362,11 @@ async def main() -> None:
                 Worker(
                     client,
                     task_queue=config.TRACECAT__MCP_QUEUE,
-                    activities=mcp_discovery_activities,
-                    workflows=mcp_workflows,
+                    activities=mcp_worker_activities,
+                    workflows=[
+                        RunLocalMCPArtifactWorkflow,
+                        MCPLocalStdioDiscoveryWorkflow,
+                    ],
                     workflow_runner=new_sandbox_runner(),
                     interceptors=interceptors,
                     max_concurrent_activities=mcp_max_concurrent,

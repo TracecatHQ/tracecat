@@ -1,11 +1,14 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { formatDistanceToNow } from "date-fns"
 import { ChevronRight, Loader2, RotateCcw, SquareAsterisk } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
   IntegrationStatus,
+  MCPDiscoveryStatus,
+  MCPIntegrationRead,
   OAuthGrantType,
   SecretDefinition,
 } from "@/client"
@@ -71,6 +74,7 @@ import {
   useDeleteMcpIntegration,
   useIntegrations,
   useListMcpIntegrations,
+  useRefreshMcpIntegration,
   useSecretDefinitions,
   useWorkspaceSecrets,
 } from "@/lib/hooks"
@@ -94,9 +98,7 @@ type IntegrationItem =
       name: string
       description: string | null
       slug: string
-      server_uri: string | null
-      auth_type: string
-      oauth_integration_id?: string | null
+      integration: MCPIntegrationRead
     }
   | {
       type: "credential"
@@ -194,6 +196,11 @@ export default function IntegrationsPage() {
     useWorkspaceSecrets(workspaceId)
   const { deleteMcpIntegration, deleteMcpIntegrationIsPending } =
     useDeleteMcpIntegration(workspaceId)
+  const {
+    refreshMcpIntegration,
+    refreshMcpIntegrationIsPending,
+    refreshMcpIntegrationVariables,
+  } = useRefreshMcpIntegration(workspaceId)
 
   const queryClient = useQueryClient()
   const handleTypeFilterToggle = useCallback(
@@ -339,13 +346,15 @@ export default function IntegrationsPage() {
 
   const isCustomMcpIntegration = useCallback(
     (item: Extract<IntegrationItem, { type: "mcp" }>) => {
-      if (item.auth_type !== "OAUTH2") {
+      if (item.integration.auth_type !== "OAUTH2") {
         return true
       }
-      if (!item.oauth_integration_id) {
+      if (!item.integration.oauth_integration_id) {
         return true
       }
-      const integration = integrationById.get(item.oauth_integration_id)
+      const integration = integrationById.get(
+        item.integration.oauth_integration_id
+      )
       return !integration?.provider_id.endsWith("_mcp")
     },
     [integrationById]
@@ -406,9 +415,7 @@ export default function IntegrationsPage() {
         name: mcp.name,
         description: mcp.description,
         slug: mcp.slug,
-        server_uri: mcp.server_uri,
-        auth_type: mcp.auth_type,
-        oauth_integration_id: mcp.oauth_integration_id,
+        integration: mcp,
       })) ?? []
 
     const credentialItems: IntegrationItem[] =
@@ -796,6 +803,10 @@ export default function IntegrationsPage() {
                           item.type === "mcp" &&
                           pendingMcpDeleteId === item.id &&
                           deleteMcpIntegrationIsPending
+                        const isRefreshingMcp =
+                          item.type === "mcp" &&
+                          refreshMcpIntegrationIsPending &&
+                          refreshMcpIntegrationVariables === item.id
                         const disconnectKey = getDisconnectKey(item)
                         const disconnectConfirmText =
                           disconnectConfirmTextByKey[disconnectKey] ?? ""
@@ -896,6 +907,65 @@ export default function IntegrationsPage() {
                                   {typeLabel}
                                 </span>
                               </ItemTitle>
+                              {isMcp ? (
+                                <div className="mt-1 space-y-1">
+                                  <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                                    <Badge
+                                      variant="outline"
+                                      className={cn(
+                                        "rounded-sm px-1.5 py-0 text-[10px] font-medium capitalize",
+                                        getMcpDiscoveryBadgeClassName(
+                                          item.integration.discovery_status
+                                        )
+                                      )}
+                                    >
+                                      {item.integration.discovery_status}
+                                    </Badge>
+                                    <span>
+                                      {formatMcpCatalogCounts(
+                                        item.integration.catalog_counts,
+                                        item.integration.has_catalog ?? false
+                                      )}
+                                    </span>
+                                    {item.integration.last_discovered_at ? (
+                                      <TooltipProvider>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <span>
+                                              {formatRelativeTimestamp(
+                                                item.integration
+                                                  .last_discovered_at
+                                              )}
+                                            </span>
+                                          </TooltipTrigger>
+                                          <TooltipContent>
+                                            <p>
+                                              {new Date(
+                                                item.integration
+                                                  .last_discovered_at
+                                              ).toLocaleString()}
+                                            </p>
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      </TooltipProvider>
+                                    ) : null}
+                                  </div>
+                                  {item.integration
+                                    .last_discovery_error_summary ? (
+                                    <p className="truncate text-[11px] text-muted-foreground">
+                                      Error:{" "}
+                                      {
+                                        item.integration
+                                          .last_discovery_error_summary
+                                      }
+                                    </p>
+                                  ) : item.description ? (
+                                    <p className="truncate text-[11px] text-muted-foreground">
+                                      {item.description}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              ) : null}
                             </ItemContent>
                             <ItemActions className="ml-auto flex shrink-0 items-center gap-1.5 pl-3">
                               {isConfigured &&
@@ -957,6 +1027,36 @@ export default function IntegrationsPage() {
                                     </Tooltip>
                                   </TooltipProvider>
                                 ))}
+                              {isMcp && canMutateIntegrations && (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6"
+                                        aria-label={`Refresh ${item.name}`}
+                                        onClick={async (event) => {
+                                          event.stopPropagation()
+                                          await refreshMcpIntegration(item.id)
+                                        }}
+                                        disabled={
+                                          !isConnected || isRefreshingMcp
+                                        }
+                                      >
+                                        {isRefreshingMcp ? (
+                                          <Loader2 className="size-3.5 animate-spin" />
+                                        ) : (
+                                          <RotateCcw className="size-3.5" />
+                                        )}
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Refresh catalog</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              )}
                               {isOAuth &&
                                 isConnected &&
                                 canMutateIntegrations && (
@@ -1198,12 +1298,60 @@ function getMcpDisplayStatus(
   item: Extract<IntegrationItem, { type: "mcp" }>,
   integrationById: Map<string, { status: IntegrationStatus }>
 ): IntegrationStatus {
-  if (item.auth_type === "OAUTH2") {
-    if (!item.oauth_integration_id) {
+  if (item.integration.auth_type === "OAUTH2") {
+    if (!item.integration.oauth_integration_id) {
       return "not_configured"
     }
-    const integration = integrationById.get(item.oauth_integration_id)
+    const integration = integrationById.get(
+      item.integration.oauth_integration_id
+    )
     return integration?.status === "connected" ? "connected" : "not_configured"
   }
   return "connected"
+}
+
+function formatMcpCatalogCounts(
+  counts: MCPIntegrationRead["catalog_counts"] | undefined,
+  hasCatalog: boolean
+): string {
+  if (!hasCatalog) {
+    return "No catalog yet"
+  }
+
+  if (!counts) {
+    return "Catalog available"
+  }
+
+  const toolCount = counts.tools ?? 0
+  const resourceCount = counts.resources ?? 0
+  const promptCount = counts.prompts ?? 0
+
+  const parts = [
+    toolCount > 0 ? `${toolCount} tool${toolCount === 1 ? "" : "s"}` : null,
+    resourceCount > 0
+      ? `${resourceCount} resource${resourceCount === 1 ? "" : "s"}`
+      : null,
+    promptCount > 0
+      ? `${promptCount} prompt${promptCount === 1 ? "" : "s"}`
+      : null,
+  ].filter((value): value is string => value !== null)
+
+  return parts.length > 0 ? parts.join(" · ") : "Catalog available"
+}
+
+function formatRelativeTimestamp(value: string): string {
+  return `Last success ${formatDistanceToNow(new Date(value), { addSuffix: true })}`
+}
+
+function getMcpDiscoveryBadgeClassName(status: MCPDiscoveryStatus): string {
+  switch (status) {
+    case "succeeded":
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+    case "failed":
+      return "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300"
+    case "stale":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+    case "pending":
+      return "border-border bg-muted text-foreground"
+  }
 }

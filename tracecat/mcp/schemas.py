@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tracecat.dsl.common import DSLInput
+from tracecat.integrations.enums import MCPCatalogArtifactType
 
 
 class LayoutPosition(BaseModel):
@@ -154,3 +155,68 @@ class WorkflowRunResponse(BaseModel):
     workflow_id: str
     execution_id: str
     message: str
+
+
+class MCPCatalogSearchItem(BaseModel):
+    """Wrapper-visible persisted MCP catalog artifact."""
+
+    id: str
+    mcp_integration_id: str
+    workspace_id: str
+    artifact_type: MCPCatalogArtifactType
+    artifact_key: str
+    artifact_ref: str
+    display_name: str | None
+    description: str | None
+    input_schema: dict[str, Any] | None = None
+    scope_name: str
+    rank: float
+
+
+class MCPCatalogSearchResponse(BaseModel):
+    """Response schema for `search_mcp_catalog`."""
+
+    workspace_id: str
+    query: str
+    results: list[MCPCatalogSearchItem] = Field(default_factory=list)
+
+
+class MCPCatalogArtifactSummary(BaseModel):
+    """Artifact identity metadata returned by wrapper execution operations."""
+
+    id: str
+    mcp_integration_id: str
+    workspace_id: str
+    artifact_type: MCPCatalogArtifactType
+    artifact_key: str
+    artifact_ref: str
+    display_name: str | None
+    description: str | None
+    scope_name: str
+
+
+class MCPCatalogToolExecutionResponse(BaseModel):
+    """Response schema for `execute_mcp_tool`."""
+
+    workspace_id: str
+    artifact: MCPCatalogArtifactSummary
+    result: dict[str, Any]
+
+
+class MCPCatalogResourceReadResponse(BaseModel):
+    """Response schema for `read_mcp_resource`."""
+
+    workspace_id: str
+    artifact: MCPCatalogArtifactSummary
+    contents: list[dict[str, Any]] = Field(default_factory=list)
+    truncated: bool
+    max_content_chars: int
+    total_content_chars: int
+
+
+class MCPCatalogPromptResponse(BaseModel):
+    """Response schema for `get_mcp_prompt`."""
+
+    workspace_id: str
+    artifact: MCPCatalogArtifactSummary
+    result: dict[str, Any]
