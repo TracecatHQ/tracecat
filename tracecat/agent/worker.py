@@ -63,6 +63,10 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor
     from tracecat.dsl.plugins import TracecatPydanticAIPlugin
+    from tracecat.integrations.mcp_discovery_workflow import (
+        MCPRemoteDiscoveryWorkflow,
+        get_mcp_discovery_activities,
+    )
     from tracecat.logger import logger
 
 
@@ -267,6 +271,9 @@ def get_activities() -> list[Callable[..., object]]:
     # Session management activities
     activities.extend(get_session_activities())
 
+    # Persisted MCP discovery activities
+    activities.extend(get_mcp_discovery_activities())
+
     # Agent executor activity
     activities.append(run_agent_activity)
     activities.append(execute_approved_tools_activity)
@@ -323,7 +330,10 @@ async def main() -> None:
         )
 
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-            workflows: list[type] = [DurableAgentWorkflow]
+            workflows: list[type] = [
+                DurableAgentWorkflow,
+                MCPRemoteDiscoveryWorkflow,
+            ]
 
             async with Worker(
                 client,

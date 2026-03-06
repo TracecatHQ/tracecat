@@ -10859,6 +10859,11 @@ export const $MCPHttpIntegrationCreate = {
       title: "Server Type",
       default: "http",
     },
+    transport: {
+      $ref: "#/components/schemas/MCPTransport",
+      description: "Transport used to connect to the remote MCP server",
+      default: "http",
+    },
     server_uri: {
       type: "string",
       title: "Server Uri",
@@ -11002,6 +11007,16 @@ export const $MCPIntegrationRead = {
     },
     server_type: {
       $ref: "#/components/schemas/MCPServerType",
+    },
+    transport: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/MCPTransport",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     server_uri: {
       anyOf: [
@@ -11151,6 +11166,7 @@ export const $MCPIntegrationRead = {
     "slug",
     "scope_namespace",
     "server_type",
+    "transport",
     "server_uri",
     "auth_type",
     "oauth_integration_id",
@@ -11196,6 +11212,16 @@ export const $MCPIntegrationUpdate = {
         },
       ],
       title: "Description",
+    },
+    transport: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/MCPTransport",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     server_uri: {
       anyOf: [
@@ -11439,6 +11465,13 @@ export const $MCPStdioServerConfig = {
   required: ["type", "name", "command"],
   title: "MCPStdioServerConfig",
   description: "Configuration for a stdio MCP server.",
+} as const
+
+export const $MCPTransport = {
+  type: "string",
+  enum: ["http", "sse"],
+  title: "MCPTransport",
+  description: "Transport used to connect to a remote MCP server.",
 } as const
 
 export const $MessageKind = {

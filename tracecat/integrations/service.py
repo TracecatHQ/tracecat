@@ -1,34 +1,48 @@
 """Service for managing user integrations with external services."""
 
+import hashlib
 import os
 import secrets
 import uuid
 from collections.abc import Sequence
-from datetime import datetime, timedelta
-from typing import cast
+from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 from urllib.parse import urlparse
 from uuid import uuid4
 
+import httpx
 import orjson
 from pydantic import SecretStr
 from slugify import slugify
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, func, or_, select, tuple_, update
+from sqlalchemy.dialects.postgresql import insert
 
 from tracecat import config
+from tracecat.agent.common.types import MCPHttpServerConfig
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
     MCPIntegration,
     MCPIntegrationCatalogEntry,
+    MCPIntegrationDiscoveryAttempt,
     OAuthIntegration,
     WorkspaceOAuthProvider,
 )
+from tracecat.dsl.client import get_temporal_client
 from tracecat.identifiers import UserID
 from tracecat.integrations.enums import (
     MCPAuthType,
     MCPCatalogArtifactType,
+    MCPDiscoveryAttemptStatus,
     MCPDiscoveryStatus,
+    MCPDiscoveryTrigger,
+    MCPTransport,
     OAuthGrantType,
+)
+from tracecat.integrations.mcp_discovery_types import (
+    MCPDiscoveryWorkflowArgs,
+    MCPDiscoveryWorkflowResult,
+    NormalizedMCPArtifact,
 )
 from tracecat.integrations.mcp_validation import (
     MAX_SERVER_NAME_LENGTH,
@@ -1075,6 +1089,7 @@ class IntegrationService(BaseWorkspaceService):
                 server_uri=provider_impl.mcp_server_uri,
                 auth_type=MCPAuthType.OAUTH2,
                 oauth_integration_id=integration.id,
+                transport=MCPTransport.HTTP.value,
                 discovery_status=MCPDiscoveryStatus.PENDING.value,
                 catalog_version=0,
                 sandbox_allow_network=False,
@@ -1089,6 +1104,10 @@ class IntegrationService(BaseWorkspaceService):
                 provider=provider_key.id,
                 oauth_integration_id=integration.id,
             )
+            await self.enqueue_mcp_http_discovery(
+                mcp_integration_id=mcp_integration.id,
+                trigger=MCPDiscoveryTrigger.CREATE,
+            )
         else:
             # Update existing MCP integration to ensure it references the OAuth integration
             if mcp_integration.oauth_integration_id != integration.id:
@@ -1100,6 +1119,12 @@ class IntegrationService(BaseWorkspaceService):
                     "Updated MCP integration OAuth reference",
                     mcp_integration_id=mcp_integration.id,
                     oauth_integration_id=integration.id,
+                )
+
+            if mcp_integration.server_type == "http":
+                await self.enqueue_mcp_http_discovery(
+                    mcp_integration_id=mcp_integration.id,
+                    trigger=MCPDiscoveryTrigger.UPDATE,
                 )
 
     async def _generate_mcp_integration_slug(
@@ -1160,6 +1185,609 @@ class IntegrationService(BaseWorkspaceService):
             if not await self._mcp_scope_namespace_taken(candidate):
                 return candidate
 
+    async def _get_mcp_integration_for_update(
+        self, *, mcp_integration_id: uuid.UUID
+    ) -> MCPIntegration | None:
+        """Lock and return an MCP integration for serialized discovery writes."""
+        statement = (
+            select(MCPIntegration)
+            .where(
+                MCPIntegration.id == mcp_integration_id,
+                MCPIntegration.workspace_id == self.workspace_id,
+            )
+            .with_for_update()
+        )
+        result = await self.session.execute(statement)
+        return result.scalars().first()
+
+    @staticmethod
+    def _build_mcp_artifact_key(
+        *,
+        artifact_type: MCPCatalogArtifactType,
+        artifact_ref: str,
+    ) -> str:
+        """Build the stable per-integration artifact key."""
+        prefix = slugify(artifact_ref, separator="-")[:48].rstrip("-")
+        if not prefix:
+            prefix = artifact_type.value
+        digest = hashlib.sha256(
+            f"{artifact_type.value}\n{artifact_ref}".encode()
+        ).hexdigest()[:10]
+        return f"{prefix}-{digest}"
+
+    @staticmethod
+    def _build_mcp_artifact_search_text(
+        *,
+        artifact_ref: str,
+        display_name: str | None,
+        description: str | None,
+    ) -> str:
+        return "\n".join(
+            part for part in (display_name, artifact_ref, description) if part
+        )
+
+    @staticmethod
+    def _build_mcp_artifact_counts(
+        artifacts: Sequence[NormalizedMCPArtifact],
+    ) -> dict[str, int]:
+        counts = {artifact_type.value: 0 for artifact_type in MCPCatalogArtifactType}
+        for artifact in artifacts:
+            counts[artifact.artifact_type.value] += 1
+        return counts
+
+    def _decrypt_mcp_headers(
+        self, *, mcp_integration: MCPIntegration
+    ) -> dict[str, str] | None:
+        """Decrypt and validate stored MCP custom headers."""
+        if not mcp_integration.encrypted_headers:
+            return None
+        if not is_set(mcp_integration.encrypted_headers):
+            return None
+        if not (decrypted := self._decrypt_token(mcp_integration.encrypted_headers)):
+            return None
+
+        try:
+            parsed_headers = orjson.loads(decrypted)
+        except orjson.JSONDecodeError as err:
+            self.logger.warning(
+                "Failed to parse custom credentials for MCP integration",
+                mcp_integration_id=mcp_integration.id,
+                error=str(err),
+            )
+            return None
+
+        if not isinstance(parsed_headers, dict):
+            self.logger.warning(
+                "Custom credentials for MCP integration must be a JSON object",
+                mcp_integration_id=mcp_integration.id,
+            )
+            return None
+
+        custom_headers: dict[str, str] = {}
+        for key, value in parsed_headers.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                self.logger.warning(
+                    "Custom credentials for MCP integration must contain string header values",
+                    mcp_integration_id=mcp_integration.id,
+                )
+                return None
+            custom_headers[key] = value
+        return custom_headers
+
+    @require_scope("integration:read")
+    async def resolve_mcp_http_server_config(
+        self,
+        *,
+        mcp_integration: MCPIntegration,
+        server_name: str | None = None,
+    ) -> MCPHttpServerConfig | None:
+        """Resolve a stored HTTP/SSE MCP integration into a live client config."""
+        if mcp_integration.server_type != "http":
+            return None
+        if not mcp_integration.server_uri:
+            self.logger.warning(
+                "HTTP-type MCP integration has no server URI",
+                mcp_integration_id=mcp_integration.id,
+            )
+            return None
+
+        headers: dict[str, str] = {}
+
+        match mcp_integration.auth_type:
+            case MCPAuthType.OAUTH2:
+                oauth_integration_id = mcp_integration.oauth_integration_id
+                if oauth_integration_id is None:
+                    self.logger.warning(
+                        "OAUTH2 MCP integration has no linked OAuth integration",
+                        mcp_integration_id=mcp_integration.id,
+                    )
+                    return None
+
+                stmt = select(OAuthIntegration).where(
+                    OAuthIntegration.id == oauth_integration_id,
+                    OAuthIntegration.workspace_id == self.workspace_id,
+                )
+                result = await self.session.execute(stmt)
+                oauth_integration = result.scalars().first()
+                if oauth_integration is None:
+                    self.logger.warning(
+                        "OAuth integration not found for MCP integration",
+                        mcp_integration_id=mcp_integration.id,
+                        oauth_integration_id=oauth_integration_id,
+                    )
+                    return None
+
+                await self.refresh_token_if_needed(oauth_integration)
+                access_token = await self.get_access_token(oauth_integration)
+                if access_token is None:
+                    self.logger.warning(
+                        "No access token available for MCP integration",
+                        mcp_integration_id=mcp_integration.id,
+                        oauth_integration_id=oauth_integration_id,
+                    )
+                    return None
+
+                token_type = oauth_integration.token_type or "Bearer"
+                headers["Authorization"] = (
+                    f"{token_type} {access_token.get_secret_value()}"
+                )
+
+                custom_headers = self._decrypt_mcp_headers(
+                    mcp_integration=mcp_integration
+                )
+                if custom_headers is None:
+                    custom_headers = {}
+
+                auth_header_keys = [
+                    key
+                    for key in custom_headers
+                    if key.strip().casefold() == "authorization"
+                ]
+                for auth_header_key in auth_header_keys:
+                    custom_headers.pop(auth_header_key, None)
+                headers.update(custom_headers)
+
+            case MCPAuthType.CUSTOM:
+                custom_headers = self._decrypt_mcp_headers(
+                    mcp_integration=mcp_integration
+                )
+                if custom_headers is None:
+                    self.logger.warning(
+                        "CUSTOM MCP integration has invalid stored credentials",
+                        mcp_integration_id=mcp_integration.id,
+                    )
+                    return None
+                headers.update(custom_headers)
+
+            case MCPAuthType.NONE:
+                pass
+
+            case _:
+                self.logger.warning(
+                    "Unknown auth type for MCP integration",
+                    mcp_integration_id=mcp_integration.id,
+                    auth_type=str(mcp_integration.auth_type),
+                )
+                return None
+
+        http_config: MCPHttpServerConfig = {
+            "type": "http",
+            "name": server_name or mcp_integration.name,
+            "url": mcp_integration.server_uri,
+            "transport": MCPTransport(mcp_integration.transport).value,
+            "headers": headers,
+        }
+        if mcp_integration.timeout is not None:
+            http_config["timeout"] = mcp_integration.timeout
+        return http_config
+
+    async def _integration_has_active_catalog(
+        self, *, mcp_integration_id: uuid.UUID
+    ) -> bool:
+        statement = select(MCPIntegrationCatalogEntry.id).where(
+            MCPIntegrationCatalogEntry.workspace_id == self.workspace_id,
+            MCPIntegrationCatalogEntry.mcp_integration_id == mcp_integration_id,
+            MCPIntegrationCatalogEntry.is_active.is_(True),
+        )
+        result = await self.session.execute(statement.limit(1))
+        return result.scalar_one_or_none() is not None
+
+    async def _insert_mcp_discovery_attempt(
+        self,
+        *,
+        mcp_integration_id: uuid.UUID,
+        trigger: MCPDiscoveryTrigger,
+        status: MCPDiscoveryAttemptStatus,
+        started_at: datetime,
+        finished_at: datetime,
+        catalog_version: int | None = None,
+        artifact_counts: dict[str, int] | None = None,
+        error_code: str | None = None,
+        error_summary: str | None = None,
+        error_details: dict[str, Any] | None = None,
+    ) -> None:
+        duration_ms = int((finished_at - started_at).total_seconds() * 1000)
+        self.session.add(
+            MCPIntegrationDiscoveryAttempt(
+                mcp_integration_id=mcp_integration_id,
+                workspace_id=self.workspace_id,
+                trigger=trigger.value,
+                status=status.value,
+                catalog_version=catalog_version,
+                started_at=started_at,
+                finished_at=finished_at,
+                duration_ms=duration_ms,
+                artifact_counts=artifact_counts,
+                error_code=error_code,
+                error_summary=error_summary,
+                error_details=error_details,
+            )
+        )
+
+    async def persist_mcp_remote_discovery_success(
+        self,
+        *,
+        mcp_integration_id: uuid.UUID,
+        trigger: MCPDiscoveryTrigger,
+        started_at: datetime,
+        finished_at: datetime,
+        artifacts: Sequence[NormalizedMCPArtifact],
+    ) -> MCPIntegration:
+        """Persist a successful remote MCP discovery run."""
+        mcp_integration = await self._get_mcp_integration_for_update(
+            mcp_integration_id=mcp_integration_id
+        )
+        if mcp_integration is None:
+            raise ValueError("MCP integration not found")
+
+        artifact_counts = self._build_mcp_artifact_counts(artifacts)
+        if (
+            mcp_integration.last_discovery_attempt_at is not None
+            and mcp_integration.last_discovery_attempt_at > started_at
+        ):
+            await self._insert_mcp_discovery_attempt(
+                mcp_integration_id=mcp_integration_id,
+                trigger=trigger,
+                status=MCPDiscoveryAttemptStatus.SUCCEEDED,
+                started_at=started_at,
+                finished_at=finished_at,
+                catalog_version=None,
+                artifact_counts=artifact_counts,
+            )
+            await self.session.commit()
+            await self.session.refresh(mcp_integration)
+            return mcp_integration
+
+        catalog_version = mcp_integration.catalog_version + 1
+        upsert_rows: list[dict[str, Any]] = []
+        active_pairs: list[tuple[str, str]] = []
+        for artifact in artifacts:
+            artifact_key = self._build_mcp_artifact_key(
+                artifact_type=artifact.artifact_type,
+                artifact_ref=artifact.artifact_ref,
+            )
+            active_pairs.append((artifact.artifact_type.value, artifact_key))
+            upsert_rows.append(
+                {
+                    "mcp_integration_id": mcp_integration_id,
+                    "workspace_id": self.workspace_id,
+                    "integration_name": mcp_integration.name,
+                    "artifact_type": artifact.artifact_type.value,
+                    "artifact_key": artifact_key,
+                    "artifact_ref": artifact.artifact_ref,
+                    "display_name": artifact.display_name,
+                    "description": artifact.description,
+                    "input_schema": artifact.input_schema,
+                    "metadata": artifact.metadata,
+                    "raw_payload": artifact.raw_payload,
+                    "content_hash": artifact.content_hash,
+                    "is_active": True,
+                    "search_vector": func.to_tsvector(
+                        "simple",
+                        self._build_mcp_artifact_search_text(
+                            artifact_ref=artifact.artifact_ref,
+                            display_name=artifact.display_name,
+                            description=artifact.description,
+                        ),
+                    ),
+                }
+            )
+
+        if upsert_rows:
+            catalog_table = cast(Any, MCPIntegrationCatalogEntry.__table__)
+            upsert_stmt = insert(catalog_table).values(upsert_rows)
+            metadata_column = catalog_table.c["metadata"]
+            await self.session.execute(
+                upsert_stmt.on_conflict_do_update(
+                    index_elements=[
+                        catalog_table.c.mcp_integration_id,
+                        catalog_table.c.artifact_type,
+                        catalog_table.c.artifact_key,
+                    ],
+                    set_={
+                        "workspace_id": upsert_stmt.excluded.workspace_id,
+                        "integration_name": upsert_stmt.excluded.integration_name,
+                        "artifact_ref": upsert_stmt.excluded.artifact_ref,
+                        "display_name": upsert_stmt.excluded.display_name,
+                        "description": upsert_stmt.excluded.description,
+                        "input_schema": upsert_stmt.excluded.input_schema,
+                        metadata_column: upsert_stmt.excluded["metadata"],
+                        "raw_payload": upsert_stmt.excluded.raw_payload,
+                        "content_hash": upsert_stmt.excluded.content_hash,
+                        "is_active": True,
+                        "search_vector": upsert_stmt.excluded.search_vector,
+                        "updated_at": func.now(),
+                    },
+                )
+            )
+
+        deactivate_stmt = (
+            update(MCPIntegrationCatalogEntry)
+            .where(
+                MCPIntegrationCatalogEntry.workspace_id == self.workspace_id,
+                MCPIntegrationCatalogEntry.mcp_integration_id == mcp_integration_id,
+                MCPIntegrationCatalogEntry.is_active.is_(True),
+            )
+            .values(is_active=False, updated_at=func.now())
+        )
+        if active_pairs:
+            deactivate_stmt = deactivate_stmt.where(
+                tuple_(
+                    MCPIntegrationCatalogEntry.artifact_type,
+                    MCPIntegrationCatalogEntry.artifact_key,
+                ).not_in(active_pairs)
+            )
+        await self.session.execute(deactivate_stmt)
+
+        mcp_integration.catalog_version = catalog_version
+        mcp_integration.discovery_status = MCPDiscoveryStatus.SUCCEEDED.value
+        mcp_integration.last_discovered_at = finished_at
+        mcp_integration.last_discovery_error_code = None
+        mcp_integration.last_discovery_error_summary = None
+        self.session.add(mcp_integration)
+        await self._insert_mcp_discovery_attempt(
+            mcp_integration_id=mcp_integration_id,
+            trigger=trigger,
+            status=MCPDiscoveryAttemptStatus.SUCCEEDED,
+            started_at=started_at,
+            finished_at=finished_at,
+            catalog_version=catalog_version,
+            artifact_counts=artifact_counts,
+        )
+        await self.session.commit()
+        await self.session.refresh(mcp_integration)
+        return mcp_integration
+
+    def _redact_mcp_discovery_error(
+        self,
+        *,
+        exc: Exception,
+        has_active_catalog: bool,
+    ) -> tuple[str, str, MCPDiscoveryStatus, dict[str, Any]]:
+        """Map internal discovery failures to user-safe persisted state."""
+        discovery_status = (
+            MCPDiscoveryStatus.STALE
+            if has_active_catalog
+            else MCPDiscoveryStatus.FAILED
+        )
+        details: dict[str, Any] = {
+            "error_type": type(exc).__name__,
+            "message": str(exc),
+        }
+
+        if isinstance(exc, httpx.TimeoutException):
+            return (
+                "timeout",
+                "Timed out while discovering MCP artifacts.",
+                discovery_status,
+                details,
+            )
+        if isinstance(exc, httpx.HTTPError):
+            return (
+                "connection_error",
+                "Could not connect to the MCP server.",
+                discovery_status,
+                details,
+            )
+        if isinstance(exc, ValueError):
+            return (
+                "invalid_config",
+                "The MCP integration configuration is incomplete.",
+                discovery_status,
+                details,
+            )
+        return (
+            "unexpected_error",
+            "Unexpected error during MCP discovery.",
+            discovery_status,
+            details,
+        )
+
+    async def persist_mcp_remote_discovery_failure(
+        self,
+        *,
+        mcp_integration_id: uuid.UUID,
+        trigger: MCPDiscoveryTrigger,
+        started_at: datetime,
+        finished_at: datetime,
+        exc: Exception,
+    ) -> MCPIntegration:
+        """Persist a failed remote MCP discovery run without touching active rows."""
+        mcp_integration = await self._get_mcp_integration_for_update(
+            mcp_integration_id=mcp_integration_id
+        )
+        if mcp_integration is None:
+            raise ValueError("MCP integration not found")
+
+        has_active_catalog = await self._integration_has_active_catalog(
+            mcp_integration_id=mcp_integration_id
+        )
+        error_code, error_summary, discovery_status, error_details = (
+            self._redact_mcp_discovery_error(
+                exc=exc, has_active_catalog=has_active_catalog
+            )
+        )
+
+        if (
+            mcp_integration.last_discovery_attempt_at is None
+            or mcp_integration.last_discovery_attempt_at <= started_at
+        ):
+            mcp_integration.discovery_status = discovery_status.value
+            mcp_integration.last_discovery_error_code = error_code
+            mcp_integration.last_discovery_error_summary = error_summary
+            self.session.add(mcp_integration)
+
+        await self._insert_mcp_discovery_attempt(
+            mcp_integration_id=mcp_integration_id,
+            trigger=trigger,
+            status=MCPDiscoveryAttemptStatus.FAILED,
+            started_at=started_at,
+            finished_at=finished_at,
+            catalog_version=None,
+            error_code=error_code,
+            error_summary=error_summary,
+            error_details=error_details,
+        )
+        await self.session.commit()
+        await self.session.refresh(mcp_integration)
+        return mcp_integration
+
+    async def enqueue_mcp_http_discovery(
+        self,
+        *,
+        mcp_integration_id: uuid.UUID,
+        trigger: MCPDiscoveryTrigger,
+    ) -> MCPIntegration:
+        """Schedule persisted discovery for a remote HTTP/SSE MCP integration."""
+        mcp_integration = await self.get_mcp_integration(
+            mcp_integration_id=mcp_integration_id
+        )
+        if mcp_integration is None:
+            raise ValueError("MCP integration not found")
+        if mcp_integration.server_type != "http":
+            raise ValueError("Only HTTP/SSE MCP integrations support remote discovery")
+
+        started_at = datetime.now(UTC)
+        mcp_integration.discovery_status = MCPDiscoveryStatus.PENDING.value
+        mcp_integration.last_discovery_attempt_at = started_at
+        self.session.add(mcp_integration)
+        await self.session.commit()
+        await self.session.refresh(mcp_integration)
+
+        workflow_args = MCPDiscoveryWorkflowArgs(
+            role=self.role,
+            mcp_integration_id=mcp_integration_id,
+            trigger=trigger,
+            started_at=started_at,
+        )
+        workflow_id = f"mcp-remote-discovery-{mcp_integration_id}-{started_at.strftime('%Y%m%d%H%M%S%f')}"
+
+        try:
+            client = await get_temporal_client()
+            await client.start_workflow(
+                "mcp_remote_discovery",
+                workflow_args,
+                id=workflow_id,
+                task_queue=config.TRACECAT__AGENT_QUEUE,
+                execution_timeout=timedelta(minutes=10),
+            )
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to enqueue remote MCP discovery",
+                mcp_integration_id=mcp_integration_id,
+                trigger=trigger.value,
+                error=str(exc),
+            )
+            return await self.persist_mcp_remote_discovery_failure(
+                mcp_integration_id=mcp_integration_id,
+                trigger=trigger,
+                started_at=started_at,
+                finished_at=datetime.now(UTC),
+                exc=exc,
+            )
+
+        return mcp_integration
+
+    @require_scope("integration:update")
+    async def refresh_mcp_integration_discovery(
+        self, *, mcp_integration_id: uuid.UUID
+    ) -> MCPIntegration | None:
+        """Enqueue a remote discovery refresh for an HTTP/SSE MCP integration."""
+        mcp_integration = await self.get_mcp_integration(
+            mcp_integration_id=mcp_integration_id
+        )
+        if mcp_integration is None:
+            return None
+        return await self.enqueue_mcp_http_discovery(
+            mcp_integration_id=mcp_integration_id,
+            trigger=MCPDiscoveryTrigger.REFRESH,
+        )
+
+    async def run_remote_mcp_discovery(
+        self,
+        *,
+        mcp_integration_id: uuid.UUID,
+        trigger: MCPDiscoveryTrigger,
+        started_at: datetime,
+    ) -> MCPDiscoveryWorkflowResult:
+        """Discover and persist the catalog for a remote HTTP/SSE MCP integration."""
+        from tracecat.agent.mcp import user_client
+
+        mcp_integration = await self.get_mcp_integration(
+            mcp_integration_id=mcp_integration_id
+        )
+        if mcp_integration is None:
+            raise ValueError("MCP integration not found")
+
+        try:
+            http_config = await self.resolve_mcp_http_server_config(
+                mcp_integration=mcp_integration,
+                server_name=mcp_integration.scope_namespace,
+            )
+            if http_config is None:
+                raise ValueError("MCP integration could not be resolved for discovery")
+            raw_catalog: object = await user_client.discover_mcp_server_catalog(
+                http_config
+            )
+            if isinstance(raw_catalog, dict):
+                raw_artifacts = raw_catalog.get("artifacts", [])
+            else:
+                raw_artifacts = cast("Sequence[object]", raw_catalog.artifacts)
+
+            artifacts = [
+                artifact
+                if isinstance(artifact, NormalizedMCPArtifact)
+                else NormalizedMCPArtifact.model_validate(artifact)
+                for artifact in raw_artifacts
+            ]
+            updated = await self.persist_mcp_remote_discovery_success(
+                mcp_integration_id=mcp_integration_id,
+                trigger=trigger,
+                started_at=started_at,
+                finished_at=datetime.now(UTC),
+                artifacts=artifacts,
+            )
+            return MCPDiscoveryWorkflowResult(
+                mcp_integration_id=mcp_integration_id,
+                status=updated.discovery_status,
+                catalog_version=updated.catalog_version,
+            )
+        except Exception as exc:
+            updated = await self.persist_mcp_remote_discovery_failure(
+                mcp_integration_id=mcp_integration_id,
+                trigger=trigger,
+                started_at=started_at,
+                finished_at=datetime.now(UTC),
+                exc=exc,
+            )
+            return MCPDiscoveryWorkflowResult(
+                mcp_integration_id=mcp_integration_id,
+                status=updated.discovery_status,
+                catalog_version=updated.catalog_version,
+                error_code=updated.last_discovery_error_code,
+                error_summary=updated.last_discovery_error_summary,
+            )
+
     @require_scope("integration:create")
     async def create_mcp_integration(
         self, *, params: MCPIntegrationCreate
@@ -1175,6 +1803,7 @@ class IntegrationService(BaseWorkspaceService):
         stdio_command: str | None = None
         stdio_args: list[str] | None = None
         encrypted_stdio_env: bytes | None = None
+        transport = MCPTransport.HTTP
 
         if params.server_type == "http":
             # Validate OAuth integration if auth_type is oauth2
@@ -1195,6 +1824,7 @@ class IntegrationService(BaseWorkspaceService):
                     )
 
             server_uri = params.server_uri.strip()
+            transport = params.transport
             auth_type = params.auth_type
             oauth_integration_id = params.oauth_integration_id
             if (
@@ -1230,6 +1860,7 @@ class IntegrationService(BaseWorkspaceService):
             oauth_integration_id=oauth_integration_id,
             encrypted_headers=encrypted_custom_credentials,  # Reuse field for custom credentials
             server_type=params.server_type,
+            transport=transport.value,
             stdio_command=stdio_command,
             stdio_args=stdio_args,
             encrypted_stdio_env=encrypted_stdio_env,
@@ -1251,6 +1882,11 @@ class IntegrationService(BaseWorkspaceService):
             server_type=params.server_type,
         )
 
+        if params.server_type == "http":
+            return await self.enqueue_mcp_http_discovery(
+                mcp_integration_id=mcp_integration.id,
+                trigger=MCPDiscoveryTrigger.CREATE,
+            )
         return mcp_integration
 
     async def list_mcp_integrations(self) -> Sequence[MCPIntegration]:
@@ -1347,6 +1983,8 @@ class IntegrationService(BaseWorkspaceService):
             )
         if params.server_uri is not None:
             mcp_integration.server_uri = params.server_uri.strip()
+        if params.transport is not None and mcp_integration.server_type == "http":
+            mcp_integration.transport = params.transport.value
         if params.auth_type is not None:
             mcp_integration.auth_type = params.auth_type
         if params.oauth_integration_id is not None:
@@ -1415,6 +2053,11 @@ class IntegrationService(BaseWorkspaceService):
             mcp_integration_id=mcp_integration.id,
         )
 
+        if mcp_integration.server_type == "http":
+            return await self.enqueue_mcp_http_discovery(
+                mcp_integration_id=mcp_integration.id,
+                trigger=MCPDiscoveryTrigger.UPDATE,
+            )
         return mcp_integration
 
     @require_scope("integration:delete")

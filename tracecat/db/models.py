@@ -3349,6 +3349,13 @@ class MCPIntegration(TimestampMixin, Base):
         nullable=False,
         doc="Server type: 'http' (HTTP/SSE) or 'stdio' (stdio)",
     )
+    transport: Mapped[str] = mapped_column(
+        String(16),
+        default="http",
+        server_default="http",
+        nullable=False,
+        doc="Transport for remote HTTP MCP servers: 'http' or 'sse'",
+    )
     # HTTP-type server fields
     server_uri: Mapped[str | None] = mapped_column(
         String,

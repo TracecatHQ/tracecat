@@ -3510,6 +3510,10 @@ export type MCPHttpIntegrationCreate = {
   timeout?: number | null
   server_type?: "http"
   /**
+   * Transport used to connect to the remote MCP server
+   */
+  transport?: MCPTransport
+  /**
    * MCP server endpoint URL (required for http type)
    */
   server_uri: string
@@ -3570,6 +3574,7 @@ export type MCPIntegrationRead = {
   slug: string
   scope_namespace: string
   server_type: MCPServerType
+  transport: MCPTransport | null
   server_uri: string | null
   auth_type: MCPAuthType
   oauth_integration_id: string | null
@@ -3595,6 +3600,7 @@ export type MCPIntegrationRead = {
 export type MCPIntegrationUpdate = {
   name?: string | null
   description?: string | null
+  transport?: MCPTransport | null
   server_uri?: string | null
   auth_type?: MCPAuthType | null
   oauth_integration_id?: string | null
@@ -3670,6 +3676,11 @@ export type MCPStdioServerConfig = {
   }
   timeout?: number
 }
+
+/**
+ * Transport used to connect to a remote MCP server.
+ */
+export type MCPTransport = "http" | "sse"
 
 /**
  * The type/kind of message stored in the chat.
@@ -10338,6 +10349,13 @@ export type McpIntegrationsDeleteMcpIntegrationData = {
 
 export type McpIntegrationsDeleteMcpIntegrationResponse = void
 
+export type McpIntegrationsRefreshMcpIntegrationData = {
+  mcpIntegrationId: string
+  workspaceId: string
+}
+
+export type McpIntegrationsRefreshMcpIntegrationResponse = MCPIntegrationRead
+
 export type FeatureFlagsGetFeatureFlagsResponse = FeatureFlagsRead
 
 export type VcsGetGithubAppManifestResponse = GitHubAppManifestResponse
@@ -15153,6 +15171,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/mcp-integrations/{mcp_integration_id}/refresh": {
+    post: {
+      req: McpIntegrationsRefreshMcpIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPIntegrationRead
         /**
          * Validation Error
          */
