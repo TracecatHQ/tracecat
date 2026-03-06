@@ -69,9 +69,9 @@ class AgentStream:
         logger.debug("Adding end-of-turn marker", stream_key=self._stream_key)
         await self.append({tokens.END_TOKEN: tokens.END_TOKEN_VALUE})
 
-    async def clear(self) -> None:
+    async def reset_for_new_turn(self) -> None:
         """Delete the persisted stream buffer and reset the saved cursor."""
-        logger.debug("Clearing agent stream buffer", stream_key=self._stream_key)
+        logger.debug("Resetting agent stream buffer", stream_key=self._stream_key)
         await self.client.delete(self._stream_key)
         await self._set_last_stream_id(None)
 
@@ -198,7 +198,7 @@ class AgentStream:
         finally:
             logger.info("Chat stream ended", stream_key=self._stream_key)
             if stream_completed:
-                await self.clear()
+                await self._set_last_stream_id(None)
             else:
                 await self._set_last_stream_id(current_id)
 
