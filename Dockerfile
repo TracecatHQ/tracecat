@@ -70,7 +70,7 @@ ENV HOST=0.0.0.0 PORT=8000
 
 # Copy nsjail binary
 COPY --from=nsjail-builder /usr/local/bin/nsjail /usr/local/bin/nsjail
-COPY --from=mcp-egress-guard-builder /usr/local/lib/libtracecat_mcp_egress_guard.so /usr/local/lib/libtracecat_mcp_egress_guard.so
+COPY --from=mcp-egress-guard-builder /out/libtracecat_mcp_egress_guard.so /usr/local/lib/libtracecat_mcp_egress_guard.so
 
 # Copy Node.js + npx for in-process MCP command servers (stdio)
 COPY --from=node-bin /usr/local/bin/node /usr/local/bin/node
