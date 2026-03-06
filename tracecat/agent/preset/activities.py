@@ -6,7 +6,8 @@ from pydantic import BaseModel, model_validator
 from temporalio import activity
 
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.workflow_config import agent_config_to_payload
+from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 
 
@@ -25,9 +26,10 @@ class ResolveAgentPresetConfigActivityInput(BaseModel):
 @activity.defn
 async def resolve_agent_preset_config_activity(
     args: ResolveAgentPresetConfigActivityInput,
-) -> AgentConfig:
+) -> AgentConfigPayload:
     async with AgentPresetService.with_session(role=args.role) as service:
-        return await service.resolve_agent_preset_config(
+        config = await service.resolve_agent_preset_config(
             preset_id=args.preset_id,
             slug=args.preset_slug,
         )
+        return agent_config_to_payload(config)

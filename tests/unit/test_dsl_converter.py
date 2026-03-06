@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
 import temporalio.api.common.v1
 from temporalio.api.common.v1 import Payload
+from tracecat_registry.sdk.agents import AgentConfig as RegistryAgentConfig
 
+from tracecat.agent.types import AgentConfig as TracecatAgentConfig
 from tracecat.dsl._converter import PydanticORJSONPayloadConverter
 from tracecat.dsl.common import AgentActionMemo
 
@@ -92,3 +95,49 @@ def test_agent_action_memo_logging_omits_raw_payload(
     assert warning["encoding"] == "json/plain"
     assert warning["payload_size_bytes"] == len(b'{"token":"Bearer secret-token"}')
     assert "value" not in warning
+
+
+def _build_tracecat_agent_config_payload() -> Payload:
+    converter = PydanticORJSONPayloadConverter()
+    payload = converter.to_payload(
+        TracecatAgentConfig(
+            model_name="gpt-5.2",
+            model_provider="openai",
+            instructions="You are a security analyst.",
+            actions=["tools.datadog.change_signal_state"],
+            namespaces=["tools.datadog"],
+            tool_approvals={"tools.datadog.change_signal_state": True},
+            mcp_servers=[
+                {
+                    "name": "internal-tools",
+                    "url": "http://host.docker.internal:8080",
+                    "transport": "http",
+                    "headers": {"Authorization": "Bearer secret123"},
+                }
+            ],
+            model_settings={"parallel_tool_calls": False},
+            retries=3,
+            enable_internet_access=True,
+        )
+    )
+    if payload is None:
+        raise AssertionError("Expected JSON payload for AgentConfig")
+    return payload
+
+
+def test_converter_rejects_registry_agent_config_from_tracecat_agent_config_payload() -> (
+    None
+):
+    """Current converter still fails on mixed AgentConfig types.
+
+    The durable workflow fix avoids this by returning a workflow-safe payload
+    across the activity boundary instead of AgentConfig directly.
+    """
+    converter = PydanticORJSONPayloadConverter()
+    payload = _build_tracecat_agent_config_payload()
+
+    with pytest.raises(
+        RuntimeError,
+        match="Failed to decode payload for type AgentConfig",
+    ):
+        converter.from_payload(payload, RegistryAgentConfig)
