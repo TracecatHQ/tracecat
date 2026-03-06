@@ -767,6 +767,7 @@ class AgentSessionService(BaseWorkspaceService):
 
         # Parse request to extract user prompt
         user_prompt: str | None = None
+        request_instructions: str | None = None
         is_continuation = False
 
         match request:
@@ -785,8 +786,9 @@ class AgentSessionService(BaseWorkspaceService):
                                 raise ValueError(f"Unsupported user prompt: {content}")
                     case _:
                         raise ValueError(f"Unsupported message: {message}")
-            case BasicChatRequest(message=prompt):
+            case BasicChatRequest(message=prompt, instructions=instructions):
                 user_prompt = prompt
+                request_instructions = instructions
             case _:
                 raise ValueError(f"Unsupported request type: {type(request)}")
 
@@ -808,6 +810,15 @@ class AgentSessionService(BaseWorkspaceService):
 
         # Build agent config and spawn workflow for new turn
         async with self._build_agent_config(agent_session) as agent_config:
+            if request_instructions:
+                agent_config = replace(
+                    agent_config,
+                    instructions="\n\n".join(
+                        part
+                        for part in (agent_config.instructions, request_instructions)
+                        if part
+                    ),
+                )
             if agent_config.tool_approvals:
                 await check_entitlement(
                     self.session, self.role, Entitlement.AGENT_ADDONS

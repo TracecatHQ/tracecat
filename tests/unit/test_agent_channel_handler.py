@@ -6,6 +6,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from slack_sdk.errors import SlackApiError
 
 from tracecat import config
 from tracecat.agent.channels.handlers.slack import (
@@ -19,6 +20,7 @@ from tracecat.agent.channels.schemas import (
 )
 from tracecat.agent.channels.service import AgentChannelService
 from tracecat.auth.types import Role
+from tracecat.chat.schemas import BasicChatRequest
 from tracecat.exceptions import TracecatValidationError
 
 
@@ -27,10 +29,22 @@ class _FakeSlackResponse:
         self.data = data or {"ok": True}
 
 
+class _FakeSlackErrorResponse(dict[str, object]):
+    status_code = 403
+
+
 class _FakeSlackClient:
-    def __init__(self, *, token: str) -> None:
+    def __init__(
+        self,
+        *,
+        token: str,
+        responses: dict[str, dict[str, object]] | None = None,
+        errors: dict[str, Exception] | None = None,
+    ) -> None:
         self.token = token
         self.calls: list[tuple[str, dict[str, object]]] = []
+        self.responses = responses or {}
+        self.errors = errors or {}
 
     async def api_call(
         self,
@@ -41,7 +55,9 @@ class _FakeSlackClient:
     ) -> _FakeSlackResponse:
         payload = params if params is not None else (json or {})
         self.calls.append((api_method, payload))
-        return _FakeSlackResponse()
+        if error := self.errors.get(api_method):
+            raise error
+        return _FakeSlackResponse(self.responses.get(api_method))
 
 
 @pytest.mark.anyio
@@ -99,6 +115,44 @@ def test_extract_prompt_text_strips_mentions() -> None:
 def test_extract_prompt_text_falls_back_when_only_mention() -> None:
     text = SlackChannelHandler._extract_prompt_text({"text": "<@U123>"})
     assert text == "<@U123>"
+
+
+@pytest.mark.anyio
+async def test_resolve_mentioning_user_profile_returns_identity_fields() -> None:
+    handler = SlackChannelHandler(session=AsyncMock(), role=AsyncMock())
+    fake_client = cast(
+        Any,
+        _FakeSlackClient(
+            token="xoxb-test",
+            responses={
+                "users.info": {
+                    "ok": True,
+                    "user": {
+                        "name": "jordan",
+                        "real_name": "Jordan Lim",
+                        "profile": {
+                            "display_name": "Jordan",
+                            "real_name": "Jordan Lim",
+                            "email": "jordan@example.com",
+                        },
+                    },
+                }
+            },
+        ),
+    )
+
+    profile = await handler._resolve_mentioning_user_profile(
+        fake_client,
+        user_id="U1",
+        workspace_id=uuid.uuid4(),
+    )
+
+    assert profile is not None
+    assert profile.user_id == "U1"
+    assert profile.username == "jordan"
+    assert profile.display_name == "Jordan"
+    assert profile.real_name == "Jordan Lim"
+    assert profile.email == "jordan@example.com"
 
 
 def test_parse_approval_action_context(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -613,3 +667,202 @@ async def test_handle_rejects_app_mention_when_pending_approvals_exist() -> None
     assert fake_client.calls[-1][0] == "chat.postMessage"
     run_turn_mock.assert_not_awaited()
     set_in_progress_mock.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_handle_passes_resolved_slack_actor_instructions_to_run_turn() -> None:
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:update"}),
+    )
+    handler = SlackChannelHandler(session=AsyncMock(), role=role)
+    token = ValidatedChannelToken(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        agent_preset_id=uuid.uuid4(),
+        channel_type=ChannelType.SLACK,
+        config=SlackChannelTokenConfig(
+            slack_bot_token="xoxb-test",
+            slack_signing_secret="signing-secret",
+        ),
+        public_token="public-token",
+    )
+    payload = {
+        "type": "event_callback",
+        "team_id": "T1",
+        "event_id": "Ev1",
+        "event": {
+            "type": "app_mention",
+            "ts": "1700000000.123",
+            "thread_ts": "1700000000.100",
+            "channel": "C1",
+            "user": "U1",
+            "text": "<@Ubot> summarize this",
+        },
+    }
+    fake_client = _FakeSlackClient(
+        token="xoxb-test",
+        responses={
+            "users.info": {
+                "ok": True,
+                "user": {
+                    "name": "jordan",
+                    "profile": {
+                        "display_name": "Jordan",
+                        "real_name": "Jordan Lim",
+                        "email": "jordan@example.com",
+                    },
+                },
+            }
+        },
+    )
+
+    with (
+        patch(
+            "tracecat.agent.channels.handlers.slack.AsyncWebClient",
+            return_value=fake_client,
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.get_redis_client",
+            AsyncMock(side_effect=RuntimeError("redis unavailable")),
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.ack_event",
+            new_callable=AsyncMock,
+        ),
+        patch.object(
+            handler,
+            "_resolve_or_create_session",
+            AsyncMock(return_value=uuid.uuid4()),
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.AgentSessionService.get_session",
+            new_callable=AsyncMock,
+            return_value=SimpleNamespace(channel_context={"active_sink": "slack"}),
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.AgentSessionService.has_pending_approvals",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.AgentSessionService.run_turn",
+            new_callable=AsyncMock,
+        ) as run_turn_mock,
+        patch(
+            "tracecat.agent.channels.handlers.slack.set_in_progress",
+            new_callable=AsyncMock,
+        ),
+    ):
+        await handler.handle(payload=payload, token=token)
+
+    await_args = run_turn_mock.await_args
+    assert await_args is not None
+    request = await_args.args[1]
+    assert isinstance(request, BasicChatRequest)
+    assert request.message == "summarize this"
+    assert request.instructions is not None
+    assert "Slack user ID: U1" in request.instructions
+    assert "Slack display name: Jordan" in request.instructions
+    assert "Slack real name: Jordan Lim" in request.instructions
+    assert "Slack email: jordan@example.com" in request.instructions
+    assert "<@U1>" in request.instructions
+
+
+@pytest.mark.anyio
+async def test_handle_falls_back_to_user_id_when_profile_lookup_missing_scope() -> None:
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:update"}),
+    )
+    handler = SlackChannelHandler(session=AsyncMock(), role=role)
+    token = ValidatedChannelToken(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        agent_preset_id=uuid.uuid4(),
+        channel_type=ChannelType.SLACK,
+        config=SlackChannelTokenConfig(
+            slack_bot_token="xoxb-test",
+            slack_signing_secret="signing-secret",
+        ),
+        public_token="public-token",
+    )
+    payload = {
+        "type": "event_callback",
+        "team_id": "T1",
+        "event_id": "Ev1",
+        "event": {
+            "type": "app_mention",
+            "ts": "1700000000.123",
+            "thread_ts": "1700000000.100",
+            "channel": "C1",
+            "user": "U1",
+            "text": "<@Ubot> summarize this",
+        },
+    }
+    fake_client = _FakeSlackClient(
+        token="xoxb-test",
+        errors={
+            "users.info": SlackApiError(
+                message="missing_scope",
+                response=_FakeSlackErrorResponse(
+                    {"ok": False, "error": "missing_scope"}
+                ),
+            )
+        },
+    )
+
+    with (
+        patch(
+            "tracecat.agent.channels.handlers.slack.AsyncWebClient",
+            return_value=fake_client,
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.get_redis_client",
+            AsyncMock(side_effect=RuntimeError("redis unavailable")),
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.ack_event",
+            new_callable=AsyncMock,
+        ),
+        patch.object(
+            handler,
+            "_resolve_or_create_session",
+            AsyncMock(return_value=uuid.uuid4()),
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.AgentSessionService.get_session",
+            new_callable=AsyncMock,
+            return_value=SimpleNamespace(channel_context={"active_sink": "slack"}),
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.AgentSessionService.has_pending_approvals",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.AgentSessionService.run_turn",
+            new_callable=AsyncMock,
+        ) as run_turn_mock,
+        patch(
+            "tracecat.agent.channels.handlers.slack.set_in_progress",
+            new_callable=AsyncMock,
+        ),
+    ):
+        await handler.handle(payload=payload, token=token)
+
+    await_args = run_turn_mock.await_args
+    assert await_args is not None
+    request = await_args.args[1]
+    assert isinstance(request, BasicChatRequest)
+    assert request.instructions is not None
+    assert "Slack user ID: U1" in request.instructions
+    assert "Slack email:" not in request.instructions

@@ -79,6 +79,15 @@ class SlackApprovalActionContext:
     user_name: str | None = None
 
 
+@dataclass(frozen=True)
+class SlackMentioningUserProfile:
+    user_id: str
+    username: str | None = None
+    display_name: str | None = None
+    real_name: str | None = None
+    email: str | None = None
+
+
 class SlackChannelHandler:
     """Process Slack event callbacks for external channel sessions."""
 
@@ -312,6 +321,104 @@ class SlackChannelHandler:
         if without_mentions:
             return without_mentions
         return raw_text.strip() or "Please respond in this thread."
+
+    @staticmethod
+    def _clean_optional_str(value: object) -> str | None:
+        return (
+            cleaned if isinstance(value, str) and (cleaned := value.strip()) else None
+        )
+
+    @classmethod
+    def _build_slack_actor_instructions(
+        cls, profile: SlackMentioningUserProfile | None, *, user_id: str
+    ) -> str | None:
+        actor_user_id = cls._clean_optional_str(profile.user_id if profile else user_id)
+        if actor_user_id is None:
+            return None
+
+        lines = [
+            "Slack actor context for this turn:",
+            f"- Slack user ID: {actor_user_id}",
+        ]
+        if profile is not None:
+            if profile.username:
+                lines.append(f"- Slack username: {profile.username}")
+            if profile.display_name:
+                lines.append(f"- Slack display name: {profile.display_name}")
+            if profile.real_name:
+                lines.append(f"- Slack real name: {profile.real_name}")
+            if profile.email:
+                lines.append(f"- Slack email: {profile.email}")
+        lines.append(
+            f"When referring to this person in Slack, prefer `<@{actor_user_id}>`."
+        )
+        return "\n".join(lines)
+
+    async def _resolve_mentioning_user_profile(
+        self,
+        slack_client: AsyncWebClient,
+        *,
+        user_id: str,
+        workspace_id: uuid.UUID,
+    ) -> SlackMentioningUserProfile | None:
+        normalized_user_id = self._clean_optional_str(user_id)
+        if normalized_user_id is None:
+            return None
+
+        try:
+            response = await slack_client.api_call(
+                api_method="users.info",
+                params={"user": normalized_user_id},
+            )
+        except SlackApiError as exc:
+            error_code = None
+            if (response := getattr(exc, "response", None)) is not None:
+                try:
+                    error_code = response.get("error")
+                except Exception:
+                    error_code = None
+            if error_code == "missing_scope":
+                logger.warning(
+                    "Slack app missing scope for mentioning user profile lookup; reauthorize to include users:read/users:read.email",
+                    workspace_id=str(workspace_id),
+                    user_id=normalized_user_id,
+                )
+            else:
+                logger.warning(
+                    "Failed to resolve Slack mentioning user profile",
+                    workspace_id=str(workspace_id),
+                    user_id=normalized_user_id,
+                    error=error_code or str(exc),
+                )
+            return None
+        except Exception as exc:
+            logger.warning(
+                "Unexpected Slack mentioning user profile lookup failure",
+                workspace_id=str(workspace_id),
+                user_id=normalized_user_id,
+                error=str(exc),
+            )
+            return None
+
+        response_data = response.data
+        if not isinstance(response_data, dict):
+            return None
+        user = response_data.get("user")
+        if not isinstance(user, dict):
+            return None
+        profile = user.get("profile")
+        if not isinstance(profile, dict):
+            profile = {}
+
+        return SlackMentioningUserProfile(
+            user_id=normalized_user_id,
+            username=self._clean_optional_str(user.get("name")),
+            display_name=self._clean_optional_str(profile.get("display_name")),
+            real_name=self._clean_optional_str(
+                profile.get("real_name") or user.get("real_name")
+            ),
+            email=self._clean_optional_str(profile.get("email")),
+        )
 
     @staticmethod
     def _batch_key(batch_id: str) -> str:
@@ -795,9 +902,20 @@ class SlackChannelHandler:
                     },
                 )
                 return
+            user_profile = await self._resolve_mentioning_user_profile(
+                slack_client,
+                user_id=context.user_id,
+                workspace_id=token.workspace_id,
+            )
             await session_service.run_turn(
                 session_id,
-                BasicChatRequest(message=self._extract_prompt_text(event)),
+                BasicChatRequest(
+                    message=self._extract_prompt_text(event),
+                    instructions=self._build_slack_actor_instructions(
+                        user_profile,
+                        user_id=context.user_id,
+                    ),
+                ),
             )
         except SlackAlreadyAcknowledgedError:
             logger.info(

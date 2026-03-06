@@ -103,6 +103,8 @@ export function buildSlackManifest({
           "mpim:history",
           "reactions:read",
           "reactions:write",
+          "users:read",
+          "users:read.email",
         ],
       },
       redirect_urls: [oauthRedirectUrl],
