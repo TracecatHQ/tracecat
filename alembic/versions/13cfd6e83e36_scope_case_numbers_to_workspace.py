@@ -30,7 +30,7 @@ def upgrade() -> None:
         ),
     )
     # `case_number` used to be a global identity column. Drop the identity first so
-    # future inserts must use workspace-scoped allocation in application code.
+    # future inserts can be allocated by the workspace-scoped trigger below.
     op.execute('ALTER TABLE "case" ALTER COLUMN case_number DROP IDENTITY IF EXISTS')
     op.drop_index("ix_case_case_number", table_name="case")
     op.execute(
@@ -66,6 +66,43 @@ def upgrade() -> None:
         "uq_case_workspace_case_number",
         "case",
         ["workspace_id", "case_number"],
+    )
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION assign_workspace_case_number()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $$
+        BEGIN
+            IF NEW.case_number IS NULL THEN
+                UPDATE workspace
+                SET last_case_number = last_case_number + 1
+                WHERE id = NEW.workspace_id
+                RETURNING last_case_number INTO NEW.case_number;
+            ELSE
+                UPDATE workspace
+                SET last_case_number = GREATEST(last_case_number, NEW.case_number)
+                WHERE id = NEW.workspace_id;
+            END IF;
+
+            IF NOT FOUND THEN
+                RAISE EXCEPTION
+                    'Workspace % not found while allocating case number',
+                    NEW.workspace_id;
+            END IF;
+
+            RETURN NEW;
+        END;
+        $$;
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_case_assign_workspace_case_number
+        BEFORE INSERT ON "case"
+        FOR EACH ROW
+        EXECUTE FUNCTION assign_workspace_case_number()
+        """
     )
 
 

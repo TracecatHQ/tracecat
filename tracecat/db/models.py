@@ -19,6 +19,7 @@ from sqlalchemy import (
     TIMESTAMP,
     Boolean,
     Enum,
+    FetchedValue,
     Float,
     ForeignKey,
     Identity,
@@ -2026,8 +2027,9 @@ class Case(WorkspaceModel):
     )
     case_number: Mapped[int] = mapped_column(
         Integer,
+        server_default=FetchedValue(),
         nullable=False,
-        doc="Workspace-scoped case number for human readable IDs like CASE-1234",
+        doc="Server-generated workspace-scoped case number for human readable IDs like CASE-1234",
     )
     summary: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(String(5000), nullable=False)

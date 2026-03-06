@@ -8,8 +8,9 @@ migration and verifies:
 2. workspace.last_case_number is backfilled to the max per workspace
 3. Cross-workspace duplicate case numbers are allowed
 4. The identity property is dropped from case_number
-5. The uq_case_workspace_case_number unique constraint exists
-6. The unique constraint is enforced (duplicate within a workspace raises IntegrityError)
+5. Post-migration inserts without case_number still work via a DB trigger
+6. The uq_case_workspace_case_number unique constraint exists
+7. The unique constraint is enforced (duplicate within a workspace raises IntegrityError)
 """
 
 from __future__ import annotations
@@ -159,7 +160,7 @@ def test_case_numbers_are_scoped_to_workspace(migration_db_url: str) -> None:
 
     engine = create_engine(migration_db_url, poolclass=NullPool)
     try:
-        with engine.connect() as conn:
+        with engine.begin() as conn:
             workspace_a_cases = (
                 conn.execute(
                     text(
@@ -254,6 +255,49 @@ def test_case_numbers_are_scoped_to_workspace(migration_db_url: str) -> None:
                 )
             ).scalar_one()
             assert unique_constraint_count == 1
+
+            generated_case_number = conn.execute(
+                text(
+                    """
+                    INSERT INTO "case" (
+                        id,
+                        workspace_id,
+                        summary,
+                        description,
+                        priority,
+                        severity,
+                        status
+                    )
+                    VALUES (
+                        :id,
+                        :workspace_id,
+                        'A-4',
+                        'A-4',
+                        'MEDIUM',
+                        'LOW',
+                        'NEW'
+                    )
+                    RETURNING case_number
+                    """
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "workspace_id": workspace_a_id,
+                },
+            ).scalar_one()
+            assert generated_case_number == 3
+
+            next_workspace_counter = conn.execute(
+                text(
+                    """
+                    SELECT last_case_number
+                    FROM workspace
+                    WHERE id = :workspace_id
+                    """
+                ),
+                {"workspace_id": workspace_a_id},
+            ).scalar_one()
+            assert next_workspace_counter == 3
 
         with pytest.raises(IntegrityError):
             with engine.begin() as conn:
