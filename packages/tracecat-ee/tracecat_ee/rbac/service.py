@@ -37,6 +37,7 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import WorkspaceID
 from tracecat.integrations.enums import MCPCatalogArtifactType
+from tracecat.integrations.mcp_scopes import build_mcp_scope_name
 from tracecat.service import BaseOrgService
 
 
@@ -166,20 +167,10 @@ class RBACService(BaseOrgService):
         artifact_key: str,
     ) -> tuple[str, str, str]:
         """Build the scope name plus resource/action columns for an MCP artifact."""
-        match artifact_type:
-            case MCPCatalogArtifactType.TOOL:
-                resource = "mcp-tool"
-                action = "execute"
-            case MCPCatalogArtifactType.RESOURCE:
-                resource = "mcp-resource"
-                action = "read"
-            case MCPCatalogArtifactType.PROMPT:
-                resource = "mcp-prompt"
-                action = "use"
-        return (
-            f"{resource}:{scope_namespace}.{artifact_key}:{action}",
-            resource,
-            action,
+        return build_mcp_scope_name(
+            scope_namespace=scope_namespace,
+            artifact_type=artifact_type,
+            artifact_key=artifact_key,
         )
 
     def _build_mcp_scope_description(
