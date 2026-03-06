@@ -41,7 +41,6 @@ async def test_stream_events_clears_buffer_after_terminal_marker() -> None:
         session_id=session_id,
     )
 
-    stream.clear = AsyncMock()
     stream._set_last_stream_id = AsyncMock()
 
     events = [
@@ -54,8 +53,7 @@ async def test_stream_events_clears_buffer_after_terminal_marker() -> None:
 
     assert isinstance(event, StreamEnd)
 
-    stream.clear.assert_awaited_once()
-    stream._set_last_stream_id.assert_not_awaited()
+    stream._set_last_stream_id.assert_awaited_once_with(None)
 
 
 @pytest.mark.anyio
@@ -87,7 +85,6 @@ async def test_stream_events_preserves_cursor_when_stream_not_completed() -> Non
     )
 
     stop_condition = AsyncMock(side_effect=[False, True])
-    stream.clear = AsyncMock()
     stream._set_last_stream_id = AsyncMock()
 
     events = [
@@ -96,5 +93,4 @@ async def test_stream_events_preserves_cursor_when_stream_not_completed() -> Non
 
     assert len(events) == 1
     assert isinstance(events[0], StreamDelta)
-    stream.clear.assert_not_awaited()
     stream._set_last_stream_id.assert_awaited()

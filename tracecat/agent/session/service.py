@@ -784,10 +784,10 @@ class AgentSessionService(BaseWorkspaceService):
         if workspace_id is None:
             raise ValueError("Workspace ID is required")
 
-        # Get the session
-        agent_session = await self.get_session(session_id)
-        if not agent_session:
-            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        agent_session, user_prompt, is_continuation = await self.validate_turn_request(
+            session_id=session_id,
+            request=request,
+        )
 
         # Parse request to extract user prompt
         user_prompt: str | None = None
@@ -822,12 +822,6 @@ class AgentSessionService(BaseWorkspaceService):
         # Handle continuation (approval submission) vs new turn
         if is_continuation and isinstance(request, ContinueRunRequest):
             return await self._continue_with_approvals(session_id, request)
-
-        if await self.has_pending_approvals(session_id):
-            raise ValueError(
-                "This session is waiting for approval decisions. "
-                "Submit all pending approvals before sending another message."
-            )
 
         if user_prompt is not None:
             await self.auto_title_session_on_first_prompt(agent_session, user_prompt)
@@ -904,6 +898,55 @@ class AgentSessionService(BaseWorkspaceService):
         # Return ChatResponse with session_id for streaming
         stream_url = f"/api/agent/sessions/{session_id}/stream"
         return ChatResponse(stream_url=stream_url, chat_id=session_id)
+
+    async def validate_turn_request(
+        self,
+        session_id: uuid.UUID,
+        request: ChatRequest | ContinueRunRequest | BasicChatRequest,
+    ) -> tuple[AgentSession, str | None, bool]:
+        """Validate a turn request before mutating session or stream state."""
+        agent_session = await self.get_session(session_id)
+        if not agent_session:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+
+        user_prompt: str | None = None
+        is_continuation = False
+
+        match request:
+            case ContinueRunRequest():
+                is_continuation = True
+                if agent_session.curr_run_id is None:
+                    raise TracecatNotFoundError(
+                        f"No active workflow run for session {session_id}"
+                    )
+            case VercelChatRequest(message=ui_message):
+                [message] = tracecat.agent.adapter.vercel.convert_ui_message(ui_message)
+                match message:
+                    case ModelRequest(parts=[UserPromptPart(content=content)]):
+                        match content:
+                            case str(s):
+                                user_prompt = s
+                            case list(l):
+                                user_prompt = "\n".join(str(item) for item in l)
+                            case _:
+                                raise ValueError(f"Unsupported user prompt: {content}")
+                    case _:
+                        raise ValueError(f"Unsupported message: {message}")
+            case BasicChatRequest(message=prompt):
+                user_prompt = prompt
+            case _:
+                raise ValueError(f"Unsupported request type: {type(request)}")
+
+        if user_prompt is not None:
+            logger.info("Received user prompt", prompt_length=len(user_prompt))
+
+        if not is_continuation and await self.has_pending_approvals(session_id):
+            raise ValueError(
+                "This session is waiting for approval decisions. "
+                "Submit all pending approvals before sending another message."
+            )
+
+        return agent_session, user_prompt, is_continuation
 
     async def _continue_with_approvals(
         self,
