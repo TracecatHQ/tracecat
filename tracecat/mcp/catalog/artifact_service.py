@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import Any, cast
+from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID
 
 import orjson
@@ -30,6 +31,22 @@ from tracecat.mcp.catalog.types import (
 from tracecat.mcp.config import TRACECAT_MCP__MAX_RESOURCE_CONTENT_CHARS
 from tracecat.mcp.policy.service import MCPCatalogPolicyService
 from tracecat.service import BaseOrgService
+
+
+def _sanitize_remote_endpoint_for_log(server_uri: str | None) -> str | None:
+    if not server_uri:
+        return server_uri
+    parsed = urlsplit(server_uri)
+    if parsed.hostname is None:
+        return server_uri.split("?", 1)[0].rsplit("@", 1)[-1]
+
+    hostname = parsed.hostname
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+    netloc = hostname
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+    return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
 
 
 class MCPCatalogArtifactService(BaseOrgService):
@@ -63,7 +80,7 @@ class MCPCatalogArtifactService(BaseOrgService):
                 mcp_integration_id=target.mcp_integration_id,
                 catalog_entry_id=target.id,
                 artifact_type=target.artifact_type.value,
-                remote_endpoint=target.server_uri,
+                remote_endpoint=_sanitize_remote_endpoint_for_log(target.server_uri),
                 error_type=type(exc).__name__,
             )
             raise
@@ -97,7 +114,7 @@ class MCPCatalogArtifactService(BaseOrgService):
                 mcp_integration_id=target.mcp_integration_id,
                 catalog_entry_id=target.id,
                 artifact_type=target.artifact_type.value,
-                remote_endpoint=target.server_uri,
+                remote_endpoint=_sanitize_remote_endpoint_for_log(target.server_uri),
                 error_type=type(exc).__name__,
             )
             raise
@@ -165,7 +182,7 @@ class MCPCatalogArtifactService(BaseOrgService):
                 mcp_integration_id=target.mcp_integration_id,
                 catalog_entry_id=target.id,
                 artifact_type=target.artifact_type.value,
-                remote_endpoint=target.server_uri,
+                remote_endpoint=_sanitize_remote_endpoint_for_log(target.server_uri),
                 error_type=type(exc).__name__,
             )
             raise
