@@ -26,8 +26,8 @@ from tracecat.integrations.providers.base import (
     MCPAuthProvider,
     OAuthDiscoveryResult,
 )
-from tracecat.integrations.providers.wiz.mcp import WizMCPProvider
 from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
+from tracecat.integrations.providers.wiz.mcp import WizMCPProvider
 from tracecat.integrations.schemas import (
     MCPHttpIntegrationCreate,
     MCPIntegrationCreate,
