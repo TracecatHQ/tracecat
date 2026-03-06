@@ -93,6 +93,16 @@ def test_normalize_agent_identity_prefers_client_info() -> None:
     assert icon == "claude_code"
 
 
+def test_normalize_agent_identity_recognizes_gemini() -> None:
+    agent_type, source, icon = normalize_agent_identity(
+        user_agent="gemini-cli/0.1.0",
+        client_info={"name": "Gemini", "version": "0.1.0"},
+    )
+    assert agent_type == WatchtowerAgentType.GEMINI
+    assert source == "client_info"
+    assert icon == WatchtowerAgentType.GEMINI
+
+
 def test_redact_tool_call_args_does_not_store_raw_strings() -> None:
     result = redact_tool_call_args(
         {

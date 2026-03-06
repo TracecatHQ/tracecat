@@ -22,7 +22,16 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import type { WatchtowerAgentRead, WatchtowerAgentToolCallRead } from "@/client"
 import { Tool, ToolContent, ToolHeader } from "@/components/ai-elements/tool"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
-import { ClaudeIcon, getIcon, OpenAIIcon } from "@/components/icons"
+import {
+  ClaudeIcon,
+  CursorIcon,
+  GeminiIcon,
+  getIcon,
+  OpenAIIcon,
+  OpenClawIcon,
+  OpenCodeIcon,
+  WindsurfIcon,
+} from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import {
@@ -72,6 +81,7 @@ import { cn } from "@/lib/utils"
 const AGENT_TYPE_ORDER = [
   "claude_code",
   "codex",
+  "gemini",
   "cursor",
   "windsurf",
   "opencode",
@@ -97,6 +107,12 @@ const AGENT_TYPE_GROUPS: Record<string, AgentTypeGroupConfig> = {
     iconColor: "text-green-600",
     triggerClassName:
       "data-[state=open]:border-l-green-600 data-[state=open]:bg-green-600/[0.03] dark:data-[state=open]:bg-green-600/[0.08]",
+  },
+  gemini: {
+    label: "Gemini",
+    iconColor: "text-indigo-600",
+    triggerClassName:
+      "data-[state=open]:border-l-indigo-600 data-[state=open]:bg-indigo-600/[0.03] dark:data-[state=open]:bg-indigo-600/[0.08]",
   },
   cursor: {
     label: "Cursor",
@@ -1229,38 +1245,22 @@ function AgentTypeIcon({
   if (agentType === "codex") {
     return <OpenAIIcon className={className} />
   }
+  if (agentType === "gemini") {
+    return <GeminiIcon className={className} />
+  }
   if (agentType === "cursor") {
-    return <MonogramIcon label="C" size={size} />
+    return <CursorIcon className={className} />
   }
   if (agentType === "windsurf") {
-    return <MonogramIcon label="W" size={size} />
+    return <WindsurfIcon className={className} />
   }
   if (agentType === "opencode") {
-    return <MonogramIcon label="O" size={size} />
+    return <OpenCodeIcon className={className} />
   }
   if (agentType === "openclaw") {
-    return <MonogramIcon label="OC" size={size} />
+    return <OpenClawIcon className={className} />
   }
   return <BotIcon className={className} />
-}
-
-function MonogramIcon({
-  label,
-  size,
-}: {
-  label: string
-  size: "default" | "lg"
-}) {
-  return (
-    <span
-      className={cn(
-        "flex items-center justify-center border text-[10px] font-semibold",
-        size === "lg" ? "size-6" : "size-4"
-      )}
-    >
-      {label}
-    </span>
-  )
 }
 
 function shortId(value: string) {
