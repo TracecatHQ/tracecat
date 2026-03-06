@@ -7,10 +7,10 @@ from typing import Any, cast
 from uuid import UUID
 
 import orjson
-from fastmcp import Client
 from sqlalchemy import select
 
-from tracecat.agent.mcp.user_client import _create_transport
+from tracecat.agent.common.types import MCPHttpServerConfig
+from tracecat.agent.mcp.user_client import UserMCPClient, infer_transport_type
 from tracecat.db.models import (
     MCPIntegration,
     MCPIntegrationCatalogEntry,
@@ -51,8 +51,22 @@ class MCPCatalogArtifactService(BaseOrgService):
             artifact_type=MCPCatalogArtifactType.TOOL,
         )
         client = await self._create_remote_client(target)
-        async with client as remote_client:
-            result = await remote_client.call_tool(target.artifact_ref, arguments or {})
+        try:
+            result = await client.call_tool_result(
+                str(target.mcp_integration_id),
+                target.artifact_ref,
+                arguments or {},
+            )
+        except Exception as exc:
+            self.logger.error(
+                "Remote MCP tool execution failed",
+                mcp_integration_id=target.mcp_integration_id,
+                catalog_entry_id=target.id,
+                artifact_type=target.artifact_type.value,
+                remote_endpoint=target.server_uri,
+                error_type=type(exc).__name__,
+            )
+            raise
         return MCPCatalogToolResult(
             workspace_id=workspace_id,
             artifact=target,
@@ -72,8 +86,21 @@ class MCPCatalogArtifactService(BaseOrgService):
             artifact_type=MCPCatalogArtifactType.RESOURCE,
         )
         client = await self._create_remote_client(target)
-        async with client as remote_client:
-            contents = await remote_client.read_resource(target.artifact_ref)
+        try:
+            contents = await client.read_resource(
+                str(target.mcp_integration_id),
+                target.artifact_ref,
+            )
+        except Exception as exc:
+            self.logger.error(
+                "Remote MCP resource read failed",
+                mcp_integration_id=target.mcp_integration_id,
+                catalog_entry_id=target.id,
+                artifact_type=target.artifact_type.value,
+                remote_endpoint=target.server_uri,
+                error_type=type(exc).__name__,
+            )
+            raise
 
         total_chars = 0
         truncated = False
@@ -126,8 +153,22 @@ class MCPCatalogArtifactService(BaseOrgService):
             artifact_type=MCPCatalogArtifactType.PROMPT,
         )
         client = await self._create_remote_client(target)
-        async with client as remote_client:
-            result = await remote_client.get_prompt(target.artifact_ref, arguments)
+        try:
+            result = await client.get_prompt(
+                str(target.mcp_integration_id),
+                target.artifact_ref,
+                arguments,
+            )
+        except Exception as exc:
+            self.logger.error(
+                "Remote MCP prompt fetch failed",
+                mcp_integration_id=target.mcp_integration_id,
+                catalog_entry_id=target.id,
+                artifact_type=target.artifact_type.value,
+                remote_endpoint=target.server_uri,
+                error_type=type(exc).__name__,
+            )
+            raise
         return MCPCatalogPromptResult(
             workspace_id=workspace_id,
             artifact=target,
@@ -251,7 +292,9 @@ class MCPCatalogArtifactService(BaseOrgService):
             timeout=timeout,
         )
 
-    async def _create_remote_client(self, target: MCPCatalogResolvedArtifact) -> Client:
+    async def _create_remote_client(
+        self, target: MCPCatalogResolvedArtifact
+    ) -> UserMCPClient:
         if target.server_type != "http":
             raise TracecatValidationError(
                 "Local stdio MCP artifacts are not available through this wrapper yet"
@@ -259,13 +302,17 @@ class MCPCatalogArtifactService(BaseOrgService):
         if not target.server_uri:
             raise TracecatValidationError("MCP integration server URI is missing")
         headers = await self._build_headers(target)
-        transport = _create_transport(
-            target.server_uri,
-            "http",
-            headers or None,
-            target.timeout,
-        )
-        return Client(transport)
+        config: MCPHttpServerConfig = {
+            "type": "http",
+            "name": str(target.mcp_integration_id),
+            "url": target.server_uri,
+            "transport": infer_transport_type(target.server_uri),
+        }
+        if headers:
+            config["headers"] = headers
+        if target.timeout is not None:
+            config["timeout"] = target.timeout
+        return UserMCPClient([config])
 
     async def _build_headers(
         self, target: MCPCatalogResolvedArtifact

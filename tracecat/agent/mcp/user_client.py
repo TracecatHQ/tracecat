@@ -9,10 +9,16 @@ allowing the sandboxed runtime to access user tools via the Unix socket proxy.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from fastmcp import Client
 from fastmcp.client.transports import SSETransport, StreamableHttpTransport
+from mcp.types import (
+    BlobResourceContents,
+    GetPromptResult,
+    TextResourceContents,
+)
+from yarl import URL
 
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.logger import logger
@@ -29,6 +35,14 @@ def _create_transport(
         return SSETransport(url=url, headers=headers, sse_read_timeout=timeout)
     # Default to HTTP (Streamable HTTP transport)
     return StreamableHttpTransport(url=url, headers=headers, sse_read_timeout=timeout)
+
+
+def infer_transport_type(url: str) -> Literal["http", "sse"]:
+    """Infer transport type from a persisted MCP server URL."""
+    path = URL(url).path.lower()
+    if path.endswith("/sse") or "/sse/" in path:
+        return "sse"
+    return "http"
 
 
 class UserMCPClient:
@@ -50,6 +64,21 @@ class UserMCPClient:
 
         """
         self._configs = {cfg["name"]: cfg for cfg in configs}
+
+    def _get_config(self, server_name: str) -> MCPHttpServerConfig:
+        if server_name not in self._configs:
+            raise ValueError(f"Unknown user MCP server: {server_name}")
+        return self._configs[server_name]
+
+    def _get_transport(
+        self, server_name: str
+    ) -> StreamableHttpTransport | SSETransport:
+        config = self._get_config(server_name)
+        url = config["url"]
+        transport_type: Literal["http", "sse"] = config.get("transport", "http")
+        headers = config.get("headers")
+        timeout = config.get("timeout")
+        return _create_transport(url, transport_type, headers, timeout)
 
     async def discover_tools(self) -> dict[str, MCPToolDefinition]:
         """Connect to all configured servers and discover their tools.
@@ -149,16 +178,7 @@ class UserMCPClient:
             Exception: If tool call fails.
 
         """
-        if server_name not in self._configs:
-            raise ValueError(f"Unknown user MCP server: {server_name}")
-
-        config = self._configs[server_name]
-        url = config["url"]
-        transport_type: Literal["http", "sse"] = config.get("transport", "http")
-        headers = config.get("headers")
-        timeout = config.get("timeout")
-
-        transport = _create_transport(url, transport_type, headers, timeout)
+        transport = self._get_transport(server_name)
 
         logger.info(
             "Calling user MCP tool",
@@ -176,6 +196,56 @@ class UserMCPClient:
                 return getattr(first_block, "text", str(first_block))
 
             return ""
+
+    async def call_tool_result(
+        self,
+        server_name: str,
+        tool_name: str,
+        args: dict[str, Any],
+    ) -> Any:
+        """Execute a tool and return the full MCP result payload."""
+        transport = self._get_transport(server_name)
+        logger.info(
+            "Calling user MCP tool with full result",
+            server_name=server_name,
+            tool_name=tool_name,
+        )
+        async with Client(transport) as client:
+            return cast(Any, await client.call_tool(tool_name, args))
+
+    async def read_resource(
+        self,
+        server_name: str,
+        resource_uri: str,
+    ) -> list[TextResourceContents | BlobResourceContents]:
+        """Read a resource from a user MCP server."""
+        transport = self._get_transport(server_name)
+        logger.info(
+            "Reading user MCP resource",
+            server_name=server_name,
+            resource_uri=resource_uri,
+        )
+        async with Client(transport) as client:
+            return cast(
+                list[TextResourceContents | BlobResourceContents],
+                await client.read_resource(resource_uri),
+            )
+
+    async def get_prompt(
+        self,
+        server_name: str,
+        prompt_name: str,
+        args: dict[str, Any] | None = None,
+    ) -> GetPromptResult:
+        """Fetch a prompt from a user MCP server."""
+        transport = self._get_transport(server_name)
+        logger.info(
+            "Fetching user MCP prompt",
+            server_name=server_name,
+            prompt_name=prompt_name,
+        )
+        async with Client(transport) as client:
+            return cast(GetPromptResult, await client.get_prompt(prompt_name, args))
 
     @staticmethod
     def parse_user_mcp_tool_name(tool_name: str) -> tuple[str, str] | None:

@@ -255,9 +255,9 @@ class _FakeClient:
         read_resource_result: list[TextResourceContents] | None = None,
         get_prompt_result: GetPromptResult | None = None,
     ) -> None:
-        self.call_tool_result = call_tool_result
-        self.read_resource_result = read_resource_result or []
-        self.get_prompt_result = get_prompt_result
+        self._call_tool_result = call_tool_result
+        self._read_resource_result = read_resource_result or []
+        self._get_prompt_result = get_prompt_result
         self.last_prompt_arguments: dict[str, Any] | None = None
 
     async def __aenter__(self) -> _FakeClient:
@@ -266,19 +266,35 @@ class _FakeClient:
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         return None
 
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> CallToolResult:
-        assert self.call_tool_result is not None
-        return self.call_tool_result
+    async def call_tool_result(
+        self,
+        server_name: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> CallToolResult:
+        assert server_name
+        assert tool_name
+        assert self._call_tool_result is not None
+        return self._call_tool_result
 
-    async def read_resource(self, uri: str) -> list[TextResourceContents]:
-        return self.read_resource_result
+    async def read_resource(
+        self, server_name: str, resource_uri: str
+    ) -> list[TextResourceContents]:
+        assert server_name
+        assert resource_uri
+        return self._read_resource_result
 
     async def get_prompt(
-        self, name: str, arguments: dict[str, Any] | None
+        self,
+        server_name: str,
+        prompt_name: str,
+        arguments: dict[str, Any] | None,
     ) -> GetPromptResult:
-        assert self.get_prompt_result is not None
+        assert server_name
+        assert prompt_name
         self.last_prompt_arguments = arguments
-        return self.get_prompt_result
+        assert self._get_prompt_result is not None
+        return self._get_prompt_result
 
 
 @pytest.mark.anyio
