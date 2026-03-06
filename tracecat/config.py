@@ -125,6 +125,29 @@ TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR = os.environ.get(
 )
 """Directory for caching extracted registry tarballs in subprocess mode. Uses /tmp for ephemeral storage."""
 
+TRACECAT__MCP_QUEUE = os.environ.get("TRACECAT__MCP_QUEUE", "tracecat-mcp-queue")
+"""Task queue for MCP discovery and local stdio artifact execution."""
+
+TRACECAT__MCP_MAX_CONCURRENT_ACTIVITIES = int(
+    os.environ.get("TRACECAT__MCP_MAX_CONCURRENT_ACTIVITIES") or 32
+)
+"""Maximum concurrent activities for the MCP Temporal worker queue."""
+
+TRACECAT__MCP_THREADPOOL_MAX_WORKERS = int(
+    os.environ.get("TRACECAT__MCP_THREADPOOL_MAX_WORKERS") or 32
+)
+"""Thread pool worker count for the MCP Temporal worker queue."""
+
+TRACECAT__MCP_MAX_CONCURRENT_LOCAL_SANDBOXES = int(
+    os.environ.get("TRACECAT__MCP_MAX_CONCURRENT_LOCAL_SANDBOXES") or 8
+)
+"""Maximum concurrent local stdio MCP subprocesses per agent worker process."""
+
+TRACECAT__MCP_SANDBOX_CACHE_DIR = os.environ.get(
+    "TRACECAT__MCP_SANDBOX_CACHE_DIR", "/tmp/tracecat/mcp-cache"
+)
+"""Base directory for per-organization local MCP package-manager caches."""
+
 # TODO: Set this as an environment variable
 TRACECAT__SERVICE_ROLES_WHITELIST = [
     "tracecat-api",

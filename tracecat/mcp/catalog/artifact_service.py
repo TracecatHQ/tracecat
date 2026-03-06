@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID
@@ -10,6 +11,7 @@ from uuid import UUID
 import orjson
 from sqlalchemy import select
 
+from tracecat import config
 from tracecat.agent.common.types import MCPHttpServerConfig
 from tracecat.agent.mcp.user_client import UserMCPClient, infer_transport_type
 from tracecat.db.models import (
@@ -17,6 +19,7 @@ from tracecat.db.models import (
     MCPIntegrationCatalogEntry,
     OAuthIntegration,
 )
+from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import WorkspaceID
 from tracecat.integrations.enums import MCPAuthType, MCPCatalogArtifactType
@@ -71,6 +74,18 @@ class MCPCatalogArtifactService(BaseOrgService):
             artifact_ref_or_id=artifact_ref_or_id,
             artifact_type=MCPCatalogArtifactType.TOOL,
         )
+        if target.server_type == "stdio":
+            workflow_result = await self._execute_local_workflow(
+                workspace_id=workspace_id,
+                artifact_ref_or_id=str(target.id),
+                operation="tool",
+                arguments=arguments,
+            )
+            return MCPCatalogToolResult(
+                workspace_id=workspace_id,
+                artifact=target,
+                result=cast(dict[str, Any], workflow_result.result),
+            )
         client = await self._create_remote_client(target)
         try:
             result = await client.call_tool_result(
@@ -106,6 +121,20 @@ class MCPCatalogArtifactService(BaseOrgService):
             artifact_ref_or_id=artifact_ref_or_id,
             artifact_type=MCPCatalogArtifactType.RESOURCE,
         )
+        if target.server_type == "stdio":
+            workflow_result = await self._execute_local_workflow(
+                workspace_id=workspace_id,
+                artifact_ref_or_id=str(target.id),
+                operation="resource",
+            )
+            return MCPCatalogResourceResult(
+                workspace_id=workspace_id,
+                artifact=target,
+                contents=workflow_result.contents,
+                truncated=workflow_result.truncated,
+                max_content_chars=cast(int, workflow_result.max_content_chars),
+                total_content_chars=cast(int, workflow_result.total_content_chars),
+            )
         client = await self._create_remote_client(target)
         try:
             contents = await client.read_resource(
@@ -173,6 +202,18 @@ class MCPCatalogArtifactService(BaseOrgService):
             artifact_ref_or_id=artifact_ref_or_id,
             artifact_type=MCPCatalogArtifactType.PROMPT,
         )
+        if target.server_type == "stdio":
+            workflow_result = await self._execute_local_workflow(
+                workspace_id=workspace_id,
+                artifact_ref_or_id=str(target.id),
+                operation="prompt",
+                arguments=arguments,
+            )
+            return MCPCatalogPromptResult(
+                workspace_id=workspace_id,
+                artifact=target,
+                result=cast(dict[str, Any], workflow_result.result),
+            )
         client = await self._create_remote_client(target)
         try:
             result = await client.get_prompt(
@@ -259,12 +300,19 @@ class MCPCatalogArtifactService(BaseOrgService):
             MCPIntegrationCatalogEntry.artifact_ref,
             MCPIntegrationCatalogEntry.display_name,
             MCPIntegrationCatalogEntry.description,
+            MCPIntegration.slug,
             MCPIntegration.scope_namespace,
             MCPIntegration.server_type,
             MCPIntegration.server_uri,
             MCPIntegration.auth_type,
             MCPIntegration.oauth_integration_id,
             MCPIntegration.encrypted_headers,
+            MCPIntegration.stdio_command,
+            MCPIntegration.stdio_args,
+            MCPIntegration.encrypted_stdio_env,
+            MCPIntegration.sandbox_allow_network,
+            MCPIntegration.sandbox_egress_allowlist,
+            MCPIntegration.sandbox_egress_denylist,
             MCPIntegration.timeout,
         ).join(
             MCPIntegration,
@@ -281,12 +329,19 @@ class MCPCatalogArtifactService(BaseOrgService):
             artifact_ref,
             display_name,
             description,
+            integration_slug,
             scope_namespace,
             server_type,
             server_uri,
             auth_type,
             oauth_integration_id,
             encrypted_headers,
+            stdio_command,
+            stdio_args,
+            encrypted_stdio_env,
+            sandbox_allow_network,
+            sandbox_egress_allowlist,
+            sandbox_egress_denylist,
             timeout,
         ) = row
         artifact_type = MCPCatalogArtifactType(artifact_type_value)
@@ -305,11 +360,18 @@ class MCPCatalogArtifactService(BaseOrgService):
             display_name=display_name,
             description=description,
             scope_name=scope_name,
+            integration_slug=integration_slug,
             server_type=server_type,
             server_uri=server_uri,
             auth_type=auth_type,
             oauth_integration_id=oauth_integration_id,
             encrypted_headers=encrypted_headers,
+            stdio_command=stdio_command,
+            stdio_args=cast(list[str] | None, stdio_args),
+            encrypted_stdio_env=encrypted_stdio_env,
+            sandbox_allow_network=sandbox_allow_network,
+            sandbox_egress_allowlist=cast(list[str] | None, sandbox_egress_allowlist),
+            sandbox_egress_denylist=cast(list[str] | None, sandbox_egress_denylist),
             timeout=timeout,
         )
 
@@ -317,9 +379,7 @@ class MCPCatalogArtifactService(BaseOrgService):
         self, target: MCPCatalogResolvedArtifact
     ) -> UserMCPClient:
         if target.server_type != "http":
-            raise TracecatValidationError(
-                "Local stdio MCP artifacts are not available through this wrapper yet"
-            )
+            raise TracecatValidationError("MCP integration server type must be HTTP")
         if not target.server_uri:
             raise TracecatValidationError("MCP integration server URI is missing")
         headers = await self._build_headers(target)
@@ -334,6 +394,39 @@ class MCPCatalogArtifactService(BaseOrgService):
         if target.timeout is not None:
             config["timeout"] = target.timeout
         return UserMCPClient([config])
+
+    async def _execute_local_workflow(
+        self,
+        *,
+        workspace_id: WorkspaceID,
+        artifact_ref_or_id: str,
+        operation: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> Any:
+        from tracecat.agent.mcp.sandbox.types import (
+            LocalMCPArtifactOperation,
+            RunLocalMCPArtifactWorkflowInput,
+        )
+        from tracecat.agent.mcp.sandbox.workflow import RunLocalMCPArtifactWorkflow
+
+        client = await get_temporal_client()
+        workflow_id = (
+            f"local-mcp-{operation}-{artifact_ref_or_id}-"
+            f"{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}"
+        )
+        return await client.execute_workflow(
+            RunLocalMCPArtifactWorkflow.run,
+            RunLocalMCPArtifactWorkflowInput(
+                role=self.role,
+                workspace_id=workspace_id,
+                artifact_ref_or_id=artifact_ref_or_id,
+                operation=LocalMCPArtifactOperation(operation),
+                arguments=arguments,
+            ),
+            id=workflow_id,
+            task_queue=config.TRACECAT__MCP_QUEUE,
+            execution_timeout=timedelta(minutes=6),
+        )
 
     async def _build_headers(
         self, target: MCPCatalogResolvedArtifact
