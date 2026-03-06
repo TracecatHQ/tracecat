@@ -1,0 +1,35 @@
+tests/unit/test_agent_session_approval_sink.py
+  bd11b15675ccb033 3,14,16,303-356
+frontend/src/components/agents/external-channels/slack-channel-panel.tsx
+  bd11b15675ccb033 106-107
+tracecat/agent/channels/service.py
+  bd11b15675ccb033 63-64
+tracecat/agent/session/service.py
+  bd11b15675ccb033 770,789,791,813-821
+tests/unit/test_agent_channel_oauth_service.py
+  bd11b15675ccb033 32-34
+tests/unit/test_agent_channel_handler.py
+  bd11b15675ccb033 9,23,32-35,40-42,46-47,58-60,120-142,144-156,670-868
+tracecat/agent/channels/handlers/slack.py
+  bd11b15675ccb033 82-90,325-326,328,330-421,905-909,913-917
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "9c0e6811531607ee92345a69df913cebff740800",
+  "prompts": {
+    "bd11b15675ccb033": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc096-9e64-79a2-bd1a-7fe437cb56f9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 448,
+      "total_deletions": 5,
+      "accepted_lines": 442,
+      "overriden_lines": 1
+    }
+  }
+}
