@@ -17,6 +17,7 @@ from tracecat.mcp.config import (
     TRACECAT_MCP__STARTUP_MAX_ATTEMPTS,
     TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS,
 )
+from tracecat.mcp.exceptions import MCPNonRetryableStartupError
 
 
 def _run_mcp_server() -> None:
@@ -41,6 +42,11 @@ def main() -> None:
         except KeyboardInterrupt:
             logger.info("MCP server interrupted; shutting down")
             return
+        except MCPNonRetryableStartupError:
+            logger.error(
+                "MCP server startup failed due to non-retryable configuration error"
+            )
+            raise SystemExit(0) from None
         except Exception as e:
             should_retry = attempt < max_attempts
             error = str(e)
