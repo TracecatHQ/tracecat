@@ -24,9 +24,9 @@
 #
 # Port allocation (offset = (cluster_num - 1) * 100):
 #   Cluster numbers are GLOBAL across all worktrees to avoid port conflicts.
-#   Cluster 1: 80, 3000, 5432, 6379, 7233, 8000, 8081, 9000, 9001, 8099
-#   Cluster 2: 180, 3100, 5532, 6479, 7333, 8100, 8181, 9100, 9101, 8199
-#   Cluster 3: 280, 3200, 5632, 6579, 7433, 8200, 8281, 9200, 9201, 8299
+#   Cluster 1: 80, 3000, 5432, 6379, 7233, 8000, 8081, 9000, 9001
+#   Cluster 2: 180, 3100, 5532, 6479, 7333, 8100, 8181, 9100, 9101
+#   Cluster 3: 280, 3200, 5632, 6579, 7433, 8200, 8281, 9200, 9201
 #   ...
 
 set -euo pipefail
@@ -157,8 +157,6 @@ BASE_API_PORT=8000
 BASE_TEMPORAL_UI_PORT=8081
 BASE_MINIO_PORT=9000
 BASE_MINIO_CONSOLE_PORT=9001
-BASE_MCP_PORT=8099
-
 # Map profile to compose file
 get_compose_file() {
     local profile=$1
@@ -248,7 +246,6 @@ calculate_ports() {
     TEMPORAL_UI_PORT=$(( BASE_TEMPORAL_UI_PORT + offset ))
     MINIO_PORT=$(( BASE_MINIO_PORT + offset ))
     MINIO_CONSOLE_PORT=$(( BASE_MINIO_CONSOLE_PORT + offset ))
-    MCP_PORT=$(( BASE_MCP_PORT + offset ))
 }
 
 # Build environment variables for docker compose
@@ -282,7 +279,6 @@ build_env() {
     export TEMPORAL_UI_PORT
     export MINIO_PORT
     export MINIO_CONSOLE_PORT
-    export MCP_PORT
 
     # Always compute public URLs per cluster so `just`-loaded `.env` values from
     # cluster 1 do not leak into other clusters. Use explicit override vars for
@@ -321,7 +317,7 @@ Cluster ${WORKTREE_ID}-${cluster_num} port mappings:
   Temporal UI:     http://localhost:${TEMPORAL_UI_PORT}
   MinIO:           localhost:${MINIO_PORT}
   MinIO Console:   http://localhost:${MINIO_CONSOLE_PORT}
-  MCP:             localhost:${MCP_PORT}
+  MCP:             http://localhost:${PUBLIC_APP_PORT}/mcp
 EOF
 }
 
