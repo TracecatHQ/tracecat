@@ -443,6 +443,7 @@ export function WorkflowBulkPushDialog({
   const selectedBranchInfo = repoBranches?.find(
     (branch) => branch.name === selectedBranch
   )
+  const isSelectedDefaultBranch = selectedBranchInfo?.is_default ?? false
   const previewErrorMessage = previewQuery.error
     ? getErrorMessage(
         previewQuery.error,
@@ -462,6 +463,7 @@ export function WorkflowBulkPushDialog({
     (previewQuery.data.can_submit ?? false) &&
     hasBranches &&
     !branchesLoading &&
+    !isSelectedDefaultBranch &&
     !pushMutation.isPending
 
   return (
@@ -551,6 +553,7 @@ export function WorkflowBulkPushDialog({
                                     <SelectItem
                                       key={branch.name}
                                       value={branch.name}
+                                      disabled={branch.is_default}
                                     >
                                       <div className="flex items-center gap-2">
                                         <span>{branch.name}</span>
@@ -597,10 +600,10 @@ export function WorkflowBulkPushDialog({
                               repository.
                             </p>
                           ) : null}
-                          {selectedBranchInfo?.is_default ? (
-                            <p className="text-xs text-muted-foreground">
-                              A pull request will still be created for this bulk
-                              push.
+                          {isSelectedDefaultBranch ? (
+                            <p className="text-xs text-destructive">
+                              Bulk pushes always open a pull request, so select
+                              or create a branch other than the default branch.
                             </p>
                           ) : null}
                           <FormMessage />

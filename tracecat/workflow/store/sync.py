@@ -399,6 +399,11 @@ class WorkflowSyncService(BaseWorkspaceService):
                 repo=f"{url.org}/{url.repo}",
             )
 
+        initial_branch_ref = await asyncio.to_thread(
+            repo.get_git_ref, f"heads/{branch_name}"
+        )
+        initial_branch_sha = initial_branch_ref.object.sha
+
         pr_url: str | None = None
         pr_number: int | None = None
         pr_reused = False
@@ -410,7 +415,7 @@ class WorkflowSyncService(BaseWorkspaceService):
             yaml_content = self._serialize_push_object(obj)
             try:
                 contents = await asyncio.to_thread(
-                    repo.get_contents, file_path, ref=branch_name
+                    repo.get_contents, file_path, ref=initial_branch_sha
                 )
                 if isinstance(contents, list):
                     raise GithubException(404, {"message": "Not a file"}, {})
@@ -444,8 +449,12 @@ class WorkflowSyncService(BaseWorkspaceService):
             branch_ref = await asyncio.to_thread(
                 repo.get_git_ref, f"heads/{branch_name}"
             )
+            if branch_ref.object.sha != initial_branch_sha:
+                raise TracecatValidationError(
+                    f"Branch '{branch_name}' changed while preparing the bulk push. Refresh and retry."
+                )
             parent_commit = await asyncio.to_thread(
-                repo.get_git_commit, branch_ref.object.sha
+                repo.get_git_commit, initial_branch_sha
             )
             new_tree = await asyncio.to_thread(
                 repo.create_git_tree,
@@ -461,7 +470,14 @@ class WorkflowSyncService(BaseWorkspaceService):
                 author=author,
                 committer=author,
             )
-            await asyncio.to_thread(branch_ref.edit, new_commit.sha)
+            try:
+                await asyncio.to_thread(branch_ref.edit, new_commit.sha)
+            except GithubException as e:
+                if e.status == 422:
+                    raise TracecatValidationError(
+                        f"Branch '{branch_name}' changed while preparing the bulk push. Refresh and retry."
+                    ) from e
+                raise
             commit_sha = new_commit.sha
 
         if options.create_pr:
