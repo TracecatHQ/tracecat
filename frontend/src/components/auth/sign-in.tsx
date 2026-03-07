@@ -3,7 +3,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import Image from "next/image"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
 import { useEffect, useState } from "react"
@@ -33,7 +32,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
-import { useAuth, useAuthActions } from "@/hooks/use-auth"
+import { useAuthActions } from "@/hooks/use-auth"
 import {
   sanitizeReturnUrl,
   serializeClearPostAuthReturnUrlCookie,
@@ -60,8 +59,9 @@ function buildSignUpPath(
   organizationSlug?: string | null
 ): string {
   const params = new URLSearchParams()
-  if (returnUrl) {
-    params.set("returnUrl", returnUrl)
+  const sanitizedReturnUrl = sanitizeReturnUrl(returnUrl)
+  if (sanitizedReturnUrl) {
+    params.set("returnUrl", sanitizedReturnUrl)
   }
   if (organizationSlug) {
     params.set("org", organizationSlug)
@@ -91,17 +91,11 @@ export function SignIn({
   returnUrl,
   organizationSlug,
 }: SignInProps) {
-  const { user } = useAuth()
   const { appInfo, appInfoIsLoading, appInfoError } = useAppInfo()
   const [isDiscovering, setIsDiscovering] = useState(false)
   const [discoveredMethod, setDiscoveredMethod] = useState<"basic" | null>(null)
   const [discoveredEmail, setDiscoveredEmail] = useState("")
-  const router = useRouter()
   const signUpPath = buildSignUpPath(returnUrl, organizationSlug)
-
-  if (user) {
-    router.push("/workspaces")
-  }
 
   if (appInfoIsLoading) {
     return <CenteredSpinner />
