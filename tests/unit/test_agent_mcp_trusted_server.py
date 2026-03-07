@@ -23,7 +23,7 @@ def _build_claims(*, user_mcp_servers: list[UserMCPServerClaim]) -> MCPTokenClai
 
 
 @pytest.mark.anyio
-async def test_execute_user_mcp_tool_returns_server_name_when_not_authorized(
+async def test_execute_user_mcp_tool_returns_descriptive_error_when_not_authorized(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -35,7 +35,7 @@ async def test_execute_user_mcp_tool_returns_server_name_when_not_authorized(
         ExecuteUserMCPTool, trusted_server.execute_user_mcp_tool
     )
 
-    with pytest.raises(ToolError, match="^Jira$"):
+    with pytest.raises(ToolError, match="User MCP server 'Jira' not authorized"):
         await execute_user_mcp_tool(
             "Jira",
             "getIssue",
@@ -45,7 +45,7 @@ async def test_execute_user_mcp_tool_returns_server_name_when_not_authorized(
 
 
 @pytest.mark.anyio
-async def test_execute_user_mcp_tool_returns_server_name_on_execution_error(
+async def test_execute_user_mcp_tool_returns_descriptive_error_on_execution_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -69,7 +69,10 @@ async def test_execute_user_mcp_tool_returns_server_name_on_execution_error(
         ExecuteUserMCPTool, trusted_server.execute_user_mcp_tool
     )
 
-    with pytest.raises(ToolError, match="^Jira$"):
+    with pytest.raises(
+        ToolError,
+        match="^User MCP tool 'getIssue' on server 'Jira' failed$",
+    ):
         await execute_user_mcp_tool(
             "Jira",
             "getIssue",
