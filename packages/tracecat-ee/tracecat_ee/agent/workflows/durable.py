@@ -41,6 +41,7 @@ with workflow.unsafe.imports_passed_through():
         mint_mcp_token,
     )
     from tracecat.agent.types import AgentConfig
+    from tracecat.agent.workflow_config import agent_config_from_payload
     from tracecat.auth.types import Role
     from tracecat.config import TRACECAT__AGENT_SANDBOX_TIMEOUT
     from tracecat.contexts import ctx_role
@@ -180,7 +181,7 @@ class DurableAgentWorkflow:
 
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
         if args.agent_args.preset_slug:
-            preset_config = await workflow.execute_activity(
+            preset_config_payload = await workflow.execute_activity(
                 resolve_agent_preset_config_activity,
                 ResolveAgentPresetConfigActivityInput(
                     role=self.role, preset_slug=args.agent_args.preset_slug
@@ -188,6 +189,7 @@ class DurableAgentWorkflow:
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
+            preset_config = agent_config_from_payload(preset_config_payload)
             # Apply overrides from the provided config (if any)
             # When using a preset, the 'config' in args acts as an override layer
             if override_cfg := args.agent_args.config:
