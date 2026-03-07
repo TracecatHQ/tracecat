@@ -1,7 +1,7 @@
 "use client"
 
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { DateRange } from "react-day-picker"
 import {
   type CasePriority,
@@ -27,6 +27,7 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 
 const CASES_PAGE_SIZE = 100
 const CASES_REFETCH_INTERVAL_MS = 120000
+const CASES_FILTER_STORAGE_KEY = "cases-filters:v1"
 const ALL_CASE_STATUSES: ReadonlyArray<CaseStatus> = [
   "unknown",
   "new",
@@ -139,6 +140,43 @@ export interface UseCasesResult {
   fetchNextPage: () => void
 }
 
+interface PersistedCaseDateRange {
+  from?: string
+  to?: string
+}
+
+type PersistedCaseDateFilter =
+  | {
+      type: "preset"
+      value: CaseDatePreset
+    }
+  | {
+      type: "range"
+      value: PersistedCaseDateRange
+    }
+
+interface PersistedCasesFilters {
+  searchQuery: string
+  sortBy: CaseSortValue
+  statusFilter: CaseStatus[]
+  statusMode: FilterMode
+  priorityFilter: CasePriority[]
+  priorityMode: FilterMode
+  prioritySortDirection: SortDirection
+  severityFilter: CaseSeverity[]
+  severityMode: FilterMode
+  severitySortDirection: SortDirection
+  assigneeFilter: string[]
+  assigneeMode: FilterMode
+  assigneeSortDirection: SortDirection
+  tagFilter: string[]
+  tagMode: FilterMode
+  tagSortDirection: SortDirection
+  dropdownFilters: Record<string, DropdownFilterState>
+  updatedAfter: PersistedCaseDateFilter
+  createdAfter: PersistedCaseDateFilter
+}
+
 // Helper to get Date from preset filter value
 function getDateFromPreset(preset: CaseDatePreset): Date | null {
   if (!preset) return null
@@ -188,6 +226,72 @@ export const DEFAULT_CREATED_PRESET: CaseDatePreset = "1m"
 export const DEFAULT_CREATED_FILTER: CaseDateFilterValue = {
   type: "preset",
   value: DEFAULT_CREATED_PRESET,
+}
+
+function parsePersistedDateFilter(
+  filter: PersistedCaseDateFilter | undefined,
+  fallback: CaseDateFilterValue
+): CaseDateFilterValue {
+  if (!filter) {
+    return fallback
+  }
+
+  if (filter.type === "preset") {
+    if (filter.value === null) {
+      return { type: "preset", value: null }
+    }
+
+    if (
+      filter.value === "1d" ||
+      filter.value === "3d" ||
+      filter.value === "1w" ||
+      filter.value === "1m"
+    ) {
+      return { type: "preset", value: filter.value }
+    }
+
+    return fallback
+  }
+
+  if (filter.type === "range" && typeof filter.value === "object") {
+    const from =
+      typeof filter.value.from === "string"
+        ? new Date(filter.value.from)
+        : undefined
+    const to =
+      typeof filter.value.to === "string"
+        ? new Date(filter.value.to)
+        : undefined
+
+    return {
+      type: "range",
+      value: {
+        from: from && !Number.isNaN(from.getTime()) ? from : undefined,
+        to: to && !Number.isNaN(to.getTime()) ? to : undefined,
+      },
+    }
+  }
+
+  return fallback
+}
+
+function serializeDateFilter(
+  filter: CaseDateFilterValue
+): PersistedCaseDateFilter {
+  if (filter.type === "preset") {
+    return {
+      type: "preset",
+      value: filter.value,
+    }
+  }
+
+  return {
+    type: "range",
+    value: {
+      from: filter.value.from?.toISOString(),
+      to: filter.value.to?.toISOString(),
+    },
+  }
 }
 
 function resolveEnumIncludeFilter<T extends string>(
@@ -285,6 +389,113 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const [createdAfter, setCreatedAfter] = useState<CaseDateFilterValue>(
     DEFAULT_CREATED_FILTER
   )
+  const hasHydratedFiltersRef = useRef(false)
+
+  useEffect(() => {
+    if (!workspaceId || typeof window === "undefined") {
+      return
+    }
+
+    const storedValue = window.localStorage.getItem(
+      `${workspaceId}:${CASES_FILTER_STORAGE_KEY}`
+    )
+    if (!storedValue) {
+      hasHydratedFiltersRef.current = true
+      return
+    }
+
+    try {
+      const parsed = JSON.parse(storedValue) as Partial<PersistedCasesFilters>
+
+      setSearchQuery(parsed.searchQuery ?? "")
+      setSortByState(parsed.sortBy ?? DEFAULT_CASE_SORT)
+      setStatusFilter(parsed.statusFilter ?? [])
+      setStatusMode(parsed.statusMode ?? "include")
+      setPriorityFilter(parsed.priorityFilter ?? [])
+      setPriorityMode(parsed.priorityMode ?? "include")
+      setPrioritySortDirectionState(parsed.prioritySortDirection ?? null)
+      setSeverityFilter(parsed.severityFilter ?? [])
+      setSeverityMode(parsed.severityMode ?? "include")
+      setSeveritySortDirectionState(parsed.severitySortDirection ?? null)
+      setAssigneeFilter(parsed.assigneeFilter ?? [])
+      setAssigneeModeState(parsed.assigneeMode ?? "include")
+      setAssigneeSortDirectionState(parsed.assigneeSortDirection ?? null)
+      setTagFilter(parsed.tagFilter ?? [])
+      setTagModeState(parsed.tagMode ?? "include")
+      setTagSortDirectionState(parsed.tagSortDirection ?? null)
+      setDropdownFilters(parsed.dropdownFilters ?? {})
+      setUpdatedAfter(
+        parsePersistedDateFilter(parsed.updatedAfter, DEFAULT_DATE_FILTER)
+      )
+      setCreatedAfter(
+        parsePersistedDateFilter(parsed.createdAfter, DEFAULT_CREATED_FILTER)
+      )
+    } catch {
+      window.localStorage.removeItem(
+        `${workspaceId}:${CASES_FILTER_STORAGE_KEY}`
+      )
+    }
+
+    hasHydratedFiltersRef.current = true
+  }, [workspaceId])
+
+  useEffect(() => {
+    if (
+      !workspaceId ||
+      !hasHydratedFiltersRef.current ||
+      typeof window === "undefined"
+    ) {
+      return
+    }
+
+    const persistedFilters: PersistedCasesFilters = {
+      searchQuery,
+      sortBy,
+      statusFilter,
+      statusMode,
+      priorityFilter,
+      priorityMode,
+      prioritySortDirection,
+      severityFilter,
+      severityMode,
+      severitySortDirection,
+      assigneeFilter,
+      assigneeMode,
+      assigneeSortDirection,
+      tagFilter,
+      tagMode,
+      tagSortDirection,
+      dropdownFilters,
+      updatedAfter: serializeDateFilter(updatedAfter),
+      createdAfter: serializeDateFilter(createdAfter),
+    }
+
+    window.localStorage.setItem(
+      `${workspaceId}:${CASES_FILTER_STORAGE_KEY}`,
+      JSON.stringify(persistedFilters)
+    )
+  }, [
+    workspaceId,
+    searchQuery,
+    sortBy,
+    statusFilter,
+    statusMode,
+    priorityFilter,
+    priorityMode,
+    prioritySortDirection,
+    severityFilter,
+    severityMode,
+    severitySortDirection,
+    assigneeFilter,
+    assigneeMode,
+    assigneeSortDirection,
+    tagFilter,
+    tagMode,
+    tagSortDirection,
+    dropdownFilters,
+    updatedAfter,
+    createdAfter,
+  ])
 
   const setAssigneeMode = useCallback((_mode: FilterMode) => {
     setAssigneeModeState("include")
