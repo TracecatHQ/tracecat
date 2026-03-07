@@ -2,10 +2,24 @@ export const POST_AUTH_RETURN_URL_COOKIE_NAME = "tracecat_post_auth_return_url"
 export const POST_AUTH_RETURN_URL_COOKIE_MAX_AGE_SECONDS = 60 * 15
 
 const APP_URL_PLACEHOLDER = "https://tracecat.local"
+const BLOCKED_POST_AUTH_RETURN_URL_PREFIXES = [
+  "/auth",
+  "/sign-in",
+  "/sign-up",
+] as const
 
 function getPostAuthReturnUrlCookieSameSite(secure: boolean): "None" | "Lax" {
   // Cross-site POSTs (SAML ACS) require SameSite=None; browsers require Secure with None.
   return secure ? "None" : "Lax"
+}
+
+function isBlockedPostAuthReturnPath(pathname: string): boolean {
+  const normalizedPathname = pathname.toLowerCase()
+  return BLOCKED_POST_AUTH_RETURN_URL_PREFIXES.some(
+    (prefix) =>
+      normalizedPathname === prefix ||
+      normalizedPathname.startsWith(`${prefix}/`)
+  )
 }
 
 export function sanitizeReturnUrl(
@@ -23,6 +37,9 @@ export function sanitizeReturnUrl(
   try {
     const parsed = new URL(trimmedValue, APP_URL_PLACEHOLDER)
     if (parsed.origin !== APP_URL_PLACEHOLDER) {
+      return null
+    }
+    if (isBlockedPostAuthReturnPath(parsed.pathname)) {
       return null
     }
     return `${parsed.pathname}${parsed.search}${parsed.hash}`

@@ -5,19 +5,18 @@ import { Suspense, useEffect } from "react"
 import { SignIn } from "@/components/auth/sign-in"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useAuth } from "@/hooks/use-auth"
+import { sanitizeReturnUrl } from "@/lib/auth-return-url"
 
 function SignInContent() {
   const { user, userIsLoading } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const returnUrl = searchParams?.get("returnUrl") ?? null
+  const returnUrl = sanitizeReturnUrl(searchParams?.get("returnUrl") ?? null)
   const organizationSlug = searchParams?.get("org") ?? null
 
   useEffect(() => {
     if (user) {
-      // Redirect to returnUrl if provided, otherwise to workspaces
-      const redirectTo = returnUrl || "/workspaces"
-      router.push(redirectTo)
+      router.replace(returnUrl ?? "/workspaces")
     }
   }, [user, router, returnUrl])
 

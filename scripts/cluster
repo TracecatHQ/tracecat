@@ -255,10 +255,19 @@ calculate_ports() {
 build_env() {
     local cluster_num=$1
     calculate_ports "$cluster_num"
+    local public_app_url_override="${CLUSTER_PUBLIC_APP_URL_OVERRIDE:-}"
+    local public_api_url_override="${CLUSTER_PUBLIC_API_URL_OVERRIDE:-}"
 
     # URLs that depend on ports
     local PUBLIC_APP_URL="http://localhost:${PUBLIC_APP_PORT}"
+    if [[ -n "$public_app_url_override" ]]; then
+        PUBLIC_APP_URL="${public_app_url_override%/}"
+    fi
+
     local PUBLIC_API_URL="${PUBLIC_APP_URL}/api"
+    if [[ -n "$public_api_url_override" ]]; then
+        PUBLIC_API_URL="${public_api_url_override%/}"
+    fi
 
     # Export all variables (include worktree ID for isolation)
     export COMPOSE_PROJECT_NAME="tracecat-${WORKTREE_ID}-${cluster_num}"
@@ -275,11 +284,13 @@ build_env() {
     export MINIO_CONSOLE_PORT
     export MCP_PORT
 
-    # URL variables that reference the public port (allow explicit env overrides, e.g. ngrok)
-    export TRACECAT__PUBLIC_APP_URL="${TRACECAT__PUBLIC_APP_URL:-${PUBLIC_APP_URL}}"
-    export TRACECAT__PUBLIC_API_URL="${TRACECAT__PUBLIC_API_URL:-${PUBLIC_API_URL}}"
-    export NEXT_PUBLIC_APP_URL="${NEXT_PUBLIC_APP_URL:-${PUBLIC_APP_URL}}"
-    export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-${PUBLIC_API_URL}}"
+    # Always compute public URLs per cluster so `just`-loaded `.env` values from
+    # cluster 1 do not leak into other clusters. Use explicit override vars for
+    # tunnels or custom public hosts when needed.
+    export TRACECAT__PUBLIC_APP_URL="${PUBLIC_APP_URL}"
+    export TRACECAT__PUBLIC_API_URL="${PUBLIC_API_URL}"
+    export NEXT_PUBLIC_APP_URL="${PUBLIC_APP_URL}"
+    export NEXT_PUBLIC_API_URL="${PUBLIC_API_URL}"
 
     # Caddy configuration
     export BASE_DOMAIN=":${PUBLIC_APP_PORT}"
