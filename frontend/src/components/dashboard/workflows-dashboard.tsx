@@ -4,6 +4,7 @@ import { format } from "date-fns"
 import {
   AtSignIcon,
   CalendarClockIcon,
+  Check,
   CircleCheck,
   CircleDot,
   Clock3,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
+  type MouseEvent,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -53,7 +55,6 @@ import {
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -840,6 +841,17 @@ function WorkflowsListRow({
   onToggleSelection?: (checked: boolean) => void
 }) {
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false)
+  const showSelectedState = isSelected || isSelectionDisabled
+
+  function handleSelectionClick(event: MouseEvent<HTMLButtonElement>) {
+    event.stopPropagation()
+
+    if (isSelectionDisabled) {
+      return
+    }
+
+    onToggleSelection?.(!isSelected)
+  }
 
   if (item.type === "folder") {
     return (
@@ -853,14 +865,30 @@ function WorkflowsListRow({
           >
             {showSelectionControl ? (
               <div className="flex shrink-0 items-center">
-                <Checkbox
-                  checked={isSelected}
+                <button
+                  type="button"
+                  className="flex size-4 shrink-0 items-center justify-center disabled:cursor-not-allowed"
+                  onClick={handleSelectionClick}
                   disabled={isSelectionDisabled}
+                  role="checkbox"
+                  aria-checked={isSelected}
                   aria-label={`Select folder ${item.name}`}
-                  onCheckedChange={(checked) =>
-                    onToggleSelection?.(checked === true)
-                  }
-                />
+                >
+                  <span
+                    className={cn(
+                      "flex size-4 shrink-0 items-center justify-center rounded-sm border transition-all duration-150",
+                      !showSelectedState &&
+                        "opacity-0 group-hover/item:opacity-100",
+                      isSelected
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-muted-foreground/40 bg-transparent"
+                    )}
+                  >
+                    {isSelected ? (
+                      <Check className="size-3" aria-hidden />
+                    ) : null}
+                  </span>
+                </button>
               </div>
             ) : null}
             <button
@@ -868,7 +896,7 @@ function WorkflowsListRow({
               onClick={() => onOpenFolder(item.path)}
               className="flex min-w-0 flex-1 items-center gap-3 bg-transparent p-0 text-left"
             >
-              <FolderIcon className="size-4 shrink-0 text-black" />
+              <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <span className={ROW_NAME_COLUMN_CLASS}>{item.name}</span>
                 <FolderMetadataBadges item={item} />
@@ -898,14 +926,28 @@ function WorkflowsListRow({
         >
           {showSelectionControl ? (
             <div className="flex shrink-0 items-center">
-              <Checkbox
-                checked={isSelected}
+              <button
+                type="button"
+                className="flex size-4 shrink-0 items-center justify-center disabled:cursor-not-allowed"
+                onClick={handleSelectionClick}
                 disabled={isSelectionDisabled}
+                role="checkbox"
+                aria-checked={isSelected}
                 aria-label={`Select workflow ${item.title}`}
-                onCheckedChange={(checked) =>
-                  onToggleSelection?.(checked === true)
-                }
-              />
+              >
+                <span
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded-sm border transition-all duration-150",
+                    !showSelectedState &&
+                      "opacity-0 group-hover/item:opacity-100",
+                    isSelected
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-muted-foreground/40 bg-transparent"
+                  )}
+                >
+                  {isSelected ? <Check className="size-3" aria-hidden /> : null}
+                </span>
+              </button>
             </div>
           ) : null}
           <button
@@ -1237,6 +1279,41 @@ export function WorkflowsDashboard() {
 
   const visibleItems =
     view === "folders" ? folderVisibleItems : listVisibleItems
+  const visibleSelectedCount = useMemo(
+    () =>
+      visibleItems.reduce((count, item) => {
+        if (item.type === "folder") {
+          const normalizedPath = normalizeFolderPath(item.path)
+          return (
+            count +
+            (selectedFolderPathSet.has(normalizedPath) ||
+            isFolderCoveredBySelection(
+              normalizedPath,
+              normalizedSelectedFolderPaths
+            )
+              ? 1
+              : 0)
+          )
+        }
+
+        return (
+          count +
+          (selectedWorkflowIdSet.has(item.id) ||
+          isWorkflowCoveredBySelection(
+            item.folder_path,
+            normalizedSelectedFolderPaths
+          )
+            ? 1
+            : 0)
+        )
+      }, 0),
+    [
+      normalizedSelectedFolderPaths,
+      selectedFolderPathSet,
+      selectedWorkflowIdSet,
+      visibleItems,
+    ]
+  )
   const isLoading =
     view === "folders" ? directoryItemsIsLoading : workflowPagination.isLoading
   const error =
@@ -1325,67 +1402,54 @@ export function WorkflowsDashboard() {
     setSelectedFolderPaths([])
   }, [])
 
-  const isCurrentFolderExplicitlySelected =
-    view === "folders" && selectedFolderPathSet.has(currentPath)
-  const isCurrentFolderCoveredBySelection =
-    view === "folders" &&
-    isFolderCoveredBySelection(currentPath, normalizedSelectedFolderPaths)
-  const showCurrentFolderSelectionAction = gitSyncEnabled && view === "folders"
-  const hasSelectionActions =
-    showCurrentFolderSelectionAction || selectedItemCount > 0
+  const handleSelectAllVisible = useCallback(() => {
+    const visibleFolderPaths = visibleItems
+      .filter((item): item is FolderDirectoryItem => item.type === "folder")
+      .map((item) => normalizeFolderPath(item.path))
+
+    const nextFolderPaths = new Set([
+      ...normalizedSelectedFolderPaths,
+      ...visibleFolderPaths,
+    ])
+
+    const visibleWorkflowIds = visibleItems
+      .filter((item): item is WorkflowDirectoryItem => item.type === "workflow")
+      .filter(
+        (item) =>
+          !isWorkflowCoveredBySelection(item.folder_path, [...nextFolderPaths])
+      )
+      .map((item) => item.id)
+
+    setSelectedFolderPaths([...nextFolderPaths])
+    setSelectedWorkflowIds((current) => [
+      ...new Set([...current, ...visibleWorkflowIds]),
+    ])
+  }, [normalizedSelectedFolderPaths, visibleItems])
+
+  const hasSelectionActions = selectedItemCount > 0
 
   const selectionActions = hasSelectionActions ? (
     <div className="flex items-center gap-2">
-      {showCurrentFolderSelectionAction ? (
-        <Button
-          type="button"
-          variant="outline"
-          className="h-6 gap-1.5 px-2 text-xs"
-          onClick={() => {
-            if (isCurrentFolderExplicitlySelected) {
-              handleToggleFolderSelection(currentPath, false)
-              return
-            }
-            handleToggleFolderSelection(currentPath, true)
-          }}
-          disabled={isCurrentFolderCoveredBySelection}
-        >
-          <FolderIcon className="size-3.5" />
-          {isCurrentFolderCoveredBySelection
-            ? "Folder selected"
-            : isCurrentFolderExplicitlySelected
-              ? currentPath === "/"
-                ? "Deselect all"
-                : "Deselect folder"
-              : currentPath === "/"
-                ? "Select all"
-                : "Select folder"}
-        </Button>
-      ) : null}
-      {selectedItemCount > 0 ? (
-        <>
-          <span className="text-xs text-muted-foreground">
-            {selectedItemCount} selected
-          </span>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-6 gap-1.5 px-2 text-xs"
-            onClick={() => setBulkPushOpen(true)}
-          >
-            <GitBranchIcon className="size-3.5" />
-            Push to GitHub
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            className="h-6 px-2 text-xs text-muted-foreground"
-            onClick={clearBulkPushSelection}
-          >
-            Clear
-          </Button>
-        </>
-      ) : null}
+      <span className="text-xs text-muted-foreground">
+        {selectedItemCount} selected
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        className="h-6 gap-1.5 px-2 text-xs"
+        onClick={() => setBulkPushOpen(true)}
+      >
+        <GitBranchIcon className="size-3.5" />
+        Push to GitHub
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        className="h-6 px-2 text-xs text-muted-foreground"
+        onClick={clearBulkPushSelection}
+      >
+        Clear
+      </Button>
     </div>
   ) : undefined
 
@@ -1476,6 +1540,10 @@ export function WorkflowsDashboard() {
             onPreviousPage={handlePreviousPage}
             onNextPage={handleNextPage}
             isPaginationLoading={isLoading}
+            selectableItemCount={gitSyncEnabled ? visibleItems.length : 0}
+            selectedCount={gitSyncEnabled ? visibleSelectedCount : 0}
+            onSelectAll={handleSelectAllVisible}
+            onDeselectAll={clearBulkPushSelection}
             selectionActions={selectionActions}
           />
 

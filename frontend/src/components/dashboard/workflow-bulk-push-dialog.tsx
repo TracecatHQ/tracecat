@@ -2,7 +2,13 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { GitBranchIcon, GitPullRequestIcon } from "lucide-react"
+import {
+  FolderIcon,
+  GitBranchIcon,
+  GitPullRequestIcon,
+  WorkflowIcon,
+} from "lucide-react"
+import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -98,55 +104,99 @@ function getPushToastTitle(result: {
   return "Workflows pushed"
 }
 
+function getDisplayFolderPath(folderPath?: string | null): string {
+  if (!folderPath || folderPath === "/") {
+    return "/"
+  }
+
+  return folderPath.endsWith("/") ? folderPath.slice(0, -1) : folderPath
+}
+
 function SelectedWorkflowList({
+  workspaceId,
   preview,
 }: {
+  workspaceId: string
   preview: WorkflowBulkPushPreviewResponse
 }) {
   const eligibleWorkflows = preview.eligible_workflows ?? []
   const excludedWorkflows = preview.excluded_workflows ?? []
+  const excludedWorkflowGroups = excludedWorkflows.reduce<
+    Array<{
+      message: string
+      workflows: WorkflowBulkPushExcludedWorkflow[]
+    }>
+  >((groups, workflow) => {
+    const message = workflow.message || "Unknown exclusion reason"
+    const existingGroup = groups.find((group) => group.message === message)
+
+    if (existingGroup) {
+      existingGroup.workflows.push(workflow)
+      return groups
+    }
+
+    groups.push({ message, workflows: [workflow] })
+    return groups
+  }, [])
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="secondary" className="h-6 rounded-md px-2 text-xs">
-          {eligibleWorkflows.length} eligible
-        </Badge>
-        <Badge variant="secondary" className="h-6 rounded-md px-2 text-xs">
-          {excludedWorkflows.length} excluded
-        </Badge>
-        <Badge variant="secondary" className="h-6 rounded-md px-2 text-xs">
-          1 pull request
-        </Badge>
-      </div>
-
       <div className="space-y-2">
-        <div className="text-xs font-medium text-foreground">Included</div>
+        <div className="flex items-center gap-2">
+          <div className="text-xs font-medium text-foreground">Included</div>
+          <span className="text-xs text-muted-foreground">
+            {eligibleWorkflows.length}
+          </span>
+        </div>
         <div className="max-h-44 overflow-auto rounded-md border">
           {eligibleWorkflows.length > 0 ? (
             <div className="divide-y">
-              {eligibleWorkflows.map((workflow) => (
-                <div
-                  key={workflow.workflow_id}
-                  className="flex items-start justify-between gap-3 px-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">
-                      {workflow.title}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {workflow.workflow_id}
-                      {workflow.folder_path ? ` • ${workflow.folder_path}` : ""}
-                    </p>
+              {eligibleWorkflows.map((workflow) => {
+                const content = (
+                  <div className="flex items-center justify-between gap-3 px-3 py-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <WorkflowIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                        <p className="truncate text-sm font-medium">
+                          {workflow.title}
+                        </p>
+                      </div>
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-foreground">
+                        <FolderIcon className="size-3 shrink-0 text-muted-foreground" />
+                        <span>
+                          {getDisplayFolderPath(workflow.folder_path)}
+                        </span>
+                      </span>
+                    </div>
+                    <Badge
+                      variant="secondary"
+                      className="h-5 shrink-0 rounded-sm px-2 text-[10px] font-normal"
+                    >
+                      v{workflow.latest_definition_version}
+                    </Badge>
                   </div>
-                  <Badge
-                    variant="secondary"
-                    className="h-5 shrink-0 rounded-sm px-2 text-[10px] font-normal"
+                )
+
+                return workflow.workflow_id ? (
+                  <Link
+                    key={workflow.workflow_id}
+                    href={`/workspaces/${workspaceId}/workflows/${workflow.workflow_id}`}
+                    title={workflow.workflow_id}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block transition-colors hover:bg-muted/40"
                   >
-                    v{workflow.latest_definition_version}
-                  </Badge>
-                </div>
-              ))}
+                    {content}
+                  </Link>
+                ) : (
+                  <div
+                    key={workflow.title}
+                    title={workflow.workflow_id ?? undefined}
+                  >
+                    {content}
+                  </div>
+                )
+              })}
             </div>
           ) : (
             <div className="px-3 py-4 text-sm text-muted-foreground">
@@ -157,14 +207,21 @@ function SelectedWorkflowList({
       </div>
 
       <div className="space-y-2">
-        <div className="text-xs font-medium text-foreground">Excluded</div>
+        <div className="flex items-center gap-2">
+          <div className="text-xs font-medium text-foreground">Excluded</div>
+          <span className="text-xs text-muted-foreground">
+            {excludedWorkflows.length}
+          </span>
+        </div>
         <div className="max-h-36 overflow-auto rounded-md border">
-          {excludedWorkflows.length > 0 ? (
+          {excludedWorkflowGroups.length > 0 ? (
             <div className="divide-y">
-              {excludedWorkflows.map((workflow, index) => (
-                <ExcludedWorkflowRow
-                  key={`${workflow.workflow_id ?? "excluded"}-${index}`}
-                  workflow={workflow}
+              {excludedWorkflowGroups.map((group) => (
+                <ExcludedWorkflowGroupRow
+                  key={group.message}
+                  message={group.message}
+                  workspaceId={workspaceId}
+                  workflows={group.workflows}
                 />
               ))}
             </div>
@@ -179,17 +236,59 @@ function SelectedWorkflowList({
   )
 }
 
-function ExcludedWorkflowRow({
-  workflow,
+function ExcludedWorkflowGroupRow({
+  message,
+  workspaceId,
+  workflows,
 }: {
-  workflow: WorkflowBulkPushExcludedWorkflow
+  message: string
+  workspaceId: string
+  workflows: WorkflowBulkPushExcludedWorkflow[]
 }) {
   return (
-    <div className="px-3 py-2">
-      <p className="truncate text-sm font-medium">
-        {workflow.title || workflow.workflow_id || "Unknown workflow"}
-      </p>
-      <p className="text-xs text-muted-foreground">{workflow.message}</p>
+    <div className="space-y-1 px-3 py-2">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs text-muted-foreground">{message}</p>
+        <Badge
+          variant="secondary"
+          className="h-5 shrink-0 rounded-sm px-2 text-[10px] font-normal"
+        >
+          {workflows.length}
+        </Badge>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {workflows.map((workflow) => {
+          const label =
+            workflow.title || workflow.workflow_id || "Unknown workflow"
+          const workflowId = workflow.workflow_id
+
+          if (workflowId) {
+            return (
+              <Link
+                key={workflowId}
+                href={`/workspaces/${workspaceId}/workflows/${workflowId}`}
+                title={workflowId}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-foreground transition-colors hover:bg-muted/80"
+              >
+                <WorkflowIcon className="size-3 text-muted-foreground" />
+                <span>{label}</span>
+              </Link>
+            )
+          }
+
+          return (
+            <span
+              key={label}
+              className="inline-flex items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-foreground"
+            >
+              <WorkflowIcon className="size-3 text-muted-foreground" />
+              <span>{label}</span>
+            </span>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -367,7 +466,7 @@ export function WorkflowBulkPushDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-[760px]">
+      <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-[760px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <GitBranchIcon className="size-4" />
@@ -395,171 +494,176 @@ export function WorkflowBulkPushDialog({
             {previewErrorMessage}
           </div>
         ) : previewQuery.data ? (
-          <div className="min-h-0 overflow-auto pr-1">
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
             <Form {...form}>
               <form
                 onSubmit={form.handleSubmit((values) =>
                   pushMutation.mutateAsync(values)
                 )}
-                className="space-y-5"
+                className="flex min-h-0 flex-col"
               >
-                <SelectedWorkflowList preview={previewQuery.data} />
+                <div className="space-y-5">
+                  <SelectedWorkflowList
+                    workspaceId={workspaceId}
+                    preview={previewQuery.data}
+                  />
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <FormField
-                    control={form.control}
-                    name="branch"
-                    render={({ field }) => (
-                      <FormItem className="md:col-span-2">
-                        <FormLabel>Target branch</FormLabel>
-                        <Select
-                          value={
-                            isCreatingBranch ||
-                            !repoBranches?.some(
-                              (branch) => branch.name === field.value
-                            )
-                              ? CREATE_NEW_BRANCH_VALUE
-                              : field.value
-                          }
-                          onValueChange={(value) => {
-                            if (value === CREATE_NEW_BRANCH_VALUE) {
-                              setIsCreatingBranch(true)
-                              field.onChange("")
-                              return
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <FormField
+                      control={form.control}
+                      name="branch"
+                      render={({ field }) => (
+                        <FormItem className="md:col-span-2">
+                          <FormLabel>Target branch</FormLabel>
+                          <Select
+                            value={
+                              isCreatingBranch ||
+                              !repoBranches?.some(
+                                (branch) => branch.name === field.value
+                              )
+                                ? CREATE_NEW_BRANCH_VALUE
+                                : field.value
                             }
-                            setIsCreatingBranch(false)
-                            field.onChange(value)
-                          }}
-                          disabled={branchesLoading || !hasBranches}
-                        >
-                          <FormControl>
-                            <SelectTrigger className="h-9">
-                              <SelectValue placeholder="Select branch" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {hasBranches ? (
-                              <>
-                                <SelectItem value={CREATE_NEW_BRANCH_VALUE}>
-                                  Create new branch...
-                                </SelectItem>
-                                <SelectSeparator />
-                                {(repoBranches ?? []).map((branch) => (
-                                  <SelectItem
-                                    key={branch.name}
-                                    value={branch.name}
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      <span>{branch.name}</span>
-                                      {branch.is_default && (
-                                        <Badge
-                                          variant="secondary"
-                                          className="h-4 rounded-sm px-1 text-[10px] font-normal"
-                                        >
-                                          default
-                                        </Badge>
-                                      )}
-                                    </div>
+                            onValueChange={(value) => {
+                              if (value === CREATE_NEW_BRANCH_VALUE) {
+                                setIsCreatingBranch(true)
+                                field.onChange("")
+                                return
+                              }
+                              setIsCreatingBranch(false)
+                              field.onChange(value)
+                            }}
+                            disabled={branchesLoading || !hasBranches}
+                          >
+                            <FormControl>
+                              <SelectTrigger className="h-9">
+                                <SelectValue placeholder="Select branch" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {hasBranches ? (
+                                <>
+                                  <SelectItem value={CREATE_NEW_BRANCH_VALUE}>
+                                    Create new branch...
                                   </SelectItem>
-                                ))}
-                              </>
-                            ) : (
-                              <SelectItem value="__no_branches" disabled>
-                                No branches found
-                              </SelectItem>
-                            )}
-                          </SelectContent>
-                        </Select>
-                        {isCreatingBranch ? (
-                          <div className="mt-2">
-                            <Input
-                              value={field.value}
-                              onChange={field.onChange}
-                              placeholder="tracecat/bulk-push"
-                            />
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              The branch will be created from the repository
-                              default branch if it does not exist.
+                                  <SelectSeparator />
+                                  {(repoBranches ?? []).map((branch) => (
+                                    <SelectItem
+                                      key={branch.name}
+                                      value={branch.name}
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <span>{branch.name}</span>
+                                        {branch.is_default && (
+                                          <Badge
+                                            variant="secondary"
+                                            className="h-4 rounded-sm px-1 text-[10px] font-normal"
+                                          >
+                                            default
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </>
+                              ) : (
+                                <SelectItem value="__no_branches" disabled>
+                                  No branches found
+                                </SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                          {isCreatingBranch ? (
+                            <div className="mt-2">
+                              <Input
+                                value={field.value}
+                                onChange={field.onChange}
+                                placeholder="tracecat/bulk-push"
+                              />
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                The branch will be created from the repository
+                                default branch if it does not exist.
+                              </p>
+                            </div>
+                          ) : null}
+                          {branchesErrorMessage ? (
+                            <p className="text-xs text-destructive">
+                              {branchesErrorMessage}
                             </p>
-                          </div>
-                        ) : null}
-                        {branchesErrorMessage ? (
-                          <p className="text-xs text-destructive">
-                            {branchesErrorMessage}
-                          </p>
-                        ) : null}
-                        {!branchesLoading && !hasBranches ? (
-                          <p className="text-xs text-muted-foreground">
-                            No branches are available from the configured
-                            repository.
-                          </p>
-                        ) : null}
-                        {selectedBranchInfo?.is_default ? (
-                          <p className="text-xs text-muted-foreground">
-                            A pull request will still be created for this bulk
-                            push.
-                          </p>
-                        ) : null}
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                          ) : null}
+                          {!branchesLoading && !hasBranches ? (
+                            <p className="text-xs text-muted-foreground">
+                              No branches are available from the configured
+                              repository.
+                            </p>
+                          ) : null}
+                          {selectedBranchInfo?.is_default ? (
+                            <p className="text-xs text-muted-foreground">
+                              A pull request will still be created for this bulk
+                              push.
+                            </p>
+                          ) : null}
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="commitMessage"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Commit message</FormLabel>
+                          <FormControl>
+                            <Input {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="prTitle"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Pull request title</FormLabel>
+                          <FormControl>
+                            <Input {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
 
                   <FormField
                     control={form.control}
-                    name="commitMessage"
+                    name="prBody"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Commit message</FormLabel>
+                        <FormLabel>Pull request description</FormLabel>
                         <FormControl>
-                          <Input {...field} />
+                          <Textarea
+                            {...field}
+                            className="min-h-32 resize-y"
+                            placeholder="Describe this workflow push"
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
 
-                  <FormField
-                    control={form.control}
-                    name="prTitle"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Pull request title</FormLabel>
-                        <FormControl>
-                          <Input {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  {!previewQuery.data.can_submit ? (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      Nothing eligible to push. Only published workflows can be
+                      included in the pull request.
+                    </div>
+                  ) : null}
                 </div>
 
-                <FormField
-                  control={form.control}
-                  name="prBody"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Pull request description</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          {...field}
-                          className="min-h-32 resize-y"
-                          placeholder="Describe this workflow push"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {!previewQuery.data.can_submit ? (
-                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                    Nothing eligible to push. Only published workflows can be
-                    included in the pull request.
-                  </div>
-                ) : null}
-
-                <DialogFooter className="gap-2">
+                <DialogFooter className="mt-5 gap-2">
                   <Button
                     type="button"
                     variant="outline"

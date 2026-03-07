@@ -236,6 +236,8 @@ export function WorkflowProvider({
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+      queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
     },
     onError: (error: TracecatApiError) => {
       console.error("Failed to update workflow:", error)
