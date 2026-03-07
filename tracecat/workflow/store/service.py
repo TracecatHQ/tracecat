@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import cast
+from uuid import uuid4
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import selectinload
@@ -531,8 +532,8 @@ class WorkflowStoreService(BaseWorkspaceService):
         workspace_name: str,
         eligible_workflows: Sequence[WorkflowBulkPushWorkflowSummary],
     ) -> tuple[str, str, str, str]:
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        branch = f"tracecat/bulk-push-{timestamp}"
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        branch = f"tracecat/bulk-push-{timestamp}-{uuid4().hex[:8]}"
         workflow_count = len(eligible_workflows)
         if workflow_count == 1:
             workflow_label = eligible_workflows[0].title
@@ -632,7 +633,12 @@ class WorkflowStoreService(BaseWorkspaceService):
     def _to_workflow_uuids(
         self, workflow_ids: Sequence[WorkflowIDShort]
     ) -> list[WorkflowUUID]:
-        return [WorkflowUUID.new(workflow_id) for workflow_id in workflow_ids]
+        try:
+            return [WorkflowUUID.new(workflow_id) for workflow_id in workflow_ids]
+        except ValueError as e:
+            raise TracecatValidationError(
+                "workflow_ids contains an invalid workflow ID"
+            ) from e
 
 
 def get_definition_path(workflow_id: WorkflowUUID) -> Path:

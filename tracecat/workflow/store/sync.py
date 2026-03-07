@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 from pydantic import ValidationError
 
 from tracecat.db.models import User
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.git.utils import GitUrl
 from tracecat.logger import logger
 from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
@@ -376,6 +376,10 @@ class WorkflowSyncService(BaseWorkspaceService):
         base_branch_name = (
             options.pr_base_branch or url.ref or await self._get_default_branch(repo)
         )
+        if options.create_pr and branch_name == base_branch_name:
+            raise TracecatValidationError(
+                "branch must differ from the PR base branch when create_pr is enabled"
+            )
         base_branch = await asyncio.to_thread(repo.get_branch, base_branch_name)
 
         try:

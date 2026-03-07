@@ -12,6 +12,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
+from tracecat.exceptions import TracecatValidationError
 from tracecat.git.types import GitUrl
 from tracecat.sync import Author, PushObject, PushOptions, PushStatus
 from tracecat.workflow.store.import_service import WorkflowImportService
@@ -903,6 +904,43 @@ class TestWorkflowSyncService:
             mock_upsert_pr.assert_awaited_once()
             mock_repo.create_git_tree.assert_called_once()
             mock_repo.create_git_commit.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_push_target_branch_rejects_pr_to_same_branch(
+        self, workflow_sync_service, git_url, sample_remote_workflow
+    ):
+        """Target-branch pushes should not commit directly to the PR base branch."""
+        push_obj = PushObject(
+            data=sample_remote_workflow, path="workflows/test-workflow.yml"
+        )
+        author = Author(name="Test User", email="test@example.com")
+        options = PushOptions(
+            message="Update workflows",
+            author=author,
+            create_pr=True,
+            branch="main",
+        )
+
+        mock_repo, _, _, _ = _create_target_branch_repo(
+            branch_name="main",
+            base_branch_name="main",
+        )
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="branch must differ from the PR base branch",
+        ):
+            with patch("asyncio.to_thread") as mock_to_thread:
+                mock_to_thread.side_effect = _mock_to_thread
+                await workflow_sync_service._push_to_target_branch(
+                    repo=mock_repo,
+                    url=git_url,
+                    objects=[push_obj],
+                    options=options,
+                )
+
+        mock_repo.create_git_tree.assert_not_called()
+        mock_repo.create_git_commit.assert_not_called()
 
     @pytest.mark.anyio
     async def test_push_target_branch_noop_pr_failure_returns_no_op_result(

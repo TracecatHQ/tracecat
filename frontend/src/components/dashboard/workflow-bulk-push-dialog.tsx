@@ -151,7 +151,7 @@ function SelectedWorkflowList({
         <div className="max-h-44 overflow-auto rounded-md border">
           {eligibleWorkflows.length > 0 ? (
             <div className="divide-y">
-              {eligibleWorkflows.map((workflow) => {
+              {eligibleWorkflows.map((workflow, index) => {
                 const content = (
                   <div className="flex items-center justify-between gap-3 px-3 py-2">
                     <div className="flex min-w-0 items-center gap-2">
@@ -190,7 +190,7 @@ function SelectedWorkflowList({
                   </Link>
                 ) : (
                   <div
-                    key={workflow.title}
+                    key={`included-${workflow.title ?? "workflow"}-${index}`}
                     title={workflow.workflow_id ?? undefined}
                   >
                     {content}
@@ -257,7 +257,7 @@ function ExcludedWorkflowGroupRow({
         </Badge>
       </div>
       <div className="flex flex-wrap gap-1">
-        {workflows.map((workflow) => {
+        {workflows.map((workflow, index) => {
           const label =
             workflow.title || workflow.workflow_id || "Unknown workflow"
           const workflowId = workflow.workflow_id
@@ -280,7 +280,7 @@ function ExcludedWorkflowGroupRow({
 
           return (
             <span
-              key={label}
+              key={`excluded-${label}-${index}`}
               className="inline-flex items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-foreground"
             >
               <WorkflowIcon className="size-3 text-muted-foreground" />
