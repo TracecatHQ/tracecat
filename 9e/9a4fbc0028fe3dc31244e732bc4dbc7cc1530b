@@ -1,0 +1,35 @@
+tracecat/identifiers/__init__.py
+  8df7d82528a01df8 63
+tests/unit/test_dependencies.py
+  8df7d82528a01df8 77-103
+tracecat/auth/dependencies.py
+  8df7d82528a01df8 96-102
+tests/unit/test_organization_settings.py
+  8df7d82528a01df8 2,696-725
+tracecat/api/app.py
+  8df7d82528a01df8 158-160,614-620,626-630,635-636
+tracecat/registry/sync/schemas.py
+  8df7d82528a01df8 90
+tracecat/settings/service.py
+  8df7d82528a01df8 347-348,350-356
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "9e9a4fbc0028fe3dc31244e732bc4dbc7cc1530b",
+  "prompts": {
+    "8df7d82528a01df8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc5e7-cf1c-7603-bbc2-3abb0476ca5e",
+        "model": "unknown"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 99,
+      "total_deletions": 16,
+      "accepted_lines": 93,
+      "overriden_lines": 0
+    }
+  }
+}
