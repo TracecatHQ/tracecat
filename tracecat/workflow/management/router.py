@@ -200,6 +200,7 @@ def wfs_and_defns_to_response(
                 error_handler=workflow.error_handler,
                 latest_definition=latest_defn,
                 folder_id=workflow.folder_id,
+                folder_path=workflow.folder.path if workflow.folder else None,
                 trigger_summary=trigger_summary_read,
             )
         )

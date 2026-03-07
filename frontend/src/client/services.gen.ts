@@ -654,6 +654,8 @@ import type {
   WorkflowExecutionsTerminateWorkflowExecutionResponse,
   WorkflowsAddTagData,
   WorkflowsAddTagResponse,
+  WorkflowsBulkPushWorkflowsData,
+  WorkflowsBulkPushWorkflowsResponse,
   WorkflowsCommitWorkflowData,
   WorkflowsCommitWorkflowResponse,
   WorkflowsCreateWorkflowData,
@@ -680,6 +682,8 @@ import type {
   WorkflowsListWorkflowsResponse,
   WorkflowsMoveWorkflowToFolderData,
   WorkflowsMoveWorkflowToFolderResponse,
+  WorkflowsPreviewBulkPushWorkflowsData,
+  WorkflowsPreviewBulkPushWorkflowsResponse,
   WorkflowsPublishWorkflowData,
   WorkflowsPublishWorkflowResponse,
   WorkflowsPullWorkflowsData,
@@ -2681,6 +2685,56 @@ export const workflowsPublishWorkflow = (
     path: {
       workflow_id: data.workflowId,
     },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Preview Bulk Push Workflows
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowBulkPushPreviewResponse Successful Response
+ * @throws ApiError
+ */
+export const workflowsPreviewBulkPushWorkflows = (
+  data: WorkflowsPreviewBulkPushWorkflowsData
+): CancelablePromise<WorkflowsPreviewBulkPushWorkflowsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflows/push/preview",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Bulk Push Workflows
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowBulkPushResult Successful Response
+ * @throws ApiError
+ */
+export const workflowsBulkPushWorkflows = (
+  data: WorkflowsBulkPushWorkflowsData
+): CancelablePromise<WorkflowsBulkPushWorkflowsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflows/push",
     query: {
       workspace_id: data.workspaceId,
     },

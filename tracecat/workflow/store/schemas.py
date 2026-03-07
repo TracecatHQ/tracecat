@@ -1,5 +1,6 @@
 import re
 from datetime import datetime, timedelta
+from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import (
@@ -7,6 +8,7 @@ from pydantic import (
     ConfigDict,
     Field,
     field_serializer,
+    field_validator,
     model_validator,
 )
 
@@ -91,6 +93,124 @@ class WorkflowSyncPullRequest(BaseModel):
         default=False,
         description="Validate only, don't perform actual import",
     )
+
+
+class WorkflowBulkPushExclusionReason(StrEnum):
+    NOT_FOUND = "not_found"
+    NOT_PUBLISHED = "not_published"
+    INVALID_CONFIGURATION = "invalid_configuration"
+
+
+class WorkflowBulkPushWorkflowStatus(StrEnum):
+    COMMITTED = "committed"
+    NO_OP = "no_op"
+    EXCLUDED = "excluded"
+
+
+class WorkflowBulkPushWorkflowSummary(BaseModel):
+    workflow_id: WorkflowIDShort
+    title: str
+    alias: str | None = None
+    folder_path: str | None = None
+    latest_definition_version: int
+    latest_definition_created_at: datetime
+
+
+class WorkflowBulkPushExcludedWorkflow(BaseModel):
+    workflow_id: WorkflowIDShort | None = None
+    title: str | None = None
+    reason: WorkflowBulkPushExclusionReason
+    message: str
+
+
+class WorkflowBulkPushPreviewRequest(BaseModel):
+    workflow_ids: list[WorkflowIDShort] = Field(default_factory=list, max_length=500)
+    folder_paths: list[str] = Field(default_factory=list, max_length=100)
+
+    @field_validator("folder_paths", mode="before")
+    @classmethod
+    def validate_folder_paths(cls, value: object) -> list[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("folder_paths must be a list of strings")
+
+        paths: list[str] = []
+        for path in value:
+            if not isinstance(path, str):
+                raise ValueError("folder_paths must contain only strings")
+            if stripped := path.strip():
+                paths.append(stripped)
+        return list(dict.fromkeys(paths))
+
+    @model_validator(mode="after")
+    def validate_selection(self) -> "WorkflowBulkPushPreviewRequest":
+        if not self.workflow_ids and not self.folder_paths:
+            raise ValueError("At least one workflow or folder selection is required")
+        return self
+
+
+class WorkflowBulkPushPreviewResponse(BaseModel):
+    eligible_workflows: list[WorkflowBulkPushWorkflowSummary] = Field(
+        default_factory=list
+    )
+    excluded_workflows: list[WorkflowBulkPushExcludedWorkflow] = Field(
+        default_factory=list
+    )
+    resolved_workflow_ids: list[WorkflowIDShort] = Field(default_factory=list)
+    branch: str
+    commit_message: str
+    pr_title: str
+    pr_body: str
+    can_submit: bool = False
+
+
+class WorkflowBulkPushRequest(BaseModel):
+    workflow_ids: list[WorkflowIDShort] = Field(default_factory=list, min_length=1)
+    branch: str
+    commit_message: str = Field(min_length=1, max_length=512)
+    pr_title: str = Field(min_length=1, max_length=256)
+    pr_body: str = Field(default="")
+
+    @field_validator("branch")
+    @classmethod
+    def validate_branch(cls, value: str) -> str:
+        return validate_short_branch_name(value.strip(), field_name="branch")
+
+    @field_validator("commit_message", "pr_title")
+    @classmethod
+    def validate_required_text_fields(cls, value: str) -> str:
+        if not (stripped := value.strip()):
+            raise ValueError("value cannot be empty")
+        return stripped
+
+    @field_validator("pr_body")
+    @classmethod
+    def strip_pr_body(cls, value: str) -> str:
+        return value.strip()
+
+
+class WorkflowBulkPushWorkflowResult(BaseModel):
+    workflow_id: WorkflowIDShort
+    title: str
+    path: str
+    status: WorkflowBulkPushWorkflowStatus
+    message: str | None = None
+
+
+class WorkflowBulkPushResult(BaseModel):
+    status: Literal["committed", "no_op"]
+    commit_sha: str | None = None
+    branch: str
+    base_branch: str
+    pr_url: str | None = None
+    pr_number: int | None = None
+    pr_reused: bool = False
+    message: str
+    selected_count: int
+    eligible_count: int
+    excluded_count: int
+    workflow_results: list[WorkflowBulkPushWorkflowResult] = Field(default_factory=list)
 
 
 _SER_DSL_KEY_ORDER = (

@@ -91,6 +91,7 @@ class WorkflowReadMinimal(Schema):
     error_handler: str | None = None
     latest_definition: WorkflowDefinitionReadMinimal | None = None
     folder_id: uuid.UUID | None = None
+    folder_path: str | None = None
     trigger_summary: WorkflowTriggerSummary | None = None
 
 
