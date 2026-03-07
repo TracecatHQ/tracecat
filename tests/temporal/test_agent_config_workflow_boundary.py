@@ -120,6 +120,21 @@ class AgentConfigDecodeWorkflow:
         return config.model_name
 
 
+@workflow.defn
+class LegacyAgentConfigPayloadDecodeWorkflow:
+    @workflow.run
+    async def run(self, _: str) -> str:
+        # This simulates replaying an activity result recorded before
+        # resolve_agent_preset_config_activity switched to AgentConfigPayload.
+        payload = await workflow.execute_activity(
+            "return_tracecat_agent_config",
+            start_to_close_timeout=timedelta(seconds=10),
+            result_type=AgentConfigPayload,
+        )
+        config = agent_config_from_payload(payload)
+        return config.model_name
+
+
 @pytest.mark.anyio
 async def test_agent_config_direct_boundary_reproduces_decode_failure(
     env: WorkflowEnvironment,
@@ -170,6 +185,29 @@ async def test_agent_config_payload_survives_temporal_activity_boundary(
             AgentConfigDecodeWorkflow.run,
             "x",
             id="test-agent-config-decode-1",
+            task_queue=task_queue,
+            execution_timeout=timedelta(seconds=15),
+        )
+        assert result == "gpt-5.2"
+
+
+@pytest.mark.anyio
+async def test_legacy_agent_config_payload_replays_as_agent_config_payload(
+    env: WorkflowEnvironment,
+) -> None:
+    """Legacy AgentConfig activity results should decode into AgentConfigPayload."""
+    task_queue = "test-legacy-agent-config-payload-decode"
+    async with Worker(
+        env.client,
+        task_queue=task_queue,
+        activities=[return_tracecat_agent_config],
+        workflows=[LegacyAgentConfigPayloadDecodeWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        result = await env.client.execute_workflow(
+            LegacyAgentConfigPayloadDecodeWorkflow.run,
+            "x",
+            id="test-legacy-agent-config-payload-decode-1",
             task_queue=task_queue,
             execution_timeout=timedelta(seconds=15),
         )

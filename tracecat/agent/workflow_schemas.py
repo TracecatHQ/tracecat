@@ -8,7 +8,23 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Discriminator, Field
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validator
+
+_LEGACY_AGENT_CONFIG_KEYS = frozenset({"deps_type", "custom_tools"})
+
+
+def _normalize_legacy_mcp_server_payload(value: Any) -> Any:
+    """Backfill the HTTP discriminator for MCP configs recorded before payload split."""
+    if not isinstance(value, dict):
+        return value
+
+    match value:
+        case {"type": str()}:
+            return value
+        case {"url": str()}:
+            return {"type": "http", **value}
+        case _:
+            return value
 
 
 class MCPHttpServerConfigPayload(BaseModel):
@@ -51,6 +67,24 @@ class AgentConfigPayload(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_workflow_history(cls, value: Any) -> Any:
+        """Accept the pre-payload AgentConfig shape stored in workflow history."""
+        if not isinstance(value, dict):
+            return value
+
+        normalized = {
+            key: item
+            for key, item in value.items()
+            if key not in _LEGACY_AGENT_CONFIG_KEYS
+        }
+        if isinstance(mcp_servers := normalized.get("mcp_servers"), list):
+            normalized["mcp_servers"] = [
+                _normalize_legacy_mcp_server_payload(server) for server in mcp_servers
+            ]
+        return normalized
 
     model_name: str
     model_provider: str
