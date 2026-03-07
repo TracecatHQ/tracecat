@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 from minio import Minio
 from minio.error import S3Error
 from sqlalchemy import create_engine, select, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -125,6 +126,15 @@ def _install_case_number_allocator(conn: Any) -> None:
             EXECUTE FUNCTION assign_workspace_case_number()
             """
         )
+    )
+
+
+def _lock_test_db_setup(conn: Any, db_uri: str) -> None:
+    """Serialize shared test DB setup across xdist workers."""
+    db_name = make_url(db_uri).database or "postgres"
+    conn.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:lock_key)::bigint)"),
+        {"lock_key": f"tests:db-setup:{db_name}"},
     )
 
 
@@ -331,6 +341,7 @@ def default_org(db: None, env_sandbox: None) -> Iterator[None]:
 
         # Ensure schema exists for service sessions that target the default DB.
         with sync_engine.begin() as conn:
+            _lock_test_db_setup(conn, sync_db_uri)
             Base.metadata.create_all(conn)
             _install_case_number_allocator(conn)
 
