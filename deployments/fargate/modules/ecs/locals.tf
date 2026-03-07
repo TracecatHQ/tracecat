@@ -43,6 +43,7 @@ locals {
     TRACECAT__RESULT_EXTERNALIZATION_ENABLED         = var.result_externalization_enabled
     TRACECAT__COLLECTION_MANIFESTS_ENABLED           = var.collection_manifests_enabled
     TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES = var.result_externalization_threshold_bytes
+    TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES = var.registry_sync_builtin_use_installed_site_packages
     TRACECAT__DB_SSLMODE                             = "require"
   }
 

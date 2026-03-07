@@ -64,6 +64,7 @@ module "ecs" {
   result_externalization_enabled         = var.result_externalization_enabled
   collection_manifests_enabled           = var.collection_manifests_enabled
   result_externalization_threshold_bytes = var.result_externalization_threshold_bytes
+  registry_sync_builtin_use_installed_site_packages = var.registry_sync_builtin_use_installed_site_packages
   workflow_artifact_retention_days       = var.workflow_artifact_retention_days
 
   # Database connection pool
