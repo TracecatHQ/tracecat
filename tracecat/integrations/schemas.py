@@ -21,7 +21,13 @@ from pydantic import (
 )
 
 from tracecat.identifiers import UserID, WorkspaceID
-from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
+from tracecat.integrations.enums import (
+    IntegrationStatus,
+    MCPAuthType,
+    MCPCatalogArtifactType,
+    MCPDiscoveryStatus,
+    OAuthGrantType,
+)
 from tracecat.integrations.types import MCPServerType
 
 
@@ -524,6 +530,33 @@ class MCPIntegrationUpdate(BaseModel):
         return value
 
 
+class MCPCatalogCounts(BaseModel):
+    """Active catalog counts grouped by artifact type."""
+
+    tools: int = Field(default=0, ge=0)
+    resources: int = Field(default=0, ge=0)
+    prompts: int = Field(default=0, ge=0)
+
+
+class MCPIntegrationCatalogEntryRead(BaseModel):
+    """Response model for a persisted MCP catalog entry."""
+
+    id: UUID4
+    mcp_integration_id: UUID4
+    workspace_id: WorkspaceID
+    integration_name: str
+    artifact_type: MCPCatalogArtifactType
+    artifact_key: str
+    artifact_ref: str
+    display_name: str | None
+    description: str | None
+    input_schema: dict[str, Any] | None
+    metadata: dict[str, Any] | None = None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
 class MCPIntegrationRead(BaseModel):
     """Response model for MCP integration."""
 
@@ -532,6 +565,7 @@ class MCPIntegrationRead(BaseModel):
     name: str
     description: str | None
     slug: str
+    scope_namespace: str
     # Server type
     server_type: MCPServerType
     # HTTP-type server fields
@@ -546,5 +580,13 @@ class MCPIntegrationRead(BaseModel):
     """Whether stdio_env is configured (actual values are not exposed)."""
     # General fields
     timeout: int | None
+    discovery_status: MCPDiscoveryStatus
+    catalog_version: int
+    last_discovery_attempt_at: datetime | None
+    last_discovered_at: datetime | None
+    last_discovery_error_code: str | None
+    last_discovery_error_summary: str | None
+    catalog_counts: MCPCatalogCounts = Field(default_factory=MCPCatalogCounts)
+    has_catalog: bool = False
     created_at: datetime
     updated_at: datetime

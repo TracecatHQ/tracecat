@@ -15,13 +15,19 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import MCPIntegration as MCPIntegrationModel
 from tracecat.db.models import OAuthStateDB
 from tracecat.integrations.dependencies import (
     ACProviderInfoDep,
     CCProviderInfoDep,
     ProviderInfoDep,
 )
-from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
+from tracecat.integrations.enums import (
+    IntegrationStatus,
+    MCPCatalogArtifactType,
+    MCPDiscoveryStatus,
+    OAuthGrantType,
+)
 from tracecat.integrations.providers import all_providers
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
@@ -35,6 +41,7 @@ from tracecat.integrations.schemas import (
     IntegrationReadMinimal,
     IntegrationTestConnectionResponse,
     IntegrationUpdate,
+    MCPCatalogCounts,
     MCPIntegrationCreate,
     MCPIntegrationRead,
     MCPIntegrationUpdate,
@@ -58,6 +65,58 @@ providers_router = APIRouter(prefix="/providers", tags=["providers"])
 
 mcp_router = APIRouter(prefix="/mcp-integrations", tags=["mcp-integrations"])
 """Routes for managing MCP integrations."""
+
+
+def _build_mcp_catalog_counts(
+    counts_by_type: dict[MCPCatalogArtifactType, int] | None,
+) -> MCPCatalogCounts:
+    if counts_by_type is None:
+        return MCPCatalogCounts()
+    return MCPCatalogCounts(
+        tools=counts_by_type.get(MCPCatalogArtifactType.TOOL, 0),
+        resources=counts_by_type.get(MCPCatalogArtifactType.RESOURCE, 0),
+        prompts=counts_by_type.get(MCPCatalogArtifactType.PROMPT, 0),
+    )
+
+
+def _serialize_mcp_integration(
+    integration: MCPIntegrationModel,
+    *,
+    counts_by_type: dict[MCPCatalogArtifactType, int] | None = None,
+) -> MCPIntegrationRead:
+    catalog_counts = _build_mcp_catalog_counts(counts_by_type)
+    return MCPIntegrationRead(
+        id=integration.id,
+        workspace_id=integration.workspace_id,
+        name=integration.name,
+        description=integration.description,
+        slug=integration.slug,
+        scope_namespace=integration.scope_namespace,
+        server_uri=integration.server_uri,
+        auth_type=integration.auth_type,
+        oauth_integration_id=integration.oauth_integration_id,
+        created_at=integration.created_at,
+        updated_at=integration.updated_at,
+        server_type=cast(MCPServerType, integration.server_type),
+        stdio_command=integration.stdio_command,
+        stdio_args=integration.stdio_args,
+        has_stdio_env=bool(integration.encrypted_stdio_env),
+        timeout=integration.timeout,
+        discovery_status=MCPDiscoveryStatus(integration.discovery_status),
+        catalog_version=integration.catalog_version,
+        last_discovery_attempt_at=integration.last_discovery_attempt_at,
+        last_discovered_at=integration.last_discovered_at,
+        last_discovery_error_code=integration.last_discovery_error_code,
+        last_discovery_error_summary=integration.last_discovery_error_summary,
+        catalog_counts=catalog_counts,
+        has_catalog=any(
+            (
+                catalog_counts.tools,
+                catalog_counts.resources,
+                catalog_counts.prompts,
+            )
+        ),
+    )
 
 
 @integrations_router.get("/callback")
@@ -825,23 +884,7 @@ async def create_mcp_integration(
             detail=str(exc),
         ) from exc
 
-    return MCPIntegrationRead(
-        id=mcp_integration.id,
-        workspace_id=mcp_integration.workspace_id,
-        name=mcp_integration.name,
-        description=mcp_integration.description,
-        slug=mcp_integration.slug,
-        server_uri=mcp_integration.server_uri,
-        auth_type=mcp_integration.auth_type,
-        oauth_integration_id=mcp_integration.oauth_integration_id,
-        created_at=mcp_integration.created_at,
-        updated_at=mcp_integration.updated_at,
-        server_type=cast(MCPServerType, mcp_integration.server_type),
-        stdio_command=mcp_integration.stdio_command,
-        stdio_args=mcp_integration.stdio_args,
-        has_stdio_env=bool(mcp_integration.encrypted_stdio_env),
-        timeout=mcp_integration.timeout,
-    )
+    return _serialize_mcp_integration(mcp_integration)
 
 
 @mcp_router.get("")
@@ -859,24 +902,14 @@ async def list_mcp_integrations(
 
     svc = IntegrationService(session, role=role)
     integrations = await svc.list_mcp_integrations()
+    catalog_counts = await svc.get_mcp_catalog_counts(
+        mcp_integration_ids=[integration.id for integration in integrations]
+    )
 
     return [
-        MCPIntegrationRead(
-            id=integration.id,
-            workspace_id=integration.workspace_id,
-            name=integration.name,
-            description=integration.description,
-            slug=integration.slug,
-            server_uri=integration.server_uri,
-            auth_type=integration.auth_type,
-            oauth_integration_id=integration.oauth_integration_id,
-            created_at=integration.created_at,
-            updated_at=integration.updated_at,
-            server_type=cast(MCPServerType, integration.server_type),
-            stdio_command=integration.stdio_command,
-            stdio_args=integration.stdio_args,
-            has_stdio_env=bool(integration.encrypted_stdio_env),
-            timeout=integration.timeout,
+        _serialize_mcp_integration(
+            integration,
+            counts_by_type=catalog_counts.get(integration.id),
         )
         for integration in integrations
     ]
@@ -904,22 +937,12 @@ async def get_mcp_integration(
             detail="MCP integration not found",
         )
 
-    return MCPIntegrationRead(
-        id=integration.id,
-        workspace_id=integration.workspace_id,
-        name=integration.name,
-        description=integration.description,
-        slug=integration.slug,
-        server_uri=integration.server_uri,
-        auth_type=integration.auth_type,
-        oauth_integration_id=integration.oauth_integration_id,
-        created_at=integration.created_at,
-        updated_at=integration.updated_at,
-        server_type=cast(MCPServerType, integration.server_type),
-        stdio_command=integration.stdio_command,
-        stdio_args=integration.stdio_args,
-        has_stdio_env=bool(integration.encrypted_stdio_env),
-        timeout=integration.timeout,
+    catalog_counts = await svc.get_mcp_catalog_counts(
+        mcp_integration_ids=[integration.id]
+    )
+    return _serialize_mcp_integration(
+        integration,
+        counts_by_type=catalog_counts.get(integration.id),
     )
 
 
@@ -954,22 +977,12 @@ async def update_mcp_integration(
             detail=str(exc),
         ) from exc
 
-    return MCPIntegrationRead(
-        id=integration.id,
-        workspace_id=integration.workspace_id,
-        name=integration.name,
-        description=integration.description,
-        slug=integration.slug,
-        server_uri=integration.server_uri,
-        auth_type=integration.auth_type,
-        oauth_integration_id=integration.oauth_integration_id,
-        created_at=integration.created_at,
-        updated_at=integration.updated_at,
-        server_type=cast(MCPServerType, integration.server_type),
-        stdio_command=integration.stdio_command,
-        stdio_args=integration.stdio_args,
-        has_stdio_env=bool(integration.encrypted_stdio_env),
-        timeout=integration.timeout,
+    catalog_counts = await svc.get_mcp_catalog_counts(
+        mcp_integration_ids=[integration.id]
+    )
+    return _serialize_mcp_integration(
+        integration,
+        counts_by_type=catalog_counts.get(integration.id),
     )
 
 
