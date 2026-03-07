@@ -1,0 +1,23 @@
+tracecat/agent/workflow_schemas.py
+  462f2376dba52a1e 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "e63ebaa76a261e9d04b6dd56b0004e2749c51a27",
+  "prompts": {
+    "462f2376dba52a1e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc58a-8b2a-7b83-84bd-e0f9b67b0834",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 102,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
