@@ -80,6 +80,9 @@ class RegistryReposService(BaseOrgService):
 
     async def delete_repository(self, repository: RegistryRepository) -> None:
         """Delete a registry repository."""
+        if repository.current_version_id is not None:
+            repository.current_version_id = None
+            await self.session.flush()
         await self.session.delete(repository)
         await self.session.commit()
 
