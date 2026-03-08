@@ -19,6 +19,12 @@ import {
   CaseReopenedEvent,
   CaseUpdatedEvent,
   CaseViewedEvent,
+  CommentCreatedEvent,
+  CommentDeletedEvent,
+  CommentReplyCreatedEvent,
+  CommentReplyDeletedEvent,
+  CommentReplyUpdatedEvent,
+  CommentUpdatedEvent,
   DropdownValueChangedEvent,
   EventActor,
   EventCreatedAt,
@@ -154,6 +160,30 @@ function CaseFeedEvent({
 
         {event.type === "payload_changed" && (
           <PayloadChangedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "comment_created" && (
+          <CommentCreatedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "comment_reply_created" && (
+          <CommentReplyCreatedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "comment_updated" && (
+          <CommentUpdatedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "comment_reply_updated" && (
+          <CommentReplyUpdatedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "comment_deleted" && (
+          <CommentDeletedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "comment_reply_deleted" && (
+          <CommentReplyDeletedEvent event={event} actor={actor} />
         )}
 
         {event.type === "dropdown_value_changed" && (

@@ -324,6 +324,47 @@ class PayloadChangedEvent(CaseEventBase):
     type: Literal[CaseEventType.PAYLOAD_CHANGED] = CaseEventType.PAYLOAD_CHANGED
 
 
+type CaseCommentDeleteMode = Literal["soft", "hard"]
+
+
+class CaseCommentEventBase(CaseEventBase):
+    comment_id: uuid.UUID
+    parent_id: uuid.UUID | None = None
+    thread_root_id: uuid.UUID
+
+
+class CommentCreatedEvent(CaseCommentEventBase):
+    type: Literal[CaseEventType.COMMENT_CREATED] = CaseEventType.COMMENT_CREATED
+
+
+class CommentUpdatedEvent(CaseCommentEventBase):
+    type: Literal[CaseEventType.COMMENT_UPDATED] = CaseEventType.COMMENT_UPDATED
+
+
+class CommentDeletedEvent(CaseCommentEventBase):
+    type: Literal[CaseEventType.COMMENT_DELETED] = CaseEventType.COMMENT_DELETED
+    delete_mode: CaseCommentDeleteMode
+
+
+class CommentReplyCreatedEvent(CaseCommentEventBase):
+    type: Literal[CaseEventType.COMMENT_REPLY_CREATED] = (
+        CaseEventType.COMMENT_REPLY_CREATED
+    )
+
+
+class CommentReplyUpdatedEvent(CaseCommentEventBase):
+    type: Literal[CaseEventType.COMMENT_REPLY_UPDATED] = (
+        CaseEventType.COMMENT_REPLY_UPDATED
+    )
+
+
+class CommentReplyDeletedEvent(CaseCommentEventBase):
+    type: Literal[CaseEventType.COMMENT_REPLY_DELETED] = (
+        CaseEventType.COMMENT_REPLY_DELETED
+    )
+    delete_mode: CaseCommentDeleteMode
+
+
 class TableRowLinkedEvent(CaseEventBase):
     type: Literal[CaseEventType.TABLE_ROW_LINKED] = CaseEventType.TABLE_ROW_LINKED
     table_id: uuid.UUID
@@ -381,6 +422,30 @@ class AssigneeChangedEventRead(CaseEventReadBase, AssigneeChangedEvent):
 
 class PayloadChangedEventRead(CaseEventReadBase, PayloadChangedEvent):
     """Event for when a case payload is changed."""
+
+
+class CommentCreatedEventRead(CaseEventReadBase, CommentCreatedEvent):
+    """Event for when a top-level comment is created."""
+
+
+class CommentUpdatedEventRead(CaseEventReadBase, CommentUpdatedEvent):
+    """Event for when a top-level comment is updated."""
+
+
+class CommentDeletedEventRead(CaseEventReadBase, CommentDeletedEvent):
+    """Event for when a top-level comment is deleted."""
+
+
+class CommentReplyCreatedEventRead(CaseEventReadBase, CommentReplyCreatedEvent):
+    """Event for when a reply is created."""
+
+
+class CommentReplyUpdatedEventRead(CaseEventReadBase, CommentReplyUpdatedEvent):
+    """Event for when a reply is updated."""
+
+
+class CommentReplyDeletedEventRead(CaseEventReadBase, CommentReplyDeletedEvent):
+    """Event for when a reply is deleted."""
 
 
 class AttachmentCreatedEvent(CaseEventBase):
@@ -549,6 +614,12 @@ type CaseEventVariant = Annotated[
     | TagAddedEvent
     | TagRemovedEvent
     | PayloadChangedEvent
+    | CommentCreatedEvent
+    | CommentUpdatedEvent
+    | CommentDeletedEvent
+    | CommentReplyCreatedEvent
+    | CommentReplyUpdatedEvent
+    | CommentReplyDeletedEvent
     | TaskCreatedEvent
     | TaskStatusChangedEvent
     | TaskDeletedEvent
@@ -582,6 +653,12 @@ class CaseEventRead(RootModel):
         | TagAddedEventRead
         | TagRemovedEventRead
         | PayloadChangedEventRead
+        | CommentCreatedEventRead
+        | CommentUpdatedEventRead
+        | CommentDeletedEventRead
+        | CommentReplyCreatedEventRead
+        | CommentReplyUpdatedEventRead
+        | CommentReplyDeletedEventRead
         | TaskCreatedEventRead
         | TaskStatusChangedEventRead
         | TaskPriorityChangedEventRead

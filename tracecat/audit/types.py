@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,7 @@ AuditResourceType = Literal[
     "secret",
     "organization_secret",
     "case",
+    "case_comment",
     "agent_preset",
     "agent_session",
     "organization_domain",
@@ -53,4 +54,5 @@ class AuditEvent(BaseModel):
     resource_id: uuid.UUID | None = None
     action: AuditAction
     status: AuditEventStatus
+    data: dict[str, Any] | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

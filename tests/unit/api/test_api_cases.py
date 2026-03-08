@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from tracecat.auth.types import Role
 from tracecat.cases import router as cases_router
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import (
     CaseCommentRead,
     CaseCommentThreadRead,
@@ -205,6 +205,45 @@ async def test_list_cases_with_filters(
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert len(data["items"]) == 1
+
+
+@pytest.mark.anyio
+async def test_list_case_events_includes_comment_activity(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    db_event = AsyncMock()
+    db_event.type = CaseEventType.COMMENT_REPLY_DELETED
+    db_event.user_id = test_admin_role.user_id
+    db_event.created_at = datetime(2024, 1, 1, tzinfo=UTC)
+    db_event.data = {
+        "comment_id": str(uuid.uuid4()),
+        "parent_id": str(uuid.uuid4()),
+        "thread_root_id": str(uuid.uuid4()),
+        "delete_mode": "hard",
+        "wf_exec_id": None,
+    }
+
+    with (
+        patch.object(cases_router, "CasesService") as mock_service_cls,
+        patch.object(cases_router, "search_users", new=AsyncMock(return_value=[])),
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_case
+        mock_service.events = AsyncMock()
+        mock_service.events.list_events.return_value = [db_event]
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            f"/cases/{mock_case.id}/events",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["events"][0]["type"] == "comment_reply_deleted"
+    assert data["events"][0]["delete_mode"] == "hard"
 
 
 @pytest.mark.anyio

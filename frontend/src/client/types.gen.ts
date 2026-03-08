@@ -1071,6 +1071,8 @@ export type CaseCommentCreate = {
   parent_id?: string | null
 }
 
+export type CaseCommentDeleteMode = "soft" | "hard"
+
 export type CaseCommentRead = {
   id: string
   created_at: string
@@ -1405,6 +1407,12 @@ export type CaseEventRead =
   | TagAddedEventRead
   | TagRemovedEventRead
   | PayloadChangedEventRead
+  | CommentCreatedEventRead
+  | CommentUpdatedEventRead
+  | CommentDeletedEventRead
+  | CommentReplyCreatedEventRead
+  | CommentReplyUpdatedEventRead
+  | CommentReplyDeletedEventRead
   | TaskCreatedEventRead
   | TaskStatusChangedEventRead
   | TaskPriorityChangedEventRead
@@ -1443,6 +1451,12 @@ export type CaseEventType =
   | "dropdown_value_changed"
   | "table_row_linked"
   | "table_row_unlinked"
+  | "comment_created"
+  | "comment_updated"
+  | "comment_deleted"
+  | "comment_reply_created"
+  | "comment_reply_updated"
+  | "comment_reply_deleted"
 
 export type CaseEventsWithUsers = {
   /**
@@ -2028,6 +2042,140 @@ export type CollectionObject = {
 }
 
 export type element_kind = "value" | "stored_object"
+
+/**
+ * Event for when a top-level comment is created.
+ */
+export type CommentCreatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  comment_id: string
+  parent_id?: string | null
+  thread_root_id: string
+  type?: "comment_created"
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a top-level comment is deleted.
+ */
+export type CommentDeletedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  comment_id: string
+  parent_id?: string | null
+  thread_root_id: string
+  type?: "comment_deleted"
+  delete_mode: CaseCommentDeleteMode
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a reply is created.
+ */
+export type CommentReplyCreatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  comment_id: string
+  parent_id?: string | null
+  thread_root_id: string
+  type?: "comment_reply_created"
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a reply is deleted.
+ */
+export type CommentReplyDeletedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  comment_id: string
+  parent_id?: string | null
+  thread_root_id: string
+  type?: "comment_reply_deleted"
+  delete_mode: CaseCommentDeleteMode
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a reply is updated.
+ */
+export type CommentReplyUpdatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  comment_id: string
+  parent_id?: string | null
+  thread_root_id: string
+  type?: "comment_reply_updated"
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a top-level comment is updated.
+ */
+export type CommentUpdatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  comment_id: string
+  parent_id?: string | null
+  thread_root_id: string
+  type?: "comment_updated"
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
 
 /**
  * Payload to continue a CE run after collecting approvals.

@@ -188,6 +188,23 @@ describe("CommentSection", () => {
     expect(
       screen.queryAllByRole("button", { name: "More options" })
     ).toHaveLength(1)
+    expect(
+      screen.getByRole("button", { name: "Hide replies" })
+    ).toBeInTheDocument()
+  })
+
+  it("toggles replies visibility for a parent thread", () => {
+    render(<CommentSection caseId="case-1" workspaceId="workspace-1" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide replies" }))
+
+    expect(screen.queryByText("Reply one")).not.toBeInTheDocument()
+    expect(
+      screen.queryByPlaceholderText("Leave a reply...")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Show replies" })
+    ).toBeInTheDocument()
   })
 
   it("submits parent_id through the inline reply composer", async () => {

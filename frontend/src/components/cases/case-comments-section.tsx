@@ -4,6 +4,8 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertCircle,
   ArrowUpIcon,
+  ChevronDown,
+  ChevronUp,
   MoreHorizontal,
   PencilIcon,
   Trash2Icon,
@@ -147,6 +149,8 @@ function CommentThread({
   const { comment } = thread
   const replies = thread.replies ?? []
   const canReply = !comment.is_deleted
+  const [repliesHidden, setRepliesHidden] = useState(false)
+  const hasReplies = replies.length > 0
 
   return (
     <section className="overflow-hidden rounded-lg border border-border/60">
@@ -159,10 +163,30 @@ function CommentThread({
           isEditing={editingCommentId === comment.id}
           onEdit={() => onEdit(comment.id)}
           onStopEditing={onStopEditing}
+          headerActions={
+            hasReplies ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-6 rounded-md text-muted-foreground hover:text-foreground"
+                onClick={() => setRepliesHidden((hidden) => !hidden)}
+              >
+                {repliesHidden ? (
+                  <ChevronDown className="size-4" />
+                ) : (
+                  <ChevronUp className="size-4" />
+                )}
+                <span className="sr-only">
+                  {repliesHidden ? "Show replies" : "Hide replies"}
+                </span>
+              </Button>
+            ) : null
+          }
         />
       </div>
 
-      {replies.length > 0 && (
+      {hasReplies && !repliesHidden && (
         <div className="border-t border-border/60">
           {replies.map((reply, index) => (
             <div
@@ -187,7 +211,7 @@ function CommentThread({
         </div>
       )}
 
-      {canReply ? (
+      {canReply && !repliesHidden ? (
         <div className="border-t border-border/60 px-5 py-3">
           <CommentComposer
             caseId={caseId}
@@ -210,6 +234,7 @@ function CommentRow({
   isEditing,
   onEdit,
   onStopEditing,
+  headerActions,
 }: {
   caseId: string
   workspaceId: string
@@ -218,10 +243,10 @@ function CommentRow({
   isEditing: boolean
   onEdit: () => void
   onStopEditing: () => void
+  headerActions?: React.ReactNode
 }) {
   const user = getCommentUser(comment)
   const canManage = !comment.is_deleted && currentUserId === comment.user?.id
-  const contentInsetClass = comment.is_deleted ? "" : "pl-7"
 
   return (
     <div className="group space-y-3">
@@ -248,6 +273,7 @@ function CommentRow({
 
         {!isEditing && canManage && (
           <div className="flex items-center gap-1">
+            {headerActions}
             <CommentActionsWithEditing
               caseId={caseId}
               workspaceId={workspaceId}
@@ -259,18 +285,16 @@ function CommentRow({
       </div>
 
       {isEditing ? (
-        <div className={contentInsetClass}>
-          <InlineCommentEdit
-            comment={comment}
-            caseId={caseId}
-            workspaceId={workspaceId}
-            onStopEditing={onStopEditing}
-          />
-        </div>
+        <InlineCommentEdit
+          comment={comment}
+          caseId={caseId}
+          workspaceId={workspaceId}
+          onStopEditing={onStopEditing}
+        />
       ) : comment.is_deleted ? (
         <p className="text-sm italic text-muted-foreground">Comment deleted</p>
       ) : (
-        <ScrollArea className={`w-full ${contentInsetClass}`}>
+        <ScrollArea className="w-full">
           <div className="min-w-0 text-sm leading-6">
             <CaseCommentViewer content={comment.content} />
           </div>

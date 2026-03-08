@@ -16,7 +16,9 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.sql.elements import ColumnElement
 
+from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
+from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
@@ -50,6 +52,12 @@ from tracecat.cases.schemas import (
     CaseUpdate,
     CaseViewedEvent,
     ClosedEvent,
+    CommentCreatedEvent,
+    CommentDeletedEvent,
+    CommentReplyCreatedEvent,
+    CommentReplyDeletedEvent,
+    CommentReplyUpdatedEvent,
+    CommentUpdatedEvent,
     CreatedEvent,
     FieldDiff,
     FieldsChangedEvent,
@@ -1245,6 +1253,123 @@ class CaseCommentsService(BaseWorkspaceService):
 
     service_name = "case_comments"
 
+    async def _get_case(self, case_id: uuid.UUID) -> Case:
+        statement = select(Case).where(
+            Case.workspace_id == self.workspace_id,
+            Case.id == case_id,
+        )
+        result = await self.session.execute(statement)
+        if (case := result.scalar_one_or_none()) is None:
+            raise TracecatNotFoundError(f"Case {case_id} not found")
+        return case
+
+    def _thread_root_id(
+        self, *, comment_id: uuid.UUID, parent_id: uuid.UUID | None
+    ) -> uuid.UUID:
+        return parent_id or comment_id
+
+    def _comment_event(
+        self,
+        *,
+        comment_id: uuid.UUID,
+        parent_id: uuid.UUID | None,
+        wf_exec_id: str | None = None,
+    ) -> CommentCreatedEvent | CommentReplyCreatedEvent:
+        kwargs = {
+            "comment_id": comment_id,
+            "parent_id": parent_id,
+            "thread_root_id": self._thread_root_id(
+                comment_id=comment_id, parent_id=parent_id
+            ),
+            "wf_exec_id": wf_exec_id,
+        }
+        if parent_id is None:
+            return CommentCreatedEvent(**kwargs)
+        return CommentReplyCreatedEvent(**kwargs)
+
+    def _comment_updated_event(
+        self,
+        *,
+        comment_id: uuid.UUID,
+        parent_id: uuid.UUID | None,
+        wf_exec_id: str | None = None,
+    ) -> CommentUpdatedEvent | CommentReplyUpdatedEvent:
+        kwargs = {
+            "comment_id": comment_id,
+            "parent_id": parent_id,
+            "thread_root_id": self._thread_root_id(
+                comment_id=comment_id, parent_id=parent_id
+            ),
+            "wf_exec_id": wf_exec_id,
+        }
+        if parent_id is None:
+            return CommentUpdatedEvent(**kwargs)
+        return CommentReplyUpdatedEvent(**kwargs)
+
+    def _comment_deleted_event(
+        self,
+        *,
+        comment_id: uuid.UUID,
+        parent_id: uuid.UUID | None,
+        delete_mode: Literal["soft", "hard"],
+        wf_exec_id: str | None = None,
+    ) -> CommentDeletedEvent | CommentReplyDeletedEvent:
+        kwargs = {
+            "comment_id": comment_id,
+            "parent_id": parent_id,
+            "thread_root_id": self._thread_root_id(
+                comment_id=comment_id, parent_id=parent_id
+            ),
+            "delete_mode": delete_mode,
+            "wf_exec_id": wf_exec_id,
+        }
+        if parent_id is None:
+            return CommentDeletedEvent(**kwargs)
+        return CommentReplyDeletedEvent(**kwargs)
+
+    def _comment_audit_data(
+        self,
+        *,
+        case_id: uuid.UUID,
+        comment_id: uuid.UUID,
+        parent_id: uuid.UUID | None,
+        content: str | None = None,
+        delete_mode: Literal["soft", "hard"] | None = None,
+    ) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "case_id": str(case_id),
+            "comment_id": str(comment_id),
+            "parent_id": str(parent_id) if parent_id is not None else None,
+            "thread_root_id": str(
+                self._thread_root_id(comment_id=comment_id, parent_id=parent_id)
+            ),
+            "is_reply": parent_id is not None,
+        }
+        if content is not None:
+            data["content"] = content
+        if delete_mode is not None:
+            data["delete_mode"] = delete_mode
+        return data
+
+    async def _audit_comment_event(
+        self,
+        *,
+        action: Literal["create", "update", "delete"],
+        comment_id: uuid.UUID,
+        status: AuditEventStatus,
+        data: dict[str, Any],
+    ) -> None:
+        async with AuditService.with_session(
+            role=self.role, session=self.session
+        ) as svc:
+            await svc.create_event(
+                resource_type="case_comment",
+                action=action,
+                resource_id=comment_id,
+                status=status,
+                data=data,
+            )
+
     async def get_comment(self, comment_id: uuid.UUID) -> CaseComment | None:
         """Get a comment by ID.
 
@@ -1440,19 +1565,56 @@ class CaseCommentsService(BaseWorkspaceService):
         Returns:
             The created comment
         """
-        await self._validate_parent_comment(case=case, parent_id=params.parent_id)
-        comment = CaseComment(
-            workspace_id=self.workspace_id,
+        comment_id = uuid.uuid4()
+        audit_data = self._comment_audit_data(
             case_id=case.id,
-            content=params.content,
+            comment_id=comment_id,
             parent_id=params.parent_id,
-            user_id=self.role.user_id,
+            content=params.content,
+        )
+        await self._audit_comment_event(
+            action="create",
+            comment_id=comment_id,
+            status=AuditEventStatus.ATTEMPT,
+            data=audit_data,
         )
 
-        self.session.add(comment)
-        await self.session.commit()
-        await self.session.refresh(comment)
+        try:
+            await self._validate_parent_comment(case=case, parent_id=params.parent_id)
+            comment = CaseComment(
+                id=comment_id,
+                workspace_id=self.workspace_id,
+                case_id=case.id,
+                content=params.content,
+                parent_id=params.parent_id,
+                user_id=self.role.user_id,
+            )
 
+            self.session.add(comment)
+            await CaseEventsService(session=self.session, role=self.role).create_event(
+                case=case,
+                event=self._comment_event(
+                    comment_id=comment.id,
+                    parent_id=comment.parent_id,
+                ),
+            )
+            await self.session.commit()
+            await self.session.refresh(comment)
+        except Exception:
+            await self._audit_comment_event(
+                action="create",
+                comment_id=comment_id,
+                status=AuditEventStatus.FAILURE,
+                data=audit_data,
+            )
+            raise
+
+        await self._audit_comment_event(
+            action="create",
+            comment_id=comment_id,
+            status=AuditEventStatus.SUCCESS,
+            data=audit_data,
+        )
         return comment
 
     @require_scope("case:update")
@@ -1474,26 +1636,65 @@ class CaseCommentsService(BaseWorkspaceService):
             TracecatNotFoundError: If the comment doesn't exist
             TracecatAuthorizationError: If the user doesn't own the comment
         """
-        # Check if the user owns the comment
-        if comment.user_id != self.role.user_id:
-            raise TracecatAuthorizationError("You cannot update this comment")
-        if comment.deleted_at is not None:
-            raise TracecatValidationError("Deleted comments cannot be updated")
-        if "parent_id" in params.model_fields_set:
-            raise TracecatValidationError("Changing a comment parent is not supported")
-        if "content" not in params.model_fields_set:
-            return comment
-        if params.content is None:
-            raise TracecatValidationError("Comment content is required")
+        audit_data = self._comment_audit_data(
+            case_id=comment.case_id,
+            comment_id=comment.id,
+            parent_id=comment.parent_id,
+            content=params.content,
+        )
+        await self._audit_comment_event(
+            action="update",
+            comment_id=comment.id,
+            status=AuditEventStatus.ATTEMPT,
+            data=audit_data,
+        )
 
-        comment.content = params.content
+        try:
+            if comment.user_id != self.role.user_id:
+                raise TracecatAuthorizationError("You cannot update this comment")
+            if comment.deleted_at is not None:
+                raise TracecatValidationError("Deleted comments cannot be updated")
+            if "parent_id" in params.model_fields_set:
+                raise TracecatValidationError(
+                    "Changing a comment parent is not supported"
+                )
+            if "content" not in params.model_fields_set:
+                await self._audit_comment_event(
+                    action="update",
+                    comment_id=comment.id,
+                    status=AuditEventStatus.SUCCESS,
+                    data=audit_data,
+                )
+                return comment
+            if params.content is None:
+                raise TracecatValidationError("Comment content is required")
+            comment.content = params.content
+            comment.last_edited_at = datetime.now(UTC)
+            case = await self._get_case(comment.case_id)
+            await CaseEventsService(session=self.session, role=self.role).create_event(
+                case=case,
+                event=self._comment_updated_event(
+                    comment_id=comment.id,
+                    parent_id=comment.parent_id,
+                ),
+            )
+            await self.session.commit()
+            await self.session.refresh(comment)
+        except Exception:
+            await self._audit_comment_event(
+                action="update",
+                comment_id=comment.id,
+                status=AuditEventStatus.FAILURE,
+                data=audit_data,
+            )
+            raise
 
-        # Set last_edited_at
-        comment.last_edited_at = datetime.now(UTC)
-
-        await self.session.commit()
-        await self.session.refresh(comment)
-
+        await self._audit_comment_event(
+            action="update",
+            comment_id=comment.id,
+            status=AuditEventStatus.SUCCESS,
+            data=audit_data,
+        )
         return comment
 
     @require_scope("case:delete")
@@ -1509,17 +1710,80 @@ class CaseCommentsService(BaseWorkspaceService):
             TracecatAuthorizationError: If the user doesn't own the comment
         """
 
-        # Check if the user owns the comment
-        if comment.user_id != self.role.user_id:
-            raise TracecatAuthorizationError("You can only delete your own comments")
-        if comment.parent_id is None and await self._comment_has_replies(comment.id):
-            if comment.deleted_at is None:
-                comment.deleted_at = datetime.now(UTC)
-                await self.session.commit()
-            return
+        delete_mode: Literal["soft", "hard"] = "hard"
+        await self._audit_comment_event(
+            action="delete",
+            comment_id=comment.id,
+            status=AuditEventStatus.ATTEMPT,
+            data=self._comment_audit_data(
+                case_id=comment.case_id,
+                comment_id=comment.id,
+                parent_id=comment.parent_id,
+            ),
+        )
 
-        await self.session.delete(comment)
-        await self.session.commit()
+        try:
+            if comment.user_id != self.role.user_id:
+                raise TracecatAuthorizationError(
+                    "You can only delete your own comments"
+                )
+
+            case = await self._get_case(comment.case_id)
+            if comment.parent_id is None and await self._comment_has_replies(
+                comment.id
+            ):
+                delete_mode = "soft"
+                if comment.deleted_at is None:
+                    comment.deleted_at = datetime.now(UTC)
+                await CaseEventsService(
+                    session=self.session, role=self.role
+                ).create_event(
+                    case=case,
+                    event=self._comment_deleted_event(
+                        comment_id=comment.id,
+                        parent_id=comment.parent_id,
+                        delete_mode=delete_mode,
+                    ),
+                )
+                await self.session.commit()
+            else:
+                await CaseEventsService(
+                    session=self.session, role=self.role
+                ).create_event(
+                    case=case,
+                    event=self._comment_deleted_event(
+                        comment_id=comment.id,
+                        parent_id=comment.parent_id,
+                        delete_mode=delete_mode,
+                    ),
+                )
+                await self.session.delete(comment)
+                await self.session.commit()
+        except Exception:
+            await self._audit_comment_event(
+                action="delete",
+                comment_id=comment.id,
+                status=AuditEventStatus.FAILURE,
+                data=self._comment_audit_data(
+                    case_id=comment.case_id,
+                    comment_id=comment.id,
+                    parent_id=comment.parent_id,
+                    delete_mode=delete_mode,
+                ),
+            )
+            raise
+
+        await self._audit_comment_event(
+            action="delete",
+            comment_id=comment.id,
+            status=AuditEventStatus.SUCCESS,
+            data=self._comment_audit_data(
+                case_id=comment.case_id,
+                comment_id=comment.id,
+                parent_id=comment.parent_id,
+                delete_mode=delete_mode,
+            ),
+        )
 
 
 class CaseEventsService(BaseWorkspaceService):

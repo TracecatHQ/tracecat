@@ -7,13 +7,14 @@ from typing import Any, Self
 
 import httpx
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.types import AuditAction, AuditEvent, AuditResourceType
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.contexts import ctx_client_ip, ctx_role
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.models import AuditEvent as DBAuditEvent
 from tracecat.db.models import User
 from tracecat.service import BaseService
 
@@ -183,44 +184,35 @@ class AuditService(BaseService):
                 status_code=getattr(response, "status_code", None),
             )
 
-    async def create_event(
-        self,
-        *,
-        resource_type: AuditResourceType,
-        action: AuditAction,
-        resource_id: uuid.UUID | None = None,
-        status: AuditEventStatus = AuditEventStatus.SUCCESS,
-    ) -> None:
-        # Skip audit if no role or no user_id (non-user operations)
-        # Note: PlatformRole.user_id is required, Role.user_id is optional
+    async def _get_actor_label(self) -> str | None:
         if self.role is None or self.role.user_id is None:
-            self.logger.debug(
-                "Skipping audit log", reason="non_user_role", role=self.role
-            )
-            return
-
-        webhook_url = await self._get_webhook_url()
-        if not webhook_url:
-            self.logger.debug("Skipping audit log", reason="webhook_unconfigured")
-            return
-
+            return None
         actor_label: str | None = None
         try:
             result = await self.session.execute(
                 select(User).where(User.id == self.role.user_id)  # pyright: ignore[reportArgumentType]
             )
-            user = result.scalar_one_or_none()
-            if user:
+            if (user := result.scalar_one_or_none()) is not None:
                 actor_label = user.email
         except Exception as exc:
             self.logger.warning("Failed to fetch actor email", error=str(exc))
+        return actor_label
 
-        # Extract org/workspace IDs - PlatformRole doesn't have these attributes
-        # For platform operations, these will be None
+    def _build_payload(
+        self,
+        *,
+        resource_type: AuditResourceType,
+        action: AuditAction,
+        resource_id: uuid.UUID | None,
+        status: AuditEventStatus,
+        actor_label: str | None,
+        data: dict[str, Any] | None,
+    ) -> AuditEvent:
+        if self.role is None or self.role.user_id is None:
+            raise ValueError("Audit payload requires a user-scoped role")
         organization_id = getattr(self.role, "organization_id", None)
         workspace_id = getattr(self.role, "workspace_id", None)
-
-        payload = AuditEvent(
+        return AuditEvent(
             organization_id=organization_id,
             workspace_id=workspace_id,
             actor_type=AuditEventActor.USER,
@@ -231,8 +223,87 @@ class AuditService(BaseService):
             action=action,
             status=status,
             ip_address=ctx_client_ip.get(),
+            data=data,
         )
-        await self._post_event(webhook_url=webhook_url, payload=payload)
+
+    async def _persist_event(self, payload: AuditEvent) -> None:
+        db_event = DBAuditEvent(
+            organization_id=payload.organization_id,
+            workspace_id=payload.workspace_id,
+            actor_type=payload.actor_type.value,
+            actor_id=payload.actor_id,
+            actor_label=payload.actor_label,
+            ip_address=payload.ip_address,
+            resource_type=payload.resource_type,
+            resource_id=payload.resource_id,
+            action=payload.action,
+            status=payload.status.value,
+            data=payload.data or {},
+            created_at=payload.created_at,
+            updated_at=payload.created_at,
+        )
+        self.session.add(db_event)
+        await self.session.commit()
+
+    @asynccontextmanager
+    async def _get_audit_session(self) -> AsyncGenerator[AsyncSession, None]:
+        bind = self.session.bind
+        if isinstance(bind, AsyncEngine):
+            async with AsyncSession(bind, expire_on_commit=False) as session:
+                yield session
+            return
+        if isinstance(bind, AsyncConnection):
+            async with AsyncSession(bind.engine, expire_on_commit=False) as session:
+                yield session
+            return
+
+        async with get_async_session_context_manager() as session:
+            yield session
+
+    async def create_event(
+        self,
+        *,
+        resource_type: AuditResourceType,
+        action: AuditAction,
+        resource_id: uuid.UUID | None = None,
+        status: AuditEventStatus = AuditEventStatus.SUCCESS,
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        # Skip audit if no role or no user_id (non-user operations)
+        # Note: PlatformRole.user_id is required, Role.user_id is optional
+        if self.role is None or self.role.user_id is None:
+            self.logger.debug(
+                "Skipping audit log", reason="non_user_role", role=self.role
+            )
+            return
+
+        async with self._get_audit_session() as session:
+            persisted_service = type(self)(session, role=self.role)
+            actor_label = await persisted_service._get_actor_label()
+            payload = persisted_service._build_payload(
+                resource_type=resource_type,
+                action=action,
+                resource_id=resource_id,
+                status=status,
+                actor_label=actor_label,
+                data=data,
+            )
+            await persisted_service._persist_event(payload)
+
+            webhook_url = await persisted_service._get_webhook_url()
+            if webhook_url:
+                try:
+                    await persisted_service._post_event(
+                        webhook_url=webhook_url, payload=payload
+                    )
+                except Exception as exc:
+                    self.logger.warning(
+                        "Failed to deliver audit webhook",
+                        error=str(exc),
+                        webhook_url=webhook_url,
+                    )
+            else:
+                self.logger.debug("Audit webhook is not configured")
         self.logger.debug(
-            "Streamed audit event", resource_type=resource_type, action=action
+            "Persisted audit event", resource_type=resource_type, action=action
         )

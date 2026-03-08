@@ -3,6 +3,7 @@ import {
   ClockPlusIcon,
   EyeIcon,
   type LucideIcon,
+  MessageSquareIcon,
   PaperclipIcon,
   PencilIcon,
   PencilLineIcon,
@@ -17,6 +18,12 @@ import type {
   AttachmentDeletedEventRead,
   CaseEventRead,
   ClosedEventRead,
+  CommentCreatedEventRead,
+  CommentDeletedEventRead,
+  CommentReplyCreatedEventRead,
+  CommentReplyDeletedEventRead,
+  CommentReplyUpdatedEventRead,
+  CommentUpdatedEventRead,
   DropdownValueChangedEventRead,
   FieldChangedEventRead,
   PayloadChangedEventRead,
@@ -450,6 +457,108 @@ export function PayloadChangedEvent({
       <EventIcon icon={PencilIcon} />
       <span>
         <EventActor user={actor} /> updated the payload
+      </span>
+    </div>
+  )
+}
+
+export function CommentCreatedEvent({
+  event: _event,
+  actor,
+}: {
+  event: CommentCreatedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={MessageSquareIcon} />
+      <span>
+        <EventActor user={actor} /> created a comment
+      </span>
+    </div>
+  )
+}
+
+export function CommentReplyCreatedEvent({
+  event: _event,
+  actor,
+}: {
+  event: CommentReplyCreatedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={MessageSquareIcon} />
+      <span>
+        <EventActor user={actor} /> replied to a comment
+      </span>
+    </div>
+  )
+}
+
+export function CommentUpdatedEvent({
+  event: _event,
+  actor,
+}: {
+  event: CommentUpdatedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={PencilIcon} />
+      <span>
+        <EventActor user={actor} /> edited a comment
+      </span>
+    </div>
+  )
+}
+
+export function CommentReplyUpdatedEvent({
+  event: _event,
+  actor,
+}: {
+  event: CommentReplyUpdatedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={PencilIcon} />
+      <span>
+        <EventActor user={actor} /> edited a reply
+      </span>
+    </div>
+  )
+}
+
+export function CommentDeletedEvent({
+  event: _event,
+  actor,
+}: {
+  event: CommentDeletedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={TrashIcon} />
+      <span>
+        <EventActor user={actor} /> deleted a comment
+      </span>
+    </div>
+  )
+}
+
+export function CommentReplyDeletedEvent({
+  event: _event,
+  actor,
+}: {
+  event: CommentReplyDeletedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={TrashIcon} />
+      <span>
+        <EventActor user={actor} /> deleted a reply
       </span>
     </div>
   )

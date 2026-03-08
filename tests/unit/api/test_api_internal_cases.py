@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from tracecat.auth.types import Role
 from tracecat.cases import internal_router as internal_cases_router
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.rows.schemas import CaseTableRowRead
 from tracecat.cases.schemas import CaseCommentRead, CaseCommentThreadRead
 from tracecat.db.models import Case, Workspace
@@ -232,6 +232,47 @@ async def test_internal_get_comment_thread_success(
         data = response.json()
         assert data["comment"]["id"] == str(top_level.id)
         assert data["replies"][0]["id"] == str(reply.id)
+
+
+@pytest.mark.anyio
+async def test_internal_list_case_events_includes_comment_activity(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_internal_case: Case,
+) -> None:
+    db_event = AsyncMock()
+    db_event.type = CaseEventType.COMMENT_CREATED
+    db_event.user_id = test_admin_role.user_id
+    db_event.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+    comment_id = uuid.uuid4()
+    db_event.data = {
+        "comment_id": str(comment_id),
+        "parent_id": None,
+        "thread_root_id": str(comment_id),
+        "wf_exec_id": None,
+    }
+
+    with (
+        patch.object(internal_cases_router, "CasesService") as mock_service_cls,
+        patch.object(
+            internal_cases_router, "search_users", new=AsyncMock(return_value=[])
+        ),
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_internal_case
+        mock_service.events = AsyncMock()
+        mock_service.events.list_events.return_value = [db_event]
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            f"/internal/cases/{mock_internal_case.id}/events",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["events"][0]["type"] == "comment_created"
+    assert data["events"][0]["comment_id"] == str(comment_id)
 
 
 @pytest.mark.anyio

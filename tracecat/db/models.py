@@ -398,6 +398,44 @@ class Ownership(Base):
     owner_type: Mapped[str] = mapped_column(String, nullable=False)
 
 
+class AuditEvent(Base, TimestampMixin):
+    """Persisted audit record for compliance and webhook delivery."""
+
+    __tablename__ = "audit_event"
+    __table_args__ = (
+        Index("ix_audit_event_created_at", "created_at"),
+        Index(
+            "ix_audit_event_organization_id_created_at", "organization_id", "created_at"
+        ),
+        Index("ix_audit_event_workspace_id_created_at", "workspace_id", "created_at"),
+        Index(
+            "ix_audit_event_resource_type_resource_id_created_at",
+            "resource_type",
+            "resource_id",
+            "created_at",
+        ),
+        Index("ix_audit_event_actor_id_created_at", "actor_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+    actor_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    actor_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    resource_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    data: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        default=dict,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+
+
 class Workspace(OrganizationModel):
     """A workspace belonging to an organization."""
 
