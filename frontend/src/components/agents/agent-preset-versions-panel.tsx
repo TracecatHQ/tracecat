@@ -30,6 +30,7 @@ import { Separator } from "@/components/ui/separator"
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import {
@@ -234,40 +235,25 @@ function VersionsHistoryView({
   }
 
   return (
-    <div className="flex flex-col">
-      {versions.map((version, index) => {
-        const isCurrent = version.id === currentVersionId
-        return (
-          <div key={version.id}>
-            <div className="flex items-center gap-3 px-4 py-3">
-              <div className="min-w-0 flex-1">
+    <TooltipProvider>
+      <div className="flex flex-col">
+        {versions.map((version, index) => {
+          const isCurrent = version.id === currentVersionId
+          return (
+            <div key={version.id}>
+              <div className="flex items-center gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{`v${version.version}`}</span>
+                    {isCurrent ? (
+                      <Badge variant="secondary">Current</Badge>
+                    ) : null}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {getRelativeTime(new Date(version.created_at))}
+                  </div>
+                </div>
                 <div className="flex items-center gap-2">
-                  <span className="font-medium">{`v${version.version}`}</span>
-                  {isCurrent ? (
-                    <Badge variant="secondary">Current</Badge>
-                  ) : null}
-                </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {getRelativeTime(new Date(version.created_at))}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-8"
-                      onClick={() => onCompare(version)}
-                      aria-label="Compare version"
-                    >
-                      <GitCompareArrows className="size-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Compare</TooltipContent>
-                </Tooltip>
-                {!isCurrent ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -275,23 +261,40 @@ function VersionsHistoryView({
                         variant="ghost"
                         size="icon"
                         className="size-8"
-                        disabled={restorePending}
-                        onClick={() => void onRestore(version.id)}
-                        aria-label="Restore version"
+                        onClick={() => onCompare(version)}
+                        aria-label="Compare"
                       >
-                        <RotateCcw className="size-3.5" />
+                        <GitCompareArrows className="size-3.5" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>Restore</TooltipContent>
+                    <TooltipContent>Compare</TooltipContent>
                   </Tooltip>
-                ) : null}
+                  {!isCurrent ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          disabled={restorePending}
+                          onClick={() => void onRestore(version.id)}
+                          aria-label="Restore"
+                        >
+                          <RotateCcw className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Restore</TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                </div>
               </div>
+              {index < versions.length - 1 ? <Separator /> : null}
             </div>
-            {index < versions.length - 1 ? <Separator /> : null}
-          </div>
-        )
-      })}
-    </div>
+          )
+        })}
+      </div>
+    </TooltipProvider>
   )
 }
 
