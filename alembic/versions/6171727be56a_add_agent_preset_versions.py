@@ -158,6 +158,25 @@ def upgrade() -> None:
             """
         )
     )
+    op.execute(
+        sa.text(
+            """
+            UPDATE agent_session AS session
+            SET agent_preset_version_id = ap.current_version_id
+            FROM agent_preset AS ap
+            WHERE session.agent_preset_version_id IS NULL
+              AND ap.current_version_id IS NOT NULL
+              AND (
+                session.agent_preset_id = ap.id
+                OR (
+                  session.agent_preset_id IS NULL
+                  AND session.entity_type = 'agent_preset'
+                  AND session.entity_id = ap.id
+                )
+              )
+            """
+        )
+    )
 
     op.create_foreign_key(
         op.f("fk_agent_preset_current_version_id_agent_preset_version"),

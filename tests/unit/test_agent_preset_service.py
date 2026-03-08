@@ -1,16 +1,22 @@
 """Tests for AgentPresetService."""
 
+import asyncio
 import uuid
+from datetime import UTC, datetime
 from typing import cast
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_CONFIG
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import (
+    AgentPreset,
+    AgentPresetVersion,
     RegistryAction,
     RegistryIndex,
     RegistryRepository,
@@ -339,6 +345,128 @@ class TestAgentPresetService:
         assert versions[0].instructions == "Updated instructions"
         assert versions[0].retries == 7
 
+    async def test_get_version_as_of_uses_historical_snapshot(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        version_1 = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+        version_1.created_at = datetime(2026, 3, 1, tzinfo=UTC)
+        version_1.updated_at = version_1.created_at
+        await agent_preset_service.session.commit()
+
+        updated_preset = await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(instructions="Updated instructions"),
+        )
+        version_2 = await agent_preset_service.get_current_version_for_preset(
+            updated_preset
+        )
+        version_2.created_at = datetime(2026, 3, 5, tzinfo=UTC)
+        version_2.updated_at = version_2.created_at
+        await agent_preset_service.session.commit()
+
+        historical = await agent_preset_service.get_version_as_of(
+            preset_id=created_preset.id,
+            as_of=datetime(2026, 3, 3, tzinfo=UTC),
+        )
+        earliest_fallback = await agent_preset_service.get_version_as_of(
+            preset_id=created_preset.id,
+            as_of=datetime(2026, 2, 1, tzinfo=UTC),
+        )
+
+        assert historical.id == version_1.id
+        assert earliest_fallback.id == version_1.id
+
+    async def test_update_preset_concurrently_allocates_unique_versions(
+        self,
+        agent_preset_create_params: AgentPresetCreate,
+        svc_role: Role,
+    ) -> None:
+        role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
+        concurrent_engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        session_factory = async_sessionmaker(
+            bind=concurrent_engine,
+            expire_on_commit=False,
+        )
+
+        try:
+            async with session_factory() as seed_session:
+                workspace = await seed_session.scalar(
+                    select(Workspace).where(Workspace.id == role.workspace_id)
+                )
+                if workspace is None:
+                    seed_session.add(
+                        Workspace(
+                            id=role.workspace_id,
+                            name="test-workspace",
+                            organization_id=role.organization_id,
+                        )
+                    )
+                    await seed_session.commit()
+
+                seed_service = AgentPresetService(
+                    session=seed_session,
+                    role=role.model_copy(deep=True),
+                )
+                created_preset = await seed_service.create_preset(
+                    agent_preset_create_params
+                )
+                await seed_session.commit()
+
+            async def update_preset(index: int) -> str:
+                async with session_factory() as concurrent_session:
+                    service = AgentPresetService(
+                        session=concurrent_session,
+                        role=role.model_copy(deep=True),
+                    )
+                    preset = await service.get_preset(created_preset.id)
+                    assert preset is not None
+                    updated = await service.update_preset(
+                        preset,
+                        AgentPresetUpdate(
+                            instructions=f"Concurrent instructions {index}",
+                        ),
+                    )
+                    return cast(str, updated.instructions)
+
+            updated_instructions = await asyncio.gather(
+                update_preset(1),
+                update_preset(2),
+            )
+
+            assert sorted(updated_instructions) == [
+                "Concurrent instructions 1",
+                "Concurrent instructions 2",
+            ]
+
+            async with session_factory() as verification_session:
+                versions = (
+                    (
+                        await verification_session.execute(
+                            select(AgentPresetVersion.version)
+                            .where(AgentPresetVersion.preset_id == created_preset.id)
+                            .order_by(AgentPresetVersion.version.asc())
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                preset = await verification_session.scalar(
+                    select(AgentPreset).where(AgentPreset.id == created_preset.id)
+                )
+
+            assert versions == [1, 2, 3]
+            assert preset is not None
+            assert preset.current_version_id is not None
+        finally:
+            await concurrent_engine.dispose()
+
     async def test_compare_versions_returns_structured_diff(
         self,
         agent_preset_service: AgentPresetService,
@@ -393,12 +521,12 @@ class TestAgentPresetService:
             for change in diff.tool_approval_changes
         )
 
-    async def test_restore_version_moves_current_pointer(
+    async def test_restore_version_creates_new_current_version(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Restoring an old version repoints current without creating another row."""
+        """Restoring an old version snapshots it as a new current version."""
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
@@ -413,11 +541,17 @@ class TestAgentPresetService:
         restored_preset = await agent_preset_service.restore_version(
             created_preset, version_1
         )
+        restored_version = await agent_preset_service.get_current_version_for_preset(
+            restored_preset
+        )
         versions = await agent_preset_service.list_versions(created_preset.id)
 
-        assert restored_preset.current_version_id == version_1.id
+        assert restored_preset.current_version_id == restored_version.id
+        assert restored_version.id != version_1.id
+        assert restored_version.version == 3
         assert restored_preset.instructions == agent_preset_create_params.instructions
-        assert [version.version for version in versions] == [2, 1]
+        assert restored_version.instructions == agent_preset_create_params.instructions
+        assert [version.version for version in versions] == [3, 2, 1]
 
     async def test_update_preset_slug(
         self,
