@@ -3409,6 +3409,7 @@ async def run_agent_preset(
     workspace_id: str,
     preset_slug: str,
     prompt: str,
+    preset_version: int | None = None,
     timeout_seconds: int = 120,
 ) -> str:
     """Run an agent preset with a prompt and return text or approval status.
@@ -3420,6 +3421,7 @@ async def run_agent_preset(
         workspace_id: The workspace ID (from list_workspaces).
         preset_slug: Slug of the agent preset to run (from list_agent_presets).
         prompt: The user prompt to send to the agent.
+        preset_version: Optional preset version number to pin.
         timeout_seconds: Max seconds to wait for response (default 120, max 300).
 
     Returns:
@@ -3435,6 +3437,10 @@ async def run_agent_preset(
             preset = await svc.get_preset_by_slug(preset_slug)
             if not preset:
                 raise ToolError(f"Agent preset '{preset_slug}' not found")
+            version = await svc.resolve_agent_preset_version(
+                slug=preset_slug,
+                preset_version=preset_version,
+            )
 
         # Create ephemeral session and run turn
         async with AgentSessionService.with_session(role=role) as svc:
@@ -3444,6 +3450,7 @@ async def run_agent_preset(
                     entity_type=AgentSessionEntity.AGENT_PRESET,
                     entity_id=preset.id,
                     agent_preset_id=preset.id,
+                    agent_preset_version_id=version.id,
                 )
             )
             # BasicChatRequest is handled at runtime by run_turn's match statement

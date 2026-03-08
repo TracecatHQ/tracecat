@@ -111,6 +111,7 @@
     "react": "^18.3.1",
     "react-colorful": "^5.6.1",
     "react-day-picker": "^9.11.1",
+    "react-diff-viewer-continued": "4.1.2",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.63.0",
     "react-hotkeys-hook": "^5.1.0",

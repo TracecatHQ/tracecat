@@ -9,6 +9,8 @@ import type {
   AgentSessionEntity,
   AgentSessionsGetSessionVercelResponse,
 } from "@/client"
+import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
+import { AgentPresetMenu } from "@/components/chat/agent-preset-menu"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
@@ -57,6 +59,11 @@ type PendingFirstMessage = {
   chatId: string
   text: string
 }
+
+type PresetConfigLike = Pick<
+  AgentPresetRead,
+  "model_name" | "model_provider" | "base_url"
+>
 
 export function ChatInterface({
   chatId,
@@ -108,11 +115,18 @@ export function ChatInterface({
     presetsIsLoading,
     presetsError,
     selectedPreset,
+    selectedPresetConfig,
     selectedPresetId: effectivePresetId,
+    selectedPresetVersionId,
+    versions,
+    versionsIsLoading,
+    versionsError,
     handlePresetChange,
+    handlePresetVersionChange,
     presetMenuLabel,
     presetMenuDisabled,
     showPresetSpinner,
+    versionMenuDisabled,
   } = useChatPresetManager({
     workspaceId,
     chat,
@@ -216,6 +230,7 @@ export function ChatInterface({
         entity_id: entityId,
         tools: selectedTools,
         agent_preset_id: effectivePresetId,
+        agent_preset_version_id: selectedPresetVersionId,
       })
 
       setIsCaseDraftChat(false)
@@ -275,6 +290,35 @@ export function ChatInterface({
 
           {/* Right-side actions */}
           <div className="flex items-center gap-1">
+            {presetsEnabled && (
+              <>
+                <AgentPresetMenu
+                  label={presetMenuLabel}
+                  presets={presetOptions}
+                  presetsIsLoading={presetsIsLoading}
+                  presetsError={presetsError}
+                  selectedPresetId={effectivePresetId}
+                  disabled={presetMenuDisabled}
+                  showSpinner={showPresetSpinner}
+                  noPresetDescription="Use workspace default case agent instructions."
+                  onSelect={(presetId) => void handlePresetChange(presetId)}
+                />
+                {effectivePresetId ? (
+                  <AgentPresetVersionSelect
+                    versions={versions}
+                    versionsIsLoading={versionsIsLoading}
+                    versionsError={versionsError}
+                    selectedVersionId={selectedPresetVersionId}
+                    currentVersionId={
+                      selectedPreset?.current_version_id ?? null
+                    }
+                    onSelect={handlePresetVersionChange}
+                    disabled={versionMenuDisabled}
+                    triggerClassName="h-8 w-[10rem] text-xs"
+                  />
+                ) : null}
+              </>
+            )}
             {/* New chat icon button with tooltip */}
             <AlertDialog
               open={newChatDialogOpen}
@@ -328,7 +372,7 @@ export function ChatInterface({
           chat={chat}
           chatLoading={chatLoading}
           chatError={chatError}
-          selectedPreset={selectedPreset}
+          selectedPreset={selectedPresetConfig ?? selectedPreset}
           toolsEnabled={!selectedPreset}
           draftMode={
             entityType === "case" && (isCaseDraftChat || chats?.length === 0)
@@ -377,7 +421,7 @@ interface ChatBodyProps {
   chat?: AgentSessionsGetSessionVercelResponse
   chatLoading: boolean
   chatError: unknown
-  selectedPreset?: AgentPresetRead
+  selectedPreset?: PresetConfigLike
   toolsEnabled: boolean
   draftMode: boolean
   presetSelector?: {
