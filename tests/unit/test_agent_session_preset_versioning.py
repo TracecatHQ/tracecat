@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
@@ -65,6 +66,46 @@ async def test_update_session_resolves_current_version_when_preset_changes() -> 
     assert updated.agent_preset_version_id == resolved_version_id
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(agent_session)
+
+
+@pytest.mark.anyio
+async def test_ensure_session_preset_version_id_uses_session_creation_time() -> None:
+    service, session, role = _build_service()
+    preset_id = uuid.uuid4()
+    resolved_version_id = uuid.uuid4()
+    agent_session = AgentSession(
+        workspace_id=role.workspace_id,
+        title="Chat",
+        created_by=uuid.uuid4(),
+        entity_type="case",
+        entity_id=uuid.uuid4(),
+        agent_preset_id=preset_id,
+        agent_preset_version_id=None,
+    )
+    agent_session.created_at = datetime(2026, 3, 1, tzinfo=UTC)
+    agent_session.updated_at = datetime(2026, 3, 8, tzinfo=UTC)
+
+    get_version_as_of = AsyncMock(return_value=SimpleNamespace(id=resolved_version_id))
+
+    preset_service = Mock()
+    preset_service.get_version_as_of = get_version_as_of
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            "tracecat.agent.session.service.AgentPresetService",
+            Mock(return_value=preset_service),
+        )
+
+        resolved = await service._ensure_session_preset_version_id(agent_session)
+
+    assert resolved == resolved_version_id
+    assert agent_session.agent_preset_version_id == resolved_version_id
+    get_version_as_of.assert_awaited_once_with(
+        preset_id=preset_id,
+        as_of=agent_session.created_at,
+    )
+    session.add.assert_called_with(agent_session)
+    session.commit.assert_awaited_once()
 
 
 @pytest.mark.anyio

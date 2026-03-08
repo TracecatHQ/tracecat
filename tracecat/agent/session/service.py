@@ -224,8 +224,9 @@ class AgentSessionService(BaseWorkspaceService):
             return None
 
         preset_service = AgentPresetService(self.session, self.role)
-        version = await preset_service.resolve_agent_preset_version(
-            preset_id=logical_preset_id
+        version = await preset_service.get_version_as_of(
+            preset_id=logical_preset_id,
+            as_of=agent_session.created_at,
         )
         agent_session.agent_preset_version_id = version.id
         self.session.add(agent_session)
