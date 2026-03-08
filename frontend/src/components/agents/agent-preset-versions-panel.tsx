@@ -377,12 +377,6 @@ function VersionsCompareView({
 
       {diff && !diffIsLoading ? (
         <div className="space-y-5">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Badge variant="secondary">
-              {`Viewing ${totalChanges} change${totalChanges === 1 ? "" : "s"} from ${getVersionName(baseVersion)} to ${getVersionName(compareVersion)}`}
-            </Badge>
-          </div>
-
           <div className="space-y-2">
             <div className="text-sm font-medium">Prompt changes</div>
             <AgentPresetPromptDiff
