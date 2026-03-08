@@ -1,0 +1,78 @@
+tracecat/agent/preset/activities.py
+  7c88439a098ab173 17-18,22,24-26,28,41-42
+tracecat/agent/preset/router.py
+  7c88439a098ab173 4,11-13,143-241
+tracecat/agent/preset/service.py
+  560f59c8440197f6 215-219,973-984
+  7c88439a098ab173 15,17-22,32,57-69,115-130,132-134,163,183-185,190-192,196-198,202-205,225,228-230,232,237-239,242-244,246,254-255,258-281,283,285-315,317-319,779-814,818-944,946-947,949,952,955-972,985-990,998,1002-1022
+tracecat/agent/session/activities.py
+  7c88439a098ab173 37,94
+tracecat/agent/mcp/internal_tools.py
+  7c88439a098ab173 412
+tracecat/agent/session/service.py
+  7c88439a098ab173 132-137,149,161-233,413-414,416-421,423,430-432,434-435,437,445,450-451,455,457,459-461,464-467,1001,1214-1216,1222-1223,1247-1248,1256,1288,1323-1325,1329,1358
+  560f59c8440197f6 415,424-429,433,436,438-444,446-449,452-453,456,458,462
+tracecat/agent/schemas.py
+  7c88439a098ab173 39-40,57-58,275,284-285
+tracecat/agent/service.py
+  7c88439a098ab173 374-375,383-384,396-397
+tracecat/agent/session/schemas.py
+  7c88439a098ab173 51-54,73-75,111
+tracecat/chat/schemas.py
+  7c88439a098ab173 98-105,126-128,171-173
+tracecat/dsl/workflow.py
+  7c88439a098ab173 1077
+tracecat/db/models.py
+  7c88439a098ab173 2417-2422,2954-2958,3013-3022,3024,3032-3113
+  560f59c8440197f6 3023
+packages/tracecat-registry/tracecat_registry/core/agent.py
+  7c88439a098ab173 242-245
+packages/tracecat-registry/tracecat_registry/sdk/agents.py
+  7c88439a098ab173 300,312,327-328
+packages/tracecat-ee/tracecat_ee/agent/workflows/durable.py
+  7c88439a098ab173 81-83,190-191,310
+tracecat/mcp/server.py
+  7c88439a098ab173 3412,3424,3440-3443,3453
+tracecat/agent/internal_router.py
+  7c88439a098ab173 55-56
+tracecat/agent/preset/schemas.py
+  7c88439a098ab173 16-17,32-35,72,84,115-137,140-171
+  560f59c8440197f6 7,138-139
+tracecat/agent/session/router.py
+  7c88439a098ab173 137,160,201,222
+packages/tracecat-ee/tracecat_ee/agent/schemas.py
+  7c88439a098ab173 40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "1b1e3b4f7df6117cf47772acda39389e192a60bd",
+  "prompts": {
+    "560f59c8440197f6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cc9e5-3572-7261-a743-21cb4edc467e",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 63,
+      "total_deletions": 38,
+      "accepted_lines": 46,
+      "overriden_lines": 0
+    },
+    "7c88439a098ab173": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cca02-aa8b-7741-8ce9-b4df6d43b151",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 863,
+      "total_deletions": 41,
+      "accepted_lines": 824,
+      "overriden_lines": 0
+    }
+  }
+}
