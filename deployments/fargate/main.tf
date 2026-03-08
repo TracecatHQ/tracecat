@@ -65,6 +65,7 @@ module "ecs" {
   collection_manifests_enabled           = var.collection_manifests_enabled
   result_externalization_threshold_bytes = var.result_externalization_threshold_bytes
   workflow_artifact_retention_days       = var.workflow_artifact_retention_days
+  unsafe_enable_verbose_log_payloads     = var.unsafe_enable_verbose_log_payloads
 
   # Database connection pool
   db_max_overflow          = var.db_max_overflow
@@ -83,9 +84,10 @@ module "ecs" {
   temporal_db_snapshot_name        = var.temporal_db_snapshot_name
 
   # Secrets from AWS Secrets Manager
-  tracecat_db_encryption_key_arn = var.tracecat_db_encryption_key_arn
-  tracecat_service_key_arn       = var.tracecat_service_key_arn
-  tracecat_signing_secret_arn    = var.tracecat_signing_secret_arn
+  tracecat_db_encryption_key_arn      = var.tracecat_db_encryption_key_arn
+  tracecat_service_key_arn            = var.tracecat_service_key_arn
+  tracecat_signing_secret_arn         = var.tracecat_signing_secret_arn
+  tracecat_log_redaction_hmac_key_arn = var.tracecat_log_redaction_hmac_key_arn
 
   # Authentication
   auth_types               = var.auth_types

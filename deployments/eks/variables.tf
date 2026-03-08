@@ -193,6 +193,18 @@ variable "tracecat_secrets_arn" {
   type        = string
 }
 
+variable "tracecat_log_redaction_hmac_key_arn" {
+  description = "ARN of the AWS Secrets Manager secret containing the HMAC key used for log redaction hashing"
+  type        = string
+  default     = ""
+}
+
+variable "unsafe_enable_verbose_log_payloads" {
+  description = "Allow verbose payload logging in runtime services. This should remain false outside development."
+  type        = bool
+  default     = false
+}
+
 # Data Services (always provisioned)
 
 variable "rds_instance_class" {

@@ -50,7 +50,9 @@ module "eks" {
   superadmin_email       = var.superadmin_email
 
   # Tracecat Secrets (AWS Secrets Manager ARN)
-  tracecat_secrets_arn = var.tracecat_secrets_arn
+  tracecat_secrets_arn                = var.tracecat_secrets_arn
+  tracecat_log_redaction_hmac_key_arn = var.tracecat_log_redaction_hmac_key_arn
+  unsafe_enable_verbose_log_payloads  = var.unsafe_enable_verbose_log_payloads
 
   # Data Services Configuration
   rds_instance_class         = var.rds_instance_class
