@@ -48,6 +48,22 @@ export function formatAgentPresetVersionLabel({
   return selectedVersionNumber ? `Version ${selectedVersionNumber}` : "Version"
 }
 
+export function getAgentPresetVersionFallbackLabel({
+  currentVersionId,
+  selectedVersionId,
+}: {
+  currentVersionId?: string | null
+  selectedVersionId?: string | null
+}): string {
+  if (!selectedVersionId) {
+    return "Current"
+  }
+  if (selectedVersionId === currentVersionId) {
+    return "Current version"
+  }
+  return "Pinned version"
+}
+
 function VersionLabel({
   label,
   versionNumber,
@@ -146,6 +162,10 @@ export function AgentPresetVersionSelect({
               isCurrent={
                 !selectedVersionId || selectedVersionId === currentVersionId
               }
+              fallback={getAgentPresetVersionFallbackLabel({
+                currentVersionId,
+                selectedVersionId,
+              })}
             />
           )}
         </SelectValue>

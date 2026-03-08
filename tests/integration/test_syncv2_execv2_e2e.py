@@ -79,8 +79,8 @@ from tracecat.storage import blob
 # =============================================================================
 
 # MinIO test configuration - use the published host port from the current stack.
-# Credentials are read from env to match docker-compose/.env in CI and local dev.
-MINIO_ENDPOINT = f"localhost:{os.environ.get('MINIO_PORT', '9000')}"
+# Treat an empty MINIO_PORT the same as unset to match deployed env handling.
+MINIO_ENDPOINT = f"localhost:{os.environ.get('MINIO_PORT') or '9000'}"
 TEST_BUCKET = "test-tracecat-registry"
 
 
