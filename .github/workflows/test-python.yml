@@ -75,6 +75,8 @@ jobs:
   test-all:
     runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 60
+    env:
+      COMPOSE_PROJECT_NAME: tracecat-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.test_group }}
     strategy:
       matrix:
         test_group:
@@ -113,7 +115,15 @@ jobs:
         env:
           COMPOSE_BAKE: "true"
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
-        run: docker compose -f docker-compose.dev.yml up -d temporal api postgres_db caddy minio
+        run: |
+          docker compose -f docker-compose.dev.yml up \
+            --build \
+            --abort-on-container-exit \
+            --exit-code-from migrations \
+            migrations
+
+          docker compose -f docker-compose.dev.yml up -d temporal postgres_db caddy minio redis
+          docker compose -f docker-compose.dev.yml up -d --no-deps api
 
       - name: Install dependencies
         run: uv sync --frozen
@@ -146,6 +156,9 @@ jobs:
           echo "=== Docker Service Status ==="
           docker compose -f docker-compose.dev.yml ps
 
+          echo "=== Migrations Logs ==="
+          docker compose -f docker-compose.dev.yml logs migrations --tail=200
+
           echo "=== Temporal Logs ==="
           docker compose -f docker-compose.dev.yml logs temporal --tail=200
 
@@ -154,3 +167,7 @@ jobs:
 
           echo "=== Postgres Logs ==="
           docker compose -f docker-compose.dev.yml logs postgres_db --tail=200
+
+      - name: Clean up
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down -v --remove-orphans
