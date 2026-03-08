@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -26,14 +26,27 @@ router = APIRouter(
     include_in_schema=False,
 )
 
+PresetName = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
+]
+PresetSlug = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=160),
+]
+PresetModelField = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
+]
+
 
 class PresetCreateRequest(BaseModel):
     """Request body for creating an agent preset."""
 
-    name: str = Field(..., min_length=1, max_length=120)
-    model_name: str = Field(..., min_length=1, max_length=120)
-    model_provider: str = Field(..., min_length=1, max_length=120)
-    slug: str | None = Field(default=None, min_length=1, max_length=160)
+    name: PresetName
+    model_name: PresetModelField
+    model_provider: PresetModelField
+    slug: PresetSlug | None = None
     description: str | None = Field(default=None, max_length=1000)
     instructions: str | None = Field(default=None)
     base_url: str | None = Field(default=None, max_length=500)
@@ -44,12 +57,12 @@ class PresetCreateRequest(BaseModel):
 class PresetUpdateRequest(BaseModel):
     """Request body for updating an agent preset."""
 
-    name: str | None = Field(default=None, min_length=1, max_length=120)
-    slug: str | None = Field(default=None, min_length=1, max_length=160)
+    name: PresetName | None = None
+    slug: PresetSlug | None = None
     description: str | None = Field(default=None, max_length=1000)
     instructions: str | None = Field(default=None)
-    model_name: str | None = Field(default=None, min_length=1, max_length=120)
-    model_provider: str | None = Field(default=None, min_length=1, max_length=120)
+    model_name: PresetModelField | None = None
+    model_provider: PresetModelField | None = None
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)

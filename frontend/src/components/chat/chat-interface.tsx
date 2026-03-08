@@ -136,6 +136,7 @@ export function ChatInterface({
     selectedChatId,
     enabled: presetsEnabled,
   })
+  const activePreset = selectedPresetConfig ?? selectedPreset
 
   useEffect(() => {
     setAutoCreateAttempted(false)
@@ -372,8 +373,8 @@ export function ChatInterface({
           chat={chat}
           chatLoading={chatLoading}
           chatError={chatError}
-          selectedPreset={selectedPresetConfig ?? selectedPreset}
-          toolsEnabled={!selectedPreset}
+          selectedPreset={activePreset}
+          toolsEnabled={!activePreset}
           draftMode={
             entityType === "case" && (isCaseDraftChat || chats?.length === 0)
           }

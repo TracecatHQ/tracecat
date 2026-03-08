@@ -13,13 +13,14 @@ export function canSubmitAgentPresetForm({
   modelProvider: string
   modelName: string
 }) {
+  const hasRequiredFields =
+    name.trim().length > 0 &&
+    modelProvider.trim().length > 0 &&
+    modelName.trim().length > 0
+
   if (mode === "edit") {
-    return isDirty
+    return isDirty && hasRequiredFields
   }
 
-  return Boolean(
-    name.trim().length > 0 &&
-      modelProvider.trim().length > 0 &&
-      modelName.trim().length > 0
-  )
+  return hasRequiredFields
 }
