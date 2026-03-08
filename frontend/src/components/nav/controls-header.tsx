@@ -62,6 +62,7 @@ import {
 } from "@/components/members/members-view-toggle"
 import { CreateGroupButton } from "@/components/rbac/create-group-button"
 import { CreateRoleButton } from "@/components/rbac/create-role-button"
+import { AwsCredentialSyncAction } from "@/components/secrets/aws-credential-sync-action"
 import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
@@ -931,6 +932,7 @@ function CredentialsActions() {
         Add credential
       </Button>
 
+      <AwsCredentialSyncAction />
       <CreateCredentialDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </>
   )

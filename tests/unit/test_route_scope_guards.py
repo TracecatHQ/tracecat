@@ -12,6 +12,7 @@ from tracecat.inbox import router as inbox_router
 from tracecat.integrations import router as integrations_router
 from tracecat.organization import router as organization_router
 from tracecat.registry.repositories import router as registry_repos_router
+from tracecat.secrets.sync import router as credential_sync_router
 from tracecat.tables import router as tables_router
 from tracecat.vcs import router as vcs_router
 from tracecat.workflow.executions import router as workflow_executions_router
@@ -186,4 +187,32 @@ async def test_integration_scope_guards(
     ],
 )
 async def test_vcs_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (
+            credential_sync_router.get_aws_credential_sync_config,
+            "org:credential-sync:manage",
+        ),
+        (
+            credential_sync_router.update_aws_credential_sync_config,
+            "org:credential-sync:manage",
+        ),
+        (
+            credential_sync_router.push_aws_credential_sync,
+            "org:credential-sync:manage",
+        ),
+        (
+            credential_sync_router.pull_aws_credential_sync,
+            "org:credential-sync:manage",
+        ),
+    ],
+)
+async def test_credential_sync_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)

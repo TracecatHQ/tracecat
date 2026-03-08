@@ -23,6 +23,8 @@ import {
   ApiError,
   type AppSettingsRead,
   type AuditSettingsRead,
+  type AwsCredentialSyncConfigRead,
+  type AwsCredentialSyncConfigUpdate,
   actionsDeleteAction,
   actionsGetAction,
   actionsUpdateAction,
@@ -233,8 +235,12 @@ import {
   schedulesUpdateSchedule,
   secretsCreateSecret,
   secretsDeleteSecretById,
+  secretsGetAwsCredentialSyncConfig,
   secretsListSecretDefinitions,
   secretsListSecrets,
+  secretsPullAwsCredentialSync,
+  secretsPushAwsCredentialSync,
+  secretsUpdateAwsCredentialSyncConfig,
   secretsUpdateSecretById,
   settingsGetAgentSettings,
   settingsGetAppSettings,
@@ -359,6 +365,7 @@ import {
 } from "@/lib/case-durations"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import type { ModelInfo } from "@/lib/chat"
+import { formatCredentialSyncResultSummary } from "@/lib/credential-sync"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -1747,6 +1754,135 @@ export function useOrgSecrets() {
     orgSSHKeys,
     orgSSHKeysIsLoading,
     orgSSHKeysError,
+  }
+}
+
+export function useAwsCredentialSync(
+  workspaceId: string,
+  options: { configEnabled?: boolean } = {}
+) {
+  const queryClient = useQueryClient()
+  const configEnabled = options.configEnabled ?? true
+  const {
+    data: awsCredentialSyncConfig,
+    isLoading: awsCredentialSyncConfigIsLoading,
+    error: awsCredentialSyncConfigError,
+    refetch: refetchAwsCredentialSyncConfig,
+  } = useQuery<AwsCredentialSyncConfigRead>({
+    queryKey: ["aws-credential-sync-config"],
+    queryFn: async () => await secretsGetAwsCredentialSyncConfig(),
+    enabled: configEnabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+
+  const {
+    mutateAsync: updateAwsCredentialSyncConfig,
+    isPending: isUpdatingAwsCredentialSyncConfig,
+  } = useMutation({
+    mutationFn: async (params: AwsCredentialSyncConfigUpdate) =>
+      await secretsUpdateAwsCredentialSyncConfig({
+        requestBody: params,
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["aws-credential-sync-config"],
+      })
+      toast({
+        title: "Saved AWS sync settings",
+        description:
+          "Organization-wide AWS Secrets Manager settings updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to save AWS sync settings", error)
+      toast({
+        title: "Failed to save AWS sync settings",
+        description:
+          error.status === 422
+            ? "Check the AWS settings and try again."
+            : "Could not update the organization AWS sync settings.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  const {
+    mutateAsync: pushAwsCredentialSync,
+    isPending: isPushingAwsCredentialSync,
+  } = useMutation({
+    mutationFn: async () =>
+      await secretsPushAwsCredentialSync({
+        workspaceId,
+      }),
+    onSuccess: (result) => {
+      toast({
+        title:
+          (result.failed ?? 0) > 0
+            ? "Push completed with errors"
+            : "Pushed credentials to AWS",
+        description: formatCredentialSyncResultSummary(result),
+        variant: (result.failed ?? 0) > 0 ? "destructive" : "default",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to push credentials to AWS", error)
+      toast({
+        title: "Failed to push credentials",
+        description:
+          error.status === 400
+            ? "Save valid AWS sync settings before pushing."
+            : "Could not push credentials to AWS Secrets Manager.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  const {
+    mutateAsync: pullAwsCredentialSync,
+    isPending: isPullingAwsCredentialSync,
+  } = useMutation({
+    mutationFn: async () =>
+      await secretsPullAwsCredentialSync({
+        workspaceId,
+      }),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({
+        queryKey: ["workspace-secrets", workspaceId],
+      })
+      toast({
+        title:
+          (result.failed ?? 0) > 0
+            ? "Pull completed with errors"
+            : "Pulled credentials from AWS",
+        description: formatCredentialSyncResultSummary(result),
+        variant: (result.failed ?? 0) > 0 ? "destructive" : "default",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to pull credentials from AWS", error)
+      toast({
+        title: "Failed to pull credentials",
+        description:
+          error.status === 400
+            ? "Save valid AWS sync settings before pulling."
+            : "Could not pull credentials from AWS Secrets Manager.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    awsCredentialSyncConfig,
+    awsCredentialSyncConfigIsLoading,
+    awsCredentialSyncConfigError,
+    refetchAwsCredentialSyncConfig,
+    updateAwsCredentialSyncConfig,
+    isUpdatingAwsCredentialSyncConfig,
+    pushAwsCredentialSync,
+    isPushingAwsCredentialSync,
+    pullAwsCredentialSync,
+    isPullingAwsCredentialSync,
   }
 }
 

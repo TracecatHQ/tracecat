@@ -489,14 +489,21 @@ import type {
   SecretsCreateSecretResponse,
   SecretsDeleteSecretByIdData,
   SecretsDeleteSecretByIdResponse,
+  SecretsGetAwsCredentialSyncConfigResponse,
   SecretsGetSecretByNameData,
   SecretsGetSecretByNameResponse,
   SecretsListSecretDefinitionsData,
   SecretsListSecretDefinitionsResponse,
   SecretsListSecretsData,
   SecretsListSecretsResponse,
+  SecretsPullAwsCredentialSyncData,
+  SecretsPullAwsCredentialSyncResponse,
+  SecretsPushAwsCredentialSyncData,
+  SecretsPushAwsCredentialSyncResponse,
   SecretsSearchSecretsData,
   SecretsSearchSecretsResponse,
+  SecretsUpdateAwsCredentialSyncConfigData,
+  SecretsUpdateAwsCredentialSyncConfigResponse,
   SecretsUpdateSecretByIdData,
   SecretsUpdateSecretByIdResponse,
   SettingsGetAgentSettingsResponse,
@@ -6468,6 +6475,40 @@ export const organizationSecretsDeleteOrgSecretById = (
 }
 
 /**
+ * Get Aws Credential Sync Config
+ * @returns AwsCredentialSyncConfigRead Successful Response
+ * @throws ApiError
+ */
+export const secretsGetAwsCredentialSyncConfig =
+  (): CancelablePromise<SecretsGetAwsCredentialSyncConfigResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/secrets/sync/aws",
+    })
+  }
+
+/**
+ * Update Aws Credential Sync Config
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const secretsUpdateAwsCredentialSyncConfig = (
+  data: SecretsUpdateAwsCredentialSyncConfigData
+): CancelablePromise<SecretsUpdateAwsCredentialSyncConfigResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/organization/secrets/sync/aws",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Tables
  * List all tables.
  * @param data The data for the request.
@@ -9429,6 +9470,50 @@ export const vcsGetGithubAppCredentialsStatus =
       url: "/organization/vcs/github/credentials/status",
     })
   }
+
+/**
+ * Push Aws Credential Sync
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns CredentialSyncResult Successful Response
+ * @throws ApiError
+ */
+export const secretsPushAwsCredentialSync = (
+  data: SecretsPushAwsCredentialSyncData
+): CancelablePromise<SecretsPushAwsCredentialSyncResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/secrets/sync/aws/push",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Pull Aws Credential Sync
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns CredentialSyncResult Successful Response
+ * @throws ApiError
+ */
+export const secretsPullAwsCredentialSync = (
+  data: SecretsPullAwsCredentialSyncData
+): CancelablePromise<SecretsPullAwsCredentialSyncResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/secrets/sync/aws/pull",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * Get My Scopes
