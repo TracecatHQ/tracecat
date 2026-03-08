@@ -136,6 +136,7 @@ export function AgentPresetVersionsPanel({
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {view === "compare" ? (
             <Button
+              type="button"
               variant="ghost"
               size="sm"
               className="h-7 px-2 text-xs"
@@ -247,6 +248,7 @@ function VersionsHistoryView({
               </div>
               <div className="flex items-center gap-2">
                 <Button
+                  type="button"
                   variant="ghost"
                   size="sm"
                   className="h-8 px-2 text-xs"
@@ -257,6 +259,7 @@ function VersionsHistoryView({
                 </Button>
                 {!isCurrent ? (
                   <Button
+                    type="button"
                     variant="ghost"
                     size="sm"
                     className="h-8 px-2 text-xs"
