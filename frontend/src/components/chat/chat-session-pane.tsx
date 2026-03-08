@@ -128,6 +128,13 @@ type ToolSuggestion = {
   group?: string
 }
 
+function areToolListsEqual(left: string[], right: string[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((tool, index) => tool === right[index])
+  )
+}
+
 function getToolMentionToken(
   text: string,
   caret: number
@@ -352,9 +359,41 @@ export function ChatSessionPane({
   )
 
   const persistToolsChainRef = useRef<Promise<void>>(Promise.resolve())
+  const selectedToolsRef = useRef<string[]>([])
+  const pendingPersistedToolsRef = useRef<string[] | null>(null)
+  const syncedChatIdRef = useRef<string | undefined>(undefined)
 
   useEffect(() => {
-    setSelectedTools(chat?.tools ?? [])
+    selectedToolsRef.current = selectedTools
+  }, [selectedTools])
+
+  useEffect(() => {
+    const nextChatId = chat?.id
+    const nextTools = chat?.tools ?? []
+
+    if (syncedChatIdRef.current !== nextChatId) {
+      syncedChatIdRef.current = nextChatId
+      pendingPersistedToolsRef.current = null
+      selectedToolsRef.current = nextTools
+      setSelectedTools(nextTools)
+      return
+    }
+
+    const pendingTools = pendingPersistedToolsRef.current
+    if (pendingTools) {
+      if (areToolListsEqual(nextTools, pendingTools)) {
+        pendingPersistedToolsRef.current = null
+      } else {
+        // Keep the optimistic selection visible until the invalidated chat query
+        // catches up, otherwise intermediate server echoes can flicker chips away.
+        return
+      }
+    }
+
+    if (!areToolListsEqual(selectedToolsRef.current, nextTools)) {
+      selectedToolsRef.current = nextTools
+      setSelectedTools(nextTools)
+    }
   }, [chat?.id, chat?.tools])
 
   const queuePersistTools = useCallback(
@@ -373,6 +412,12 @@ export function ChatSessionPane({
               update: { tools },
             })
           } catch (error) {
+            if (
+              pendingPersistedToolsRef.current &&
+              areToolListsEqual(pendingPersistedToolsRef.current, tools)
+            ) {
+              pendingPersistedToolsRef.current = null
+            }
             toast({
               title: "Failed to update tools",
               description: parseChatError(error),
@@ -384,30 +429,44 @@ export function ChatSessionPane({
     [chat, isReadonly, updateChat]
   )
 
+  const commitSelectedTools = useCallback(
+    (next: string[]) => {
+      if (areToolListsEqual(selectedToolsRef.current, next)) {
+        return
+      }
+
+      selectedToolsRef.current = next
+      setSelectedTools(next)
+
+      if (!chat || isReadonly) {
+        pendingPersistedToolsRef.current = null
+        return
+      }
+
+      pendingPersistedToolsRef.current = next
+      void queuePersistTools(next)
+    },
+    [chat, isReadonly, queuePersistTools]
+  )
+
   const addSelectedTool = useCallback(
     (toolName: string) => {
-      setSelectedTools((current) => {
-        if (current.includes(toolName)) {
-          return current
-        }
+      if (selectedToolsRef.current.includes(toolName)) {
+        return
+      }
 
-        const next = [...current, toolName]
-        queuePersistTools(next)
-        return next
-      })
+      commitSelectedTools([...selectedToolsRef.current, toolName])
     },
-    [queuePersistTools]
+    [commitSelectedTools]
   )
 
   const removeSelectedTool = useCallback(
     (toolName: string) => {
-      setSelectedTools((current) => {
-        const next = current.filter((tool) => tool !== toolName)
-        queuePersistTools(next)
-        return next
-      })
+      commitSelectedTools(
+        selectedToolsRef.current.filter((tool) => tool !== toolName)
+      )
     },
-    [queuePersistTools]
+    [commitSelectedTools]
   )
 
   const mentionEnabled =
@@ -749,6 +808,7 @@ export function ChatSessionPane({
                       // Render response actions for assistant messages and reveal them on hover for older messages.
                       <Actions
                         className={cn(
+                          "mt-4",
                           // Apply a smooth transition so the actions fade in and out gracefully.
                           "transition-opacity duration-200 ease-out",
                           // Hide actions by default for non-last messages and reveal them when the message group is hovered.
@@ -773,7 +833,7 @@ export function ChatSessionPane({
             })}
             {isWaitingForResponse && (
               <motion.div
-                className="mt-3"
+                className="mt-5"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}

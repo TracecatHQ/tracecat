@@ -214,7 +214,11 @@ function serializeToolPayload(payload: unknown): SerializedPayload {
   if (typeof payload === "string") {
     const trimmed = payload.trim()
     const looksLikeJson = trimmed.startsWith("{") || trimmed.startsWith("[")
-    if (looksLikeJson && payload.length <= MAX_INLINE_PAYLOAD_CHARS) {
+    if (looksLikeJson) {
+      if (payload.length > MAX_INLINE_PAYLOAD_CHARS) {
+        return { text: payload, extension: "json" }
+      }
+
       try {
         return {
           text: JSON.stringify(JSON.parse(payload), null, 2),

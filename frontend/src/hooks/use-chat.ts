@@ -32,6 +32,37 @@ import { type ModelInfo, toServerUIMessage } from "@/lib/chat"
 const DEFAULT_CHAT_ERROR_MESSAGE =
   "The assistant couldn't complete that request. Please try again."
 
+type UpdateableChatRecord =
+  | AgentSessionsGetSessionResponse
+  | AgentSessionsGetSessionVercelResponse
+  | AgentSessionsListSessionsResponse[number]
+
+type UpdateChatContext = {
+  previousChat?: AgentSessionsGetSessionResponse
+  previousChatVercel?: AgentSessionsGetSessionVercelResponse
+  previousChatLists: Array<
+    [readonly unknown[], AgentSessionsListSessionsResponse | undefined]
+  >
+}
+
+function applyOptimisticChatUpdate<T extends UpdateableChatRecord>(
+  chat: T,
+  update: AgentSessionUpdate
+): T {
+  return {
+    ...chat,
+    updated_at: new Date().toISOString(),
+    ...(typeof update.title === "string" ? { title: update.title } : {}),
+    ...(update.tools !== undefined ? { tools: update.tools ?? [] } : {}),
+    ...(update.agent_preset_id !== undefined
+      ? { agent_preset_id: update.agent_preset_id }
+      : {}),
+    ...("harness_type" in chat && update.harness_type !== undefined
+      ? { harness_type: update.harness_type }
+      : {}),
+  }
+}
+
 export function parseChatError(error: unknown): string {
   if (!error) {
     return DEFAULT_CHAT_ERROR_MESSAGE
@@ -176,7 +207,8 @@ export function useUpdateChat(workspaceId: string) {
   const mutation = useMutation<
     AgentSessionRead,
     ApiError,
-    { chatId: string; update: AgentSessionUpdate }
+    { chatId: string; update: AgentSessionUpdate },
+    UpdateChatContext
   >({
     mutationFn: ({ chatId, update }) =>
       agentSessionsUpdateSession({
@@ -184,7 +216,84 @@ export function useUpdateChat(workspaceId: string) {
         workspaceId,
         requestBody: update,
       }),
-    onSuccess: (_, variables) => {
+    onMutate: async ({ chatId, update }) => {
+      await Promise.all([
+        queryClient.cancelQueries({
+          queryKey: ["chat", chatId, workspaceId],
+        }),
+        queryClient.cancelQueries({
+          queryKey: ["chat", chatId, workspaceId, "vercel"],
+        }),
+        queryClient.cancelQueries({
+          queryKey: ["chats", workspaceId],
+        }),
+      ])
+
+      const previousChat =
+        queryClient.getQueryData<AgentSessionsGetSessionResponse>([
+          "chat",
+          chatId,
+          workspaceId,
+        ])
+      const previousChatVercel =
+        queryClient.getQueryData<AgentSessionsGetSessionVercelResponse>([
+          "chat",
+          chatId,
+          workspaceId,
+          "vercel",
+        ])
+      const previousChatLists =
+        queryClient.getQueriesData<AgentSessionsListSessionsResponse>({
+          queryKey: ["chats", workspaceId],
+        })
+
+      queryClient.setQueryData<AgentSessionsGetSessionResponse>(
+        ["chat", chatId, workspaceId],
+        (current) =>
+          current ? applyOptimisticChatUpdate(current, update) : current
+      )
+      queryClient.setQueryData<AgentSessionsGetSessionVercelResponse>(
+        ["chat", chatId, workspaceId, "vercel"],
+        (current) =>
+          current ? applyOptimisticChatUpdate(current, update) : current
+      )
+
+      for (const [queryKey] of previousChatLists) {
+        queryClient.setQueryData<AgentSessionsListSessionsResponse>(
+          queryKey,
+          (current) =>
+            current?.map((chatRecord) =>
+              chatRecord.id === chatId
+                ? applyOptimisticChatUpdate(chatRecord, update)
+                : chatRecord
+            ) ?? current
+        )
+      }
+
+      return {
+        previousChat,
+        previousChatVercel,
+        previousChatLists,
+      }
+    },
+    onError: (_, variables, context) => {
+      if (!context) {
+        return
+      }
+
+      queryClient.setQueryData(
+        ["chat", variables.chatId, workspaceId],
+        context.previousChat
+      )
+      queryClient.setQueryData(
+        ["chat", variables.chatId, workspaceId, "vercel"],
+        context.previousChatVercel
+      )
+      for (const [queryKey, previousData] of context.previousChatLists) {
+        queryClient.setQueryData(queryKey, previousData)
+      }
+    },
+    onSettled: (_, __, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["chat", variables.chatId, workspaceId],
       })

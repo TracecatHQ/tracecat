@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { StrictMode } from "react"
 import type { AgentSessionReadVercel } from "@/client"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -522,5 +523,212 @@ describe("ChatSessionPane", () => {
     await waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith({ text: "hello" })
     })
+  })
+
+  it("does not persist tool selection twice in StrictMode", async () => {
+    const action = {
+      id: "action-1",
+      name: "core.cases.list_cases",
+      action: "core.cases.list_cases",
+      default_title: "List cases",
+      description: "List all cases",
+      namespace: "core.cases",
+      type: "template" as const,
+      origin: "tracecat://test",
+    }
+    mockUseBuilderRegistryActions.mockReturnValue({
+      registryActions: [action],
+      registryActionsIsLoading: false,
+      registryActionsError: null,
+      getRegistryAction: (key: string) =>
+        key === action.action ? action : undefined,
+    })
+
+    const updateChat = jest.fn().mockResolvedValue(undefined)
+    mockUseUpdateChat.mockReturnValue({
+      updateChat,
+      isUpdating: false,
+      updateError: null,
+    })
+
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <ChatSessionPane
+              chat={createChatFixture()}
+              workspaceId="workspace-1"
+              entityType="case"
+              entityId="case-1"
+              modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+              toolsEnabled
+            />
+          </TooltipProvider>
+        </QueryClientProvider>
+      </StrictMode>
+    )
+
+    const textarea = screen.getByRole("textbox")
+    fireEvent.change(textarea, { target: { value: "@li" } })
+    await screen.findByText("List cases")
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+
+    await waitFor(() => {
+      expect(updateChat).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it("keeps optimistic tool chips while queued persistence catches up", async () => {
+    const listCases = {
+      id: "action-1",
+      name: "core.cases.list_cases",
+      action: "core.cases.list_cases",
+      default_title: "List cases",
+      description: "List all cases",
+      namespace: "core.cases",
+      type: "template" as const,
+      origin: "tracecat://test",
+    }
+    const getCase = {
+      id: "action-2",
+      name: "core.cases.get_case",
+      action: "core.cases.get_case",
+      default_title: "Get case",
+      description: "Get a case",
+      namespace: "core.cases",
+      type: "template" as const,
+      origin: "tracecat://test",
+    }
+    mockUseBuilderRegistryActions.mockReturnValue({
+      registryActions: [listCases, getCase],
+      registryActionsIsLoading: false,
+      registryActionsError: null,
+      getRegistryAction: (key: string) =>
+        key === listCases.action
+          ? listCases
+          : key === getCase.action
+            ? getCase
+            : undefined,
+    })
+
+    const firstWrite = createDeferred<void>()
+    const secondWrite = createDeferred<void>()
+    const updateChat = jest
+      .fn()
+      .mockImplementationOnce(() => firstWrite.promise)
+      .mockImplementationOnce(() => secondWrite.promise)
+    mockUseUpdateChat.mockReturnValue({
+      updateChat,
+      isUpdating: false,
+      updateError: null,
+    })
+
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            toolsEnabled
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    const textarea = screen.getByRole("textbox")
+    fireEvent.change(textarea, { target: { value: "@li" } })
+    await screen.findByText("List cases")
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+
+    await waitFor(() => {
+      expect(updateChat).toHaveBeenCalledTimes(1)
+    })
+
+    fireEvent.change(textarea, { target: { value: "@ge" } })
+    await screen.findByText("Get case")
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+
+    expect(
+      screen.getByRole("button", { name: /remove list cases/i })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /remove get case/i })
+    ).toBeInTheDocument()
+    expect(updateChat).toHaveBeenCalledTimes(1)
+
+    firstWrite.resolve()
+    await waitFor(() => {
+      expect(updateChat).toHaveBeenCalledTimes(2)
+    })
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture({ tools: ["core.cases.list_cases"] })}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            toolsEnabled
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(
+      screen.getByRole("button", { name: /remove list cases/i })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /remove get case/i })
+    ).toBeInTheDocument()
+
+    secondWrite.resolve()
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture({
+              tools: ["core.cases.list_cases", "core.cases.get_case"],
+            })}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            toolsEnabled
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(
+      screen.getByRole("button", { name: /remove list cases/i })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /remove get case/i })
+    ).toBeInTheDocument()
   })
 })
