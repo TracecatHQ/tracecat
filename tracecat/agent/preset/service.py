@@ -12,7 +12,14 @@ from sqlalchemy import select
 
 from tracecat import config
 from tracecat.agent.common.types import MCPHttpServerConfig
-from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
+from tracecat.agent.preset.schemas import (
+    AgentPresetCreate,
+    AgentPresetUpdate,
+    AgentPresetVersionDiff,
+    ScalarFieldChange,
+    StringListFieldChange,
+    ToolApprovalFieldChange,
+)
 from tracecat.agent.types import (
     AgentConfig,
     MCPServerConfig,
@@ -22,6 +29,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
+    AgentPresetVersion,
     OAuthIntegration,
 )
 from tracecat.dsl.common import create_default_execution_context
@@ -46,6 +54,19 @@ class AgentPresetService(BaseWorkspaceService):
     """CRUD operations and helpers for agent presets."""
 
     service_name = "agent_preset"
+    EXECUTION_FIELDS = {
+        "instructions",
+        "model_name",
+        "model_provider",
+        "base_url",
+        "output_type",
+        "actions",
+        "namespaces",
+        "tool_approvals",
+        "mcp_integrations",
+        "retries",
+        "enable_internet_access",
+    }
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_presets(self) -> Sequence[AgentPreset]:
@@ -91,6 +112,27 @@ class AgentPresetService(BaseWorkspaceService):
             retries=params.retries,
         )
         self.session.add(preset)
+        await self.session.flush()
+        version = AgentPresetVersion(
+            workspace_id=self.workspace_id,
+            preset_id=preset.id,
+            version=1,
+            instructions=preset.instructions,
+            model_name=preset.model_name,
+            model_provider=preset.model_provider,
+            base_url=preset.base_url,
+            output_type=preset.output_type,
+            actions=preset.actions,
+            namespaces=preset.namespaces,
+            tool_approvals=preset.tool_approvals,
+            mcp_integrations=preset.mcp_integrations,
+            retries=preset.retries,
+            enable_internet_access=preset.enable_internet_access,
+        )
+        self.session.add(version)
+        await self.session.flush()
+        preset.current_version_id = version.id
+        self.session.add(preset)
         await self.session.commit()
         await self.session.refresh(preset)
         return preset
@@ -118,6 +160,7 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> AgentPreset:
         """Update an existing preset."""
         set_fields = params.model_dump(exclude_unset=True)
+        execution_changed = False
 
         # Handle name first as it may be needed for slug fallback
         if "name" in set_fields:
@@ -137,18 +180,29 @@ class AgentPresetService(BaseWorkspaceService):
             if actions := set_fields.pop("actions"):
                 await self._validate_actions(actions)
             # If we reach this point, all actions are valid or was empty
-            preset.actions = actions
+            if preset.actions != actions:
+                preset.actions = actions
+                execution_changed = True
 
         if "mcp_integrations" in set_fields:
             if mcp_integrations := set_fields.pop("mcp_integrations"):
                 await self._validate_mcp_integrations(mcp_integrations)
-            preset.mcp_integrations = mcp_integrations
+            if preset.mcp_integrations != mcp_integrations:
+                preset.mcp_integrations = mcp_integrations
+                execution_changed = True
 
         # Update remaining fields
         for field, value in set_fields.items():
-            setattr(preset, field, value)
+            if getattr(preset, field) != value:
+                if field in self.EXECUTION_FIELDS:
+                    execution_changed = True
+                setattr(preset, field, value)
 
         self.session.add(preset)
+        if execution_changed:
+            version = await self._create_version_from_preset(preset)
+            preset.current_version_id = version.id
+            self.session.add(preset)
         await self.session.commit()
         await self.session.refresh(preset)
         return preset
@@ -158,22 +212,38 @@ class AgentPresetService(BaseWorkspaceService):
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def delete_preset(self, preset: AgentPreset) -> None:
         """Delete a preset."""
+        # Break the mutable-head pointer before deleting version rows to avoid an ORM
+        # dependency cycle between AgentPreset.current_version_id and its versions.
+        preset.current_version_id = None
+        self.session.add(preset)
+        await self.session.flush()
         await self.session.delete(preset)
         await self.session.commit()
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_agent_config_by_slug(self, slug: str) -> AgentConfig:
+    async def get_agent_config_by_slug(
+        self, slug: str, *, preset_version: int | None = None
+    ) -> AgentConfig:
         """Get the agent configuration for a preset by slug."""
-        if preset := await self.get_preset_by_slug(slug):
-            return await self._preset_to_agent_config(preset)
-        raise TracecatNotFoundError(f"Agent preset with slug '{slug}' not found")
+        version = await self.resolve_agent_preset_version(
+            slug=slug,
+            preset_version=preset_version,
+        )
+        return await self._version_to_agent_config(version)
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_agent_config(self, preset_id: uuid.UUID) -> AgentConfig:
+    async def get_agent_config(
+        self,
+        preset_id: uuid.UUID,
+        *,
+        preset_version_id: uuid.UUID | None = None,
+    ) -> AgentConfig:
         """Get the agent configuration for a preset by ID."""
-        if preset := await self.get_preset(preset_id):
-            return await self._preset_to_agent_config(preset)
-        raise TracecatNotFoundError(f"Agent preset with ID '{preset_id}' not found")
+        version = await self.resolve_agent_preset_version(
+            preset_id=preset_id,
+            preset_version_id=preset_version_id,
+        )
+        return await self._version_to_agent_config(version)
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def resolve_agent_preset_config(
@@ -181,14 +251,72 @@ class AgentPresetService(BaseWorkspaceService):
         *,
         preset_id: uuid.UUID | None = None,
         slug: str | None = None,
+        preset_version_id: uuid.UUID | None = None,
+        preset_version: int | None = None,
     ) -> AgentConfig:
         """Get an agent configuration from a preset by ID or slug with MCP integrations resolved."""
-        if preset_id is None and slug is None:
-            raise ValueError("Either preset_id or slug must be provided")
+        version = await self.resolve_agent_preset_version(
+            preset_id=preset_id,
+            slug=slug,
+            preset_version_id=preset_version_id,
+            preset_version=preset_version,
+        )
+        return await self._version_to_agent_config(version)
 
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def resolve_agent_preset_version(
+        self,
+        *,
+        preset_id: uuid.UUID | None = None,
+        slug: str | None = None,
+        preset_version_id: uuid.UUID | None = None,
+        preset_version: int | None = None,
+    ) -> AgentPresetVersion:
+        """Resolve a preset version from logical preset identity and optional pin."""
+        if preset_id is None and slug is None and preset_version_id is None:
+            raise ValueError(
+                "Either preset_id, slug, or preset_version_id must be provided"
+            )
+        if preset_version is not None and slug is None and preset_id is None:
+            raise ValueError("'preset_version' requires a preset_id or slug")
+
+        preset: AgentPreset | None = None
         if preset_id is not None:
-            return await self.get_agent_config(preset_id)
-        return await self.get_agent_config_by_slug(slug or "")
+            preset = await self.get_preset(preset_id)
+        elif slug is not None:
+            preset = await self.get_preset_by_slug(slug)
+
+        if preset is None and preset_version_id is None:
+            detail = slug if slug is not None else str(preset_id)
+            raise TracecatNotFoundError(f"Agent preset '{detail}' not found")
+
+        if preset_version_id is not None:
+            version = await self.get_version(preset_version_id)
+            if version is None:
+                raise TracecatNotFoundError(
+                    f"Agent preset version with ID '{preset_version_id}' not found"
+                )
+            if preset is not None and version.preset_id != preset.id:
+                raise TracecatValidationError(
+                    "Preset version does not belong to the selected preset"
+                )
+            return version
+
+        if preset is None:
+            raise TracecatNotFoundError("Agent preset not found")
+
+        if preset_version is not None:
+            version = await self.get_version_by_number(
+                preset_id=preset.id,
+                version=preset_version,
+            )
+            if version is None:
+                raise TracecatNotFoundError(
+                    f"Agent preset version {preset_version} not found"
+                )
+            return version
+
+        return await self.get_current_version_for_preset(preset)
 
     async def _validate_mcp_integrations(self, mcp_integrations: list[str]) -> None:
         """Validate MCP integration IDs for the workspace."""
@@ -648,23 +776,247 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
-    async def _preset_to_agent_config(self, preset: AgentPreset) -> AgentConfig:
-        mcp_servers = await self._resolve_mcp_integrations(preset.mcp_integrations)
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def list_versions(self, preset_id: uuid.UUID) -> Sequence[AgentPresetVersion]:
+        """List immutable versions for a preset ordered newest first."""
+        stmt = (
+            select(AgentPresetVersion)
+            .where(
+                AgentPresetVersion.workspace_id == self.workspace_id,
+                AgentPresetVersion.preset_id == preset_id,
+            )
+            .order_by(
+                AgentPresetVersion.version.desc(),
+                AgentPresetVersion.created_at.desc(),
+            )
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_version(self, version_id: uuid.UUID) -> AgentPresetVersion | None:
+        """Get a preset version by ID."""
+        stmt = select(AgentPresetVersion).where(
+            AgentPresetVersion.workspace_id == self.workspace_id,
+            AgentPresetVersion.id == version_id,
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
+
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_version_by_number(
+        self, *, preset_id: uuid.UUID, version: int
+    ) -> AgentPresetVersion | None:
+        """Get a preset version by logical preset and version number."""
+        stmt = select(AgentPresetVersion).where(
+            AgentPresetVersion.workspace_id == self.workspace_id,
+            AgentPresetVersion.preset_id == preset_id,
+            AgentPresetVersion.version == version,
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
+
+    async def get_current_version_for_preset(
+        self, preset: AgentPreset
+    ) -> AgentPresetVersion:
+        """Return the current version for a preset."""
+        if (
+            preset.current_version_id is not None
+            and (version := await self.get_version(preset.current_version_id))
+            is not None
+        ):
+            return version
+
+        stmt = (
+            select(AgentPresetVersion)
+            .where(
+                AgentPresetVersion.workspace_id == self.workspace_id,
+                AgentPresetVersion.preset_id == preset.id,
+            )
+            .order_by(
+                AgentPresetVersion.version.desc(),
+                AgentPresetVersion.created_at.desc(),
+            )
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        if version := result.scalars().first():
+            return version
+        raise TracecatNotFoundError(
+            f"Agent preset version for preset '{preset.id}' not found"
+        )
+
+    async def restore_version(
+        self, preset: AgentPreset, version: AgentPresetVersion
+    ) -> AgentPreset:
+        """Restore a historical version as the current preset head."""
+        if version.preset_id != preset.id:
+            raise TracecatValidationError(
+                "Preset version does not belong to the selected preset"
+            )
+
+        self._sync_preset_head_from_version(preset, version)
+        preset.current_version_id = version.id
+        self.session.add(preset)
+        await self.session.commit()
+        await self.session.refresh(preset)
+        return preset
+
+    async def compare_versions(
+        self,
+        base_version: AgentPresetVersion,
+        compare_version: AgentPresetVersion,
+    ) -> AgentPresetVersionDiff:
+        """Return a structured diff between two preset versions."""
+        if base_version.preset_id != compare_version.preset_id:
+            raise TracecatValidationError("Can only compare versions for one preset")
+
+        scalar_changes: list[ScalarFieldChange] = []
+        for field in (
+            "model_name",
+            "model_provider",
+            "base_url",
+            "output_type",
+            "retries",
+            "enable_internet_access",
+        ):
+            old_value = getattr(base_version, field)
+            new_value = getattr(compare_version, field)
+            if old_value != new_value:
+                scalar_changes.append(
+                    ScalarFieldChange(
+                        field=field,
+                        old_value=old_value,
+                        new_value=new_value,
+                    )
+                )
+
+        list_changes: list[StringListFieldChange] = []
+        for field in ("actions", "namespaces", "mcp_integrations"):
+            base_values = set(getattr(base_version, field) or [])
+            compare_values = set(getattr(compare_version, field) or [])
+            added = sorted(compare_values - base_values)
+            removed = sorted(base_values - compare_values)
+            if added or removed:
+                list_changes.append(
+                    StringListFieldChange(
+                        field=field,
+                        added=added,
+                        removed=removed,
+                    )
+                )
+
+        tool_approval_changes: list[ToolApprovalFieldChange] = []
+        base_approvals = base_version.tool_approvals or {}
+        compare_approvals = compare_version.tool_approvals or {}
+        for tool in sorted(set(base_approvals) | set(compare_approvals)):
+            old_value = base_approvals.get(tool)
+            new_value = compare_approvals.get(tool)
+            if old_value != new_value:
+                tool_approval_changes.append(
+                    ToolApprovalFieldChange(
+                        tool=tool,
+                        old_value=old_value,
+                        new_value=new_value,
+                    )
+                )
+
+        instructions_changed = base_version.instructions != compare_version.instructions
+        total_changes = (
+            int(instructions_changed)
+            + len(scalar_changes)
+            + len(list_changes)
+            + len(tool_approval_changes)
+        )
+
+        return AgentPresetVersionDiff(
+            base_version_id=base_version.id,
+            base_version=base_version.version,
+            compare_version_id=compare_version.id,
+            compare_version=compare_version.version,
+            instructions_changed=instructions_changed,
+            base_instructions=base_version.instructions,
+            compare_instructions=compare_version.instructions,
+            scalar_changes=scalar_changes,
+            list_changes=list_changes,
+            tool_approval_changes=tool_approval_changes,
+            total_changes=total_changes,
+        )
+
+    async def _version_to_agent_config(
+        self, version: AgentPresetVersion
+    ) -> AgentConfig:
+        mcp_servers = await self._resolve_mcp_integrations(version.mcp_integrations)
         # Only disable parallel tool calls if tools will be present
         model_settings = {}
-        if preset.actions or mcp_servers:
+        if version.actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
         return AgentConfig(
+            model_name=version.model_name,
+            model_provider=version.model_provider,
+            base_url=version.base_url,
+            instructions=version.instructions,
+            output_type=cast(OutputType | None, version.output_type),
+            actions=version.actions,
+            namespaces=version.namespaces,
+            tool_approvals=version.tool_approvals,
+            mcp_servers=mcp_servers,
+            retries=version.retries,
+            model_settings=model_settings,
+            enable_internet_access=version.enable_internet_access,
+        )
+
+    async def _create_version_from_preset(
+        self, preset: AgentPreset
+    ) -> AgentPresetVersion:
+        """Create and flush a new immutable version from the preset head."""
+        stmt = (
+            select(AgentPresetVersion.version)
+            .where(
+                AgentPresetVersion.workspace_id == self.workspace_id,
+                AgentPresetVersion.preset_id == preset.id,
+            )
+            .order_by(AgentPresetVersion.version.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        current_version = result.scalar_one_or_none()
+        next_version = (current_version or 0) + 1
+
+        version = AgentPresetVersion(
+            workspace_id=self.workspace_id,
+            preset_id=preset.id,
+            version=next_version,
+            instructions=preset.instructions,
             model_name=preset.model_name,
             model_provider=preset.model_provider,
             base_url=preset.base_url,
-            instructions=preset.instructions,
-            output_type=cast(OutputType | None, preset.output_type),
+            output_type=preset.output_type,
             actions=preset.actions,
             namespaces=preset.namespaces,
             tool_approvals=preset.tool_approvals,
-            mcp_servers=mcp_servers,
+            mcp_integrations=preset.mcp_integrations,
             retries=preset.retries,
-            model_settings=model_settings,
             enable_internet_access=preset.enable_internet_access,
         )
+        self.session.add(version)
+        await self.session.flush()
+        return version
+
+    def _sync_preset_head_from_version(
+        self,
+        preset: AgentPreset,
+        version: AgentPresetVersion,
+    ) -> None:
+        """Copy versioned execution fields onto the mutable preset head."""
+        preset.instructions = version.instructions
+        preset.model_name = version.model_name
+        preset.model_provider = version.model_provider
+        preset.base_url = version.base_url
+        preset.output_type = version.output_type
+        preset.actions = version.actions
+        preset.namespaces = version.namespaces
+        preset.tool_approvals = version.tool_approvals
+        preset.mcp_integrations = version.mcp_integrations
+        preset.retries = version.retries
+        preset.enable_internet_access = version.enable_internet_access

@@ -210,6 +210,9 @@ export const ENTITY_TO_INVALIDATION: Record<
       queryClient.invalidateQueries({
         queryKey: ["agent-preset", workspaceId, entityId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-versions", workspaceId, entityId],
+      })
     },
   },
   copilot: {

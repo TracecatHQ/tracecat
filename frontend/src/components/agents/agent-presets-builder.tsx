@@ -7,6 +7,7 @@ import {
   Braces,
   Brackets,
   Hash,
+  History,
   List,
   ListOrdered,
   ListTodo,
@@ -40,6 +41,8 @@ import type {
   AgentPresetRead,
   AgentPresetUpdate,
 } from "@/client"
+import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
+import { AgentPresetVersionsPanel } from "@/components/agents/agent-preset-versions-panel"
 import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
 import { ActionSelect } from "@/components/chat/action-select"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
@@ -104,11 +107,17 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   useAgentPreset,
   useAgentPresets,
+  useAgentPresetVersions,
   useCreateAgentPreset,
   useDeleteAgentPreset,
   useUpdateAgentPreset,
 } from "@/hooks"
-import { useCreateChat, useGetChatVercel, useListChats } from "@/hooks/use-chat"
+import {
+  useCreateChat,
+  useGetChatVercel,
+  useListChats,
+  useUpdateChat,
+} from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import type { ModelInfo } from "@/lib/chat"
@@ -537,28 +546,43 @@ function AgentPresetChatPane({
   const activeChatId = selectedChatId ?? latestChatId
 
   const { createChat, createChatPending } = useCreateChat(workspaceId)
+  const { updateChat, isUpdating } = useUpdateChat(workspaceId)
   const { chat, chatLoading, chatError } = useGetChatVercel({
     chatId: activeChatId,
     workspaceId,
   })
+  const { versions, versionsIsLoading, versionsError } = useAgentPresetVersions(
+    workspaceId,
+    preset?.id,
+    { enabled: Boolean(preset && workspaceId) }
+  )
+  const currentVersion =
+    versions?.find((version) => version.id === preset?.current_version_id) ??
+    versions?.[0] ??
+    null
+  const selectedVersion =
+    versions?.find((version) => version.id === chat?.agent_preset_version_id) ??
+    null
+  const activeVersion = selectedVersion ?? currentVersion
 
   const modelInfo: ModelInfo | null = useMemo(() => {
     if (!preset) {
       return null
     }
     return {
-      name: preset.model_name,
-      provider: preset.model_provider,
-      baseUrl: preset.base_url ?? null,
+      name: activeVersion?.model_name ?? preset.model_name,
+      provider: activeVersion?.model_provider ?? preset.model_provider,
+      baseUrl: activeVersion?.base_url ?? preset.base_url ?? null,
     }
-  }, [preset])
+  }, [activeVersion, preset])
 
   const providerReady = useMemo(() => {
     if (!preset) {
       return false
     }
-    return providersStatus?.[preset.model_provider] ?? false
-  }, [providersStatus, preset])
+    const provider = activeVersion?.model_provider ?? preset.model_provider
+    return providersStatus?.[provider] ?? false
+  }, [activeVersion, providersStatus, preset])
 
   const canStartChat = Boolean(preset && providerReady)
   const shouldAutoCreateChat =
@@ -580,6 +604,23 @@ function AgentPresetChatPane({
       await refetchChats()
     } catch (error) {
       console.error("Failed to create agent preset chat", error)
+    }
+  }
+
+  const handlePresetVersionChange = async (nextVersionId: string | null) => {
+    if (!activeChatId) {
+      return
+    }
+
+    try {
+      await updateChat({
+        chatId: activeChatId,
+        update: {
+          agent_preset_version_id: nextVersionId,
+        },
+      })
+    } catch (error) {
+      console.error("Failed to update preset chat version", error)
     }
   }
 
@@ -625,8 +666,10 @@ function AgentPresetChatPane({
             <AlertCircle className="size-5 text-amber-500" />
             <p className="text-pretty">
               This agent uses workspace credentials for{" "}
-              <span className="font-medium">{preset.model_provider}</span>.
-              Configure them on the{" "}
+              <span className="font-medium">
+                {activeVersion?.model_provider ?? preset.model_provider}
+              </span>
+              . Configure them on the{" "}
               <Link
                 href={`/workspaces/${workspaceId}/credentials`}
                 className="font-medium text-primary hover:underline"
@@ -697,7 +740,17 @@ function AgentPresetChatPane({
   return (
     <div className="flex h-full flex-col bg-background">
       {preset ? (
-        <div className="flex h-10 items-center justify-end border-b px-3">
+        <div className="flex h-10 items-center justify-between gap-3 border-b px-3">
+          <AgentPresetVersionSelect
+            versions={versions}
+            versionsIsLoading={versionsIsLoading}
+            versionsError={versionsError}
+            selectedVersionId={chat?.agent_preset_version_id ?? null}
+            currentVersionId={preset.current_version_id ?? null}
+            onSelect={handlePresetVersionChange}
+            disabled={!activeChatId || !chat || isUpdating}
+            triggerClassName="h-8 w-[10.5rem] text-xs"
+          />
           <div className="flex items-center gap-1">
             <ChatHistoryDropdown
               chats={chats}
@@ -787,6 +840,7 @@ type AgentPresetSideTab =
   | "configuration"
   | "channels"
   | "structured-output"
+  | "versions"
 
 type McpIntegrationOption = {
   id: string
@@ -1255,6 +1309,13 @@ function AgentPresetRightPanel({
                 <Box className="mr-2 size-4" />
                 <span>Output</span>
               </TabsTrigger>
+              <TabsTrigger
+                className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="versions"
+              >
+                <History className="mr-2 size-4" />
+                <span>Versions</span>
+              </TabsTrigger>
               {channelsEnabled ? (
                 <TabsTrigger
                   className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
@@ -1300,6 +1361,13 @@ function AgentPresetRightPanel({
 
           <TabsContent value="structured-output" className="mt-0 h-full">
             <AgentPresetStructuredOutputPanel form={form} isSaving={isSaving} />
+          </TabsContent>
+
+          <TabsContent value="versions" className="mt-0 h-full">
+            <AgentPresetVersionsPanel
+              workspaceId={workspaceId}
+              preset={preset}
+            />
           </TabsContent>
 
           {channelsEnabled ? (

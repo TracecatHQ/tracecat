@@ -447,10 +447,14 @@ function ActionPanelContent({
     const allFields = Object.entries(
       registryAction.interface.expects.properties
     )
-    const requiredFieldEntries = allFields.filter(([fieldName]) =>
+    const filteredFields =
+      action?.type === "ai.preset_agent"
+        ? allFields.filter(([fieldName]) => fieldName !== "preset_version")
+        : allFields
+    const requiredFieldEntries = filteredFields.filter(([fieldName]) =>
       required.includes(fieldName)
     )
-    const optionalFieldEntries = allFields.filter(
+    const optionalFieldEntries = filteredFields.filter(
       ([fieldName]) => !required.includes(fieldName)
     )
 
@@ -462,7 +466,7 @@ function ActionPanelContent({
       requiredFields: requiredFieldEntries,
       optionalFields: optionalFieldEntries,
     }
-  }, [registryAction, required])
+  }, [action?.type, registryAction, required])
 
   // Track manually shown/hidden fields separately from fields with values
   const [manuallyVisibleFields, setManuallyVisibleFields] = useState<

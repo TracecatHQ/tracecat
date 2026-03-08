@@ -36,6 +36,8 @@ class RunAgentArgs(BaseModel):
     """Configuration for the agent. Required if preset_slug is not provided."""
     preset_slug: str | None = None
     """Slug for the preset configuration (if using a preset)."""
+    preset_version: int | None = None
+    """Optional preset version number to pin for this execution."""
     max_requests: int | None = None
     """Maximum number of requests for the agent."""
     max_tool_calls: int | None = None
@@ -52,6 +54,8 @@ class RunAgentArgs(BaseModel):
         """Ensure either config or preset_slug is provided."""
         if self.config is None and self.preset_slug is None:
             raise ValueError("Either 'config' or 'preset_slug' must be provided")
+        if self.preset_version is not None and self.preset_slug is None:
+            raise ValueError("'preset_version' requires 'preset_slug'")
         return self
 
 
@@ -268,6 +272,7 @@ class InternalRunAgentRequest(BaseModel):
     user_prompt: str
     config: AgentConfigSchema | None = None
     preset_slug: str | None = None
+    preset_version: int | None = None
     max_requests: int = Field(default=120, le=120)
     max_tool_calls: int | None = Field(default=None, le=40)
 
@@ -276,6 +281,8 @@ class InternalRunAgentRequest(BaseModel):
         """Ensure either config or preset_slug is provided."""
         if self.config is None and self.preset_slug is None:
             raise ValueError("Either 'config' or 'preset_slug' must be provided")
+        if self.preset_version is not None and self.preset_slug is None:
+            raise ValueError("'preset_version' requires 'preset_slug'")
         return self
 
 
