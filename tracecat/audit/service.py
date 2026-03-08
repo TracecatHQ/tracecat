@@ -7,14 +7,13 @@ from typing import Any, Self
 
 import httpx
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.types import AuditAction, AuditEvent, AuditResourceType
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.contexts import ctx_client_ip, ctx_role
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import AuditEvent as DBAuditEvent
 from tracecat.db.models import User
 from tracecat.service import BaseService
 
@@ -226,40 +225,6 @@ class AuditService(BaseService):
             data=data,
         )
 
-    async def _persist_event(self, payload: AuditEvent) -> None:
-        db_event = DBAuditEvent(
-            organization_id=payload.organization_id,
-            workspace_id=payload.workspace_id,
-            actor_type=payload.actor_type.value,
-            actor_id=payload.actor_id,
-            actor_label=payload.actor_label,
-            ip_address=payload.ip_address,
-            resource_type=payload.resource_type,
-            resource_id=payload.resource_id,
-            action=payload.action,
-            status=payload.status.value,
-            data=payload.data or {},
-            created_at=payload.created_at,
-            updated_at=payload.created_at,
-        )
-        self.session.add(db_event)
-        await self.session.commit()
-
-    @asynccontextmanager
-    async def _get_audit_session(self) -> AsyncGenerator[AsyncSession, None]:
-        bind = self.session.bind
-        if isinstance(bind, AsyncEngine):
-            async with AsyncSession(bind, expire_on_commit=False) as session:
-                yield session
-            return
-        if isinstance(bind, AsyncConnection):
-            async with AsyncSession(bind.engine, expire_on_commit=False) as session:
-                yield session
-            return
-
-        async with get_async_session_context_manager() as session:
-            yield session
-
     async def create_event(
         self,
         *,
@@ -277,33 +242,21 @@ class AuditService(BaseService):
             )
             return
 
-        async with self._get_audit_session() as session:
-            persisted_service = type(self)(session, role=self.role)
-            actor_label = await persisted_service._get_actor_label()
-            payload = persisted_service._build_payload(
-                resource_type=resource_type,
-                action=action,
-                resource_id=resource_id,
-                status=status,
-                actor_label=actor_label,
-                data=data,
-            )
-            await persisted_service._persist_event(payload)
+        webhook_url = await self._get_webhook_url()
+        if not webhook_url:
+            self.logger.debug("Skipping audit log", reason="webhook_unconfigured")
+            return
 
-            webhook_url = await persisted_service._get_webhook_url()
-            if webhook_url:
-                try:
-                    await persisted_service._post_event(
-                        webhook_url=webhook_url, payload=payload
-                    )
-                except Exception as exc:
-                    self.logger.warning(
-                        "Failed to deliver audit webhook",
-                        error=str(exc),
-                        webhook_url=webhook_url,
-                    )
-            else:
-                self.logger.debug("Audit webhook is not configured")
+        actor_label = await self._get_actor_label()
+        payload = self._build_payload(
+            resource_type=resource_type,
+            action=action,
+            resource_id=resource_id,
+            status=status,
+            actor_label=actor_label,
+            data=data,
+        )
+        await self._post_event(webhook_url=webhook_url, payload=payload)
         self.logger.debug(
-            "Persisted audit event", resource_type=resource_type, action=action
+            "Streamed audit event", resource_type=resource_type, action=action
         )

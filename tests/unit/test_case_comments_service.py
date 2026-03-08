@@ -8,9 +8,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES, SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.enums import (
@@ -25,7 +26,6 @@ from tracecat.cases.schemas import (
     CaseCreate,
 )
 from tracecat.cases.service import CaseCommentsService, CasesService
-from tracecat.db.models import AuditEvent as DBAuditEvent
 from tracecat.db.models import Case, CaseEvent
 from tracecat.exceptions import (
     EntitlementRequired,
@@ -66,20 +66,32 @@ async def _load_case_events(
     return list(result.scalars().all())
 
 
-async def _load_audit_events(session: AsyncSession) -> list[DBAuditEvent]:
-    bind = session.bind
-    if isinstance(bind, AsyncConnection):
-        engine: AsyncEngine = bind.engine
-    elif isinstance(bind, AsyncEngine):
-        engine = bind
-    else:
-        raise AssertionError("Expected async session to be bound to an engine")
+@pytest.fixture
+def audit_event_calls(monkeypatch: pytest.MonkeyPatch) -> list[SimpleNamespace]:
+    calls: list[SimpleNamespace] = []
 
-    async with AsyncSession(engine, expire_on_commit=False) as persisted_session:
-        result = await persisted_session.execute(
-            select(DBAuditEvent).order_by(DBAuditEvent.created_at, DBAuditEvent.id)
+    async def mock_create_event(
+        self: AuditService,
+        *,
+        resource_type: str,
+        action: str,
+        resource_id: uuid.UUID | None = None,
+        status: AuditEventStatus = AuditEventStatus.SUCCESS,
+        data: dict[str, object] | None = None,
+    ) -> None:
+        del self
+        calls.append(
+            SimpleNamespace(
+                resource_type=resource_type,
+                action=action,
+                resource_id=resource_id,
+                status=status.value,
+                data=data or {},
+            )
         )
-        return list(result.scalars().all())
+
+    monkeypatch.setattr(AuditService, "create_event", mock_create_event)
+    return calls
 
 
 @pytest.mark.anyio
@@ -154,9 +166,10 @@ class TestCaseCommentsService:
         session: AsyncSession,
         test_case: Case,
         comment_create_params: CaseCommentCreate,
+        audit_event_calls: list[SimpleNamespace],
     ) -> None:
         """Test creating and retrieving a comment."""
-        existing_audit_count = len(await _load_audit_events(session))
+        existing_audit_count = len(audit_event_calls)
         # Create comment
         created_comment = await case_comments_service.create_comment(
             test_case, comment_create_params
@@ -176,7 +189,7 @@ class TestCaseCommentsService:
         assert case_events[-1].data["parent_id"] is None
         assert case_events[-1].data["thread_root_id"] == str(created_comment.id)
 
-        audit_events = (await _load_audit_events(session))[existing_audit_count:]
+        audit_events = audit_event_calls[existing_audit_count:]
         assert [event.status for event in audit_events] == [
             AuditEventStatus.ATTEMPT.value,
             AuditEventStatus.SUCCESS.value,
@@ -198,9 +211,10 @@ class TestCaseCommentsService:
         session: AsyncSession,
         test_case: Case,
         comment_create_params: CaseCommentCreate,
+        audit_event_calls: list[SimpleNamespace],
     ) -> None:
         """Test listing comments."""
-        existing_audit_count = len(await _load_audit_events(session))
+        existing_audit_count = len(audit_event_calls)
         # Create two comments
         comment1 = await case_comments_service.create_comment(
             test_case, comment_create_params
@@ -244,7 +258,7 @@ class TestCaseCommentsService:
         assert event_counts[CaseEventType.COMMENT_CREATED] == 2
         assert event_counts[CaseEventType.COMMENT_REPLY_CREATED] == 1
 
-        audit_events = (await _load_audit_events(session))[existing_audit_count:]
+        audit_events = audit_event_calls[existing_audit_count:]
         audit_counts = Counter(event.status for event in audit_events)
         assert audit_counts[AuditEventStatus.ATTEMPT.value] == 3
         assert audit_counts[AuditEventStatus.SUCCESS.value] == 3
@@ -374,10 +388,11 @@ class TestCaseCommentsService:
         case_comments_service: CaseCommentsService,
         session: AsyncSession,
         svc_role: Role,
+        audit_event_calls: list[SimpleNamespace],
     ) -> None:
         """Reply creation should reject parents from another case."""
         cases_service = CasesService(session=session, role=svc_role)
-        existing_audit_count = len(await _load_audit_events(session))
+        existing_audit_count = len(audit_event_calls)
         first_case = await cases_service.create_case(
             case_params := CaseCreate(
                 summary="First case",
@@ -403,7 +418,7 @@ class TestCaseCommentsService:
                 CaseCommentCreate(content="Cross-case reply", parent_id=parent.id),
             )
 
-        audit_events = (await _load_audit_events(session))[existing_audit_count:]
+        audit_events = audit_event_calls[existing_audit_count:]
         create_audits = [event for event in audit_events if event.action == "create"]
         assert [event.status for event in create_audits[-2:]] == [
             AuditEventStatus.ATTEMPT.value,
@@ -416,8 +431,9 @@ class TestCaseCommentsService:
         case_comments_service: CaseCommentsService,
         session: AsyncSession,
         test_case: Case,
+        audit_event_calls: list[SimpleNamespace],
     ) -> None:
-        existing_audit_count = len(await _load_audit_events(session))
+        existing_audit_count = len(audit_event_calls)
         parent = await case_comments_service.create_comment(
             test_case,
             CaseCommentCreate(content="Parent", parent_id=None),
@@ -433,7 +449,7 @@ class TestCaseCommentsService:
                     CaseCommentCreate(content="Reply", parent_id=parent.id),
                 )
 
-        audit_events = (await _load_audit_events(session))[existing_audit_count:]
+        audit_events = audit_event_calls[existing_audit_count:]
         create_audits = [event for event in audit_events if event.action == "create"]
         assert [event.status for event in create_audits[-2:]] == [
             AuditEventStatus.ATTEMPT.value,
@@ -470,9 +486,10 @@ class TestCaseCommentsService:
         session: AsyncSession,
         test_case: Case,
         comment_create_params: CaseCommentCreate,
+        audit_event_calls: list[SimpleNamespace],
     ) -> None:
         """Test updating a comment."""
-        existing_audit_count = len(await _load_audit_events(session))
+        existing_audit_count = len(audit_event_calls)
         # Create a comment
         created_comment = await case_comments_service.create_comment(
             test_case, comment_create_params
@@ -496,7 +513,7 @@ class TestCaseCommentsService:
         assert case_events[-1].type == CaseEventType.COMMENT_UPDATED
         assert case_events[-1].data["comment_id"] == str(created_comment.id)
 
-        audit_events = (await _load_audit_events(session))[existing_audit_count:]
+        audit_events = audit_event_calls[existing_audit_count:]
         update_audits = [event for event in audit_events if event.action == "update"]
         assert [event.status for event in update_audits] == [
             AuditEventStatus.ATTEMPT.value,
@@ -509,8 +526,9 @@ class TestCaseCommentsService:
         case_comments_service: CaseCommentsService,
         session: AsyncSession,
         test_case: Case,
+        audit_event_calls: list[SimpleNamespace],
     ) -> None:
-        existing_audit_count = len(await _load_audit_events(session))
+        existing_audit_count = len(audit_event_calls)
         parent = await case_comments_service.create_comment(
             test_case,
             CaseCommentCreate(content="Parent", parent_id=None),
@@ -528,7 +546,7 @@ class TestCaseCommentsService:
         case_events = await _load_case_events(session, test_case.id)
         assert case_events[-1].type == CaseEventType.COMMENT_REPLY_UPDATED
 
-        audit_events = (await _load_audit_events(session))[existing_audit_count:]
+        audit_events = audit_event_calls[existing_audit_count:]
         update_audits = [event for event in audit_events if event.action == "update"]
         assert update_audits[-1].data["parent_id"] == str(parent.id)
         assert update_audits[-1].data["is_reply"] is True
@@ -563,9 +581,10 @@ class TestCaseCommentsService:
         test_case: Case,
         comment_create_params: CaseCommentCreate,
         test_user_id: uuid.UUID,
+        audit_event_calls: list[SimpleNamespace],
     ) -> None:
         """Test that a user can only update their own comments."""
-        existing_audit_count = len(await _load_audit_events(session))
+        existing_audit_count = len(audit_event_calls)
         # Create service with original user
         service1 = CaseCommentsService(session=session, role=svc_role)
 
@@ -599,7 +618,7 @@ class TestCaseCommentsService:
         assert retrieved_comment is not None
         assert retrieved_comment.content == comment_create_params.content
 
-        audit_events = (await _load_audit_events(session))[existing_audit_count:]
+        audit_events = audit_event_calls[existing_audit_count:]
         failed_update_audits = [
             event for event in audit_events if event.action == "update"
         ]
@@ -614,9 +633,10 @@ class TestCaseCommentsService:
         session: AsyncSession,
         test_case: Case,
         comment_create_params: CaseCommentCreate,
+        audit_event_calls: list[SimpleNamespace],
     ) -> None:
         """Test deleting a comment."""
-        existing_audit_count = len(await _load_audit_events(session))
+        existing_audit_count = len(audit_event_calls)
         # Create a comment
         created_comment = await case_comments_service.create_comment(
             test_case, comment_create_params
@@ -633,7 +653,7 @@ class TestCaseCommentsService:
         assert case_events[-1].type == CaseEventType.COMMENT_DELETED
         assert case_events[-1].data["delete_mode"] == "hard"
 
-        audit_events = (await _load_audit_events(session))[existing_audit_count:]
+        audit_events = audit_event_calls[existing_audit_count:]
         delete_audits = [event for event in audit_events if event.action == "delete"]
         assert [event.status for event in delete_audits] == [
             AuditEventStatus.ATTEMPT.value,
@@ -672,9 +692,10 @@ class TestCaseCommentsService:
         case_comments_service: CaseCommentsService,
         session: AsyncSession,
         test_case: Case,
+        audit_event_calls: list[SimpleNamespace],
     ) -> None:
         """Top-level comments with replies are soft deleted and rendered as tombstones."""
-        existing_audit_count = len(await _load_audit_events(session))
+        existing_audit_count = len(audit_event_calls)
         parent = await case_comments_service.create_comment(
             test_case,
             CaseCommentCreate(content="Parent", parent_id=None),
@@ -700,7 +721,7 @@ class TestCaseCommentsService:
         assert case_events[-1].type == CaseEventType.COMMENT_DELETED
         assert case_events[-1].data["delete_mode"] == "soft"
 
-        audit_events = (await _load_audit_events(session))[existing_audit_count:]
+        audit_events = audit_event_calls[existing_audit_count:]
         delete_audits = [event for event in audit_events if event.action == "delete"]
         assert delete_audits[-1].data["delete_mode"] == "soft"
         assert "content" not in delete_audits[-1].data
@@ -710,6 +731,7 @@ class TestCaseCommentsService:
         case_comments_service: CaseCommentsService,
         session: AsyncSession,
         test_case: Case,
+        audit_event_calls: list[SimpleNamespace],
     ) -> None:
         parent = await case_comments_service.create_comment(
             test_case,
@@ -722,14 +744,14 @@ class TestCaseCommentsService:
 
         await case_comments_service.delete_comment(parent)
         event_count = len(await _load_case_events(session, test_case.id))
-        audit_count = len(await _load_audit_events(session))
+        audit_count = len(audit_event_calls)
 
         deleted_parent = await case_comments_service.get_comment(parent.id)
         assert deleted_parent is not None
         await case_comments_service.delete_comment(deleted_parent)
 
         assert len(await _load_case_events(session, test_case.id)) == event_count
-        assert len(await _load_audit_events(session)) == audit_count
+        assert len(audit_event_calls) == audit_count
 
     async def test_create_comment_swallows_success_audit_failures(
         self,

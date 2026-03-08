@@ -1378,7 +1378,7 @@ class CaseCommentsService(BaseWorkspaceService):
         comment_id: uuid.UUID,
         data: dict[str, Any],
     ) -> None:
-        """Persist post-commit success audits without failing the mutation."""
+        """Emit post-commit success audits without failing the mutation."""
         try:
             await self._audit_comment_event(
                 action=action,
@@ -1388,7 +1388,7 @@ class CaseCommentsService(BaseWorkspaceService):
             )
         except Exception as exc:
             self.logger.warning(
-                "Failed to persist post-commit comment audit",
+                "Failed to emit post-commit comment audit",
                 action=action,
                 comment_id=comment_id,
                 error=str(exc),

@@ -1,4 +1,4 @@
-"""add comment activity and audit events
+"""add comment activity events
 
 Revision ID: 3b58a1430e95
 Revises: b42892363e72
@@ -10,7 +10,6 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic_postgresql_enum import TableReference
-from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
@@ -79,114 +78,8 @@ _CASE_EVENT_TYPE_COLUMNS = [
     ),
 ]
 
-_AUDIT_EVENT_MIGRATION_TABLE_COMMENT = "tracecat-managed:3b58a1430e95"
-
-
-def _get_existing_index_names(inspector: sa.Inspector, table_name: str) -> set[str]:
-    return {
-        name
-        for index in inspector.get_indexes(table_name)
-        if (name := index["name"]) is not None
-    }
-
-
-def _get_table_comment(bind: sa.Connection, table_name: str) -> str | None:
-    result = bind.execute(
-        sa.text(
-            """
-            SELECT obj_description(to_regclass(:qualified_table_name), 'pg_class')
-            """
-        ),
-        {"qualified_table_name": f"public.{table_name}"},
-    )
-    return result.scalar_one_or_none()
-
-
-def _sql_literal(value: str) -> str:
-    return value.replace("'", "''")
-
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-
-    if not inspector.has_table("audit_event"):
-        op.create_table(
-            "audit_event",
-            sa.Column("id", sa.UUID(), nullable=False),
-            sa.Column("organization_id", sa.UUID(), nullable=True),
-            sa.Column("workspace_id", sa.UUID(), nullable=True),
-            sa.Column("actor_type", sa.String(length=32), nullable=False),
-            sa.Column("actor_id", sa.UUID(), nullable=False),
-            sa.Column("actor_label", sa.String(length=255), nullable=True),
-            sa.Column("ip_address", sa.String(length=64), nullable=True),
-            sa.Column("resource_type", sa.String(length=64), nullable=False),
-            sa.Column("resource_id", sa.UUID(), nullable=True),
-            sa.Column("action", sa.String(length=32), nullable=False),
-            sa.Column("status", sa.String(length=32), nullable=False),
-            sa.Column(
-                "data",
-                postgresql.JSONB(astext_type=sa.Text()),
-                server_default=sa.text("'{}'::jsonb"),
-                nullable=False,
-            ),
-            sa.Column(
-                "created_at",
-                sa.TIMESTAMP(timezone=True),
-                server_default=sa.text("now()"),
-                nullable=False,
-            ),
-            sa.Column(
-                "updated_at",
-                sa.TIMESTAMP(timezone=True),
-                server_default=sa.text("now()"),
-                nullable=False,
-            ),
-            sa.PrimaryKeyConstraint("id", name=op.f("pk_audit_event")),
-        )
-        op.execute(
-            f"COMMENT ON TABLE audit_event IS '{_sql_literal(_AUDIT_EVENT_MIGRATION_TABLE_COMMENT)}'"
-        )
-        existing_indexes: set[str] = set()
-    else:
-        existing_indexes = _get_existing_index_names(inspector, "audit_event")
-
-    if "ix_audit_event_created_at" not in existing_indexes:
-        op.create_index(
-            "ix_audit_event_created_at",
-            "audit_event",
-            ["created_at"],
-            unique=False,
-        )
-    if "ix_audit_event_organization_id_created_at" not in existing_indexes:
-        op.create_index(
-            "ix_audit_event_organization_id_created_at",
-            "audit_event",
-            ["organization_id", "created_at"],
-            unique=False,
-        )
-    if "ix_audit_event_workspace_id_created_at" not in existing_indexes:
-        op.create_index(
-            "ix_audit_event_workspace_id_created_at",
-            "audit_event",
-            ["workspace_id", "created_at"],
-            unique=False,
-        )
-    if "ix_audit_event_resource_type_resource_id_created_at" not in existing_indexes:
-        op.create_index(
-            "ix_audit_event_resource_type_resource_id_created_at",
-            "audit_event",
-            ["resource_type", "resource_id", "created_at"],
-            unique=False,
-        )
-    if "ix_audit_event_actor_id_created_at" not in existing_indexes:
-        op.create_index(
-            "ix_audit_event_actor_id_created_at",
-            "audit_event",
-            ["actor_id", "created_at"],
-            unique=False,
-        )
-
     op.sync_enum_values(  # type: ignore[attr-defined]
         enum_schema="public",
         enum_name="caseeventtype",
@@ -207,7 +100,7 @@ def downgrade() -> None:
                OR end_event_type IN :comment_event_types
             """
         ).bindparams(sa.bindparam("comment_event_types", expanding=True)),
-        {"comment_event_types": _COMMENT_EVENT_TYPES},
+        {"comment_event_types": tuple(_COMMENT_EVENT_TYPES)},
     )
     bind.execute(
         sa.text(
@@ -216,7 +109,7 @@ def downgrade() -> None:
             WHERE type IN :comment_event_types
             """
         ).bindparams(sa.bindparam("comment_event_types", expanding=True)),
-        {"comment_event_types": _COMMENT_EVENT_TYPES},
+        {"comment_event_types": tuple(_COMMENT_EVENT_TYPES)},
     )
 
     op.sync_enum_values(  # type: ignore[attr-defined]
@@ -227,28 +120,5 @@ def downgrade() -> None:
         enum_values_to_rename=[],
     )
 
-    if inspector.has_table("audit_event") and (
-        _get_table_comment(bind, "audit_event") == _AUDIT_EVENT_MIGRATION_TABLE_COMMENT
-    ):
-        existing_indexes = _get_existing_index_names(inspector, "audit_event")
-        if "ix_audit_event_actor_id_created_at" in existing_indexes:
-            op.drop_index(
-                "ix_audit_event_actor_id_created_at", table_name="audit_event"
-            )
-        if "ix_audit_event_resource_type_resource_id_created_at" in existing_indexes:
-            op.drop_index(
-                "ix_audit_event_resource_type_resource_id_created_at",
-                table_name="audit_event",
-            )
-        if "ix_audit_event_workspace_id_created_at" in existing_indexes:
-            op.drop_index(
-                "ix_audit_event_workspace_id_created_at", table_name="audit_event"
-            )
-        if "ix_audit_event_organization_id_created_at" in existing_indexes:
-            op.drop_index(
-                "ix_audit_event_organization_id_created_at",
-                table_name="audit_event",
-            )
-        if "ix_audit_event_created_at" in existing_indexes:
-            op.drop_index("ix_audit_event_created_at", table_name="audit_event")
+    if inspector.has_table("audit_event"):
         op.drop_table("audit_event")

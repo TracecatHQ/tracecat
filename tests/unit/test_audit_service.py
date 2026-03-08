@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import uuid
-from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import orjson
 import pytest
 import respx
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 from tracecat.audit.logger import audit_log
@@ -18,7 +15,6 @@ from tracecat.audit.types import AuditEvent
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.contexts import ctx_role
-from tracecat.db.models import AuditEvent as DBAuditEvent
 
 
 @pytest.fixture
@@ -38,36 +34,13 @@ def audit_service(role: Role) -> AuditService:
     return AuditService(AsyncMock(), role=role)
 
 
-async def _load_persisted_audit_events(session: AsyncSession) -> list[DBAuditEvent]:
-    bind = session.bind
-    if isinstance(bind, AsyncConnection):
-        engine: AsyncEngine = bind.engine
-    elif isinstance(bind, AsyncEngine):
-        engine = bind
-    else:
-        raise AssertionError("Expected async session to be bound to an engine")
-
-    async with AsyncSession(engine, expire_on_commit=False) as persisted_session:
-        result = await persisted_session.execute(
-            select(DBAuditEvent).order_by(DBAuditEvent.created_at, DBAuditEvent.id)
-        )
-        return list(result.scalars().all())
-
-
 @pytest.mark.anyio
 async def test_create_event_skips_without_webhook(
     monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
 ) -> None:
-    @asynccontextmanager
-    async def mock_audit_session():
-        yield audit_service.session
-
-    monkeypatch.setattr(audit_service, "_get_audit_session", mock_audit_session)
-    monkeypatch.setattr(AuditService, "_persist_event", AsyncMock())
-    monkeypatch.setattr(AuditService, "_get_actor_label", AsyncMock(return_value=None))
-    monkeypatch.setattr(AuditService, "_get_webhook_url", AsyncMock(return_value=None))
+    monkeypatch.setattr(audit_service, "_get_webhook_url", AsyncMock(return_value=None))
     post_mock = AsyncMock()
-    monkeypatch.setattr(AuditService, "_post_event", post_mock)
+    monkeypatch.setattr(audit_service, "_post_event", post_mock)
 
     await audit_service.create_event(resource_type="workflow", action="create")
 
@@ -80,19 +53,14 @@ async def test_create_event_streams_to_webhook(
     monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
 ) -> None:
     webhook_url = "https://example.com/audit"
-
-    @asynccontextmanager
-    async def mock_audit_session():
-        yield audit_service.session
-
-    monkeypatch.setattr(audit_service, "_get_audit_session", mock_audit_session)
-    monkeypatch.setattr(AuditService, "_persist_event", AsyncMock())
     monkeypatch.setattr(
-        AuditService, "_get_actor_label", AsyncMock(return_value="user@example.com")
+        audit_service, "_get_webhook_url", AsyncMock(return_value=webhook_url)
     )
-    monkeypatch.setattr(
-        AuditService, "_get_webhook_url", AsyncMock(return_value=webhook_url)
-    )
+    mock_user = MagicMock()
+    mock_user.email = "user@example.com"
+    result_mock = MagicMock()
+    result_mock.scalar_one_or_none = MagicMock(return_value=mock_user)
+    audit_service.session.execute = AsyncMock(return_value=result_mock)
     route = respx.post(webhook_url).mock(return_value=httpx.Response(200))
 
     await audit_service.create_event(
@@ -111,105 +79,33 @@ async def test_create_event_streams_to_webhook(
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("db")
-async def test_create_event_persists_without_webhook(
-    monkeypatch: pytest.MonkeyPatch,
-    session: AsyncSession,
-    role: Role,
+async def test_create_event_includes_case_comment_data_in_payload(
+    monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
 ) -> None:
-    monkeypatch.setattr(AuditService, "_get_webhook_url", AsyncMock(return_value=None))
-    audit_service = AuditService(session, role=role)
-    resource_id = uuid.uuid4()
-    existing_count = len(await _load_persisted_audit_events(session))
+    webhook_url = "https://example.com/audit"
+    post_mock = AsyncMock()
+    data = {"case_id": str(uuid.uuid4()), "content": "hello"}
+    monkeypatch.setattr(
+        audit_service, "_get_webhook_url", AsyncMock(return_value=webhook_url)
+    )
+    monkeypatch.setattr(
+        audit_service, "_get_actor_label", AsyncMock(return_value="user@example.com")
+    )
+    monkeypatch.setattr(audit_service, "_post_event", post_mock)
 
     await audit_service.create_event(
         resource_type="case_comment",
         action="create",
-        resource_id=resource_id,
-        status=AuditEventStatus.SUCCESS,
-        data={"case_id": str(uuid.uuid4()), "content": "hello"},
-    )
-
-    persisted = (await _load_persisted_audit_events(session))[existing_count:]
-    assert len(persisted) == 1
-    assert persisted[0].resource_id == resource_id
-    assert persisted[0].resource_type == "case_comment"
-    assert persisted[0].action == "create"
-    assert persisted[0].status == AuditEventStatus.SUCCESS.value
-    assert persisted[0].data["content"] == "hello"
-
-
-@pytest.mark.anyio
-@pytest.mark.usefixtures("db")
-async def test_create_event_persists_and_posts_payload_with_data(
-    monkeypatch: pytest.MonkeyPatch,
-    session: AsyncSession,
-    role: Role,
-) -> None:
-    webhook_url = "https://example.com/audit"
-    post_mock = AsyncMock()
-    monkeypatch.setattr(
-        AuditService, "_get_webhook_url", AsyncMock(return_value=webhook_url)
-    )
-    monkeypatch.setattr(AuditService, "_post_event", post_mock)
-
-    audit_service = AuditService(session, role=role)
-    resource_id = uuid.uuid4()
-    data = {"case_id": str(uuid.uuid4()), "content": "body"}
-    existing_count = len(await _load_persisted_audit_events(session))
-
-    await audit_service.create_event(
-        resource_type="case_comment",
-        action="update",
-        resource_id=resource_id,
+        resource_id=uuid.uuid4(),
         status=AuditEventStatus.SUCCESS,
         data=data,
     )
 
-    persisted = (await _load_persisted_audit_events(session))[existing_count:]
-    assert len(persisted) == 1
-    assert persisted[0].resource_id == resource_id
-    assert persisted[0].data == data
     assert post_mock.await_count == 1
     assert post_mock.await_args is not None
     payload = post_mock.await_args.kwargs["payload"]
+    assert payload.resource_type == "case_comment"
     assert payload.data == data
-
-
-@pytest.mark.anyio
-@pytest.mark.usefixtures("db")
-async def test_create_event_persists_even_when_webhook_delivery_fails(
-    monkeypatch: pytest.MonkeyPatch,
-    session: AsyncSession,
-    role: Role,
-) -> None:
-    monkeypatch.setattr(
-        AuditService,
-        "_get_webhook_url",
-        AsyncMock(return_value="https://example.com/audit"),
-    )
-    monkeypatch.setattr(
-        AuditService,
-        "_post_event",
-        AsyncMock(side_effect=RuntimeError("webhook down")),
-    )
-
-    audit_service = AuditService(session, role=role)
-    resource_id = uuid.uuid4()
-    existing_count = len(await _load_persisted_audit_events(session))
-
-    await audit_service.create_event(
-        resource_type="case_comment",
-        action="delete",
-        resource_id=resource_id,
-        status=AuditEventStatus.FAILURE,
-        data={"case_id": str(uuid.uuid4()), "delete_mode": "hard"},
-    )
-
-    persisted = (await _load_persisted_audit_events(session))[existing_count:]
-    assert len(persisted) == 1
-    assert persisted[0].resource_id == resource_id
-    assert persisted[0].status == AuditEventStatus.FAILURE.value
 
 
 @pytest.mark.anyio
@@ -362,15 +258,10 @@ async def test_audit_log_inner_function_failure_logs_failure_event(role: Role):
     finally:
         ctx_role.reset(token)
 
-    # Verify attempt was logged
     assert len(create_event_calls) >= 1
-    attempt_call = create_event_calls[0]
-    assert attempt_call[1]["status"] == AuditEventStatus.ATTEMPT
-
-    # Verify failure was logged
+    assert create_event_calls[0][1]["status"] == AuditEventStatus.ATTEMPT
     assert len(create_event_calls) >= 2
-    failure_call = create_event_calls[1]
-    assert failure_call[1]["status"] == AuditEventStatus.FAILURE
+    assert create_event_calls[1][1]["status"] == AuditEventStatus.FAILURE
 
 
 @pytest.mark.anyio
@@ -391,7 +282,6 @@ async def test_audit_log_attempt_logging_failure_still_executes_function(role: R
     create_event_calls = []
 
     async def mock_create_event(*args, **kwargs):
-        # Fail on attempt, succeed on success
         if kwargs.get("status") == AuditEventStatus.ATTEMPT:
             raise Exception("Attempt logging failed")
         create_event_calls.append((args, kwargs))
@@ -402,10 +292,7 @@ async def test_audit_log_attempt_logging_failure_still_executes_function(role: R
     finally:
         ctx_role.reset(token)
 
-    # Verify function executed successfully
     assert result["status"] == "created"
-
-    # Verify success was still logged despite attempt failure
     assert len(create_event_calls) == 1
     assert create_event_calls[0][1]["status"] == AuditEventStatus.SUCCESS
 
@@ -429,7 +316,6 @@ async def test_audit_log_success_logging_failure_still_returns_result(role: Role
     create_event_calls = []
 
     async def mock_create_event(*args, **kwargs):
-        # Succeed on attempt, fail on success
         if kwargs.get("status") == AuditEventStatus.SUCCESS:
             raise Exception("Success logging failed")
         create_event_calls.append((args, kwargs))
@@ -440,10 +326,7 @@ async def test_audit_log_success_logging_failure_still_returns_result(role: Role
     finally:
         ctx_role.reset(token)
 
-    # Verify function returned result despite success logging failure
     assert result == expected_result
-
-    # Verify attempt was logged
     assert len(create_event_calls) == 1
     assert create_event_calls[0][1]["status"] == AuditEventStatus.ATTEMPT
 
@@ -451,7 +334,7 @@ async def test_audit_log_success_logging_failure_still_returns_result(role: Role
 @pytest.mark.anyio
 async def test_audit_log_failure_logging_failure_still_raises_original_exception(
     role: Role,
-):
+) -> None:
     """Test that when failure logging fails, original exception is still raised."""
 
     class MockService:
@@ -468,7 +351,6 @@ async def test_audit_log_failure_logging_failure_still_raises_original_exception
     create_event_calls = []
 
     async def mock_create_event(*args, **kwargs):
-        # Succeed on attempt, fail on failure logging
         if kwargs.get("status") == AuditEventStatus.FAILURE:
             raise Exception("Failure logging failed")
         create_event_calls.append((args, kwargs))
@@ -480,6 +362,5 @@ async def test_audit_log_failure_logging_failure_still_raises_original_exception
     finally:
         ctx_role.reset(token)
 
-    # Verify attempt was logged
     assert len(create_event_calls) == 1
     assert create_event_calls[0][1]["status"] == AuditEventStatus.ATTEMPT
