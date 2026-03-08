@@ -68,21 +68,22 @@ export function ChatHistoryDropdown({
           <div className="p-3 text-sm text-red-600">Failed to load chats</div>
         ) : (
           <Command>
-            <CommandInput placeholder="Search chats..." className="h-9" />
+            <CommandInput
+              placeholder="Search chats..."
+              className="h-8 text-xs"
+            />
             <CommandList className="max-h-64 overflow-y-auto">
-              <CommandEmpty>No chats found.</CommandEmpty>
+              <CommandEmpty className="text-xs">No chats found.</CommandEmpty>
               <CommandGroup>
                 {chats?.map((chat) => (
                   <CommandItem
                     key={chat.id}
                     value={`${chat.title} ${chat.id}`}
                     onSelect={() => handleSelect(chat.id)}
-                    className="flex items-start justify-between gap-2 py-2"
+                    className="flex items-start justify-between gap-2 py-2 text-xs"
                   >
                     <div className="flex min-w-0 flex-col">
-                      <span className="truncate text-sm font-medium">
-                        {chat.title}
-                      </span>
+                      <span className="truncate font-medium">{chat.title}</span>
                       <span className="text-xs text-muted-foreground">
                         {formatDistanceToNow(new Date(chat.created_at), {
                           addSuffix: true,

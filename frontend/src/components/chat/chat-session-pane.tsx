@@ -11,15 +11,26 @@ import {
   type UITools,
 } from "ai"
 import {
+  BoxIcon,
   CheckIcon,
-  HammerIcon,
+  ChevronsUpDown,
+  Loader2,
   PencilIcon,
   RefreshCcwIcon,
   XIcon,
 } from "lucide-react"
 import { motion } from "motion/react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  type ChangeEvent,
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import type {
+  AgentPresetReadMinimal,
   AgentSessionEntity,
   AgentSessionReadVercel,
   ApprovalDecision,
@@ -33,13 +44,24 @@ import {
 } from "@/components/ai-elements/conversation"
 import { Message, MessageContent } from "@/components/ai-elements/message"
 import {
+  ModelSelector,
+  ModelSelectorContent,
+  ModelSelectorEmpty,
+  ModelSelectorGroup,
+  ModelSelectorInput,
+  ModelSelectorItem,
+  ModelSelectorList,
+  ModelSelectorTrigger,
+} from "@/components/ai-elements/model-selector"
+import {
   PromptInput,
   PromptInputBody,
   PromptInputButton,
+  PromptInputFooter,
+  PromptInputHeader,
   type PromptInputMessage,
   PromptInputSubmit,
   PromptInputTextarea,
-  PromptInputToolbar,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input"
 import {
@@ -55,29 +77,27 @@ import {
   SourcesTrigger,
 } from "@/components/ai-elements/sources"
 import {
+  getStatusBadge,
   Tool,
   ToolContent,
   ToolHeader,
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool"
-import { ChatToolsDialog } from "@/components/chat/chat-tools-dialog"
+import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Dots } from "@/components/loading/dots"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import {
   type ApprovalCard,
   makeContinueMessage,
+  parseChatError,
+  useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
 import type { ModelInfo } from "@/lib/chat"
@@ -86,7 +106,66 @@ import {
   toUIMessage,
   transformMessages,
 } from "@/lib/chat"
+import { useBuilderRegistryActions } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
+
+const MAX_TOOL_MENTION_RESULTS = 40
+
+type ToolMentionToken = {
+  start: number
+  end: number
+  query: string
+}
+
+type ToolMentionState = ToolMentionToken & {
+  activeIndex: number
+}
+
+type ToolSuggestion = {
+  value: string
+  label: string
+  description?: string
+  group?: string
+}
+
+function getToolMentionToken(
+  text: string,
+  caret: number
+): ToolMentionToken | undefined {
+  const beforeCaret = text.slice(0, caret)
+  const atIndex = beforeCaret.lastIndexOf("@")
+  if (atIndex < 0) {
+    return undefined
+  }
+
+  const priorChar = atIndex === 0 ? " " : beforeCaret[atIndex - 1]
+  if (priorChar.trim() !== "") {
+    return undefined
+  }
+
+  const query = beforeCaret.slice(atIndex + 1)
+  if (/\s/.test(query)) {
+    return undefined
+  }
+
+  return {
+    start: atIndex,
+    end: caret,
+    query,
+  }
+}
+
+type ChatPresetSelector = {
+  label: string
+  presets?: AgentPresetReadMinimal[]
+  presetsIsLoading: boolean
+  presetsError: unknown
+  selectedPresetId: string | null
+  onSelect: (presetId: string | null) => void | Promise<void>
+  disabled?: boolean
+  showSpinner?: boolean
+  noPresetDescription?: string
+}
 
 export interface ChatSessionPaneProps {
   chat?: AgentSessionReadVercel | ChatReadVercel
@@ -106,7 +185,10 @@ export interface ChatSessionPaneProps {
    * new session ID to switch to, or null to cancel.
    * Used for inbox fork-on-send behavior.
    */
-  onBeforeSend?: (messageText: string) => Promise<string | null>
+  onBeforeSend?: (
+    messageText: string,
+    selectedTools?: string[]
+  ) => Promise<string | null>
   /**
    * Message to send immediately on mount. Used after forking a session
    * to send the user's message to the newly forked session.
@@ -126,6 +208,10 @@ export interface ChatSessionPaneProps {
    * Placeholder to show when input is disabled.
    */
   inputDisabledPlaceholder?: string
+  /**
+   * Optional preset selector rendered in the prompt footer.
+   */
+  presetSelector?: ChatPresetSelector
 }
 
 export function ChatSessionPane({
@@ -144,6 +230,7 @@ export function ChatSessionPane({
   onPendingMessageSent,
   inputDisabled = false,
   inputDisabledPlaceholder,
+  presetSelector,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
   const processedMessageRef = useRef<
@@ -155,7 +242,11 @@ export function ChatSessionPane({
   >(undefined)
 
   const [input, setInput] = useState<string>("")
-  const [toolsDialogOpen, setToolsDialogOpen] = useState(false)
+  const [toolMention, setToolMention] = useState<ToolMentionState>()
+  const [selectedTools, setSelectedTools] = useState<string[]>([])
+  const { updateChat, isUpdating: isUpdatingTools } = useUpdateChat(workspaceId)
+  const { registryActions, registryActionsIsLoading } =
+    useBuilderRegistryActions()
 
   // Check if this is a legacy read-only session
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
@@ -222,7 +313,6 @@ export function ChatSessionPane({
   const handleSubmitApprovals = useCallback(
     async (decisionPayload: ApprovalDecision[]) => {
       if (!decisionPayload.length) return
-      console.log("decisionPayload", decisionPayload)
       try {
         clearError()
         await sendMessage(makeContinueMessage(decisionPayload))
@@ -243,6 +333,269 @@ export function ChatSessionPane({
   useEffect(() => {
     onMessagesChange?.(messages)
   }, [messages, onMessagesChange])
+
+  const toolSuggestions = useMemo<ToolSuggestion[]>(() => {
+    const actions = registryActions ?? []
+    return actions
+      .map((action) => ({
+        value: action.action,
+        label: action.default_title || action.action,
+        description: action.description ?? undefined,
+        group: action.namespace,
+      }))
+      .sort((left, right) => left.value.localeCompare(right.value))
+  }, [registryActions])
+
+  const toolSuggestionMap = useMemo(
+    () => new Map(toolSuggestions.map((tool) => [tool.value, tool])),
+    [toolSuggestions]
+  )
+
+  const persistToolsChainRef = useRef<Promise<void>>(Promise.resolve())
+
+  useEffect(() => {
+    setSelectedTools(chat?.tools ?? [])
+  }, [chat?.id, chat?.tools])
+
+  const queuePersistTools = useCallback(
+    (tools: string[]) => {
+      if (!chat || isReadonly) {
+        return
+      }
+
+      const chatId = chat.id
+      persistToolsChainRef.current = persistToolsChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          try {
+            await updateChat({
+              chatId,
+              update: { tools },
+            })
+          } catch (error) {
+            toast({
+              title: "Failed to update tools",
+              description: parseChatError(error),
+              variant: "destructive",
+            })
+          }
+        })
+    },
+    [chat, isReadonly, updateChat]
+  )
+
+  const addSelectedTool = useCallback(
+    (toolName: string) => {
+      setSelectedTools((current) => {
+        if (current.includes(toolName)) {
+          return current
+        }
+
+        const next = [...current, toolName]
+        queuePersistTools(next)
+        return next
+      })
+    },
+    [queuePersistTools]
+  )
+
+  const removeSelectedTool = useCallback(
+    (toolName: string) => {
+      setSelectedTools((current) => {
+        const next = current.filter((tool) => tool !== toolName)
+        queuePersistTools(next)
+        return next
+      })
+    },
+    [queuePersistTools]
+  )
+
+  const mentionEnabled =
+    toolsEnabled && !isReadonly && !inputDisabled && canSubmit
+
+  useEffect(() => {
+    if (!mentionEnabled) {
+      setToolMention(undefined)
+    }
+  }, [mentionEnabled])
+
+  const filteredToolSuggestions = useMemo(() => {
+    if (!toolMention) {
+      return []
+    }
+
+    const needle = toolMention.query.trim().toLowerCase()
+    const matches = toolSuggestions.filter((tool) => {
+      if (!needle) {
+        return true
+      }
+      return [tool.value, tool.label, tool.description ?? "", tool.group ?? ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(needle)
+    })
+    return matches.slice(0, MAX_TOOL_MENTION_RESULTS)
+  }, [toolMention, toolSuggestions])
+
+  useEffect(() => {
+    if (!toolMention) {
+      return
+    }
+    if (filteredToolSuggestions.length === 0) {
+      setToolMention((current) => {
+        if (!current || current.activeIndex === 0) {
+          return current
+        }
+        return { ...current, activeIndex: 0 }
+      })
+      return
+    }
+
+    setToolMention((current) => {
+      if (!current) {
+        return current
+      }
+      const clampedIndex = Math.min(
+        current.activeIndex,
+        filteredToolSuggestions.length - 1
+      )
+      if (clampedIndex === current.activeIndex) {
+        return current
+      }
+      return { ...current, activeIndex: clampedIndex }
+    })
+  }, [filteredToolSuggestions.length, toolMention])
+
+  const handleSelectMentionTool = useCallback(
+    (toolName: string, textarea?: HTMLTextAreaElement) => {
+      const mention = toolMention
+      if (!mention) {
+        return
+      }
+
+      addSelectedTool(toolName)
+      setInput((current) => {
+        const before = current.slice(0, mention.start)
+        const after = current.slice(mention.end)
+        return `${before}${after}`
+      })
+      setToolMention(undefined)
+
+      if (!textarea) {
+        return
+      }
+
+      const caretPosition = mention.start
+      requestAnimationFrame(() => {
+        textarea.focus()
+        textarea.setSelectionRange(caretPosition, caretPosition)
+      })
+    },
+    [addSelectedTool, toolMention]
+  )
+
+  const handleInputChange = useCallback(
+    (event: ChangeEvent<HTMLTextAreaElement>) => {
+      const nextText = event.target.value
+      setInput(nextText)
+
+      if (!mentionEnabled) {
+        setToolMention(undefined)
+        return
+      }
+
+      const caret = event.target.selectionStart ?? nextText.length
+      const nextMention = getToolMentionToken(nextText, caret)
+      if (!nextMention) {
+        setToolMention(undefined)
+        return
+      }
+
+      setToolMention((current) => ({
+        ...nextMention,
+        activeIndex: current?.activeIndex ?? 0,
+      }))
+    },
+    [mentionEnabled]
+  )
+
+  const handleInputKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (!toolMention) {
+        return
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault()
+        setToolMention(undefined)
+        return
+      }
+
+      if (event.key === "ArrowDown") {
+        event.preventDefault()
+        if (filteredToolSuggestions.length === 0) {
+          return
+        }
+        setToolMention((current) => {
+          if (!current) {
+            return current
+          }
+          return {
+            ...current,
+            activeIndex:
+              (current.activeIndex + 1) % filteredToolSuggestions.length,
+          }
+        })
+        return
+      }
+
+      if (event.key === "ArrowUp") {
+        event.preventDefault()
+        if (filteredToolSuggestions.length === 0) {
+          return
+        }
+        setToolMention((current) => {
+          if (!current) {
+            return current
+          }
+          const nextIndex =
+            (current.activeIndex - 1 + filteredToolSuggestions.length) %
+            filteredToolSuggestions.length
+          return { ...current, activeIndex: nextIndex }
+        })
+        return
+      }
+
+      if (
+        (event.key === "Enter" || event.key === "Tab") &&
+        filteredToolSuggestions.length > 0
+      ) {
+        event.preventDefault()
+        const selected =
+          filteredToolSuggestions[toolMention.activeIndex] ??
+          filteredToolSuggestions[0]
+        if (selected) {
+          handleSelectMentionTool(selected.value, event.currentTarget)
+        }
+      }
+    },
+    [filteredToolSuggestions, handleSelectMentionTool, toolMention]
+  )
+
+  const selectedToolBadges = useMemo(
+    () =>
+      selectedTools.map((toolName) => {
+        const suggestion = toolSuggestionMap.get(toolName)
+        return {
+          value: toolName,
+          label: suggestion?.label ?? toolName,
+          icon: getIcon(toolName, {
+            className: "size-5 shrink-0",
+          }),
+        }
+      }),
+    [selectedTools, toolSuggestionMap]
+  )
 
   const transformedMessages = useMemo(
     () => transformMessages(messages),
@@ -287,7 +640,6 @@ export function ChatSessionPane({
     const toolNames = lastMessage.parts.filter(isToolUIPart).map(getToolName)
 
     if (toolNames.length > 0) {
-      console.log("Invalidating entity queries for tools:", toolNames)
       invalidateEntityQueries(toolNames)
     }
 
@@ -307,7 +659,7 @@ export function ChatSessionPane({
     const messageText = message.text || ""
 
     if (onBeforeSend) {
-      const result = await onBeforeSend(messageText)
+      const result = await onBeforeSend(messageText, selectedTools)
       // Only clear input if onBeforeSend succeeded (non-null)
       // If null, the action was cancelled and user keeps their draft
       if (result !== null) {
@@ -432,11 +784,101 @@ export function ChatSessionPane({
           <ConversationScrollButton />
         </Conversation>
       </div>
-      <div className="px-4 pb-4">
+      <div className="relative px-2 pb-2">
+        {mentionEnabled && toolMention && (
+          <div className="absolute inset-x-2 bottom-full z-30 mb-2">
+            <div className="overflow-hidden rounded-md border bg-popover shadow-md">
+              {registryActionsIsLoading ? (
+                <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                  <Loader2 className="size-3 animate-spin" />
+                  Loading tools...
+                </div>
+              ) : null}
+              {!registryActionsIsLoading &&
+                filteredToolSuggestions.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">
+                    No tools found for
+                    {` "${toolMention.query}"`}.
+                  </div>
+                )}
+              {!registryActionsIsLoading &&
+                filteredToolSuggestions.length > 0 && (
+                  <div className="max-h-64 overflow-y-auto p-1">
+                    {filteredToolSuggestions.map((tool, index) => {
+                      const isActive = toolMention.activeIndex === index
+                      const isSelected = selectedTools.includes(tool.value)
+
+                      return (
+                        <button
+                          key={tool.value}
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => handleSelectMentionTool(tool.value)}
+                          className={cn(
+                            "flex w-full items-start justify-between gap-2 rounded-sm px-2 py-2 text-left",
+                            isActive && "bg-accent"
+                          )}
+                        >
+                          <div className="flex min-w-0 items-start gap-2">
+                            {getIcon(tool.value, {
+                              className: "mt-0.5 size-6 shrink-0",
+                            })}
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-medium text-foreground">
+                                {tool.label}
+                              </p>
+                              <p className="truncate text-[11px] text-muted-foreground">
+                                {tool.value}
+                              </p>
+                            </div>
+                          </div>
+                          {isSelected ? (
+                            <CheckIcon className="mt-0.5 size-3.5 text-muted-foreground" />
+                          ) : null}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+            </div>
+          </div>
+        )}
         <PromptInput onSubmit={handleSubmit}>
+          {toolsEnabled && selectedToolBadges.length > 0 && (
+            <PromptInputHeader className="gap-1.5 px-2 pt-2">
+              {selectedToolBadges.map((tool) => (
+                <Badge
+                  key={tool.value}
+                  variant="secondary"
+                  className="h-7 gap-1.5 px-2.5 text-xs"
+                >
+                  <span className="inline-flex items-center justify-center text-foreground">
+                    {tool.icon}
+                  </span>
+                  <span className="truncate">{tool.label}</span>
+                  <button
+                    type="button"
+                    className="inline-flex items-center text-muted-foreground hover:text-foreground"
+                    aria-label={`Remove ${tool.label}`}
+                    onClick={() => removeSelectedTool(tool.value)}
+                    disabled={
+                      isUpdatingTools ||
+                      isReadonly ||
+                      inputDisabled ||
+                      !toolsEnabled
+                    }
+                  >
+                    <XIcon className="size-3.5" />
+                  </button>
+                </Badge>
+              ))}
+            </PromptInputHeader>
+          )}
           <PromptInputBody>
             <PromptInputTextarea
-              onChange={(event) => setInput(event.target.value)}
+              onChange={handleInputChange}
+              onKeyDown={handleInputKeyDown}
+              onBlur={() => setToolMention(undefined)}
               placeholder={
                 isReadonly
                   ? "This is a legacy session (read-only)"
@@ -449,47 +891,173 @@ export function ChatSessionPane({
               disabled={isReadonly || inputDisabled || !canSubmit}
             />
           </PromptInputBody>
-          <PromptInputToolbar>
-            {toolsEnabled && !isReadonly && (
-              <PromptInputTools>
-                <TooltipProvider delayDuration={0}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <PromptInputButton
-                        aria-label="Configure tools"
-                        size="sm"
-                        onClick={() => setToolsDialogOpen(true)}
-                        className="h-7 gap-1 px-2"
-                        variant="ghost"
-                        disabled={!!status}
-                      >
-                        <HammerIcon className="size-4" />
-                        <span className="text-xs">Tools</span>
-                      </PromptInputButton>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      Configure tools for the agent
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </PromptInputTools>
-            )}
+          <PromptInputFooter>
+            <PromptInputTools>
+              {presetSelector && !isReadonly && (
+                <PromptPresetSelector
+                  selector={presetSelector}
+                  disabled={inputDisabled || !canSubmit}
+                />
+              )}
+            </PromptInputTools>
             <PromptInputSubmit
-              disabled={isReadonly || inputDisabled || !canSubmit || !input}
+              disabled={
+                isReadonly || inputDisabled || !canSubmit || !input.trim()
+              }
               status={status}
-              className="ml-auto text-muted-foreground/80"
+              className="text-muted-foreground/80"
             />
-          </PromptInputToolbar>
+          </PromptInputFooter>
         </PromptInput>
-        {chat && toolsEnabled && !isReadonly && (
-          <ChatToolsDialog
-            chatId={chat.id}
-            open={toolsDialogOpen}
-            onOpenChange={setToolsDialogOpen}
-          />
-        )}
       </div>
     </div>
+  )
+}
+
+function PromptPresetSelector({
+  selector,
+  disabled = false,
+}: {
+  selector: ChatPresetSelector
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+
+  const effectiveDisabled = Boolean(disabled || selector.disabled)
+
+  useEffect(() => {
+    if (effectiveDisabled) {
+      setOpen(false)
+    }
+  }, [effectiveDisabled])
+
+  const errorMessage = useMemo(() => {
+    if (typeof selector.presetsError === "string") {
+      return selector.presetsError
+    }
+    if (
+      selector.presetsError &&
+      typeof selector.presetsError === "object" &&
+      "body" in selector.presetsError &&
+      typeof (selector.presetsError as { body?: { detail?: unknown } }).body
+        ?.detail === "string"
+    ) {
+      return (selector.presetsError as { body?: { detail?: string } }).body
+        ?.detail
+    }
+    if (
+      selector.presetsError &&
+      typeof selector.presetsError === "object" &&
+      "message" in selector.presetsError &&
+      typeof (selector.presetsError as { message?: unknown }).message ===
+        "string"
+    ) {
+      return (selector.presetsError as { message: string }).message
+    }
+    return "Failed to load presets"
+  }, [selector.presetsError])
+
+  const noPresetValue = "__workspace_default_preset__"
+
+  const handleSelect = (value: string) => {
+    setOpen(false)
+    void selector.onSelect(value === noPresetValue ? null : value)
+  }
+
+  return (
+    <ModelSelector
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (effectiveDisabled) {
+          return
+        }
+        setOpen(nextOpen)
+      }}
+    >
+      <ModelSelectorTrigger asChild>
+        <PromptInputButton
+          size="sm"
+          variant="ghost"
+          disabled={effectiveDisabled}
+          className="h-7 max-w-[16rem] justify-between gap-1 px-2 text-xs"
+          aria-label="Select preset agent"
+        >
+          <span className="flex min-w-0 items-center gap-1.5">
+            <BoxIcon className="size-3 text-muted-foreground" />
+            <span className="truncate" title={selector.label}>
+              {selector.label}
+            </span>
+          </span>
+          {selector.showSpinner ? (
+            <Loader2 className="size-3 animate-spin text-muted-foreground" />
+          ) : (
+            <ChevronsUpDown className="size-3 text-muted-foreground" />
+          )}
+        </PromptInputButton>
+      </ModelSelectorTrigger>
+      <ModelSelectorContent title="Select preset agent" className="sm:max-w-lg">
+        {selector.presetsIsLoading ? (
+          <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
+            <Loader2 className="size-3 animate-spin" />
+            Loading presets...
+          </div>
+        ) : selector.presetsError ? (
+          <div className="p-3 text-xs text-red-600">{errorMessage}</div>
+        ) : (
+          <>
+            <ModelSelectorInput
+              placeholder="Search presets..."
+              className="text-xs"
+            />
+            <ModelSelectorList className="max-h-64 overflow-y-auto">
+              <ModelSelectorEmpty className="py-4 text-xs text-muted-foreground">
+                No presets found.
+              </ModelSelectorEmpty>
+              <ModelSelectorGroup>
+                <ModelSelectorItem
+                  value="no preset"
+                  onSelect={() => handleSelect(noPresetValue)}
+                  className="flex items-start justify-between gap-2 py-2 text-xs"
+                >
+                  <div className="flex flex-col">
+                    <span className="font-medium">No preset</span>
+                    <span className="text-muted-foreground">
+                      {selector.noPresetDescription ??
+                        "Use workspace default agent instructions."}
+                    </span>
+                  </div>
+                  {selector.selectedPresetId === null ? (
+                    <CheckIcon className="mt-0.5 size-3.5" />
+                  ) : null}
+                </ModelSelectorItem>
+                {(selector.presets ?? []).map((preset) => (
+                  <ModelSelectorItem
+                    key={preset.id}
+                    value={`${preset.name} ${preset.description ?? ""}`}
+                    onSelect={() => handleSelect(preset.id)}
+                    className="flex items-start justify-between gap-2 py-2 text-xs"
+                  >
+                    <div className="flex min-w-0 flex-col">
+                      <span className="truncate font-medium">
+                        {preset.name}
+                      </span>
+                      {preset.description ? (
+                        <span className="text-muted-foreground">
+                          {preset.description}
+                        </span>
+                      ) : null}
+                    </div>
+                    {selector.selectedPresetId === preset.id ? (
+                      <CheckIcon className="mt-0.5 size-3.5" />
+                    ) : null}
+                  </ModelSelectorItem>
+                ))}
+              </ModelSelectorGroup>
+            </ModelSelectorList>
+          </>
+        )}
+      </ModelSelectorContent>
+    </ModelSelector>
   )
 }
 
@@ -575,7 +1143,7 @@ export function MessagePart({
           type={part.type}
           state={derivedState}
           icon={getIcon(toolName, {
-            className: "size-4 p-[3px]",
+            className: "size-5 p-[3px]",
           })}
         />
         <ToolContent>
@@ -693,16 +1261,12 @@ function ApprovalRequestPart({
 
   return (
     <div className="space-y-4">
-      <div>
-        <p className="text-xs font-medium uppercase text-muted-foreground">
-          Approvals required
-        </p>
-      </div>
       <div className="space-y-3">
-        {approvals.map((approval) => {
+        {approvals.map((approval, index) => {
           const actionId = approval.tool_name.replaceAll("__", ".")
           const decision = decisions[approval.tool_call_id]
-          const argsPreview = formatArgs(approval.args)
+          const initialOverrideArgs = formatArgs(approval.args)
+          const isLastApproval = index === approvals.length - 1
           return (
             <div
               key={approval.tool_call_id}
@@ -710,11 +1274,12 @@ function ApprovalRequestPart({
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-2.5">
                     {getIcon(actionId, {
-                      className: "size-4 p-[3px]",
+                      className: "size-5 p-[3px]",
                     })}
-                    <p className="text-sm font-semibold">{actionId}</p>
+                    <p className="font-medium text-sm">{actionId}</p>
+                    {getStatusBadge("approval-requested")}
                   </div>
                 </div>
                 <JsonViewWithControls
@@ -725,11 +1290,8 @@ function ApprovalRequestPart({
                 />
                 <div className="flex w-full flex-wrap justify-start gap-1 sm:w-auto [&>button]:h-6 [&>button]:rounded-lg">
                   <Button
-                    type="button"
                     size="sm"
-                    variant={
-                      decision?.action === "approve" ? "default" : "outline"
-                    }
+                    variant="outline"
                     disabled={disabled || submitting}
                     onClick={() =>
                       setDecision(approval.tool_call_id, {
@@ -740,39 +1302,35 @@ function ApprovalRequestPart({
                     }
                     className={cn(
                       decision?.action === "approve" &&
-                        "bg-green-500/80 hover:bg-green-600/80"
+                        "border-success bg-background text-success hover:bg-success/10 hover:text-success"
                     )}
                   >
                     <CheckIcon className="mr-1 size-3" />
                     Approve
                   </Button>
                   <Button
-                    type="button"
                     size="sm"
-                    variant={
-                      decision?.action === "override" ? "default" : "outline"
-                    }
+                    variant="outline"
                     disabled={disabled || submitting}
                     onClick={() =>
                       setDecision(approval.tool_call_id, {
                         action: "override",
                         reason: undefined,
+                        overrideArgs:
+                          decision?.overrideArgs ?? initialOverrideArgs,
                       })
                     }
                     className={cn(
                       decision?.action === "override" &&
-                        "bg-green-500/80 hover:bg-green-600/80"
+                        "border-success bg-background text-success hover:bg-success/10 hover:text-success"
                     )}
                   >
                     <PencilIcon className="mr-1 size-3" />
-                    Approve + change
+                    Edit + approve
                   </Button>
                   <Button
-                    type="button"
                     size="sm"
-                    variant={
-                      decision?.action === "deny" ? "destructive" : "outline"
-                    }
+                    variant="outline"
                     disabled={disabled || submitting}
                     onClick={() =>
                       setDecision(approval.tool_call_id, {
@@ -780,6 +1338,10 @@ function ApprovalRequestPart({
                         overrideArgs: undefined,
                       })
                     }
+                    className={cn(
+                      decision?.action === "deny" &&
+                        "border-destructive bg-background text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    )}
                   >
                     <XIcon className="mr-1 size-3" />
                     Deny
@@ -787,20 +1349,25 @@ function ApprovalRequestPart({
                 </div>
               </div>
               {decision?.action === "override" && (
-                <Textarea
-                  className="text-xs"
-                  rows={4}
-                  spellCheck={false}
-                  value={decision.overrideArgs ?? ""}
-                  onChange={(event) =>
-                    setDecision(approval.tool_call_id, {
-                      ...decision,
-                      overrideArgs: event.target.value,
-                    })
-                  }
-                  placeholder={argsPreview}
-                  disabled={disabled || submitting}
-                />
+                <div
+                  data-testid={`approval-override-editor-${approval.tool_call_id}`}
+                >
+                  <CodeEditor
+                    value={decision.overrideArgs ?? initialOverrideArgs}
+                    language="json"
+                    onChange={(value) =>
+                      setDecision(approval.tool_call_id, {
+                        ...decision,
+                        overrideArgs: value,
+                      })
+                    }
+                    className={cn(
+                      "text-xs",
+                      "[&_.cm-editor]:!border [&_.cm-editor]:!border-input [&_.cm-editor]:!bg-background [&_.cm-editor]:rounded-md",
+                      "[&_.cm-scroller]:h-auto [&_.cm-scroller]:min-h-24 [&_.cm-scroller]:max-h-80 [&_.cm-scroller]:overflow-auto"
+                    )}
+                  />
+                </div>
               )}
               {decision?.action === "deny" && (
                 <Textarea
@@ -817,28 +1384,25 @@ function ApprovalRequestPart({
                   disabled={disabled || submitting}
                 />
               )}
+              {isLastApproval && (
+                <div className="flex flex-wrap justify-end gap-2 pt-1">
+                  <Button
+                    onClick={handleSubmit}
+                    disabled={disabled || submitting || !readyToSubmit}
+                    className="h-6 gap-1 px-2 text-xs"
+                  >
+                    {submitting ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : (
+                      <CheckIcon className="size-3" />
+                    )}
+                    {submitting ? "Submitting..." : "Submit"}
+                  </Button>
+                </div>
+              )}
             </div>
           )
         })}
-      </div>
-      <div className="flex flex-wrap justify-end gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          disabled={submitting}
-          onClick={() => setDecisions({})}
-          className="h-7 px-2 text-muted-foreground/80"
-        >
-          Reset
-        </Button>
-        <Button
-          type="button"
-          onClick={handleSubmit}
-          disabled={disabled || submitting || !readyToSubmit}
-          className="h-7 px-2"
-        >
-          {submitting ? "Submitting..." : "Submit"}
-        </Button>
       </div>
       {disabled && (
         <p className="text-xs text-muted-foreground">
