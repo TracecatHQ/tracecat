@@ -34,7 +34,12 @@ import {
   useRef,
   useState,
 } from "react"
-import { type UseFormReturn, useFieldArray, useForm } from "react-hook-form"
+import {
+  type FieldErrors,
+  type UseFormReturn,
+  useFieldArray,
+  useForm,
+} from "react-hook-form"
 import { z } from "zod"
 import type {
   AgentPresetCreate,
@@ -120,6 +125,10 @@ import {
 } from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import {
+  type AgentPresetFormMode,
+  canSubmitAgentPresetForm,
+} from "@/lib/agent-presets"
 import type { ModelInfo } from "@/lib/chat"
 import {
   useAgentModels,
@@ -833,7 +842,6 @@ function AutoResizeTextarea({
   )
 }
 
-type AgentPresetFormMode = "create" | "edit"
 type AgentPresetSideTab =
   | "live-chat"
   | "assistant"
@@ -847,6 +855,34 @@ type McpIntegrationOption = {
   name: string
   description?: string | null
   providerId?: string
+}
+
+function getAgentPresetErrorTab(
+  errors: FieldErrors<AgentPresetFormValues>
+): AgentPresetSideTab | null {
+  if (
+    errors.outputTypeKind ||
+    errors.outputTypeDataType ||
+    errors.outputTypeJson
+  ) {
+    return "structured-output"
+  }
+
+  if (
+    errors.model_provider ||
+    errors.model_name ||
+    errors.base_url ||
+    errors.retries ||
+    errors.actions ||
+    errors.namespaces ||
+    errors.mcpIntegrations ||
+    errors.toolApprovals ||
+    errors.enableInternetAccess
+  ) {
+    return "configuration"
+  }
+
+  return null
 }
 
 type AgentPresetFormProps = {
@@ -927,6 +963,7 @@ function AgentPresetForm({
 
   const watchedName = form.watch("name")
   const providerValue = form.watch("model_provider")
+  const modelNameValue = form.watch("model_name")
   const modelOptions = modelOptionsByProvider[providerValue] ?? []
 
   useEffect(() => {
@@ -955,23 +992,32 @@ function AgentPresetForm({
     }
   }, [activeTab, channelsEnabled])
 
-  const handleSubmit = form.handleSubmit(async (values) => {
-    const payload = formValuesToPayload(values)
-    if (mode === "edit" && preset) {
-      const updated = await onUpdate(preset.id, payload)
-      form.reset(presetToFormValues(updated))
-    } else {
-      const created = await onCreate(payload)
-      form.reset(presetToFormValues(created))
+  const handleSubmit = form.handleSubmit(
+    async (values) => {
+      const payload = formValuesToPayload(values)
+      if (mode === "edit" && preset) {
+        const updated = await onUpdate(preset.id, payload)
+        form.reset(presetToFormValues(updated))
+      } else {
+        const created = await onCreate(payload)
+        form.reset(presetToFormValues(created))
+      }
+    },
+    (errors) => {
+      const nextTab = getAgentPresetErrorTab(errors)
+      if (nextTab) {
+        setActiveTab(nextTab)
+      }
     }
-  })
+  )
 
-  const canSubmit =
-    form.formState.isDirty ||
-    (mode === "create" &&
-      Boolean(form.watch("name")) &&
-      Boolean(form.watch("model_provider")) &&
-      Boolean(form.watch("model_name")))
+  const canSubmit = canSubmitAgentPresetForm({
+    mode,
+    isDirty: form.formState.isDirty,
+    name: watchedName ?? "",
+    modelProvider: providerValue ?? "",
+    modelName: modelNameValue ?? "",
+  })
 
   const handleDeleteDialogChange = useCallback(
     (nextOpen: boolean) => {
