@@ -203,6 +203,7 @@ Commands:
   logs [svc]    Show logs (optionally for specific service)
   attach <svc>  Attach to a running service container (e.g., attach api)
   db            Open lazysql to the cluster's PostgreSQL database
+  open          Open the cluster UI in the default browser
   ports         Show port mappings for the cluster
   list          List all running Tracecat clusters
   nuke [opts]   Destroy cluster and optionally volumes/images
@@ -223,6 +224,7 @@ Examples:
   ./cluster 2 up -d              Start cluster 2 explicitly
   ./cluster 2 -p local up -d     Start cluster 2 with local profile
   ./cluster attach api           Attach shell to api service
+  ./cluster open                 Open cluster UI in browser
   ./cluster db                   Open lazysql to the database
   ./cluster list                 List all clusters
   ./cluster nuke                 Destroy cluster and volumes (interactive)
@@ -430,6 +432,15 @@ COMPOSE_FILE=$(get_compose_file "$PROFILE")
 # Handle 'ports' command
 if [[ "$COMMAND" == "ports" ]]; then
     show_ports "$CLUSTER_NUM"
+    exit 0
+fi
+
+# Handle 'open' command - open cluster URL in default browser
+if [[ "$COMMAND" == "open" ]]; then
+    calculate_ports "$CLUSTER_NUM"
+    local_url="http://localhost:${PUBLIC_APP_PORT}"
+    echo "Opening ${local_url} ..."
+    open "$local_url"
     exit 0
 fi
 
