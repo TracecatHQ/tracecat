@@ -21,6 +21,9 @@ from tracecat.auth.dependencies import (
 from tracecat.auth.types import Role
 from tracecat.cases.router import WorkspaceUser
 from tracecat.contexts import ctx_role
+from tracecat.credential_sync.router import (
+    WorkspaceUserInPath as CredentialSyncWorkspaceUserInPath,
+)
 from tracecat.db.engine import get_async_session
 from tracecat.secrets.router import (
     WorkspaceUser as SecretsWorkspaceUser,
@@ -66,6 +69,7 @@ def client() -> Generator[TestClient, None, None]:
         TablesWorkspaceUser,
         TablesWorkspaceEditorUser,
         WorkspaceUserInPath,
+        CredentialSyncWorkspaceUserInPath,
     ]
 
     for annotated_type in role_dependencies:

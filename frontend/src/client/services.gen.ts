@@ -278,6 +278,13 @@ import type {
   CaseTagsListCaseTagsResponse,
   CaseTagsUpdateCaseTagData,
   CaseTagsUpdateCaseTagResponse,
+  CredentialSyncGetAwsCredentialSyncConfigResponse,
+  CredentialSyncPullAwsCredentialSyncData,
+  CredentialSyncPullAwsCredentialSyncResponse,
+  CredentialSyncPushAwsCredentialSyncData,
+  CredentialSyncPushAwsCredentialSyncResponse,
+  CredentialSyncUpdateAwsCredentialSyncConfigData,
+  CredentialSyncUpdateAwsCredentialSyncConfigResponse,
   EditorFieldSchemaResponse,
   EditorListActionsData,
   EditorListActionsResponse,
@@ -6468,6 +6475,40 @@ export const organizationSecretsDeleteOrgSecretById = (
 }
 
 /**
+ * Get Aws Credential Sync Config
+ * @returns AwsCredentialSyncConfigRead Successful Response
+ * @throws ApiError
+ */
+export const credentialSyncGetAwsCredentialSyncConfig =
+  (): CancelablePromise<CredentialSyncGetAwsCredentialSyncConfigResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/credentials/sync/aws",
+    })
+  }
+
+/**
+ * Update Aws Credential Sync Config
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const credentialSyncUpdateAwsCredentialSyncConfig = (
+  data: CredentialSyncUpdateAwsCredentialSyncConfigData
+): CancelablePromise<CredentialSyncUpdateAwsCredentialSyncConfigResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/organization/credentials/sync/aws",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Tables
  * List all tables.
  * @param data The data for the request.
@@ -9429,6 +9470,50 @@ export const vcsGetGithubAppCredentialsStatus =
       url: "/organization/vcs/github/credentials/status",
     })
   }
+
+/**
+ * Push Aws Credential Sync
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns CredentialSyncResult Successful Response
+ * @throws ApiError
+ */
+export const credentialSyncPushAwsCredentialSync = (
+  data: CredentialSyncPushAwsCredentialSyncData
+): CancelablePromise<CredentialSyncPushAwsCredentialSyncResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/credentials/sync/aws/push",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Pull Aws Credential Sync
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns CredentialSyncResult Successful Response
+ * @throws ApiError
+ */
+export const credentialSyncPullAwsCredentialSync = (
+  data: CredentialSyncPullAwsCredentialSyncData
+): CancelablePromise<CredentialSyncPullAwsCredentialSyncResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/credentials/sync/aws/pull",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * Get My Scopes

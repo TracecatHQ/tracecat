@@ -88,6 +88,10 @@ from tracecat.cases.tags.internal_router import router as internal_case_tags_rou
 from tracecat.cases.tags.router import router as case_tags_router
 from tracecat.cases.triggers.consumer import start_case_trigger_consumer
 from tracecat.contexts import ctx_role
+from tracecat.credential_sync.router import org_router as credential_sync_org_router
+from tracecat.credential_sync.router import (
+    workspace_router as credential_sync_workspace_router,
+)
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
@@ -436,6 +440,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(registry_actions_router)
     app.include_router(org_settings_router)
     app.include_router(org_secrets_router)
+    app.include_router(credential_sync_org_router)
     app.include_router(tables_router)
     app.include_router(cases_router)
     app.include_router(case_rows_router)
@@ -452,6 +457,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(mcp_router)
     app.include_router(feature_flags_router)
     app.include_router(vcs_router)
+    app.include_router(credential_sync_workspace_router)
     # RBAC routers - user scopes + role listing + user role assignments are always included (OSS)
     app.include_router(user_scopes_router)
     app.include_router(rbac_roles_read_router)

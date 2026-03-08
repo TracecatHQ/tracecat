@@ -126,6 +126,8 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "org:settings:read",
         "org:settings:update",
         "org:settings:delete",
+        # Credential sync management
+        "org:credential-sync:manage",
         # Registry management (org-level custom actions)
         "org:registry:read",
         "org:registry:create",
@@ -217,6 +219,8 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "org:settings:read",
         "org:settings:update",
         "org:settings:delete",
+        # Credential sync management
+        "org:credential-sync:manage",
         # Registry management (org-level custom actions)
         "org:registry:read",
         "org:registry:create",

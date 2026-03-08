@@ -110,6 +110,7 @@ import {
   NewVariableDialog,
   NewVariableDialogTrigger,
 } from "@/components/workspaces/add-workspace-variable"
+import { AwsCredentialSyncAction } from "@/components/workspaces/aws-credential-sync-action"
 import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
@@ -931,6 +932,7 @@ function CredentialsActions() {
         Add credential
       </Button>
 
+      <AwsCredentialSyncAction />
       <CreateCredentialDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </>
   )

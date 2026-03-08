@@ -7,6 +7,7 @@ import pytest
 from tracecat.agent.preset import router as agent_preset_router
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
+from tracecat.credential_sync import router as credential_sync_router
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.inbox import router as inbox_router
 from tracecat.integrations import router as integrations_router
@@ -186,4 +187,32 @@ async def test_integration_scope_guards(
     ],
 )
 async def test_vcs_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (
+            credential_sync_router.get_aws_credential_sync_config,
+            "org:credential-sync:manage",
+        ),
+        (
+            credential_sync_router.update_aws_credential_sync_config,
+            "org:credential-sync:manage",
+        ),
+        (
+            credential_sync_router.push_aws_credential_sync,
+            "org:credential-sync:manage",
+        ),
+        (
+            credential_sync_router.pull_aws_credential_sync,
+            "org:credential-sync:manage",
+        ),
+    ],
+)
+async def test_credential_sync_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
