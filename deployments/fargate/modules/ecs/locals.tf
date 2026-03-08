@@ -40,6 +40,10 @@ locals {
     TRACECAT__EE_MULTI_TENANT                        = var.ee_multi_tenant
     TRACECAT__CONTEXT_COMPRESSION_ENABLED            = var.context_compression_enabled
     TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB       = var.context_compression_threshold_kb
+    TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED             = var.temporal_payload_encryption_enabled
+    TEMPORAL__PAYLOAD_ENCRYPTION_KEY_VERSION         = var.temporal_payload_encryption_key_version
+    TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS   = var.temporal_payload_encryption_cache_ttl_seconds
+    TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS     = var.temporal_payload_encryption_cache_max_items
     TRACECAT__RESULT_EXTERNALIZATION_ENABLED         = var.result_externalization_enabled
     TRACECAT__COLLECTION_MANIFESTS_ENABLED           = var.collection_manifests_enabled
     TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES = var.result_externalization_threshold_bytes
@@ -148,10 +152,10 @@ locals {
   migrations_env = [
     for k, v in merge(
       {
-        LOG_LEVEL                  = var.log_level
-        TRACECAT__DB_SSLMODE       = "require"
-        TRACECAT__DB_ENDPOINT      = local.core_db_hostname
-        TRACECAT__FEATURE_FLAGS    = var.feature_flags
+        LOG_LEVEL               = var.log_level
+        TRACECAT__DB_SSLMODE    = "require"
+        TRACECAT__DB_ENDPOINT   = local.core_db_hostname
+        TRACECAT__FEATURE_FLAGS = var.feature_flags
       },
       local.tracecat_db_configs
     ) :

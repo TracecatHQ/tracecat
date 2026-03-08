@@ -133,4 +133,13 @@ module "eks" {
 
   # Feature flags (maps to enterprise.featureFlags)
   feature_flags = var.feature_flags
+
+  temporal_payload_encryption_enabled                        = var.temporal_payload_encryption_enabled
+  temporal_payload_encryption_key_version                    = var.temporal_payload_encryption_key_version
+  temporal_payload_encryption_cache_ttl_seconds              = var.temporal_payload_encryption_cache_ttl_seconds
+  temporal_payload_encryption_cache_max_items                = var.temporal_payload_encryption_cache_max_items
+  temporal_payload_encryption_existing_secret                = var.temporal_payload_encryption_existing_secret
+  temporal_payload_encryption_payload_key_secret_key         = var.temporal_payload_encryption_payload_key_secret_key
+  temporal_payload_encryption_visibility_hmac_secret_key     = var.temporal_payload_encryption_visibility_hmac_secret_key
+  temporal_payload_encryption_codec_server_shared_secret_key = var.temporal_payload_encryption_codec_server_shared_secret_key
 }

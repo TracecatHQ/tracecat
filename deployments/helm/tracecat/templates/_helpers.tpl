@@ -479,6 +479,14 @@ Temporal environment variables (shared by api, worker, executor)
   value: {{ include "tracecat.temporalNamespace" . | quote }}
 - name: TEMPORAL__CLUSTER_QUEUE
   value: {{ include "tracecat.temporalQueue" . | quote }}
+- name: TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED
+  value: {{ .Values.tracecat.temporalPayloadEncryption.enabled | quote }}
+- name: TEMPORAL__PAYLOAD_ENCRYPTION_KEY_VERSION
+  value: {{ .Values.tracecat.temporalPayloadEncryption.keyVersion | quote }}
+- name: TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS
+  value: {{ .Values.tracecat.temporalPayloadEncryption.cacheTtlSeconds | quote }}
+- name: TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS
+  value: {{ .Values.tracecat.temporalPayloadEncryption.cacheMaxItems | quote }}
 {{- if .Values.externalTemporal.enabled }}
 {{- if .Values.externalTemporal.auth.secretArn }}
 - name: TEMPORAL__API_KEY__ARN
@@ -1045,6 +1053,24 @@ Uses ESO-aware secret name resolution.
     secretKeyRef:
       name: {{ $secretName }}
       key: signingSecret
+{{- $temporalPayloadSecretName := .Values.tracecat.temporalPayloadEncryption.secretName }}
+{{- if and .Values.tracecat.temporalPayloadEncryption.enabled $temporalPayloadSecretName }}
+- name: TEMPORAL__PAYLOAD_ENCRYPTION_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ $temporalPayloadSecretName }}
+      key: {{ .Values.tracecat.temporalPayloadEncryption.payloadKeySecretKey }}
+- name: TEMPORAL__VISIBILITY_HMAC_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ $temporalPayloadSecretName }}
+      key: {{ .Values.tracecat.temporalPayloadEncryption.visibilityHmacKeySecretKey }}
+- name: TEMPORAL__CODEC_SERVER_SHARED_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ $temporalPayloadSecretName }}
+      key: {{ .Values.tracecat.temporalPayloadEncryption.codecServerSharedSecretKey }}
+{{- end }}
 {{- end -}}
 
 {{/*
