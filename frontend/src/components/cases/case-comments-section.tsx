@@ -42,6 +42,7 @@ import {
   FormItem,
   FormMessage,
 } from "@/components/ui/form"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
@@ -269,11 +270,11 @@ function CommentRow({
       ) : comment.is_deleted ? (
         <p className="text-sm italic text-muted-foreground">Comment deleted</p>
       ) : (
-        <div
-          className={`overflow-x-auto text-sm leading-6 ${contentInsetClass}`}
-        >
-          <CaseCommentViewer content={comment.content} />
-        </div>
+        <ScrollArea className={`w-full ${contentInsetClass}`}>
+          <div className="min-w-0 text-sm leading-6">
+            <CaseCommentViewer content={comment.content} />
+          </div>
+        </ScrollArea>
       )}
     </div>
   )
