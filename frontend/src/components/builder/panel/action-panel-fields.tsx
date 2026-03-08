@@ -60,7 +60,10 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { useAgentPresets } from "@/hooks/use-agent-presets"
+import {
+  useAgentPresets,
+  useAgentPresetVersions,
+} from "@/hooks/use-agent-presets"
 import { isExpression } from "@/lib/expressions"
 import { useBuilderRegistryActions } from "@/lib/hooks"
 import { getType } from "@/lib/jsonschema"
@@ -506,6 +509,9 @@ function ComponentContent({
         />
       )
     case "integer":
+      if (isAgentPresetVersionFieldName(field.name)) {
+        return <AgentPresetVersionField field={field} />
+      }
       return (
         <Input
           type="number"
@@ -831,6 +837,7 @@ function AgentPresetSelect({
 }: {
   field: ControllerRenderProps<FieldValues>
 }) {
+  const methods = useFormContext()
   const workspaceId = useWorkspaceId()
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
@@ -839,6 +846,13 @@ function AgentPresetSelect({
 
   const handleChange = (value: string) => {
     field.onChange(value)
+    const presetVersionFieldName = getAgentPresetVersionFieldName(field.name)
+    if (presetVersionFieldName) {
+      methods.setValue(presetVersionFieldName, undefined, {
+        shouldDirty: true,
+        shouldTouch: true,
+      })
+    }
   }
 
   const placeholder = !workspaceId
@@ -880,6 +894,100 @@ function AgentPresetSelect({
         {presets?.map((preset) => (
           <SelectItem key={preset.slug} value={preset.slug}>
             {preset.name} ({preset.slug})
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+function isAgentPresetVersionFieldName(fieldName: string): boolean {
+  return fieldName === "preset_version" || fieldName.endsWith(".preset_version")
+}
+
+function getAgentPresetFieldName(fieldName: string): string | null {
+  if (fieldName === "preset_version") {
+    return "preset"
+  }
+  if (fieldName.endsWith(".preset_version")) {
+    return fieldName.replace(/\.preset_version$/, ".preset")
+  }
+  return null
+}
+
+function getAgentPresetVersionFieldName(fieldName: string): string | null {
+  if (fieldName === "preset") {
+    return "preset_version"
+  }
+  if (fieldName.endsWith(".preset")) {
+    return fieldName.replace(/\.preset$/, ".preset_version")
+  }
+  return null
+}
+
+function AgentPresetVersionField({
+  field,
+}: {
+  field: ControllerRenderProps<FieldValues>
+}) {
+  const methods = useFormContext()
+  const workspaceId = useWorkspaceId()
+  const presetFieldName = getAgentPresetFieldName(field.name)
+  const presetValue = presetFieldName
+    ? methods.watch(presetFieldName)
+    : undefined
+  const selectedPresetSlug =
+    typeof presetValue === "string" ? presetValue : null
+  const { presets } = useAgentPresets(workspaceId, {
+    enabled: Boolean(workspaceId),
+  })
+  const selectedPreset = presets?.find(
+    (preset) => preset.slug === selectedPresetSlug
+  )
+  const { versions, versionsIsLoading, versionsError } = useAgentPresetVersions(
+    workspaceId,
+    selectedPreset?.id,
+    { enabled: Boolean(workspaceId && selectedPreset?.id) }
+  )
+
+  return (
+    <Select
+      value={
+        typeof field.value === "number" ? String(field.value) : "__current__"
+      }
+      onValueChange={(value) => {
+        field.onChange(value === "__current__" ? undefined : parseInt(value))
+      }}
+      disabled={!workspaceId || !selectedPreset}
+    >
+      <SelectTrigger>
+        <SelectValue
+          placeholder={
+            selectedPreset ? "Select a version" : "Choose an agent preset first"
+          }
+        />
+      </SelectTrigger>
+      <SelectContent>
+        {versionsIsLoading ? (
+          <SelectItem value="__loading" disabled>
+            Loading versions...
+          </SelectItem>
+        ) : null}
+        {versionsError ? (
+          <SelectItem value="__error" disabled>
+            Failed to load versions
+          </SelectItem>
+        ) : null}
+        {!versionsIsLoading && !versionsError ? (
+          <SelectItem value="__current__">Current</SelectItem>
+        ) : null}
+        {versions?.map((version) => (
+          <SelectItem key={version.id} value={String(version.version)}>
+            {`v${version.version}${
+              version.id === selectedPreset?.current_version_id
+                ? " • Current"
+                : ""
+            }`}
           </SelectItem>
         ))}
       </SelectContent>
