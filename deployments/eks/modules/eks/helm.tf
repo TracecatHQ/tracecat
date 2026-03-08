@@ -229,6 +229,16 @@ resource "helm_release" "tracecat" {
     value = var.superadmin_email
   }
 
+  set {
+    name  = "tracecat.logging.redactionHmacKeyArn"
+    value = var.tracecat_log_redaction_hmac_key_arn
+  }
+
+  set {
+    name  = "tracecat.logging.unsafeEnableVerbosePayloads"
+    value = var.unsafe_enable_verbose_log_payloads
+  }
+
   # Replica counts
   set {
     name  = "api.replicas"

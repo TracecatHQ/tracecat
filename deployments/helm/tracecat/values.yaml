@@ -5,6 +5,7 @@ secrets:
   # - serviceKey: Service-to-service auth key (hex)
   # - signingSecret: Webhook signing secret (hex)
   # - userAuthSecret: Password reset/email verification token secret (hex)
+  # - logRedactionHmacKey: Optional HMAC key for deterministic log redaction hashes
   # Leave empty when using secrets.create.tracecat or externalSecrets.coreSecrets.
   existingSecret: ""
 
@@ -20,6 +21,7 @@ secrets:
       serviceKey: ""
       signingSecret: ""
       userAuthSecret: ""
+      logRedactionHmacKey: ""
 
     postgres:
       enabled: false
@@ -188,6 +190,13 @@ tracecat:
       registry: ""
       # Defaults to tracecat-workflow if unset.
       workflow: ""
+
+  logging:
+    # Optional ARN of an AWS Secrets Manager secret that stores the HMAC key used
+    # for deterministic log redaction hashes. When set, Tracecat resolves the key at runtime.
+    redactionHmacKeyArn: ""
+    # Break-glass flag for verbose payload logging. Keep false outside development.
+    unsafeEnableVerbosePayloads: false
 
   saml:
     enabled: false

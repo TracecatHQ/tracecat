@@ -512,9 +512,10 @@ resource "aws_iam_role_policy" "tracecat_s3" {
           "secretsmanager:GetSecretValue",
           "secretsmanager:DescribeSecret"
         ]
-        Resource = [
-          local.rds_master_secret_arn
-        ]
+        Resource = compact([
+          local.rds_master_secret_arn,
+          var.tracecat_log_redaction_hmac_key_arn,
+        ])
       }
     ]
   })

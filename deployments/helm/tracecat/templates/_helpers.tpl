@@ -469,6 +469,15 @@ Common environment variables shared across all backend services
   value: {{ .Values.enterprise.multiTenant | quote }}
 {{- end }}
 
+{{- define "tracecat.env.logging" -}}
+{{- if .Values.tracecat.logging.redactionHmacKeyArn }}
+- name: TRACECAT__LOG_REDACTION_HMAC_KEY__ARN
+  value: {{ .Values.tracecat.logging.redactionHmacKeyArn | quote }}
+{{- end }}
+- name: TRACECAT__UNSAFE_ENABLE_VERBOSE_LOG_PAYLOADS
+  value: {{ .Values.tracecat.logging.unsafeEnableVerbosePayloads | quote }}
+{{- end }}
+
 {{/*
 Temporal environment variables (shared by api, worker, executor)
 */}}
@@ -629,6 +638,7 @@ Merges: common + temporal + postgres + redis + api-specific
 */}}
 {{- define "tracecat.env.api" -}}
 {{ include "tracecat.env.common" . }}
+{{ include "tracecat.env.logging" . }}
 {{ include "tracecat.env.temporal" . }}
 {{ include "tracecat.env.blobStorage" . }}
 {{ include "tracecat.env.postgres" . }}
@@ -693,6 +703,7 @@ Merges: common + temporal + postgres + redis + worker-specific
 */}}
 {{- define "tracecat.env.worker" -}}
 {{ include "tracecat.env.common" . }}
+{{ include "tracecat.env.logging" . }}
 {{ include "tracecat.env.temporal" . }}
 {{ include "tracecat.env.blobStorage" . }}
 {{ include "tracecat.env.postgres" . }}
@@ -725,6 +736,7 @@ Merges: common + temporal + postgres + redis + executor-specific
 */}}
 {{- define "tracecat.env.executor" -}}
 {{ include "tracecat.env.common" . }}
+{{ include "tracecat.env.logging" . }}
 {{ include "tracecat.env.temporal" . }}
 {{ include "tracecat.env.blobStorage" . }}
 {{ include "tracecat.env.postgres" . }}
@@ -757,6 +769,7 @@ Merges: common + temporal + postgres + redis + agent-executor-specific
 */}}
 {{- define "tracecat.env.agentExecutor" -}}
 {{ include "tracecat.env.common" . }}
+{{ include "tracecat.env.logging" . }}
 {{ include "tracecat.env.temporal" . }}
 {{ include "tracecat.env.blobStorage" . }}
 {{ include "tracecat.env.postgres" . }}
@@ -789,6 +802,7 @@ Merges: common + temporal + postgres + mcp-specific
 */}}
 {{- define "tracecat.env.mcp" -}}
 {{ include "tracecat.env.common" . }}
+{{ include "tracecat.env.logging" . }}
 {{ include "tracecat.env.temporal" . }}
 {{ include "tracecat.env.postgres" . }}
 {{ include "tracecat.env.redis" . }}
@@ -1045,6 +1059,12 @@ Uses ESO-aware secret name resolution.
     secretKeyRef:
       name: {{ $secretName }}
       key: signingSecret
+- name: TRACECAT__LOG_REDACTION_HMAC_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secretName }}
+      key: logRedactionHmacKey
+      optional: true
 {{- end -}}
 
 {{/*
