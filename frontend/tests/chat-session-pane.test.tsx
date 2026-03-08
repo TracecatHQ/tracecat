@@ -449,4 +449,78 @@ describe("ChatSessionPane", () => {
 
     secondWrite.resolve()
   })
+
+  it("waits for pending tool persistence before sending a message", async () => {
+    const action = {
+      id: "action-1",
+      name: "core.cases.list_cases",
+      action: "core.cases.list_cases",
+      default_title: "List cases",
+      description: "List all cases",
+      namespace: "core.cases",
+      type: "template" as const,
+      origin: "tracecat://test",
+    }
+    mockUseBuilderRegistryActions.mockReturnValue({
+      registryActions: [action],
+      registryActionsIsLoading: false,
+      registryActionsError: null,
+      getRegistryAction: (key: string) =>
+        key === action.action ? action : undefined,
+    })
+
+    const toolWrite = createDeferred<void>()
+    const updateChat = jest.fn().mockImplementation(() => toolWrite.promise)
+    mockUseUpdateChat.mockReturnValue({
+      updateChat,
+      isUpdating: false,
+      updateError: null,
+    })
+
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+    mockUseVercelChat.mockReturnValue({
+      sendMessage,
+      regenerate: jest.fn(),
+      messages: [],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            toolsEnabled
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    const textarea = screen.getByRole("textbox")
+
+    fireEvent.change(textarea, { target: { value: "@li" } })
+    await screen.findByText("List cases")
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+
+    await waitFor(() => {
+      expect(updateChat).toHaveBeenCalledTimes(1)
+    })
+
+    fireEvent.change(textarea, { target: { value: "hello" } })
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" })
+
+    expect(sendMessage).not.toHaveBeenCalled()
+
+    toolWrite.resolve()
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith({ text: "hello" })
+    })
+  })
 })

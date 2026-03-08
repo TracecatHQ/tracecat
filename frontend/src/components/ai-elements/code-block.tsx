@@ -128,6 +128,26 @@ const tokensCache = new Map<string, TokenizedCode>()
 
 // Subscribers for async token updates
 const subscribers = new Map<string, Set<(result: TokenizedCode) => void>>()
+const inFlightTokenizations = new Map<string, Promise<void>>()
+
+const MAX_TOKENS_CACHE_ENTRIES = 500
+
+const setCachedTokens = (cacheKey: string, tokenized: TokenizedCode) => {
+  if (tokensCache.has(cacheKey)) {
+    tokensCache.delete(cacheKey)
+  }
+  tokensCache.set(cacheKey, tokenized)
+
+  while (tokensCache.size > MAX_TOKENS_CACHE_ENTRIES) {
+    const oldestCacheKey = tokensCache.keys().next().value as string | undefined
+    if (!oldestCacheKey) {
+      break
+    }
+    tokensCache.delete(oldestCacheKey)
+    subscribers.delete(oldestCacheKey)
+    inFlightTokenizations.delete(oldestCacheKey)
+  }
+}
 
 const getHighlighter = (
   language: BundledLanguage
@@ -174,6 +194,8 @@ export const highlightCode = (
   // Return cached result if available
   const cached = tokensCache.get(tokensCacheKey)
   if (cached) {
+    // Keep the most recently used entries hot.
+    setCachedTokens(tokensCacheKey, cached)
     return cached
   }
 
@@ -185,8 +207,12 @@ export const highlightCode = (
     subscribers.get(tokensCacheKey)?.add(callback)
   }
 
+  if (inFlightTokenizations.has(tokensCacheKey)) {
+    return null
+  }
+
   // Start highlighting in background - fire-and-forget async pattern
-  getHighlighter(language)
+  const tokenizationPromise = getHighlighter(language)
     // oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-then)
     .then((highlighter) => {
       const availableLangs = highlighter.getLoadedLanguages()
@@ -207,7 +233,7 @@ export const highlightCode = (
       }
 
       // Cache the result
-      tokensCache.set(tokensCacheKey, tokenized)
+      setCachedTokens(tokensCacheKey, tokenized)
 
       // Notify all subscribers
       const subs = subscribers.get(tokensCacheKey)
@@ -223,6 +249,12 @@ export const highlightCode = (
       console.error("Failed to highlight code:", error)
       subscribers.delete(tokensCacheKey)
     })
+    // oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-then)
+    .finally(() => {
+      inFlightTokenizations.delete(tokensCacheKey)
+    })
+
+  inFlightTokenizations.set(tokensCacheKey, tokenizationPromise)
 
   return null
 }
@@ -387,15 +419,13 @@ export const CodeBlockContent = ({
   useEffect(() => {
     let cancelled = false
 
-    // Reset to raw tokens when code changes (shows current code, not stale tokens)
-    setTokenized(highlightCode(code, language) ?? rawTokens)
-
-    // Subscribe to async highlighting result
-    highlightCode(code, language, (result) => {
+    const highlighted = highlightCode(code, language, (result) => {
       if (!cancelled) {
         setTokenized(result)
       }
     })
+    // Reset to raw tokens when code changes (shows current code, not stale tokens)
+    setTokenized(highlighted ?? rawTokens)
 
     return () => {
       cancelled = true

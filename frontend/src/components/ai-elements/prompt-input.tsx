@@ -721,18 +721,16 @@ export const PromptInput = ({
       event.preventDefault()
 
       const form = event.currentTarget
+      const messageControl = form.elements.namedItem("message") as
+        | HTMLTextAreaElement
+        | HTMLInputElement
+        | null
       const text = usingProvider
         ? controller.textInput.value
         : (() => {
             const formData = new FormData(form)
             return (formData.get("message") as string) || ""
           })()
-
-      // Reset form immediately after capturing text to avoid race condition
-      // where user input during async blob conversion would be lost
-      if (!usingProvider) {
-        form.reset()
-      }
 
       try {
         // Convert blob URLs to data URLs asynchronously
@@ -759,6 +757,9 @@ export const PromptInput = ({
             clear()
             if (usingProvider) {
               controller.textInput.clear()
+            } else if (messageControl?.value === text) {
+              // Preserve edits made while submit was in-flight.
+              form.reset()
             }
           } catch {
             // Don't clear on error - user may want to retry
@@ -768,6 +769,9 @@ export const PromptInput = ({
           clear()
           if (usingProvider) {
             controller.textInput.clear()
+          } else if (messageControl?.value === text) {
+            // Preserve edits made while submit was in-flight.
+            form.reset()
           }
         }
       } catch {

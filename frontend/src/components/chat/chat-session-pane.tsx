@@ -677,6 +677,7 @@ export function ChatSessionPane({
     setInput("")
 
     try {
+      await persistToolsChainRef.current.catch(() => undefined)
       clearError()
       sendMessage({
         text: messageText,
