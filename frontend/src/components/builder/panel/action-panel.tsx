@@ -447,14 +447,10 @@ function ActionPanelContent({
     const allFields = Object.entries(
       registryAction.interface.expects.properties
     )
-    const filteredFields =
-      action?.type === "ai.preset_agent"
-        ? allFields.filter(([fieldName]) => fieldName !== "preset_version")
-        : allFields
-    const requiredFieldEntries = filteredFields.filter(([fieldName]) =>
+    const requiredFieldEntries = allFields.filter(([fieldName]) =>
       required.includes(fieldName)
     )
-    const optionalFieldEntries = filteredFields.filter(
+    const optionalFieldEntries = allFields.filter(
       ([fieldName]) => !required.includes(fieldName)
     )
 

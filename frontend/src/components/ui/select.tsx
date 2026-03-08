@@ -39,12 +39,14 @@ export type SelectTriggerVariant = VariantProps<
 
 export interface SelectTriggerProps
   extends React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>,
-    VariantProps<typeof selectTriggerVariants> {}
+    VariantProps<typeof selectTriggerVariants> {
+  icon?: React.ReactNode
+}
 
 const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
   SelectTriggerProps
->(({ className, children, variant, ...props }, ref) => (
+>(({ className, children, icon, variant, ...props }, ref) => (
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(selectTriggerVariants({ variant }), className)}
@@ -52,7 +54,7 @@ const SelectTrigger = React.forwardRef<
   >
     {children}
     <SelectPrimitive.Icon asChild>
-      <CaretSortIcon className="size-4 opacity-50" />
+      {icon ?? <CaretSortIcon className="size-4 opacity-50" />}
     </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
 ))
