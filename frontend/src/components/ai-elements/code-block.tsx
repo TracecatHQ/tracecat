@@ -12,6 +12,11 @@ import {
   useRef,
   useState,
 } from "react"
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
+import {
+  oneDark,
+  oneLight,
+} from "react-syntax-highlighter/dist/esm/styles/prism"
 import type {
   BundledLanguage,
   BundledTheme,
@@ -273,6 +278,24 @@ const LINE_NUMBER_CLASSES = cn(
   "before:select-none"
 )
 
+const hasSyntaxColor = (tokenized: TokenizedCode) =>
+  tokenized.tokens.some((line) =>
+    line.some((token) => {
+      const htmlColor =
+        token.htmlStyle &&
+        typeof token.htmlStyle.color === "string" &&
+        token.htmlStyle.color.length > 0
+          ? token.htmlStyle.color
+          : undefined
+      const color = token.color ?? htmlColor
+      return (
+        typeof color === "string" &&
+        color !== "inherit" &&
+        color !== "currentColor"
+      )
+    })
+  )
+
 const CodeBlockBody = memo(
   ({
     tokenized,
@@ -432,9 +455,64 @@ export const CodeBlockContent = ({
     }
   }, [code, language, rawTokens])
 
+  const shouldUsePrismFallback = useMemo(
+    () => !hasSyntaxColor(tokenized),
+    [tokenized]
+  )
+
   return (
     <div className="relative overflow-auto">
-      <CodeBlockBody showLineNumbers={showLineNumbers} tokenized={tokenized} />
+      {shouldUsePrismFallback ? (
+        <>
+          <SyntaxHighlighter
+            className="overflow-hidden dark:hidden"
+            codeTagProps={{
+              className: "font-mono text-sm",
+            }}
+            customStyle={{
+              margin: 0,
+              padding: "1rem",
+              background: "transparent",
+            }}
+            language={language}
+            lineNumberStyle={{
+              color: "hsl(var(--muted-foreground))",
+              minWidth: "2.5rem",
+              paddingRight: "1rem",
+            }}
+            showLineNumbers={showLineNumbers}
+            style={oneLight}
+          >
+            {code}
+          </SyntaxHighlighter>
+          <SyntaxHighlighter
+            className="hidden overflow-hidden dark:block"
+            codeTagProps={{
+              className: "font-mono text-sm",
+            }}
+            customStyle={{
+              margin: 0,
+              padding: "1rem",
+              background: "transparent",
+            }}
+            language={language}
+            lineNumberStyle={{
+              color: "hsl(var(--muted-foreground))",
+              minWidth: "2.5rem",
+              paddingRight: "1rem",
+            }}
+            showLineNumbers={showLineNumbers}
+            style={oneDark}
+          >
+            {code}
+          </SyntaxHighlighter>
+        </>
+      ) : (
+        <CodeBlockBody
+          showLineNumbers={showLineNumbers}
+          tokenized={tokenized}
+        />
+      )}
     </div>
   )
 }

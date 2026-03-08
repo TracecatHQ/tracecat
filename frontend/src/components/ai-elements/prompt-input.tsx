@@ -291,6 +291,8 @@ export const PromptInputProvider = ({
 // ============================================================================
 
 const LocalAttachmentsContext = createContext<AttachmentsContext | null>(null)
+const PromptInputSubmitContext = createContext<(() => void) | null>(null)
+const useOptionalPromptInputSubmit = () => useContext(PromptInputSubmitContext)
 
 export const usePromptInputAttachments = () => {
   // Prefer local context (inside PromptInput) as it has validation, fall back to provider
@@ -382,7 +384,7 @@ export type PromptInputProps = Omit<
   }) => void
   onSubmit: (
     message: PromptInputMessage,
-    event: FormEvent<HTMLFormElement>
+    event?: FormEvent<HTMLFormElement>
   ) => void | Promise<void>
 }
 
@@ -719,6 +721,9 @@ export const PromptInput = ({
   const handleSubmit: FormEventHandler<HTMLFormElement> = useCallback(
     async (event) => {
       event.preventDefault()
+      // IMPORTANT: Chat prompt lives inside settings forms on /agents pages.
+      // Stop propagation so parent forms never treat Enter/Cmd+Enter as a save submit.
+      event.stopPropagation()
 
       const form = event.currentTarget
       const messageControl = form.elements.namedItem("message") as
@@ -781,6 +786,12 @@ export const PromptInput = ({
     [usingProvider, controller, files, onSubmit, clear]
   )
 
+  const submitPrompt = useCallback(() => {
+    // Do NOT use `textarea.form` from key handlers: in nested form layouts it can
+    // resolve to an ancestor form and trigger a page/navigation submit.
+    formRef.current?.requestSubmit()
+  }, [])
+
   // Render with or without local provider
   const inner = (
     <>
@@ -795,6 +806,7 @@ export const PromptInput = ({
         type="file"
       />
       <form
+        data-prompt-input-root="true"
         className={cn("w-full", className)}
         onSubmit={handleSubmit}
         ref={formRef}
@@ -814,7 +826,9 @@ export const PromptInput = ({
   // Always provide LocalAttachmentsContext so children get validated add function
   return (
     <LocalAttachmentsContext.Provider value={attachmentsCtx}>
-      {withReferencedSources}
+      <PromptInputSubmitContext.Provider value={submitPrompt}>
+        {withReferencedSources}
+      </PromptInputSubmitContext.Provider>
     </LocalAttachmentsContext.Provider>
   )
 }
@@ -839,6 +853,7 @@ export const PromptInputTextarea = ({
 }: PromptInputTextareaProps) => {
   const controller = useOptionalPromptInputController()
   const attachments = usePromptInputAttachments()
+  const submitPrompt = useOptionalPromptInputSubmit()
   const [isComposing, setIsComposing] = useState(false)
 
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = useCallback(
@@ -860,16 +875,22 @@ export const PromptInputTextarea = ({
         }
         e.preventDefault()
 
-        // Check if the submit button is disabled before submitting
-        const { form } = e.currentTarget
-        const submitButton = form?.querySelector(
-          'button[type="submit"]'
+        // Guard disabled state before submitting.
+        const root = e.currentTarget.closest('[data-prompt-input-root="true"]')
+        const submitButton = root?.querySelector(
+          'button[data-prompt-input-submit="true"]'
         ) as HTMLButtonElement | null
         if (submitButton?.disabled) {
           return
         }
 
-        form?.requestSubmit()
+        if (submitPrompt) {
+          submitPrompt()
+          return
+        }
+
+        // Fallback for isolated textarea usage outside PromptInput.
+        e.currentTarget.form?.requestSubmit()
       }
 
       // Remove last attachment when Backspace is pressed and textarea is empty
@@ -885,7 +906,7 @@ export const PromptInputTextarea = ({
         }
       }
     },
-    [onKeyDown, isComposing, attachments]
+    [onKeyDown, isComposing, attachments, submitPrompt]
   )
 
   const handlePaste: ClipboardEventHandler<HTMLTextAreaElement> = useCallback(
@@ -1099,6 +1120,7 @@ export const PromptInputSubmit = ({
   children,
   ...props
 }: PromptInputSubmitProps) => {
+  const submitPrompt = useOptionalPromptInputSubmit()
   const isGenerating = status === "submitted" || status === "streaming"
 
   let Icon = <CornerDownLeftIcon className="size-4" />
@@ -1119,17 +1141,21 @@ export const PromptInputSubmit = ({
         return
       }
       onClick?.(e)
+      if (!e.defaultPrevented && !isGenerating) {
+        submitPrompt?.()
+      }
     },
-    [isGenerating, onStop, onClick]
+    [isGenerating, onStop, onClick, submitPrompt]
   )
 
   return (
     <InputGroupButton
+      data-prompt-input-submit="true"
       aria-label={isGenerating ? "Stop" : "Submit"}
       className={cn(className)}
       onClick={handleClick}
       size={size}
-      type={isGenerating && onStop ? "button" : "submit"}
+      type="button"
       variant={variant}
       {...props}
     >

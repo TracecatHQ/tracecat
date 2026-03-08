@@ -11,10 +11,10 @@ import {
   type UITools,
 } from "ai"
 import {
-  BoxIcon,
   CheckIcon,
-  ChevronsUpDown,
   Loader2,
+  MousePointer2OffIcon,
+  MousePointerClickIcon,
   PencilIcon,
   RefreshCcwIcon,
   XIcon,
@@ -773,6 +773,7 @@ export function ChatSessionPane({
             })}
             {isWaitingForResponse && (
               <motion.div
+                className="mt-3"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -785,9 +786,9 @@ export function ChatSessionPane({
           <ConversationScrollButton />
         </Conversation>
       </div>
-      <div className="relative px-2 pb-2">
+      <div className="relative px-3 pb-3">
         {mentionEnabled && toolMention && (
-          <div className="absolute inset-x-2 bottom-full z-30 mb-2">
+          <div className="absolute inset-x-3 bottom-full z-30 mb-2">
             <div className="overflow-hidden rounded-md border bg-popover shadow-md">
               {registryActionsIsLoading ? (
                 <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
@@ -846,7 +847,7 @@ export function ChatSessionPane({
         )}
         <PromptInput onSubmit={handleSubmit}>
           {toolsEnabled && selectedToolBadges.length > 0 && (
-            <PromptInputHeader className="gap-1.5 px-2 pt-2">
+            <PromptInputHeader className="gap-1.5 px-3 pt-3">
               {selectedToolBadges.map((tool) => (
                 <Badge
                   key={tool.value}
@@ -964,6 +965,10 @@ function PromptPresetSelector({
     setOpen(false)
     void selector.onSelect(value === noPresetValue ? null : value)
   }
+  const PresetIcon =
+    selector.selectedPresetId === null
+      ? MousePointer2OffIcon
+      : MousePointerClickIcon
 
   return (
     <ModelSelector
@@ -980,20 +985,20 @@ function PromptPresetSelector({
           size="sm"
           variant="ghost"
           disabled={effectiveDisabled}
-          className="h-7 max-w-[16rem] justify-between gap-1 px-2 text-xs"
+          className="h-7 max-w-[16rem] justify-start gap-1.5 px-2 text-xs"
           aria-label="Select preset agent"
         >
           <span className="flex min-w-0 items-center gap-1.5">
-            <BoxIcon className="size-3 text-muted-foreground" />
+            <PresetIcon className="size-3 text-muted-foreground" />
             <span className="truncate" title={selector.label}>
               {selector.label}
             </span>
           </span>
           {selector.showSpinner ? (
-            <Loader2 className="size-3 animate-spin text-muted-foreground" />
-          ) : (
-            <ChevronsUpDown className="size-3 text-muted-foreground" />
-          )}
+            <span className="ml-auto inline-flex items-center">
+              <Loader2 className="size-3 animate-spin text-muted-foreground" />
+            </span>
+          ) : null}
         </PromptInputButton>
       </ModelSelectorTrigger>
       <ModelSelectorContent title="Select preset agent" className="sm:max-w-lg">

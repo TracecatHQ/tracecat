@@ -2,9 +2,8 @@
 
 import type { DynamicToolUIPart, ToolUIPart } from "ai"
 import {
-  CheckCircleIcon,
   ChevronDownIcon,
-  CircleIcon,
+  CircleCheckIcon,
   ClockIcon,
   DownloadIcon,
   WrenchIcon,
@@ -18,13 +17,18 @@ import {
   useMemo,
   useState,
 } from "react"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { CodeBlock, CodeBlockCopyButton } from "./code-block"
 
@@ -34,7 +38,10 @@ export type ToolProps = ComponentProps<typeof Collapsible>
 
 export const Tool = ({ className, ...props }: ToolProps) => (
   <Collapsible
-    className={cn("group not-prose mb-3 w-full rounded-md border", className)}
+    className={cn(
+      "group not-prose mb-2 w-full rounded-md border-[0.5px]",
+      className
+    )}
     {...props}
   />
 )
@@ -57,32 +64,54 @@ export type ToolHeaderProps = {
 
 const statusLabels: Record<ToolState, string> = {
   "approval-requested": "Approval required",
-  "approval-responded": "Responded",
-  "input-available": "Running",
-  "input-streaming": "Pending",
+  "approval-responded": "Completed",
+  "input-available": "In progress",
+  "input-streaming": "In progress",
   "output-available": "Completed",
-  "output-denied": "Denied",
+  "output-denied": "Error",
   "output-error": "Error",
 }
 
 const statusIcons: Record<ToolState, ReactNode> = {
-  "approval-requested": <ClockIcon className="size-3.5 text-yellow-600" />,
-  "approval-responded": <CheckCircleIcon className="size-3.5 text-blue-600" />,
-  "input-available": <ClockIcon className="size-3.5 animate-pulse" />,
-  "input-streaming": <CircleIcon className="size-3.5" />,
-  "output-available": <CheckCircleIcon className="size-3.5 text-green-600" />,
-  "output-denied": <XCircleIcon className="size-3.5 text-orange-600" />,
-  "output-error": <XCircleIcon className="size-3.5 text-red-600" />,
+  "approval-requested": (
+    <ClockIcon className="size-3.5 text-amber-500 animate-pulse" />
+  ),
+  "approval-responded": (
+    <CircleCheckIcon className="size-4 fill-emerald-500 stroke-background" />
+  ),
+  "input-available": (
+    <ClockIcon className="size-3.5 text-amber-500 animate-pulse" />
+  ),
+  "input-streaming": (
+    <ClockIcon className="size-3.5 text-amber-500 animate-pulse" />
+  ),
+  "output-available": (
+    <CircleCheckIcon className="size-4 fill-emerald-500 stroke-background" />
+  ),
+  "output-denied": (
+    <XCircleIcon className="size-4 fill-rose-500 stroke-background" />
+  ),
+  "output-error": (
+    <XCircleIcon className="size-4 fill-rose-500 stroke-background" />
+  ),
 }
 
 export const getStatusBadge = (status: ToolState) => (
-  <Badge
-    className="h-6 gap-1 rounded-full px-2 py-0 text-[11px] font-medium"
-    variant="secondary"
-  >
-    {statusIcons[status]}
-    {statusLabels[status]}
-  </Badge>
+  <TooltipProvider delayDuration={0}>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          aria-label={statusLabels[status]}
+          className="inline-flex items-center"
+          role="img"
+        >
+          {statusIcons[status]}
+          <span className="sr-only">{statusLabels[status]}</span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top">{statusLabels[status]}</TooltipContent>
+    </Tooltip>
+  </TooltipProvider>
 )
 
 export const ToolHeader = ({
@@ -102,13 +131,13 @@ export const ToolHeader = ({
   return (
     <CollapsibleTrigger
       className={cn(
-        "flex w-full items-center justify-between gap-3 px-3 py-2",
+        "flex w-full items-center justify-between gap-3 px-2.5 py-1.5",
         className
       )}
       {...props}
     >
-      <div className="flex items-center gap-2.5">
-        {icon ?? <WrenchIcon className="size-5 text-muted-foreground" />}
+      <div className="flex items-center gap-2">
+        {icon ?? <WrenchIcon className="size-4 text-muted-foreground" />}
         <span className="font-medium text-sm">{title ?? derivedName}</span>
         {getStatusBadge(state)}
       </div>
@@ -122,7 +151,7 @@ export type ToolContentProps = ComponentProps<typeof CollapsibleContent>
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   <CollapsibleContent
     className={cn(
-      "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 space-y-3 px-3 pb-3 pt-2 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
+      "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 space-y-3 px-2.5 pb-3 pt-2.5 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
       className
     )}
     {...props}
@@ -132,6 +161,53 @@ export const ToolContent = ({ className, ...props }: ToolContentProps) => (
 type SerializedPayload = {
   text: string
   extension: "json" | "txt"
+}
+
+/**
+ * Normalize MCP content arrays to the actual payload text when possible.
+ * Example: [{ type: "text", text: "[]" }] -> []
+ */
+function extractMcpTextContent(payload: unknown): unknown {
+  if (!Array.isArray(payload) || payload.length === 0) {
+    return payload
+  }
+
+  const isMcpContentArray = payload.every(
+    (item) =>
+      item &&
+      typeof item === "object" &&
+      "type" in item &&
+      typeof item.type === "string"
+  )
+
+  if (!isMcpContentArray) {
+    return payload
+  }
+
+  const textBlocks = payload.filter(
+    (item): item is { type: "text"; text: string } =>
+      item.type === "text" && "text" in item && typeof item.text === "string"
+  )
+
+  if (textBlocks.length === 0) {
+    return payload
+  }
+
+  if (textBlocks.length === 1) {
+    try {
+      return JSON.parse(textBlocks[0].text)
+    } catch {
+      return textBlocks[0].text
+    }
+  }
+
+  return textBlocks.map((block) => {
+    try {
+      return JSON.parse(block.text)
+    } catch {
+      return block.text
+    }
+  })
 }
 
 function serializeToolPayload(payload: unknown): SerializedPayload {
@@ -145,7 +221,7 @@ function serializeToolPayload(payload: unknown): SerializedPayload {
           extension: "json",
         }
       } catch {
-        return { text: payload, extension: "txt" }
+        return { text: payload, extension: "json" }
       }
     }
     return { text: payload, extension: "txt" }
@@ -210,7 +286,14 @@ function ToolPayload({
   payload: unknown
   downloadName: string
 }) {
-  const serialized = useMemo(() => serializeToolPayload(payload), [payload])
+  const normalizedPayload = useMemo(
+    () => extractMcpTextContent(payload),
+    [payload]
+  )
+  const serialized = useMemo(
+    () => serializeToolPayload(normalizedPayload),
+    [normalizedPayload]
+  )
   const isLargePayload = serialized.text.length > MAX_INLINE_PAYLOAD_CHARS
   const codeLanguage = serialized.extension === "json" ? "json" : "console"
   const byteCount = useMemo(
@@ -269,9 +352,9 @@ function ToolPayload({
       <CodeBlock
         code={serialized.text}
         language={codeLanguage}
-        className="[&_code]:text-xs [&_pre]:text-xs"
+        className="[&_code]:text-[11px] [&_pre]:px-3 [&_pre]:py-2.5 [&_pre]:text-[11px]"
       >
-        <CodeBlockCopyButton className="absolute right-2 top-2 z-10 size-6" />
+        <CodeBlockCopyButton className="absolute right-1.5 top-1.5 z-10 size-5 [&_svg]:size-3" />
       </CodeBlock>
     </div>
   )
@@ -282,9 +365,9 @@ export type ToolInputProps = ComponentProps<"div"> & {
 }
 
 export const ToolInput = ({ className, input, ...props }: ToolInputProps) => (
-  <div className={cn("space-y-1.5 overflow-hidden", className)} {...props}>
-    <h4 className="font-medium text-muted-foreground text-xs tracking-wide">
-      Parameters
+  <div className={cn("space-y-2 overflow-hidden", className)} {...props}>
+    <h4 className="font-medium text-[11px] text-muted-foreground tracking-wide">
+      PARAMETERS
     </h4>
     <ToolPayload payload={input} downloadName="tool-parameters" />
   </div>
@@ -307,18 +390,18 @@ export const ToolOutput = ({
   }
 
   return (
-    <div className={cn("space-y-1.5", className)} {...props}>
-      <h4 className="font-medium text-muted-foreground text-xs tracking-wide">
-        {errorText ? "Error" : "Result"}
+    <div className={cn("space-y-2", className)} {...props}>
+      <h4 className="font-medium text-[11px] text-muted-foreground tracking-wide">
+        {errorText ? "Error" : "RESULT"}
       </h4>
       {errorText && (
-        <div className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-destructive text-xs">
+        <div className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive">
           {errorText}
         </div>
       )}
       {hasOutput &&
         (isValidElement(output) ? (
-          <div className="rounded-md bg-muted/50 p-1.5 text-xs text-foreground">
+          <div className="rounded-md bg-muted/50 p-1.5 text-[11px] text-foreground">
             {output}
           </div>
         ) : (
