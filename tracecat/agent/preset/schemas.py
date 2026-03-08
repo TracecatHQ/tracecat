@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -12,10 +13,9 @@ from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
 
 
-class AgentPresetBase(Schema):
-    """Shared fields for agent preset mutations."""
+class AgentPresetExecutionConfig(Schema):
+    """Execution fields that define a preset version."""
 
-    description: str | None = Field(default=None, max_length=1000)
     instructions: str | None = Field(default=None)
     model_name: str = Field(..., min_length=1, max_length=120)
     model_provider: str = Field(..., min_length=1, max_length=120)
@@ -27,6 +27,12 @@ class AgentPresetBase(Schema):
     mcp_integrations: list[str] | None = Field(default=None)
     retries: int = Field(default=3, ge=0)
     enable_internet_access: bool = Field(default=False)
+
+
+class AgentPresetBase(AgentPresetExecutionConfig):
+    """Shared fields for agent preset mutations."""
+
+    description: str | None = Field(default=None, max_length=1000)
 
 
 class AgentPresetCreate(AgentPresetBase):
@@ -63,6 +69,7 @@ class AgentPresetReadMinimal(Schema):
     name: str
     slug: str
     description: str | None
+    current_version_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -74,6 +81,7 @@ class AgentPresetRead(AgentPresetBase):
     workspace_id: WorkspaceID
     name: str
     slug: str
+    current_version_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -104,3 +112,60 @@ class AgentPresetWithConfig(AgentPresetRead):
     @classmethod
     def from_preset(cls, preset: AgentPresetRead) -> AgentPresetWithConfig:
         return cls(**preset.model_dump(), config=preset.to_agent_config())
+
+
+class AgentPresetVersionReadMinimal(AgentPresetExecutionConfig):
+    """Minimal response model for agent preset versions."""
+
+    id: uuid.UUID
+    preset_id: uuid.UUID
+    workspace_id: WorkspaceID
+    version: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AgentPresetVersionRead(AgentPresetVersionReadMinimal):
+    """Full response model for an immutable preset version."""
+
+
+class ScalarFieldChange(BaseModel):
+    """Scalar field change between two preset versions."""
+
+    field: str
+    old_value: Any = None
+    new_value: Any = None
+
+
+class StringListFieldChange(BaseModel):
+    """List diff for preset version fields."""
+
+    field: str
+    added: list[str] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+
+
+class ToolApprovalFieldChange(BaseModel):
+    """Approval diff for a single tool."""
+
+    tool: str
+    old_value: bool | None = None
+    new_value: bool | None = None
+
+
+class AgentPresetVersionDiff(BaseModel):
+    """Structured diff between two preset versions."""
+
+    base_version_id: uuid.UUID
+    base_version: int
+    compare_version_id: uuid.UUID
+    compare_version: int
+    instructions_changed: bool = False
+    base_instructions: str | None = None
+    compare_instructions: str | None = None
+    scalar_changes: list[ScalarFieldChange] = Field(default_factory=list)
+    list_changes: list[StringListFieldChange] = Field(default_factory=list)
+    tool_approval_changes: list[ToolApprovalFieldChange] = Field(default_factory=list)
+    total_changes: int = 0

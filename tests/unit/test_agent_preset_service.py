@@ -291,6 +291,133 @@ class TestAgentPresetService:
 
         assert updated_preset.name == "Updated Preset Name"
         assert updated_preset.slug == original_slug  # Slug unchanged
+        versions = await agent_preset_service.list_versions(created_preset.id)
+        assert [version.version for version in versions] == [1]
+
+    async def test_create_preset_creates_initial_version(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Creating a preset also creates and points to version 1."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+
+        assert created_preset.current_version_id is not None
+        current_version = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+        versions = await agent_preset_service.list_versions(created_preset.id)
+
+        assert current_version.id == created_preset.current_version_id
+        assert current_version.version == 1
+        assert [version.version for version in versions] == [1]
+
+    async def test_update_preset_execution_fields_create_new_version(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Changing executable fields creates a new immutable version."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        version_1 = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+
+        updated_preset = await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(instructions="Updated instructions", retries=7),
+        )
+        versions = await agent_preset_service.list_versions(created_preset.id)
+
+        assert updated_preset.current_version_id is not None
+        assert updated_preset.current_version_id != version_1.id
+        assert [version.version for version in versions] == [2, 1]
+        assert versions[0].instructions == "Updated instructions"
+        assert versions[0].retries == 7
+
+    async def test_compare_versions_returns_structured_diff(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        registry_actions: list[RegistryAction],
+    ) -> None:
+        """Version compare exposes prompt, scalar, list, and approval changes."""
+        agent_preset_create_params.actions = ["tools.test.test_action"]
+        agent_preset_create_params.tool_approvals = {"tools.test.test_action": False}
+
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        version_1 = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(
+                instructions="Updated instructions",
+                actions=["tools.test.another_action", "core.http_request"],
+                tool_approvals={"tools.test.another_action": True},
+                retries=9,
+            ),
+        )
+        version_2 = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+
+        diff = await agent_preset_service.compare_versions(version_1, version_2)
+
+        assert diff.instructions_changed is True
+        assert diff.base_instructions == agent_preset_create_params.instructions
+        assert diff.compare_instructions == "Updated instructions"
+        assert any(
+            change.field == "retries"
+            and change.old_value == 3
+            and change.new_value == 9
+            for change in diff.scalar_changes
+        )
+        assert any(
+            change.field == "actions"
+            and change.added == ["core.http_request", "tools.test.another_action"]
+            and change.removed == ["tools.test.test_action"]
+            for change in diff.list_changes
+        )
+        assert any(
+            change.tool == "tools.test.another_action"
+            and change.old_value is None
+            and change.new_value is True
+            for change in diff.tool_approval_changes
+        )
+
+    async def test_restore_version_moves_current_pointer(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Restoring an old version repoints current without creating another row."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        version_1 = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(instructions="Updated instructions"),
+        )
+        restored_preset = await agent_preset_service.restore_version(
+            created_preset, version_1
+        )
+        versions = await agent_preset_service.list_versions(created_preset.id)
+
+        assert restored_preset.current_version_id == version_1.id
+        assert restored_preset.instructions == agent_preset_create_params.instructions
+        assert [version.version for version in versions] == [2, 1]
 
     async def test_update_preset_slug(
         self,
@@ -560,9 +687,7 @@ class TestAgentPresetService:
         self, agent_preset_service: AgentPresetService
     ) -> None:
         """Test that getting config for non-existent preset raises error."""
-        with pytest.raises(
-            TracecatNotFoundError, match="Agent preset with ID .* not found"
-        ):
+        with pytest.raises(TracecatNotFoundError, match="Agent preset '.*' not found"):
             await agent_preset_service.get_agent_config(uuid.uuid4())
 
     async def test_get_agent_config_by_slug_not_found(
@@ -571,7 +696,7 @@ class TestAgentPresetService:
         """Test that getting config by non-existent slug raises error."""
         with pytest.raises(
             TracecatNotFoundError,
-            match="Agent preset with slug 'nonexistent' not found",
+            match="Agent preset 'nonexistent' not found",
         ):
             await agent_preset_service.get_agent_config_by_slug("nonexistent")
 
@@ -614,7 +739,8 @@ class TestAgentPresetService:
     ) -> None:
         """Test that resolve without parameters raises ValueError."""
         with pytest.raises(
-            ValueError, match="Either preset_id or slug must be provided"
+            ValueError,
+            match="Either preset_id, slug, or preset_version_id must be provided",
         ):
             await agent_preset_service.resolve_agent_preset_config()
 
@@ -666,7 +792,7 @@ class TestAgentPresetService:
         agent_preset_create_params: AgentPresetCreate,
         registry_actions: list[RegistryAction],
     ) -> None:
-        """Test the _preset_to_agent_config conversion method."""
+        """Test conversion of a preset version into executable config."""
         # Create a preset with comprehensive configuration
         agent_preset_create_params.actions = ["tools.test.test_action"]
         agent_preset_create_params.namespaces = ["tools.test", "core"]
@@ -674,9 +800,10 @@ class TestAgentPresetService:
         agent_preset_create_params.tool_approvals = {"tools.test.test_action": False}
 
         preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        version = await agent_preset_service.get_current_version_for_preset(preset)
 
         # Test conversion
-        agent_config = await agent_preset_service._preset_to_agent_config(preset)
+        agent_config = await agent_preset_service._version_to_agent_config(version)
 
         assert isinstance(agent_config, AgentConfig)
         assert agent_config.model_name == preset.model_name

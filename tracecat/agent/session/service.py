@@ -129,6 +129,12 @@ class AgentSessionService(BaseWorkspaceService):
         tools = args.tools
         if not tools and args.entity_type:
             tools = get_default_tools(args.entity_type.value)
+        pinned_preset_version_id = await self._resolve_preset_version_for_assignment(
+            entity_type=args.entity_type,
+            entity_id=args.entity_id,
+            agent_preset_id=args.agent_preset_id,
+            agent_preset_version_id=args.agent_preset_version_id,
+        )
 
         agent_session = AgentSession(
             workspace_id=self.workspace_id,
@@ -140,6 +146,7 @@ class AgentSessionService(BaseWorkspaceService):
             channel_context=channel_context,
             tools=tools,
             agent_preset_id=args.agent_preset_id,
+            agent_preset_version_id=pinned_preset_version_id,
             # Harness
             harness_type=args.harness_type,
         )
@@ -150,6 +157,80 @@ class AgentSessionService(BaseWorkspaceService):
         await self.session.commit()
         await self.session.refresh(agent_session)
         return agent_session
+
+    def _resolve_logical_preset_id(
+        self,
+        *,
+        entity_type: AgentSessionEntity,
+        entity_id: uuid.UUID,
+        agent_preset_id: uuid.UUID | None,
+    ) -> uuid.UUID | None:
+        """Resolve the logical preset ID for a session assignment."""
+        if agent_preset_id is not None:
+            return agent_preset_id
+        if entity_type in (
+            AgentSessionEntity.AGENT_PRESET,
+            AgentSessionEntity.EXTERNAL_CHANNEL,
+        ):
+            return entity_id
+        return None
+
+    async def _resolve_preset_version_for_assignment(
+        self,
+        *,
+        entity_type: AgentSessionEntity,
+        entity_id: uuid.UUID,
+        agent_preset_id: uuid.UUID | None,
+        agent_preset_version_id: uuid.UUID | None,
+    ) -> uuid.UUID | None:
+        """Resolve the pinned preset version for a session assignment."""
+        logical_preset_id = self._resolve_logical_preset_id(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            agent_preset_id=agent_preset_id,
+        )
+        if logical_preset_id is None:
+            if agent_preset_version_id is not None:
+                raise TracecatNotFoundError(
+                    "Cannot assign a preset version without a preset"
+                )
+            return None
+
+        preset_service = AgentPresetService(self.session, self.role)
+        version = await preset_service.resolve_agent_preset_version(
+            preset_id=logical_preset_id,
+            preset_version_id=agent_preset_version_id,
+        )
+        return version.id
+
+    async def _ensure_session_preset_version_id(
+        self, agent_session: AgentSession
+    ) -> uuid.UUID | None:
+        """Backfill a pinned preset version for sessions created before versioning."""
+        if agent_session.agent_preset_version_id is not None:
+            return agent_session.agent_preset_version_id
+
+        try:
+            entity_type = AgentSessionEntity(agent_session.entity_type)
+        except ValueError:
+            return None
+
+        logical_preset_id = self._resolve_logical_preset_id(
+            entity_type=entity_type,
+            entity_id=agent_session.entity_id,
+            agent_preset_id=agent_session.agent_preset_id,
+        )
+        if logical_preset_id is None:
+            return None
+
+        preset_service = AgentPresetService(self.session, self.role)
+        version = await preset_service.resolve_agent_preset_version(
+            preset_id=logical_preset_id
+        )
+        agent_session.agent_preset_version_id = version.id
+        self.session.add(agent_session)
+        await self.session.commit()
+        return version.id
 
     async def get_session(
         self,
@@ -329,16 +410,61 @@ class AgentSessionService(BaseWorkspaceService):
             The updated AgentSession.
         """
         set_fields = params.model_dump(exclude_unset=True)
+        preset_id_updated = "agent_preset_id" in set_fields
+        version_id_updated = "agent_preset_version_id" in set_fields
+        entity_type = AgentSessionEntity(agent_session.entity_type)
+        requested_preset_id = set_fields.pop(
+            "agent_preset_id", agent_session.agent_preset_id
+        )
+        requested_version_id = set_fields.pop(
+            "agent_preset_version_id", agent_session.agent_preset_version_id
+        )
 
-        if "agent_preset_id" in set_fields:
-            preset_id = set_fields.pop("agent_preset_id")
-            if preset_id is not None:
-                preset_service = AgentPresetService(self.session, self.role)
-                if not await preset_service.get_preset(preset_id):
-                    raise TracecatNotFoundError(
-                        f"Agent preset with ID '{preset_id}' not found"
+        if preset_id_updated or version_id_updated:
+            logical_preset_id = self._resolve_logical_preset_id(
+                entity_type=entity_type,
+                entity_id=agent_session.entity_id,
+                agent_preset_id=requested_preset_id,
+            )
+            if logical_preset_id is None:
+                agent_session.agent_preset_id = None
+                agent_session.agent_preset_version_id = None
+            else:
+                if preset_id_updated and (
+                    requested_preset_id != agent_session.agent_preset_id
+                ):
+                    resolved_version_id = (
+                        await self._resolve_preset_version_for_assignment(
+                            entity_type=entity_type,
+                            entity_id=agent_session.entity_id,
+                            agent_preset_id=requested_preset_id,
+                            agent_preset_version_id=(
+                                requested_version_id if version_id_updated else None
+                            ),
+                        )
                     )
-            agent_session.agent_preset_id = preset_id
+                elif version_id_updated and requested_version_id is None:
+                    resolved_version_id = (
+                        await self._resolve_preset_version_for_assignment(
+                            entity_type=entity_type,
+                            entity_id=agent_session.entity_id,
+                            agent_preset_id=requested_preset_id,
+                            agent_preset_version_id=None,
+                        )
+                    )
+                elif version_id_updated:
+                    resolved_version_id = (
+                        await self._resolve_preset_version_for_assignment(
+                            entity_type=entity_type,
+                            entity_id=agent_session.entity_id,
+                            agent_preset_id=requested_preset_id,
+                            agent_preset_version_id=requested_version_id,
+                        )
+                    )
+                else:
+                    resolved_version_id = requested_version_id
+                agent_session.agent_preset_id = requested_preset_id
+                agent_session.agent_preset_version_id = resolved_version_id
 
         # Update remaining fields if provided
         for field, value in set_fields.items():
@@ -872,6 +998,7 @@ class AgentSessionService(BaseWorkspaceService):
                 entity_id=agent_session.entity_id,
                 tools=agent_session.tools,
                 agent_preset_id=agent_session.agent_preset_id,
+                agent_preset_version_id=agent_session.agent_preset_version_id,
             )
 
             # Update session with current run_id for approval lookups
@@ -1084,12 +1211,16 @@ class AgentSessionService(BaseWorkspaceService):
             return
 
         session_entity = AgentSessionEntity(agent_session.entity_type)
+        pinned_preset_version_id = await self._ensure_session_preset_version_id(
+            agent_session
+        )
 
         if session_entity is AgentSessionEntity.CASE:
             entity_instructions = await self._entity_to_prompt(agent_session)
             if agent_session.agent_preset_id:
                 async with agent_svc.with_preset_config(
-                    preset_id=agent_session.agent_preset_id
+                    preset_id=agent_session.agent_preset_id,
+                    preset_version_id=pinned_preset_version_id,
                 ) as preset_config:
                     combined_instructions = (
                         f"{preset_config.instructions}\n\n{entity_instructions}"
@@ -1112,7 +1243,9 @@ class AgentSessionService(BaseWorkspaceService):
         elif session_entity is AgentSessionEntity.AGENT_PRESET:
             # Live chat uses workspace-level credentials
             async with agent_svc.with_preset_config(
-                preset_id=agent_session.entity_id, use_workspace_credentials=True
+                preset_id=agent_session.entity_id,
+                preset_version_id=pinned_preset_version_id,
+                use_workspace_credentials=True,
             ) as preset_config:
                 yield preset_config
         elif session_entity is AgentSessionEntity.EXTERNAL_CHANNEL:
@@ -1120,6 +1253,7 @@ class AgentSessionService(BaseWorkspaceService):
             preset_id = agent_session.agent_preset_id or agent_session.entity_id
             async with agent_svc.with_preset_config(
                 preset_id=preset_id,
+                preset_version_id=pinned_preset_version_id,
                 use_workspace_credentials=True,
             ) as preset_config:
                 yield preset_config
@@ -1151,6 +1285,7 @@ class AgentSessionService(BaseWorkspaceService):
             if agent_session.agent_preset_id:
                 async with agent_svc.with_preset_config(
                     preset_id=agent_session.agent_preset_id,
+                    preset_version_id=pinned_preset_version_id,
                     use_workspace_credentials=False,
                 ) as preset_config:
                     combined_instructions = (
@@ -1185,9 +1320,13 @@ class AgentSessionService(BaseWorkspaceService):
                 # Get parent session to check for preset
                 parent_session = await self.get_session(agent_session.parent_session_id)
                 if parent_session and parent_session.agent_preset_id:
+                    parent_version_id = await self._ensure_session_preset_version_id(
+                        parent_session
+                    )
                     # Use parent's preset with forked context prepended
                     async with agent_svc.with_preset_config(
                         preset_id=parent_session.agent_preset_id,
+                        preset_version_id=parent_version_id,
                         use_workspace_credentials=True,
                     ) as preset_config:
                         combined_instructions = (
@@ -1216,6 +1355,7 @@ class AgentSessionService(BaseWorkspaceService):
                 # Workflow sessions with preset use the preset config
                 async with agent_svc.with_preset_config(
                     preset_id=agent_session.agent_preset_id,
+                    preset_version_id=pinned_preset_version_id,
                     use_workspace_credentials=True,
                 ) as preset_config:
                     yield preset_config

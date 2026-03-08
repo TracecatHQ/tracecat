@@ -1074,6 +1074,7 @@ class DSLWorkflow:
                             user_prompt=preset_action_args.user_prompt,
                             session_id=session_id,
                             preset_slug=preset_action_args.preset,
+                            preset_version=preset_action_args.preset_version,
                             config=override_config,
                             max_requests=preset_action_args.max_requests,
                             max_tool_calls=preset_action_args.max_tool_calls,

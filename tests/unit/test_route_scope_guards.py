@@ -79,8 +79,12 @@ async def test_registry_repository_scope_guards(
         (agent_preset_router.list_agent_presets, "agent:read"),
         (agent_preset_router.get_agent_preset, "agent:read"),
         (agent_preset_router.get_agent_preset_by_slug, "agent:read"),
+        (agent_preset_router.list_agent_preset_versions, "agent:read"),
+        (agent_preset_router.get_agent_preset_version, "agent:read"),
+        (agent_preset_router.compare_agent_preset_versions, "agent:read"),
         (agent_preset_router.create_agent_preset, "agent:create"),
         (agent_preset_router.update_agent_preset, "agent:update"),
+        (agent_preset_router.restore_agent_preset_version, "agent:update"),
         (agent_preset_router.delete_agent_preset, "agent:delete"),
     ],
 )
