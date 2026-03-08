@@ -3,7 +3,9 @@ import zipfile
 
 import pytest
 
+import tracecat.storage.validation as storage_validation
 from tracecat.storage.exceptions import (
+    FileContentMismatchError,
     FileExtensionError,
     FileMimeTypeError,
     FileNameError,
@@ -107,6 +109,32 @@ def test_zip_upload_passes(validator_basic: FileSecurityValidator) -> None:
         declared_mime_type="application/zip",
     )
     assert validation_result.content_type == "application/zip"
+
+
+def test_missing_polyfile_dependency_raises_generic_message(
+    monkeypatch: pytest.MonkeyPatch,
+    validator_basic: FileSecurityValidator,
+) -> None:
+    monkeypatch.setattr(storage_validation, "_MAGIC_MATCHER", None)
+    real_import_module = storage_validation.importlib.import_module
+
+    def fake_import_module(name: str, package: str | None = None) -> object:
+        if name == "polyfile.magic":
+            raise ModuleNotFoundError("No module named 'chardet.universaldetector'")
+        return real_import_module(name, package)
+
+    monkeypatch.setattr(
+        storage_validation.importlib, "import_module", fake_import_module
+    )
+
+    with pytest.raises(FileContentMismatchError) as exc:
+        validator_basic.validate_file(
+            content=pdf_bytes(),
+            filename="doc.pdf",
+            declared_mime_type="application/pdf",
+        )
+
+    assert str(exc.value) == "Unknown or unsupported file type"
 
 
 @pytest.mark.parametrize(
