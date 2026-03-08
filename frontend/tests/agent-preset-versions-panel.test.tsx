@@ -19,6 +19,42 @@ jest.mock("@/lib/event-history", () => ({
   getRelativeTime: () => "just now",
 }))
 
+jest.mock("react-diff-viewer-continued", () => {
+  const React = require("react")
+
+  function MockReactDiffViewer({
+    oldValue,
+    newValue,
+    leftTitle,
+    rightTitle,
+  }: {
+    oldValue: string
+    newValue: string
+    leftTitle: string
+    rightTitle: string
+  }) {
+    return React.createElement(
+      "div",
+      { "data-testid": "mock-react-diff-viewer" },
+      React.createElement("div", null, leftTitle),
+      React.createElement("div", null, rightTitle),
+      React.createElement("pre", null, oldValue),
+      React.createElement("pre", null, newValue)
+    )
+  }
+
+  return {
+    __esModule: true,
+    default: MockReactDiffViewer,
+    DiffMethod: {
+      CHARS: "CHARS",
+      WORDS: "WORDS",
+      WORDS_WITH_SPACE: "WORDS_WITH_SPACE",
+      LINES: "LINES",
+    },
+  }
+})
+
 const mockUseAgentPresetVersions =
   useAgentPresetVersions as jest.MockedFunction<typeof useAgentPresetVersions>
 const mockUseCompareAgentPresetVersions =
