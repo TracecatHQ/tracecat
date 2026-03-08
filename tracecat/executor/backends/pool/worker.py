@@ -26,6 +26,7 @@ import signal
 import sys
 import time
 import traceback
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +42,7 @@ asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 # =============================================================================
 from tracecat import config  # noqa: E402
 from tracecat.auth.types import Role  # noqa: E402
-from tracecat.contexts import ctx_role  # noqa: E402
+from tracecat.contexts import ctx_log_masks, ctx_role  # noqa: E402
 from tracecat.executor.minimal_runner import run_action_minimal_async  # noqa: E402
 from tracecat.executor.schemas import (  # noqa: E402
     ExecutorActionErrorInfo,
@@ -82,6 +83,27 @@ _connection_counter = 0
 _active_connections = 0
 _worker_id = int(os.environ.get("TRACECAT_WORKER_ID", "0"))
 _test_mode = os.environ.get("TRACECAT__POOL_WORKER_TEST_MODE", "").lower() == "true"
+
+
+def _collect_log_masks(value: Any) -> set[str]:
+    masks: set[str] = set()
+    stack: list[Any] = [value]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, Mapping):
+            stack.extend(current.values())
+            continue
+        if isinstance(current, Sequence) and not isinstance(
+            current, str | bytes | bytearray
+        ):
+            stack.extend(current)
+            continue
+        if current is None:
+            continue
+        current_str = str(current)
+        if current_str and len(current_str) > 1:
+            masks.add(current_str)
+    return masks
 
 
 async def handle_task(request: dict[str, Any]) -> dict[str, Any]:
@@ -137,19 +159,25 @@ async def handle_task(request: dict[str, Any]) -> dict[str, Any]:
 
         # Set the role context for actions that need it (e.g., core.cases, core.table)
         ctx_role.set(role)
+        log_masks_token = ctx_log_masks.set(
+            tuple(_collect_log_masks(resolved_context.secrets))
+        )
 
         # Execute action using minimal runner (no DB access, explicit context)
-        start = time.monotonic()
-        result = await run_action_minimal_async(
-            action_impl=resolved_context.action_impl.model_dump(),
-            args=resolved_context.evaluated_args,
-            secrets=resolved_context.secrets,
-            workspace_id=resolved_context.workspace_id,
-            workflow_id=resolved_context.workflow_id,
-            run_id=resolved_context.run_id,
-            executor_token=resolved_context.executor_token,
-        )
-        timing["action_ms"] = (time.monotonic() - start) * 1000
+        try:
+            start = time.monotonic()
+            result = await run_action_minimal_async(
+                action_impl=resolved_context.action_impl.model_dump(),
+                args=resolved_context.evaluated_args,
+                secrets=resolved_context.secrets,
+                workspace_id=resolved_context.workspace_id,
+                workflow_id=resolved_context.workflow_id,
+                run_id=resolved_context.run_id,
+                executor_token=resolved_context.executor_token,
+            )
+            timing["action_ms"] = (time.monotonic() - start) * 1000
+        finally:
+            ctx_log_masks.reset(log_masks_token)
 
         timing["total_ms"] = (time.monotonic() - start_total) * 1000
 

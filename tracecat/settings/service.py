@@ -284,7 +284,7 @@ class SettingsService(BaseOrgService):
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
     async def update_git_settings(self, params: GitSettingsUpdate) -> None:
-        self.logger.info(f"Updating Git settings: {params}")
+        self.logger.info("Updating Git settings", params=params)
         # Ignore read-only fields
         git_settings = await self.list_org_settings(keys=GitSettingsUpdate.keys())
         await self._update_grouped_settings(git_settings, params)
