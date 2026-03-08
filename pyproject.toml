@@ -37,7 +37,6 @@ dependencies = [
     "cramjam==2.11.0",
     "croniter==6.0.0",
     "cryptography==46.0.5",
-    "chardet==5.2.0",
     "dateparser==1.2.2",
     "defusedxml==0.7.1",
     "email-validator==2.2.0",
@@ -140,7 +139,7 @@ dev = [
     "python-dotenv==1.1.1",
     "respx==0.22.0",
     "ruff==0.15.0",
-    {include-group = "lint"},
+    { include-group = "lint" },
 ]
 
 [tool.hatch.version]
@@ -170,7 +169,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/temporal/*" = ["E402"]  # pytestmark before imports is intentional
+"tests/temporal/*" = ["E402"] # pytestmark before imports is intentional
 
 [tool.ruff.lint.pyupgrade]
 # Preserve types, even if a file imports `from __future__ import annotations`.

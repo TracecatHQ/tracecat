@@ -752,9 +752,9 @@ fastapi-cli==0.0.24 \
     --hash=sha256:1afc9c9e21d7ebc8a3ca5e31790cd8d837742be7e4f8b9236e99cb3451f0de00 \
     --hash=sha256:4a1f78ed798f106b4fee85ca93b85d8fe33c0a3570f775964d37edb80b8f0edc
     # via fastapi
-fastapi-cloud-cli==0.14.0 \
-    --hash=sha256:325fcb4b45e661184152da6db861d9fb718739fbcd561a4d334dbe78c026586f \
-    --hash=sha256:d3ecb8c942685a71df0af7bd59f463b5eff76f5818b48e5a03c6159726831e68
+fastapi-cloud-cli==0.14.1 \
+    --hash=sha256:5b086182570008f67d9ae989870102f595e4e216493cabcd270ef6cd0401339f \
+    --hash=sha256:99ab3a2fbd1880121a62fb9c4f584e15c42ef0fe762cb5f7380a548081e60d05
     # via fastapi-cli
 fastapi-sso==0.16.0 \
     --hash=sha256:3a66a942474ef9756d3a9d8b945d55bd9faf99781facdb9b87a40b73d6d6b0c3 \
@@ -2972,9 +2972,9 @@ types-aiobotocore-sts==2.25.2 \
     --hash=sha256:1342271243d03fd8d4a1eab566d9137f70ec723bb6ad613669c74152ac3a0427 \
     --hash=sha256:487da184371dc9761fd3ed663d519f4a19f690d7dcc1fe8f551b6dd805f08549
     # via types-aioboto3
-types-awscrt==0.31.2 \
-    --hash=sha256:3d6a29c1cca894b191be408f4d985a8e3a14d919785652dd3fa4ee558143e4bf \
-    --hash=sha256:dc79705acd24094656b8105b8d799d7e273c8eac37c69137df580cd84beb54f6
+types-awscrt==0.31.3 \
+    --hash=sha256:09d3eaf00231e0f47e101bd9867e430873bc57040050e2a3bd8305cb4fc30865 \
+    --hash=sha256:e5ce65a00a2ab4f35eacc1e3d700d792338d56e4823ee7b4dbe017f94cfc4458
     # via botocore-stubs
 types-boto3==1.42.25 \
     --hash=sha256:0b47f5219bae83355fd6942989e0d120847032224a09e57996753a9cd1d153e6 \
