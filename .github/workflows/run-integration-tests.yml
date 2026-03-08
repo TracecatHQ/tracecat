@@ -84,6 +84,14 @@ jobs:
     needs: ssh-sanity # only start if key check passed
     runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 30
+    env:
+      COMPOSE_PROJECT_NAME: tracecat-${{ github.run_id }}-${{ github.run_attempt }}-integration
+      PG_PORT: "5542"
+      TEMPORAL_PORT: "7334"
+      MINIO_PORT: "9002"
+      MINIO_CONSOLE_PORT: "9003"
+      REDIS_PORT: "6381"
+      REDIS_PORT_HOST: "6381"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -120,7 +128,15 @@ jobs:
           # Keep sandboxed registry sync enabled (run on executor via Temporal)
           TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "true"
         run: |
-          docker compose -f docker-compose.local.yml up -d temporal api worker executor postgres_db caddy minio redis
+          docker compose -f docker-compose.local.yml up \
+            --build \
+            --abort-on-container-exit \
+            --exit-code-from migrations \
+            migrations
+
+          docker compose -f docker-compose.local.yml up -d temporal postgres_db caddy minio redis
+          docker compose -f docker-compose.local.yml up -d --no-deps api
+          docker compose -f docker-compose.local.yml up -d --no-deps worker executor
 
           # Wait for services with health checks to become healthy
           echo "Waiting for services to become healthy..."
@@ -154,7 +170,7 @@ jobs:
 
           # Verify postgres is accessible from host (core-db network is not internal)
           echo "Verifying PostgreSQL is accessible from host..."
-          timeout 30 bash -c 'until pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done'
+          timeout 30 bash -c 'until pg_isready -h localhost -p "$PG_PORT" -U postgres; do sleep 1; done'
           echo "PostgreSQL is ready"
 
       - name: Run integration tests
@@ -164,7 +180,7 @@ jobs:
           # Keep sandboxed registry sync enabled (run on executor via Temporal)
           TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "true"
           # Tests run on the host, so Temporal must be reachable via localhost
-          TEMPORAL__CLUSTER_URL: "localhost:7233"
+          TEMPORAL__CLUSTER_URL: localhost:${{ env.TEMPORAL_PORT }}
           TRACECAT__DISABLE_NSJAIL: "true"
         run: |
           # Run pool tests sequentially (subprocess spawning doesn't parallelize well)
@@ -180,6 +196,9 @@ jobs:
         run: |
           echo "=== Docker Service Status ==="
           docker compose -f docker-compose.local.yml ps
+
+          echo "=== Migrations Logs ==="
+          docker compose -f docker-compose.local.yml logs migrations --tail=200
 
           echo "=== API Logs ==="
           docker compose -f docker-compose.local.yml logs api --tail=200
