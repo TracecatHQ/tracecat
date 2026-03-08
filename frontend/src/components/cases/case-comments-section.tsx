@@ -4,8 +4,9 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertCircle,
   ArrowUpIcon,
+  ChevronDown,
+  ChevronUp,
   MoreHorizontal,
-  PaperclipIcon,
   PencilIcon,
   Trash2Icon,
 } from "lucide-react"
@@ -13,7 +14,7 @@ import type React from "react"
 import { useCallback, useLayoutEffect, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import type { CaseCommentRead } from "@/client"
+import type { CaseCommentRead, CaseCommentThreadRead } from "@/client"
 import { CaseCommentViewer } from "@/components/cases/case-description-editor"
 import {
   CaseEventTimestamp,
@@ -43,16 +44,33 @@ import {
   FormItem,
   FormMessage,
 } from "@/components/ui/form"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
+import { useAuth } from "@/hooks/use-auth"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { SYSTEM_USER_READ, User } from "@/lib/auth"
 import {
   useCaseComments,
+  useCaseCommentThreads,
   useCreateCaseComment,
   useDeleteCaseComment,
   useUpdateCaseComment,
 } from "@/lib/hooks"
+
+const commentFormSchema = z.object({
+  content: z
+    .string()
+    .min(1, { message: "Comment cannot be empty" })
+    .max(25000, { message: "Comment cannot be longer than 25000 characters" }),
+})
+
+type CommentFormSchema = z.infer<typeof commentFormSchema>
+
+function getCommentUser(comment: CaseCommentRead) {
+  return new User(comment.user ?? SYSTEM_USER_READ)
+}
 
 export function CommentSection({
   caseId,
@@ -61,25 +79,40 @@ export function CommentSection({
   caseId: string
   workspaceId: string
 }) {
+  const { user: currentUser } = useAuth()
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const repliesEnabled = hasEntitlement("case_addons")
   const { caseComments, caseCommentsIsLoading, caseCommentsError } =
     useCaseComments({
       caseId,
       workspaceId,
+      enabled: !repliesEnabled,
     })
-
+  const {
+    caseCommentThreads,
+    caseCommentThreadsIsLoading,
+    caseCommentThreadsError,
+  } = useCaseCommentThreads({
+    caseId,
+    workspaceId,
+    enabled: repliesEnabled,
+  })
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
 
-  if (caseCommentsIsLoading) {
+  if (
+    entitlementsLoading ||
+    caseCommentThreadsIsLoading ||
+    caseCommentsIsLoading
+  ) {
     return (
       <div className="space-y-4 p-4">
-        <CommentSkeleton />
-        <CommentSkeleton />
-        <CommentSkeleton />
+        <CommentThreadSkeleton />
+        <CommentThreadSkeleton />
       </div>
     )
   }
 
-  if (caseCommentsError) {
+  if (caseCommentThreadsError || caseCommentsError) {
     return (
       <div className="flex items-center justify-center p-8">
         <div className="flex items-center gap-2 text-red-600">
@@ -89,107 +122,283 @@ export function CommentSection({
       </div>
     )
   }
+
   return (
-    <div className="mx-auto w-full">
-      <div className="bg-card">
-        <div className="space-y-3">
-          {caseComments?.map((comment) => {
-            const user = new User(comment.user ?? SYSTEM_USER_READ)
-            const displayName = user.getDisplayName()
-            const isEditing = editingCommentId === comment.id
-
-            return (
-              <div key={comment.id} className="group">
-                <div className="rounded-lg border border-border/40 bg-background p-4 shadow-sm transition-colors hover:border-muted-foreground/40 focus-within:border-muted-foreground/40">
-                  {/* Two-row layout: Row 1 – avatar, name, timestamp & actions. Row 2 – comment content */}
-                  <div className="space-y-3">
-                    {/* Row 1 */}
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <CaseUserAvatar user={user} size="sm" />
-                        {/* User display name */}
-                        <span className="text-sm font-medium text-foreground">
-                          {displayName}
-                        </span>
-                        <CaseEventTimestamp
-                          createdAt={comment.created_at}
-                          lastEditedAt={comment.last_edited_at}
-                        />
-                      </div>
-                      {!isEditing && (
-                        <CommentActionsWithEditing
-                          caseId={caseId}
-                          workspaceId={workspaceId}
-                          comment={comment}
-                          onEdit={() => setEditingCommentId(comment.id)}
-                        />
-                      )}
-                    </div>
-
-                    {/* Row 2 */}
-                    {isEditing ? (
-                      <InlineCommentEdit
-                        comment={comment}
-                        caseId={caseId}
-                        workspaceId={workspaceId}
-                        onStopEditing={() => setEditingCommentId(null)}
-                      />
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <CaseCommentViewer content={comment.content} />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-        <div className="mt-3">
-          <CommentTextBox caseId={caseId} workspaceId={workspaceId} />
-        </div>
+    <div className="mx-auto w-full space-y-4">
+      <div className="space-y-3">
+        {repliesEnabled
+          ? caseCommentThreads?.map((thread) => (
+              <CommentThread
+                key={thread.comment.id}
+                caseId={caseId}
+                workspaceId={workspaceId}
+                thread={thread}
+                currentUserId={currentUser?.id ?? null}
+                editingCommentId={editingCommentId}
+                onEdit={(commentId) => setEditingCommentId(commentId)}
+                onStopEditing={() => setEditingCommentId(null)}
+              />
+            ))
+          : caseComments
+              ?.filter((comment) => comment.parent_id === null)
+              .map((comment) => (
+                <CommentThreadShell key={comment.id}>
+                  <CommentRow
+                    caseId={caseId}
+                    workspaceId={workspaceId}
+                    comment={comment}
+                    currentUserId={currentUser?.id ?? null}
+                    isEditing={editingCommentId === comment.id}
+                    onEdit={() => setEditingCommentId(comment.id)}
+                    onStopEditing={() => setEditingCommentId(null)}
+                  />
+                </CommentThreadShell>
+              ))}
       </div>
+      <CommentComposer caseId={caseId} workspaceId={workspaceId} />
     </div>
   )
 }
 
-function CommentSkeleton() {
+function CommentThreadShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex gap-3">
-      <Skeleton className="size-8 rounded-full" />
-      <div className="flex-1 space-y-2">
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-3 w-16" />
-        </div>
-        <Skeleton className="h-4 w-3/4" />
-        <Skeleton className="h-4 w-1/2" />
-      </div>
-    </div>
+    <section className="overflow-hidden rounded-lg border border-border/60 px-5 py-4">
+      {children}
+    </section>
   )
 }
 
-const commentFormSchema = z.object({
-  content: z
-    .string()
-    .min(1, { message: "Comment cannot be empty" })
-    .max(25000, { message: "Comment cannot be longer than 25000 characters" }),
-})
-type CommentFormSchema = z.infer<typeof commentFormSchema>
-
-function CommentTextBox({
+function CommentThread({
   caseId,
   workspaceId,
+  thread,
+  currentUserId,
+  editingCommentId,
+  onEdit,
+  onStopEditing,
 }: {
   caseId: string
   workspaceId: string
+  thread: CaseCommentThreadRead
+  currentUserId: string | null
+  editingCommentId: string | null
+  onEdit: (commentId: string) => void
+  onStopEditing: () => void
 }) {
-  const { createComment } = useCreateCaseComment({
+  const { comment } = thread
+  const replies = thread.replies ?? []
+  const canReply = !comment.is_deleted
+  const [repliesHidden, setRepliesHidden] = useState(false)
+  const hasReplies = replies.length > 0
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-border/60">
+      <div className="px-5 py-4">
+        <CommentRow
+          caseId={caseId}
+          workspaceId={workspaceId}
+          comment={comment}
+          currentUserId={currentUserId}
+          isEditing={editingCommentId === comment.id}
+          onEdit={() => onEdit(comment.id)}
+          onStopEditing={onStopEditing}
+          headerActions={
+            hasReplies ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-6 rounded-md text-muted-foreground hover:text-foreground"
+                onClick={() => setRepliesHidden((hidden) => !hidden)}
+              >
+                {repliesHidden ? (
+                  <ChevronDown className="size-4" />
+                ) : (
+                  <ChevronUp className="size-4" />
+                )}
+                <span className="sr-only">
+                  {repliesHidden ? "Show replies" : "Hide replies"}
+                </span>
+              </Button>
+            ) : null
+          }
+        />
+      </div>
+
+      {hasReplies && !repliesHidden && (
+        <div className="border-t border-border/60">
+          {replies.map((reply, index) => (
+            <div
+              key={reply.id}
+              className={
+                index === 0
+                  ? "px-5 py-4"
+                  : "border-t border-border/60 px-5 py-4"
+              }
+            >
+              <CommentRow
+                caseId={caseId}
+                workspaceId={workspaceId}
+                comment={reply}
+                currentUserId={currentUserId}
+                isEditing={editingCommentId === reply.id}
+                onEdit={() => onEdit(reply.id)}
+                onStopEditing={onStopEditing}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {canReply && !repliesHidden ? (
+        <div className="border-t border-border/60 px-5 py-3">
+          <CommentComposer
+            caseId={caseId}
+            workspaceId={workspaceId}
+            parentId={comment.id}
+            placeholder="Leave a reply..."
+            mode="inline"
+          />
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function CommentRow({
+  caseId,
+  workspaceId,
+  comment,
+  currentUserId,
+  isEditing,
+  onEdit,
+  onStopEditing,
+  headerActions,
+}: {
+  caseId: string
+  workspaceId: string
+  comment: CaseCommentRead
+  currentUserId: string | null
+  isEditing: boolean
+  onEdit: () => void
+  onStopEditing: () => void
+  headerActions?: React.ReactNode
+}) {
+  const user = getCommentUser(comment)
+  const canManage = !comment.is_deleted && currentUserId === comment.user?.id
+
+  return (
+    <div className="group space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        {comment.is_deleted ? (
+          <div className="flex min-w-0 flex-1 items-center text-sm text-muted-foreground">
+            <CaseEventTimestamp
+              createdAt={comment.created_at}
+              lastEditedAt={comment.last_edited_at}
+            />
+          </div>
+        ) : (
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <CaseUserAvatar user={user} size="sm" />
+            <span className="truncate text-sm font-medium text-foreground">
+              {user.getDisplayName()}
+            </span>
+            <CaseEventTimestamp
+              createdAt={comment.created_at}
+              lastEditedAt={comment.last_edited_at}
+            />
+          </div>
+        )}
+
+        {!isEditing && (headerActions || canManage) && (
+          <div className="flex items-center gap-1">
+            {headerActions}
+            {canManage ? (
+              <CommentActionsWithEditing
+                caseId={caseId}
+                workspaceId={workspaceId}
+                comment={comment}
+                onEdit={onEdit}
+              />
+            ) : null}
+          </div>
+        )}
+      </div>
+
+      {isEditing ? (
+        <InlineCommentEdit
+          comment={comment}
+          caseId={caseId}
+          workspaceId={workspaceId}
+          onStopEditing={onStopEditing}
+        />
+      ) : comment.is_deleted ? (
+        <p className="text-sm italic text-muted-foreground">Comment deleted</p>
+      ) : (
+        <ScrollArea className="w-full">
+          <div className="min-w-0 text-sm leading-6">
+            <CaseCommentViewer content={comment.content} />
+          </div>
+        </ScrollArea>
+      )}
+    </div>
+  )
+}
+
+function CommentThreadSkeleton() {
+  return (
+    <div className="rounded-lg border border-border/60 p-4">
+      <div className="space-y-4">
+        <div className="flex gap-3">
+          <Skeleton className="size-4 rounded-full" />
+          <div className="flex-1 space-y-2">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+            <Skeleton className="h-4 w-3/4" />
+          </div>
+        </div>
+        <div className="border-t border-border/60 pt-4">
+          <div className="flex gap-3">
+            <Skeleton className="size-4 rounded-full" />
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-3 w-12" />
+              </div>
+              <Skeleton className="h-4 w-1/2" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CommentComposer({
+  caseId,
+  workspaceId,
+  parentId,
+  placeholder = "Leave a comment...",
+  mode = "default",
+  onSubmitted,
+  autoFocus = false,
+}: {
+  caseId: string
+  workspaceId: string
+  parentId?: string
+  placeholder?: string
+  mode?: "default" | "inline"
+  onSubmitted?: () => void
+  autoFocus?: boolean
+}) {
+  const { createComment, createCommentIsPending } = useCreateCaseComment({
     caseId,
     workspaceId,
   })
+  const isInline = mode === "inline"
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-
   const form = useForm<CommentFormSchema>({
     resolver: zodResolver(commentFormSchema),
     defaultValues: {
@@ -203,104 +412,96 @@ function CommentTextBox({
     if (!textarea) return
 
     textarea.style.height = "auto"
-
-    const minHeight = 60
-    const nextHeight = Math.max(textarea.scrollHeight, minHeight)
-
-    textarea.style.height = `${nextHeight}px`
+    textarea.style.height = `${Math.max(textarea.scrollHeight, isInline ? 36 : 72)}px`
     textarea.style.overflowY = "hidden"
-  }, [])
+  }, [isInline])
 
-  const contentValue = form.watch("content")
+  const content = form.watch("content")
 
   useLayoutEffect(() => {
     adjustTextareaHeight()
-  }, [contentValue, adjustTextareaHeight])
+  }, [adjustTextareaHeight, content])
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Only submit if Cmd+Enter or Ctrl+Enter is pressed
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault()
-      form.handleSubmit(handleCommentSubmit)()
-    }
-    // Regular Enter will create newlines by default (no special handling needed)
-  }
-
-  const handleCommentSubmit = async (values: CommentFormSchema) => {
-    // Comments not implemented on backend yet
+  const handleSubmit = async (values: CommentFormSchema) => {
     try {
       await createComment({
         content: values.content,
+        parent_id: parentId,
       })
       form.reset({ content: "" })
+      onSubmitted?.()
     } catch (error) {
-      console.error(error)
+      console.error("Error creating comment:", error)
     }
   }
+
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault()
+      form.handleSubmit(handleSubmit)()
+    }
+  }
+
   return (
-    <div className="flex w-full items-end gap-2">
-      {/* Match styling of ChatInput */}
-      <div className="relative flex w-full gap-2 rounded-md border border-border/40 bg-background px-4 shadow-sm transition-colors hover:border-muted-foreground/40 focus-within:border-muted-foreground/40">
-        <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit(handleCommentSubmit)}
-            className="flex w-full space-x-2"
-          >
-            <FormField
-              control={form.control}
-              name="content"
-              render={({ field }) => (
-                <FormItem className="w-full">
-                  <FormControl>
-                    <Textarea
-                      ref={(node) => {
-                        field.ref(node)
-                        textareaRef.current = node
-                      }}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      placeholder="Leave a comment..."
-                      className="shadow-none w-full resize-none border-none min-h-[60px] pl-0 pr-16 placeholder:text-muted-foreground focus-visible:ring-0"
-                      value={field.value}
-                      onChange={(event) => {
-                        field.onChange(event)
-                        adjustTextareaHeight()
-                      }}
-                      onKeyDown={handleKeyDown}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-            <div className="absolute bottom-2 right-2 flex gap-1.5">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7 rounded-md text-gray-400 hover:bg-gray-100 hover:text-muted-foreground"
-                disabled
-              >
-                <PaperclipIcon className="size-4" />
-                <span className="sr-only">Attach file</span>
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                type="submit"
-                className="size-7 rounded-md text-gray-400 hover:bg-gray-200/80 hover:text-muted-foreground"
-                disabled={!form.watch("content").trim()}
-              >
-                <ArrowUpIcon className="size-4" />
-                <span className="sr-only">Send comment</span>
-              </Button>
-            </div>
-          </form>
-        </Form>
-      </div>
+    <div
+      className={
+        isInline ? "w-full" : "rounded-lg border border-border/60 px-4 py-3"
+      }
+    >
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(handleSubmit)} className="relative">
+          <FormField
+            control={form.control}
+            name="content"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <Textarea
+                    autoFocus={autoFocus}
+                    ref={(node) => {
+                      field.ref(node)
+                      textareaRef.current = node
+                    }}
+                    className={
+                      isInline
+                        ? "min-h-9 resize-none border-none px-0 py-2 pr-10 text-sm shadow-none focus-visible:ring-0"
+                        : "min-h-[72px] resize-none border-none px-0 py-0 pr-10 text-sm shadow-none focus-visible:ring-0"
+                    }
+                    name={field.name}
+                    onBlur={field.onBlur}
+                    onChange={(event) => {
+                      field.onChange(event)
+                      adjustTextareaHeight()
+                    }}
+                    onKeyDown={handleKeyDown}
+                    placeholder={placeholder}
+                    value={field.value}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <div className="pointer-events-none absolute bottom-0 right-0 flex items-end">
+            <Button
+              type="submit"
+              variant="outline"
+              size="icon"
+              className="pointer-events-auto size-7 rounded-full border-border/70"
+              disabled={createCommentIsPending || !content.trim()}
+              aria-label="Send"
+            >
+              <ArrowUpIcon className="size-3.5" />
+              <span className="sr-only">Send</span>
+            </Button>
+          </div>
+        </form>
+      </Form>
     </div>
   )
 }
 
-// New component for inline comment editing
 function InlineCommentEdit({
   comment,
   caseId,
@@ -312,18 +513,17 @@ function InlineCommentEdit({
   workspaceId: string
   onStopEditing: () => void
 }) {
+  const { updateComment, updateCommentIsPending } = useUpdateCaseComment({
+    caseId,
+    workspaceId,
+    commentId: comment.id,
+  })
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const form = useForm<CommentFormSchema>({
     resolver: zodResolver(commentFormSchema),
     defaultValues: {
       content: comment.content,
     },
-  })
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-
-  const { updateComment } = useUpdateCaseComment({
-    caseId,
-    workspaceId,
-    commentId: comment.id,
   })
 
   const adjustTextareaHeight = useCallback(() => {
@@ -331,19 +531,15 @@ function InlineCommentEdit({
     if (!textarea) return
 
     textarea.style.height = "auto"
-
-    const minHeight = 60
-    const nextHeight = Math.max(textarea.scrollHeight, minHeight)
-
-    textarea.style.height = `${nextHeight}px`
+    textarea.style.height = `${Math.max(textarea.scrollHeight, 72)}px`
     textarea.style.overflowY = "hidden"
   }, [])
 
-  const contentValue = form.watch("content")
+  const content = form.watch("content")
 
   useLayoutEffect(() => {
     adjustTextareaHeight()
-  }, [contentValue, adjustTextareaHeight])
+  }, [adjustTextareaHeight, content])
 
   const handleSubmit = async (values: CommentFormSchema) => {
     try {
@@ -360,66 +556,68 @@ function InlineCommentEdit({
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Save on Cmd+Enter or Ctrl+Enter
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault()
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault()
       form.handleSubmit(handleSubmit)()
     }
   }
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(handleSubmit)} className="mt-2">
-        <div className="relative rounded-md">
-          <FormField
-            control={form.control}
-            name="content"
-            render={({ field }) => (
-              <FormItem>
-                <FormControl>
-                  <Textarea
-                    autoFocus
-                    ref={(node) => {
-                      field.ref(node)
-                      textareaRef.current = node
-                    }}
-                    name={field.name}
-                    onBlur={field.onBlur}
-                    className="min-h-[60px] w-full resize-none rounded-md border-none bg-transparent pl-0 pr-20 shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
-                    onChange={(event) => {
-                      field.onChange(event)
-                      adjustTextareaHeight()
-                    }}
-                    onKeyDown={handleKeyDown}
-                    value={field.value}
-                  />
-                </FormControl>
-                <FormMessage className="px-3" />
-              </FormItem>
-            )}
-          />
-          <div className="absolute bottom-2 right-2 flex gap-1.5">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-xs"
-              onClick={onStopEditing}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" size="sm" className="h-6 px-2 text-xs">
-              Save
-            </Button>
-          </div>
+      <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-3">
+        <FormField
+          control={form.control}
+          name="content"
+          render={({ field }) => (
+            <FormItem>
+              <FormControl>
+                <Textarea
+                  autoFocus
+                  ref={(node) => {
+                    field.ref(node)
+                    textareaRef.current = node
+                  }}
+                  className="min-h-[72px] border-none px-0 py-0 text-sm shadow-none focus-visible:ring-0"
+                  name={field.name}
+                  onBlur={field.onBlur}
+                  onChange={(event) => {
+                    field.onChange(event)
+                    adjustTextareaHeight()
+                  }}
+                  onKeyDown={handleKeyDown}
+                  value={field.value}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={onStopEditing}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            disabled={updateCommentIsPending || !content.trim()}
+          >
+            Save
+          </Button>
         </div>
       </form>
     </Form>
   )
 }
 
-// Modified CommentActions component that supports inline editing
 function CommentActionsWithEditing({
   caseId,
   workspaceId,
@@ -457,7 +655,7 @@ function CommentActionsWithEditing({
           <Button
             variant="ghost"
             size="icon"
-            className="size-6 rounded-md opacity-0 group-hover:opacity-100 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[state=open]:opacity-100"
+            className="size-6 rounded-md text-muted-foreground hover:text-foreground"
           >
             <MoreHorizontal className="size-4" />
             <span className="sr-only">More options</span>

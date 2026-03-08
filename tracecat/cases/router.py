@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, Literal, NoReturn, TypedDict
 
 from asyncpg import DuplicateColumnError
 from fastapi import APIRouter, HTTPException, Query
@@ -10,6 +10,7 @@ from starlette.status import (
     HTTP_201_CREATED,
     HTTP_204_NO_CONTENT,
     HTTP_400_BAD_REQUEST,
+    HTTP_403_FORBIDDEN,
     HTTP_404_NOT_FOUND,
     HTTP_409_CONFLICT,
     HTTP_500_INTERNAL_SERVER_ERROR,
@@ -29,6 +30,7 @@ from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
     CaseCommentCreate,
     CaseCommentRead,
+    CaseCommentThreadRead,
     CaseCommentUpdate,
     CaseCreate,
     CaseEventRead,
@@ -55,7 +57,11 @@ from tracecat.cases.service import (
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import (
@@ -83,6 +89,14 @@ class ParsedCaseSearchFilters(TypedDict):
     include_unassigned: bool
     tag_ids: list[uuid.UUID] | None
     dropdown_filters: dict[str, list[str]] | None
+
+
+def _raise_comment_http_error(
+    exc: TracecatValidationError | TracecatAuthorizationError,
+) -> NoReturn:
+    if isinstance(exc, TracecatValidationError):
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 def _parse_dropdown_filter(
@@ -595,13 +609,27 @@ async def list_comments(
         )
     # Execute join query directly in the endpoint
     comments_svc = CaseCommentsService(session, role)
-    res = []
-    for comment, user in await comments_svc.list_comments(case):
-        comment_data = CaseCommentRead.model_validate(comment, from_attributes=True)
-        if user:
-            comment_data.user = UserRead.model_validate(user, from_attributes=True)
-        res.append(comment_data)
-    return res
+    return await comments_svc.list_comments(case)
+
+
+@cases_router.get("/{case_id}/comments/threads", status_code=HTTP_200_OK)
+@require_scope("case:read")
+async def list_comment_threads(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+) -> list[CaseCommentThreadRead]:
+    """List case comment threads."""
+    service = CasesService(session, role)
+    case = await service.get_case(case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {case_id} not found",
+        )
+    comments_svc = CaseCommentsService(session, role)
+    return await comments_svc.list_comment_threads(case)
 
 
 @cases_router.post("/{case_id}/comments", status_code=HTTP_201_CREATED)
@@ -622,7 +650,10 @@ async def create_comment(
             detail=f"Case with ID {case_id} not found",
         )
     comments_svc = CaseCommentsService(session, role)
-    await comments_svc.create_comment(case, params)
+    try:
+        await comments_svc.create_comment(case, params)
+    except (TracecatAuthorizationError, TracecatValidationError) as exc:
+        _raise_comment_http_error(exc)
 
 
 @cases_router.patch(
@@ -647,13 +678,16 @@ async def update_comment(
             detail=f"Case with ID {case_id} not found",
         )
     comments_svc = CaseCommentsService(session, role)
-    comment = await comments_svc.get_comment(comment_id)
+    comment = await comments_svc.get_comment_in_case(case.id, comment_id)
     if comment is None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
             detail=f"Comment with ID {comment_id} not found",
         )
-    await comments_svc.update_comment(comment, params)
+    try:
+        await comments_svc.update_comment(comment, params)
+    except (TracecatAuthorizationError, TracecatValidationError) as exc:
+        _raise_comment_http_error(exc)
 
 
 @cases_router.delete(
@@ -676,13 +710,16 @@ async def delete_comment(
             detail=f"Case with ID {case_id} not found",
         )
     comments_svc = CaseCommentsService(session, role)
-    comment = await comments_svc.get_comment(comment_id)
+    comment = await comments_svc.get_comment_in_case(case.id, comment_id)
     if comment is None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
             detail=f"Comment with ID {comment_id} not found",
         )
-    await comments_svc.delete_comment(comment)
+    try:
+        await comments_svc.delete_comment(comment)
+    except (TracecatAuthorizationError, TracecatValidationError) as exc:
+        _raise_comment_http_error(exc)
 
 
 # Case Fields

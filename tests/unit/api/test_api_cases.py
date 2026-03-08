@@ -11,13 +11,16 @@ from fastapi.testclient import TestClient
 from tracecat.auth.types import Role
 from tracecat.cases import router as cases_router
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.schemas import (
+    CaseCommentRead,
+    CaseCommentThreadRead,
     CaseReadMinimal,
     CaseSearchAggregateRead,
     CaseStatusGroupCounts,
 )
 from tracecat.db.models import Case, CaseTag, Workspace
+from tracecat.exceptions import EntitlementRequired, TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse
 
 
@@ -56,6 +59,26 @@ def mock_case_tag(test_workspace: Workspace) -> CaseTag:
         workspace_id=test_workspace.id,
         created_at=datetime(2024, 1, 1, tzinfo=UTC),
         updated_at=datetime(2024, 1, 1, tzinfo=UTC),
+    )
+
+
+def _build_comment_read(
+    *,
+    content: str,
+    parent_id: uuid.UUID | None = None,
+    is_deleted: bool = False,
+) -> CaseCommentRead:
+    now = datetime(2024, 1, 1, tzinfo=UTC)
+    return CaseCommentRead(
+        id=uuid.uuid4(),
+        created_at=now,
+        updated_at=now,
+        content=content,
+        parent_id=parent_id,
+        user=None,
+        last_edited_at=None,
+        deleted_at=now if is_deleted else None,
+        is_deleted=is_deleted,
     )
 
 
@@ -182,6 +205,45 @@ async def test_list_cases_with_filters(
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert len(data["items"]) == 1
+
+
+@pytest.mark.anyio
+async def test_list_case_events_includes_comment_activity(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    db_event = AsyncMock()
+    db_event.type = CaseEventType.COMMENT_REPLY_DELETED
+    db_event.user_id = test_admin_role.user_id
+    db_event.created_at = datetime(2024, 1, 1, tzinfo=UTC)
+    db_event.data = {
+        "comment_id": str(uuid.uuid4()),
+        "parent_id": str(uuid.uuid4()),
+        "thread_root_id": str(uuid.uuid4()),
+        "delete_mode": "hard",
+        "wf_exec_id": None,
+    }
+
+    with (
+        patch.object(cases_router, "CasesService") as mock_service_cls,
+        patch.object(cases_router, "search_users", new=AsyncMock(return_value=[])),
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_case
+        mock_service.events = AsyncMock()
+        mock_service.events.list_events.return_value = [db_event]
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            f"/cases/{mock_case.id}/events",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["events"][0]["type"] == "comment_reply_deleted"
+    assert data["events"][0]["delete_mode"] == "hard"
 
 
 @pytest.mark.anyio
@@ -815,3 +877,169 @@ async def test_search_case_aggregates_success(
         assert data["status_groups"]["resolved"] == 18
         assert data["status_groups"]["closed"] == 4
         mock_svc.get_search_case_aggregates.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_list_comment_threads_success(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """Threaded comment reads should return grouped threads with tombstone fields."""
+    with (
+        patch.object(cases_router, "CasesService") as mock_cases_service_cls,
+        patch.object(cases_router, "CaseCommentsService") as mock_comments_service_cls,
+    ):
+        top_level = _build_comment_read(content="Comment deleted", is_deleted=True)
+        reply = _build_comment_read(
+            content="Reply content",
+            parent_id=top_level.id,
+        )
+        thread = CaseCommentThreadRead(
+            comment=top_level,
+            replies=[reply],
+            reply_count=1,
+            last_activity_at=reply.updated_at,
+        )
+
+        mock_cases_service = AsyncMock()
+        mock_cases_service.get_case.return_value = mock_case
+        mock_cases_service_cls.return_value = mock_cases_service
+
+        mock_comments_service = AsyncMock()
+        mock_comments_service.list_comment_threads.return_value = [thread]
+        mock_comments_service_cls.return_value = mock_comments_service
+
+        response = client.get(
+            f"/cases/{mock_case.id}/comments/threads",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["comment"]["content"] == "Comment deleted"
+        assert data[0]["comment"]["is_deleted"] is True
+        assert data[0]["reply_count"] == 1
+        assert data[0]["replies"][0]["content"] == "Reply content"
+        assert data[0]["replies"][0]["parent_id"] == str(top_level.id)
+
+
+@pytest.mark.anyio
+async def test_list_comment_threads_requires_case_addons(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    with (
+        patch.object(cases_router, "CasesService") as mock_cases_service_cls,
+        patch.object(cases_router, "CaseCommentsService") as mock_comments_service_cls,
+    ):
+        mock_cases_service = AsyncMock()
+        mock_cases_service.get_case.return_value = mock_case
+        mock_cases_service_cls.return_value = mock_cases_service
+
+        mock_comments_service = AsyncMock()
+        mock_comments_service.list_comment_threads.side_effect = EntitlementRequired(
+            "case_addons"
+        )
+        mock_comments_service_cls.return_value = mock_comments_service
+
+        response = client.get(
+            f"/cases/{mock_case.id}/comments/threads",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["type"] == "EntitlementRequired"
+
+
+@pytest.mark.anyio
+async def test_create_reply_requires_case_addons(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    with (
+        patch.object(cases_router, "CasesService") as mock_cases_service_cls,
+        patch.object(cases_router, "CaseCommentsService") as mock_comments_service_cls,
+    ):
+        mock_cases_service = AsyncMock()
+        mock_cases_service.get_case.return_value = mock_case
+        mock_cases_service_cls.return_value = mock_cases_service
+
+        mock_comments_service = AsyncMock()
+        mock_comments_service.create_comment.side_effect = EntitlementRequired(
+            "case_addons"
+        )
+        mock_comments_service_cls.return_value = mock_comments_service
+
+        response = client.post(
+            f"/cases/{mock_case.id}/comments",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"content": "Reply", "parent_id": str(uuid.uuid4())},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["type"] == "EntitlementRequired"
+
+
+@pytest.mark.anyio
+async def test_update_comment_wrong_case_returns_not_found(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """Comment updates should be case scoped."""
+    with (
+        patch.object(cases_router, "CasesService") as mock_cases_service_cls,
+        patch.object(cases_router, "CaseCommentsService") as mock_comments_service_cls,
+    ):
+        mock_cases_service = AsyncMock()
+        mock_cases_service.get_case.return_value = mock_case
+        mock_cases_service_cls.return_value = mock_cases_service
+
+        mock_comments_service = AsyncMock()
+        mock_comments_service.get_comment_in_case.return_value = None
+        mock_comments_service_cls.return_value = mock_comments_service
+
+        response = client.patch(
+            f"/cases/{mock_case.id}/comments/{uuid.uuid4()}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"content": "Updated"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_comments_service.update_comment.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_update_comment_reparenting_returns_bad_request(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """Reparent attempts should return a validation error."""
+    with (
+        patch.object(cases_router, "CasesService") as mock_cases_service_cls,
+        patch.object(cases_router, "CaseCommentsService") as mock_comments_service_cls,
+    ):
+        mock_cases_service = AsyncMock()
+        mock_cases_service.get_case.return_value = mock_case
+        mock_cases_service_cls.return_value = mock_cases_service
+
+        mock_comments_service = AsyncMock()
+        mock_comments_service.get_comment_in_case.return_value = object()
+        mock_comments_service.update_comment.side_effect = TracecatValidationError(
+            "Changing a comment parent is not supported"
+        )
+        mock_comments_service_cls.return_value = mock_comments_service
+
+        response = client.patch(
+            f"/cases/{mock_case.id}/comments/{uuid.uuid4()}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"parent_id": str(uuid.uuid4())},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Changing a comment parent is not supported"

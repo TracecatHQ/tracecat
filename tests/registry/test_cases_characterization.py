@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import base64
 import uuid
-from typing import get_args
+from typing import Any, cast, get_args
 
 import pytest
 import respx
@@ -36,11 +36,14 @@ from tracecat_registry.core.cases import (
     get_attachment,
     get_attachment_download_url,
     get_case,
+    get_comment_thread,
     list_attachments,
     list_case_events,
     list_cases,
+    list_comment_threads,
     list_comments,
     remove_case_tag,
+    reply_to_comment,
     search_cases,
     update_case,
     update_comment,
@@ -731,6 +734,28 @@ class TestCreateComment:
         assert reply["content"] == "Reply to parent"
         assert str(reply["parent_id"]) == str(parent["id"])
 
+    async def test_reply_to_comment_helper(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Convenience reply helper should create a reply comment."""
+        case = await create_case(
+            summary="Case with Reply Helper",
+            description="Test case",
+        )
+        parent = await create_comment(
+            case_id=str(case["id"]),
+            content="Parent comment",
+        )
+
+        reply = await reply_to_comment(
+            case_id=str(case["id"]),
+            parent_comment_id=str(parent["id"]),
+            content="Reply helper content",
+        )
+
+        assert reply["content"] == "Reply helper content"
+        assert str(reply["parent_id"]) == str(parent["id"])
+
 
 # =============================================================================
 # update_comment characterization tests
@@ -773,6 +798,15 @@ class TestUpdateComment:
                 content="Updated content",
             )
 
+    def test_update_comment_does_not_accept_parent_id(self):
+        """The UDF surface only supports content updates."""
+        with pytest.raises(TypeError):
+            cast(Any, update_comment)(
+                comment_id=str(uuid.uuid4()),
+                content="Updated content",
+                parent_id=str(uuid.uuid4()),
+            )
+
 
 # =============================================================================
 # list_comments characterization tests
@@ -813,6 +847,62 @@ class TestListComments:
 
         with pytest.raises(SDKNotFoundError):
             await list_comments(case_id=fake_id)
+
+
+@pytest.mark.anyio
+class TestListCommentThreads:
+    """Characterization tests for threaded comment reads."""
+
+    async def test_list_comment_threads_returns_grouped_threads(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        case = await create_case(
+            summary="Case with comment threads",
+            description="Test case",
+        )
+        top_level = await create_comment(case_id=str(case["id"]), content="Top level")
+        await create_comment(
+            case_id=str(case["id"]),
+            content="Reply one",
+            parent_id=str(top_level["id"]),
+        )
+        await create_comment(case_id=str(case["id"]), content="Second thread")
+
+        result = await list_comment_threads(case_id=str(case["id"]))
+
+        TypeAdapter(list[types.CaseCommentThreadRead]).validate_python(result)
+
+        assert len(result) == 2
+        first_thread = result[0]
+        assert first_thread["comment"]["content"] == "Top level"
+        assert first_thread["reply_count"] == 1
+        assert len(first_thread["replies"]) == 1
+        assert first_thread["replies"][0]["content"] == "Reply one"
+
+    async def test_get_comment_thread_by_reply_id(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        case = await create_case(
+            summary="Case with reply lookup",
+            description="Test case",
+        )
+        parent = await create_comment(
+            case_id=str(case["id"]),
+            content="Parent comment",
+        )
+        reply = await create_comment(
+            case_id=str(case["id"]),
+            content="Reply comment",
+            parent_id=str(parent["id"]),
+        )
+
+        result = await get_comment_thread(comment_id=str(reply["id"]))
+
+        TypeAdapter(types.CaseCommentThreadRead).validate_python(result)
+
+        assert str(result["comment"]["id"]) == str(parent["id"])
+        assert len(result["replies"]) == 1
+        assert str(result["replies"][0]["id"]) == str(reply["id"])
 
 
 # =============================================================================

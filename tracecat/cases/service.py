@@ -3,6 +3,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
+from typing import cast as typing_cast
 
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
@@ -15,7 +16,9 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.sql.elements import ColumnElement
 
+from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
+from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
@@ -36,6 +39,8 @@ from tracecat.cases.enums import (
 from tracecat.cases.schemas import (
     AssigneeChangedEvent,
     CaseCommentCreate,
+    CaseCommentRead,
+    CaseCommentThreadRead,
     CaseCommentUpdate,
     CaseCreate,
     CaseEventVariant,
@@ -47,6 +52,12 @@ from tracecat.cases.schemas import (
     CaseUpdate,
     CaseViewedEvent,
     ClosedEvent,
+    CommentCreatedEvent,
+    CommentDeletedEvent,
+    CommentReplyCreatedEvent,
+    CommentReplyDeletedEvent,
+    CommentReplyUpdatedEvent,
+    CommentUpdatedEvent,
     CreatedEvent,
     FieldDiff,
     FieldsChangedEvent,
@@ -84,6 +95,7 @@ from tracecat.db.models import (
 )
 from tracecat.db.session_events import add_after_commit_callback
 from tracecat.exceptions import (
+    EntitlementRequired,
     TracecatAuthorizationError,
     TracecatException,
     TracecatNotFoundError,
@@ -119,6 +131,9 @@ def _normalize_filter_values(values: Any) -> list[Any]:
                 unique.append(value)
         return unique
     return [values]
+
+
+_COMMENT_TOMBSTONE_CONTENT = "Comment deleted"
 
 
 # Semantic sort order for enum-backed case fields.
@@ -1239,6 +1254,146 @@ class CaseCommentsService(BaseWorkspaceService):
 
     service_name = "case_comments"
 
+    async def _get_case(self, case_id: uuid.UUID) -> Case:
+        statement = select(Case).where(
+            Case.workspace_id == self.workspace_id,
+            Case.id == case_id,
+        )
+        result = await self.session.execute(statement)
+        if (case := result.scalar_one_or_none()) is None:
+            raise TracecatNotFoundError(f"Case {case_id} not found")
+        return case
+
+    def _thread_root_id(
+        self, *, comment_id: uuid.UUID, parent_id: uuid.UUID | None
+    ) -> uuid.UUID:
+        return parent_id or comment_id
+
+    def _comment_event(
+        self,
+        *,
+        comment_id: uuid.UUID,
+        parent_id: uuid.UUID | None,
+        wf_exec_id: str | None = None,
+    ) -> CommentCreatedEvent | CommentReplyCreatedEvent:
+        kwargs = {
+            "comment_id": comment_id,
+            "parent_id": parent_id,
+            "thread_root_id": self._thread_root_id(
+                comment_id=comment_id, parent_id=parent_id
+            ),
+            "wf_exec_id": wf_exec_id,
+        }
+        if parent_id is None:
+            return CommentCreatedEvent(**kwargs)
+        return CommentReplyCreatedEvent(**kwargs)
+
+    def _comment_updated_event(
+        self,
+        *,
+        comment_id: uuid.UUID,
+        parent_id: uuid.UUID | None,
+        wf_exec_id: str | None = None,
+    ) -> CommentUpdatedEvent | CommentReplyUpdatedEvent:
+        kwargs = {
+            "comment_id": comment_id,
+            "parent_id": parent_id,
+            "thread_root_id": self._thread_root_id(
+                comment_id=comment_id, parent_id=parent_id
+            ),
+            "wf_exec_id": wf_exec_id,
+        }
+        if parent_id is None:
+            return CommentUpdatedEvent(**kwargs)
+        return CommentReplyUpdatedEvent(**kwargs)
+
+    def _comment_deleted_event(
+        self,
+        *,
+        comment_id: uuid.UUID,
+        parent_id: uuid.UUID | None,
+        delete_mode: Literal["soft", "hard"],
+        wf_exec_id: str | None = None,
+    ) -> CommentDeletedEvent | CommentReplyDeletedEvent:
+        kwargs = {
+            "comment_id": comment_id,
+            "parent_id": parent_id,
+            "thread_root_id": self._thread_root_id(
+                comment_id=comment_id, parent_id=parent_id
+            ),
+            "delete_mode": delete_mode,
+            "wf_exec_id": wf_exec_id,
+        }
+        if parent_id is None:
+            return CommentDeletedEvent(**kwargs)
+        return CommentReplyDeletedEvent(**kwargs)
+
+    def _comment_audit_data(
+        self,
+        *,
+        case_id: uuid.UUID,
+        comment_id: uuid.UUID,
+        parent_id: uuid.UUID | None,
+        content: str | None = None,
+        delete_mode: Literal["soft", "hard"] | None = None,
+    ) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "case_id": str(case_id),
+            "comment_id": str(comment_id),
+            "parent_id": str(parent_id) if parent_id is not None else None,
+            "thread_root_id": str(
+                self._thread_root_id(comment_id=comment_id, parent_id=parent_id)
+            ),
+            "is_reply": parent_id is not None,
+        }
+        if content is not None:
+            data["content"] = content
+        if delete_mode is not None:
+            data["delete_mode"] = delete_mode
+        return data
+
+    async def _audit_comment_event(
+        self,
+        *,
+        action: Literal["create", "update", "delete"],
+        comment_id: uuid.UUID,
+        status: AuditEventStatus,
+        data: dict[str, Any],
+    ) -> None:
+        async with AuditService.with_session(
+            role=self.role, session=self.session
+        ) as svc:
+            await svc.create_event(
+                resource_type="case_comment",
+                action=action,
+                resource_id=comment_id,
+                status=status,
+                data=data,
+            )
+
+    async def _audit_comment_success_event(
+        self,
+        *,
+        action: Literal["create", "update", "delete"],
+        comment_id: uuid.UUID,
+        data: dict[str, Any],
+    ) -> None:
+        """Emit post-commit success audits without failing the mutation."""
+        try:
+            await self._audit_comment_event(
+                action=action,
+                comment_id=comment_id,
+                status=AuditEventStatus.SUCCESS,
+                data=data,
+            )
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to emit post-commit comment audit",
+                action=action,
+                comment_id=comment_id,
+                error=str(exc),
+            )
+
     async def get_comment(self, comment_id: uuid.UUID) -> CaseComment | None:
         """Get a comment by ID.
 
@@ -1257,37 +1412,185 @@ class CaseCommentsService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().first()
 
-    async def list_comments(
-        self, case: Case, *, with_users: bool = True
+    async def get_comment_in_case(
+        self, case_id: uuid.UUID, comment_id: uuid.UUID
+    ) -> CaseComment | None:
+        """Get a comment by ID scoped to a specific case."""
+        statement = select(CaseComment).where(
+            CaseComment.workspace_id == self.workspace_id,
+            CaseComment.case_id == case_id,
+            CaseComment.id == comment_id,
+        )
+
+        result = await self.session.execute(statement)
+        return result.scalars().first()
+
+    def serialize_comment(
+        self,
+        comment: CaseComment,
+        *,
+        user: User | None = None,
+    ) -> CaseCommentRead:
+        """Serialize a comment for API responses with tombstone semantics."""
+        comment_data = CaseCommentRead.model_validate(comment, from_attributes=True)
+        comment_data.user = (
+            UserRead.model_validate(user, from_attributes=True) if user else None
+        )
+        if comment.deleted_at is not None:
+            comment_data.content = _COMMENT_TOMBSTONE_CONTENT
+            comment_data.is_deleted = True
+        return comment_data
+
+    async def _list_comment_rows(
+        self,
+        *,
+        case_id: uuid.UUID,
+        thread_root_id: uuid.UUID | None = None,
     ) -> list[tuple[CaseComment, User | None]]:
-        """List all comments for a case with optional user information.
-
-        Args:
-            case: The case to get comments for
-            with_users: Whether to include user information (default: True)
-
-        Returns:
-            A list of tuples containing comments and their associated users (or None if no user)
-        """
-
-        if with_users:
-            statement = (
-                select(CaseComment, User)
-                .outerjoin(User, cast(CaseComment.user_id, sa.UUID) == User.id)
-                .where(CaseComment.case_id == case.id)
-                .order_by(cast(CaseComment.created_at, sa.DateTime))
+        """List case comments with user information."""
+        predicates: list[ColumnElement[bool]] = [CaseComment.case_id == case_id]
+        if thread_root_id is not None:
+            predicates.append(
+                sa.or_(
+                    CaseComment.id == thread_root_id,
+                    CaseComment.parent_id == thread_root_id,
+                )
             )
-            result = await self.session.execute(statement)
-            return list(result.tuples().all())
-        else:
-            statement = (
-                select(CaseComment)
-                .where(CaseComment.case_id == case.id)
-                .order_by(cast(CaseComment.created_at, sa.DateTime))
+
+        statement = (
+            select(CaseComment, User)
+            .outerjoin(User, cast(CaseComment.user_id, sa.UUID) == User.id)
+            .where(*predicates)
+            .order_by(CaseComment.created_at, CaseComment.surrogate_id)
+        )
+        result = await self.session.execute(statement)
+        rows = result.tuples().all()
+        return typing_cast(list[tuple[CaseComment, User | None]], rows)
+
+    async def list_comments(self, case: Case) -> list[CaseCommentRead]:
+        """List all comments for a case as a flat compatibility view."""
+        rows = await self._list_comment_rows(case_id=case.id)
+        return [self.serialize_comment(comment, user=user) for comment, user in rows]
+
+    async def list_comment_threads(self, case: Case) -> list[CaseCommentThreadRead]:
+        """List comments grouped by top-level thread."""
+        await self._require_replies_entitlement()
+        rows = await self._list_comment_rows(case_id=case.id)
+        threads_by_id: dict[uuid.UUID, CaseCommentThreadRead] = {}
+        ordered_threads: list[CaseCommentThreadRead] = []
+
+        for comment, user in rows:
+            serialized = self.serialize_comment(comment, user=user)
+            if comment.parent_id is None:
+                if (thread := threads_by_id.get(comment.id)) is not None:
+                    if thread.comment.parent_id is not None:
+                        thread.replies.insert(0, thread.comment)
+                        thread.reply_count = len(thread.replies)
+                    thread.comment = serialized
+                    if comment.updated_at > thread.last_activity_at:
+                        thread.last_activity_at = comment.updated_at
+                    continue
+
+                thread = CaseCommentThreadRead(
+                    comment=serialized,
+                    replies=[],
+                    reply_count=0,
+                    last_activity_at=comment.updated_at,
+                )
+                threads_by_id[comment.id] = thread
+                ordered_threads.append(thread)
+                continue
+
+            if (thread := threads_by_id.get(comment.parent_id)) is None:
+                fallback_thread = CaseCommentThreadRead(
+                    comment=serialized,
+                    replies=[],
+                    reply_count=0,
+                    last_activity_at=comment.updated_at,
+                )
+                threads_by_id[comment.parent_id] = fallback_thread
+                ordered_threads.append(fallback_thread)
+                continue
+
+            thread.replies.append(serialized)
+            thread.reply_count += 1
+            if comment.updated_at > thread.last_activity_at:
+                thread.last_activity_at = comment.updated_at
+
+        return ordered_threads
+
+    async def get_comment_thread(
+        self, comment_id: uuid.UUID
+    ) -> CaseCommentThreadRead | None:
+        """Get the containing thread for a comment ID."""
+        await self._require_replies_entitlement()
+        if (comment := await self.get_comment(comment_id)) is None:
+            return None
+
+        thread_root_id = comment.parent_id or comment.id
+        rows = await self._list_comment_rows(
+            case_id=comment.case_id,
+            thread_root_id=thread_root_id,
+        )
+        if not rows:
+            return None
+
+        thread_comment: CaseCommentRead | None = None
+        replies: list[CaseCommentRead] = []
+        last_activity_at: datetime | None = None
+
+        for row_comment, user in rows:
+            serialized = self.serialize_comment(row_comment, user=user)
+            if row_comment.id == thread_root_id:
+                thread_comment = serialized
+            else:
+                replies.append(serialized)
+            if last_activity_at is None or row_comment.updated_at > last_activity_at:
+                last_activity_at = row_comment.updated_at
+
+        if thread_comment is None or last_activity_at is None:
+            return None
+
+        return CaseCommentThreadRead(
+            comment=thread_comment,
+            replies=replies,
+            reply_count=len(replies),
+            last_activity_at=last_activity_at,
+        )
+
+    async def _require_replies_entitlement(self) -> None:
+        """Require case add-ons entitlement for reply/thread capabilities."""
+        if not await self.has_entitlement(Entitlement.CASE_ADDONS):
+            raise EntitlementRequired(Entitlement.CASE_ADDONS.value)
+
+    async def _validate_parent_comment(
+        self,
+        *,
+        case: Case,
+        parent_id: uuid.UUID | None,
+    ) -> None:
+        """Validate one-level reply threading constraints."""
+        if parent_id is None:
+            return
+        if (parent := await self.get_comment(parent_id)) is None:
+            raise TracecatValidationError("Parent comment not found")
+        if parent.case_id != case.id or parent.workspace_id != self.workspace_id:
+            raise TracecatValidationError("Parent comment must belong to the same case")
+        if parent.parent_id is not None:
+            raise TracecatValidationError("Replies cannot have replies")
+        if parent.deleted_at is not None:
+            raise TracecatValidationError("Cannot reply to a deleted comment")
+
+    async def _comment_has_replies(self, comment_id: uuid.UUID) -> bool:
+        """Check whether a comment has replies."""
+        statement = select(
+            sa.exists().where(
+                CaseComment.workspace_id == self.workspace_id,
+                CaseComment.parent_id == comment_id,
             )
-            result = await self.session.execute(statement)
-            # Return in the same format as the join query for consistency
-            return [(comment, None) for comment in result.scalars().all()]
+        )
+        result = await self.session.execute(statement)
+        return bool(result.scalar())
 
     @require_scope("case:update")
     async def create_comment(
@@ -1302,23 +1605,64 @@ class CaseCommentsService(BaseWorkspaceService):
         Returns:
             The created comment
         """
-        comment = CaseComment(
-            workspace_id=self.workspace_id,
+        comment_id = uuid.uuid4()
+        audit_data = self._comment_audit_data(
             case_id=case.id,
-            content=params.content,
+            comment_id=comment_id,
             parent_id=params.parent_id,
-            user_id=self.role.user_id,
+            content=params.content,
+        )
+        await self._audit_comment_event(
+            action="create",
+            comment_id=comment_id,
+            status=AuditEventStatus.ATTEMPT,
+            data=audit_data,
         )
 
-        self.session.add(comment)
-        await self.session.commit()
-        await self.session.refresh(comment)
+        try:
+            if params.parent_id is not None:
+                await self._require_replies_entitlement()
+            await self._validate_parent_comment(case=case, parent_id=params.parent_id)
+            comment = CaseComment(
+                id=comment_id,
+                workspace_id=self.workspace_id,
+                case_id=case.id,
+                content=params.content,
+                parent_id=params.parent_id,
+                user_id=self.role.user_id,
+            )
 
+            self.session.add(comment)
+            await CaseEventsService(session=self.session, role=self.role).create_event(
+                case=case,
+                event=self._comment_event(
+                    comment_id=comment.id,
+                    parent_id=comment.parent_id,
+                ),
+            )
+            await self.session.commit()
+            await self.session.refresh(comment)
+        except Exception:
+            await self._audit_comment_event(
+                action="create",
+                comment_id=comment_id,
+                status=AuditEventStatus.FAILURE,
+                data=audit_data,
+            )
+            raise
+
+        await self._audit_comment_success_event(
+            action="create",
+            comment_id=comment_id,
+            data=audit_data,
+        )
         return comment
 
     @require_scope("case:update")
     async def update_comment(
-        self, comment: CaseComment, params: CaseCommentUpdate
+        self,
+        comment: CaseComment,
+        params: CaseCommentUpdate,
     ) -> CaseComment:
         """Update an existing comment.
 
@@ -1333,20 +1677,64 @@ class CaseCommentsService(BaseWorkspaceService):
             TracecatNotFoundError: If the comment doesn't exist
             TracecatAuthorizationError: If the user doesn't own the comment
         """
-        # Check if the user owns the comment
-        if comment.user_id != self.role.user_id:
-            raise TracecatAuthorizationError("You cannot update this comment")
+        audit_data = self._comment_audit_data(
+            case_id=comment.case_id,
+            comment_id=comment.id,
+            parent_id=comment.parent_id,
+            content=params.content,
+        )
+        await self._audit_comment_event(
+            action="update",
+            comment_id=comment.id,
+            status=AuditEventStatus.ATTEMPT,
+            data=audit_data,
+        )
 
-        set_fields = params.model_dump(exclude_unset=True)
-        for key, value in set_fields.items():
-            setattr(comment, key, value)
+        try:
+            if comment.user_id != self.role.user_id:
+                raise TracecatAuthorizationError("You cannot update this comment")
+            if comment.deleted_at is not None:
+                raise TracecatValidationError("Deleted comments cannot be updated")
+            if "parent_id" in params.model_fields_set:
+                raise TracecatValidationError(
+                    "Changing a comment parent is not supported"
+                )
+            if "content" not in params.model_fields_set:
+                await self._audit_comment_event(
+                    action="update",
+                    comment_id=comment.id,
+                    status=AuditEventStatus.SUCCESS,
+                    data=audit_data,
+                )
+                return comment
+            if params.content is None:
+                raise TracecatValidationError("Comment content is required")
+            comment.content = params.content
+            comment.last_edited_at = datetime.now(UTC)
+            case = await self._get_case(comment.case_id)
+            await CaseEventsService(session=self.session, role=self.role).create_event(
+                case=case,
+                event=self._comment_updated_event(
+                    comment_id=comment.id,
+                    parent_id=comment.parent_id,
+                ),
+            )
+            await self.session.commit()
+            await self.session.refresh(comment)
+        except Exception:
+            await self._audit_comment_event(
+                action="update",
+                comment_id=comment.id,
+                status=AuditEventStatus.FAILURE,
+                data=audit_data,
+            )
+            raise
 
-        # Set last_edited_at
-        comment.last_edited_at = datetime.now(UTC)
-
-        await self.session.commit()
-        await self.session.refresh(comment)
-
+        await self._audit_comment_success_event(
+            action="update",
+            comment_id=comment.id,
+            data=audit_data,
+        )
         return comment
 
     @require_scope("case:delete")
@@ -1362,12 +1750,72 @@ class CaseCommentsService(BaseWorkspaceService):
             TracecatAuthorizationError: If the user doesn't own the comment
         """
 
-        # Check if the user owns the comment
         if comment.user_id != self.role.user_id:
             raise TracecatAuthorizationError("You can only delete your own comments")
 
-        await self.session.delete(comment)
-        await self.session.commit()
+        has_replies = comment.parent_id is None and await self._comment_has_replies(
+            comment.id
+        )
+        if has_replies and comment.deleted_at is not None:
+            return
+
+        delete_mode: Literal["soft", "hard"] = "soft" if has_replies else "hard"
+        delete_audit_data = self._comment_audit_data(
+            case_id=comment.case_id,
+            comment_id=comment.id,
+            parent_id=comment.parent_id,
+            delete_mode=delete_mode,
+        )
+        await self._audit_comment_event(
+            action="delete",
+            comment_id=comment.id,
+            status=AuditEventStatus.ATTEMPT,
+            data=delete_audit_data,
+        )
+
+        try:
+            case = await self._get_case(comment.case_id)
+            if has_replies:
+                if comment.deleted_at is None:
+                    comment.deleted_at = datetime.now(UTC)
+                await CaseEventsService(
+                    session=self.session, role=self.role
+                ).create_event(
+                    case=case,
+                    event=self._comment_deleted_event(
+                        comment_id=comment.id,
+                        parent_id=comment.parent_id,
+                        delete_mode=delete_mode,
+                    ),
+                )
+                await self.session.commit()
+            else:
+                await CaseEventsService(
+                    session=self.session, role=self.role
+                ).create_event(
+                    case=case,
+                    event=self._comment_deleted_event(
+                        comment_id=comment.id,
+                        parent_id=comment.parent_id,
+                        delete_mode=delete_mode,
+                    ),
+                )
+                await self.session.delete(comment)
+                await self.session.commit()
+        except Exception:
+            await self._audit_comment_event(
+                action="delete",
+                comment_id=comment.id,
+                status=AuditEventStatus.FAILURE,
+                data=delete_audit_data,
+            )
+            raise
+
+        await self._audit_comment_success_event(
+            action="delete",
+            comment_id=comment.id,
+            data=delete_audit_data,
+        )
 
 
 class CaseEventsService(BaseWorkspaceService):

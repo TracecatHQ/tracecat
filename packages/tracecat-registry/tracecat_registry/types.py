@@ -176,6 +176,7 @@ class CaseComment(TypedDict):
     content: str
     parent_id: UUID | None
     last_edited_at: datetime | None
+    deleted_at: datetime | None
 
 
 class CaseCommentRead(TypedDict):
@@ -188,6 +189,17 @@ class CaseCommentRead(TypedDict):
     parent_id: UUID | None
     user: UserRead | None
     last_edited_at: datetime | None
+    deleted_at: datetime | None
+    is_deleted: bool
+
+
+class CaseCommentThreadRead(TypedDict):
+    """Threaded case comment information."""
+
+    comment: CaseCommentRead
+    replies: list[CaseCommentRead]
+    reply_count: int
+    last_activity_at: datetime
 
 
 class CaseTaskRead(TypedDict):

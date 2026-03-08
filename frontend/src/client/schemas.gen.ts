@@ -3912,6 +3912,11 @@ export const $CaseCommentCreate = {
   title: "CaseCommentCreate",
 } as const
 
+export const $CaseCommentDeleteMode = {
+  type: "string",
+  enum: ["soft", "hard"],
+} as const
+
 export const $CaseCommentRead = {
   properties: {
     id: {
@@ -3967,10 +3972,55 @@ export const $CaseCommentRead = {
       ],
       title: "Last Edited At",
     },
+    deleted_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deleted At",
+    },
+    is_deleted: {
+      type: "boolean",
+      title: "Is Deleted",
+      default: false,
+    },
   },
   type: "object",
   required: ["id", "created_at", "updated_at", "content"],
   title: "CaseCommentRead",
+} as const
+
+export const $CaseCommentThreadRead = {
+  properties: {
+    comment: {
+      $ref: "#/components/schemas/CaseCommentRead",
+    },
+    replies: {
+      items: {
+        $ref: "#/components/schemas/CaseCommentRead",
+      },
+      type: "array",
+      title: "Replies",
+    },
+    reply_count: {
+      type: "integer",
+      title: "Reply Count",
+      default: 0,
+    },
+    last_activity_at: {
+      type: "string",
+      format: "date-time",
+      title: "Last Activity At",
+    },
+  },
+  type: "object",
+  required: ["comment", "last_activity_at"],
+  title: "CaseCommentThreadRead",
 } as const
 
 export const $CaseCommentUpdate = {
@@ -5047,6 +5097,24 @@ export const $CaseEventRead = {
       $ref: "#/components/schemas/PayloadChangedEventRead",
     },
     {
+      $ref: "#/components/schemas/CommentCreatedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/CommentUpdatedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/CommentDeletedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/CommentReplyCreatedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/CommentReplyUpdatedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/CommentReplyDeletedEventRead",
+    },
+    {
       $ref: "#/components/schemas/TaskCreatedEventRead",
     },
     {
@@ -5087,6 +5155,15 @@ export const $CaseEventRead = {
       case_reopened: "#/components/schemas/ReopenedEventRead",
       case_updated: "#/components/schemas/UpdatedEventRead",
       case_viewed: "#/components/schemas/CaseViewedEventRead",
+      comment_created: "#/components/schemas/CommentCreatedEventRead",
+      comment_deleted: "#/components/schemas/CommentDeletedEventRead",
+      comment_reply_created:
+        "#/components/schemas/CommentReplyCreatedEventRead",
+      comment_reply_deleted:
+        "#/components/schemas/CommentReplyDeletedEventRead",
+      comment_reply_updated:
+        "#/components/schemas/CommentReplyUpdatedEventRead",
+      comment_updated: "#/components/schemas/CommentUpdatedEventRead",
       dropdown_value_changed:
         "#/components/schemas/DropdownValueChangedEventRead",
       fields_changed: "#/components/schemas/FieldChangedEventRead",
@@ -5138,6 +5215,12 @@ export const $CaseEventType = {
     "dropdown_value_changed",
     "table_row_linked",
     "table_row_unlinked",
+    "comment_created",
+    "comment_updated",
+    "comment_deleted",
+    "comment_reply_created",
+    "comment_reply_updated",
+    "comment_reply_deleted",
   ],
   title: "CaseEventType",
   description: "Case activity type values.",
@@ -6928,6 +7011,420 @@ Attributes:
     chunk_size: Number of items per chunk.
     element_kind: Whether elements are raw values or StoredObject handles.
     schema_version: Manifest schema version for forward compatibility.`,
+} as const
+
+export const $CommentCreatedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    comment_id: {
+      type: "string",
+      format: "uuid",
+      title: "Comment Id",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    thread_root_id: {
+      type: "string",
+      format: "uuid",
+      title: "Thread Root Id",
+    },
+    type: {
+      type: "string",
+      const: "comment_created",
+      title: "Type",
+      default: "comment_created",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["comment_id", "thread_root_id", "created_at"],
+  title: "CommentCreatedEventRead",
+  description: "Event for when a top-level comment is created.",
+} as const
+
+export const $CommentDeletedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    comment_id: {
+      type: "string",
+      format: "uuid",
+      title: "Comment Id",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    thread_root_id: {
+      type: "string",
+      format: "uuid",
+      title: "Thread Root Id",
+    },
+    type: {
+      type: "string",
+      const: "comment_deleted",
+      title: "Type",
+      default: "comment_deleted",
+    },
+    delete_mode: {
+      $ref: "#/components/schemas/CaseCommentDeleteMode",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["comment_id", "thread_root_id", "delete_mode", "created_at"],
+  title: "CommentDeletedEventRead",
+  description: "Event for when a top-level comment is deleted.",
+} as const
+
+export const $CommentReplyCreatedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    comment_id: {
+      type: "string",
+      format: "uuid",
+      title: "Comment Id",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    thread_root_id: {
+      type: "string",
+      format: "uuid",
+      title: "Thread Root Id",
+    },
+    type: {
+      type: "string",
+      const: "comment_reply_created",
+      title: "Type",
+      default: "comment_reply_created",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["comment_id", "thread_root_id", "created_at"],
+  title: "CommentReplyCreatedEventRead",
+  description: "Event for when a reply is created.",
+} as const
+
+export const $CommentReplyDeletedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    comment_id: {
+      type: "string",
+      format: "uuid",
+      title: "Comment Id",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    thread_root_id: {
+      type: "string",
+      format: "uuid",
+      title: "Thread Root Id",
+    },
+    type: {
+      type: "string",
+      const: "comment_reply_deleted",
+      title: "Type",
+      default: "comment_reply_deleted",
+    },
+    delete_mode: {
+      $ref: "#/components/schemas/CaseCommentDeleteMode",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["comment_id", "thread_root_id", "delete_mode", "created_at"],
+  title: "CommentReplyDeletedEventRead",
+  description: "Event for when a reply is deleted.",
+} as const
+
+export const $CommentReplyUpdatedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    comment_id: {
+      type: "string",
+      format: "uuid",
+      title: "Comment Id",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    thread_root_id: {
+      type: "string",
+      format: "uuid",
+      title: "Thread Root Id",
+    },
+    type: {
+      type: "string",
+      const: "comment_reply_updated",
+      title: "Type",
+      default: "comment_reply_updated",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["comment_id", "thread_root_id", "created_at"],
+  title: "CommentReplyUpdatedEventRead",
+  description: "Event for when a reply is updated.",
+} as const
+
+export const $CommentUpdatedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    comment_id: {
+      type: "string",
+      format: "uuid",
+      title: "Comment Id",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    thread_root_id: {
+      type: "string",
+      format: "uuid",
+      title: "Thread Root Id",
+    },
+    type: {
+      type: "string",
+      const: "comment_updated",
+      title: "Type",
+      default: "comment_updated",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["comment_id", "thread_root_id", "created_at"],
+  title: "CommentUpdatedEventRead",
+  description: "Event for when a top-level comment is updated.",
 } as const
 
 export const $ContinueRunRequest = {

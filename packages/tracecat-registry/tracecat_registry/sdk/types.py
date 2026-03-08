@@ -140,9 +140,12 @@ class CaseCommentData:
     id: str
     content: str
     case_id: str
+    parent_id: str | None = None
     user_id: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
+    last_edited_at: str | None = None
+    deleted_at: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CaseCommentData:
@@ -151,9 +154,12 @@ class CaseCommentData:
             id=str(data["id"]),
             content=data["content"],
             case_id=str(data["case_id"]),
+            parent_id=str(data["parent_id"]) if data.get("parent_id") else None,
             user_id=str(data["user_id"]) if data.get("user_id") else None,
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),
+            last_edited_at=data.get("last_edited_at"),
+            deleted_at=data.get("deleted_at"),
         )
 
 

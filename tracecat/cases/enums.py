@@ -84,6 +84,12 @@ class CaseEventType(StrEnum):
     DROPDOWN_VALUE_CHANGED = "dropdown_value_changed"
     TABLE_ROW_LINKED = "table_row_linked"
     TABLE_ROW_UNLINKED = "table_row_unlinked"
+    COMMENT_CREATED = "comment_created"
+    COMMENT_UPDATED = "comment_updated"
+    COMMENT_DELETED = "comment_deleted"
+    COMMENT_REPLY_CREATED = "comment_reply_created"
+    COMMENT_REPLY_UPDATED = "comment_reply_updated"
+    COMMENT_REPLY_DELETED = "comment_reply_deleted"
 
 
 class CaseTaskStatus(StrEnum):

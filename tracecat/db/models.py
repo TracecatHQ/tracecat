@@ -18,10 +18,12 @@ from pydantic_core import CoreSchema, core_schema, to_json
 from sqlalchemy import (
     TIMESTAMP,
     Boolean,
+    CheckConstraint,
     Enum,
     FetchedValue,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Identity,
     Index,
     Integer,
@@ -2117,6 +2119,31 @@ class CaseComment(WorkspaceModel):
     """A comment on a case."""
 
     __tablename__ = "case_comment"
+    __table_args__ = (
+        UniqueConstraint("case_id", "id"),
+        ForeignKeyConstraint(
+            ["case_id", "parent_id"],
+            ["case_comment.case_id", "case_comment.id"],
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "parent_id IS NULL OR parent_id <> id",
+            name="case_comment_parent_not_self",
+        ),
+        Index(
+            "ix_case_comment_case_id_created_at_surrogate_id",
+            "case_id",
+            "created_at",
+            "surrogate_id",
+        ),
+        Index(
+            "ix_case_comment_case_id_parent_id_created_at_surrogate_id",
+            "case_id",
+            "parent_id",
+            "created_at",
+            "surrogate_id",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -2139,6 +2166,11 @@ class CaseComment(WorkspaceModel):
     last_edited_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="Timestamp for soft deletion when a thread starter still has replies.",
+    )
     case_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("case.id", ondelete="CASCADE"),
@@ -2146,6 +2178,11 @@ class CaseComment(WorkspaceModel):
     )
 
     case: Mapped[Case] = relationship("Case", back_populates="comments")
+
+    @hybrid_property
+    def is_deleted(self) -> bool:
+        """Check if comment is soft deleted."""
+        return self.deleted_at is not None
 
 
 class CaseEvent(WorkspaceModel):

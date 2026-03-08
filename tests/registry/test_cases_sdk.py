@@ -138,3 +138,77 @@ async def test_insert_case_row_uses_client_internal_prefix_once(
         "/cases/case-id/rows/insert",
         json={"table_id": "table-id", "row": {"data": {"customer": "acme"}}},
     )
+
+
+@pytest.mark.anyio
+async def test_list_comment_threads_uses_client_internal_prefix_once(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    mock_tracecat_client.get.return_value = []
+
+    await cases_client.list_comment_threads("case-id")
+
+    mock_tracecat_client.get.assert_called_once_with("/cases/case-id/comments/threads")
+
+
+@pytest.mark.anyio
+async def test_get_comment_thread_uses_client_internal_prefix_once(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    mock_tracecat_client.get.return_value = {"comment": {}, "replies": []}
+
+    await cases_client.get_comment_thread("comment-id")
+
+    mock_tracecat_client.get.assert_called_once_with("/comments/comment-id/thread")
+
+
+@pytest.mark.anyio
+async def test_update_comment_by_id_only_sends_content(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    mock_tracecat_client.patch.return_value = {"id": "comment-id"}
+
+    await cases_client.update_comment_by_id(
+        "comment-id",
+        content="Updated content",
+    )
+
+    mock_tracecat_client.patch.assert_called_once_with(
+        "/comments/comment-id",
+        json={"content": "Updated content"},
+    )
+
+
+@pytest.mark.anyio
+async def test_reply_to_comment_uses_udf_simple_endpoint_once(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    mock_tracecat_client.post.return_value = {"id": "comment-id"}
+
+    await cases_client.reply_to_comment(
+        "case-id",
+        parent_comment_id="parent-id",
+        content="Reply content",
+    )
+
+    mock_tracecat_client.post.assert_called_once_with(
+        "/cases/case-id/comments/simple",
+        json={"content": "Reply content", "parent_id": "parent-id"},
+    )
+
+
+@pytest.mark.anyio
+async def test_update_comment_simple_only_sends_content(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    mock_tracecat_client.patch.return_value = {"id": "comment-id"}
+
+    await cases_client.update_comment_simple(
+        "comment-id",
+        content="Updated content",
+    )
+
+    mock_tracecat_client.patch.assert_called_once_with(
+        "/comments/comment-id/simple",
+        json={"content": "Updated content"},
+    )

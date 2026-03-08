@@ -23,10 +23,13 @@ from tracecat_registry.core.cases import (
     get_attachment,
     get_attachment_download_url,
     get_case,
+    get_comment_thread,
     list_attachments,
     list_cases,
+    list_comment_threads,
     list_comments,
     remove_case_tag,
+    reply_to_comment,
     search_cases,
     update_case,
     update_comment,
@@ -86,6 +89,8 @@ def mock_comment_dict():
         "parent_id": None,
         "created_at": now.isoformat(),
         "updated_at": now.isoformat(),
+        "deleted_at": None,
+        "is_deleted": False,
         "user": None,
     }
 
@@ -425,6 +430,33 @@ class TestCoreCreateComment:
 
 
 @pytest.mark.anyio
+class TestCoreReplyToComment:
+    """Test cases for the reply_to_comment UDF."""
+
+    async def test_reply_to_comment_success(
+        self, mock_cases_client: AsyncMock, mock_case_dict, mock_comment_dict
+    ):
+        """Reply helper should target the SDK convenience method."""
+        parent_comment_id = str(uuid.uuid4())
+        reply_comment = {**mock_comment_dict, "parent_id": parent_comment_id}
+        mock_cases_client.reply_to_comment.return_value = reply_comment
+
+        case_id = mock_case_dict["id"]
+        result = await reply_to_comment(
+            case_id=case_id,
+            parent_comment_id=parent_comment_id,
+            content="Reply comment",
+        )
+
+        mock_cases_client.reply_to_comment.assert_called_once_with(
+            case_id,
+            parent_comment_id=parent_comment_id,
+            content="Reply comment",
+        )
+        assert result == reply_comment
+
+
+@pytest.mark.anyio
 class TestCoreUpdateComment:
     """Test cases for the update_comment UDF."""
 
@@ -740,6 +772,45 @@ class TestCoreListComments:
 
         mock_cases_client.list_comments.assert_called_once_with(case_id)
         assert result == [mock_comment_dict]
+
+
+@pytest.mark.anyio
+class TestCoreListCommentThreads:
+    """Test cases for threaded comment reads."""
+
+    async def test_list_comment_threads_success(
+        self, mock_cases_client: AsyncMock, mock_case_dict, mock_comment_dict
+    ):
+        thread = {
+            "comment": mock_comment_dict,
+            "replies": [],
+            "reply_count": 0,
+            "last_activity_at": mock_comment_dict["updated_at"],
+        }
+        mock_cases_client.list_comment_threads.return_value = [thread]
+
+        case_id = mock_case_dict["id"]
+        result = await list_comment_threads(case_id=case_id)
+
+        mock_cases_client.list_comment_threads.assert_called_once_with(case_id)
+        assert result == [thread]
+
+    async def test_get_comment_thread_success(
+        self, mock_cases_client: AsyncMock, mock_comment_dict
+    ):
+        thread = {
+            "comment": mock_comment_dict,
+            "replies": [],
+            "reply_count": 0,
+            "last_activity_at": mock_comment_dict["updated_at"],
+        }
+        comment_id = mock_comment_dict["id"]
+        mock_cases_client.get_comment_thread.return_value = thread
+
+        result = await get_comment_thread(comment_id=comment_id)
+
+        mock_cases_client.get_comment_thread.assert_called_once_with(comment_id)
+        assert result == thread
 
 
 @pytest.mark.anyio

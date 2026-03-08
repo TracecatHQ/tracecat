@@ -79,6 +79,36 @@ async def test_create_event_streams_to_webhook(
 
 
 @pytest.mark.anyio
+async def test_create_event_includes_case_comment_data_in_payload(
+    monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
+) -> None:
+    webhook_url = "https://example.com/audit"
+    post_mock = AsyncMock()
+    data = {"case_id": str(uuid.uuid4()), "content": "hello"}
+    monkeypatch.setattr(
+        audit_service, "_get_webhook_url", AsyncMock(return_value=webhook_url)
+    )
+    monkeypatch.setattr(
+        audit_service, "_get_actor_label", AsyncMock(return_value="user@example.com")
+    )
+    monkeypatch.setattr(audit_service, "_post_event", post_mock)
+
+    await audit_service.create_event(
+        resource_type="case_comment",
+        action="create",
+        resource_id=uuid.uuid4(),
+        status=AuditEventStatus.SUCCESS,
+        data=data,
+    )
+
+    assert post_mock.await_count == 1
+    assert post_mock.await_args is not None
+    payload = post_mock.await_args.kwargs["payload"]
+    assert payload.resource_type == "case_comment"
+    assert payload.data == data
+
+
+@pytest.mark.anyio
 async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
     monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
 ) -> None:
@@ -228,15 +258,10 @@ async def test_audit_log_inner_function_failure_logs_failure_event(role: Role):
     finally:
         ctx_role.reset(token)
 
-    # Verify attempt was logged
     assert len(create_event_calls) >= 1
-    attempt_call = create_event_calls[0]
-    assert attempt_call[1]["status"] == AuditEventStatus.ATTEMPT
-
-    # Verify failure was logged
+    assert create_event_calls[0][1]["status"] == AuditEventStatus.ATTEMPT
     assert len(create_event_calls) >= 2
-    failure_call = create_event_calls[1]
-    assert failure_call[1]["status"] == AuditEventStatus.FAILURE
+    assert create_event_calls[1][1]["status"] == AuditEventStatus.FAILURE
 
 
 @pytest.mark.anyio
@@ -257,7 +282,6 @@ async def test_audit_log_attempt_logging_failure_still_executes_function(role: R
     create_event_calls = []
 
     async def mock_create_event(*args, **kwargs):
-        # Fail on attempt, succeed on success
         if kwargs.get("status") == AuditEventStatus.ATTEMPT:
             raise Exception("Attempt logging failed")
         create_event_calls.append((args, kwargs))
@@ -268,10 +292,7 @@ async def test_audit_log_attempt_logging_failure_still_executes_function(role: R
     finally:
         ctx_role.reset(token)
 
-    # Verify function executed successfully
     assert result["status"] == "created"
-
-    # Verify success was still logged despite attempt failure
     assert len(create_event_calls) == 1
     assert create_event_calls[0][1]["status"] == AuditEventStatus.SUCCESS
 
@@ -295,7 +316,6 @@ async def test_audit_log_success_logging_failure_still_returns_result(role: Role
     create_event_calls = []
 
     async def mock_create_event(*args, **kwargs):
-        # Succeed on attempt, fail on success
         if kwargs.get("status") == AuditEventStatus.SUCCESS:
             raise Exception("Success logging failed")
         create_event_calls.append((args, kwargs))
@@ -306,10 +326,7 @@ async def test_audit_log_success_logging_failure_still_returns_result(role: Role
     finally:
         ctx_role.reset(token)
 
-    # Verify function returned result despite success logging failure
     assert result == expected_result
-
-    # Verify attempt was logged
     assert len(create_event_calls) == 1
     assert create_event_calls[0][1]["status"] == AuditEventStatus.ATTEMPT
 
@@ -317,7 +334,7 @@ async def test_audit_log_success_logging_failure_still_returns_result(role: Role
 @pytest.mark.anyio
 async def test_audit_log_failure_logging_failure_still_raises_original_exception(
     role: Role,
-):
+) -> None:
     """Test that when failure logging fails, original exception is still raised."""
 
     class MockService:
@@ -334,7 +351,6 @@ async def test_audit_log_failure_logging_failure_still_raises_original_exception
     create_event_calls = []
 
     async def mock_create_event(*args, **kwargs):
-        # Succeed on attempt, fail on failure logging
         if kwargs.get("status") == AuditEventStatus.FAILURE:
             raise Exception("Failure logging failed")
         create_event_calls.append((args, kwargs))
@@ -346,6 +362,5 @@ async def test_audit_log_failure_logging_failure_still_raises_original_exception
     finally:
         ctx_role.reset(token)
 
-    # Verify attempt was logged
     assert len(create_event_calls) == 1
     assert create_event_calls[0][1]["status"] == AuditEventStatus.ATTEMPT

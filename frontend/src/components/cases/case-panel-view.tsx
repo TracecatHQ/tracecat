@@ -46,6 +46,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import {
   Sidebar,
@@ -280,7 +281,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
       <CaseWorkflowTrigger caseData={caseData} />
       <div className="flex h-full w-full min-w-0">
         <div className="min-w-0 flex-1">
-          <div className="h-full min-w-0 overflow-auto bg-muted/20">
+          <ScrollArea className="h-full min-w-0 bg-muted/20">
             <div className="mx-auto max-w-4xl px-6 py-8 pb-24">
               <div className="mb-2">
                 <div className="flex flex-col">
@@ -431,7 +432,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                 </TabsContent>
               </Tabs>
             </div>
-          </div>
+          </ScrollArea>
         </div>
         <Sidebar
           side="right"

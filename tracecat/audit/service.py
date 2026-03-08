@@ -183,6 +183,48 @@ class AuditService(BaseService):
                 status_code=getattr(response, "status_code", None),
             )
 
+    async def _get_actor_label(self) -> str | None:
+        if self.role is None or self.role.user_id is None:
+            return None
+        actor_label: str | None = None
+        try:
+            result = await self.session.execute(
+                select(User).where(User.id == self.role.user_id)  # pyright: ignore[reportArgumentType]
+            )
+            if (user := result.scalar_one_or_none()) is not None:
+                actor_label = user.email
+        except Exception as exc:
+            self.logger.warning("Failed to fetch actor email", error=str(exc))
+        return actor_label
+
+    def _build_payload(
+        self,
+        *,
+        resource_type: AuditResourceType,
+        action: AuditAction,
+        resource_id: uuid.UUID | None,
+        status: AuditEventStatus,
+        actor_label: str | None,
+        data: dict[str, Any] | None,
+    ) -> AuditEvent:
+        if self.role is None or self.role.user_id is None:
+            raise ValueError("Audit payload requires a user-scoped role")
+        organization_id = getattr(self.role, "organization_id", None)
+        workspace_id = getattr(self.role, "workspace_id", None)
+        return AuditEvent(
+            organization_id=organization_id,
+            workspace_id=workspace_id,
+            actor_type=AuditEventActor.USER,
+            actor_id=self.role.user_id,
+            actor_label=actor_label,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            action=action,
+            status=status,
+            ip_address=ctx_client_ip.get(),
+            data=data,
+        )
+
     async def create_event(
         self,
         *,
@@ -190,6 +232,7 @@ class AuditService(BaseService):
         action: AuditAction,
         resource_id: uuid.UUID | None = None,
         status: AuditEventStatus = AuditEventStatus.SUCCESS,
+        data: dict[str, Any] | None = None,
     ) -> None:
         # Skip audit if no role or no user_id (non-user operations)
         # Note: PlatformRole.user_id is required, Role.user_id is optional
@@ -204,33 +247,14 @@ class AuditService(BaseService):
             self.logger.debug("Skipping audit log", reason="webhook_unconfigured")
             return
 
-        actor_label: str | None = None
-        try:
-            result = await self.session.execute(
-                select(User).where(User.id == self.role.user_id)  # pyright: ignore[reportArgumentType]
-            )
-            user = result.scalar_one_or_none()
-            if user:
-                actor_label = user.email
-        except Exception as exc:
-            self.logger.warning("Failed to fetch actor email", error=str(exc))
-
-        # Extract org/workspace IDs - PlatformRole doesn't have these attributes
-        # For platform operations, these will be None
-        organization_id = getattr(self.role, "organization_id", None)
-        workspace_id = getattr(self.role, "workspace_id", None)
-
-        payload = AuditEvent(
-            organization_id=organization_id,
-            workspace_id=workspace_id,
-            actor_type=AuditEventActor.USER,
-            actor_id=self.role.user_id,
-            actor_label=actor_label,
+        actor_label = await self._get_actor_label()
+        payload = self._build_payload(
             resource_type=resource_type,
-            resource_id=resource_id,
             action=action,
+            resource_id=resource_id,
             status=status,
-            ip_address=ctx_client_ip.get(),
+            actor_label=actor_label,
+            data=data,
         )
         await self._post_event(webhook_url=webhook_url, payload=payload)
         self.logger.debug(
