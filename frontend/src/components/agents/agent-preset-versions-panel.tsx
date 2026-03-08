@@ -7,6 +7,7 @@ import type {
   AgentPresetVersionDiff,
   AgentPresetVersionReadMinimal,
 } from "@/client"
+import { AgentPresetPromptDiff } from "@/components/agents/agent-preset-prompt-diff"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -356,29 +357,19 @@ function VersionsCompareView({
       {diff && !diffIsLoading ? (
         <div className="space-y-5">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Badge variant="secondary">{`${totalChanges} changes`}</Badge>
-            <span>
-              {getVersionName(baseVersion)} to {getVersionName(compareVersion)}
-            </span>
+            <Badge variant="secondary">
+              {`Viewing ${totalChanges} change${totalChanges === 1 ? "" : "s"} from ${getVersionName(baseVersion)} to ${getVersionName(compareVersion)}`}
+            </Badge>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-muted-foreground">
-                {getVersionName(baseVersion)} prompt
-              </div>
-              <pre className="min-h-44 whitespace-pre-wrap rounded-md border p-3 text-xs leading-6">
-                {diff.base_instructions || "No instructions"}
-              </pre>
-            </div>
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-muted-foreground">
-                {getVersionName(compareVersion)} prompt
-              </div>
-              <pre className="min-h-44 whitespace-pre-wrap rounded-md border p-3 text-xs leading-6">
-                {diff.compare_instructions || "No instructions"}
-              </pre>
-            </div>
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Prompt changes</div>
+            <AgentPresetPromptDiff
+              baseLabel={getVersionName(baseVersion)}
+              basePrompt={diff.base_instructions}
+              compareLabel={getVersionName(compareVersion)}
+              comparePrompt={diff.compare_instructions}
+            />
           </div>
 
           {scalarChanges.length > 0 ? (

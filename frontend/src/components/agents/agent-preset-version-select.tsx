@@ -26,16 +26,23 @@ export function getAgentPresetVersionNumber(
 export function formatAgentPresetVersionLabel({
   currentVersionNumber,
   selectedVersionNumber,
+  currentVersionId,
   selectedVersionId,
 }: {
   currentVersionNumber?: number | null
   selectedVersionNumber?: number | null
+  currentVersionId?: string | null
   selectedVersionId?: string | null
 }): string {
   if (!selectedVersionId) {
     return currentVersionNumber
       ? `Current (v${currentVersionNumber})`
       : "Current"
+  }
+  if (selectedVersionId === currentVersionId) {
+    return selectedVersionNumber
+      ? `Pinned v${selectedVersionNumber} (current)`
+      : "Pinned current version"
   }
   return selectedVersionNumber
     ? `Pinned v${selectedVersionNumber}`
@@ -92,6 +99,7 @@ export function AgentPresetVersionSelect({
           aria-label={formatAgentPresetVersionLabel({
             currentVersionNumber,
             selectedVersionNumber,
+            currentVersionId,
             selectedVersionId,
           })}
         >
@@ -104,6 +112,7 @@ export function AgentPresetVersionSelect({
             formatAgentPresetVersionLabel({
               currentVersionNumber,
               selectedVersionNumber,
+              currentVersionId,
               selectedVersionId,
             })
           )}
