@@ -66,6 +66,27 @@ class SecretsService(BaseOrgService):
         """Encrypt and return the keys for a secret."""
         return encrypt_keyvalues(keys, key=self._encryption_key)
 
+    def _validate_secret_create_params(self, params: SecretCreate) -> None:
+        if params.type == SecretType.SSH_KEY:
+            validate_ssh_key_values(params.keys)
+        elif params.type == SecretType.MTLS:
+            validate_mtls_key_values(params.keys)
+        elif params.type == SecretType.CA_CERT:
+            validate_ca_cert_values(params.keys)
+
+    def _create_workspace_secret(self, params: SecretCreate) -> Secret:
+        workspace_id = self._require_workspace_id()
+        self._validate_secret_create_params(params)
+        return Secret(
+            workspace_id=workspace_id,
+            name=params.name,
+            type=params.type,
+            description=params.description,
+            tags=params.tags,
+            encrypted_keys=self.encrypt_keys(params.keys),
+            environment=params.environment,
+        )
+
     # === Base secrets ===
 
     async def _update_secret(self, secret: BaseSecret, params: SecretUpdate) -> None:
@@ -170,7 +191,6 @@ class SecretsService(BaseOrgService):
     async def _delete_secret(self, secret: BaseSecret) -> None:
         """Delete a base secret."""
         await self.session.delete(secret)
-        await self.session.commit()
 
     # === Workspace secrets ===
 
@@ -258,22 +278,7 @@ class SecretsService(BaseOrgService):
     @audit_log(resource_type="secret", action="create")
     async def create_secret(self, params: SecretCreate) -> None:
         """Create a workspace secret."""
-        workspace_id = self._require_workspace_id()
-        if params.type == SecretType.SSH_KEY:
-            validate_ssh_key_values(params.keys)
-        elif params.type == SecretType.MTLS:
-            validate_mtls_key_values(params.keys)
-        elif params.type == SecretType.CA_CERT:
-            validate_ca_cert_values(params.keys)
-        secret = Secret(
-            workspace_id=workspace_id,
-            name=params.name,
-            type=params.type,
-            description=params.description,
-            tags=params.tags,
-            encrypted_keys=self.encrypt_keys(params.keys),
-            environment=params.environment,
-        )
+        secret = self._create_workspace_secret(params)
         self.session.add(secret)
         await self.session.commit()
 
@@ -290,6 +295,7 @@ class SecretsService(BaseOrgService):
         """Delete a workspace secret."""
 
         await self._delete_secret(secret)
+        await self.session.commit()
 
     async def search_secrets(self, params: SecretSearch) -> Sequence[Secret]:
         """Search workspace secrets."""
@@ -400,6 +406,7 @@ class SecretsService(BaseOrgService):
     )
     async def delete_org_secret(self, org_secret: OrganizationSecret) -> None:
         await self._delete_secret(org_secret)
+        await self.session.commit()
 
     @require_scope("org:secret:read")
     async def get_ssh_key(

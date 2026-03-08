@@ -8,6 +8,7 @@ import type {
   AwsCredentialSyncConfigUpdate,
   CredentialSyncResult,
 } from "@/client"
+import { ApiError } from "@/client"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -36,12 +37,25 @@ interface AwsCredentialSyncFormState {
   sessionToken: string
 }
 
+interface AwsCredentialSyncTouchedState {
+  sessionToken: boolean
+}
+
+interface InlineErrorState {
+  title: string
+  description: string
+}
+
 const EMPTY_FORM_STATE: AwsCredentialSyncFormState = {
   region: "",
   secretPrefix: "",
   accessKeyId: "",
   secretAccessKey: "",
   sessionToken: "",
+}
+
+const EMPTY_TOUCHED_STATE: AwsCredentialSyncTouchedState = {
+  sessionToken: false,
 }
 
 function getInitialFormState(
@@ -74,6 +88,25 @@ function maskHint(isConfigured: boolean | undefined, label: string): string {
     : `${label} is required before you can run a sync.`
 }
 
+function getInlineErrorDescription(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    const body =
+      typeof error.body === "object" && error.body !== null
+        ? (error.body as { detail?: unknown })
+        : null
+    if (typeof body?.detail === "string") {
+      return body.detail
+    }
+    if (body?.detail !== undefined) {
+      return JSON.stringify(body.detail)
+    }
+  }
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+  return fallback
+}
+
 export function AwsCredentialSyncDialog({
   open,
   onOpenChange,
@@ -93,8 +126,10 @@ export function AwsCredentialSyncDialog({
   } = useAwsCredentialSync(workspaceId, { configEnabled: open })
   const [formState, setFormState] =
     useState<AwsCredentialSyncFormState>(EMPTY_FORM_STATE)
+  const [touchedState, setTouchedState] =
+    useState<AwsCredentialSyncTouchedState>(EMPTY_TOUCHED_STATE)
   const [hasInitializedForm, setHasInitializedForm] = useState(false)
-  const [inlineError, setInlineError] = useState<string | null>(null)
+  const [inlineError, setInlineError] = useState<InlineErrorState | null>(null)
   const [lastResult, setLastResult] = useState<CredentialSyncResult | null>(
     null
   )
@@ -103,6 +138,7 @@ export function AwsCredentialSyncDialog({
     if (!open) {
       setHasInitializedForm(false)
       setFormState(EMPTY_FORM_STATE)
+      setTouchedState(EMPTY_TOUCHED_STATE)
       setInlineError(null)
       setLastResult(null)
       return
@@ -134,6 +170,13 @@ export function AwsCredentialSyncDialog({
     }))
   }
 
+  function markSessionTokenTouched() {
+    setTouchedState((current) => ({
+      ...current,
+      sessionToken: true,
+    }))
+  }
+
   async function handleSaveSettings() {
     const region = formState.region.trim()
     const secretPrefix = formState.secretPrefix.trim()
@@ -142,22 +185,34 @@ export function AwsCredentialSyncDialog({
     const sessionToken = formState.sessionToken.trim()
 
     if (!region) {
-      setInlineError("AWS region is required.")
+      setInlineError({
+        title: "Unable to save settings",
+        description: "AWS region is required.",
+      })
       return
     }
     if (!secretPrefix) {
-      setInlineError("Secret prefix is required.")
+      setInlineError({
+        title: "Unable to save settings",
+        description: "Secret prefix is required.",
+      })
       return
     }
     if (!accessKeyId && awsCredentialSyncConfig?.has_access_key_id !== true) {
-      setInlineError("AWS access key ID is required.")
+      setInlineError({
+        title: "Unable to save settings",
+        description: "AWS access key ID is required.",
+      })
       return
     }
     if (
       !secretAccessKey &&
       awsCredentialSyncConfig?.has_secret_access_key !== true
     ) {
-      setInlineError("AWS secret access key is required.")
+      setInlineError({
+        title: "Unable to save settings",
+        description: "AWS secret access key is required.",
+      })
       return
     }
 
@@ -173,29 +228,65 @@ export function AwsCredentialSyncDialog({
     }
     if (sessionToken) {
       payload.session_token = sessionToken
+    } else if (
+      touchedState.sessionToken &&
+      awsCredentialSyncConfig?.has_session_token === true
+    ) {
+      payload.session_token = null
     }
 
     setInlineError(null)
-    await updateAwsCredentialSyncConfig(payload)
-    await refetchAwsCredentialSyncConfig()
-    setFormState((current) => ({
-      ...current,
-      accessKeyId: "",
-      secretAccessKey: "",
-      sessionToken: "",
-    }))
+    try {
+      await updateAwsCredentialSyncConfig(payload)
+      await refetchAwsCredentialSyncConfig()
+      setFormState((current) => ({
+        ...current,
+        accessKeyId: "",
+        secretAccessKey: "",
+        sessionToken: "",
+      }))
+      setTouchedState(EMPTY_TOUCHED_STATE)
+    } catch (error) {
+      setInlineError({
+        title: "Unable to save settings",
+        description: getInlineErrorDescription(
+          error,
+          "Could not update the organization AWS sync settings."
+        ),
+      })
+    }
   }
 
   async function handlePushAll() {
     setInlineError(null)
-    const result = await pushAwsCredentialSync()
-    setLastResult(result)
+    try {
+      const result = await pushAwsCredentialSync()
+      setLastResult(result)
+    } catch (error) {
+      setInlineError({
+        title: "Unable to push credentials",
+        description: getInlineErrorDescription(
+          error,
+          "Could not push credentials to AWS Secrets Manager."
+        ),
+      })
+    }
   }
 
   async function handlePullAll() {
     setInlineError(null)
-    const result = await pullAwsCredentialSync()
-    setLastResult(result)
+    try {
+      const result = await pullAwsCredentialSync()
+      setLastResult(result)
+    } catch (error) {
+      setInlineError({
+        title: "Unable to pull credentials",
+        description: getInlineErrorDescription(
+          error,
+          "Could not pull credentials from AWS Secrets Manager."
+        ),
+      })
+    }
   }
 
   return (
@@ -224,8 +315,8 @@ export function AwsCredentialSyncDialog({
           {inlineError ? (
             <Alert variant="destructive">
               <AlertTriangle className="size-4" />
-              <AlertTitle>Unable to save settings</AlertTitle>
-              <AlertDescription>{inlineError}</AlertDescription>
+              <AlertTitle>{inlineError.title}</AlertTitle>
+              <AlertDescription>{inlineError.description}</AlertDescription>
             </Alert>
           ) : null}
 
@@ -345,9 +436,10 @@ export function AwsCredentialSyncDialog({
                 id="aws-sync-session-token"
                 type="password"
                 value={formState.sessionToken}
-                onChange={(event) =>
+                onChange={(event) => {
+                  markSessionTokenTouched()
                   updateField("sessionToken", event.target.value)
-                }
+                }}
                 placeholder={
                   awsCredentialSyncConfig?.has_session_token
                     ? "Stored in organization settings"

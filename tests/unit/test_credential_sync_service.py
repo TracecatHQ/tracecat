@@ -6,6 +6,12 @@ from uuid import uuid4
 
 import orjson
 import pytest
+from cryptography.hazmat.primitives.asymmetric import ed25519
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+)
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +36,15 @@ class DummySession:
 
     async def commit(self) -> None:
         self.commit_count += 1
+
+    async def flush(self) -> None:
+        return None
+
+    async def rollback(self) -> None:
+        return None
+
+    def add(self, _obj: object) -> None:
+        return None
 
 
 @dataclass
@@ -68,6 +83,16 @@ class StubCredentialSyncBackend:
         return [
             record for record in self.remote_records if record.name.startswith(prefix)
         ]
+
+
+def generate_ssh_private_key() -> str:
+    key = ed25519.Ed25519PrivateKey.generate()
+    pem = key.private_bytes(
+        encoding=Encoding.PEM,
+        format=PrivateFormat.PKCS8,
+        encryption_algorithm=NoEncryption(),
+    )
+    return pem.decode("utf-8").rstrip("\n")
 
 
 @pytest.fixture
@@ -137,6 +162,11 @@ def stubbed_services(monkeypatch: pytest.MonkeyPatch):
             return secret
 
         async def create_secret(self, params: SecretCreate) -> DummySecret:
+            secret = self._create_workspace_secret(params)
+            secret_store[(secret.name, secret.environment)] = secret
+            return secret
+
+        def _create_workspace_secret(self, params: SecretCreate) -> DummySecret:
             secret = DummySecret(
                 workspace_id=self.role.workspace_id,
                 name=params.name,
@@ -152,6 +182,20 @@ def stubbed_services(monkeypatch: pytest.MonkeyPatch):
         async def update_secret(
             self, secret: DummySecret, params: SecretUpdate
         ) -> DummySecret:
+            existing_type = secret.type
+            if existing_type == SecretType.SSH_KEY:
+                if params.type is not None and params.type != existing_type:
+                    raise ValueError(
+                        "SSH key secrets cannot change type. Delete and recreate the secret."
+                    )
+                if params.keys is not None:
+                    raise ValueError(
+                        "SSH key secrets are write-once. Delete and recreate to rotate the key."
+                    )
+            elif params.type == SecretType.SSH_KEY:
+                raise ValueError(
+                    "SSH key secrets must be created with their key value. Delete and recreate the secret instead."
+                )
             if params.type is not None:
                 secret.type = params.type
             if params.description is not None:
@@ -161,6 +205,16 @@ def stubbed_services(monkeypatch: pytest.MonkeyPatch):
             if params.keys is not None:
                 secret.encrypted_keys = params.keys
             return secret
+
+        async def delete_secret(self, secret: DummySecret) -> None:
+            key = (secret.name, secret.environment)
+            if secret_store.get(key) is secret:
+                secret_store.pop(key, None)
+
+        async def _delete_secret(self, secret: DummySecret) -> None:
+            key = (secret.name, secret.environment)
+            if secret_store.get(key) is secret:
+                secret_store.pop(key, None)
 
     monkeypatch.setattr(credential_sync_service, "SettingsService", StubSettingsService)
     monkeypatch.setattr(credential_sync_service, "SecretsService", StubSecretsService)
@@ -224,6 +278,23 @@ async def test_update_and_read_aws_sync_config_preserves_secret_values(
     assert stored["access_key_id"] == "AKIA_TEST"
     assert stored["secret_access_key"] == "secret-test-key"
     assert stored["session_token"] == "session-token"
+
+
+@pytest.mark.anyio
+async def test_update_aws_sync_config_allows_clearing_session_token(
+    backend_service: tuple[
+        CredentialSyncService, StubCredentialSyncBackend, DummySession, dict, dict
+    ],
+) -> None:
+    service, _backend, _session, settings_store, _secret_store = backend_service
+    await _configure_service(service)
+
+    await service.update_aws_config(AwsCredentialSyncConfigUpdate(session_token=None))
+
+    read = await service.get_aws_config()
+    assert read.has_session_token is False
+    stored = settings_store[AWS_CREDENTIAL_SYNC_SETTING_KEY].value
+    assert stored["session_token"] is None
 
 
 @pytest.mark.anyio
@@ -449,3 +520,60 @@ async def test_pull_upserts_and_does_not_delete_missing_locals(
     assert untouched.description == "stay"
     assert untouched.encrypted_keys is not None
     assert untouched.encrypted_keys[0].value.get_secret_value() == "stay"
+
+
+@pytest.mark.anyio
+async def test_pull_recreates_existing_ssh_secret_when_remote_key_changes(
+    backend_service: tuple[
+        CredentialSyncService, StubCredentialSyncBackend, DummySession, dict, dict
+    ],
+) -> None:
+    service, backend, _session, _settings_store, secret_store = backend_service
+    await _configure_service(service)
+    original_secret = DummySecret(
+        workspace_id=service.role.workspace_id,
+        name="ssh_secret",
+        type=SecretType.SSH_KEY,
+        description="old",
+        environment="default",
+        encrypted_keys=[
+            SecretKeyValue(
+                key="PRIVATE_KEY", value=SecretStr(generate_ssh_private_key())
+            )
+        ],
+    )
+    secret_store[("ssh_secret", "default")] = original_secret
+
+    prefix = (
+        f"tracecat/test-sync/organizations/{service.organization_id}/workspaces/"
+        f"{service.role.workspace_id}"
+    )
+    rotated_key = generate_ssh_private_key()
+    backend.remote_records = [
+        RemoteSecretRecord(
+            name=f"{prefix}/environments/default/credentials/ssh_secret",
+            secret_string=orjson.dumps(
+                SyncedSecretPayload(
+                    name="ssh_secret",
+                    environment="default",
+                    type=SecretType.SSH_KEY,
+                    description="rotated",
+                    keys=[SyncedSecretKeyValue(key="PRIVATE_KEY", value=rotated_key)],
+                ).model_dump()
+            ).decode("utf-8"),
+        )
+    ]
+
+    result = await service.pull_aws_credentials()
+
+    assert result.failed == 0
+    assert result.updated == 1
+    recreated = secret_store[("ssh_secret", "default")]
+    assert recreated is not original_secret
+    assert recreated.description == "rotated"
+    assert recreated.encrypted_keys is not None
+    assert recreated.encrypted_keys[0].value.get_secret_value() == f"{rotated_key}\n"
+
+    sync_secrets_service = service._get_sync_secrets_service()
+    assert sync_secrets_service.role.scopes is not None
+    assert "secret:delete" in sync_secrets_service.role.scopes

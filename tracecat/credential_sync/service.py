@@ -38,7 +38,12 @@ from tracecat.settings.service import SettingsService
 
 type BackendFactory = Callable[[AwsCredentialSyncConfig], CredentialSyncBackend]
 
-_SYNC_SECRET_SCOPES = frozenset({"secret:read", "secret:create", "secret:update"})
+_SYNC_SECRET_SCOPES = frozenset(
+    {"secret:read", "secret:create", "secret:update", "secret:delete"}
+)
+_RECREATE_ON_TYPE_CHANGE_SECRET_TYPES = frozenset(
+    {SecretType.SSH_KEY, SecretType.MTLS, SecretType.CA_CERT}
+)
 
 
 class AwsSecretsManagerSyncBackend:
@@ -147,7 +152,7 @@ class CredentialSyncService(BaseOrgService):
 
     def _get_sync_secrets_service(self) -> SecretsService:
         role = self._require_workspace_context()
-        current_scopes = role.scopes or frozenset()
+        current_scopes = role.scopes if role.scopes is not None else frozenset()
         sync_role = role.model_copy(
             update={"scopes": current_scopes | _SYNC_SECRET_SCOPES}
         )
@@ -195,6 +200,8 @@ class CredentialSyncService(BaseOrgService):
                 case "access_key_id" | "secret_access_key" | "session_token":
                     if isinstance(value, SecretStr):
                         merged[key] = value.get_secret_value()
+                    elif value is None:
+                        merged[key] = None
                 case _:
                     if value is not None:
                         merged[key] = value
@@ -320,13 +327,41 @@ class CredentialSyncService(BaseOrgService):
                     result.created += 1
                     continue
 
+                existing_type = (
+                    type_
+                    if isinstance((type_ := existing.type), SecretType)
+                    else SecretType(type_)
+                )
+                should_recreate = self._should_recreate_secret(
+                    secrets_service=secrets_service,
+                    existing_type=existing_type,
+                    existing_encrypted_keys=existing.encrypted_keys,
+                    params=params,
+                )
+                if should_recreate:
+                    replacement_secret = secrets_service._create_workspace_secret(
+                        params
+                    )
+                    try:
+                        await secrets_service._delete_secret(existing)
+                        await self.session.flush()
+                        self.session.add(replacement_secret)
+                        await self.session.commit()
+                    except Exception:
+                        await self.session.rollback()
+                        raise
+                    result.updated += 1
+                    continue
+
                 await secrets_service.update_secret(
                     existing,
                     SecretUpdate(
                         type=params.type,
                         description=params.description,
                         tags=params.tags,
-                        keys=params.keys,
+                        keys=None
+                        if existing_type == SecretType.SSH_KEY
+                        else params.keys,
                     ),
                 )
                 result.updated += 1
@@ -407,3 +442,30 @@ class CredentialSyncService(BaseOrgService):
             f"{normalized_prefix}/organizations/{self.organization_id}/workspaces/"
             f"{workspace_id}"
         )
+
+    def _should_recreate_secret(
+        self,
+        *,
+        secrets_service: SecretsService,
+        existing_type: SecretType,
+        existing_encrypted_keys: bytes,
+        params: SecretCreate,
+    ) -> bool:
+        if existing_type == params.type:
+            if existing_type != SecretType.SSH_KEY:
+                return False
+            try:
+                existing_keys = secrets_service.decrypt_keys(existing_encrypted_keys)
+            except (InvalidToken, ValidationError, ValueError):
+                return True
+            return self._key_values_to_map(existing_keys) != self._key_values_to_map(
+                params.keys
+            )
+
+        return (
+            existing_type in _RECREATE_ON_TYPE_CHANGE_SECRET_TYPES
+            or params.type in _RECREATE_ON_TYPE_CHANGE_SECRET_TYPES
+        )
+
+    def _key_values_to_map(self, key_values: list[SecretKeyValue]) -> dict[str, str]:
+        return {item.key: item.value.get_secret_value() for item in key_values}

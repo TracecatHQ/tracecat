@@ -178,4 +178,202 @@ describe("AwsCredentialSyncDialog", () => {
       screen.getByText("2 processed • 1 created • 1 updated")
     ).toBeInTheDocument()
   })
+
+  it("shows an inline error and keeps secret inputs populated when save fails", async () => {
+    const updateAwsCredentialSyncConfig = jest
+      .fn()
+      .mockRejectedValue(
+        new Error("Could not update the organization AWS sync settings.")
+      ) as jest.MockedFunction<
+      ReturnType<typeof useAwsCredentialSync>["updateAwsCredentialSyncConfig"]
+    >
+    const refetchAwsCredentialSyncConfig = jest
+      .fn()
+      .mockResolvedValue(undefined) as jest.MockedFunction<
+      ReturnType<typeof useAwsCredentialSync>["refetchAwsCredentialSyncConfig"]
+    >
+
+    mockUseAwsCredentialSync.mockReturnValue({
+      awsCredentialSyncConfig: {
+        region: "us-east-1",
+        secret_prefix: "tracecat/credentials",
+        has_access_key_id: true,
+        has_secret_access_key: true,
+        has_session_token: false,
+        is_configured: true,
+        is_corrupted: false,
+      },
+      awsCredentialSyncConfigIsLoading: false,
+      awsCredentialSyncConfigError: null,
+      refetchAwsCredentialSyncConfig,
+      updateAwsCredentialSyncConfig,
+      isUpdatingAwsCredentialSyncConfig: false,
+      pushAwsCredentialSync: jest.fn(),
+      isPushingAwsCredentialSync: false,
+      pullAwsCredentialSync: jest.fn(),
+      isPullingAwsCredentialSync: false,
+    })
+
+    render(<AwsCredentialSyncDialog open onOpenChange={jest.fn()} />)
+
+    fireEvent.change(screen.getByLabelText("Access key ID"), {
+      target: { value: "AKIA_RETRY" },
+    })
+    fireEvent.change(screen.getByLabelText("Secret access key"), {
+      target: { value: "retry-secret" },
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("Unable to save settings")).toBeInTheDocument()
+    })
+
+    expect(refetchAwsCredentialSyncConfig).not.toHaveBeenCalled()
+    expect(screen.getByDisplayValue("AKIA_RETRY")).toBeInTheDocument()
+    expect(screen.getByDisplayValue("retry-secret")).toBeInTheDocument()
+  })
+
+  it("does not clear a stored session token unless the field was touched", async () => {
+    const updateAwsCredentialSyncConfig = jest
+      .fn()
+      .mockResolvedValue(undefined) as jest.MockedFunction<
+      ReturnType<typeof useAwsCredentialSync>["updateAwsCredentialSyncConfig"]
+    >
+
+    mockUseAwsCredentialSync.mockReturnValue({
+      awsCredentialSyncConfig: {
+        region: "us-east-1",
+        secret_prefix: "tracecat/credentials",
+        has_access_key_id: true,
+        has_secret_access_key: true,
+        has_session_token: true,
+        is_configured: true,
+        is_corrupted: false,
+      },
+      awsCredentialSyncConfigIsLoading: false,
+      awsCredentialSyncConfigError: null,
+      refetchAwsCredentialSyncConfig: jest.fn().mockResolvedValue(undefined),
+      updateAwsCredentialSyncConfig,
+      isUpdatingAwsCredentialSyncConfig: false,
+      pushAwsCredentialSync: jest.fn(),
+      isPushingAwsCredentialSync: false,
+      pullAwsCredentialSync: jest.fn(),
+      isPullingAwsCredentialSync: false,
+    })
+
+    render(<AwsCredentialSyncDialog open onOpenChange={jest.fn()} />)
+
+    fireEvent.change(screen.getByLabelText("Region"), {
+      target: { value: "us-west-2" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }))
+
+    await waitFor(() => {
+      expect(updateAwsCredentialSyncConfig).toHaveBeenCalledWith({
+        region: "us-west-2",
+        secret_prefix: "tracecat/credentials",
+      })
+    })
+  })
+
+  it("clears a stored session token when the field is explicitly emptied", async () => {
+    const updateAwsCredentialSyncConfig = jest
+      .fn()
+      .mockResolvedValue(undefined) as jest.MockedFunction<
+      ReturnType<typeof useAwsCredentialSync>["updateAwsCredentialSyncConfig"]
+    >
+
+    mockUseAwsCredentialSync.mockReturnValue({
+      awsCredentialSyncConfig: {
+        region: "us-east-1",
+        secret_prefix: "tracecat/credentials",
+        has_access_key_id: true,
+        has_secret_access_key: true,
+        has_session_token: true,
+        is_configured: true,
+        is_corrupted: false,
+      },
+      awsCredentialSyncConfigIsLoading: false,
+      awsCredentialSyncConfigError: null,
+      refetchAwsCredentialSyncConfig: jest.fn().mockResolvedValue(undefined),
+      updateAwsCredentialSyncConfig,
+      isUpdatingAwsCredentialSyncConfig: false,
+      pushAwsCredentialSync: jest.fn(),
+      isPushingAwsCredentialSync: false,
+      pullAwsCredentialSync: jest.fn(),
+      isPullingAwsCredentialSync: false,
+    })
+
+    render(<AwsCredentialSyncDialog open onOpenChange={jest.fn()} />)
+
+    const sessionTokenInput = screen.getByLabelText(/Session token/i)
+    fireEvent.change(sessionTokenInput, {
+      target: { value: "temporary-token" },
+    })
+    fireEvent.change(sessionTokenInput, {
+      target: { value: "" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }))
+
+    await waitFor(() => {
+      expect(updateAwsCredentialSyncConfig).toHaveBeenCalledWith({
+        region: "us-east-1",
+        secret_prefix: "tracecat/credentials",
+        session_token: null,
+      })
+    })
+  })
+
+  it("shows inline errors when push or pull fails", async () => {
+    const pushAwsCredentialSync = jest
+      .fn()
+      .mockRejectedValue(
+        new Error("Could not push credentials to AWS Secrets Manager.")
+      ) as jest.MockedFunction<
+      ReturnType<typeof useAwsCredentialSync>["pushAwsCredentialSync"]
+    >
+    const pullAwsCredentialSync = jest
+      .fn()
+      .mockRejectedValue(
+        new Error("Could not pull credentials from AWS Secrets Manager.")
+      ) as jest.MockedFunction<
+      ReturnType<typeof useAwsCredentialSync>["pullAwsCredentialSync"]
+    >
+
+    mockUseAwsCredentialSync.mockReturnValue({
+      awsCredentialSyncConfig: {
+        region: "us-east-1",
+        secret_prefix: "tracecat/credentials",
+        has_access_key_id: true,
+        has_secret_access_key: true,
+        has_session_token: false,
+        is_configured: true,
+        is_corrupted: false,
+      },
+      awsCredentialSyncConfigIsLoading: false,
+      awsCredentialSyncConfigError: null,
+      refetchAwsCredentialSyncConfig: jest.fn(),
+      updateAwsCredentialSyncConfig: jest.fn(),
+      isUpdatingAwsCredentialSyncConfig: false,
+      pushAwsCredentialSync,
+      isPushingAwsCredentialSync: false,
+      pullAwsCredentialSync,
+      isPullingAwsCredentialSync: false,
+    })
+
+    render(<AwsCredentialSyncDialog open onOpenChange={jest.fn()} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Push all to AWS" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("Unable to push credentials")).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Pull all from AWS" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("Unable to pull credentials")).toBeInTheDocument()
+    })
+  })
 })
