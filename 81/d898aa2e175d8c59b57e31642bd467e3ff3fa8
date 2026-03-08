@@ -1,0 +1,34 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "81d898aa2e175d8c59b57e31642bd467e3ff3fa8",
+  "prompts": {
+    "0e4b4cd1a43f9422": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cce86-fb8a-7592-b4c1-daab1e82337f",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "7c213ee1e01f92f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cced8-6501-72c0-9997-6d2828d12ff1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 25,
+      "overriden_lines": 0
+    }
+  }
+}
