@@ -10783,6 +10783,39 @@ export const $MCPAuthType = {
   description: "Authentication type for MCP integrations.",
 } as const
 
+export const $MCPCatalogCounts = {
+  properties: {
+    tools: {
+      type: "integer",
+      minimum: 0,
+      title: "Tools",
+      default: 0,
+    },
+    resources: {
+      type: "integer",
+      minimum: 0,
+      title: "Resources",
+      default: 0,
+    },
+    prompts: {
+      type: "integer",
+      minimum: 0,
+      title: "Prompts",
+      default: 0,
+    },
+  },
+  type: "object",
+  title: "MCPCatalogCounts",
+  description: "Active catalog counts grouped by artifact type.",
+} as const
+
+export const $MCPDiscoveryStatus = {
+  type: "string",
+  enum: ["pending", "succeeded", "failed", "stale"],
+  title: "MCPDiscoveryStatus",
+  description: "Discovery status for a persisted MCP integration catalog.",
+} as const
+
 export const $MCPHttpIntegrationCreate = {
   properties: {
     name: {
@@ -10963,6 +10996,10 @@ export const $MCPIntegrationRead = {
       type: "string",
       title: "Slug",
     },
+    scope_namespace: {
+      type: "string",
+      title: "Scope Namespace",
+    },
     server_type: {
       $ref: "#/components/schemas/MCPServerType",
     },
@@ -11033,6 +11070,67 @@ export const $MCPIntegrationRead = {
       ],
       title: "Timeout",
     },
+    discovery_status: {
+      $ref: "#/components/schemas/MCPDiscoveryStatus",
+    },
+    catalog_version: {
+      type: "integer",
+      title: "Catalog Version",
+    },
+    last_discovery_attempt_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Discovery Attempt At",
+    },
+    last_discovered_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Discovered At",
+    },
+    last_discovery_error_code: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Discovery Error Code",
+    },
+    last_discovery_error_summary: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Discovery Error Summary",
+    },
+    catalog_counts: {
+      $ref: "#/components/schemas/MCPCatalogCounts",
+    },
+    has_catalog: {
+      type: "boolean",
+      title: "Has Catalog",
+      default: false,
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -11051,6 +11149,7 @@ export const $MCPIntegrationRead = {
     "name",
     "description",
     "slug",
+    "scope_namespace",
     "server_type",
     "server_uri",
     "auth_type",
@@ -11058,6 +11157,12 @@ export const $MCPIntegrationRead = {
     "stdio_command",
     "stdio_args",
     "timeout",
+    "discovery_status",
+    "catalog_version",
+    "last_discovery_attempt_at",
+    "last_discovered_at",
+    "last_discovery_error_code",
+    "last_discovery_error_summary",
     "created_at",
     "updated_at",
   ],
