@@ -242,6 +242,20 @@ tracecat:
       # Adds Prometheus scrape annotations to pods/services.
       scrape: true
 
+  temporalPayloadEncryption:
+    enabled: false
+    keyVersion: "1"
+    cacheTtlSeconds: 3600
+    cacheMaxItems: 128
+    # Existing Kubernetes Secret with optional keys:
+    # - payloadEncryptionKey
+    # - visibilityHmacKey
+    # - codecServerSharedSecret
+    secretName: ""
+    payloadKeySecretKey: "payloadEncryptionKey"
+    visibilityHmacKeySecretKey: "visibilityHmacKey"
+    codecServerSharedSecretKey: "codecServerSharedSecret"
+
 enterprise:
   # Enterprise-only feature flags (comma-separated).
   featureFlags: ""

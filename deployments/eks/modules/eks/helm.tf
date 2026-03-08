@@ -150,6 +150,16 @@ resource "helm_release" "tracecat" {
             scrape  = true
           }
         }
+        temporalPayloadEncryption = {
+          enabled                    = var.temporal_payload_encryption_enabled
+          keyVersion                 = var.temporal_payload_encryption_key_version
+          cacheTtlSeconds            = var.temporal_payload_encryption_cache_ttl_seconds
+          cacheMaxItems              = var.temporal_payload_encryption_cache_max_items
+          secretName                 = var.temporal_payload_encryption_existing_secret
+          payloadKeySecretKey        = var.temporal_payload_encryption_payload_key_secret_key
+          visibilityHmacKeySecretKey = var.temporal_payload_encryption_visibility_hmac_secret_key
+          codecServerSharedSecretKey = var.temporal_payload_encryption_codec_server_shared_secret_key
+        }
       }
       # PostgreSQL TLS configuration with AWS RDS CA certificate
       externalPostgres = {

@@ -602,3 +602,51 @@ variable "feature_flags" {
   type        = string
   default     = ""
 }
+
+variable "temporal_payload_encryption_enabled" {
+  description = "Enable application-layer encryption for Temporal payloads"
+  type        = bool
+  default     = false
+}
+
+variable "temporal_payload_encryption_key_version" {
+  description = "Current Temporal payload encryption key version"
+  type        = string
+  default     = "1"
+}
+
+variable "temporal_payload_encryption_cache_ttl_seconds" {
+  description = "In-memory cache TTL in seconds for resolved Temporal encryption keys"
+  type        = number
+  default     = 3600
+}
+
+variable "temporal_payload_encryption_cache_max_items" {
+  description = "Maximum number of cached Temporal encryption keys"
+  type        = number
+  default     = 128
+}
+
+variable "temporal_payload_encryption_existing_secret" {
+  description = "Existing Kubernetes Secret name for Temporal payload encryption secrets"
+  type        = string
+  default     = ""
+}
+
+variable "temporal_payload_encryption_payload_key_secret_key" {
+  description = "Secret key name for the Temporal payload encryption root key"
+  type        = string
+  default     = "payloadEncryptionKey"
+}
+
+variable "temporal_payload_encryption_visibility_hmac_secret_key" {
+  description = "Secret key name for the Temporal visibility HMAC key"
+  type        = string
+  default     = "visibilityHmacKey"
+}
+
+variable "temporal_payload_encryption_codec_server_shared_secret_key" {
+  description = "Secret key name for the Temporal codec server shared secret"
+  type        = string
+  default     = "codecServerSharedSecret"
+}
