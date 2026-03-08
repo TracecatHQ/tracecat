@@ -30,6 +30,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.workflow import DSLWorkflow
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
+    from tracecat.logger.security import configure_sentry
     from tracecat.storage.collection import CollectionActivities
     from tracecat.tiers.activities import TierActivities
     from tracecat.workflow.management.definitions import (
@@ -116,10 +117,11 @@ async def main() -> None:
         sentry_environment: str = (
             config.SENTRY_ENVIRONMENT_OVERRIDE or f"{app_env}-{temporal_namespace}"
         )
-        sentry_sdk.init(
+        configure_sentry(
             dsn=sentry_dsn,
             environment=sentry_environment,
             release=f"tracecat@{APP_VERSION}",
+            sentry_sdk_module=sentry_sdk,
         )
         logger.info(
             "Sentry initialized",

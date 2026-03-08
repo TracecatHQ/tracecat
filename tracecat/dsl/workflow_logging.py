@@ -7,6 +7,7 @@ from typing import Any
 from temporalio import workflow
 
 from tracecat.logger import logger as process_logger
+from tracecat.logger.security import sanitize_log_fields, sanitize_text
 
 
 def _in_workflow_context() -> bool:
@@ -101,18 +102,21 @@ class WorkflowRuntimeLogger:
             temporal_level = "debug" if level == "trace" else level
             if not _workflow_level_enabled(temporal_level):
                 return
-            merged_fields = {**self._bound_fields, **fields}
-            formatted_message = f"{message}{_format_fields(merged_fields)}"
+            merged_fields = sanitize_log_fields({**self._bound_fields, **fields})
+            formatted_message = (
+                f"{sanitize_text(message) or ''}{_format_fields(merged_fields)}"
+            )
             getattr(workflow.logger, temporal_level)(formatted_message)
             return
 
-        bound_fields = self._bound_fields
-        dynamic_fields = fields
+        bound_fields = sanitize_log_fields(self._bound_fields)
+        dynamic_fields = sanitize_log_fields(fields)
+        sanitized_message = sanitize_text(message) or ""
 
         process_logger.opt(lazy=True).log(
             _LOGURU_LEVEL_BY_NAME[level],
             "{}{}",
-            lambda: message,
+            lambda: sanitized_message,
             lambda: _format_fields({**bound_fields, **dynamic_fields}),
         )
 
