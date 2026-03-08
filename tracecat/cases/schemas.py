@@ -170,10 +170,19 @@ class CaseCommentRead(Schema):
     parent_id: uuid.UUID | None = None
     user: UserRead | None = None
     last_edited_at: datetime | None = None
+    deleted_at: datetime | None = None
+    is_deleted: bool = Field(default=False)
+
+
+class CaseCommentThreadRead(Schema):
+    comment: CaseCommentRead
+    replies: list[CaseCommentRead] = Field(default_factory=list)
+    reply_count: int = Field(default=0)
+    last_activity_at: datetime
 
 
 class CaseCommentCreate(Schema):
-    content: str = Field(..., min_length=1, max_length=25_000)
+    content: str = Field(default=..., min_length=1, max_length=25_000)
     parent_id: uuid.UUID | None = Field(default=None)
 
 
@@ -634,3 +643,4 @@ class InternalCaseCommentData(Schema):
     workspace_id: uuid.UUID
     user_id: uuid.UUID | None = None
     last_edited_at: datetime | None = None
+    deleted_at: datetime | None = None

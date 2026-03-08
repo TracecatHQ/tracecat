@@ -5,10 +5,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES, SERVICE_PRINCIPAL_SCOPES
-from tracecat.cases.schemas import CaseCommentCreate, CaseCommentUpdate
+from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.schemas import (
+    CaseCommentCreate,
+    CaseCommentUpdate,
+    CaseCreate,
+)
 from tracecat.cases.service import CaseCommentsService, CasesService
 from tracecat.db.models import Case
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import TracecatAuthorizationError, TracecatValidationError
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -55,9 +60,6 @@ async def case_comments_service(
 async def test_case(session: AsyncSession, svc_role: Role) -> Case:
     """Create a test case for use in comments tests."""
     cases_service = CasesService(session=session, role=svc_role)
-
-    from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-    from tracecat.cases.schemas import CaseCreate
 
     case = await cases_service.create_case(
         CaseCreate(
@@ -142,15 +144,98 @@ class TestCaseCommentsService:
         assert len(comments) == 3
 
         # Check that all our comments are in the list
-        comment_ids = {comment.id for comment, _ in comments}
+        comment_ids = {comment.id for comment in comments}
         assert comment1.id in comment_ids
         assert comment2.id in comment_ids
         assert comment3.id in comment_ids
 
         # Check parent-child relationship
-        for comment, _ in comments:
+        for comment in comments:
             if comment.id == comment3.id:
                 assert comment.parent_id == comment1.id
+
+    async def test_list_comment_threads(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+        comment_create_params: CaseCommentCreate,
+    ) -> None:
+        """Test listing threaded comments."""
+        parent = await case_comments_service.create_comment(
+            test_case, comment_create_params
+        )
+        reply = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(
+                content="Thread reply",
+                parent_id=parent.id,
+            ),
+        )
+
+        threads = await case_comments_service.list_comment_threads(test_case)
+
+        assert len(threads) == 1
+        thread = threads[0]
+        assert thread.comment.id == parent.id
+        assert thread.reply_count == 1
+        assert len(thread.replies) == 1
+        assert thread.replies[0].id == reply.id
+
+    async def test_create_reply_rejects_cross_case_parent(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        svc_role: Role,
+    ) -> None:
+        """Reply creation should reject parents from another case."""
+        cases_service = CasesService(session=session, role=svc_role)
+        first_case = await cases_service.create_case(
+            case_params := CaseCreate(
+                summary="First case",
+                description="Case one",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        second_case = await cases_service.create_case(
+            case_params.model_copy(update={"summary": "Second case"})
+        )
+        parent = await case_comments_service.create_comment(
+            first_case,
+            CaseCommentCreate(content="Parent", parent_id=None),
+        )
+
+        with pytest.raises(
+            TracecatValidationError, match="Parent comment must belong to the same case"
+        ):
+            await case_comments_service.create_comment(
+                second_case,
+                CaseCommentCreate(content="Cross-case reply", parent_id=parent.id),
+            )
+
+    async def test_create_reply_rejects_reply_parent(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+        comment_create_params: CaseCommentCreate,
+    ) -> None:
+        """Reply creation should reject replies to replies."""
+        parent = await case_comments_service.create_comment(
+            test_case, comment_create_params
+        )
+        reply = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content="Reply", parent_id=parent.id),
+        )
+
+        with pytest.raises(
+            TracecatValidationError, match="Replies cannot have replies"
+        ):
+            await case_comments_service.create_comment(
+                test_case,
+                CaseCommentCreate(content="Nested reply", parent_id=reply.id),
+            )
 
     async def test_update_comment(
         self,
@@ -177,6 +262,29 @@ class TestCaseCommentsService:
         retrieved_comment = await case_comments_service.get_comment(created_comment.id)
         assert retrieved_comment is not None
         assert retrieved_comment.content == update_params.content
+
+    async def test_update_comment_rejects_reparenting(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+    ) -> None:
+        """Updating parent_id should be rejected."""
+        parent = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content="Parent", parent_id=None),
+        )
+        reply = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content="Reply", parent_id=parent.id),
+        )
+
+        with pytest.raises(
+            TracecatValidationError, match="Changing a comment parent is not supported"
+        ):
+            await case_comments_service.update_comment(
+                reply,
+                CaseCommentUpdate(parent_id=parent.id),
+            )
 
     async def test_update_comment_authorization(
         self,
@@ -238,6 +346,53 @@ class TestCaseCommentsService:
         # Verify deletion
         deleted_comment = await case_comments_service.get_comment(created_comment.id)
         assert deleted_comment is None
+
+    async def test_delete_reply_hard_deletes_leaf(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+    ) -> None:
+        """Replies are hard deleted."""
+        parent = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content="Parent", parent_id=None),
+        )
+        reply = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content="Reply", parent_id=parent.id),
+        )
+
+        await case_comments_service.delete_comment(reply)
+
+        deleted_reply = await case_comments_service.get_comment(reply.id)
+        assert deleted_reply is None
+
+    async def test_delete_thread_starter_with_replies_soft_deletes(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+    ) -> None:
+        """Top-level comments with replies are soft deleted and rendered as tombstones."""
+        parent = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content="Parent", parent_id=None),
+        )
+        await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content="Reply", parent_id=parent.id),
+        )
+
+        await case_comments_service.delete_comment(parent)
+
+        deleted_parent = await case_comments_service.get_comment(parent.id)
+        assert deleted_parent is not None
+        assert deleted_parent.deleted_at is not None
+
+        threads = await case_comments_service.list_comment_threads(test_case)
+        assert len(threads) == 1
+        assert threads[0].comment.id == parent.id
+        assert threads[0].comment.is_deleted is True
+        assert threads[0].comment.content == "Comment deleted"
 
     async def test_delete_comment_authorization(
         self,

@@ -301,6 +301,12 @@ class CasesClient:
         """
         return await self._client.get(f"/cases/{case_id}/comments")
 
+    async def list_comment_threads(
+        self, case_id: str
+    ) -> list[types.CaseCommentThreadRead]:
+        """List threaded comments on a case."""
+        return await self._client.get(f"/cases/{case_id}/comments/threads")
+
     async def create_comment(
         self,
         case_id: str,
@@ -326,6 +332,20 @@ class CasesClient:
         return await self._client.post(
             f"/cases/{case_id}/comments",
             json=data,
+        )
+
+    async def reply_to_comment(
+        self,
+        case_id: str,
+        *,
+        parent_comment_id: str,
+        content: str,
+    ) -> types.CaseComment:
+        """Reply to a top-level case comment using the UDF-compatible endpoint."""
+        return await self.create_comment_simple(
+            case_id,
+            content=content,
+            parent_id=parent_comment_id,
         )
 
     async def update_comment(
@@ -354,28 +374,25 @@ class CasesClient:
         self,
         comment_id: str,
         *,
-        content: str | Unset = UNSET,
-        parent_id: str | Unset = UNSET,
+        content: str,
     ) -> types.CaseCommentRead:
         """Update a comment by ID without requiring case_id.
 
         Args:
             comment_id: The comment UUID.
             content: New content.
-            parent_id: New parent comment ID.
 
         Returns:
             Updated comment data.
         """
-        data: dict[str, Any] = {}
-        if is_set(content):
-            data["content"] = content
-        if is_set(parent_id):
-            data["parent_id"] = parent_id
         return await self._client.patch(
             f"/comments/{comment_id}",
-            json=data,
+            json={"content": content},
         )
+
+    async def get_comment_thread(self, comment_id: str) -> types.CaseCommentThreadRead:
+        """Get the thread containing a given comment."""
+        return await self._client.get(f"/comments/{comment_id}/thread")
 
     async def delete_comment(self, case_id: str, comment_id: str) -> None:
         """Delete a comment.
@@ -751,8 +768,7 @@ class CasesClient:
         self,
         comment_id: str,
         *,
-        content: str | Unset = UNSET,
-        parent_id: str | Unset = UNSET,
+        content: str,
     ) -> types.CaseComment:
         """Update a comment and return simple dict format.
 
@@ -761,19 +777,13 @@ class CasesClient:
         Args:
             comment_id: The comment UUID.
             content: New content.
-            parent_id: New parent comment ID.
 
         Returns:
             Updated comment data (CaseCommentDict format).
         """
-        data: dict[str, Any] = {}
-        if is_set(content):
-            data["content"] = content
-        if is_set(parent_id):
-            data["parent_id"] = parent_id
         return await self._client.patch(
             f"/comments/{comment_id}/simple",
-            json=data,
+            json={"content": content},
         )
 
     async def assign_user_simple(

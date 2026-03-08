@@ -232,6 +232,33 @@ async def create_comment(
 
 
 @registry.register(
+    default_title="Reply to comment",
+    display_group="Cases",
+    description="Reply to a top-level case comment.",
+    namespace="core.cases",
+)
+async def reply_to_comment(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case containing the parent comment."),
+    ],
+    parent_comment_id: Annotated[
+        str,
+        Doc("The ID of the top-level comment to reply to."),
+    ],
+    content: Annotated[
+        str,
+        Doc("The reply content."),
+    ],
+) -> types.CaseComment:
+    return await get_context().cases.reply_to_comment(
+        case_id,
+        parent_comment_id=parent_comment_id,
+        content=content,
+    )
+
+
+@registry.register(
     default_title="Update case comment",
     display_group="Cases",
     description="Update an existing case comment.",
@@ -243,20 +270,14 @@ async def update_comment(
         Doc("The ID of the comment to update."),
     ],
     content: Annotated[
-        str | None,
+        str,
         Doc("The updated comment content."),
-    ] = None,
-    parent_id: Annotated[
-        str | None,
-        Doc("The updated parent comment ID."),
-    ] = None,
+    ],
 ) -> types.CaseComment:
-    client_params: dict[str, Any] = {}
-    if content is not None:
-        client_params["content"] = content
-    if parent_id is not None:
-        client_params["parent_id"] = parent_id
-    return await get_context().cases.update_comment_simple(comment_id, **client_params)
+    return await get_context().cases.update_comment_simple(
+        comment_id,
+        content=content,
+    )
 
 
 @registry.register(
@@ -490,6 +511,36 @@ async def list_comments(
     ],
 ) -> list[types.CaseCommentRead]:
     return await get_context().cases.list_comments(case_id)
+
+
+@registry.register(
+    default_title="List comment threads",
+    display_group="Cases",
+    description="List comment threads for a case.",
+    namespace="core.cases",
+)
+async def list_comment_threads(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to get comment threads for."),
+    ],
+) -> list[types.CaseCommentThreadRead]:
+    return await get_context().cases.list_comment_threads(case_id)
+
+
+@registry.register(
+    default_title="Get comment thread",
+    display_group="Cases",
+    description="Get the full thread for a comment ID.",
+    namespace="core.cases",
+)
+async def get_comment_thread(
+    comment_id: Annotated[
+        str,
+        Doc("The ID of a comment within the thread."),
+    ],
+) -> types.CaseCommentThreadRead:
+    return await get_context().cases.get_comment_thread(comment_id)
 
 
 @registry.register(

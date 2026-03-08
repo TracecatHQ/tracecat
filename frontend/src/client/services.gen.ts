@@ -242,6 +242,8 @@ import type {
   CasesListCasesResponse,
   CasesListCommentsData,
   CasesListCommentsResponse,
+  CasesListCommentThreadsData,
+  CasesListCommentThreadsResponse,
   CasesListEventsWithUsersData,
   CasesListEventsWithUsersResponse,
   CasesListFieldsData,
@@ -7340,6 +7342,33 @@ export const casesCreateComment = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Comment Threads
+ * List case comment threads.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @returns CaseCommentThreadRead Successful Response
+ * @throws ApiError
+ */
+export const casesListCommentThreads = (
+  data: CasesListCommentThreadsData
+): CancelablePromise<CasesListCommentThreadsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/comments/threads",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },

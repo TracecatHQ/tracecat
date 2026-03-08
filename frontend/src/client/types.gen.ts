@@ -1079,6 +1079,15 @@ export type CaseCommentRead = {
   parent_id?: string | null
   user?: UserRead | null
   last_edited_at?: string | null
+  deleted_at?: string | null
+  is_deleted?: boolean
+}
+
+export type CaseCommentThreadRead = {
+  comment: CaseCommentRead
+  replies?: Array<CaseCommentRead>
+  reply_count?: number
+  last_activity_at: string
 }
 
 export type CaseCommentUpdate = {
@@ -9800,6 +9809,13 @@ export type CasesCreateCommentData = {
 
 export type CasesCreateCommentResponse = unknown
 
+export type CasesListCommentThreadsData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListCommentThreadsResponse = Array<CaseCommentThreadRead>
+
 export type CasesUpdateCommentData = {
   caseId: string
   commentId: string
@@ -14212,6 +14228,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/comments/threads": {
+    get: {
+      req: CasesListCommentThreadsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseCommentThreadRead>
         /**
          * Validation Error
          */

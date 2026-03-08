@@ -42,6 +42,7 @@ import {
   agentUpdateProviderCredentials,
   type CaseCommentCreate,
   type CaseCommentRead,
+  type CaseCommentThreadRead,
   type CaseCommentUpdate,
   type CaseCreate,
   type CaseDropdownDefinitionRead,
@@ -60,6 +61,7 @@ import {
   type CaseReadMinimal,
   type CasesGetCaseData,
   type CasesListCommentsData,
+  type CasesListCommentThreadsData,
   type CasesListTagsData,
   type CasesListTasksData,
   type CasesSearchCasesData,
@@ -91,6 +93,7 @@ import {
   casesDeleteComment,
   casesDeleteTask,
   casesListComments,
+  casesListCommentThreads,
   casesListEventsWithUsers,
   casesListFields,
   casesListTags,
@@ -3947,6 +3950,39 @@ export function useCaseComments({
   }
 }
 
+export function useCaseCommentThreads({
+  caseId,
+  workspaceId,
+}: CasesListCommentThreadsData) {
+  const {
+    data: caseCommentThreads,
+    isLoading: caseCommentThreadsIsLoading,
+    error: caseCommentThreadsError,
+  } = useQuery<CaseCommentThreadRead[], TracecatApiError>({
+    queryKey: ["case-comment-threads", caseId, workspaceId],
+    queryFn: async () => await casesListCommentThreads({ caseId, workspaceId }),
+  })
+
+  return {
+    caseCommentThreads,
+    caseCommentThreadsIsLoading,
+    caseCommentThreadsError,
+  }
+}
+
+function invalidateCaseCommentQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  caseId: string,
+  workspaceId: string
+) {
+  queryClient.invalidateQueries({
+    queryKey: ["case-comments", caseId, workspaceId],
+  })
+  queryClient.invalidateQueries({
+    queryKey: ["case-comment-threads", caseId, workspaceId],
+  })
+}
+
 export function useCreateCaseComment({
   caseId,
   workspaceId,
@@ -3954,7 +3990,7 @@ export function useCreateCaseComment({
   const queryClient = useQueryClient()
 
   const {
-    mutate: createComment,
+    mutateAsync: createComment,
     isPending: createCommentIsPending,
     error: createCommentError,
   } = useMutation({
@@ -3965,9 +4001,7 @@ export function useCreateCaseComment({
         requestBody: params,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["case-comments", caseId, workspaceId],
-      })
+      invalidateCaseCommentQueries(queryClient, caseId, workspaceId)
     },
     onError: (error: TracecatApiError) => {
       console.error("Error creating comment", error)
@@ -3998,7 +4032,7 @@ export function useUpdateCaseComment({
   const queryClient = useQueryClient()
 
   const {
-    mutate: updateComment,
+    mutateAsync: updateComment,
     isPending: updateCommentIsPending,
     error: updateCommentError,
   } = useMutation({
@@ -4010,9 +4044,7 @@ export function useUpdateCaseComment({
         requestBody: params,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["case-comments", caseId, workspaceId],
-      })
+      invalidateCaseCommentQueries(queryClient, caseId, workspaceId)
     },
     onError: (error: TracecatApiError) => {
       console.error("Error updating comment", error)
@@ -4043,7 +4075,7 @@ export function useDeleteCaseComment({
   const queryClient = useQueryClient()
 
   const {
-    mutate: deleteComment,
+    mutateAsync: deleteComment,
     isPending: deleteCommentIsPending,
     error: deleteCommentError,
   } = useMutation({
@@ -4054,9 +4086,7 @@ export function useDeleteCaseComment({
         commentId,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["case-comments", caseId, workspaceId],
-      })
+      invalidateCaseCommentQueries(queryClient, caseId, workspaceId)
     },
     onError: (error: TracecatApiError) => {
       console.error("Error deleting comment", error)

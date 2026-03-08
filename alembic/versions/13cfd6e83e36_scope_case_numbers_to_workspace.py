@@ -98,6 +98,11 @@ def upgrade() -> None:
     )
     op.execute(
         """
+        DROP TRIGGER IF EXISTS trg_case_assign_workspace_case_number ON "case"
+        """
+    )
+    op.execute(
+        """
         CREATE TRIGGER trg_case_assign_workspace_case_number
         BEFORE INSERT ON "case"
         FOR EACH ROW

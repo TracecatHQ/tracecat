@@ -3,6 +3,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
+from typing import cast as typing_cast
 
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
@@ -36,6 +37,8 @@ from tracecat.cases.enums import (
 from tracecat.cases.schemas import (
     AssigneeChangedEvent,
     CaseCommentCreate,
+    CaseCommentRead,
+    CaseCommentThreadRead,
     CaseCommentUpdate,
     CaseCreate,
     CaseEventVariant,
@@ -119,6 +122,9 @@ def _normalize_filter_values(values: Any) -> list[Any]:
                 unique.append(value)
         return unique
     return [values]
+
+
+_COMMENT_TOMBSTONE_CONTENT = "Comment deleted"
 
 
 # Semantic sort order for enum-backed case fields.
@@ -1257,37 +1263,169 @@ class CaseCommentsService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().first()
 
-    async def list_comments(
-        self, case: Case, *, with_users: bool = True
+    async def get_comment_in_case(
+        self, case_id: uuid.UUID, comment_id: uuid.UUID
+    ) -> CaseComment | None:
+        """Get a comment by ID scoped to a specific case."""
+        statement = select(CaseComment).where(
+            CaseComment.workspace_id == self.workspace_id,
+            CaseComment.case_id == case_id,
+            CaseComment.id == comment_id,
+        )
+
+        result = await self.session.execute(statement)
+        return result.scalars().first()
+
+    def serialize_comment(
+        self,
+        comment: CaseComment,
+        *,
+        user: User | None = None,
+    ) -> CaseCommentRead:
+        """Serialize a comment for API responses with tombstone semantics."""
+        comment_data = CaseCommentRead.model_validate(comment, from_attributes=True)
+        comment_data.user = (
+            UserRead.model_validate(user, from_attributes=True) if user else None
+        )
+        if comment.deleted_at is not None:
+            comment_data.content = _COMMENT_TOMBSTONE_CONTENT
+            comment_data.is_deleted = True
+        return comment_data
+
+    async def _list_comment_rows(
+        self,
+        *,
+        case_id: uuid.UUID,
+        thread_root_id: uuid.UUID | None = None,
     ) -> list[tuple[CaseComment, User | None]]:
-        """List all comments for a case with optional user information.
-
-        Args:
-            case: The case to get comments for
-            with_users: Whether to include user information (default: True)
-
-        Returns:
-            A list of tuples containing comments and their associated users (or None if no user)
-        """
-
-        if with_users:
-            statement = (
-                select(CaseComment, User)
-                .outerjoin(User, cast(CaseComment.user_id, sa.UUID) == User.id)
-                .where(CaseComment.case_id == case.id)
-                .order_by(cast(CaseComment.created_at, sa.DateTime))
+        """List case comments with user information."""
+        predicates: list[ColumnElement[bool]] = [CaseComment.case_id == case_id]
+        if thread_root_id is not None:
+            predicates.append(
+                sa.or_(
+                    CaseComment.id == thread_root_id,
+                    CaseComment.parent_id == thread_root_id,
+                )
             )
-            result = await self.session.execute(statement)
-            return list(result.tuples().all())
-        else:
-            statement = (
-                select(CaseComment)
-                .where(CaseComment.case_id == case.id)
-                .order_by(cast(CaseComment.created_at, sa.DateTime))
+
+        statement = (
+            select(CaseComment, User)
+            .outerjoin(User, cast(CaseComment.user_id, sa.UUID) == User.id)
+            .where(*predicates)
+            .order_by(CaseComment.created_at, CaseComment.surrogate_id)
+        )
+        result = await self.session.execute(statement)
+        rows = result.tuples().all()
+        return typing_cast(list[tuple[CaseComment, User | None]], rows)
+
+    async def list_comments(self, case: Case) -> list[CaseCommentRead]:
+        """List all comments for a case as a flat compatibility view."""
+        rows = await self._list_comment_rows(case_id=case.id)
+        return [self.serialize_comment(comment, user=user) for comment, user in rows]
+
+    async def list_comment_threads(self, case: Case) -> list[CaseCommentThreadRead]:
+        """List comments grouped by top-level thread."""
+        rows = await self._list_comment_rows(case_id=case.id)
+        threads_by_id: dict[uuid.UUID, CaseCommentThreadRead] = {}
+        ordered_threads: list[CaseCommentThreadRead] = []
+
+        for comment, user in rows:
+            serialized = self.serialize_comment(comment, user=user)
+            if comment.parent_id is None:
+                thread = CaseCommentThreadRead(
+                    comment=serialized,
+                    replies=[],
+                    reply_count=0,
+                    last_activity_at=comment.updated_at,
+                )
+                threads_by_id[comment.id] = thread
+                ordered_threads.append(thread)
+                continue
+
+            if (thread := threads_by_id.get(comment.parent_id)) is None:
+                fallback_thread = CaseCommentThreadRead(
+                    comment=serialized,
+                    replies=[],
+                    reply_count=0,
+                    last_activity_at=comment.updated_at,
+                )
+                threads_by_id[comment.id] = fallback_thread
+                ordered_threads.append(fallback_thread)
+                continue
+
+            thread.replies.append(serialized)
+            thread.reply_count += 1
+            if comment.updated_at > thread.last_activity_at:
+                thread.last_activity_at = comment.updated_at
+
+        return ordered_threads
+
+    async def get_comment_thread(
+        self, comment_id: uuid.UUID
+    ) -> CaseCommentThreadRead | None:
+        """Get the containing thread for a comment ID."""
+        if (comment := await self.get_comment(comment_id)) is None:
+            return None
+
+        thread_root_id = comment.parent_id or comment.id
+        rows = await self._list_comment_rows(
+            case_id=comment.case_id,
+            thread_root_id=thread_root_id,
+        )
+        if not rows:
+            return None
+
+        thread_comment: CaseCommentRead | None = None
+        replies: list[CaseCommentRead] = []
+        last_activity_at: datetime | None = None
+
+        for row_comment, user in rows:
+            serialized = self.serialize_comment(row_comment, user=user)
+            if row_comment.id == thread_root_id:
+                thread_comment = serialized
+            else:
+                replies.append(serialized)
+            if last_activity_at is None or row_comment.updated_at > last_activity_at:
+                last_activity_at = row_comment.updated_at
+
+        if thread_comment is None or last_activity_at is None:
+            return None
+
+        return CaseCommentThreadRead(
+            comment=thread_comment,
+            replies=replies,
+            reply_count=len(replies),
+            last_activity_at=last_activity_at,
+        )
+
+    async def _validate_parent_comment(
+        self,
+        *,
+        case: Case,
+        parent_id: uuid.UUID | None,
+    ) -> None:
+        """Validate one-level reply threading constraints."""
+        if parent_id is None:
+            return
+        if (parent := await self.get_comment(parent_id)) is None:
+            raise TracecatValidationError("Parent comment not found")
+        if parent.case_id != case.id or parent.workspace_id != self.workspace_id:
+            raise TracecatValidationError("Parent comment must belong to the same case")
+        if parent.parent_id is not None:
+            raise TracecatValidationError("Replies cannot have replies")
+        if parent.deleted_at is not None:
+            raise TracecatValidationError("Cannot reply to a deleted comment")
+
+    async def _comment_has_replies(self, comment_id: uuid.UUID) -> bool:
+        """Check whether a comment has replies."""
+        statement = select(
+            sa.exists().where(
+                CaseComment.workspace_id == self.workspace_id,
+                CaseComment.parent_id == comment_id,
             )
-            result = await self.session.execute(statement)
-            # Return in the same format as the join query for consistency
-            return [(comment, None) for comment in result.scalars().all()]
+        )
+        result = await self.session.execute(statement)
+        return bool(result.scalar())
 
     @require_scope("case:update")
     async def create_comment(
@@ -1302,6 +1440,7 @@ class CaseCommentsService(BaseWorkspaceService):
         Returns:
             The created comment
         """
+        await self._validate_parent_comment(case=case, parent_id=params.parent_id)
         comment = CaseComment(
             workspace_id=self.workspace_id,
             case_id=case.id,
@@ -1318,7 +1457,9 @@ class CaseCommentsService(BaseWorkspaceService):
 
     @require_scope("case:update")
     async def update_comment(
-        self, comment: CaseComment, params: CaseCommentUpdate
+        self,
+        comment: CaseComment,
+        params: CaseCommentUpdate,
     ) -> CaseComment:
         """Update an existing comment.
 
@@ -1336,10 +1477,16 @@ class CaseCommentsService(BaseWorkspaceService):
         # Check if the user owns the comment
         if comment.user_id != self.role.user_id:
             raise TracecatAuthorizationError("You cannot update this comment")
+        if comment.deleted_at is not None:
+            raise TracecatValidationError("Deleted comments cannot be updated")
+        if "parent_id" in params.model_fields_set:
+            raise TracecatValidationError("Changing a comment parent is not supported")
+        if "content" not in params.model_fields_set:
+            return comment
+        if params.content is None:
+            raise TracecatValidationError("Comment content is required")
 
-        set_fields = params.model_dump(exclude_unset=True)
-        for key, value in set_fields.items():
-            setattr(comment, key, value)
+        comment.content = params.content
 
         # Set last_edited_at
         comment.last_edited_at = datetime.now(UTC)
@@ -1365,6 +1512,11 @@ class CaseCommentsService(BaseWorkspaceService):
         # Check if the user owns the comment
         if comment.user_id != self.role.user_id:
             raise TracecatAuthorizationError("You can only delete your own comments")
+        if comment.parent_id is None and await self._comment_has_replies(comment.id):
+            if comment.deleted_at is None:
+                comment.deleted_at = datetime.now(UTC)
+                await self.session.commit()
+            return
 
         await self.session.delete(comment)
         await self.session.commit()

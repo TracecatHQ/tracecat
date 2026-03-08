@@ -3967,10 +3967,55 @@ export const $CaseCommentRead = {
       ],
       title: "Last Edited At",
     },
+    deleted_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deleted At",
+    },
+    is_deleted: {
+      type: "boolean",
+      title: "Is Deleted",
+      default: false,
+    },
   },
   type: "object",
   required: ["id", "created_at", "updated_at", "content"],
   title: "CaseCommentRead",
+} as const
+
+export const $CaseCommentThreadRead = {
+  properties: {
+    comment: {
+      $ref: "#/components/schemas/CaseCommentRead",
+    },
+    replies: {
+      items: {
+        $ref: "#/components/schemas/CaseCommentRead",
+      },
+      type: "array",
+      title: "Replies",
+    },
+    reply_count: {
+      type: "integer",
+      title: "Reply Count",
+      default: 0,
+    },
+    last_activity_at: {
+      type: "string",
+      format: "date-time",
+      title: "Last Activity At",
+    },
+  },
+  type: "object",
+  required: ["comment", "last_activity_at"],
+  title: "CaseCommentThreadRead",
 } as const
 
 export const $CaseCommentUpdate = {
