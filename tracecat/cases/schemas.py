@@ -188,9 +188,10 @@ class CaseCommentCreate(Schema):
     @field_validator("content")
     @classmethod
     def validate_content(cls, value: str) -> str:
-        if not value.strip():
+        stripped = value.strip()
+        if not stripped:
             raise ValueError("Comment content cannot be blank")
-        return value
+        return stripped
 
 
 class CaseCommentUpdate(Schema):
@@ -202,9 +203,10 @@ class CaseCommentUpdate(Schema):
     def validate_content(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        if not value.strip():
+        stripped = value.strip()
+        if not stripped:
             raise ValueError("Comment content cannot be blank")
-        return value
+        return stripped
 
 
 # Case Tasks

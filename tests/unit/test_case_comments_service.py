@@ -789,6 +789,10 @@ class TestCaseCommentsService:
         with pytest.raises(ValidationError, match="Comment content cannot be blank"):
             CaseCommentUpdate(content="   ")
 
+    async def test_comment_content_is_stripped(self) -> None:
+        assert CaseCommentCreate(content="  hello  ").content == "hello"
+        assert CaseCommentUpdate(content="  hello  ").content == "hello"
+
     async def test_delete_comment_authorization(
         self,
         session: AsyncSession,
