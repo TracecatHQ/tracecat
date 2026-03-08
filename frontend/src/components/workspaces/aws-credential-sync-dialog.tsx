@@ -37,10 +37,6 @@ interface AwsCredentialSyncFormState {
   sessionToken: string
 }
 
-interface AwsCredentialSyncTouchedState {
-  sessionToken: boolean
-}
-
 interface InlineErrorState {
   title: string
   description: string
@@ -52,10 +48,6 @@ const EMPTY_FORM_STATE: AwsCredentialSyncFormState = {
   accessKeyId: "",
   secretAccessKey: "",
   sessionToken: "",
-}
-
-const EMPTY_TOUCHED_STATE: AwsCredentialSyncTouchedState = {
-  sessionToken: false,
 }
 
 function getInitialFormState(
@@ -126,8 +118,7 @@ export function AwsCredentialSyncDialog({
   } = useAwsCredentialSync(workspaceId, { configEnabled: open })
   const [formState, setFormState] =
     useState<AwsCredentialSyncFormState>(EMPTY_FORM_STATE)
-  const [touchedState, setTouchedState] =
-    useState<AwsCredentialSyncTouchedState>(EMPTY_TOUCHED_STATE)
+  const [isSessionTokenTouched, setIsSessionTokenTouched] = useState(false)
   const [hasInitializedForm, setHasInitializedForm] = useState(false)
   const [inlineError, setInlineError] = useState<InlineErrorState | null>(null)
   const [lastResult, setLastResult] = useState<CredentialSyncResult | null>(
@@ -138,7 +129,7 @@ export function AwsCredentialSyncDialog({
     if (!open) {
       setHasInitializedForm(false)
       setFormState(EMPTY_FORM_STATE)
-      setTouchedState(EMPTY_TOUCHED_STATE)
+      setIsSessionTokenTouched(false)
       setInlineError(null)
       setLastResult(null)
       return
@@ -167,13 +158,6 @@ export function AwsCredentialSyncDialog({
     setFormState((current) => ({
       ...current,
       [key]: value,
-    }))
-  }
-
-  function markSessionTokenTouched() {
-    setTouchedState((current) => ({
-      ...current,
-      sessionToken: true,
     }))
   }
 
@@ -229,8 +213,8 @@ export function AwsCredentialSyncDialog({
     if (sessionToken) {
       payload.session_token = sessionToken
     } else if (
-      touchedState.sessionToken &&
-      awsCredentialSyncConfig?.has_session_token === true
+      isSessionTokenTouched &&
+      awsCredentialSyncConfig?.has_session_token
     ) {
       payload.session_token = null
     }
@@ -245,7 +229,7 @@ export function AwsCredentialSyncDialog({
         secretAccessKey: "",
         sessionToken: "",
       }))
-      setTouchedState(EMPTY_TOUCHED_STATE)
+      setIsSessionTokenTouched(false)
     } catch (error) {
       setInlineError({
         title: "Unable to save settings",
@@ -437,7 +421,7 @@ export function AwsCredentialSyncDialog({
                 type="password"
                 value={formState.sessionToken}
                 onChange={(event) => {
-                  markSessionTokenTouched()
+                  setIsSessionTokenTouched(true)
                   updateField("sessionToken", event.target.value)
                 }}
                 placeholder={
