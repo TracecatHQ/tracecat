@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import httpx
+import pytest
+import tracecat_admin.client as admin_client
 from tracecat_admin.cli import app
 from typer.testing import CliRunner
 
@@ -24,6 +27,7 @@ class TestCLI:
         assert "admin" in result.stdout
         assert "orgs" in result.stdout
         assert "registry" in result.stdout
+        assert "logs" in result.stdout
         assert "migrate" in result.stdout
 
 
@@ -39,11 +43,14 @@ class TestAdminCommands:
         assert "demote-user" in result.stdout
         assert "create-superuser" in result.stdout
 
-    def test_list_users_requires_service_key(self) -> None:
+    def test_list_users_requires_service_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test list-users requires service key."""
+        monkeypatch.setattr(admin_client, "load_cookies", lambda: httpx.Cookies())
         result = runner.invoke(app, ["admin", "list-users"])
         assert result.exit_code == 1
-        assert "TRACECAT__SERVICE_KEY" in result.stdout
+        assert "TRACECAT__SERVICE_KEY" in result.stderr
 
 
 class TestOrgsCommands:
@@ -68,6 +75,16 @@ class TestRegistryCommands:
         assert "sync" in result.stdout
         assert "status" in result.stdout
         assert "versions" in result.stdout
+
+
+class TestLogsCommands:
+    """Test logs command group."""
+
+    def test_logs_help(self) -> None:
+        """Test logs help."""
+        result = runner.invoke(app, ["logs", "--help"])
+        assert result.exit_code == 0
+        assert "hash" in result.stdout
 
 
 class TestMigrateCommands:
