@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
 from typing import cast
 
 from slugify import slugify
@@ -817,53 +816,6 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_version_as_of(
-        self, *, preset_id: uuid.UUID, as_of: datetime
-    ) -> AgentPresetVersion:
-        """Return the newest version that existed at the provided timestamp.
-
-        If no version predates the timestamp, fall back to the earliest version for
-        the preset. This is primarily used to backfill stable pins for legacy
-        sessions created before explicit preset-version pinning existed.
-        """
-        latest_stmt = (
-            select(AgentPresetVersion)
-            .where(
-                AgentPresetVersion.workspace_id == self.workspace_id,
-                AgentPresetVersion.preset_id == preset_id,
-                AgentPresetVersion.created_at <= as_of,
-            )
-            .order_by(
-                AgentPresetVersion.version.desc(),
-                AgentPresetVersion.created_at.desc(),
-            )
-            .limit(1)
-        )
-        latest_result = await self.session.execute(latest_stmt)
-        if version := latest_result.scalars().first():
-            return version
-
-        earliest_stmt = (
-            select(AgentPresetVersion)
-            .where(
-                AgentPresetVersion.workspace_id == self.workspace_id,
-                AgentPresetVersion.preset_id == preset_id,
-            )
-            .order_by(
-                AgentPresetVersion.version.asc(),
-                AgentPresetVersion.created_at.asc(),
-            )
-            .limit(1)
-        )
-        earliest_result = await self.session.execute(earliest_stmt)
-        if version := earliest_result.scalars().first():
-            return version
-
-        raise TracecatNotFoundError(
-            f"Agent preset version for preset '{preset_id}' not found"
-        )
-
     async def _lock_preset_for_versioning(self, preset_id: uuid.UUID) -> None:
         """Serialize version creation for one preset using a row-level lock."""
         stmt = (
@@ -910,21 +862,14 @@ class AgentPresetService(BaseWorkspaceService):
     async def restore_version(
         self, preset: AgentPreset, version: AgentPresetVersion
     ) -> AgentPreset:
-        """Restore a historical version as the current preset head.
-
-        Restores create a new immutable version row so any sessions pinned after the
-        restore observe the restored state instead of reusing the historical row's
-        original timestamp.
-        """
+        """Restore a historical version as the current preset head."""
         if version.preset_id != preset.id:
             raise TracecatValidationError(
                 "Preset version does not belong to the selected preset"
             )
 
         self._sync_preset_head_from_version(preset, version)
-        self.session.add(preset)
-        restored_version = await self._create_version_from_preset(preset)
-        preset.current_version_id = restored_version.id
+        preset.current_version_id = version.id
         self.session.add(preset)
         await self.session.commit()
         await self.session.refresh(preset)

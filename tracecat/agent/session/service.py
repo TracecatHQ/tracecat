@@ -206,7 +206,7 @@ class AgentSessionService(BaseWorkspaceService):
     async def _ensure_session_preset_version_id(
         self, agent_session: AgentSession
     ) -> uuid.UUID | None:
-        """Backfill a pinned preset version for sessions created before versioning."""
+        """Backfill a pinned preset version for unexpected unpinned sessions."""
         if agent_session.agent_preset_version_id is not None:
             return agent_session.agent_preset_version_id
 
@@ -224,9 +224,8 @@ class AgentSessionService(BaseWorkspaceService):
             return None
 
         preset_service = AgentPresetService(self.session, self.role)
-        version = await preset_service.get_version_as_of(
+        version = await preset_service.resolve_agent_preset_version(
             preset_id=logical_preset_id,
-            as_of=agent_session.created_at,
         )
         agent_session.agent_preset_version_id = version.id
         self.session.add(agent_session)

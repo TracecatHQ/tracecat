@@ -2,7 +2,6 @@
 
 import asyncio
 import uuid
-from datetime import UTC, datetime
 from typing import cast
 
 import pytest
@@ -345,44 +344,6 @@ class TestAgentPresetService:
         assert versions[0].instructions == "Updated instructions"
         assert versions[0].retries == 7
 
-    async def test_get_version_as_of_uses_historical_snapshot(
-        self,
-        agent_preset_service: AgentPresetService,
-        agent_preset_create_params: AgentPresetCreate,
-    ) -> None:
-        created_preset = await agent_preset_service.create_preset(
-            agent_preset_create_params
-        )
-        version_1 = await agent_preset_service.get_current_version_for_preset(
-            created_preset
-        )
-        version_1.created_at = datetime(2026, 3, 1, tzinfo=UTC)
-        version_1.updated_at = version_1.created_at
-        await agent_preset_service.session.commit()
-
-        updated_preset = await agent_preset_service.update_preset(
-            created_preset,
-            AgentPresetUpdate(instructions="Updated instructions"),
-        )
-        version_2 = await agent_preset_service.get_current_version_for_preset(
-            updated_preset
-        )
-        version_2.created_at = datetime(2026, 3, 5, tzinfo=UTC)
-        version_2.updated_at = version_2.created_at
-        await agent_preset_service.session.commit()
-
-        historical = await agent_preset_service.get_version_as_of(
-            preset_id=created_preset.id,
-            as_of=datetime(2026, 3, 3, tzinfo=UTC),
-        )
-        earliest_fallback = await agent_preset_service.get_version_as_of(
-            preset_id=created_preset.id,
-            as_of=datetime(2026, 2, 1, tzinfo=UTC),
-        )
-
-        assert historical.id == version_1.id
-        assert earliest_fallback.id == version_1.id
-
     async def test_update_preset_concurrently_allocates_unique_versions(
         self,
         agent_preset_create_params: AgentPresetCreate,
@@ -521,12 +482,12 @@ class TestAgentPresetService:
             for change in diff.tool_approval_changes
         )
 
-    async def test_restore_version_creates_new_current_version(
+    async def test_restore_version_moves_current_pointer(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Restoring an old version snapshots it as a new current version."""
+        """Restoring an old version repoints current without creating another row."""
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
@@ -541,17 +502,11 @@ class TestAgentPresetService:
         restored_preset = await agent_preset_service.restore_version(
             created_preset, version_1
         )
-        restored_version = await agent_preset_service.get_current_version_for_preset(
-            restored_preset
-        )
         versions = await agent_preset_service.list_versions(created_preset.id)
 
-        assert restored_preset.current_version_id == restored_version.id
-        assert restored_version.id != version_1.id
-        assert restored_version.version == 3
+        assert restored_preset.current_version_id == version_1.id
         assert restored_preset.instructions == agent_preset_create_params.instructions
-        assert restored_version.instructions == agent_preset_create_params.instructions
-        assert [version.version for version in versions] == [3, 2, 1]
+        assert [version.version for version in versions] == [2, 1]
 
     async def test_update_preset_slug(
         self,
