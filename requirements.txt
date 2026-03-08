@@ -443,7 +443,9 @@ chardet==7.0.1 \
     --hash=sha256:dd6db7505556ae8f9e2a3bf6d689c2b86aa6b459cf39552645d2c4d3fdbf489c \
     --hash=sha256:e51e1ff2c51b2d622d97c9737bd5ee9d9b9038f05b7dd8f9ea10b9e2d9674c24 \
     --hash=sha256:f661edbfa77b8683a503043ddc9b9fe9036cf28af13064200e11fa1844ded79c
-    # via polyfile
+    # via
+    #   polyfile
+    #   tracecat
 charset-normalizer==3.4.5 \
     --hash=sha256:01a1ed54b953303ca7e310fafe0fe347aab348bd81834a0bcd602eb538f89d66 \
     --hash=sha256:0294916d6ccf2d069727d65973c3a1ca477d68708db25fd758dd28b0827cff54 \

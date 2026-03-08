@@ -1,7 +1,10 @@
+import time
+import uuid
+
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from tracecat.contexts import ctx_client_ip
+from tracecat.contexts import ctx_client_ip, ctx_request_id
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -18,34 +21,30 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         if not client_ip and request.client:
             client_ip = request.client.host
 
-        token = ctx_client_ip.set(client_ip)
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        client_ip_token = ctx_client_ip.set(client_ip)
+        request_id_token = ctx_request_id.set(request_id)
+        start = time.perf_counter()
 
         try:
-            # Extract request parameters
-            request_params = dict(request.query_params)
-            # Only try to parse JSON body for methods that typically have a body
-            request_body = {}
-            if (
-                request.method in ("POST", "PUT", "PATCH")
-                and request.headers.get("Content-Type") == "application/json"
-            ):
-                try:
-                    request_body = await request.json()
-                except Exception:
-                    pass  # Ignore parse errors for logging purposes
-
-            # Log the incoming request with parameters
-            request.app.state.logger.debug(
-                "Incoming request",
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            body_bytes = int(request.headers.get("Content-Length") or 0)
+            request.app.state.logger.info(
+                "HTTP request completed",
+                request_id=request_id,
                 method=request.method,
                 scheme=request.url.scheme,
                 hostname=request.url.hostname,
                 path=request.url.path,
-                params=request_params,
-                body=request_body,
-                client_ip=client_ip,
+                status_code=response.status_code,
+                duration_ms=round((time.perf_counter() - start) * 1000, 3),
+                query_param_count=len(request.query_params),
+                body_present=body_bytes > 0,
+                body_content_type=request.headers.get("Content-Type"),
+                body_bytes=body_bytes,
             )
-
-            return await call_next(request)
+            return response
         finally:
-            ctx_client_ip.reset(token)
+            ctx_request_id.reset(request_id_token)
+            ctx_client_ip.reset(client_ip_token)
