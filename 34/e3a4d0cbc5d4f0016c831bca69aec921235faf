@@ -1,0 +1,56 @@
+packages/tracecat-admin/tests/test_logs_commands.py
+  2a1f80dbd683e9a3 1-80,83-116,119-132,135-141
+packages/tracecat-admin/tracecat_admin/config.py
+  2a1f80dbd683e9a3 5,11,13,62-63,75-80,87-155
+tracecat/logger/_logger.py
+  8c066f9dace81a78 7,10-16,48-61,63,65-67,71
+tracecat/logger/security.py
+  8c066f9dace81a78 1-571
+tracecat/context_state.py
+  8c066f9dace81a78 1-13
+tracecat/config.py
+  8c066f9dace81a78 64-72
+packages/tracecat-admin/tracecat_admin/commands/logs.py
+  2a1f80dbd683e9a3 1-8,10-36,38-53
+tracecat/workflow/executions/schemas.py
+  8c066f9dace81a78 47,517
+tests/unit/test_logger_security.py
+  8c066f9dace81a78 1-132
+tracecat/contexts.py
+  8c066f9dace81a78 10-17,28-30
+tracecat/middleware/request.py
+  8c066f9dace81a78 1-3,7,24-27,30-35,40-45,47,49-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "34e3a4d0cbc5d4f0016c831bca69aec921235faf",
+  "prompts": {
+    "2a1f80dbd683e9a3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cca7b-29cc-75d2-95de-4bd2aeaa7f94",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 80,
+      "overriden_lines": 0
+    },
+    "8c066f9dace81a78": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cca35-6d76-7e32-8a73-4ef7cc2d14b4",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  }
+}
