@@ -90,7 +90,7 @@ jobs:
       TEMPORAL_PORT: "7334"
       MINIO_PORT: "9002"
       MINIO_CONSOLE_PORT: "9003"
-      REDIS_PORT: "6381"
+      REDIS_PORT: "6379"
       REDIS_PORT_HOST: "6381"
     steps:
       - uses: actions/checkout@v4
@@ -181,6 +181,8 @@ jobs:
           TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "true"
           # Tests run on the host, so Temporal must be reachable via localhost
           TEMPORAL__CLUSTER_URL: localhost:${{ env.TEMPORAL_PORT }}
+          REDIS_URL: redis://localhost:${{ env.REDIS_PORT_HOST }}
+          TRACECAT__BLOB_STORAGE_ENDPOINT: http://localhost:${{ env.MINIO_PORT }}
           TRACECAT__DISABLE_NSJAIL: "true"
         run: |
           # Run pool tests sequentially (subprocess spawning doesn't parallelize well)
