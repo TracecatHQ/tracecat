@@ -74,7 +74,6 @@ import {
   type CaseTriggerCreate,
   type CaseTriggerRead,
   type CaseUpdate,
-  type CredentialSyncResult,
   type CustomOAuthProviderCreate,
   caseDropdownsAddDropdownOption,
   caseDropdownsCreateDropdownDefinition,
@@ -366,6 +365,7 @@ import {
 } from "@/lib/case-durations"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import type { ModelInfo } from "@/lib/chat"
+import { formatCredentialSyncResultSummary } from "@/lib/credential-sync"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -1757,20 +1757,6 @@ export function useOrgSecrets() {
   }
 }
 
-function formatCredentialSyncResultDescription(
-  result: CredentialSyncResult
-): string {
-  const parts = [
-    `${result.processed ?? 0} processed`,
-    `${result.created ?? 0} created`,
-    `${result.updated ?? 0} updated`,
-  ]
-  if ((result.failed ?? 0) > 0) {
-    parts.push(`${result.failed} failed`)
-  }
-  return parts.join(" • ")
-}
-
 export function useAwsCredentialSync(
   workspaceId: string,
   options: { configEnabled?: boolean } = {}
@@ -1835,7 +1821,7 @@ export function useAwsCredentialSync(
           (result.failed ?? 0) > 0
             ? "Push completed with errors"
             : "Pushed credentials to AWS",
-        description: formatCredentialSyncResultDescription(result),
+        description: formatCredentialSyncResultSummary(result),
         variant: (result.failed ?? 0) > 0 ? "destructive" : "default",
       })
     },
@@ -1869,7 +1855,7 @@ export function useAwsCredentialSync(
           (result.failed ?? 0) > 0
             ? "Pull completed with errors"
             : "Pulled credentials from AWS",
-        description: formatCredentialSyncResultDescription(result),
+        description: formatCredentialSyncResultSummary(result),
         variant: (result.failed ?? 0) > 0 ? "destructive" : "default",
       })
     },

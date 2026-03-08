@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
+import { formatCredentialSyncResultSummary } from "@/lib/credential-sync"
 import { useAwsCredentialSync } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -62,22 +63,22 @@ function getInitialFormState(
   }
 }
 
-function formatResultSummary(result: CredentialSyncResult): string {
-  const parts = [
-    `${result.processed ?? 0} processed`,
-    `${result.created ?? 0} created`,
-    `${result.updated ?? 0} updated`,
-  ]
-  if ((result.failed ?? 0) > 0) {
-    parts.push(`${result.failed} failed`)
-  }
-  return parts.join(" • ")
-}
-
-function maskHint(isConfigured: boolean | undefined, label: string): string {
+function getRequiredSecretHint(
+  isConfigured: boolean | undefined,
+  label: string
+): string {
   return isConfigured
     ? `${label} is already stored. Leave blank to keep the current value.`
     : `${label} is required before you can run a sync.`
+}
+
+function getOptionalSecretHint(
+  isConfigured: boolean | undefined,
+  label: string
+): string {
+  return isConfigured
+    ? `${label} is already stored. Leave blank to keep the current value.`
+    : `${label} is optional. Add it only when you use temporary credentials.`
 }
 
 function getInlineErrorDescription(error: unknown, fallback: string): string {
@@ -378,7 +379,7 @@ export function AwsCredentialSyncDialog({
                   disabled={awsCredentialSyncConfigIsLoading || isBusy}
                 />
                 <p className="text-xs text-muted-foreground">
-                  {maskHint(
+                  {getRequiredSecretHint(
                     awsCredentialSyncConfig?.has_access_key_id,
                     "Access key ID"
                   )}
@@ -403,7 +404,7 @@ export function AwsCredentialSyncDialog({
                   disabled={awsCredentialSyncConfigIsLoading || isBusy}
                 />
                 <p className="text-xs text-muted-foreground">
-                  {maskHint(
+                  {getRequiredSecretHint(
                     awsCredentialSyncConfig?.has_secret_access_key,
                     "Secret access key"
                   )}
@@ -432,7 +433,7 @@ export function AwsCredentialSyncDialog({
                 disabled={awsCredentialSyncConfigIsLoading || isBusy}
               />
               <p className="text-xs text-muted-foreground">
-                {maskHint(
+                {getOptionalSecretHint(
                   awsCredentialSyncConfig?.has_session_token,
                   "Session token"
                 )}
@@ -507,7 +508,7 @@ export function AwsCredentialSyncDialog({
                     Last {lastResult.operation ?? "sync"} result
                   </AlertTitle>
                   <AlertDescription>
-                    {formatResultSummary(lastResult)}
+                    {formatCredentialSyncResultSummary(lastResult)}
                   </AlertDescription>
                 </Alert>
 
