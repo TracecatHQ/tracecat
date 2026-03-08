@@ -28,6 +28,11 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
   useAgentPresetVersions,
   useCompareAgentPresetVersions,
   useRestoreAgentPresetVersion,
@@ -247,28 +252,38 @@ function VersionsHistoryView({
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 px-2 text-xs"
-                  onClick={() => onCompare(version)}
-                >
-                  <GitCompareArrows className="mr-2 size-3.5" />
-                  Compare
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      onClick={() => onCompare(version)}
+                      aria-label="Compare version"
+                    >
+                      <GitCompareArrows className="size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Compare</TooltipContent>
+                </Tooltip>
                 {!isCurrent ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 px-2 text-xs"
-                    disabled={restorePending}
-                    onClick={() => void onRestore(version.id)}
-                  >
-                    <RotateCcw className="mr-2 size-3.5" />
-                    Restore
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        disabled={restorePending}
+                        onClick={() => void onRestore(version.id)}
+                        aria-label="Restore version"
+                      >
+                        <RotateCcw className="size-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Restore</TooltipContent>
+                  </Tooltip>
                 ) : null}
               </div>
             </div>

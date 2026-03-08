@@ -1,7 +1,8 @@
 "use client"
 
-import { Loader2 } from "lucide-react"
+import { ChevronDown, Loader2 } from "lucide-react"
 import type { AgentPresetVersionReadMinimal } from "@/client"
+import { Badge } from "@/components/ui/badge"
 import {
   Select,
   SelectContent,
@@ -36,17 +37,40 @@ export function formatAgentPresetVersionLabel({
 }): string {
   if (!selectedVersionId) {
     return currentVersionNumber
-      ? `Current (v${currentVersionNumber})`
+      ? `Version ${currentVersionNumber}, current`
       : "Current"
   }
   if (selectedVersionId === currentVersionId) {
     return selectedVersionNumber
-      ? `Pinned v${selectedVersionNumber} (current)`
-      : "Pinned current version"
+      ? `Version ${selectedVersionNumber}, current`
+      : "Current version"
   }
-  return selectedVersionNumber
-    ? `Pinned v${selectedVersionNumber}`
-    : "Pinned version"
+  return selectedVersionNumber ? `Version ${selectedVersionNumber}` : "Version"
+}
+
+function VersionLabel({
+  label,
+  versionNumber,
+  isCurrent = false,
+  fallback = "Current",
+}: {
+  label?: string
+  versionNumber?: number | null
+  isCurrent?: boolean
+  fallback?: string
+}) {
+  return (
+    <span className="flex items-center gap-2">
+      <span>
+        {label ?? (versionNumber ? `Version ${versionNumber}` : fallback)}
+      </span>
+      {isCurrent ? (
+        <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+          Current
+        </Badge>
+      ) : null}
+    </span>
+  )
 }
 
 interface AgentPresetVersionSelectProps {
@@ -93,7 +117,13 @@ export function AgentPresetVersionSelect({
       }
       disabled={disabled}
     >
-      <SelectTrigger className={cn("min-w-36", triggerClassName)}>
+      <SelectTrigger
+        icon={<ChevronDown className="ml-1 size-3" />}
+        className={cn(
+          "min-w-36 border-none bg-transparent px-2 text-xs font-medium shadow-none hover:bg-accent focus:ring-0",
+          triggerClassName
+        )}
+      >
         <SelectValue
           placeholder={placeholder}
           aria-label={formatAgentPresetVersionLabel({
@@ -109,12 +139,14 @@ export function AgentPresetVersionSelect({
               Loading...
             </span>
           ) : (
-            formatAgentPresetVersionLabel({
-              currentVersionNumber,
-              selectedVersionNumber,
-              currentVersionId,
-              selectedVersionId,
-            })
+            <VersionLabel
+              versionNumber={
+                selectedVersionId ? selectedVersionNumber : currentVersionNumber
+              }
+              isCurrent={
+                !selectedVersionId || selectedVersionId === currentVersionId
+              }
+            />
           )}
         </SelectValue>
       </SelectTrigger>
@@ -131,9 +163,7 @@ export function AgentPresetVersionSelect({
         ) : null}
         {!versionsIsLoading && !versionsError && allowCurrent ? (
           <SelectItem value={CURRENT_VERSION_VALUE}>
-            {currentVersionNumber
-              ? `Current (v${currentVersionNumber})`
-              : "Current"}
+            <VersionLabel label="Use latest" />
           </SelectItem>
         ) : null}
         {!versionsIsLoading &&
@@ -147,7 +177,11 @@ export function AgentPresetVersionSelect({
           const isCurrent = version.id === currentVersionId
           return (
             <SelectItem key={version.id} value={version.id}>
-              {`v${version.version}${isCurrent ? " • Current" : ""}`}
+              <VersionLabel
+                versionNumber={version.version}
+                isCurrent={isCurrent}
+                fallback="Version"
+              />
             </SelectItem>
           )
         })}

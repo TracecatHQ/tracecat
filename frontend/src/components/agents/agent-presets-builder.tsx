@@ -1325,8 +1325,8 @@ function AgentPresetRightPanel({
         className="flex h-full w-full flex-col"
       >
         <div className="w-full shrink-0">
-          <div className="flex items-center justify-start">
-            <TabsList className="h-9 justify-start rounded-none bg-transparent p-0">
+          <div className="overflow-x-auto">
+            <TabsList className="min-w-max h-9 justify-start rounded-none bg-transparent p-0">
               <TabsTrigger
                 className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                 value="live-chat"
