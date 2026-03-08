@@ -205,12 +205,12 @@ function getMcpProviderId(slug: string): string | undefined {
 
 const agentPresetSchema = z
   .object({
-    name: z.string().min(1, "Name is required"),
-    slug: z.string().min(1, "Slug is required"),
+    name: z.string().trim().min(1, "Name is required"),
+    slug: z.string().trim().min(1, "Slug is required"),
     description: z.string().max(1000).optional(),
     instructions: z.string().optional(),
-    model_provider: z.string().min(1, "Model provider is required"),
-    model_name: z.string().min(1, "Model name is required"),
+    model_provider: z.string().trim().min(1, "Model provider is required"),
+    model_name: z.string().trim().min(1, "Model name is required"),
     base_url: z.union([z.string().url(), z.literal(""), z.undefined()]),
     outputTypeKind: z.enum(["none", "data-type", "json"]),
     outputTypeDataType: z.string().optional(),
@@ -221,7 +221,7 @@ const agentPresetSchema = z
     toolApprovals: z
       .array(
         z.object({
-          tool: z.string().min(1, "Tool name is required"),
+          tool: z.string().trim().min(1, "Tool name is required"),
           allow: z.boolean(),
         })
       )
@@ -2194,8 +2194,8 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
       values.instructions && values.instructions.trim().length > 0
         ? values.instructions
         : null,
-    model_name: values.model_name,
-    model_provider: values.model_provider,
+    model_name: values.model_name.trim(),
+    model_provider: values.model_provider.trim(),
     base_url: normalizeOptional(values.base_url),
     output_type: outputType ?? null,
     actions: values.actions.length > 0 ? values.actions : null,

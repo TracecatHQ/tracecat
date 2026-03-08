@@ -4,21 +4,34 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
+
+PresetName = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
+]
+PresetSlug = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=160),
+]
+PresetModelField = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
+]
 
 
 class AgentPresetExecutionConfig(Schema):
     """Execution fields that define a preset version."""
 
     instructions: str | None = Field(default=None)
-    model_name: str = Field(..., min_length=1, max_length=120)
-    model_provider: str = Field(..., min_length=1, max_length=120)
+    model_name: PresetModelField
+    model_provider: PresetModelField
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
@@ -38,19 +51,19 @@ class AgentPresetBase(AgentPresetExecutionConfig):
 class AgentPresetCreate(AgentPresetBase):
     """Payload for creating a new agent preset."""
 
-    name: str = Field(..., min_length=1, max_length=120)
-    slug: str | None = Field(default=None, min_length=1, max_length=160)
+    name: PresetName
+    slug: PresetSlug | None = None
 
 
 class AgentPresetUpdate(BaseModel):
     """Payload for updating an existing agent preset."""
 
-    name: str | None = Field(default=None, min_length=1, max_length=120)
-    slug: str | None = Field(default=None, min_length=1, max_length=160)
+    name: PresetName | None = None
+    slug: PresetSlug | None = None
     description: str | None = Field(default=None, max_length=1000)
     instructions: str | None = Field(default=None)
-    model_name: str | None = Field(default=None, min_length=1, max_length=120)
-    model_provider: str | None = Field(default=None, min_length=1, max_length=120)
+    model_name: PresetModelField | None = None
+    model_provider: PresetModelField | None = None
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)

@@ -8,6 +8,11 @@ import {
 } from "@/hooks/use-agent-presets"
 import { parseChatError, type useUpdateChat } from "@/hooks/use-chat"
 
+type DraftPresetSelection = {
+  ownerId: string | null
+  value: string | null
+}
+
 interface UseChatPresetManagerProps {
   workspaceId: string
   chat: AgentSessionsGetSessionVercelResponse | undefined
@@ -27,10 +32,10 @@ export function useChatPresetManager({
   selectedChatId,
   enabled = true,
 }: UseChatPresetManagerProps) {
-  const [draftPresetId, setDraftPresetId] = useState<string | null>(null)
-  const [draftPresetVersionId, setDraftPresetVersionId] = useState<
-    string | null
-  >(null)
+  const [draftPresetId, setDraftPresetId] =
+    useState<DraftPresetSelection | null>(null)
+  const [draftPresetVersionId, setDraftPresetVersionId] =
+    useState<DraftPresetSelection | null>(null)
 
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
@@ -38,19 +43,34 @@ export function useChatPresetManager({
   )
 
   const presetOptions = enabled ? (presets ?? []) : []
-  const effectivePresetId = selectedChatId
-    ? (chat?.agent_preset_id ?? null)
-    : draftPresetId
-  const effectivePresetVersionId = selectedChatId
-    ? (chat?.agent_preset_version_id ?? null)
-    : draftPresetVersionId
+  const selectionOwnerId = selectedChatId ?? null
+  const effectivePresetId =
+    draftPresetId?.ownerId === selectionOwnerId
+      ? draftPresetId.value
+      : selectedChatId
+        ? (chat?.agent_preset_id ?? null)
+        : null
+  const effectivePresetVersionId =
+    draftPresetVersionId?.ownerId === selectionOwnerId
+      ? draftPresetVersionId.value
+      : selectedChatId
+        ? (chat?.agent_preset_version_id ?? null)
+        : null
 
   useEffect(() => {
     if (!selectedChatId) {
+      setDraftPresetId(null)
+      setDraftPresetVersionId(null)
       return
     }
-    setDraftPresetId(chat?.agent_preset_id ?? null)
-    setDraftPresetVersionId(chat?.agent_preset_version_id ?? null)
+    setDraftPresetId({
+      ownerId: selectedChatId,
+      value: chat?.agent_preset_id ?? null,
+    })
+    setDraftPresetVersionId({
+      ownerId: selectedChatId,
+      value: chat?.agent_preset_version_id ?? null,
+    })
   }, [chat?.agent_preset_id, chat?.agent_preset_version_id, selectedChatId])
 
   const { preset: selectedPreset, presetIsLoading: selectedPresetLoading } =
@@ -79,10 +99,15 @@ export function useChatPresetManager({
     }
 
     if (!selectedChatId) {
-      setDraftPresetId(nextPresetId)
-      setDraftPresetVersionId(null)
+      setDraftPresetId({ ownerId: null, value: nextPresetId })
+      setDraftPresetVersionId({ ownerId: null, value: null })
       return
     }
+
+    const previousPresetId = effectivePresetId
+    const previousPresetVersionId = effectivePresetVersionId
+    setDraftPresetId({ ownerId: selectedChatId, value: nextPresetId })
+    setDraftPresetVersionId({ ownerId: selectedChatId, value: null })
 
     try {
       await updateChat({
@@ -92,9 +117,12 @@ export function useChatPresetManager({
           agent_preset_version_id: null,
         },
       })
-      setDraftPresetId(nextPresetId)
-      setDraftPresetVersionId(null)
     } catch (error) {
+      setDraftPresetId({ ownerId: selectedChatId, value: previousPresetId })
+      setDraftPresetVersionId({
+        ownerId: selectedChatId,
+        value: previousPresetVersionId,
+      })
       console.error("Failed to update chat preset:", error)
       toast({
         title: "Failed to update preset",
@@ -110,9 +138,12 @@ export function useChatPresetManager({
     }
 
     if (!selectedChatId) {
-      setDraftPresetVersionId(nextVersionId)
+      setDraftPresetVersionId({ ownerId: null, value: nextVersionId })
       return
     }
+
+    const previousVersionId = effectivePresetVersionId
+    setDraftPresetVersionId({ ownerId: selectedChatId, value: nextVersionId })
 
     try {
       await updateChat({
@@ -122,8 +153,11 @@ export function useChatPresetManager({
           agent_preset_version_id: nextVersionId,
         },
       })
-      setDraftPresetVersionId(nextVersionId)
     } catch (error) {
+      setDraftPresetVersionId({
+        ownerId: selectedChatId,
+        value: previousVersionId,
+      })
       console.error("Failed to update chat preset version:", error)
       toast({
         title: "Failed to update version",
