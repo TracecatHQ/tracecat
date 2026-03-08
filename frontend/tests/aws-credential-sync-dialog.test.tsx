@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
 import type { CredentialSyncResult } from "@/client"
-import { AwsCredentialSyncDialog } from "@/components/workspaces/aws-credential-sync-dialog"
+import { AwsCredentialSyncDialog } from "@/components/secrets/aws-credential-sync-dialog"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { useAwsCredentialSync } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"

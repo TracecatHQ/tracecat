@@ -9421,14 +9421,14 @@ export type OrganizationSecretsDeleteOrgSecretByIdData = {
 
 export type OrganizationSecretsDeleteOrgSecretByIdResponse = void
 
-export type CredentialSyncGetAwsCredentialSyncConfigResponse =
+export type SecretsGetAwsCredentialSyncConfigResponse =
   AwsCredentialSyncConfigRead
 
-export type CredentialSyncUpdateAwsCredentialSyncConfigData = {
+export type SecretsUpdateAwsCredentialSyncConfigData = {
   requestBody: AwsCredentialSyncConfigUpdate
 }
 
-export type CredentialSyncUpdateAwsCredentialSyncConfigResponse = void
+export type SecretsUpdateAwsCredentialSyncConfigResponse = void
 
 export type TablesListTablesData = {
   workspaceId: string
@@ -10401,17 +10401,17 @@ export type VcsDeleteGithubAppCredentialsResponse = void
 export type VcsGetGithubAppCredentialsStatusResponse =
   GitHubAppCredentialsStatus
 
-export type CredentialSyncPushAwsCredentialSyncData = {
+export type SecretsPushAwsCredentialSyncData = {
   workspaceId: string
 }
 
-export type CredentialSyncPushAwsCredentialSyncResponse = CredentialSyncResult
+export type SecretsPushAwsCredentialSyncResponse = CredentialSyncResult
 
-export type CredentialSyncPullAwsCredentialSyncData = {
+export type SecretsPullAwsCredentialSyncData = {
   workspaceId: string
 }
 
-export type CredentialSyncPullAwsCredentialSyncResponse = CredentialSyncResult
+export type SecretsPullAwsCredentialSyncResponse = CredentialSyncResult
 
 export type UsersGetMyScopesData = {
   workspaceId?: string | null
@@ -13813,7 +13813,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/organization/credentials/sync/aws": {
+  "/organization/secrets/sync/aws": {
     get: {
       res: {
         /**
@@ -13823,7 +13823,7 @@ export type $OpenApiTs = {
       }
     }
     patch: {
-      req: CredentialSyncUpdateAwsCredentialSyncConfigData
+      req: SecretsUpdateAwsCredentialSyncConfigData
       res: {
         /**
          * Successful Response
@@ -15309,9 +15309,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workspaces/{workspace_id}/credentials/sync/aws/push": {
+  "/workspaces/{workspace_id}/secrets/sync/aws/push": {
     post: {
-      req: CredentialSyncPushAwsCredentialSyncData
+      req: SecretsPushAwsCredentialSyncData
       res: {
         /**
          * Successful Response
@@ -15324,9 +15324,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workspaces/{workspace_id}/credentials/sync/aws/pull": {
+  "/workspaces/{workspace_id}/secrets/sync/aws/pull": {
     post: {
-      req: CredentialSyncPullAwsCredentialSyncData
+      req: SecretsPullAwsCredentialSyncData
       res: {
         /**
          * Successful Response

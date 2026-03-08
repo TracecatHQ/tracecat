@@ -105,10 +105,6 @@ import {
   caseTagsDeleteCaseTag,
   caseTagsListCaseTags,
   caseTagsUpdateCaseTag,
-  credentialSyncGetAwsCredentialSyncConfig,
-  credentialSyncPullAwsCredentialSync,
-  credentialSyncPushAwsCredentialSync,
-  credentialSyncUpdateAwsCredentialSyncConfig,
   type FolderDirectoryItem,
   foldersCreateFolder,
   foldersDeleteFolder,
@@ -239,8 +235,12 @@ import {
   schedulesUpdateSchedule,
   secretsCreateSecret,
   secretsDeleteSecretById,
+  secretsGetAwsCredentialSyncConfig,
   secretsListSecretDefinitions,
   secretsListSecrets,
+  secretsPullAwsCredentialSync,
+  secretsPushAwsCredentialSync,
+  secretsUpdateAwsCredentialSyncConfig,
   secretsUpdateSecretById,
   settingsGetAgentSettings,
   settingsGetAppSettings,
@@ -1770,7 +1770,7 @@ export function useAwsCredentialSync(
     refetch: refetchAwsCredentialSyncConfig,
   } = useQuery<AwsCredentialSyncConfigRead>({
     queryKey: ["aws-credential-sync-config"],
-    queryFn: async () => await credentialSyncGetAwsCredentialSyncConfig(),
+    queryFn: async () => await secretsGetAwsCredentialSyncConfig(),
     enabled: configEnabled,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -1781,7 +1781,7 @@ export function useAwsCredentialSync(
     isPending: isUpdatingAwsCredentialSyncConfig,
   } = useMutation({
     mutationFn: async (params: AwsCredentialSyncConfigUpdate) =>
-      await credentialSyncUpdateAwsCredentialSyncConfig({
+      await secretsUpdateAwsCredentialSyncConfig({
         requestBody: params,
       }),
     onSuccess: async () => {
@@ -1812,7 +1812,7 @@ export function useAwsCredentialSync(
     isPending: isPushingAwsCredentialSync,
   } = useMutation({
     mutationFn: async () =>
-      await credentialSyncPushAwsCredentialSync({
+      await secretsPushAwsCredentialSync({
         workspaceId,
       }),
     onSuccess: (result) => {
@@ -1843,7 +1843,7 @@ export function useAwsCredentialSync(
     isPending: isPullingAwsCredentialSync,
   } = useMutation({
     mutationFn: async () =>
-      await credentialSyncPullAwsCredentialSync({
+      await secretsPullAwsCredentialSync({
         workspaceId,
       }),
     onSuccess: async (result) => {

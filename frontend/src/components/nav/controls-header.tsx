@@ -62,6 +62,7 @@ import {
 } from "@/components/members/members-view-toggle"
 import { CreateGroupButton } from "@/components/rbac/create-group-button"
 import { CreateRoleButton } from "@/components/rbac/create-role-button"
+import { AwsCredentialSyncAction } from "@/components/secrets/aws-credential-sync-action"
 import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
@@ -110,7 +111,6 @@ import {
   NewVariableDialog,
   NewVariableDialogTrigger,
 } from "@/components/workspaces/add-workspace-variable"
-import { AwsCredentialSyncAction } from "@/components/workspaces/aws-credential-sync-action"
 import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"

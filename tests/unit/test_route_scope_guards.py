@@ -7,12 +7,12 @@ import pytest
 from tracecat.agent.preset import router as agent_preset_router
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.credential_sync import router as credential_sync_router
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.inbox import router as inbox_router
 from tracecat.integrations import router as integrations_router
 from tracecat.organization import router as organization_router
 from tracecat.registry.repositories import router as registry_repos_router
+from tracecat.secrets.sync import router as credential_sync_router
 from tracecat.tables import router as tables_router
 from tracecat.vcs import router as vcs_router
 from tracecat.workflow.executions import router as workflow_executions_router

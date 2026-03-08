@@ -1,12 +1,12 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { AwsCredentialSyncAction } from "@/components/workspaces/aws-credential-sync-action"
+import { AwsCredentialSyncAction } from "@/components/secrets/aws-credential-sync-action"
 
 jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: jest.fn(),
 }))
 
-jest.mock("@/components/workspaces/aws-credential-sync-dialog", () => ({
+jest.mock("@/components/secrets/aws-credential-sync-dialog", () => ({
   AwsCredentialSyncDialog: ({
     open,
   }: {

@@ -278,13 +278,6 @@ import type {
   CaseTagsListCaseTagsResponse,
   CaseTagsUpdateCaseTagData,
   CaseTagsUpdateCaseTagResponse,
-  CredentialSyncGetAwsCredentialSyncConfigResponse,
-  CredentialSyncPullAwsCredentialSyncData,
-  CredentialSyncPullAwsCredentialSyncResponse,
-  CredentialSyncPushAwsCredentialSyncData,
-  CredentialSyncPushAwsCredentialSyncResponse,
-  CredentialSyncUpdateAwsCredentialSyncConfigData,
-  CredentialSyncUpdateAwsCredentialSyncConfigResponse,
   EditorFieldSchemaResponse,
   EditorListActionsData,
   EditorListActionsResponse,
@@ -496,14 +489,21 @@ import type {
   SecretsCreateSecretResponse,
   SecretsDeleteSecretByIdData,
   SecretsDeleteSecretByIdResponse,
+  SecretsGetAwsCredentialSyncConfigResponse,
   SecretsGetSecretByNameData,
   SecretsGetSecretByNameResponse,
   SecretsListSecretDefinitionsData,
   SecretsListSecretDefinitionsResponse,
   SecretsListSecretsData,
   SecretsListSecretsResponse,
+  SecretsPullAwsCredentialSyncData,
+  SecretsPullAwsCredentialSyncResponse,
+  SecretsPushAwsCredentialSyncData,
+  SecretsPushAwsCredentialSyncResponse,
   SecretsSearchSecretsData,
   SecretsSearchSecretsResponse,
+  SecretsUpdateAwsCredentialSyncConfigData,
+  SecretsUpdateAwsCredentialSyncConfigResponse,
   SecretsUpdateSecretByIdData,
   SecretsUpdateSecretByIdResponse,
   SettingsGetAgentSettingsResponse,
@@ -6479,11 +6479,11 @@ export const organizationSecretsDeleteOrgSecretById = (
  * @returns AwsCredentialSyncConfigRead Successful Response
  * @throws ApiError
  */
-export const credentialSyncGetAwsCredentialSyncConfig =
-  (): CancelablePromise<CredentialSyncGetAwsCredentialSyncConfigResponse> => {
+export const secretsGetAwsCredentialSyncConfig =
+  (): CancelablePromise<SecretsGetAwsCredentialSyncConfigResponse> => {
     return __request(OpenAPI, {
       method: "GET",
-      url: "/organization/credentials/sync/aws",
+      url: "/organization/secrets/sync/aws",
     })
   }
 
@@ -6494,12 +6494,12 @@ export const credentialSyncGetAwsCredentialSyncConfig =
  * @returns void Successful Response
  * @throws ApiError
  */
-export const credentialSyncUpdateAwsCredentialSyncConfig = (
-  data: CredentialSyncUpdateAwsCredentialSyncConfigData
-): CancelablePromise<CredentialSyncUpdateAwsCredentialSyncConfigResponse> => {
+export const secretsUpdateAwsCredentialSyncConfig = (
+  data: SecretsUpdateAwsCredentialSyncConfigData
+): CancelablePromise<SecretsUpdateAwsCredentialSyncConfigResponse> => {
   return __request(OpenAPI, {
     method: "PATCH",
-    url: "/organization/credentials/sync/aws",
+    url: "/organization/secrets/sync/aws",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
@@ -9478,12 +9478,12 @@ export const vcsGetGithubAppCredentialsStatus =
  * @returns CredentialSyncResult Successful Response
  * @throws ApiError
  */
-export const credentialSyncPushAwsCredentialSync = (
-  data: CredentialSyncPushAwsCredentialSyncData
-): CancelablePromise<CredentialSyncPushAwsCredentialSyncResponse> => {
+export const secretsPushAwsCredentialSync = (
+  data: SecretsPushAwsCredentialSyncData
+): CancelablePromise<SecretsPushAwsCredentialSyncResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/workspaces/{workspace_id}/credentials/sync/aws/push",
+    url: "/workspaces/{workspace_id}/secrets/sync/aws/push",
     path: {
       workspace_id: data.workspaceId,
     },
@@ -9500,12 +9500,12 @@ export const credentialSyncPushAwsCredentialSync = (
  * @returns CredentialSyncResult Successful Response
  * @throws ApiError
  */
-export const credentialSyncPullAwsCredentialSync = (
-  data: CredentialSyncPullAwsCredentialSyncData
-): CancelablePromise<CredentialSyncPullAwsCredentialSyncResponse> => {
+export const secretsPullAwsCredentialSync = (
+  data: SecretsPullAwsCredentialSyncData
+): CancelablePromise<SecretsPullAwsCredentialSyncResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/workspaces/{workspace_id}/credentials/sync/aws/pull",
+    url: "/workspaces/{workspace_id}/secrets/sync/aws/pull",
     path: {
       workspace_id: data.workspaceId,
     },

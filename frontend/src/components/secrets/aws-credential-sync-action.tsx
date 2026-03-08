@@ -3,8 +3,8 @@
 import { FileUpIcon } from "lucide-react"
 import { useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
+import { AwsCredentialSyncDialog } from "@/components/secrets/aws-credential-sync-dialog"
 import { Button } from "@/components/ui/button"
-import { AwsCredentialSyncDialog } from "@/components/workspaces/aws-credential-sync-dialog"
 
 export function AwsCredentialSyncAction() {
   const [dialogOpen, setDialogOpen] = useState(false)

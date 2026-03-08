@@ -6,21 +6,21 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.credential_sync.schemas import (
+from tracecat.db.dependencies import AsyncDBSession
+from tracecat.secrets.sync.schemas import (
     AwsCredentialSyncConfigRead,
     AwsCredentialSyncConfigUpdate,
     CredentialSyncResult,
 )
-from tracecat.credential_sync.service import CredentialSyncService
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.secrets.sync.service import CredentialSyncService
 
 org_router = APIRouter(
-    prefix="/organization/credentials/sync/aws",
-    tags=["credential-sync"],
+    prefix="/organization/secrets/sync/aws",
+    tags=["secrets"],
 )
 workspace_router = APIRouter(
-    prefix="/workspaces/{workspace_id}/credentials/sync/aws",
-    tags=["credential-sync"],
+    prefix="/workspaces/{workspace_id}/secrets/sync/aws",
+    tags=["secrets"],
 )
 
 WorkspaceUserInPath = Annotated[

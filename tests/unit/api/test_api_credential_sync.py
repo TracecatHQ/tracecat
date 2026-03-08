@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.credential_sync import router as credential_sync_router
+from tracecat.secrets.sync import router as credential_sync_router
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ async def test_get_aws_config_success(
         }
         MockService.return_value = mock_svc
 
-        response = client.get("/organization/credentials/sync/aws")
+        response = client.get("/organization/secrets/sync/aws")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["secret_prefix"] == "tracecat/test-sync"
@@ -64,7 +64,7 @@ async def test_update_aws_config_success(
         MockService.return_value = mock_svc
 
         response = client.patch(
-            "/organization/credentials/sync/aws",
+            "/organization/secrets/sync/aws",
             json={
                 "region": "us-east-1",
                 "secret_prefix": "tracecat/test-sync",
@@ -87,7 +87,7 @@ async def test_update_aws_config_validation_error(
         MockService.return_value = mock_svc
 
         response = client.patch(
-            "/organization/credentials/sync/aws",
+            "/organization/secrets/sync/aws",
             json={"region": "us-east-1"},
         )
 
@@ -116,7 +116,7 @@ async def test_push_aws_credentials_success(
         MockService.return_value = mock_svc
 
         response = client.post(
-            f"/workspaces/{credential_sync_role.workspace_id}/credentials/sync/aws/push"
+            f"/workspaces/{credential_sync_role.workspace_id}/secrets/sync/aws/push"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -134,7 +134,7 @@ async def test_pull_aws_credentials_bad_request(
         MockService.return_value = mock_svc
 
         response = client.post(
-            f"/workspaces/{credential_sync_role.workspace_id}/credentials/sync/aws/pull"
+            f"/workspaces/{credential_sync_role.workspace_id}/secrets/sync/aws/pull"
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST

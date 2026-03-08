@@ -16,17 +16,17 @@ from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
-from tracecat.credential_sync import service as credential_sync_service
-from tracecat.credential_sync.schemas import (
+from tracecat.exceptions import TracecatNotFoundError
+from tracecat.secrets.enums import SecretType
+from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
+from tracecat.secrets.sync import service as credential_sync_service
+from tracecat.secrets.sync.schemas import (
     AwsCredentialSyncConfigUpdate,
     SyncedSecretKeyValue,
     SyncedSecretPayload,
 )
-from tracecat.credential_sync.service import CredentialSyncService
-from tracecat.credential_sync.types import RemoteSecretRecord
-from tracecat.exceptions import TracecatNotFoundError
-from tracecat.secrets.enums import SecretType
-from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
+from tracecat.secrets.sync.service import CredentialSyncService
+from tracecat.secrets.sync.types import RemoteSecretRecord
 from tracecat.settings.constants import AWS_CREDENTIAL_SYNC_SETTING_KEY
 
 
