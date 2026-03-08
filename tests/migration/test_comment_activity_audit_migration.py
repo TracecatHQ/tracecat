@@ -321,12 +321,13 @@ def test_comment_activity_migration_downgrade_removes_comment_event_types(
         engine.dispose()
 
 
-def test_comment_activity_migration_downgrade_drops_legacy_audit_event_table(
+def test_comment_activity_migration_downgrade_preserves_unowned_audit_event_table(
     migration_db_url: str,
 ) -> None:
     _run_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
 
     engine = create_engine(migration_db_url, poolclass=NullPool)
+    audit_event_id = uuid.uuid4()
 
     try:
         with engine.begin() as conn:
@@ -352,6 +353,31 @@ def test_comment_activity_migration_downgrade_drops_legacy_audit_event_table(
                     """
                 )
             )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO audit_event (
+                        id,
+                        actor_type,
+                        actor_id,
+                        resource_type,
+                        action,
+                        status,
+                        data
+                    )
+                    VALUES (
+                        :id,
+                        'USER',
+                        :actor_id,
+                        'case_comment',
+                        'create',
+                        'SUCCESS',
+                        '{}'::jsonb
+                    )
+                    """
+                ),
+                {"id": audit_event_id, "actor_id": uuid.uuid4()},
+            )
 
         _run_alembic(migration_db_url, "downgrade", PREVIOUS_REVISION)
 
@@ -365,6 +391,11 @@ def test_comment_activity_migration_downgrade_drops_legacy_audit_event_table(
                     """
                 )
             ).scalar_one()
-            assert audit_table_count == 0
+            assert audit_table_count == 1
+            persisted_id = conn.execute(
+                text("SELECT id FROM audit_event WHERE id = :id"),
+                {"id": audit_event_id},
+            ).scalar_one()
+            assert persisted_id == audit_event_id
     finally:
         engine.dispose()

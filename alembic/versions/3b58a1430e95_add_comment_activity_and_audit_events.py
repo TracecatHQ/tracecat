@@ -91,7 +91,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
-    inspector = sa.inspect(bind)
     bind.execute(
         sa.text(
             """
@@ -119,6 +118,3 @@ def downgrade() -> None:
         affected_columns=_CASE_EVENT_TYPE_COLUMNS,
         enum_values_to_rename=[],
     )
-
-    if inspector.has_table("audit_event"):
-        op.drop_table("audit_event")
