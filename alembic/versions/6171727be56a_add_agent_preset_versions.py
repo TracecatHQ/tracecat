@@ -49,7 +49,12 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("workspace_id", sa.UUID(), nullable=False),
-        sa.Column("surrogate_id", sa.Integer(), nullable=False),
+        sa.Column(
+            "surrogate_id",
+            sa.Integer(),
+            sa.Identity(),
+            nullable=False,
+        ),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
