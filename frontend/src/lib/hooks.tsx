@@ -3933,7 +3933,8 @@ export function useCaseFields(workspaceId: string) {
 export function useCaseComments({
   caseId,
   workspaceId,
-}: CasesListCommentsData) {
+  enabled = true,
+}: CasesListCommentsData & { enabled?: boolean }) {
   const {
     data: caseComments,
     isLoading: caseCommentsIsLoading,
@@ -3941,6 +3942,7 @@ export function useCaseComments({
   } = useQuery<CaseCommentRead[], TracecatApiError>({
     queryKey: ["case-comments", caseId, workspaceId],
     queryFn: async () => await casesListComments({ caseId, workspaceId }),
+    enabled,
   })
 
   return {
@@ -3953,7 +3955,8 @@ export function useCaseComments({
 export function useCaseCommentThreads({
   caseId,
   workspaceId,
-}: CasesListCommentThreadsData) {
+  enabled = true,
+}: CasesListCommentThreadsData & { enabled?: boolean }) {
   const {
     data: caseCommentThreads,
     isLoading: caseCommentThreadsIsLoading,
@@ -3961,6 +3964,7 @@ export function useCaseCommentThreads({
   } = useQuery<CaseCommentThreadRead[], TracecatApiError>({
     queryKey: ["case-comment-threads", caseId, workspaceId],
     queryFn: async () => await casesListCommentThreads({ caseId, workspaceId }),
+    enabled,
   })
 
   return {

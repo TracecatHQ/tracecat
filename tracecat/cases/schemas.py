@@ -185,10 +185,26 @@ class CaseCommentCreate(Schema):
     content: str = Field(default=..., min_length=1, max_length=25_000)
     parent_id: uuid.UUID | None = Field(default=None)
 
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Comment content cannot be blank")
+        return value
+
 
 class CaseCommentUpdate(Schema):
     content: str | None = Field(default=None, min_length=1, max_length=25_000)
     parent_id: uuid.UUID | None = Field(default=None)
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("Comment content cannot be blank")
+        return value
 
 
 # Case Tasks

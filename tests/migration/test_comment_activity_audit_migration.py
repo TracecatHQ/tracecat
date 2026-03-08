@@ -344,3 +344,75 @@ def test_comment_activity_migration_handles_existing_audit_event_table(
             } <= event_types
     finally:
         engine.dispose()
+
+
+def test_comment_activity_migration_downgrade_preserves_preexisting_audit_event_table(
+    migration_db_url: str,
+) -> None:
+    engine = create_engine(migration_db_url, poolclass=NullPool)
+    audit_event_id = uuid.uuid4()
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE audit_event (
+                        id UUID NOT NULL PRIMARY KEY,
+                        organization_id UUID,
+                        workspace_id UUID,
+                        actor_type VARCHAR(32) NOT NULL,
+                        actor_id UUID NOT NULL,
+                        actor_label VARCHAR(255),
+                        ip_address VARCHAR(64),
+                        resource_type VARCHAR(64) NOT NULL,
+                        resource_id UUID,
+                        action VARCHAR(32) NOT NULL,
+                        status VARCHAR(32) NOT NULL,
+                        data JSONB NOT NULL DEFAULT '{}'::jsonb,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO audit_event (
+                        id,
+                        actor_type,
+                        actor_id,
+                        resource_type,
+                        action,
+                        status,
+                        data
+                    )
+                    VALUES (
+                        :id,
+                        'USER',
+                        :actor_id,
+                        'case_comment',
+                        'create',
+                        'SUCCESS',
+                        '{}'::jsonb
+                    )
+                    """
+                ),
+                {"id": audit_event_id, "actor_id": uuid.uuid4()},
+            )
+
+        _run_alembic(migration_db_url, "upgrade", MIGRATION_REVISION)
+        _run_alembic(migration_db_url, "downgrade", PREVIOUS_REVISION)
+
+        with engine.begin() as conn:
+            row_count = conn.execute(
+                text("SELECT COUNT(*) FROM audit_event")
+            ).scalar_one()
+            assert row_count == 1
+            persisted_id = conn.execute(
+                text("SELECT id FROM audit_event WHERE id = :id"),
+                {"id": audit_event_id},
+            ).scalar_one()
+            assert persisted_id == audit_event_id
+    finally:
+        engine.dispose()

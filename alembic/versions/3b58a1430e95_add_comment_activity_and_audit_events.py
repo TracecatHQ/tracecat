@@ -79,6 +79,32 @@ _CASE_EVENT_TYPE_COLUMNS = [
     ),
 ]
 
+_AUDIT_EVENT_MIGRATION_TABLE_COMMENT = "tracecat-managed:3b58a1430e95"
+
+
+def _get_existing_index_names(inspector: sa.Inspector, table_name: str) -> set[str]:
+    return {
+        name
+        for index in inspector.get_indexes(table_name)
+        if (name := index["name"]) is not None
+    }
+
+
+def _get_table_comment(bind: sa.Connection, table_name: str) -> str | None:
+    result = bind.execute(
+        sa.text(
+            """
+            SELECT obj_description(to_regclass(:qualified_table_name), 'pg_class')
+            """
+        ),
+        {"qualified_table_name": f"public.{table_name}"},
+    )
+    return result.scalar_one_or_none()
+
+
+def _sql_literal(value: str) -> str:
+    return value.replace("'", "''")
+
 
 def upgrade() -> None:
     bind = op.get_bind()
@@ -118,13 +144,12 @@ def upgrade() -> None:
             ),
             sa.PrimaryKeyConstraint("id", name=op.f("pk_audit_event")),
         )
+        op.execute(
+            f"COMMENT ON TABLE audit_event IS '{_sql_literal(_AUDIT_EVENT_MIGRATION_TABLE_COMMENT)}'"
+        )
         existing_indexes: set[str] = set()
     else:
-        existing_indexes = {
-            name
-            for index in inspector.get_indexes("audit_event")
-            if (name := index["name"]) is not None
-        }
+        existing_indexes = _get_existing_index_names(inspector, "audit_event")
 
     if "ix_audit_event_created_at" not in existing_indexes:
         op.create_index(
@@ -173,6 +198,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
+    inspector = sa.inspect(bind)
     bind.execute(
         sa.text(
             """
@@ -201,15 +227,28 @@ def downgrade() -> None:
         enum_values_to_rename=[],
     )
 
-    op.drop_index("ix_audit_event_actor_id_created_at", table_name="audit_event")
-    op.drop_index(
-        "ix_audit_event_resource_type_resource_id_created_at",
-        table_name="audit_event",
-    )
-    op.drop_index("ix_audit_event_workspace_id_created_at", table_name="audit_event")
-    op.drop_index(
-        "ix_audit_event_organization_id_created_at",
-        table_name="audit_event",
-    )
-    op.drop_index("ix_audit_event_created_at", table_name="audit_event")
-    op.drop_table("audit_event")
+    if inspector.has_table("audit_event") and (
+        _get_table_comment(bind, "audit_event") == _AUDIT_EVENT_MIGRATION_TABLE_COMMENT
+    ):
+        existing_indexes = _get_existing_index_names(inspector, "audit_event")
+        if "ix_audit_event_actor_id_created_at" in existing_indexes:
+            op.drop_index(
+                "ix_audit_event_actor_id_created_at", table_name="audit_event"
+            )
+        if "ix_audit_event_resource_type_resource_id_created_at" in existing_indexes:
+            op.drop_index(
+                "ix_audit_event_resource_type_resource_id_created_at",
+                table_name="audit_event",
+            )
+        if "ix_audit_event_workspace_id_created_at" in existing_indexes:
+            op.drop_index(
+                "ix_audit_event_workspace_id_created_at", table_name="audit_event"
+            )
+        if "ix_audit_event_organization_id_created_at" in existing_indexes:
+            op.drop_index(
+                "ix_audit_event_organization_id_created_at",
+                table_name="audit_event",
+            )
+        if "ix_audit_event_created_at" in existing_indexes:
+            op.drop_index("ix_audit_event_created_at", table_name="audit_event")
+        op.drop_table("audit_event")

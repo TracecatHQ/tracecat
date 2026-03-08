@@ -12,7 +12,9 @@ import {
 import type { CaseCommentThreadRead } from "@/client"
 import { CommentSection } from "@/components/cases/case-comments-section"
 import { useAuth } from "@/hooks/use-auth"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import {
+  useCaseComments,
   useCaseCommentThreads,
   useCreateCaseComment,
   useDeleteCaseComment,
@@ -23,7 +25,12 @@ jest.mock("@/hooks/use-auth", () => ({
   useAuth: jest.fn(),
 }))
 
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: jest.fn(),
+}))
+
 jest.mock("@/lib/hooks", () => ({
+  useCaseComments: jest.fn(),
   useCaseCommentThreads: jest.fn(),
   useCreateCaseComment: jest.fn(),
   useDeleteCaseComment: jest.fn(),
@@ -49,6 +56,12 @@ jest.mock("@/components/ui/use-toast", () => ({
 }))
 
 const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>
+const mockUseEntitlements = useEntitlements as jest.MockedFunction<
+  typeof useEntitlements
+>
+const mockUseCaseComments = useCaseComments as jest.MockedFunction<
+  typeof useCaseComments
+>
 const mockUseCaseCommentThreads = useCaseCommentThreads as jest.MockedFunction<
   typeof useCaseCommentThreads
 >
@@ -134,14 +147,35 @@ function createThreadFixtures(): CaseCommentThreadRead[] {
 
 describe("CommentSection", () => {
   beforeEach(() => {
+    const fixtures = createThreadFixtures()
+    const firstThread = fixtures[0]!
+    const secondThread = fixtures[1]!
+    const firstReply = firstThread.replies?.[0]
+
+    if (!firstReply) {
+      throw new Error("Expected first thread fixture to include a reply")
+    }
+
     jest.clearAllMocks()
     mockUseAuth.mockReturnValue({
       user: { id: "user-1" },
       userIsLoading: false,
       userError: null,
     } as ReturnType<typeof useAuth>)
+    mockUseEntitlements.mockReturnValue({
+      hasEntitlement: jest
+        .fn()
+        .mockImplementation((key) => key === "case_addons"),
+      isLoading: false,
+      hasEntitlementData: true,
+    })
+    mockUseCaseComments.mockReturnValue({
+      caseComments: [firstThread.comment, firstReply, secondThread.comment],
+      caseCommentsIsLoading: false,
+      caseCommentsError: null,
+    })
     mockUseCaseCommentThreads.mockReturnValue({
-      caseCommentThreads: createThreadFixtures(),
+      caseCommentThreads: fixtures,
       caseCommentThreadsIsLoading: false,
       caseCommentThreadsError: null,
     })
@@ -207,6 +241,93 @@ describe("CommentSection", () => {
     ).toBeInTheDocument()
   })
 
+  it("shows the replies toggle for non-owners", () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: "someone-else" },
+      userIsLoading: false,
+      userError: null,
+    } as ReturnType<typeof useAuth>)
+
+    render(<CommentSection caseId="case-1" workspaceId="workspace-1" />)
+
+    expect(
+      screen.getByRole("button", { name: "Hide replies" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "More options" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("keeps deleted parent threads collapsible when replies exist", () => {
+    mockUseCaseCommentThreads.mockReturnValue({
+      caseCommentThreads: [
+        {
+          comment: {
+            id: "deleted-thread",
+            created_at: "2024-01-02T00:00:00Z",
+            updated_at: "2024-01-02T00:00:00Z",
+            content: "Comment deleted",
+            parent_id: null,
+            user: {
+              id: "user-3",
+              email: "deleted@example.com",
+              role: "admin",
+              first_name: "Deleted",
+              last_name: "User",
+              settings: {},
+            },
+            last_edited_at: null,
+            deleted_at: "2024-01-02T00:00:00Z",
+            is_deleted: true,
+          },
+          replies: [
+            {
+              id: "deleted-thread-reply",
+              created_at: "2024-01-02T01:00:00Z",
+              updated_at: "2024-01-02T01:00:00Z",
+              content: "Reply on deleted thread",
+              parent_id: "deleted-thread",
+              user: {
+                id: "user-2",
+                email: "reply@example.com",
+                role: "admin",
+                first_name: "Reply",
+                last_name: "User",
+                settings: {},
+              },
+              last_edited_at: null,
+              deleted_at: null,
+              is_deleted: false,
+            },
+          ],
+          reply_count: 1,
+          last_activity_at: "2024-01-02T01:00:00Z",
+        },
+      ],
+      caseCommentThreadsIsLoading: false,
+      caseCommentThreadsError: null,
+    })
+
+    render(<CommentSection caseId="case-1" workspaceId="workspace-1" />)
+
+    expect(
+      screen.getByRole("button", { name: "Hide replies" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByPlaceholderText("Leave a reply...")
+    ).not.toBeInTheDocument()
+    expect(screen.getByText("Reply on deleted thread")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide replies" }))
+
+    expect(
+      screen.queryByText("Reply on deleted thread")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Show replies" })
+    ).toBeInTheDocument()
+  })
+
   it("submits parent_id through the inline reply composer", async () => {
     const createComment = jest.fn().mockResolvedValue(undefined)
     mockUseCreateCaseComment.mockReturnValue({
@@ -237,5 +358,27 @@ describe("CommentSection", () => {
     await waitFor(() => {
       expect(screen.getByPlaceholderText("Leave a reply...")).toHaveValue("")
     })
+  })
+
+  it("renders flat top-level comments only without case add-ons", () => {
+    mockUseEntitlements.mockReturnValue({
+      hasEntitlement: jest.fn().mockReturnValue(false),
+      isLoading: false,
+      hasEntitlementData: true,
+    })
+
+    render(<CommentSection caseId="case-1" workspaceId="workspace-1" />)
+
+    expect(screen.getByText("Top level")).toBeInTheDocument()
+    expect(screen.queryByText("Reply one")).not.toBeInTheDocument()
+    expect(
+      screen.queryByPlaceholderText("Leave a reply...")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Hide replies" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByPlaceholderText("Leave a comment...")
+    ).toBeInTheDocument()
   })
 })

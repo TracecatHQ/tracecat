@@ -95,6 +95,7 @@ from tracecat.db.models import (
 )
 from tracecat.db.session_events import add_after_commit_callback
 from tracecat.exceptions import (
+    EntitlementRequired,
     TracecatAuthorizationError,
     TracecatException,
     TracecatNotFoundError,
@@ -1370,6 +1371,29 @@ class CaseCommentsService(BaseWorkspaceService):
                 data=data,
             )
 
+    async def _audit_comment_success_event(
+        self,
+        *,
+        action: Literal["create", "update", "delete"],
+        comment_id: uuid.UUID,
+        data: dict[str, Any],
+    ) -> None:
+        """Persist post-commit success audits without failing the mutation."""
+        try:
+            await self._audit_comment_event(
+                action=action,
+                comment_id=comment_id,
+                status=AuditEventStatus.SUCCESS,
+                data=data,
+            )
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to persist post-commit comment audit",
+                action=action,
+                comment_id=comment_id,
+                error=str(exc),
+            )
+
     async def get_comment(self, comment_id: uuid.UUID) -> CaseComment | None:
         """Get a comment by ID.
 
@@ -1450,6 +1474,7 @@ class CaseCommentsService(BaseWorkspaceService):
 
     async def list_comment_threads(self, case: Case) -> list[CaseCommentThreadRead]:
         """List comments grouped by top-level thread."""
+        await self._require_replies_entitlement()
         rows = await self._list_comment_rows(case_id=case.id)
         threads_by_id: dict[uuid.UUID, CaseCommentThreadRead] = {}
         ordered_threads: list[CaseCommentThreadRead] = []
@@ -1457,6 +1482,15 @@ class CaseCommentsService(BaseWorkspaceService):
         for comment, user in rows:
             serialized = self.serialize_comment(comment, user=user)
             if comment.parent_id is None:
+                if (thread := threads_by_id.get(comment.id)) is not None:
+                    if thread.comment.parent_id is not None:
+                        thread.replies.insert(0, thread.comment)
+                        thread.reply_count = len(thread.replies)
+                    thread.comment = serialized
+                    if comment.updated_at > thread.last_activity_at:
+                        thread.last_activity_at = comment.updated_at
+                    continue
+
                 thread = CaseCommentThreadRead(
                     comment=serialized,
                     replies=[],
@@ -1474,7 +1508,7 @@ class CaseCommentsService(BaseWorkspaceService):
                     reply_count=0,
                     last_activity_at=comment.updated_at,
                 )
-                threads_by_id[comment.id] = fallback_thread
+                threads_by_id[comment.parent_id] = fallback_thread
                 ordered_threads.append(fallback_thread)
                 continue
 
@@ -1489,6 +1523,7 @@ class CaseCommentsService(BaseWorkspaceService):
         self, comment_id: uuid.UUID
     ) -> CaseCommentThreadRead | None:
         """Get the containing thread for a comment ID."""
+        await self._require_replies_entitlement()
         if (comment := await self.get_comment(comment_id)) is None:
             return None
 
@@ -1522,6 +1557,11 @@ class CaseCommentsService(BaseWorkspaceService):
             reply_count=len(replies),
             last_activity_at=last_activity_at,
         )
+
+    async def _require_replies_entitlement(self) -> None:
+        """Require case add-ons entitlement for reply/thread capabilities."""
+        if not await self.has_entitlement(Entitlement.CASE_ADDONS):
+            raise EntitlementRequired(Entitlement.CASE_ADDONS.value)
 
     async def _validate_parent_comment(
         self,
@@ -1580,6 +1620,8 @@ class CaseCommentsService(BaseWorkspaceService):
         )
 
         try:
+            if params.parent_id is not None:
+                await self._require_replies_entitlement()
             await self._validate_parent_comment(case=case, parent_id=params.parent_id)
             comment = CaseComment(
                 id=comment_id,
@@ -1609,10 +1651,9 @@ class CaseCommentsService(BaseWorkspaceService):
             )
             raise
 
-        await self._audit_comment_event(
+        await self._audit_comment_success_event(
             action="create",
             comment_id=comment_id,
-            status=AuditEventStatus.SUCCESS,
             data=audit_data,
         )
         return comment
@@ -1689,10 +1730,9 @@ class CaseCommentsService(BaseWorkspaceService):
             )
             raise
 
-        await self._audit_comment_event(
+        await self._audit_comment_success_event(
             action="update",
             comment_id=comment.id,
-            status=AuditEventStatus.SUCCESS,
             data=audit_data,
         )
         return comment
@@ -1710,29 +1750,32 @@ class CaseCommentsService(BaseWorkspaceService):
             TracecatAuthorizationError: If the user doesn't own the comment
         """
 
-        delete_mode: Literal["soft", "hard"] = "hard"
+        if comment.user_id != self.role.user_id:
+            raise TracecatAuthorizationError("You can only delete your own comments")
+
+        has_replies = comment.parent_id is None and await self._comment_has_replies(
+            comment.id
+        )
+        if has_replies and comment.deleted_at is not None:
+            return
+
+        delete_mode: Literal["soft", "hard"] = "soft" if has_replies else "hard"
+        delete_audit_data = self._comment_audit_data(
+            case_id=comment.case_id,
+            comment_id=comment.id,
+            parent_id=comment.parent_id,
+            delete_mode=delete_mode,
+        )
         await self._audit_comment_event(
             action="delete",
             comment_id=comment.id,
             status=AuditEventStatus.ATTEMPT,
-            data=self._comment_audit_data(
-                case_id=comment.case_id,
-                comment_id=comment.id,
-                parent_id=comment.parent_id,
-            ),
+            data=delete_audit_data,
         )
 
         try:
-            if comment.user_id != self.role.user_id:
-                raise TracecatAuthorizationError(
-                    "You can only delete your own comments"
-                )
-
             case = await self._get_case(comment.case_id)
-            if comment.parent_id is None and await self._comment_has_replies(
-                comment.id
-            ):
-                delete_mode = "soft"
+            if has_replies:
                 if comment.deleted_at is None:
                     comment.deleted_at = datetime.now(UTC)
                 await CaseEventsService(
@@ -1764,25 +1807,14 @@ class CaseCommentsService(BaseWorkspaceService):
                 action="delete",
                 comment_id=comment.id,
                 status=AuditEventStatus.FAILURE,
-                data=self._comment_audit_data(
-                    case_id=comment.case_id,
-                    comment_id=comment.id,
-                    parent_id=comment.parent_id,
-                    delete_mode=delete_mode,
-                ),
+                data=delete_audit_data,
             )
             raise
 
-        await self._audit_comment_event(
+        await self._audit_comment_success_event(
             action="delete",
             comment_id=comment.id,
-            status=AuditEventStatus.SUCCESS,
-            data=self._comment_audit_data(
-                case_id=comment.case_id,
-                comment_id=comment.id,
-                parent_id=comment.parent_id,
-                delete_mode=delete_mode,
-            ),
+            data=delete_audit_data,
         )
 
 

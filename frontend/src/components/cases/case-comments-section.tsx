@@ -49,8 +49,10 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { SYSTEM_USER_READ, User } from "@/lib/auth"
 import {
+  useCaseComments,
   useCaseCommentThreads,
   useCreateCaseComment,
   useDeleteCaseComment,
@@ -78,6 +80,14 @@ export function CommentSection({
   workspaceId: string
 }) {
   const { user: currentUser } = useAuth()
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const repliesEnabled = hasEntitlement("case_addons")
+  const { caseComments, caseCommentsIsLoading, caseCommentsError } =
+    useCaseComments({
+      caseId,
+      workspaceId,
+      enabled: !repliesEnabled,
+    })
   const {
     caseCommentThreads,
     caseCommentThreadsIsLoading,
@@ -85,10 +95,15 @@ export function CommentSection({
   } = useCaseCommentThreads({
     caseId,
     workspaceId,
+    enabled: repliesEnabled,
   })
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
 
-  if (caseCommentThreadsIsLoading) {
+  if (
+    entitlementsLoading ||
+    caseCommentThreadsIsLoading ||
+    caseCommentsIsLoading
+  ) {
     return (
       <div className="space-y-4 p-4">
         <CommentThreadSkeleton />
@@ -97,7 +112,7 @@ export function CommentSection({
     )
   }
 
-  if (caseCommentThreadsError) {
+  if (caseCommentThreadsError || caseCommentsError) {
     return (
       <div className="flex items-center justify-center p-8">
         <div className="flex items-center gap-2 text-red-600">
@@ -111,21 +126,45 @@ export function CommentSection({
   return (
     <div className="mx-auto w-full space-y-4">
       <div className="space-y-3">
-        {caseCommentThreads?.map((thread) => (
-          <CommentThread
-            key={thread.comment.id}
-            caseId={caseId}
-            workspaceId={workspaceId}
-            thread={thread}
-            currentUserId={currentUser?.id ?? null}
-            editingCommentId={editingCommentId}
-            onEdit={(commentId) => setEditingCommentId(commentId)}
-            onStopEditing={() => setEditingCommentId(null)}
-          />
-        ))}
+        {repliesEnabled
+          ? caseCommentThreads?.map((thread) => (
+              <CommentThread
+                key={thread.comment.id}
+                caseId={caseId}
+                workspaceId={workspaceId}
+                thread={thread}
+                currentUserId={currentUser?.id ?? null}
+                editingCommentId={editingCommentId}
+                onEdit={(commentId) => setEditingCommentId(commentId)}
+                onStopEditing={() => setEditingCommentId(null)}
+              />
+            ))
+          : caseComments
+              ?.filter((comment) => comment.parent_id === null)
+              .map((comment) => (
+                <CommentThreadShell key={comment.id}>
+                  <CommentRow
+                    caseId={caseId}
+                    workspaceId={workspaceId}
+                    comment={comment}
+                    currentUserId={currentUser?.id ?? null}
+                    isEditing={editingCommentId === comment.id}
+                    onEdit={() => setEditingCommentId(comment.id)}
+                    onStopEditing={() => setEditingCommentId(null)}
+                  />
+                </CommentThreadShell>
+              ))}
       </div>
       <CommentComposer caseId={caseId} workspaceId={workspaceId} />
     </div>
+  )
+}
+
+function CommentThreadShell({ children }: { children: React.ReactNode }) {
+  return (
+    <section className="overflow-hidden rounded-lg border border-border/60 px-5 py-4">
+      {children}
+    </section>
   )
 }
 
@@ -271,15 +310,17 @@ function CommentRow({
           </div>
         )}
 
-        {!isEditing && canManage && (
+        {!isEditing && (headerActions || canManage) && (
           <div className="flex items-center gap-1">
             {headerActions}
-            <CommentActionsWithEditing
-              caseId={caseId}
-              workspaceId={workspaceId}
-              comment={comment}
-              onEdit={onEdit}
-            />
+            {canManage ? (
+              <CommentActionsWithEditing
+                caseId={caseId}
+                workspaceId={workspaceId}
+                comment={comment}
+                onEdit={onEdit}
+              />
+            ) : null}
           </div>
         )}
       </div>

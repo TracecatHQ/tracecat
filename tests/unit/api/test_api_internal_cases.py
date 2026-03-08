@@ -12,7 +12,7 @@ from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, Case
 from tracecat.cases.rows.schemas import CaseTableRowRead
 from tracecat.cases.schemas import CaseCommentRead, CaseCommentThreadRead
 from tracecat.db.models import Case, Workspace
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import EntitlementRequired, TracecatValidationError
 
 
 @pytest.fixture
@@ -202,6 +202,37 @@ async def test_internal_list_comment_threads_success(
 
 
 @pytest.mark.anyio
+async def test_internal_list_comment_threads_requires_case_addons(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_internal_case: Case,
+) -> None:
+    with (
+        patch.object(internal_cases_router, "CasesService") as mock_cases_service_cls,
+        patch.object(
+            internal_cases_router, "CaseCommentsService"
+        ) as mock_comments_service_cls,
+    ):
+        mock_cases_service = AsyncMock()
+        mock_cases_service.get_case.return_value = mock_internal_case
+        mock_cases_service_cls.return_value = mock_cases_service
+
+        mock_comments_service = AsyncMock()
+        mock_comments_service.list_comment_threads.side_effect = EntitlementRequired(
+            "case_addons"
+        )
+        mock_comments_service_cls.return_value = mock_comments_service
+
+        response = client.get(
+            f"/internal/cases/{mock_internal_case.id}/comments/threads",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["type"] == "EntitlementRequired"
+
+
+@pytest.mark.anyio
 async def test_internal_get_comment_thread_success(
     client: TestClient,
     test_admin_role: Role,
@@ -232,6 +263,61 @@ async def test_internal_get_comment_thread_success(
         data = response.json()
         assert data["comment"]["id"] == str(top_level.id)
         assert data["replies"][0]["id"] == str(reply.id)
+
+
+@pytest.mark.anyio
+async def test_internal_get_comment_thread_requires_case_addons(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(
+        internal_cases_router, "CaseCommentsService"
+    ) as mock_comments_service_cls:
+        mock_comments_service = AsyncMock()
+        mock_comments_service.get_comment_thread.side_effect = EntitlementRequired(
+            "case_addons"
+        )
+        mock_comments_service_cls.return_value = mock_comments_service
+
+        response = client.get(
+            f"/internal/comments/{uuid.uuid4()}/thread",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["type"] == "EntitlementRequired"
+
+
+@pytest.mark.anyio
+async def test_internal_create_comment_simple_reply_requires_case_addons(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_internal_case: Case,
+) -> None:
+    with (
+        patch.object(internal_cases_router, "CasesService") as mock_cases_service_cls,
+        patch.object(
+            internal_cases_router, "CaseCommentsService"
+        ) as mock_comments_service_cls,
+    ):
+        mock_cases_service = AsyncMock()
+        mock_cases_service.get_case.return_value = mock_internal_case
+        mock_cases_service_cls.return_value = mock_cases_service
+
+        mock_comments_service = AsyncMock()
+        mock_comments_service.create_comment.side_effect = EntitlementRequired(
+            "case_addons"
+        )
+        mock_comments_service_cls.return_value = mock_comments_service
+
+        response = client.post(
+            f"/internal/cases/{mock_internal_case.id}/comments/simple",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"content": "Reply", "parent_id": str(uuid.uuid4())},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["type"] == "EntitlementRequired"
 
 
 @pytest.mark.anyio

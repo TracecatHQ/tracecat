@@ -20,7 +20,7 @@ from tracecat.cases.schemas import (
     CaseStatusGroupCounts,
 )
 from tracecat.db.models import Case, CaseTag, Workspace
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import EntitlementRequired, TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse
 
 
@@ -923,6 +923,65 @@ async def test_list_comment_threads_success(
         assert data[0]["reply_count"] == 1
         assert data[0]["replies"][0]["content"] == "Reply content"
         assert data[0]["replies"][0]["parent_id"] == str(top_level.id)
+
+
+@pytest.mark.anyio
+async def test_list_comment_threads_requires_case_addons(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    with (
+        patch.object(cases_router, "CasesService") as mock_cases_service_cls,
+        patch.object(cases_router, "CaseCommentsService") as mock_comments_service_cls,
+    ):
+        mock_cases_service = AsyncMock()
+        mock_cases_service.get_case.return_value = mock_case
+        mock_cases_service_cls.return_value = mock_cases_service
+
+        mock_comments_service = AsyncMock()
+        mock_comments_service.list_comment_threads.side_effect = EntitlementRequired(
+            "case_addons"
+        )
+        mock_comments_service_cls.return_value = mock_comments_service
+
+        response = client.get(
+            f"/cases/{mock_case.id}/comments/threads",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["type"] == "EntitlementRequired"
+
+
+@pytest.mark.anyio
+async def test_create_reply_requires_case_addons(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    with (
+        patch.object(cases_router, "CasesService") as mock_cases_service_cls,
+        patch.object(cases_router, "CaseCommentsService") as mock_comments_service_cls,
+    ):
+        mock_cases_service = AsyncMock()
+        mock_cases_service.get_case.return_value = mock_case
+        mock_cases_service_cls.return_value = mock_cases_service
+
+        mock_comments_service = AsyncMock()
+        mock_comments_service.create_comment.side_effect = EntitlementRequired(
+            "case_addons"
+        )
+        mock_comments_service_cls.return_value = mock_comments_service
+
+        response = client.post(
+            f"/cases/{mock_case.id}/comments",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"content": "Reply", "parent_id": str(uuid.uuid4())},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["type"] == "EntitlementRequired"
 
 
 @pytest.mark.anyio

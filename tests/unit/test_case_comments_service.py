@@ -1,9 +1,12 @@
 import uuid
 from collections import Counter
 from collections.abc import Iterator
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
@@ -24,7 +27,11 @@ from tracecat.cases.schemas import (
 from tracecat.cases.service import CaseCommentsService, CasesService
 from tracecat.db.models import AuditEvent as DBAuditEvent
 from tracecat.db.models import Case, CaseEvent
-from tracecat.exceptions import TracecatAuthorizationError, TracecatValidationError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    TracecatAuthorizationError,
+    TracecatValidationError,
+)
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -34,6 +41,16 @@ def stub_case_duration_sync() -> Iterator[None]:
     with patch(
         "tracecat.cases.service.CaseDurationService.sync_case_durations",
         new=AsyncMock(return_value=None),
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def stub_case_addons_entitlement() -> Iterator[None]:
+    with patch.object(
+        CaseCommentsService,
+        "has_entitlement",
+        new=AsyncMock(return_value=True),
     ):
         yield
 
@@ -266,6 +283,92 @@ class TestCaseCommentsService:
         assert len(thread.replies) == 1
         assert thread.replies[0].id == reply.id
 
+    async def test_list_comment_threads_groups_orphan_siblings(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+    ) -> None:
+        parent_id = uuid.uuid4()
+        now = datetime.now(UTC)
+        orphan_one = SimpleNamespace(
+            id=uuid.uuid4(),
+            case_id=test_case.id,
+            workspace_id=case_comments_service.workspace_id,
+            content="First orphan reply",
+            parent_id=parent_id,
+            user_id=case_comments_service.role.user_id,
+            created_at=now,
+            updated_at=now,
+            last_edited_at=None,
+            deleted_at=None,
+        )
+        orphan_two = SimpleNamespace(
+            id=uuid.uuid4(),
+            case_id=test_case.id,
+            workspace_id=case_comments_service.workspace_id,
+            content="Second orphan reply",
+            parent_id=parent_id,
+            user_id=case_comments_service.role.user_id,
+            created_at=now,
+            updated_at=now,
+            last_edited_at=None,
+            deleted_at=None,
+        )
+
+        with patch.object(
+            case_comments_service,
+            "_list_comment_rows",
+            new=AsyncMock(return_value=[(orphan_one, None), (orphan_two, None)]),
+        ):
+            threads = await case_comments_service.list_comment_threads(test_case)
+
+        assert len(threads) == 1
+        assert threads[0].comment.id == orphan_one.id
+        assert threads[0].reply_count == 1
+        assert [reply.id for reply in threads[0].replies] == [orphan_two.id]
+
+    async def test_list_comment_threads_requires_case_addons(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+        comment_create_params: CaseCommentCreate,
+    ) -> None:
+        parent = await case_comments_service.create_comment(
+            test_case, comment_create_params
+        )
+        await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content="Thread reply", parent_id=parent.id),
+        )
+        with patch.object(
+            case_comments_service,
+            "has_entitlement",
+            new=AsyncMock(return_value=False),
+        ):
+            with pytest.raises(EntitlementRequired, match="case_addons"):
+                await case_comments_service.list_comment_threads(test_case)
+
+    async def test_get_comment_thread_requires_case_addons(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+        comment_create_params: CaseCommentCreate,
+    ) -> None:
+        parent = await case_comments_service.create_comment(
+            test_case, comment_create_params
+        )
+        reply = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content="Thread reply", parent_id=parent.id),
+        )
+        with patch.object(
+            case_comments_service,
+            "has_entitlement",
+            new=AsyncMock(return_value=False),
+        ):
+            with pytest.raises(EntitlementRequired, match="case_addons"):
+                await case_comments_service.get_comment_thread(reply.id)
+
     async def test_create_reply_rejects_cross_case_parent(
         self,
         case_comments_service: CaseCommentsService,
@@ -299,6 +402,36 @@ class TestCaseCommentsService:
                 second_case,
                 CaseCommentCreate(content="Cross-case reply", parent_id=parent.id),
             )
+
+        audit_events = (await _load_audit_events(session))[existing_audit_count:]
+        create_audits = [event for event in audit_events if event.action == "create"]
+        assert [event.status for event in create_audits[-2:]] == [
+            AuditEventStatus.ATTEMPT.value,
+            AuditEventStatus.FAILURE.value,
+        ]
+        assert create_audits[-1].data["parent_id"] == str(parent.id)
+
+    async def test_create_reply_requires_case_addons(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        existing_audit_count = len(await _load_audit_events(session))
+        parent = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content="Parent", parent_id=None),
+        )
+        with patch.object(
+            case_comments_service,
+            "has_entitlement",
+            new=AsyncMock(return_value=False),
+        ):
+            with pytest.raises(EntitlementRequired, match="case_addons"):
+                await case_comments_service.create_comment(
+                    test_case,
+                    CaseCommentCreate(content="Reply", parent_id=parent.id),
+                )
 
         audit_events = (await _load_audit_events(session))[existing_audit_count:]
         create_audits = [event for event in audit_events if event.action == "create"]
@@ -571,6 +704,68 @@ class TestCaseCommentsService:
         delete_audits = [event for event in audit_events if event.action == "delete"]
         assert delete_audits[-1].data["delete_mode"] == "soft"
         assert "content" not in delete_audits[-1].data
+
+    async def test_delete_thread_starter_with_replies_is_idempotent(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+    ) -> None:
+        parent = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content="Parent", parent_id=None),
+        )
+        await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content="Reply", parent_id=parent.id),
+        )
+
+        await case_comments_service.delete_comment(parent)
+        event_count = len(await _load_case_events(session, test_case.id))
+        audit_count = len(await _load_audit_events(session))
+
+        deleted_parent = await case_comments_service.get_comment(parent.id)
+        assert deleted_parent is not None
+        await case_comments_service.delete_comment(deleted_parent)
+
+        assert len(await _load_case_events(session, test_case.id)) == event_count
+        assert len(await _load_audit_events(session)) == audit_count
+
+    async def test_create_comment_swallows_success_audit_failures(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+    ) -> None:
+        async def audit_side_effect(
+            *,
+            action: str,
+            comment_id: uuid.UUID,
+            status: AuditEventStatus,
+            data: dict[str, object],
+        ) -> None:
+            del action, comment_id, data
+            if status is AuditEventStatus.SUCCESS:
+                raise RuntimeError("audit store unavailable")
+
+        with patch.object(
+            case_comments_service,
+            "_audit_comment_event",
+            new=AsyncMock(side_effect=audit_side_effect),
+        ):
+            created_comment = await case_comments_service.create_comment(
+                test_case,
+                CaseCommentCreate(content="Comment", parent_id=None),
+            )
+
+        assert created_comment.id is not None
+        assert await case_comments_service.get_comment(created_comment.id) is not None
+
+    async def test_comment_content_rejects_whitespace_only(self) -> None:
+        with pytest.raises(ValidationError, match="Comment content cannot be blank"):
+            CaseCommentCreate(content="   ")
+
+        with pytest.raises(ValidationError, match="Comment content cannot be blank"):
+            CaseCommentUpdate(content="   ")
 
     async def test_delete_comment_authorization(
         self,
