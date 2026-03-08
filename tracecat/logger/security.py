@@ -102,7 +102,7 @@ _SECRET_ASSIGNMENT_PATTERN = re.compile(
     r"access[_-]?token|api[_-]?key|authorization|cookie|password|passwd|refresh[_-]?token|secret|session[_-]?id|token"
     r")=([^&\s]+)"
 )
-_URL_USERINFO_PATTERN = re.compile(r"(?i)(https?://[^/\s:@]+:)([^@\s/]+)@")
+_URL_USERINFO_PATTERN = re.compile(r"(?i)([a-z][a-z0-9+.-]*://[^/\s:@]+:)([^@\s/]+)@")
 _HTTP_URL_PATTERN = re.compile(r"https?://[^\s'\"<>]+")
 
 
@@ -167,7 +167,7 @@ def sanitize_text(
     if text is None:
         return None
 
-    sanitized = apply_masks(text, _mask_value_candidates(masks))
+    sanitized = text
     sanitized = _AUTH_HEADER_PATTERN.sub(r"\1[REDACTED]", sanitized)
     sanitized = _BEARER_PATTERN.sub("Bearer [REDACTED]", sanitized)
     sanitized = _SECRET_ASSIGNMENT_PATTERN.sub(r"\1=[REDACTED]", sanitized)
@@ -178,6 +178,7 @@ def sanitize_text(
     )
     sanitized = _EMAIL_PATTERN.sub(MASK_EMAIL, sanitized)
     sanitized = _IPV4_PATTERN.sub(MASK_IP, sanitized)
+    sanitized = apply_masks(sanitized, _mask_value_candidates(masks))
     return _truncate_text(sanitized, limit=max_length)
 
 

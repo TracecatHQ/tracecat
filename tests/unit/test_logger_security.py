@@ -31,6 +31,16 @@ def test_sanitize_text_redacts_pii_secrets_and_urls() -> None:
     assert "super-secret-value" not in sanitized
 
 
+def test_sanitize_text_preserves_dsn_shape_when_mask_values_overlap() -> None:
+    token = ctx_log_masks.set(("password",))
+    try:
+        sanitized = security.sanitize_text("postgresql://user:password@localhost/db")
+    finally:
+        ctx_log_masks.reset(token)
+
+    assert sanitized == "postgresql://user:[REDACTED]@localhost/db"
+
+
 def test_sanitize_log_fields_flattens_context_and_hashes_identifiers(
     monkeypatch,
 ) -> None:
