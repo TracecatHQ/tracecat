@@ -4,13 +4,20 @@ import type { DynamicToolUIPart, ToolUIPart } from "ai"
 import {
   ChevronDownIcon,
   CircleCheckIcon,
-  CircleIcon,
   ClockIcon,
+  DownloadIcon,
   WrenchIcon,
   XCircleIcon,
 } from "lucide-react"
-import type { ComponentProps, ReactNode } from "react"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  type ComponentProps,
+  isValidElement,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
+import { Button } from "@/components/ui/button"
 import {
   Collapsible,
   CollapsibleContent,
@@ -25,139 +32,354 @@ import {
 import { cn } from "@/lib/utils"
 import { CodeBlock, CodeBlockCopyButton } from "./code-block"
 
+const MAX_INLINE_PAYLOAD_CHARS = 12_000
+
 export type ToolProps = ComponentProps<typeof Collapsible>
 
 export const Tool = ({ className, ...props }: ToolProps) => (
   <Collapsible
-    className={cn("not-prose mb-4 w-full rounded-lg border-[0.5px]", className)}
+    className={cn(
+      "group not-prose mb-2 w-full rounded-md border-[0.5px]",
+      className
+    )}
     {...props}
   />
 )
 
-type AnyToolUIPart = ToolUIPart | DynamicToolUIPart
+export type ToolPart = ToolUIPart | DynamicToolUIPart
 type LegacyToolState =
   | "approval-requested"
   | "approval-responded"
   | "output-denied"
-type ToolState = AnyToolUIPart["state"] | LegacyToolState
+type ToolState = ToolPart["state"] | LegacyToolState
 
 export type ToolHeaderProps = {
   title?: string
-  type: AnyToolUIPart["type"]
-  state: ToolState
   className?: string
   icon?: ReactNode
+  type: ToolPart["type"]
+  state: ToolState
+  toolName?: string
 }
 
-const getStatusBadge = (status: ToolState) => {
-  const labels: Record<ToolState, string> = {
-    "input-streaming": "Pending",
-    "input-available": "Running",
-    "approval-requested": "Needs approval",
-    "approval-responded": "Approval submitted",
-    "output-available": "Completed",
-    "output-error": "Error",
-    "output-denied": "Denied",
-  }
-
-  const icons: Record<ToolState, ReactNode> = {
-    "input-streaming": (
-      <CircleIcon className="size-3.5 text-muted-foreground animate-pulse" />
-    ),
-    "input-available": (
-      <ClockIcon className="size-3.5 text-amber-500 animate-pulse" />
-    ),
-    "approval-requested": (
-      <ClockIcon className="size-3.5 text-blue-500 animate-pulse" />
-    ),
-    "approval-responded": (
-      <CircleIcon className="size-3.5 text-blue-500 fill-blue-500" />
-    ),
-    "output-available": (
-      <CircleCheckIcon className="size-4 fill-emerald-500 stroke-white" />
-    ),
-    "output-error": (
-      <XCircleIcon className="size-4 fill-rose-500 stroke-white" />
-    ),
-    "output-denied": (
-      <XCircleIcon className="size-4 fill-amber-500 stroke-white" />
-    ),
-  }
-
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div className="inline-flex">{icons[status]}</div>
-        </TooltipTrigger>
-        <TooltipContent side="top">
-          <p>{labels[status]}</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  )
+const statusLabels: Record<ToolState, string> = {
+  "approval-requested": "Approval required",
+  "approval-responded": "Completed",
+  "input-available": "In progress",
+  "input-streaming": "In progress",
+  "output-available": "Completed",
+  "output-denied": "Error",
+  "output-error": "Error",
 }
+
+const statusIcons: Record<ToolState, ReactNode> = {
+  "approval-requested": (
+    <ClockIcon className="size-3.5 text-amber-500 animate-pulse" />
+  ),
+  "approval-responded": (
+    <CircleCheckIcon className="size-4 fill-emerald-500 stroke-background" />
+  ),
+  "input-available": (
+    <ClockIcon className="size-3.5 text-amber-500 animate-pulse" />
+  ),
+  "input-streaming": (
+    <ClockIcon className="size-3.5 text-amber-500 animate-pulse" />
+  ),
+  "output-available": (
+    <CircleCheckIcon className="size-4 fill-emerald-500 stroke-background" />
+  ),
+  "output-denied": (
+    <XCircleIcon className="size-4 fill-rose-500 stroke-background" />
+  ),
+  "output-error": (
+    <XCircleIcon className="size-4 fill-rose-500 stroke-background" />
+  ),
+}
+
+export const getStatusBadge = (status: ToolState) => (
+  <TooltipProvider delayDuration={0}>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          aria-label={statusLabels[status]}
+          className="inline-flex items-center"
+          role="img"
+        >
+          {statusIcons[status]}
+          <span className="sr-only">{statusLabels[status]}</span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top">{statusLabels[status]}</TooltipContent>
+    </Tooltip>
+  </TooltipProvider>
+)
 
 export const ToolHeader = ({
   className,
   title,
   type,
   state,
+  toolName,
   icon,
   ...props
-}: ToolHeaderProps) => (
-  <CollapsibleTrigger
-    className={cn(
-      "flex w-full items-center justify-between gap-4 px-3 py-2",
-      className
-    )}
-    {...props}
-  >
-    <div className="flex items-center gap-2">
-      {icon ?? <WrenchIcon className="size-4 text-muted-foreground" />}
-      <span className="font-medium text-sm">
-        {title ?? type.split("-").slice(1).join("-")}
-      </span>
-      {getStatusBadge(state)}
-    </div>
-    <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
-  </CollapsibleTrigger>
-)
+}: ToolHeaderProps) => {
+  const derivedName =
+    type === "dynamic-tool"
+      ? (toolName ?? "dynamic-tool")
+      : type.split("-").slice(1).join("-")
+
+  return (
+    <CollapsibleTrigger
+      className={cn(
+        "flex w-full items-center justify-between gap-3 px-2.5 py-1.5",
+        className
+      )}
+      {...props}
+    >
+      <div className="flex items-center gap-2">
+        {icon ?? <WrenchIcon className="size-4 text-muted-foreground" />}
+        <span className="font-medium text-sm">{title ?? derivedName}</span>
+        {getStatusBadge(state)}
+      </div>
+      <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+    </CollapsibleTrigger>
+  )
+}
 
 export type ToolContentProps = ComponentProps<typeof CollapsibleContent>
 
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   <CollapsibleContent
     className={cn(
-      "text-popover-foreground outline-none",
-      "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-2",
-      "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2",
+      "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 space-y-3 px-2.5 pb-3 pt-2.5 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
       className
     )}
     {...props}
   />
 )
 
+type SerializedPayload = {
+  text: string
+  extension: "json" | "txt"
+}
+
+/**
+ * Normalize MCP content arrays to the actual payload text when possible.
+ * Example: [{ type: "text", text: "[]" }] -> []
+ */
+function extractMcpTextContent(payload: unknown): unknown {
+  if (!Array.isArray(payload) || payload.length === 0) {
+    return payload
+  }
+
+  const isMcpContentArray = payload.every(
+    (item) =>
+      item &&
+      typeof item === "object" &&
+      "type" in item &&
+      typeof item.type === "string"
+  )
+
+  if (!isMcpContentArray) {
+    return payload
+  }
+
+  const textBlocks = payload.filter(
+    (item): item is { type: "text"; text: string } =>
+      item.type === "text" && "text" in item && typeof item.text === "string"
+  )
+
+  if (textBlocks.length === 0) {
+    return payload
+  }
+
+  if (textBlocks.length === 1) {
+    try {
+      return JSON.parse(textBlocks[0].text)
+    } catch {
+      return textBlocks[0].text
+    }
+  }
+
+  return textBlocks.map((block) => {
+    try {
+      return JSON.parse(block.text)
+    } catch {
+      return block.text
+    }
+  })
+}
+
+function serializeToolPayload(payload: unknown): SerializedPayload {
+  if (typeof payload === "string") {
+    const trimmed = payload.trim()
+    const looksLikeJson = trimmed.startsWith("{") || trimmed.startsWith("[")
+    if (looksLikeJson) {
+      if (payload.length > MAX_INLINE_PAYLOAD_CHARS) {
+        return { text: payload, extension: "json" }
+      }
+
+      try {
+        return {
+          text: JSON.stringify(JSON.parse(payload), null, 2),
+          extension: "json",
+        }
+      } catch {
+        return { text: payload, extension: "json" }
+      }
+    }
+    return { text: payload, extension: "txt" }
+  }
+
+  if (
+    payload &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    isValidElement(payload)
+  ) {
+    return { text: "", extension: "txt" }
+  }
+
+  if (payload && typeof payload === "object") {
+    try {
+      const compact = JSON.stringify(payload)
+      if (typeof compact !== "string") {
+        return { text: String(payload), extension: "txt" }
+      }
+
+      if (compact.length > MAX_INLINE_PAYLOAD_CHARS) {
+        return { text: compact, extension: "json" }
+      }
+
+      return {
+        text: JSON.stringify(payload, null, 2),
+        extension: "json",
+      }
+    } catch {
+      return { text: "[Unserializable payload]", extension: "txt" }
+    }
+  }
+
+  if (payload === null) {
+    return { text: "null", extension: "txt" }
+  }
+
+  if (payload === undefined) {
+    return { text: "", extension: "txt" }
+  }
+
+  return { text: String(payload), extension: "txt" }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`
+  }
+  const kb = bytes / 1024
+  if (kb < 1024) {
+    return `${kb.toFixed(1)} KB`
+  }
+  const mb = kb / 1024
+  return `${mb.toFixed(1)} MB`
+}
+
+function ToolPayload({
+  payload,
+  downloadName,
+}: {
+  payload: unknown
+  downloadName: string
+}) {
+  const normalizedPayload = useMemo(
+    () => extractMcpTextContent(payload),
+    [payload]
+  )
+  const serialized = useMemo(
+    () => serializeToolPayload(normalizedPayload),
+    [normalizedPayload]
+  )
+  const isLargePayload = serialized.text.length > MAX_INLINE_PAYLOAD_CHARS
+  const codeLanguage = serialized.extension === "json" ? "json" : "console"
+  const byteCount = useMemo(
+    () =>
+      isLargePayload ? new TextEncoder().encode(serialized.text).length : 0,
+    [isLargePayload, serialized.text]
+  )
+  const [downloadHref, setDownloadHref] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isLargePayload || !serialized.text) {
+      setDownloadHref(null)
+      return
+    }
+
+    const blob = new Blob([serialized.text], {
+      type: serialized.extension === "json" ? "application/json" : "text/plain",
+    })
+    const href = URL.createObjectURL(blob)
+    setDownloadHref(href)
+    return () => URL.revokeObjectURL(href)
+  }, [isLargePayload, serialized.extension, serialized.text])
+
+  if (!serialized.text) {
+    return null
+  }
+
+  if (isLargePayload) {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2 rounded-md border border-dashed bg-background/70 px-2.5 py-2 text-xs text-muted-foreground">
+          <span>Large payload ({formatBytes(byteCount)}). Preview hidden.</span>
+          {downloadHref && (
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-xs"
+            >
+              <a
+                href={downloadHref}
+                download={`${downloadName}.${serialized.extension}`}
+              >
+                <DownloadIcon className="mr-1.5 size-3" />
+                Download file
+              </a>
+            </Button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      <CodeBlock
+        code={serialized.text}
+        language={codeLanguage}
+        className="[&_code]:text-[11px] [&_pre]:px-3 [&_pre]:py-2.5 [&_pre]:text-[11px]"
+      >
+        <CodeBlockCopyButton className="absolute right-1.5 top-1.5 z-10 size-5 [&_svg]:size-3" />
+      </CodeBlock>
+    </div>
+  )
+}
+
 export type ToolInputProps = ComponentProps<"div"> & {
-  input: AnyToolUIPart["input"]
+  input: ToolPart["input"]
 }
 
 export const ToolInput = ({ className, input, ...props }: ToolInputProps) => (
-  <div className={cn("space-y-2 overflow-hidden p-4", className)} {...props}>
-    <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-      Parameters
+  <div className={cn("space-y-2 overflow-hidden", className)} {...props}>
+    <h4 className="font-medium text-[11px] text-muted-foreground tracking-wide">
+      PARAMETERS
     </h4>
-    <div className="rounded-md bg-muted/50">
-      <CodeBlock code={JSON.stringify(input, null, 2)} language="json">
-        <CodeBlockCopyButton />
-      </CodeBlock>
-    </div>
+    <ToolPayload payload={input} downloadName="tool-parameters" />
   </div>
 )
 
 export type ToolOutputProps = ComponentProps<"div"> & {
-  output: AnyToolUIPart["output"]
-  errorText: AnyToolUIPart["errorText"]
+  output: ToolPart["output"]
+  errorText: ToolPart["errorText"]
 }
 
 export const ToolOutput = ({
@@ -166,254 +388,29 @@ export const ToolOutput = ({
   errorText,
   ...props
 }: ToolOutputProps) => {
-  const { message, details } = extractErrorDetails(output, errorText)
-  const hasError = Boolean(message)
-
-  if (!(output || hasError)) {
+  const hasOutput = output !== undefined && output !== null
+  if (!hasOutput && !errorText) {
     return null
   }
 
-  const outputRecord =
-    output && typeof output === "object" && !Array.isArray(output)
-      ? (output as Record<string, unknown>)
-      : undefined
-  const outputIsOnlyErrorText =
-    hasError &&
-    outputRecord &&
-    Object.keys(outputRecord).every((key) => key === "errorText")
-
-  const shouldRenderRawOutput = output && !outputIsOnlyErrorText
-
-  let Output: ReactNode = null
-  if (shouldRenderRawOutput) {
-    if (
-      typeof output === "string" &&
-      hasError &&
-      message &&
-      output.trim() === message.trim()
-    ) {
-      Output = null
-    } else if (typeof output === "object") {
-      // Handle MCP content array format: [{"type": "text", "text": "..."}]
-      // Extract and parse the text content for pretty display
-      const displayOutput = extractMcpTextContent(output)
-      Output = (
-        <CodeBlock
-          code={JSON.stringify(displayOutput, null, 2)}
-          language="json"
-        >
-          <CodeBlockCopyButton />
-        </CodeBlock>
-      )
-    } else if (typeof output === "string") {
-      // Try to parse JSON strings for pretty display
-      let displayOutput: string
-      try {
-        displayOutput = JSON.stringify(JSON.parse(output), null, 2)
-      } catch {
-        displayOutput = output
-      }
-      Output = (
-        <CodeBlock code={displayOutput} language="json">
-          <CodeBlockCopyButton />
-        </CodeBlock>
-      )
-    } else {
-      Output = <div>{output as ReactNode}</div>
-    }
-  }
-
   return (
-    <div className={cn("space-y-2 p-4", className)} {...props}>
-      <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-        {hasError ? "Error" : "Result"}
+    <div className={cn("space-y-2", className)} {...props}>
+      <h4 className="font-medium text-[11px] text-muted-foreground tracking-wide">
+        {errorText ? "Error" : "RESULT"}
       </h4>
-      {hasError && (
-        <Alert
-          variant="destructive"
-          className="border-destructive/30 bg-destructive/10 py-3"
-        >
-          <AlertTitle className="text-sm font-semibold">
-            {details?.title ?? "Validation issue"}
-          </AlertTitle>
-          <AlertDescription className="mt-1 space-y-2 text-sm">
-            <p className="whitespace-pre-wrap text-destructive">
-              {details?.summary ?? message}
-            </p>
-            {details?.items && details.items.length > 0 && (
-              <ul className="list-disc space-y-1 pl-5 text-destructive">
-                {details.items.map((item, idx) => (
-                  <li key={`${item}-${idx}`}>{item}</li>
-                ))}
-              </ul>
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
-      {Output && (
-        <div className="overflow-x-auto rounded-md bg-muted/50 text-foreground text-xs [&_table]:w-full">
-          {Output}
+      {errorText && (
+        <div className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive">
+          {errorText}
         </div>
       )}
+      {hasOutput &&
+        (isValidElement(output) ? (
+          <div className="rounded-md bg-muted/50 p-1.5 text-[11px] text-foreground">
+            {output}
+          </div>
+        ) : (
+          <ToolPayload payload={output} downloadName="tool-result" />
+        ))}
     </div>
   )
-}
-
-type ErrorDetails = {
-  message?: string
-  details?: {
-    title: string
-    summary?: string
-    items?: string[]
-  }
-}
-
-function extractErrorDetails(
-  output: ToolUIPart["output"],
-  explicitErrorText: ToolUIPart["errorText"]
-): ErrorDetails {
-  const outputRecord =
-    output && typeof output === "object" && !Array.isArray(output)
-      ? (output as Record<string, unknown>)
-      : undefined
-  const derivedErrorText =
-    outputRecord && "errorText" in outputRecord
-      ? (outputRecord.errorText as string | undefined)
-      : undefined
-  const embeddedError =
-    (explicitErrorText ?? derivedErrorText)?.trim() || undefined
-
-  if (!embeddedError) {
-    return { message: undefined }
-  }
-
-  const parsed = parseValidationSummary(embeddedError)
-  if (parsed) {
-    return { message: embeddedError, details: parsed }
-  }
-
-  return {
-    message: embeddedError,
-    details: {
-      title: "Error",
-      summary: embeddedError,
-    },
-  }
-}
-
-function parseValidationSummary(message: string):
-  | {
-      title: string
-      summary?: string
-      items?: string[]
-    }
-  | undefined {
-  const trimmed = message.trim()
-  const validationMatch = trimmed.match(
-    /^(\d+)\s+validation errors:\s*(\[.*\])\s*Fix the errors and try again\.\s*$/s
-  )
-  if (validationMatch) {
-    const count = Number(validationMatch[1])
-    const title =
-      count === 1 ? "Validation error" : `${count} validation errors`
-    try {
-      const payload = JSON.parse(validationMatch[2]) as Array<{
-        loc?: string[] | string
-        msg?: string
-        input?: unknown
-      }>
-      const items = payload.map((error) => {
-        const path = Array.isArray(error.loc)
-          ? error.loc.join(" → ")
-          : (error.loc ?? "")
-        const prefix = path ? `${path}: ` : ""
-        const formattedInput =
-          error.input === undefined
-            ? ""
-            : ` (input: ${
-                typeof error.input === "string"
-                  ? error.input
-                  : JSON.stringify(error.input, null, 2)
-              })`
-        return `${prefix}${error.msg ?? "Invalid value"}${formattedInput}`
-      })
-      return {
-        title,
-        summary:
-          "The request couldn't be completed because some fields failed validation.",
-        items,
-      }
-    } catch {
-      return {
-        title,
-        summary: trimmed,
-      }
-    }
-  }
-
-  const feedbackMatch = trimmed.match(/^Validation feedback:\s*(.*)$/s)
-  if (feedbackMatch) {
-    return {
-      title: "Validation feedback",
-      summary: feedbackMatch[1].trim(),
-    }
-  }
-
-  return undefined
-}
-
-/**
- * Extract and parse text content from MCP content array format.
- * MCP returns: [{"type": "text", "text": "{...json...}"}, ...]
- * This extracts text from all blocks and parses JSON if possible.
- */
-function extractMcpTextContent(output: unknown): unknown {
-  if (!Array.isArray(output) || output.length === 0) {
-    return output
-  }
-
-  // Check if this looks like MCP content array format
-  const isMcpFormat = output.every(
-    (item) =>
-      item &&
-      typeof item === "object" &&
-      "type" in item &&
-      typeof item.type === "string"
-  )
-
-  if (!isMcpFormat) {
-    return output
-  }
-
-  // Extract text from all text blocks
-  const textBlocks = output.filter(
-    (item): item is { type: "text"; text: string } =>
-      item.type === "text" && "text" in item && typeof item.text === "string"
-  )
-
-  if (textBlocks.length === 0) {
-    // No text blocks, return original
-    return output
-  }
-
-  if (textBlocks.length === 1) {
-    // Single text block - try to parse as JSON
-    try {
-      return JSON.parse(textBlocks[0].text)
-    } catch {
-      return textBlocks[0].text
-    }
-  }
-
-  // Multiple text blocks - try to parse each as JSON, concatenate results
-  const parsed = textBlocks.map((block) => {
-    try {
-      return JSON.parse(block.text)
-    } catch {
-      return block.text
-    }
-  })
-
-  // If all parsed to the same type, return as array
-  return parsed
 }
