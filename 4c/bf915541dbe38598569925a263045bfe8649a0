@@ -1,0 +1,31 @@
+packages/tracecat-admin/tests/test_cli.py
+  2a1f80dbd683e9a3 5-7,30,47,50,53,80-87
+packages/tracecat-admin/tracecat_admin/logs.py
+  2a1f80dbd683e9a3 1-38,40-60
+packages/tracecat-admin/pyproject.toml
+  2a1f80dbd683e9a3 28
+packages/tracecat-admin/tracecat_admin/cli.py
+  2a1f80dbd683e9a3 16,66
+packages/tracecat-admin/tests/conftest.py
+  2a1f80dbd683e9a3 16-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "4cbf915541dbe38598569925a263045bfe8649a0",
+  "prompts": {
+    "2a1f80dbd683e9a3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cca7b-29cc-75d2-95de-4bd2aeaa7f94",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 80,
+      "overriden_lines": 0
+    }
+  }
+}
