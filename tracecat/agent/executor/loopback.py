@@ -43,10 +43,12 @@ from tracecat.agent.common.types import (
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.types import AgentConfig
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import (
+    get_async_session_bypass_rls_context_manager,
+    get_async_session_context_manager,
+)
 from tracecat.db.models import AgentChannelToken, AgentSession, AgentSessionHistory
 from tracecat.exceptions import TracecatValidationError
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.logger import logger
 
 
