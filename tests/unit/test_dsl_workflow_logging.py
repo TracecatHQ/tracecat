@@ -156,3 +156,24 @@ def test_safe_repr_handles_broken_repr() -> None:
     output = workflow_logging._format_fields({"bad": BrokenRepr()})
     assert output.startswith(" | ")
     assert "bad=<unrepresentable BrokenRepr>" in output
+
+
+def test_workflow_logger_sanitizes_messages_and_summarizes_payloads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process_logger = MagicMock()
+    process_logger.opt.return_value = process_logger
+    monkeypatch.setattr(workflow_logging, "_in_workflow_context", lambda: False)
+    monkeypatch.setattr(workflow_logging, "process_logger", process_logger)
+
+    logger = workflow_logging.get_workflow_logger(service="dsl")
+    logger.info(
+        "Failure for alice@example.com",
+        params={"email": "alice@example.com", "token": "secret-token"},
+    )
+
+    [_, _, message_factory, suffix], _ = process_logger.log.call_args
+    assert message_factory() == "Failure for [REDACTED_EMAIL]"
+    formatted_suffix = suffix()
+    assert "params={'type': 'object'" in formatted_suffix
+    assert "secret-token" not in formatted_suffix
