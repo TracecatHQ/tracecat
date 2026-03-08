@@ -46,6 +46,7 @@ from tracecat.storage.object import (
     StoredObjectValidator,
 )
 from tracecat.storage.utils import serialize_object
+from tracecat.temporal.visibility import is_tokenized_visibility_value
 from tracecat.validation.service import validate_dsl
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
 from tracecat.workflow.executions.enums import (
@@ -341,6 +342,8 @@ def _to_workflow_run_read_minimal(
     workflow_alias: str | None = execution.typed_search_attributes.get(
         TemporalSearchAttr.ALIAS.key
     )
+    if is_tokenized_visibility_value(workflow_alias):
+        workflow_alias = None
     try:
         wf_id, _ = exec_id_to_parts(execution.id)
         workflow_id = wf_id.short()
