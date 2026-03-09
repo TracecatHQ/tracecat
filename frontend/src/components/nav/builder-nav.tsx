@@ -472,8 +472,12 @@ function WorkflowManualTrigger({
   disabled: boolean
   workflowId: string
 }) {
-  const { expandSidebarAndFocusEvents, setCurrentExecutionId, triggerPayload } =
-    useWorkflowBuilder()
+  const {
+    actionPanelRef,
+    expandSidebarAndFocusEvents,
+    setCurrentExecutionId,
+    triggerPayload,
+  } = useWorkflowBuilder()
   // Always use draft execution endpoint - runs the current draft workflow graph
   const { createDraftExecution, createDraftExecutionIsPending } =
     useCreateDraftWorkflowExecution(workflowId)
@@ -488,11 +492,19 @@ function WorkflowManualTrigger({
 
   const runWorkflow = async () => {
     if (disabled || createDraftExecutionIsPending) return
+
     const payloadError = validateTriggerPayload(triggerPayload)
     if (payloadError) {
       setManualTriggerErrors([toDslApiErrorResult(payloadError)])
       return
     }
+
+    const didSaveSelectedAction =
+      (await actionPanelRef.current?.saveIfDirty?.()) ?? true
+    if (!didSaveSelectedAction) {
+      return
+    }
+
     setIsTriggering(true)
     setTimeout(() => setIsTriggering(false), 1000)
     setManualTriggerErrors(null)

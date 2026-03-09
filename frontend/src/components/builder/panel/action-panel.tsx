@@ -280,6 +280,7 @@ export interface ActionPanelRef extends ImperativePanelHandle {
   getActiveTab: () => ActionPanelTabs
   setOpen: (open: boolean) => void
   isOpen: () => boolean
+  saveIfDirty: () => Promise<boolean>
 }
 
 function ActionPanelContent({
@@ -528,27 +529,6 @@ function ActionPanelContent({
     setInputMode(formModeEnabled ? "form" : "yaml")
   }, [formModeEnabled, actionId])
 
-  // Set up the ref methods
-  useEffect(() => {
-    if (actionPanelRef.current) {
-      actionPanelRef.current.setActiveTab = setActiveTab
-      actionPanelRef.current.getActiveTab = () => activeTab
-      actionPanelRef.current.setOpen = (newOpen: boolean) => {
-        setOpen(newOpen)
-        // If the panel has a collapse method, use it
-        if (
-          actionPanelRef.current?.collapse &&
-          actionPanelRef.current?.expand
-        ) {
-          newOpen
-            ? actionPanelRef.current.expand()
-            : actionPanelRef.current.collapse()
-        }
-      }
-      actionPanelRef.current.isOpen = () => open
-    }
-  }, [actionPanelRef, activeTab, setOpen, open])
-
   const handleSave = useCallback(
     async (values: ActionFormSchema) => {
       if (!registryAction || !action) {
@@ -689,6 +669,49 @@ function ActionPanelContent({
     [handleSave, action]
   )
 
+  const saveIfDirty = useCallback(async () => {
+    if (!methods.formState.isDirty) {
+      return true
+    }
+
+    commitAllEditors()
+    let saveSucceeded = false
+
+    await methods.handleSubmit(
+      async (values) => {
+        await onSubmit(values)
+        saveSucceeded = true
+      },
+      async () => {
+        saveSucceeded = false
+      }
+    )()
+
+    return saveSucceeded
+  }, [methods, onSubmit, commitAllEditors])
+
+  // Set up the ref methods
+  useEffect(() => {
+    if (actionPanelRef.current) {
+      actionPanelRef.current.setActiveTab = setActiveTab
+      actionPanelRef.current.getActiveTab = () => activeTab
+      actionPanelRef.current.setOpen = (newOpen: boolean) => {
+        setOpen(newOpen)
+        // If the panel has a collapse method, use it
+        if (
+          actionPanelRef.current?.collapse &&
+          actionPanelRef.current?.expand
+        ) {
+          newOpen
+            ? actionPanelRef.current.expand()
+            : actionPanelRef.current.collapse()
+        }
+      }
+      actionPanelRef.current.isOpen = () => open
+      actionPanelRef.current.saveIfDirty = saveIfDirty
+    }
+  }, [actionPanelRef, activeTab, setOpen, open, saveIfDirty])
+
   const panelRef = useRef<HTMLDivElement | null>(null)
 
   const onPanelBlur = useCallback(
@@ -709,11 +732,10 @@ function ActionPanelContent({
 
       // Only when focus actually leaves the panel do we auto-save.
       if (methods.formState.isDirty) {
-        commitAllEditors()
-        methods.handleSubmit(onSubmit)()
+        void saveIfDirty()
       }
     },
-    [methods, onSubmit, commitAllEditors]
+    [methods.formState.isDirty, saveIfDirty]
   )
 
   useEffect(() => {
@@ -721,15 +743,13 @@ function ActionPanelContent({
       // Save with Cmd+S (Mac) or Ctrl+S (Windows/Linux)
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault()
-        // Commit all YAML editors before form submission
-        commitAllEditors()
-        methods.handleSubmit(onSubmit)()
+        void saveIfDirty()
       }
     }
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [methods, onSubmit, action, commitAllEditors])
+  }, [saveIfDirty])
 
   // Handle mode switching with YAML preservation
   const handleModeChange = useCallback(
@@ -1488,7 +1508,7 @@ function ActionPanelContent({
                                   }
                                 />
                               </FormControl>
-                              <FormLabel className="font-normal">
+                              <FormLabel className="text-xs font-normal text-muted-foreground">
                                 Disable masking for this action
                               </FormLabel>
                             </FormItem>
