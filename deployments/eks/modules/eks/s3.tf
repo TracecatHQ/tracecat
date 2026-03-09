@@ -38,7 +38,7 @@ data "aws_iam_policy_document" "attachments_bucket" {
     effect = "Allow"
     principals {
       type        = "AWS"
-      identifiers = [aws_iam_role.tracecat_s3.arn]
+      identifiers = [aws_iam_role.tracecat_s3.arn, aws_iam_role.tracecat_executor.arn]
     }
     actions = [
       "s3:GetObject",
@@ -117,7 +117,7 @@ data "aws_iam_policy_document" "registry_bucket" {
     effect = "Allow"
     principals {
       type        = "AWS"
-      identifiers = [aws_iam_role.tracecat_s3.arn]
+      identifiers = [aws_iam_role.tracecat_s3.arn, aws_iam_role.tracecat_executor.arn]
     }
     actions = [
       "s3:GetObject",
@@ -196,7 +196,7 @@ data "aws_iam_policy_document" "workflow_bucket" {
     effect = "Allow"
     principals {
       type        = "AWS"
-      identifiers = [aws_iam_role.tracecat_s3.arn]
+      identifiers = [aws_iam_role.tracecat_s3.arn, aws_iam_role.tracecat_executor.arn]
     }
     actions = [
       "s3:GetObject",

@@ -491,6 +491,8 @@ import type {
   SecretsCreateSecretResponse,
   SecretsDeleteSecretByIdData,
   SecretsDeleteSecretByIdResponse,
+  SecretsGetAwsAssumeRoleAccessData,
+  SecretsGetAwsAssumeRoleAccessResponse,
   SecretsGetSecretByNameData,
   SecretsGetSecretByNameResponse,
   SecretsListSecretDefinitionsData,
@@ -2875,6 +2877,29 @@ export const secretsListSecretDefinitions = (
   return __request(OpenAPI, {
     method: "GET",
     url: "/secrets/definitions",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Aws Assume Role Access
+ * Get workspace-scoped AWS AssumeRole details for credential setup.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns AwsAssumeRoleAccessRead Successful Response
+ * @throws ApiError
+ */
+export const secretsGetAwsAssumeRoleAccess = (
+  data: SecretsGetAwsAssumeRoleAccessData
+): CancelablePromise<SecretsGetAwsAssumeRoleAccessResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/secrets/aws-assume-role",
     query: {
       workspace_id: data.workspaceId,
     },

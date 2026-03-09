@@ -40,6 +40,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -49,11 +50,40 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
-import { useWorkspaceSecrets } from "@/lib/hooks"
+import { useAwsAssumeRoleAccess, useWorkspaceSecrets } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const pemCertificateRegex =
   /-----BEGIN CERTIFICATE-----(?:\r?\n)[A-Za-z0-9+/=\s]+(?:\r?\n)-----END CERTIFICATE-----/
+
+const AWS_ROLE_ARN_KEY = "AWS_ROLE_ARN"
+
+function buildAwsTrustPolicy(args: {
+  tracecatAwsPrincipalArn: string
+  externalId: string
+}) {
+  return JSON.stringify(
+    {
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Effect: "Allow",
+          Principal: {
+            AWS: args.tracecatAwsPrincipalArn,
+          },
+          Action: "sts:AssumeRole",
+          Condition: {
+            StringEquals: {
+              "sts:ExternalId": args.externalId,
+            },
+          },
+        },
+      ],
+    },
+    null,
+    2
+  )
+}
 
 const validatePemField = (
   value: string | undefined,
@@ -199,6 +229,20 @@ export function CreateCredentialDialog({
   const { createSecret } = useWorkspaceSecrets(workspaceId, {
     listEnabled: false,
   })
+  const isAwsAssumeRoleTemplate = Boolean(
+    selectedTool &&
+      [
+        ...(selectedTool.keys ?? []),
+        ...(selectedTool.optional_keys ?? []),
+      ].includes(AWS_ROLE_ARN_KEY)
+  )
+  const {
+    awsAssumeRoleAccess,
+    awsAssumeRoleAccessError,
+    awsAssumeRoleAccessIsLoading,
+  } = useAwsAssumeRoleAccess(workspaceId, {
+    enabled: open && isAwsAssumeRoleTemplate,
+  })
 
   // Form handling
   const methods = useForm<CreateSecretForm>({
@@ -262,6 +306,11 @@ export function CreateCredentialDialog({
   const { control, register } = methods
   const secretType = methods.watch("type")
   const isTemplateSecret = Boolean(selectedTool)
+  const roleArn =
+    methods
+      .watch("keys")
+      .find((item) => item.key === AWS_ROLE_ARN_KEY)
+      ?.value?.trim() ?? ""
 
   const renderTextareaField = (
     name: FieldPath<CreateSecretForm>,
@@ -517,6 +566,96 @@ export function CreateCredentialDialog({
                   render={() => (
                     <FormItem>
                       <FormLabel className="text-sm">Keys</FormLabel>
+                      {isAwsAssumeRoleTemplate && (
+                        <div className="space-y-3 rounded-md border p-3 text-sm">
+                          <div className="space-y-1">
+                            <p className="font-medium">Role-based access</p>
+                            <p className="text-muted-foreground">
+                              When you set <code>AWS_ROLE_ARN</code>, Tracecat
+                              assumes that role from a dedicated executor
+                              principal using a workspace-scoped External ID.
+                              Your user only provides the target role ARN.
+                            </p>
+                          </div>
+                          {awsAssumeRoleAccess ? (
+                            <>
+                              <div className="grid gap-3 md:grid-cols-3">
+                                <div className="space-y-1">
+                                  <Label className="text-xs font-medium">
+                                    Tracecat AWS account ID
+                                  </Label>
+                                  <Input
+                                    readOnly
+                                    value={
+                                      awsAssumeRoleAccess.tracecat_aws_account_id
+                                    }
+                                  />
+                                </div>
+                                <div className="space-y-1 md:col-span-2">
+                                  <Label className="text-xs font-medium">
+                                    Trusted Tracecat principal ARN
+                                  </Label>
+                                  <Input
+                                    readOnly
+                                    value={
+                                      awsAssumeRoleAccess.tracecat_aws_principal_arn
+                                    }
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs font-medium">
+                                    External ID
+                                  </Label>
+                                  <Input
+                                    readOnly
+                                    value={awsAssumeRoleAccess.external_id}
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs font-medium">
+                                    Role ARN
+                                  </Label>
+                                  <Input
+                                    readOnly
+                                    value={
+                                      roleArn || "Enter AWS_ROLE_ARN below"
+                                    }
+                                  />
+                                </div>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs font-medium">
+                                  Trust policy
+                                </Label>
+                                <Textarea
+                                  readOnly
+                                  className="h-44 font-mono text-xs"
+                                  value={buildAwsTrustPolicy({
+                                    tracecatAwsPrincipalArn:
+                                      awsAssumeRoleAccess.tracecat_aws_principal_arn,
+                                    externalId: awsAssumeRoleAccess.external_id,
+                                  })}
+                                />
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                Create the role in the third-party account, add
+                                the trust policy above, then paste that role ARN
+                                into <code>AWS_ROLE_ARN</code>. Tracecat manages
+                                the STS session name automatically.
+                              </p>
+                            </>
+                          ) : awsAssumeRoleAccessIsLoading ? (
+                            <p className="text-muted-foreground">
+                              Loading AWS role access details...
+                            </p>
+                          ) : (
+                            <p className="text-destructive">
+                              {awsAssumeRoleAccessError?.message ||
+                                "Unable to load AWS role access details."}
+                            </p>
+                          )}
+                        </div>
+                      )}
                       <div className="flex flex-col space-y-2">
                         {fields.map((field, index) => {
                           return (

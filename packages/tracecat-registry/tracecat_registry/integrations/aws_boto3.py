@@ -4,6 +4,7 @@ Provides a interface to Boto3's Client and Paginator APIs.
 Supports role-based authentication and session management.
 """
 
+import os
 from typing import TYPE_CHECKING, Annotated, Any
 from typing_extensions import Doc
 
@@ -26,6 +27,9 @@ from tracecat_registry import (
     secrets,
     SecretNotFoundError,
 )
+from tracecat_registry.context import get_context
+
+_ASSUME_ROLE_EXTERNAL_ID_ENV = "TRACECAT__AWS_ASSUME_ROLE_EXTERNAL_ID"
 
 aws_secret = RegistrySecret(
     name="aws",
@@ -35,7 +39,6 @@ aws_secret = RegistrySecret(
         "AWS_REGION",
         "AWS_PROFILE",
         "AWS_ROLE_ARN",
-        "AWS_ROLE_SESSION_NAME",
     ],
     optional=False,
 )
@@ -50,35 +53,62 @@ aws_secret = RegistrySecret(
         - `AWS_PROFILE`
     Or:
         - `AWS_ROLE_ARN`
-        - `AWS_ROLE_SESSION_NAME`
     And:
         - `AWS_REGION`
 """
 
 
+def _get_assume_role_external_id() -> str:
+    try:
+        if external_id := get_context().aws_assume_role_external_id:
+            return external_id
+    except RuntimeError:
+        pass
+
+    if external_id := os.environ.get(_ASSUME_ROLE_EXTERNAL_ID_ENV):
+        return external_id
+
+    raise SecretNotFoundError(
+        "AWS role assumption requires a Tracecat-provided workspace External ID."
+    )
+
+
+def _get_role_session_name() -> str:
+    try:
+        ctx = get_context()
+    except RuntimeError:
+        return "tracecat-session"
+
+    parts = ["tracecat"]
+    if ctx.workspace_id:
+        parts.extend(["ws", ctx.workspace_id.replace("-", "")[:8]])
+    if ctx.run_id:
+        parts.extend(["run", ctx.run_id.replace("-", "")[:8]])
+    return "-".join(parts)[:64]
+
+
 async def get_temporary_credentials(
     role_arn: str,
-    role_session_name: str | None = None,
 ) -> AsyncCredentialsTypeDef:
     async with aioboto3.Session().client("sts") as sts_client:
-        # Assume the cross-account role
-        kwargs = {}
-        if role_session_name:
-            kwargs["RoleSessionName"] = role_session_name
-        response = await sts_client.assume_role(RoleArn=role_arn, **kwargs)
+        response = await sts_client.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName=_get_role_session_name(),
+            ExternalId=_get_assume_role_external_id(),
+        )
         creds = response["Credentials"]
     return creds
 
 
 def get_sync_temporary_credentials(
     role_arn: str,
-    role_session_name: str | None = None,
 ) -> CredentialsTypeDef:
     sts_client = boto3.Session().client("sts")
-    kwargs = {}
-    if role_session_name:
-        kwargs["RoleSessionName"] = role_session_name
-    response = sts_client.assume_role(RoleArn=role_arn, **kwargs)
+    response = sts_client.assume_role(
+        RoleArn=role_arn,
+        RoleSessionName=_get_role_session_name(),
+        ExternalId=_get_assume_role_external_id(),
+    )
     creds = response["Credentials"]
     return creds
 
@@ -93,8 +123,7 @@ async def get_session() -> aioboto3.Session:
     aws_bearer_token_bedrock = secrets.get_or_default("AWS_BEARER_TOKEN_BEDROCK")
 
     if aws_role_arn:
-        aws_role_session_name = secrets.get_or_default("AWS_ROLE_SESSION_NAME")
-        creds = await get_temporary_credentials(aws_role_arn, aws_role_session_name)
+        creds = await get_temporary_credentials(aws_role_arn)
         session = aioboto3.Session(
             aws_access_key_id=creds["AccessKeyId"],
             aws_secret_access_key=creds["SecretAccessKey"],
@@ -139,8 +168,7 @@ def get_sync_session() -> boto3.Session:
     aws_bearer_token_bedrock = secrets.get_or_default("AWS_BEARER_TOKEN_BEDROCK")
 
     if aws_role_arn:
-        aws_role_session_name = secrets.get_or_default("AWS_ROLE_SESSION_NAME")
-        creds = get_sync_temporary_credentials(aws_role_arn, aws_role_session_name)
+        creds = get_sync_temporary_credentials(aws_role_arn)
         session = boto3.Session(
             aws_access_key_id=creds["AccessKeyId"],
             aws_secret_access_key=creds["SecretAccessKey"],

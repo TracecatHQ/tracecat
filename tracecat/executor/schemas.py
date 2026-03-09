@@ -162,6 +162,9 @@ class ResolvedContext(BaseModel):
     executor_token: str
     """JWT token for SDK authentication."""
 
+    aws_assume_role_external_id: str | None = None
+    """Workspace-scoped External ID for AWS AssumeRole."""
+
     logical_time: datetime | None = None
     """Logical time for deterministic FN.now() during workflow execution."""
 

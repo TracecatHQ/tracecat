@@ -23,6 +23,7 @@ import {
   ApiError,
   type AppSettingsRead,
   type AuditSettingsRead,
+  type AwsAssumeRoleAccessRead,
   actionsDeleteAction,
   actionsGetAction,
   actionsUpdateAction,
@@ -236,6 +237,7 @@ import {
   schedulesUpdateSchedule,
   secretsCreateSecret,
   secretsDeleteSecretById,
+  secretsGetAwsAssumeRoleAccess,
   secretsListSecretDefinitions,
   secretsListSecrets,
   secretsUpdateSecretById,
@@ -353,6 +355,7 @@ import {
   workspacesListWorkspaces,
   workspacesUpdateWorkspace,
 } from "@/client"
+
 import { toast } from "@/components/ui/use-toast"
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { client as apiClient, getBaseUrl } from "@/lib/api"
@@ -1487,6 +1490,30 @@ export function useSecretDefinitions(workspaceId: string) {
     secretDefinitions,
     secretDefinitionsIsLoading,
     secretDefinitionsError,
+  }
+}
+
+export function useAwsAssumeRoleAccess(
+  workspaceId: string,
+  options: { enabled?: boolean } = {}
+) {
+  const enabled = options.enabled ?? true
+  const {
+    data: awsAssumeRoleAccess,
+    isLoading: awsAssumeRoleAccessIsLoading,
+    error: awsAssumeRoleAccessError,
+  } = useQuery<AwsAssumeRoleAccessRead, ApiError>({
+    queryKey: ["aws-assume-role-access", workspaceId],
+    queryFn: async () => await secretsGetAwsAssumeRoleAccess({ workspaceId }),
+    enabled: !!workspaceId && enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+
+  return {
+    awsAssumeRoleAccess,
+    awsAssumeRoleAccessIsLoading,
+    awsAssumeRoleAccessError,
   }
 }
 

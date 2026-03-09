@@ -79,6 +79,11 @@ output "s3_access_role_arn" {
   value       = aws_iam_role.tracecat_s3.arn
 }
 
+output "executor_assume_role_arn" {
+  description = "ARN of the dedicated IAM role used by executors for customer AssumeRole"
+  value       = aws_iam_role.tracecat_executor.arn
+}
+
 # Compliance Evidence Outputs
 
 output "database_authentication" {

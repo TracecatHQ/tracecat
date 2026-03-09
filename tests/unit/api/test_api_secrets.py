@@ -161,6 +161,42 @@ async def test_list_secret_definitions_success(
 
 
 @pytest.mark.anyio
+async def test_get_aws_assume_role_access_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test GET /secrets/aws-assume-role returns workspace-scoped trust details."""
+    with (
+        patch.object(
+            secrets_router,
+            "get_tracecat_aws_account_id",
+            return_value="123456789012",
+        ),
+        patch.object(
+            secrets_router,
+            "get_tracecat_aws_principal_arn",
+            return_value="arn:aws:iam::123456789012:role/tracecat-executor",
+        ),
+        patch.object(
+            secrets_router,
+            "build_workspace_external_id",
+            return_value="tracecat-ws-deadbeef",
+        ),
+    ):
+        response = client.get(
+            "/secrets/aws-assume-role",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {
+        "tracecat_aws_account_id": "123456789012",
+        "tracecat_aws_principal_arn": "arn:aws:iam::123456789012:role/tracecat-executor",
+        "external_id": "tracecat-ws-deadbeef",
+    }
+
+
+@pytest.mark.anyio
 async def test_search_secrets_success(
     client: TestClient,
     test_admin_role: Role,

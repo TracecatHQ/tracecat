@@ -357,3 +357,11 @@ class SecretDefinition(BaseModel):
     optional: bool = False
     actions: list[str]
     action_count: int
+
+
+class AwsAssumeRoleAccessRead(BaseModel):
+    """Workspace-scoped AWS AssumeRole details shown in the credentials UI."""
+
+    tracecat_aws_account_id: str
+    tracecat_aws_principal_arn: str
+    external_id: str

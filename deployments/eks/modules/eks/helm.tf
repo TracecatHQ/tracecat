@@ -223,10 +223,50 @@ resource "helm_release" "tracecat" {
     value = aws_iam_role.tracecat_s3.arn
   }
 
+  set {
+    name  = "executor.serviceAccount.create"
+    value = "true"
+  }
+
+  set {
+    name  = "executor.serviceAccount.name"
+    value = local.tracecat_executor_service_account_name
+  }
+
+  set {
+    name  = "executor.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = aws_iam_role.tracecat_executor.arn
+  }
+
+  set {
+    name  = "agentExecutor.serviceAccount.create"
+    value = "true"
+  }
+
+  set {
+    name  = "agentExecutor.serviceAccount.name"
+    value = local.tracecat_agent_executor_service_account_name
+  }
+
+  set {
+    name  = "agentExecutor.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = aws_iam_role.tracecat_executor.arn
+  }
+
   # Superadmin
   set {
     name  = "tracecat.auth.superadminEmail"
     value = var.superadmin_email
+  }
+
+  set {
+    name  = "tracecat.aws.assumeRoleAccountId"
+    value = local.aws_account_id
+  }
+
+  set {
+    name  = "tracecat.aws.assumeRolePrincipalArn"
+    value = aws_iam_role.tracecat_executor.arn
   }
 
   # Replica counts

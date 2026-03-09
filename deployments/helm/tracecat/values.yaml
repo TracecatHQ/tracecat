@@ -175,6 +175,10 @@ tracecat:
   sandbox:
     disableNsjail: false
 
+  aws:
+    assumeRoleAccountId: ""
+    assumeRolePrincipalArn: ""
+
   registrySync:
     builtinUseInstalledSitePackages: true
 
@@ -285,6 +289,10 @@ executor:
   replicas: 4
   # Executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default)
   backend: "ephemeral"
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
   resources:
     requests:
       cpu: "4000m"
@@ -301,6 +309,10 @@ executor:
 agentExecutor:
   replicas: 2
   backend: "ephemeral"
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
   resources:
     requests:
       cpu: "2000m"

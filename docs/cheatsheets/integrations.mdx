@@ -274,9 +274,9 @@ Many integrations support workspace variables for base URLs, allowing you to con
 | Secret Name            | Required Keys                                                                  | Optional Keys                                                                                                      |
 | ---------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
 | `alertmedia`           | `ALERTMEDIA_API_KEY`                                                           | -                                                                                                                  |
-| `amazon_s3`            | -                                                                              | `AWS_ACCESS_KEY_ID` `AWS_PROFILE` `AWS_REGION` `AWS_ROLE_ARN` `AWS_ROLE_SESSION_NAME` `AWS_SECRET_ACCESS_KEY`      |
+| `amazon_s3`            | -                                                                              | `AWS_ACCESS_KEY_ID` `AWS_PROFILE` `AWS_REGION` `AWS_ROLE_ARN` `AWS_SECRET_ACCESS_KEY`                              |
 | `ansible`              | `PRIVATE_KEY`                                                                  | -                                                                                                                  |
-| `aws`                  | -                                                                              | `AWS_ACCESS_KEY_ID` `AWS_PROFILE_NAME` `AWS_REGION` `AWS_ROLE_ARN` `AWS_ROLE_SESSION_NAME` `AWS_SECRET_ACCESS_KEY` |
+| `aws`                  | -                                                                              | `AWS_ACCESS_KEY_ID` `AWS_PROFILE` `AWS_REGION` `AWS_ROLE_ARN` `AWS_SECRET_ACCESS_KEY`                              |
 | `check_point_infinity` | `CHECKPOINT_ACCESS_KEY` `CHECKPOINT_CLIENT_ID`                                 | -                                                                                                                  |
 | `crowdsec_cti`         | `CTI_API_KEY`                                                                  | -                                                                                                                  |
 | `crowdstrike`          | `CROWDSTRIKE_CLIENT_ID` `CROWDSTRIKE_CLIENT_SECRET`                            | -                                                                                                                  |
@@ -314,3 +314,42 @@ Many integrations support workspace variables for base URLs, allowing you to con
 | `wazuh_wui`            | `WAZUH_WUI_PASSWORD` `WAZUH_WUI_USERNAME`                                      | -                                                                                                                  |
 | `wiz`                  | `WIZ_CLIENT_ID` `WIZ_CLIENT_SECRET`                                            | -                                                                                                                  |
 | `zendesk`              | `ZENDESK_EMAIL` `ZENDESK_API_TOKEN`                                            | -                                                                                                                  |
+
+### AWS cross-account access
+
+The `aws` and `amazon_s3` credentials support cross-account role assumption.
+For that setup:
+
+- Store the customer-provided target role in `AWS_ROLE_ARN`
+- Set `AWS_REGION`
+- Use the Tracecat-provided dedicated executor principal ARN and workspace
+  External ID in the customer's trust policy
+- Do not set `AWS_ROLE_SESSION_NAME`; Tracecat generates the STS session name
+
+Tracecat shows these values in the workspace credential dialog:
+
+- Tracecat AWS account ID
+- Trusted Tracecat principal ARN
+- Workspace-scoped External ID
+
+Example trust policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "<TRACECAT_EXECUTOR_PRINCIPAL_ARN>"
+      },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": {
+          "sts:ExternalId": "<WORKSPACE_EXTERNAL_ID>"
+        }
+      }
+    }
+  ]
+}
+```

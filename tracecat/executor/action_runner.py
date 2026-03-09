@@ -429,6 +429,10 @@ class ActionRunner:
             sandbox_env["TRACECAT__RUN_ID"] = str(input.run_context.wf_run_id)
             sandbox_env["TRACECAT__WF_EXEC_ID"] = str(input.run_context.wf_exec_id)
             sandbox_env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
+            if resolved_context.aws_assume_role_external_id:
+                sandbox_env["TRACECAT__AWS_ASSUME_ROLE_EXTERNAL_ID"] = (
+                    resolved_context.aws_assume_role_external_id
+                )
 
             # Mint an executor token for SDK calls
             if role.workspace_id is None:
@@ -541,6 +545,10 @@ class ActionRunner:
             env["TRACECAT__WF_EXEC_ID"] = str(input.run_context.wf_exec_id)
             env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
             env["TRACECAT__EXECUTOR_TOKEN"] = resolved_context.executor_token
+            if resolved_context.aws_assume_role_external_id:
+                env["TRACECAT__AWS_ASSUME_ROLE_EXTERNAL_ID"] = (
+                    resolved_context.aws_assume_role_external_id
+                )
 
         # Build PYTHONPATH with multiple registry paths (deterministic order)
         pythonpath_parts = [str(p) for p in registry_paths if p.exists()]

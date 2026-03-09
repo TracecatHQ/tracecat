@@ -58,6 +58,7 @@ from tracecat.expressions.eval import (
 )
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.identifiers import OrganizationID
+from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.bound import BoundRegistryAction
@@ -726,6 +727,7 @@ async def prepare_resolved_context(
         workflow_id=str(input.run_context.wf_id),
         run_id=str(input.run_context.wf_run_id),
         executor_token=executor_token,
+        aws_assume_role_external_id=build_workspace_external_id(role.workspace_id),
         logical_time=logical_time,
     )
 
