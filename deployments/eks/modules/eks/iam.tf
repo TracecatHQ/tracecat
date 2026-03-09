@@ -578,16 +578,6 @@ resource "aws_iam_role_policy" "tracecat_executor" {
       {
         Effect = "Allow"
         Action = [
-          "secretsmanager:GetSecretValue",
-          "secretsmanager:DescribeSecret"
-        ]
-        Resource = [
-          local.rds_master_secret_arn
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
           "sts:AssumeRole"
         ]
         Resource = [

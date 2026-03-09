@@ -104,7 +104,7 @@ def _infer_grant_type_from_token_name(token_name: str) -> OAuthGrantType | None:
 
 
 _AWS_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
-_AWS_ROLE_SECRET_NAMES = frozenset({"aws", "amazon_s3"})
+_AWS_ROLE_SECRET_NAMES = frozenset({"aws", "amazon_s3", "amazon_bedrock"})
 
 
 def _should_inject_aws_external_id(secrets: dict[str, Any]) -> bool:

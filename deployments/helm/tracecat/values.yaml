@@ -290,7 +290,7 @@ executor:
   # Executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default)
   backend: "ephemeral"
   serviceAccount:
-    create: true
+    create: false
     name: ""
     annotations: {}
   resources:
@@ -310,7 +310,7 @@ agentExecutor:
   replicas: 2
   backend: "ephemeral"
   serviceAccount:
-    create: true
+    create: false
     name: ""
     annotations: {}
   resources:

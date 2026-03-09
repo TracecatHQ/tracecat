@@ -34,19 +34,3 @@ def build_workspace_external_id(workspace_id: UUID | str) -> str:
         hashlib.sha256,
     ).hexdigest()
     return f"tracecat-ws-{digest[:32]}"
-
-
-def build_role_session_name(
-    *,
-    workspace_id: str | None,
-    run_id: str | None,
-) -> str:
-    """Build a compact STS role session name for CloudTrail attribution."""
-    parts = ["tracecat"]
-    if workspace_id:
-        parts.extend(["ws", workspace_id.replace("-", "")[:8]])
-    if run_id:
-        parts.extend(["run", run_id.replace("-", "")[:8]])
-    if len(parts) == 1:
-        parts.append("session")
-    return "-".join(parts)[:64]

@@ -197,6 +197,29 @@ async def test_get_aws_assume_role_access_success(
 
 
 @pytest.mark.anyio
+async def test_get_aws_assume_role_access_hides_internal_config_errors(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(
+        secrets_router,
+        "get_tracecat_aws_account_id",
+        side_effect=ValueError(
+            "TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID is not configured"
+        ),
+    ):
+        response = client.get(
+            "/secrets/aws-assume-role",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    assert response.json() == {
+        "detail": "AWS AssumeRole access is not available right now."
+    }
+
+
+@pytest.mark.anyio
 async def test_search_secrets_success(
     client: TestClient,
     test_admin_role: Role,

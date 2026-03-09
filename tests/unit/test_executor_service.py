@@ -131,10 +131,13 @@ async def test_get_action_secrets_skips_optional_oauth(mocker):
     )
 
 
+@pytest.mark.parametrize("secret_name", ["aws", "amazon_bedrock"])
 @pytest.mark.anyio
-async def test_get_action_secrets_injects_runtime_aws_external_id(mocker):
+async def test_get_action_secrets_injects_runtime_aws_external_id(
+    mocker, secret_name: str
+):
     action_secrets: set[RegistrySecretType] = {
-        RegistrySecret(name="aws", keys=["AWS_ROLE_ARN"], optional=False),
+        RegistrySecret(name=secret_name, keys=["AWS_ROLE_ARN"], optional=False),
     }
     mocker.patch(
         "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
@@ -142,7 +145,7 @@ async def test_get_action_secrets_injects_runtime_aws_external_id(mocker):
 
     sandbox = mocker.AsyncMock()
     sandbox.secrets = {
-        "aws": {
+        secret_name: {
             "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
         }
     }

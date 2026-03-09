@@ -235,9 +235,8 @@ TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN = os.environ.get(
 )
 """Dedicated AWS principal ARN used by Tracecat executors for customer AssumeRole."""
 
-TRACECAT__AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET = (
-    os.environ.get("TRACECAT__AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET")
-    or TRACECAT__SIGNING_SECRET
+TRACECAT__AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET = os.environ.get(
+    "TRACECAT__AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET"
 )
 """Secret used to derive stable workspace-scoped AWS External IDs."""
 

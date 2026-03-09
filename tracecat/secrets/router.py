@@ -163,7 +163,7 @@ async def get_aws_assume_role_access(
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
+            detail="AWS AssumeRole access is not available right now.",
         ) from exc
 
 
