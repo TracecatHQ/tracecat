@@ -149,7 +149,18 @@ async def update_registry_action(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
-@router.delete("/{action_name}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{action_name}",
+    status_code=status.HTTP_409_CONFLICT,
+    responses={
+        status.HTTP_409_CONFLICT: {
+            "description": (
+                "Registry actions are versioned snapshots and cannot be deleted "
+                "individually."
+            )
+        }
+    },
+)
 @require_scope("org:registry:delete")
 async def delete_registry_action(
     *,

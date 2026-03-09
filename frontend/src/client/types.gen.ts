@@ -9460,8 +9460,6 @@ export type RegistryActionsDeleteRegistryActionData = {
   actionName: string
 }
 
-export type RegistryActionsDeleteRegistryActionResponse = void
-
 export type SettingsGetGitSettingsResponse = GitSettingsRead
 
 export type SettingsUpdateGitSettingsData = {
@@ -13720,9 +13718,9 @@ export type $OpenApiTs = {
       req: RegistryActionsDeleteRegistryActionData
       res: {
         /**
-         * Successful Response
+         * Registry actions are versioned snapshots and cannot be deleted individually.
          */
-        204: void
+        409: unknown
         /**
          * Validation Error
          */

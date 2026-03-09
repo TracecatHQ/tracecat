@@ -446,7 +446,6 @@ import type {
   RegistryActionsCreateRegistryActionData,
   RegistryActionsCreateRegistryActionResponse,
   RegistryActionsDeleteRegistryActionData,
-  RegistryActionsDeleteRegistryActionResponse,
   RegistryActionsGetRegistryActionData,
   RegistryActionsGetRegistryActionResponse,
   RegistryActionsListRegistryActionsResponse,
@@ -6160,12 +6159,11 @@ export const registryActionsUpdateRegistryAction = (
  * Registry actions are versioned snapshots and cannot be deleted individually.
  * @param data The data for the request.
  * @param data.actionName
- * @returns void Successful Response
  * @throws ApiError
  */
 export const registryActionsDeleteRegistryAction = (
   data: RegistryActionsDeleteRegistryActionData
-): CancelablePromise<RegistryActionsDeleteRegistryActionResponse> => {
+): CancelablePromise<void> => {
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/registry/actions/{action_name}",
@@ -6173,6 +6171,7 @@ export const registryActionsDeleteRegistryAction = (
       action_name: data.actionName,
     },
     errors: {
+      409: "Registry actions are versioned snapshots and cannot be deleted individually.",
       422: "Validation Error",
     },
   })
