@@ -58,7 +58,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import bootstrap_role, get_default_organization_id
-from tracecat.auth.dependencies import ServiceRole, require_auth_type_enabled
+from tracecat.auth.dependencies import ServiceRole, verify_auth_type
 from tracecat.auth.enums import AuthType
 from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.users import (
@@ -199,6 +199,20 @@ class SAMLParser:
             attributes[saml_attr.name] = asdict(saml_attr)
 
         return attributes
+
+
+async def require_saml_login_organization(
+    request: Request,
+    db_session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> OrganizationID:
+    """Resolve the target org and enforce org-scoped SAML enablement."""
+    organization_id = await resolve_auth_organization_id(request, session=db_session)
+    await verify_auth_type(
+        AuthType.SAML,
+        role=bootstrap_role(organization_id),
+        session=db_session,
+    )
+    return organization_id
 
 
 @contextmanager
@@ -630,16 +644,14 @@ async def create_saml_client(
 @router.get(
     "/login",
     name=f"saml:{auth_backend.name}.login",
-    dependencies=[require_auth_type_enabled(AuthType.SAML)],
 )
 async def login(
-    request: Request,
+    organization_id: Annotated[
+        OrganizationID, Depends(require_saml_login_organization)
+    ],
     db_session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> SAMLDatabaseLoginResponse:
     """Initiate SAML login flow"""
-    # Org resolution is explicit in multi-tenant mode and default-org in
-    # single-tenant mode. This keeps login org-scoped before we contact the IdP.
-    organization_id = await resolve_auth_organization_id(request, session=db_session)
     saml_idp_metadata_url = await get_org_saml_metadata_url(db_session, organization_id)
     client = await create_saml_client(saml_idp_metadata_url)
 

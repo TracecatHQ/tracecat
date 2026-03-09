@@ -2,15 +2,15 @@ from collections.abc import Sequence
 from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.enums import AuthType
 from tracecat.auth.types import Role
-from tracecat.logger import logger
 from tracecat.settings.constants import AUTH_TYPE_TO_SETTING_KEY
-from tracecat.settings.service import get_setting, get_setting_override
+from tracecat.settings.service import get_setting
 
 WorkspaceUserRole = Annotated[
     Role,
@@ -58,11 +58,18 @@ Sets the `ctx_role` context variable.
 """
 
 
-async def verify_auth_type(auth_type: AuthType) -> None:
+async def verify_auth_type(
+    auth_type: AuthType,
+    *,
+    role: Role | None = None,
+    session: AsyncSession | None = None,
+) -> None:
     """Verify if an auth type is enabled and properly configured.
 
     Args:
         auth_type: The authentication type to verify
+        role: Optional role to use for org-scoped setting lookups
+        session: Optional database session to reuse for setting lookups
 
     Raises:
         HTTPException: If the auth type is not allowed or not enabled
@@ -83,19 +90,10 @@ async def verify_auth_type(auth_type: AuthType) -> None:
 
     # 2. Check that the setting is enabled
     key = AUTH_TYPE_TO_SETTING_KEY[auth_type]
-    # 2.5. Check for overrides
-    override = get_setting_override(key)
-    if override is not None:
-        logger.warning(
-            "Overriding auth setting from environment variables. "
-            "This is not recommended for production environments.",
-            key=key,
-            override=override,
-        )
-        return
+    setting_role = role or bootstrap_role()
     # NOTE: These settings were introduced after org settings implemented
     # so no defaults required
-    setting = await get_setting(key=key, role=bootstrap_role())
+    setting = await get_setting(key=key, role=setting_role, session=session)
     if setting is None or not isinstance(setting, bool):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

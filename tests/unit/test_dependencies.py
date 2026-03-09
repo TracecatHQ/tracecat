@@ -1,7 +1,10 @@
+import uuid
+
 import pytest
 from fastapi import HTTPException, status
 from pytest_mock import MockerFixture
 
+from tracecat.api.common import bootstrap_role
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
     require_auth_type_enabled,
@@ -50,7 +53,6 @@ async def test_verify_auth_type_not_allowed(
 async def test_verify_auth_type_setting_disabled(mocker: MockerFixture):
     """Test that disabled SAML setting raises HTTPException."""
     mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.SAML])
-    mocker.patch("tracecat.auth.dependencies.get_setting_override", return_value=None)
     mocker.patch("tracecat.auth.dependencies.get_setting", return_value=False)
 
     with pytest.raises(HTTPException) as exc:
@@ -64,7 +66,6 @@ async def test_verify_auth_type_setting_disabled(mocker: MockerFixture):
 async def test_verify_auth_type_invalid_setting(mocker: MockerFixture):
     """Test that invalid settings raise HTTPException."""
     mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.SAML])
-    mocker.patch("tracecat.auth.dependencies.get_setting_override", return_value=None)
     mocker.patch("tracecat.auth.dependencies.get_setting", return_value=None)
 
     with pytest.raises(HTTPException) as exc:
@@ -93,6 +94,28 @@ async def test_verify_auth_type_non_saml_is_platform_controlled(
 
     # No DB calls needed for non-SAML auth types
     get_setting_mock.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_verify_auth_type_uses_provided_org_role(
+    mocker: MockerFixture,
+) -> None:
+    """SAML checks should honor the caller's resolved organization context."""
+    mocker.patch("tracecat.config.TRACECAT__AUTH_TYPES", [AuthType.SAML])
+    get_setting_mock = mocker.patch(
+        "tracecat.auth.dependencies.get_setting",
+        return_value=True,
+    )
+    org_id = uuid.uuid4()
+    role = bootstrap_role(org_id)
+
+    await verify_auth_type(AuthType.SAML, role=role)
+
+    get_setting_mock.assert_awaited_once_with(
+        key="saml_enabled",
+        role=role,
+        session=None,
+    )
 
 
 @pytest.mark.anyio
