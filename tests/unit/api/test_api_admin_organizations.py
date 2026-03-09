@@ -13,6 +13,7 @@ from tracecat_ee.admin.organizations.schemas import (
     OrgRead,
 )
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatValidationError
 
@@ -72,7 +73,7 @@ async def test_create_organization_success(
     client: TestClient, test_admin_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     org = _org_read()
-    monkeypatch.setattr(organizations_router.config, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
     with patch.object(organizations_router, "AdminOrgService") as MockService:
         mock_svc = AsyncMock()
@@ -129,7 +130,7 @@ async def test_delete_organization_success(
 ) -> None:
     org_id = uuid.uuid4()
     org_name = "Test Org"
-    monkeypatch.setattr(organizations_router.config, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
     with patch.object(organizations_router, "AdminOrgService") as MockService:
         mock_svc = AsyncMock()
@@ -150,7 +151,7 @@ async def test_delete_organization_bad_confirmation_returns_400(
     client: TestClient, test_admin_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     org_id = uuid.uuid4()
-    monkeypatch.setattr(organizations_router.config, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
 
     with patch.object(organizations_router, "AdminOrgService") as MockService:
         mock_svc = AsyncMock()
@@ -168,7 +169,7 @@ async def test_delete_organization_bad_confirmation_returns_400(
 async def test_create_organization_blocked_without_multi_tenant(
     client: TestClient, test_admin_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(organizations_router.config, "TRACECAT__EE_MULTI_TENANT", False)
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
 
     response = client.post(
         "/admin/organizations",
@@ -183,7 +184,7 @@ async def test_delete_organization_blocked_without_multi_tenant(
     client: TestClient, test_admin_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     org_id = uuid.uuid4()
-    monkeypatch.setattr(organizations_router.config, "TRACECAT__EE_MULTI_TENANT", False)
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
 
     response = client.delete(f"/admin/organizations/{org_id}")
 
