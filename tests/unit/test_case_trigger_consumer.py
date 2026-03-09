@@ -315,6 +315,53 @@ async def test_case_trigger_consumer_skips_configured_duplicate_for_explicit_wor
 
 
 @pytest.mark.anyio
+async def test_process_explicit_workflow_commits_before_setting_done_key():
+    event_id = str(uuid.uuid4())
+    workflow_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+
+    client = AsyncMock()
+    client.exists = AsyncMock(return_value=False)
+    client.set_if_not_exists = AsyncMock(return_value=True)
+    client.delete = AsyncMock(return_value=1)
+
+    session = AsyncMock()
+    role = _build_role(workspace_id)
+    consumer = CaseTriggerConsumer(client=client)
+    consumer._dispatch_selected_workflow = AsyncMock(return_value=True)
+
+    async def assert_committed_before_done_key(*args, **kwargs):
+        del args, kwargs
+        assert session.commit.await_count == 1
+        return True
+
+    client.set = AsyncMock(side_effect=assert_committed_before_done_key)
+
+    dispatched = await consumer._process_explicit_workflow(
+        session=session,
+        role=role,
+        case=cast(Case, SimpleNamespace(id=uuid.uuid4(), workspace_id=workspace_id)),
+        event=cast(
+            CaseEvent,
+            SimpleNamespace(
+                id=uuid.uuid4(),
+                created_at=None,
+                type="comment_created",
+                user_id=None,
+            ),
+        ),
+        fields={"wf_exec_id": "wf_123/exec_456"},
+        event_id=event_id,
+        workflow_id=workflow_id,
+        comment_id=uuid.uuid4(),
+    )
+
+    assert dispatched is True
+    session.commit.assert_awaited_once()
+    client.set.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_dispatch_selected_workflow_marks_comment_failed_on_start_error(
     session: AsyncSession,
     svc_role: Role,

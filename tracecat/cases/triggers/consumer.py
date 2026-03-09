@@ -292,6 +292,7 @@ class CaseTriggerConsumer:
                 fields=fields,
                 comment_id=comment_id,
             )
+            await session.commit()
             await self.client.set(
                 done_key,
                 value="1",
