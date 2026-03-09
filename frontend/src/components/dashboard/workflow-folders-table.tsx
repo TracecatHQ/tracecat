@@ -31,6 +31,7 @@ import {
 import { TagBadge } from "@/components/tag-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,7 +48,13 @@ import { type DirectoryItem, useGetDirectoryItems } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-export function WorkflowFoldersTable({ view }: { view: ViewMode }) {
+export function WorkflowFoldersTable({
+  view,
+  onSelectionChange,
+}: {
+  view: ViewMode
+  onSelectionChange?: (items: DirectoryItem[]) => void
+}) {
   const workspaceId = useWorkspaceId()
   const searchParams = useSearchParams()
   const path = searchParams?.get("path") || "/"
@@ -64,6 +71,7 @@ export function WorkflowFoldersTable({ view }: { view: ViewMode }) {
       directoryItems={directoryItems}
       directoryItemsIsLoading={directoryItemsIsLoading}
       directoryItemsError={directoryItemsError}
+      onSelectionChange={onSelectionChange}
     />
   )
 }
@@ -73,11 +81,13 @@ export function WorkflowsDashboardTable({
   directoryItems,
   directoryItemsIsLoading,
   directoryItemsError,
+  onSelectionChange,
 }: {
   view: ViewMode
   directoryItems: DirectoryItem[] | undefined
   directoryItemsIsLoading: boolean
   directoryItemsError: ApiError | null
+  onSelectionChange?: (items: DirectoryItem[]) => void
 }) {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
@@ -124,7 +134,56 @@ export function WorkflowsDashboardTable({
             }
             return undefined
           }}
+          onSelectionChange={(selectedRows) => {
+            onSelectionChange?.(selectedRows.map((row) => row.original))
+          }}
           columns={[
+            {
+              id: "select",
+              header: ({ table }) => (
+                <div className="flex w-full justify-center">
+                  <Checkbox
+                    className="border-foreground/50"
+                    checked={
+                      table.getIsAllPageRowsSelected() ||
+                      (table.getIsSomePageRowsSelected() && "indeterminate")
+                    }
+                    onCheckedChange={(value) =>
+                      table.toggleAllPageRowsSelected(!!value)
+                    }
+                    aria-label="Select all rows"
+                  />
+                </div>
+              ),
+              cell: ({ row }) => (
+                <div
+                  className="flex w-full justify-center"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    event.preventDefault()
+                  }}
+                >
+                  <Checkbox
+                    className="border-foreground/50"
+                    checked={row.getIsSelected()}
+                    onCheckedChange={(value) => row.toggleSelected(!!value)}
+                    aria-label={`Select ${row.original.type} ${
+                      row.original.type === "workflow"
+                        ? row.original.title
+                        : row.original.name
+                    }`}
+                  />
+                </div>
+              ),
+              enableSorting: false,
+              enableHiding: false,
+              meta: {
+                headerClassName:
+                  "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
+                cellClassName:
+                  "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
+              },
+            },
             {
               accessorKey: "type",
               header: ({ column }) => (

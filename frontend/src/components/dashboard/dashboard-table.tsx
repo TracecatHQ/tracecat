@@ -19,6 +19,7 @@ import {
 import { TagBadge } from "@/components/tag-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,7 +36,11 @@ import { useWorkflowManager } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-export function WorkflowsTagsDashboardTable() {
+export function WorkflowsTagsDashboardTable({
+  onSelectionChange,
+}: {
+  onSelectionChange?: (workflows: WorkflowReadMinimal[]) => void
+}) {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
   const { user } = useAuth()
@@ -72,7 +77,52 @@ export function WorkflowsTagsDashboardTable() {
           getRowHref={(row) =>
             `/workspaces/${workspaceId}/workflows/${row.original.id}`
           }
+          onSelectionChange={(selectedRows) => {
+            onSelectionChange?.(selectedRows.map((row) => row.original))
+          }}
           columns={[
+            {
+              id: "select",
+              header: ({ table }) => (
+                <div className="flex w-full justify-center">
+                  <Checkbox
+                    className="border-foreground/50"
+                    checked={
+                      table.getIsAllPageRowsSelected() ||
+                      (table.getIsSomePageRowsSelected() && "indeterminate")
+                    }
+                    onCheckedChange={(value) =>
+                      table.toggleAllPageRowsSelected(!!value)
+                    }
+                    aria-label="Select all workflows"
+                  />
+                </div>
+              ),
+              cell: ({ row }) => (
+                <div
+                  className="flex w-full justify-center"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    event.preventDefault()
+                  }}
+                >
+                  <Checkbox
+                    className="border-foreground/50"
+                    checked={row.getIsSelected()}
+                    onCheckedChange={(value) => row.toggleSelected(!!value)}
+                    aria-label={`Select workflow ${row.original.title}`}
+                  />
+                </div>
+              ),
+              enableSorting: false,
+              enableHiding: false,
+              meta: {
+                headerClassName:
+                  "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
+                cellClassName:
+                  "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
+              },
+            },
             {
               accessorKey: "title",
               header: ({ column }) => (

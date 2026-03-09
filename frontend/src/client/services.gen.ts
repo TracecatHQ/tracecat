@@ -411,6 +411,8 @@ import type {
   WorkflowExecutionsTerminateWorkflowExecutionResponse,
   WorkflowsAddTagData,
   WorkflowsAddTagResponse,
+  WorkflowsBulkPushWorkflowsData,
+  WorkflowsBulkPushWorkflowsResponse,
   WorkflowsCommitWorkflowData,
   WorkflowsCommitWorkflowResponse,
   WorkflowsCreateWorkflowData,
@@ -427,6 +429,8 @@ import type {
   WorkflowsGetWorkflowResponse,
   WorkflowsListTagsData,
   WorkflowsListTagsResponse,
+  WorkflowsListWorkflowBranchesData,
+  WorkflowsListWorkflowBranchesResponse,
   WorkflowsListWorkflowCommitsData,
   WorkflowsListWorkflowCommitsResponse,
   WorkflowsListWorkflowDefinitionsData,
@@ -435,6 +439,8 @@ import type {
   WorkflowsListWorkflowsResponse,
   WorkflowsMoveWorkflowToFolderData,
   WorkflowsMoveWorkflowToFolderResponse,
+  WorkflowsPreviewBulkPushWorkflowsData,
+  WorkflowsPreviewBulkPushWorkflowsResponse,
   WorkflowsPublishWorkflowData,
   WorkflowsPublishWorkflowResponse,
   WorkflowsPullWorkflowsData,
@@ -1859,6 +1865,56 @@ export const workflowsPublishWorkflow = (
 }
 
 /**
+ * Preview Bulk Push Workflows
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowBulkPushPreviewResponse Successful Response
+ * @throws ApiError
+ */
+export const workflowsPreviewBulkPushWorkflows = (
+  data: WorkflowsPreviewBulkPushWorkflowsData
+): CancelablePromise<WorkflowsPreviewBulkPushWorkflowsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflows/push/preview",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Bulk Push Workflows
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowBulkPushResult Successful Response
+ * @throws ApiError
+ */
+export const workflowsBulkPushWorkflows = (
+  data: WorkflowsBulkPushWorkflowsData
+): CancelablePromise<WorkflowsBulkPushWorkflowsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflows/push",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Workflow Commits
  * Get commit list for workflow repository via GitHub App.
  *
@@ -1879,6 +1935,31 @@ export const workflowsListWorkflowCommits = (
     url: "/workflows/sync/commits",
     query: {
       branch: data.branch,
+      limit: data.limit,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Workflow Branches
+ * Get branch list for workflow repository via GitHub App.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit Maximum number of branches to return
+ * @returns GitBranchInfo Successful Response
+ * @throws ApiError
+ */
+export const workflowsListWorkflowBranches = (
+  data: WorkflowsListWorkflowBranchesData
+): CancelablePromise<WorkflowsListWorkflowBranchesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workflows/sync/branches",
+    query: {
       limit: data.limit,
       workspace_id: data.workspaceId,
     },
