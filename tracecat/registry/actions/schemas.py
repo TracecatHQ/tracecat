@@ -382,9 +382,9 @@ class RegistryActionRead(RegistryActionBase):
             options=RegistryActionOptions(**action.options),
             secrets=sorted(
                 secrets,
-                key=lambda x: x.provider_id
-                if isinstance(x, RegistryOAuthSecret)
-                else x.name,
+                key=lambda x: (
+                    x.provider_id if isinstance(x, RegistryOAuthSecret) else x.name
+                ),
             ),
         )
 
