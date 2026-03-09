@@ -26,7 +26,7 @@ from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.dsl.worker import get_activities as get_worker_activities
 from tracecat.executor.registry_resolver import _get_manifest_entry
 from tracecat.executor.service import get_registry_artifacts_for_lock
-from tracecat.integrations.router import oauth_callback
+from tracecat.integrations.router import connect_provider, oauth_callback
 from tracecat.organization.router import (
     accept_invitation,
     get_invitation_by_token,
@@ -305,6 +305,12 @@ def test_oauth_callback_rebinds_rls_context_after_workspace_role_update() -> Non
     source = inspect.getsource(oauth_callback)
     assert "ctx_role.set(role)" in source
     assert "await set_rls_context_from_role(session, role)" in source
+
+
+def test_connect_provider_uses_bypass_session_for_global_oauth_state_cleanup() -> None:
+    source = inspect.getsource(connect_provider)
+    assert "get_async_session_bypass_rls_context_manager" in source
+    assert "delete(OAuthStateDB)" in source
 
 
 def test_saml_acs_primes_rls_context_before_org_scoped_queries() -> None:
