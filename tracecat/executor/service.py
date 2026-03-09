@@ -655,9 +655,15 @@ async def prepare_resolved_context(
     )
 
     # Build mask values for secret masking
-    if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
+    disable_secrets_masking = (
+        config.TRACECAT__UNSAFE_DISABLE_SM_MASKING or task.disable_secrets_masking
+    )
+    if disable_secrets_masking:
         logger.warning(
-            "Secrets masking is disabled. This is unsafe in production workflows."
+            "Secrets masking is disabled. This is unsafe in production workflows.",
+            task_ref=task.ref,
+            is_globally_disabled=config.TRACECAT__UNSAFE_DISABLE_SM_MASKING,
+            is_action_level_disabled=task.disable_secrets_masking,
         )
         mask_values = None
     else:

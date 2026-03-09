@@ -976,6 +976,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 start_delay=act_stmt.start_delay,
                 wait_until=act_stmt.wait_until,
                 join_strategy=act_stmt.join_strategy,
+                disable_secrets_masking=act_stmt.disable_secrets_masking,
             )
             pos = (action_positions or {}).get(act_stmt.ref)
             new_action = Action(

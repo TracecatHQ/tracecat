@@ -105,6 +105,13 @@ export const $ActionControlFlow = {
       title: "Environment",
       description: "Override environment for this action's execution",
     },
+    disable_secrets_masking: {
+      type: "boolean",
+      title: "Disable Secrets Masking",
+      description:
+        "Disable secret masking for this action output. This is unsafe and should only be enabled when absolutely necessary.",
+      default: false,
+    },
   },
   type: "object",
   title: "ActionControlFlow",
@@ -606,6 +613,13 @@ export const $ActionStatement = {
       title: "Environment",
       description:
         "Override environment for this action's execution. Can be a template expression.",
+    },
+    disable_secrets_masking: {
+      type: "boolean",
+      title: "Disable Secrets Masking",
+      description:
+        "Disable secret masking for this action output. This is unsafe and should only be enabled when absolutely necessary.",
+      default: false,
     },
   },
   type: "object",

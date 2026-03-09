@@ -71,6 +71,7 @@ import {
 } from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -189,6 +190,7 @@ const actionFormSchema = z.object({
     .max(1000, "Environment must be less than 1000 characters")
     .transform((val) => normalizeOptionalExpression(val))
     .optional(),
+  disable_secrets_masking: z.boolean().default(false),
   is_interactive: z.boolean().default(false),
   interaction: z
     .discriminatedUnion("type", [
@@ -327,6 +329,8 @@ function ActionPanelContent({
       join_strategy: actionControlFlow?.join_strategy,
       wait_until: actionControlFlow?.wait_until || undefined,
       environment: actionControlFlow?.environment || undefined,
+      disable_secrets_masking:
+        actionControlFlow?.disable_secrets_masking ?? false,
       is_interactive: action?.is_interactive ?? false,
       interaction: action?.interaction ?? undefined,
     }),
@@ -345,6 +349,7 @@ function ActionPanelContent({
       actionControlFlow?.join_strategy,
       actionControlFlow?.wait_until,
       actionControlFlow?.environment,
+      actionControlFlow?.disable_secrets_masking,
     ]
   )
 
@@ -589,6 +594,7 @@ function ActionPanelContent({
             join_strategy: values.join_strategy,
             wait_until: values.wait_until,
             environment: values.environment,
+            disable_secrets_masking: values.disable_secrets_masking,
           },
           is_interactive: values.is_interactive,
           interaction: values.interaction,
@@ -1460,6 +1466,31 @@ function ActionPanelContent({
                                   placeholder="Type @ to begin an expression..."
                                 />
                               </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      <ControlFlowField
+                        label="Disable secrets masking"
+                        description="Allow this action to return unmasked secrets. Disabled by default and unsafe for production workflows."
+                      >
+                        <FormField
+                          name="disable_secrets_masking"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem className="flex flex-row items-center gap-2 space-y-0">
+                              <FormControl>
+                                <Checkbox
+                                  checked={field.value}
+                                  onCheckedChange={(checked) =>
+                                    field.onChange(checked === true)
+                                  }
+                                />
+                              </FormControl>
+                              <FormLabel className="font-normal">
+                                Disable masking for this action
+                              </FormLabel>
                             </FormItem>
                           )}
                         />
