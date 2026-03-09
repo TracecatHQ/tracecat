@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 import tracecat.auth.saml as saml_module
 from tracecat.api.common import bootstrap_role
 from tracecat.auth.enums import AuthType
+from tracecat.db.engine import get_async_session_bypass_rls
 
 
 def _override_saml_db_session(client: TestClient) -> Mock:
@@ -20,11 +21,13 @@ def _override_saml_db_session(client: TestClient) -> Mock:
     db_session.add = Mock()
     db_session.commit = AsyncMock()
 
-    async def override_get_async_session() -> Mock:
+    async def override_get_async_session_bypass_rls() -> Mock:
         return db_session
 
     app = cast(FastAPI, client.app)
-    app.dependency_overrides[saml_module.get_async_session] = override_get_async_session
+    app.dependency_overrides[get_async_session_bypass_rls] = (
+        override_get_async_session_bypass_rls
+    )
     return db_session
 
 

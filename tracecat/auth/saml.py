@@ -45,10 +45,10 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Annotated, Any
 
 import defusedxml.ElementTree as ET
-from fastapi import APIRouter, Form, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi_users.exceptions import UserAlreadyExists
 from pydantic import BaseModel
 from saml2 import BINDING_HTTP_POST
