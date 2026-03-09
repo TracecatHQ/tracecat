@@ -299,28 +299,38 @@ async def get_action_secrets(
     return secrets
 
 
-def flatten_secrets(secrets: dict[str, dict[str, str]]) -> dict[str, str]:
-    """Given secrets in the format of {name: {key: value}}, we need to flatten
-    it to a dict[str, str] to set in the environment context.
+def flatten_secrets(secrets: dict[str, Any]) -> dict[str, str]:
+    """Flatten secrets into a single key-value mapping for environment usage.
 
-    For example, if you have the secret `my_secret.KEY`, then you access this in the UDF
-    as `KEY`. This means you cannot have a clashing key in different secrets.
+    Standard secrets are shaped like ``{name: {key: value}}`` and are flattened by
+    promoting their inner keys. Runtime-injected values may also appear as top-level
+    scalar entries and are preserved as-is.
 
-    OAuth secrets are flattened the same way as regular secrets - their keys
-    (like MICROSOFT_TEAMS_USER_TOKEN) are extracted and made available as environment variables.
+    For example, if you have the secret ``my_secret.KEY``, then you access this in the
+    UDF as ``KEY``. This means you cannot have a clashing key in different secrets.
     """
     flattened_secrets: dict[str, str] = {}
-    for name, keyvalues in secrets.items():
-        # Both OAuth and regular secrets are flattened by extracting their key-value pairs
-        for key, value in keyvalues.items():
-            if key in flattened_secrets:
-                raise ValueError(
-                    f"Key {key!r} is duplicated in {name!r}! "
-                    "Please ensure only one secret with a given name is set. "
-                    "e.g. If you have `first_secret.KEY` set, then you cannot "
-                    "also set `second_secret.KEY` as `KEY` is duplicated."
-                )
-            flattened_secrets[key] = value
+    for name, secret_value in secrets.items():
+        if isinstance(secret_value, dict):
+            # Both OAuth and regular secrets are flattened by extracting their key-value pairs.
+            for key, value in secret_value.items():
+                if key in flattened_secrets:
+                    raise ValueError(
+                        f"Key {key!r} is duplicated in {name!r}! "
+                        "Please ensure only one secret with a given name is set. "
+                        "e.g. If you have `first_secret.KEY` set, then you cannot "
+                        "also set `second_secret.KEY` as `KEY` is duplicated."
+                    )
+                flattened_secrets[key] = value
+            continue
+
+        if name in flattened_secrets:
+            raise ValueError(
+                f"Key {name!r} is duplicated in flattened secrets! "
+                "Please ensure only one secret with a given name is set."
+            )
+        if secret_value is not None:
+            flattened_secrets[name] = str(secret_value)
     return flattened_secrets
 
 

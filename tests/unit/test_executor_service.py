@@ -15,6 +15,30 @@ from tracecat.integrations.enums import OAuthGrantType
 from tracecat.secrets import secrets_manager
 
 
+def test_flatten_secrets_supports_runtime_scalar_entries() -> None:
+    flattened = secrets_manager.flatten_secrets(
+        {
+            "aws": {"AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role"},
+            "TRACECAT_AWS_EXTERNAL_ID": "11111111111111111111111111111111",
+        }
+    )
+
+    assert flattened == {
+        "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
+        "TRACECAT_AWS_EXTERNAL_ID": "11111111111111111111111111111111",
+    }
+
+
+def test_flatten_secrets_rejects_runtime_scalar_key_collisions() -> None:
+    with pytest.raises(ValueError, match="TRACECAT_AWS_EXTERNAL_ID"):
+        secrets_manager.flatten_secrets(
+            {
+                "aws": {"TRACECAT_AWS_EXTERNAL_ID": "customer-value"},
+                "TRACECAT_AWS_EXTERNAL_ID": "11111111111111111111111111111111",
+            }
+        )
+
+
 @pytest.mark.anyio
 async def test_get_action_secrets_passes_sets_to_auth_sandbox(mocker):
     """Test that get_action_secrets correctly passes secrets as sets to AuthSandbox."""
