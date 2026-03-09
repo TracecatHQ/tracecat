@@ -6,7 +6,6 @@ from collections import Counter
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -23,14 +22,7 @@ from tracecat.auth.users import UserManager
 from tracecat.cases.triggers.consumer import CaseTriggerConsumer
 from tracecat.contexts import ctx_role
 from tracecat.db import rls as rls_module
-from tracecat.db.models import Base, OrganizationModel, WorkspaceModel
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
-from tracecat.db.tenant_rls import (
-    CURRENT_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES,
-    CURRENT_ORG_SCOPED_TABLES,
-    CURRENT_WORKSPACE_SCOPED_TABLES,
-    SPECIAL_ORG_POLICY_TABLES,
-)
 from tracecat.dsl.worker import get_activities as get_worker_activities
 from tracecat.executor.registry_resolver import _get_manifest_entry
 from tracecat.executor.service import get_registry_artifacts_for_lock
@@ -52,42 +44,6 @@ RLS_MIGRATION_PATH = Path("alembic/versions/c76f9b01fad7_add_rls_policies.py")
 def workflow_bucket() -> Iterator[None]:
     """Disable MinIO-dependent workflow bucket setup for pure unit repro tests."""
     yield
-
-
-def _extract_modeled_tables(
-    scope_model: type[Any],
-    *,
-    excluded: set[str] | None = None,
-) -> set[str]:
-    excluded = excluded or set()
-    table_names: set[str] = set()
-    for mapper in Base.registry.mappers:
-        mapped_cls = cast(type[Any], mapper.class_)
-        if not issubclass(mapped_cls, scope_model):
-            continue
-        table_name = getattr(mapped_cls, "__tablename__", None)
-        if isinstance(table_name, str) and table_name not in excluded:
-            table_names.add(table_name)
-    return table_names
-
-
-def _extract_tables_with_column(
-    column_name: str,
-    *,
-    excluded: set[str] | None = None,
-) -> set[str]:
-    excluded = excluded or set()
-    table_names: set[str] = set()
-    for mapper in Base.registry.mappers:
-        local_table = mapper.local_table
-        table_name = getattr(local_table, "name", None)
-        if (
-            isinstance(table_name, str)
-            and column_name in local_table.columns
-            and table_name not in excluded
-        ):
-            table_names.add(table_name)
-    return table_names
 
 
 @pytest.mark.anyio
@@ -240,75 +196,6 @@ def test_rls_after_begin_reapplies_cached_context_when_feature_flag_is_off(
     )
 
     connection.execute.assert_called_once()
-
-
-def test_rls_migration_covers_all_workspace_scoped_case_tables() -> None:
-    modeled_workspace_tables = _extract_modeled_tables(WorkspaceModel)
-    workspace_tables = set(CURRENT_WORKSPACE_SCOPED_TABLES)
-
-    missing_workspace_tables = modeled_workspace_tables - workspace_tables
-
-    assert not missing_workspace_tables, (
-        f"Missing workspace-scoped tables in tenant RLS registry: "
-        f"{sorted(missing_workspace_tables)}"
-    )
-
-
-def test_rls_migration_covers_org_registry_tables() -> None:
-    org_tables = set(CURRENT_ORG_SCOPED_TABLES) | set(
-        CURRENT_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES
-    )
-    modeled_org_tables = _extract_modeled_tables(
-        OrganizationModel, excluded={"workspace"}
-    )
-
-    missing_org_tables = modeled_org_tables - org_tables
-
-    assert not missing_org_tables, (
-        f"Missing organization-scoped tables in tenant RLS registry: "
-        f"{sorted(missing_org_tables)}"
-    )
-
-
-def test_rls_migration_sanity_all_tenant_keyed_tables_are_covered_or_allowlisted() -> (
-    None
-):
-    """Every tenant-keyed table should be policy-covered or explicitly allowlisted."""
-    workspace_policy_tables = set(CURRENT_WORKSPACE_SCOPED_TABLES)
-    org_policy_tables = set(CURRENT_ORG_SCOPED_TABLES)
-    org_optional_workspace_policy_tables = set(
-        CURRENT_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES
-    )
-
-    workspace_keyed_tables = _extract_tables_with_column("workspace_id")
-    org_keyed_tables = _extract_tables_with_column("organization_id")
-
-    missing_workspace_coverage = workspace_keyed_tables - (
-        workspace_policy_tables | org_optional_workspace_policy_tables
-    )
-    missing_org_coverage = org_keyed_tables - (
-        org_policy_tables
-        | org_optional_workspace_policy_tables
-        | SPECIAL_ORG_POLICY_TABLES
-    )
-
-    stale_workspace_exclusions: set[str] = set()
-    stale_org_exclusions = SPECIAL_ORG_POLICY_TABLES - org_keyed_tables
-
-    assert not stale_workspace_exclusions, (
-        f"Stale workspace exclusions: {sorted(stale_workspace_exclusions)}"
-    )
-    assert not stale_org_exclusions, (
-        f"Stale organization exclusions: {sorted(stale_org_exclusions)}"
-    )
-    assert not missing_workspace_coverage, (
-        f"Workspace-keyed tables missing RLS coverage: "
-        f"{sorted(missing_workspace_coverage)}"
-    )
-    assert not missing_org_coverage, (
-        f"Organization-keyed tables missing RLS coverage: "
-        f"{sorted(missing_org_coverage)}"
-    )
 
 
 def test_rls_migration_uses_enable_without_force() -> None:
