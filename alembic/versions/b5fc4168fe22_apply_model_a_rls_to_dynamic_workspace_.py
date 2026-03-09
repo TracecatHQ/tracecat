@@ -18,7 +18,7 @@ from tracecat.identifiers.workflow import WorkspaceUUID
 
 # revision identifiers, used by Alembic.
 revision: str = "b5fc4168fe22"
-down_revision: str | None = "c76f9b01fad7"
+down_revision: str | None = "9a6d0e0ec5b1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
