@@ -2192,7 +2192,7 @@ def sanitize_identifier(identifier: str) -> str:
 
 def is_internal_column_name(column_name: str) -> bool:
     """Check whether a column is internal/system-managed for dynamic schemas."""
-    return column_name.startswith(INTERNAL_COLUMN_PREFIX)
+    return column_name.lower().startswith(INTERNAL_COLUMN_PREFIX)
 
 
 def strip_internal_columns(row: Mapping[str, Any]) -> dict[str, Any]:

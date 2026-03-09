@@ -29,6 +29,7 @@ from tracecat.tables.service import (
     DYNAMIC_WORKSPACE_TENANT_COLUMN,
     TableEditorService,
     TablesService,
+    is_internal_column_name,
 )
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -149,6 +150,12 @@ async def _list_rows(
 
 @pytest.mark.anyio
 class TestTablesService:
+    async def test_internal_column_name_check_is_case_insensitive(self) -> None:
+        """Internal column detection should normalize case before prefix checks."""
+        assert is_internal_column_name("__tc_workspace_id") is True
+        assert is_internal_column_name("__TC_workspace_id") is True
+        assert is_internal_column_name("user_field") is False
+
     async def test_create_and_get_table(self, tables_service: TablesService) -> None:
         """Test creating a table and retrieving it by name and id."""
         # Create a table using TableCreate
@@ -910,6 +917,13 @@ class TestTableRows:
                             tables_service.workspace_id
                         )
                     }
+                )
+            )
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await editor.insert_row(
+                TableRowInsert(
+                    data={"__TC_workspace_id": str(tables_service.workspace_id)}
                 )
             )
 
