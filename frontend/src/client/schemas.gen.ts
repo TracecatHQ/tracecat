@@ -3293,138 +3293,6 @@ export const $AuthDiscoveryMethod = {
   description: "Authentication method hint for client-side routing.",
 } as const
 
-export const $AwsCredentialSyncConfigRead = {
-  properties: {
-    region: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Region",
-    },
-    secret_prefix: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Secret Prefix",
-    },
-    has_access_key_id: {
-      type: "boolean",
-      title: "Has Access Key Id",
-      default: false,
-    },
-    has_secret_access_key: {
-      type: "boolean",
-      title: "Has Secret Access Key",
-      default: false,
-    },
-    has_session_token: {
-      type: "boolean",
-      title: "Has Session Token",
-      default: false,
-    },
-    is_configured: {
-      type: "boolean",
-      title: "Is Configured",
-      default: false,
-    },
-    is_corrupted: {
-      type: "boolean",
-      title: "Is Corrupted",
-      default: false,
-    },
-  },
-  type: "object",
-  title: "AwsCredentialSyncConfigRead",
-} as const
-
-export const $AwsCredentialSyncConfigUpdate = {
-  properties: {
-    region: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 255,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Region",
-    },
-    secret_prefix: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 512,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Secret Prefix",
-    },
-    access_key_id: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 512,
-          minLength: 1,
-          format: "password",
-          writeOnly: true,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Access Key Id",
-    },
-    secret_access_key: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 2048,
-          minLength: 1,
-          format: "password",
-          writeOnly: true,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Secret Access Key",
-    },
-    session_token: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 4096,
-          minLength: 1,
-          format: "password",
-          writeOnly: true,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Session Token",
-    },
-  },
-  type: "object",
-  title: "AwsCredentialSyncConfigUpdate",
-} as const
-
 export const $BatchPositionUpdate = {
   properties: {
     actions: {
@@ -5877,6 +5745,11 @@ export const $CaseStatusGroupCounts = {
       title: "Closed",
       default: 0,
     },
+    unknown: {
+      type: "integer",
+      title: "Unknown",
+      default: 0,
+    },
     other: {
       type: "integer",
       title: "Other",
@@ -7582,106 +7455,6 @@ export const $CreatedEventRead = {
   required: ["created_at"],
   title: "CreatedEventRead",
   description: "Event for when a case is created.",
-} as const
-
-export const $CredentialSyncErrorItem = {
-  properties: {
-    secret_name: {
-      type: "string",
-      title: "Secret Name",
-    },
-    environment: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Environment",
-    },
-    remote_name: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Remote Name",
-    },
-    message: {
-      type: "string",
-      title: "Message",
-    },
-  },
-  type: "object",
-  required: ["secret_name", "message"],
-  title: "CredentialSyncErrorItem",
-} as const
-
-export const $CredentialSyncOperation = {
-  type: "string",
-  enum: ["push", "pull"],
-  title: "CredentialSyncOperation",
-} as const
-
-export const $CredentialSyncProvider = {
-  type: "string",
-  enum: ["aws"],
-  title: "CredentialSyncProvider",
-} as const
-
-export const $CredentialSyncResult = {
-  properties: {
-    provider: {
-      $ref: "#/components/schemas/CredentialSyncProvider",
-    },
-    operation: {
-      $ref: "#/components/schemas/CredentialSyncOperation",
-    },
-    success: {
-      type: "boolean",
-      title: "Success",
-    },
-    processed: {
-      type: "integer",
-      title: "Processed",
-      default: 0,
-    },
-    created: {
-      type: "integer",
-      title: "Created",
-      default: 0,
-    },
-    updated: {
-      type: "integer",
-      title: "Updated",
-      default: 0,
-    },
-    skipped: {
-      type: "integer",
-      title: "Skipped",
-      default: 0,
-    },
-    failed: {
-      type: "integer",
-      title: "Failed",
-      default: 0,
-    },
-    errors: {
-      items: {
-        $ref: "#/components/schemas/CredentialSyncErrorItem",
-      },
-      type: "array",
-      title: "Errors",
-    },
-  },
-  type: "object",
-  required: ["provider", "operation", "success"],
-  title: "CredentialSyncResult",
 } as const
 
 export const $CursorPaginatedResponse_CaseReadMinimal_ = {

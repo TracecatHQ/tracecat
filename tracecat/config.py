@@ -1,6 +1,7 @@
 import logging
 import os
 import uuid
+from enum import StrEnum
 from typing import Literal, cast
 
 from tracecat.auth.enums import AuthType
@@ -46,6 +47,14 @@ def bound_env[T: int | float](
     if upper is not None and bounded > upper:
         bounded = upper
     return bounded
+
+
+class RLSMode(StrEnum):
+    """Runtime mode for application-level RLS session behavior."""
+
+    OFF = "off"
+    SHADOW = "shadow"
+    ENFORCE = "enforce"
 
 
 # === Internal Services === #
@@ -868,6 +877,18 @@ for _flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(","):
             _flag_value,
         )
 """Set of enabled feature flags."""
+
+_rls_mode_raw = os.environ.get("TRACECAT__RLS_MODE", RLSMode.OFF.value).strip().lower()
+try:
+    TRACECAT__RLS_MODE: RLSMode = RLSMode(_rls_mode_raw)
+except ValueError:
+    logger.warning(
+        "Invalid TRACECAT__RLS_MODE '%s'; defaulting to '%s'",
+        _rls_mode_raw,
+        RLSMode.OFF.value,
+    )
+    TRACECAT__RLS_MODE = RLSMode.OFF
+"""Runtime RLS enforcement mode (off|shadow|enforce)."""
 
 
 # === Agent config === #

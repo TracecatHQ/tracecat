@@ -59,6 +59,7 @@ class CaseStatusGroupCounts(Schema):
     on_hold: int = 0
     resolved: int = 0
     closed: int = 0
+    unknown: int = 0
     other: int = 0
 
 

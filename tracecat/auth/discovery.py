@@ -14,7 +14,7 @@ from tracecat import config
 from tracecat.api.common import bootstrap_role, get_default_organization_id
 from tracecat.auth.enums import AuthType
 from tracecat.core.schemas import Schema
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.models import Organization, OrganizationDomain
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
@@ -142,7 +142,6 @@ class AuthDiscoveryService(BaseService):
         value = await get_setting(
             _SAML_SETTING_KEY,
             role=bootstrap_role(org_id),
-            session=self.session,
             default=True,
         )
         return bool(value)
@@ -206,7 +205,7 @@ class AuthDiscoveryService(BaseService):
 @router.post("/discover", response_model=AuthDiscoverResponse)
 async def discover_auth_method(
     params: AuthDiscoverRequest,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
 ) -> AuthDiscoverResponse:
     """Return the next-step auth method for a given email."""
     service = AuthDiscoveryService(session)

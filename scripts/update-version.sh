@@ -192,6 +192,21 @@ update_version() {
             sed -i -E '/variable "tracecat_chart_version"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$CHART_NEW_VERSION"'"/' "$file" && \
             echo "✓ Updated $file" || echo "✗ Failed to update $file"
         fi
+    elif [[ "$basename" == docker-compose*.yml ]]; then
+        # Targeted: update TRACECAT__IMAGE_TAG defaults even if stale in compose files.
+        if [[ "$(uname)" == "Darwin" ]]; then
+            sed -i '' -E 's/(\$\{TRACECAT__IMAGE_TAG:-)[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?(\})/\1'"$NEW_VERSION"'\3/g' "$file" && \
+            sed -i '' -E "s/$ESCAPED_CURRENT/$ESCAPED_NEW/g" "$file" && \
+            sed -i '' -E "s/\/blob\/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\//\/blob\/$NEW_VERSION\//g" "$file" && \
+            sed -i '' -E "s/\`[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\`/\`$NEW_VERSION\`/g" "$file" && \
+            echo "✓ Updated $file" || echo "✗ Failed to update $file"
+        else
+            sed -i -E 's/(\$\{TRACECAT__IMAGE_TAG:-)[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?(\})/\1'"$NEW_VERSION"'\3/g' "$file" && \
+            sed -i -E "s/$ESCAPED_CURRENT/$ESCAPED_NEW/g" "$file" && \
+            sed -i -E "s/\/blob\/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\//\/blob\/$NEW_VERSION\//g" "$file" && \
+            sed -i -E "s/\`[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\`/\`$NEW_VERSION\`/g" "$file" && \
+            echo "✓ Updated $file" || echo "✗ Failed to update $file"
+        fi
     else
         # Default: generic version string find-and-replace
         if [[ "$(uname)" == "Darwin" ]]; then

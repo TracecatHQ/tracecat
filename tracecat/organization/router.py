@@ -11,7 +11,7 @@ from tracecat.auth.dependencies import OrgUserRole
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.users import current_active_user
 from tracecat.authz.controls import require_scope
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
     Organization,
     OrganizationDomain,
@@ -568,7 +568,7 @@ async def get_invitation_token(
 async def accept_invitation(
     *,
     role: AuthenticatedUserOnly,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     params: OrgInvitationAccept,
 ) -> dict[str, str]:
     """Accept an invitation and join the organization.
@@ -603,7 +603,7 @@ async def accept_invitation(
 async def list_my_pending_invitations(
     *,
     role: AuthenticatedUserOnly,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     user: Annotated[User, Depends(current_active_user)],
 ) -> list[OrgPendingInvitationRead]:
     """List pending, unexpired invitations for the authenticated user."""
@@ -656,7 +656,7 @@ async def list_my_pending_invitations(
 @router.get("/invitations/token/{token}", response_model=OrgInvitationReadMinimal)
 async def get_invitation_by_token(
     *,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     token: str,
     user: OptionalUserDep = None,
 ) -> OrgInvitationReadMinimal:

@@ -81,7 +81,7 @@ just cluster list            # List all running clusters
 
 **When to use `just cluster`:**
 - Need a database connection → `just cluster up -d`
-- Need to run integration tests → `just cluster up -d`
+- Need to run integration tests or you need a live DB → `just cluster up -d`
 - Need Temporal for workflow testing → `just cluster up -d`
 - Need to check service logs → `just cluster logs <service>`
 - Need to restart after code changes → `just cluster restart <service>`

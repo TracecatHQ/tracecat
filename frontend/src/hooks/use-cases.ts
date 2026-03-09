@@ -59,6 +59,8 @@ const EMPTY_STAGE_COUNTS: CaseSearchAggregateRead["status_groups"] = {
   in_progress: 0,
   on_hold: 0,
   resolved: 0,
+  closed: 0,
+  unknown: 0,
   other: 0,
 }
 

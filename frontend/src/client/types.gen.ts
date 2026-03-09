@@ -897,24 +897,6 @@ export type AuthDiscoverResponse = {
  */
 export type AuthDiscoveryMethod = "basic" | "oidc" | "saml"
 
-export type AwsCredentialSyncConfigRead = {
-  region?: string | null
-  secret_prefix?: string | null
-  has_access_key_id?: boolean
-  has_secret_access_key?: boolean
-  has_session_token?: boolean
-  is_configured?: boolean
-  is_corrupted?: boolean
-}
-
-export type AwsCredentialSyncConfigUpdate = {
-  region?: string | null
-  secret_prefix?: string | null
-  access_key_id?: string | null
-  secret_access_key?: string | null
-  session_token?: string | null
-}
-
 /**
  * Batch update for action and trigger positions.
  */
@@ -1654,6 +1636,7 @@ export type CaseStatusGroupCounts = {
   on_hold?: number
   resolved?: number
   closed?: number
+  unknown?: number
   other?: number
 }
 
@@ -2223,29 +2206,6 @@ export type CreatedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
-}
-
-export type CredentialSyncErrorItem = {
-  secret_name: string
-  environment?: string | null
-  remote_name?: string | null
-  message: string
-}
-
-export type CredentialSyncOperation = "push" | "pull"
-
-export type CredentialSyncProvider = "aws"
-
-export type CredentialSyncResult = {
-  provider: CredentialSyncProvider
-  operation: CredentialSyncOperation
-  success: boolean
-  processed?: number
-  created?: number
-  updated?: number
-  skipped?: number
-  failed?: number
-  errors?: Array<CredentialSyncErrorItem>
 }
 
 export type CursorPaginatedResponse_CaseReadMinimal_ = {
@@ -9590,15 +9550,6 @@ export type OrganizationSecretsDeleteOrgSecretByIdData = {
 
 export type OrganizationSecretsDeleteOrgSecretByIdResponse = void
 
-export type SecretsGetAwsCredentialSyncConfigResponse =
-  AwsCredentialSyncConfigRead
-
-export type SecretsUpdateAwsCredentialSyncConfigData = {
-  requestBody: AwsCredentialSyncConfigUpdate
-}
-
-export type SecretsUpdateAwsCredentialSyncConfigResponse = void
-
 export type TablesListTablesData = {
   workspaceId: string
 }
@@ -10576,18 +10527,6 @@ export type VcsDeleteGithubAppCredentialsResponse = void
 
 export type VcsGetGithubAppCredentialsStatusResponse =
   GitHubAppCredentialsStatus
-
-export type SecretsPushAwsCredentialSyncData = {
-  workspaceId: string
-}
-
-export type SecretsPushAwsCredentialSyncResponse = CredentialSyncResult
-
-export type SecretsPullAwsCredentialSyncData = {
-  workspaceId: string
-}
-
-export type SecretsPullAwsCredentialSyncResponse = CredentialSyncResult
 
 export type UsersGetMyScopesData = {
   workspaceId?: string | null
@@ -13989,29 +13928,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/organization/secrets/sync/aws": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: AwsCredentialSyncConfigRead
-      }
-    }
-    patch: {
-      req: SecretsUpdateAwsCredentialSyncConfigData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/tables": {
     get: {
       req: TablesListTablesData
@@ -15497,36 +15413,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: GitHubAppCredentialsStatus
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/secrets/sync/aws/push": {
-    post: {
-      req: SecretsPushAwsCredentialSyncData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CredentialSyncResult
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/secrets/sync/aws/pull": {
-    post: {
-      req: SecretsPullAwsCredentialSyncData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CredentialSyncResult
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
       }
     }
   }
