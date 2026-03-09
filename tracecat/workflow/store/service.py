@@ -16,6 +16,7 @@ from tracecat.git.types import GitUrl
 from tracecat.git.utils import parse_git_url
 from tracecat.identifiers.workflow import WorkflowIDShort, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.parse import safe_url
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import (
     Author,
@@ -82,11 +83,15 @@ class WorkflowStoreService(BaseWorkspaceService):
             )
 
         workspace, git_url = await self._get_workspace_and_git_url()
+        raw_git_repo_url = workspace.settings.get("git_repo_url")
+        safe_git_repo_url = (
+            safe_url(raw_git_repo_url) if isinstance(raw_git_repo_url, str) else None
+        )
 
         logger.info(
             "Publishing workflow to store",
             workflow_title=dsl.title,
-            repo_url=workspace.settings.get("git_repo_url"),
+            repo_url=safe_git_repo_url,
             workspace_id=self.workspace_id,
         )
 
@@ -553,8 +558,9 @@ class WorkflowStoreService(BaseWorkspaceService):
     ) -> None:
         if not workflows or not hasattr(workflows[0], "git_sync_branch"):
             return
+        branch_attr = "git_sync_branch"
         for workflow in workflows:
-            workflow.git_sync_branch = branch
+            setattr(workflow, branch_attr, branch)
             self.session.add(workflow)
         await self.session.commit()
 
