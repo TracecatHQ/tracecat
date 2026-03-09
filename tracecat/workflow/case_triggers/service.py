@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from sqlalchemy import select
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy.dialects.postgresql import insert
 
-from tracecat.db.models import CaseTag, CaseTrigger
+from tracecat.db.models import CaseTag, CaseTrigger, Workflow
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
 from tracecat.service import BaseWorkspaceService, requires_entitlement
@@ -18,19 +18,49 @@ class CaseTriggersService(BaseWorkspaceService):
 
     service_name = "case_triggers"
 
-    @requires_entitlement(Entitlement.CASE_ADDONS)
-    async def get_case_trigger(self, workflow_id: WorkflowID) -> CaseTrigger:
+    async def _ensure_case_trigger_exists(
+        self, workflow_id: WorkflowID, *, commit: bool = True
+    ) -> CaseTrigger:
+        workflow_uuid = WorkflowUUID.new(workflow_id)
         stmt = select(CaseTrigger).where(
             CaseTrigger.workspace_id == self.workspace_id,
-            CaseTrigger.workflow_id == WorkflowUUID.new(workflow_id),
+            CaseTrigger.workflow_id == workflow_uuid,
         )
         result = await self.session.execute(stmt)
-        try:
-            return result.scalar_one()
-        except NoResultFound as exc:
-            raise TracecatNotFoundError(
-                f"Case trigger for workflow {workflow_id} not found"
-            ) from exc
+        if case_trigger := result.scalar_one_or_none():
+            return case_trigger
+
+        workflow_exists_stmt = select(Workflow.id).where(
+            Workflow.workspace_id == self.workspace_id,
+            Workflow.id == workflow_uuid,
+        )
+        if await self.session.scalar(workflow_exists_stmt) is None:
+            raise TracecatNotFoundError(f"Workflow {workflow_id} not found")
+
+        await self.session.execute(
+            insert(CaseTrigger)
+            .values(
+                workspace_id=self.workspace_id,
+                workflow_id=workflow_uuid,
+                status="offline",
+                event_types=[],
+                tag_filters=[],
+            )
+            .on_conflict_do_nothing(index_elements=[CaseTrigger.workflow_id])
+        )
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
+
+        result = await self.session.execute(stmt)
+        if case_trigger := result.scalar_one_or_none():
+            return case_trigger
+        raise TracecatValidationError("Failed to ensure case trigger")
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def get_case_trigger(self, workflow_id: WorkflowID) -> CaseTrigger:
+        return await self._ensure_case_trigger_exists(workflow_id)
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def upsert_case_trigger(
@@ -42,7 +72,9 @@ class CaseTriggersService(BaseWorkspaceService):
         commit: bool = True,
     ) -> CaseTrigger:
         try:
-            case_trigger = await self.get_case_trigger(workflow_id)
+            case_trigger = await self._ensure_case_trigger_exists(
+                workflow_id, commit=commit
+            )
             return await self.update_case_trigger(
                 workflow_id,
                 CaseTriggerUpdate(
@@ -81,7 +113,9 @@ class CaseTriggersService(BaseWorkspaceService):
         create_missing_tags: bool = False,
         commit: bool = True,
     ) -> CaseTrigger:
-        case_trigger = await self.get_case_trigger(workflow_id)
+        case_trigger = await self._ensure_case_trigger_exists(
+            workflow_id, commit=commit
+        )
         updates = params.model_dump(exclude_unset=True)
 
         status = updates.get("status", case_trigger.status)

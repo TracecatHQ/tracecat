@@ -143,3 +143,57 @@ async def test_case_trigger_update_clears_tag_filters_on_null(
     )
 
     assert updated.tag_filters == []
+
+
+@pytest.mark.anyio
+async def test_get_case_trigger_backfills_missing_default(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger Backfill",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+
+    service = CaseTriggersService(session, role=svc_role)
+    case_trigger = await service.get_case_trigger(WorkflowUUID.new(workflow.id))
+
+    assert case_trigger.workflow_id == workflow.id
+    assert case_trigger.status == "offline"
+    assert case_trigger.event_types == []
+    assert case_trigger.tag_filters == []
+
+
+@pytest.mark.anyio
+async def test_get_case_trigger_commit_false_does_not_persist_on_rollback(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger Rollback",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+    workflow_id = workflow.id
+
+    service = CaseTriggersService(session, role=svc_role)
+    case_trigger = await service._ensure_case_trigger_exists(
+        WorkflowUUID.new(workflow_id), commit=False
+    )
+
+    assert case_trigger.workflow_id == workflow_id
+    first_trigger_id = case_trigger.id
+
+    await session.rollback()
+
+    reloaded_service = CaseTriggersService(session, role=svc_role)
+    refreshed = await reloaded_service._ensure_case_trigger_exists(
+        WorkflowUUID.new(workflow_id), commit=False
+    )
+
+    assert refreshed.id != first_trigger_id

@@ -1037,7 +1037,6 @@ export function useWorkflowExecution(
 }
 
 export function useCompactWorkflowExecution(workflowExecutionId?: string) {
-  // if execution ID contains non-url-safe characters, decode it
   const workspaceId = useWorkspaceId()
   const {
     data: execution,
@@ -1050,7 +1049,7 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
       if (!workflowExecutionId) return null
       return await workflowExecutionsGetWorkflowExecutionCompact({
         workspaceId,
-        executionId: encodeURIComponent(workflowExecutionId),
+        executionId: workflowExecutionId,
       })
     },
     // Add retry logic for potential 404s when the execution hasn't been fully registered

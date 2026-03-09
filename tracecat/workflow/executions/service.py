@@ -25,7 +25,7 @@ from temporalio.client import (
     WorkflowHandle,
     WorkflowHistoryEventFilterType,
 )
-from temporalio.common import TypedSearchAttributes
+from temporalio.common import TypedSearchAttributes, WorkflowIDReusePolicy
 from temporalio.exceptions import TerminatedError
 from temporalio.service import RPCError
 
@@ -1592,6 +1592,9 @@ class WorkflowExecutionsService:
                     ),
                     id=wf_exec_id,
                     task_queue=config.TEMPORAL__CLUSTER_QUEUE,
+                    # Workflow execution IDs are immutable correlation keys.
+                    # Retrying the same dispatch must not start a second run.
+                    id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
                     retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                     search_attributes=search_attrs,
                     **kwargs,

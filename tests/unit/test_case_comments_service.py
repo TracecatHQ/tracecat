@@ -23,15 +23,18 @@ from tracecat.cases.enums import (
 from tracecat.cases.schemas import (
     CaseCommentCreate,
     CaseCommentUpdate,
+    CaseCommentWorkflowStatus,
     CaseCreate,
 )
 from tracecat.cases.service import CaseCommentsService, CasesService
-from tracecat.db.models import Case, CaseEvent
+from tracecat.db.models import Case, CaseComment, CaseEvent, Workflow
 from tracecat.exceptions import (
     EntitlementRequired,
+    ScopeDeniedError,
     TracecatAuthorizationError,
     TracecatValidationError,
 )
+from tracecat.identifiers.workflow import WorkflowUUID
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -150,6 +153,21 @@ async def test_case(session: AsyncSession, svc_role: Role) -> Case:
 
 
 @pytest.fixture
+async def workflow(session: AsyncSession, svc_role: Role) -> Workflow:
+    workflow = Workflow(
+        title="Escalate case",
+        description="Workflow-backed case comment test",
+        status="online",
+        alias="escalate_case",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+    await session.refresh(workflow)
+    return workflow
+
+
+@pytest.fixture
 def comment_create_params() -> CaseCommentCreate:
     """Sample comment creation parameters."""
     return CaseCommentCreate(
@@ -204,6 +222,236 @@ class TestCaseCommentsService:
         assert retrieved_comment.content == comment_create_params.content
         assert retrieved_comment.parent_id == comment_create_params.parent_id
         assert retrieved_comment.user_id == case_comments_service.role.user_id
+
+    async def test_create_workflow_backed_comment(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+        workflow: Workflow,
+        audit_event_calls: list[SimpleNamespace],
+    ) -> None:
+        existing_audit_count = len(audit_event_calls)
+        workflow_ref = WorkflowUUID.new(workflow.id)
+
+        created_comment = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(
+                content="Run this workflow",
+                workflow_id=workflow_ref,
+            ),
+        )
+
+        assert created_comment.workflow_id == workflow.id
+        assert created_comment.workflow_title == workflow.title
+        assert created_comment.workflow_alias == workflow.alias
+        assert created_comment.workflow_wf_exec_id is not None
+        assert (
+            created_comment.workflow_status == CaseCommentWorkflowStatus.RUNNING.value
+        )
+
+        serialized = case_comments_service.serialize_comment(created_comment)
+        assert serialized.workflow is not None
+        assert serialized.workflow.workflow_id == workflow.id
+        assert serialized.workflow.title == workflow.title
+        assert serialized.workflow.alias == workflow.alias
+        assert serialized.workflow.wf_exec_id == created_comment.workflow_wf_exec_id
+        assert serialized.workflow.status == CaseCommentWorkflowStatus.RUNNING
+
+        audit_events = audit_event_calls[existing_audit_count:]
+        comment_audits = [
+            event for event in audit_events if event.resource_type == "case_comment"
+        ]
+        workflow_audits = [
+            event
+            for event in audit_events
+            if event.resource_type == "workflow_execution"
+        ]
+        assert [event.status for event in comment_audits[-2:]] == [
+            AuditEventStatus.ATTEMPT.value,
+            AuditEventStatus.SUCCESS.value,
+        ]
+        assert [event.status for event in workflow_audits] == [
+            AuditEventStatus.ATTEMPT.value
+        ]
+        assert workflow_audits[0].data["workflow_id"] == str(workflow.id)
+        assert workflow_audits[0].data["comment_id"] == str(created_comment.id)
+        assert (
+            workflow_audits[0].data["wf_exec_id"] == created_comment.workflow_wf_exec_id
+        )
+
+        await session.delete(workflow)
+        await session.commit()
+
+        persisted_comment = await case_comments_service.get_comment(created_comment.id)
+        assert persisted_comment is not None
+        assert persisted_comment.workflow_id == workflow.id
+
+        serialized_after_delete = case_comments_service.serialize_comment(
+            persisted_comment
+        )
+        assert serialized_after_delete.workflow is not None
+        assert serialized_after_delete.workflow.workflow_id == workflow.id
+        assert serialized_after_delete.workflow.title == workflow.title
+        assert serialized_after_delete.workflow.alias == workflow.alias
+
+    async def test_serialize_comment_preserves_workflow_snapshots_without_workflow_id(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+    ) -> None:
+        now = datetime.now(UTC)
+        comment = CaseComment(
+            id=uuid.uuid4(),
+            workspace_id=case_comments_service.workspace_id,
+            case_id=test_case.id,
+            content="Run this workflow",
+            parent_id=None,
+            user_id=case_comments_service.role.user_id,
+            workflow_id=None,
+            workflow_title="Escalate case",
+            workflow_alias="escalate_case",
+            workflow_wf_exec_id="wf_123/exec_456",
+            workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
+            created_at=now,
+            updated_at=now,
+        )
+
+        serialized = case_comments_service.serialize_comment(comment)
+
+        assert serialized.workflow is not None
+        assert serialized.workflow.workflow_id is None
+        assert serialized.workflow.title == "Escalate case"
+        assert serialized.workflow.alias == "escalate_case"
+        assert serialized.workflow.wf_exec_id == "wf_123/exec_456"
+        assert serialized.workflow.status == CaseCommentWorkflowStatus.RUNNING
+
+    async def test_create_workflow_backed_comment_publishes_explicit_trigger(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+        workflow: Workflow,
+    ) -> None:
+        callbacks: list[object] = []
+
+        with (
+            patch(
+                "tracecat.cases.service.add_after_commit_callback",
+                side_effect=lambda _session, _callback: callbacks.append(_callback),
+            ),
+            patch(
+                "tracecat.cases.service.publish_case_event_payload",
+                new=AsyncMock(),
+            ) as publish_mock,
+        ):
+            created_comment = await case_comments_service.create_comment(
+                test_case,
+                CaseCommentCreate(
+                    content="Run this workflow",
+                    workflow_id=WorkflowUUID.new(workflow.id),
+                ),
+            )
+
+        assert callbacks == []
+        workflow_publish = next(
+            kwargs
+            for _, kwargs in publish_mock.await_args_list
+            if kwargs.get("extra_fields", {}).get("workflow_id") == str(workflow.id)
+        )
+        assert workflow_publish["event_id"]
+        assert workflow_publish["case_id"] == str(test_case.id)
+        assert workflow_publish["workspace_id"] == str(test_case.workspace_id)
+        assert workflow_publish["extra_fields"]["comment_id"] == str(created_comment.id)
+        assert workflow_publish["extra_fields"]["wf_exec_id"] == (
+            created_comment.workflow_wf_exec_id
+        )
+        assert workflow_publish["extra_fields"]["text"] == "Run this workflow"
+
+    async def test_create_workflow_backed_comment_marks_failed_when_publish_fails(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+        workflow: Workflow,
+        audit_event_calls: list[SimpleNamespace],
+    ) -> None:
+        existing_audit_count = len(audit_event_calls)
+
+        with (
+            patch(
+                "tracecat.cases.service.add_after_commit_callback",
+                side_effect=lambda _session, _callback: None,
+            ),
+            patch(
+                "tracecat.cases.service.publish_case_event_payload",
+                new=AsyncMock(side_effect=RuntimeError("redis unavailable")),
+            ),
+        ):
+            created_comment = await case_comments_service.create_comment(
+                test_case,
+                CaseCommentCreate(
+                    content="Run this workflow",
+                    workflow_id=WorkflowUUID.new(workflow.id),
+                ),
+            )
+
+        assert created_comment.workflow_status == CaseCommentWorkflowStatus.FAILED.value
+
+        refreshed_comment = await case_comments_service.get_comment(created_comment.id)
+        assert refreshed_comment is not None
+        assert (
+            refreshed_comment.workflow_status == CaseCommentWorkflowStatus.FAILED.value
+        )
+
+        workflow_audits = [
+            event
+            for event in audit_event_calls[existing_audit_count:]
+            if event.resource_type == "workflow_execution"
+        ]
+        assert [event.status for event in workflow_audits] == [
+            AuditEventStatus.ATTEMPT.value,
+            AuditEventStatus.FAILURE.value,
+        ]
+
+    async def test_create_workflow_backed_comment_requires_case_addons(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+        workflow: Workflow,
+    ) -> None:
+        with patch.object(
+            case_comments_service,
+            "has_entitlement",
+            new=AsyncMock(return_value=False),
+        ):
+            with pytest.raises(EntitlementRequired, match="case_addons"):
+                await case_comments_service.create_comment(
+                    test_case,
+                    CaseCommentCreate(
+                        content="Run this workflow",
+                        workflow_id=WorkflowUUID.new(workflow.id),
+                    ),
+                )
+
+    async def test_create_workflow_backed_comment_requires_workflow_execute_scope(
+        self,
+        session: AsyncSession,
+        test_case: Case,
+        workflow: Workflow,
+        svc_role: Role,
+    ) -> None:
+        role = svc_role.model_copy(update={"scopes": frozenset({"case:update"})})
+        service = CaseCommentsService(session=session, role=role)
+
+        with pytest.raises(ScopeDeniedError) as exc_info:
+            await service.create_comment(
+                test_case,
+                CaseCommentCreate(
+                    content="Run this workflow",
+                    workflow_id=WorkflowUUID.new(workflow.id),
+                ),
+            )
+
+        assert exc_info.value.missing_scopes == ["workflow:execute"]
 
     async def test_list_comments(
         self,
@@ -550,6 +798,38 @@ class TestCaseCommentsService:
         update_audits = [event for event in audit_events if event.action == "update"]
         assert update_audits[-1].data["parent_id"] == str(parent.id)
         assert update_audits[-1].data["is_reply"] is True
+
+    async def test_update_comment_rejects_workflow_backed_comments(
+        self,
+        case_comments_service: CaseCommentsService,
+        session: AsyncSession,
+        test_case: Case,
+        workflow: Workflow,
+    ) -> None:
+        comment = CaseComment(
+            id=uuid.uuid4(),
+            workspace_id=case_comments_service.workspace_id,
+            case_id=test_case.id,
+            content="Run this workflow",
+            user_id=case_comments_service.role.user_id,
+            workflow_id=workflow.id,
+            workflow_title=workflow.title,
+            workflow_alias=workflow.alias,
+            workflow_wf_exec_id="wf_123/exec_456",
+            workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
+        )
+        session.add(comment)
+        await session.commit()
+        await session.refresh(comment)
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="Workflow-backed comments cannot be edited",
+        ):
+            await case_comments_service.update_comment(
+                comment,
+                CaseCommentUpdate(content="Updated"),
+            )
 
     async def test_update_comment_rejects_reparenting(
         self,

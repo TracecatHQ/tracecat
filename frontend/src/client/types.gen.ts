@@ -1051,6 +1051,7 @@ export type CaseAttachmentRead = {
 export type CaseCommentCreate = {
   content: string
   parent_id?: string | null
+  workflow_id?: string | null
 }
 
 export type CaseCommentDeleteMode = "soft" | "hard"
@@ -1061,6 +1062,7 @@ export type CaseCommentRead = {
   updated_at: string
   content: string
   parent_id?: string | null
+  workflow?: CaseCommentWorkflowRead | null
   user?: UserRead | null
   last_edited_at?: string | null
   deleted_at?: string | null
@@ -1078,6 +1080,16 @@ export type CaseCommentUpdate = {
   content?: string | null
   parent_id?: string | null
 }
+
+export type CaseCommentWorkflowRead = {
+  workflow_id?: string | null
+  title: string
+  alias?: string | null
+  wf_exec_id?: string | null
+  status: CaseCommentWorkflowStatus
+}
+
+export type CaseCommentWorkflowStatus = "running" | "succeeded" | "failed"
 
 export type CaseCreate = {
   summary: string

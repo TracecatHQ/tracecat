@@ -224,10 +224,16 @@ async def create_comment(
         str | None,
         Doc("The ID of the parent comment if this is a reply."),
     ] = None,
+    workflow_id: Annotated[
+        str | None,
+        Doc("The ID of the workflow to run when the comment is created."),
+    ] = None,
 ) -> types.CaseComment:
     params: dict[str, Any] = {"content": content}
     if parent_id is not None:
         params["parent_id"] = parent_id
+    if workflow_id is not None:
+        params["workflow_id"] = workflow_id
     return await get_context().cases.create_comment_simple(case_id, **params)
 
 

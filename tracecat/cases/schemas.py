@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 import sqlalchemy as sa
@@ -163,12 +164,27 @@ class CaseFieldRead(CaseFieldReadMinimal):
 # Case Comments
 
 
+class CaseCommentWorkflowStatus(StrEnum):
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class CaseCommentWorkflowRead(Schema):
+    workflow_id: uuid.UUID | None = None
+    title: str
+    alias: str | None = None
+    wf_exec_id: str | None = None
+    status: CaseCommentWorkflowStatus
+
+
 class CaseCommentRead(Schema):
     id: uuid.UUID
     created_at: datetime
     updated_at: datetime
     content: str
     parent_id: uuid.UUID | None = None
+    workflow: CaseCommentWorkflowRead | None = None
     user: UserRead | None = None
     last_edited_at: datetime | None = None
     deleted_at: datetime | None = None
@@ -185,6 +201,7 @@ class CaseCommentThreadRead(Schema):
 class CaseCommentCreate(Schema):
     content: str = Field(default=..., min_length=1, max_length=25_000)
     parent_id: uuid.UUID | None = Field(default=None)
+    workflow_id: AnyWorkflowID | None = Field(default=None)
 
     @field_validator("content")
     @classmethod
@@ -735,6 +752,11 @@ class InternalCaseCommentData(Schema):
     updated_at: datetime
     content: str
     parent_id: uuid.UUID | None = None
+    workflow_id: uuid.UUID | None = None
+    workflow_title: str | None = None
+    workflow_alias: str | None = None
+    workflow_wf_exec_id: str | None = None
+    workflow_status: CaseCommentWorkflowStatus | None = None
     case_id: uuid.UUID
     workspace_id: uuid.UUID
     user_id: uuid.UUID | None = None
