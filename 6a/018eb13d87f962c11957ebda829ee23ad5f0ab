@@ -1,0 +1,27 @@
+tracecat/db/tenant_rls.py
+  7bec0dd761bdc7f2 1-239
+tests/unit/test_rls_failure_repros.py
+  7bec0dd761bdc7f2 5,28-34,46,247,252,258-259,268-269,277-278,280,292,295-296,379-388
+tests/unit/test_auth_middleware.py
+  7bec0dd761bdc7f2 13,56,59-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "6a018eb13d87f962c11957ebda829ee23ad5f0ab",
+  "prompts": {
+    "7bec0dd761bdc7f2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ccf75-4f08-7ef2-b665-03712f6e5871",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 404,
+      "total_deletions": 127,
+      "accepted_lines": 334,
+      "overriden_lines": 0
+    }
+  }
+}
