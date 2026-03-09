@@ -105,7 +105,7 @@ class BaseTablesService(BaseWorkspaceService):
         """Get the full table name for a table."""
         schema_name = self._get_schema_name(workspace_id)
         sanitized_table_name = self._sanitize_identifier(table_name)
-        return f'"{schema_name}".{sanitized_table_name}'
+        return f'"{schema_name}"."{sanitized_table_name}"'
 
     def _workspace_tenant_default_sql(self) -> sa.TextClause:
         """Build the server default expression for the tenant column."""
@@ -691,6 +691,8 @@ class BaseTablesService(BaseWorkspaceService):
     @audit_log(resource_type="table_column", action="delete")
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
+        if is_internal_column_name(column.name):
+            raise ValueError(f"Column {column.name} is reserved for internal use")
         full_table_name = self._full_table_name(column.table.name)
         sanitized_column = self._sanitize_identifier(column.name)
 
@@ -1822,7 +1824,12 @@ class TableEditorService(BaseWorkspaceService):
 
     def _full_table_name(self) -> str:
         """Get the full table name for the current role."""
-        return f'"{self.schema_name}".{self.table_name}'
+        return f'"{self.schema_name}"."{self.table_name}"'
+
+    def _assert_user_column_name_allowed(self, column_name: str) -> None:
+        """Reject operations on internal/system-managed column names."""
+        if is_internal_column_name(column_name):
+            raise ValueError(f"Column {column_name} is reserved for internal use")
 
     async def get_columns(self) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
         """Get all columns for a table."""
@@ -1973,6 +1980,7 @@ class TableEditorService(BaseWorkspaceService):
 
     async def delete_column(self, column_name: str) -> None:
         """Remove a column from an existing table."""
+        self._assert_user_column_name_allowed(column_name)
         sanitized_column = sanitize_identifier(column_name)
 
         # Drop the column from the physical table using DDL
@@ -2070,6 +2078,8 @@ class TableEditorService(BaseWorkspaceService):
         conn = await self.session.connection()
 
         row_data = params.data
+        for column_name in row_data:
+            self._assert_user_column_name_allowed(column_name)
         col_map = {c["name"]: c for c in await self.get_columns()}
 
         value_clauses: dict[str, sa.BindParameter] = {}
@@ -2116,6 +2126,8 @@ class TableEditorService(BaseWorkspaceService):
             TracecatNotFoundError: If the row does not exist
         """
         conn = await self.session.connection()
+        for column_name in data:
+            self._assert_user_column_name_allowed(column_name)
         col_map = {c["name"]: c for c in await self.get_columns()}
 
         # Build update statement using SQLAlchemy
