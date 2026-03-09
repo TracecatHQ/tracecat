@@ -83,7 +83,7 @@ from tracecat.config import (
     TRACECAT__PUBLIC_API_URL,
     XMLSEC_BINARY_PATH,
 )
-from tracecat.db.engine import get_async_session
+from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
     OrganizationDomain,
     OrganizationInvitation,
@@ -91,6 +91,7 @@ from tracecat.db.models import (
     SAMLRequestData,
     User,
 )
+from tracecat.db.rls import set_rls_context
 from tracecat.identifiers import OrganizationID
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.logger import logger
@@ -203,7 +204,7 @@ class SAMLParser:
 
 async def require_saml_login_organization(
     request: Request,
-    db_session: Annotated[AsyncSession, Depends(get_async_session)],
+    db_session: AsyncDBSessionBypass,
 ) -> OrganizationID:
     """Resolve the target org and enforce org-scoped SAML enablement."""
     organization_id = await resolve_auth_organization_id(request, session=db_session)
@@ -649,7 +650,7 @@ async def login(
     organization_id: Annotated[
         OrganizationID, Depends(require_saml_login_organization)
     ],
-    db_session: Annotated[AsyncSession, Depends(get_async_session)],
+    db_session: AsyncDBSessionBypass,
 ) -> SAMLDatabaseLoginResponse:
     """Initiate SAML login flow"""
     saml_idp_metadata_url = await get_org_saml_metadata_url(db_session, organization_id)
@@ -697,7 +698,7 @@ async def sso_acs(
     relay_state: str = Form(..., alias="RelayState"),
     user_manager: UserManagerDep,
     strategy: AuthBackendStrategyDep,
-    db_session: Annotated[AsyncSession, Depends(get_async_session)],
+    db_session: AsyncDBSession,
     role: ServiceRole,
 ) -> Response:
     """Handle the SAML SSO response from the IdP post-authentication."""
@@ -738,6 +739,16 @@ async def sso_acs(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Authentication failed",
         )
+
+    # Rebind the request session to the validated organization before any
+    # org-scoped settings, domain, or membership queries.
+    await set_rls_context(
+        db_session,
+        org_id=organization_id,
+        workspace_id=None,
+        user_id=None,
+        bypass=False,
+    )
 
     # Load IdP metadata after RelayState validation so ACS config is tied to the
     # validated org context.

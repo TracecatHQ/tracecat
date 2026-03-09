@@ -11,12 +11,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.api.common import get_default_organization_id
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.common import UNSET
 from tracecat.contexts import ctx_role, ctx_session
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import OrganizationSetting
+from tracecat.db.rls import set_rls_context_from_role
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
@@ -346,15 +349,10 @@ async def get_setting(
 
     # If role has no organization_id, fetch the default org
     if role is not None and role.organization_id is None:
-        from tracecat.api.common import get_default_organization_id
-        from tracecat.auth.types import Role as RoleClass
-
         if session:
             default_org_id = await get_default_organization_id(session)
         else:
-            from tracecat.db.engine import get_async_session_context_manager
-
-            async with get_async_session_context_manager() as sess:
+            async with get_async_session_bypass_rls_context_manager() as sess:
                 default_org_id = await get_default_organization_id(sess)
 
         # If no default organization is available, return default
@@ -365,16 +363,11 @@ async def get_setting(
             )
             return default if default is not UNSET else None
 
-        # Create a new role with the default org_id
-        role = RoleClass(
-            type=role.type,
-            service_id=role.service_id,
-            user_id=role.user_id,
-            workspace_id=role.workspace_id,
-            organization_id=default_org_id,
-        )
+        # Preserve all existing role attributes while binding org scope.
+        role = role.model_copy(update={"organization_id": default_org_id})
 
     if session:
+        await set_rls_context_from_role(session, role)
         service = SettingsService(session=session, role=role)
         setting = await service.get_org_setting(key)
         no_default_val = service.get_value(setting) if setting else None

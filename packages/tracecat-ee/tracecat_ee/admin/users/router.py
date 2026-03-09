@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi_users import InvalidPasswordException
 
 from tracecat.auth.credentials import SuperuserRole
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.dependencies import AsyncDBSessionBypass
 
 from .schemas import AdminUserCreate, AdminUserRead
 from .service import AdminUserService
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/users", tags=["admin:users"])
 @router.post("", response_model=AdminUserRead, status_code=status.HTTP_201_CREATED)
 async def create_user(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     params: AdminUserCreate,
 ) -> AdminUserRead:
     """Create a platform-level user without org membership."""
@@ -44,7 +44,7 @@ async def create_user(
 @router.get("", response_model=list[AdminUserRead])
 async def list_users(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
 ) -> list[AdminUserRead]:
     """List all users."""
     service = AdminUserService(session, role)
@@ -54,7 +54,7 @@ async def list_users(
 @router.get("/{user_id}", response_model=AdminUserRead)
 async def get_user(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     user_id: uuid.UUID,
 ) -> AdminUserRead:
     """Get user by ID."""
@@ -68,7 +68,7 @@ async def get_user(
 @router.post("/{user_id}/promote", response_model=AdminUserRead)
 async def promote_to_superuser(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     user_id: uuid.UUID,
 ) -> AdminUserRead:
     """Promote a user to superuser status."""
@@ -88,7 +88,7 @@ async def promote_to_superuser(
 @router.post("/{user_id}/demote", response_model=AdminUserRead)
 async def demote_from_superuser(
     role: SuperuserRole,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     user_id: uuid.UUID,
 ) -> AdminUserRead:
     """Remove superuser status from a user."""

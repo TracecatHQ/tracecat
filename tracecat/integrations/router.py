@@ -6,7 +6,7 @@ from typing import Annotated, cast
 import httpx
 from fastapi import APIRouter, Body, HTTPException, Query, status
 from pydantic import SecretStr
-from sqlalchemy import select
+from sqlalchemy import delete
 
 from tracecat import config
 from tracecat.auth.credentials import RoleACL
@@ -15,7 +15,9 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import OAuthStateDB
+from tracecat.db.rls import set_rls_context_from_role
 from tracecat.integrations.dependencies import (
     ACProviderInfoDep,
     CCProviderInfoDep,
@@ -114,6 +116,8 @@ async def oauth_callback(
     # This is always authorization code
     role = role.model_copy(update={"workspace_id": oauth_state_db.workspace_id})
     ctx_role.set(role)
+    if config.TRACECAT__RLS_MODE == config.RLSMode.ENFORCE:
+        await set_rls_context_from_role(session, role)
 
     # Create service to resolve provider (including custom providers)
     svc = IntegrationService(session, role=role)
@@ -450,13 +454,12 @@ async def connect_provider(
             detail="Provider configuration or credentials are not available",
         ) from exc
 
-    # Clean up expired state entries before creating a new one
-    stmt = select(OAuthStateDB).where(OAuthStateDB.expires_at < datetime.now(UTC))
-    result = await session.execute(stmt)
-    expired_states = result.scalars().all()
-    for expired_state in expired_states:
-        await session.delete(expired_state)
-    await session.commit()
+    # Clean up expired state entries globally before creating a new one.
+    async with get_async_session_bypass_rls_context_manager() as bypass_session:
+        await bypass_session.execute(
+            delete(OAuthStateDB).where(OAuthStateDB.expires_at < datetime.now(UTC))
+        )
+        await bypass_session.commit()
 
     # Create secure state in database (without code_verifier initially)
     state_id = uuid.uuid4()
