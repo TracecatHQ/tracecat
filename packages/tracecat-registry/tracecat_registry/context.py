@@ -50,8 +50,6 @@ class RegistryContext:
     api_url: str = "http://api:8000"
     executor_url: str = "http://executor:8000"
     token: str = ""
-    aws_assume_role_external_id: str | None = None
-
     # Lazily initialized SDK client
     _client: TracecatClient | None = field(default=None, repr=False)
 
@@ -97,9 +95,6 @@ class RegistryContext:
                 "TRACECAT__EXECUTOR_URL", "http://executor:8000"
             ),
             token=os.environ.get("TRACECAT__EXECUTOR_TOKEN", ""),
-            aws_assume_role_external_id=os.environ.get(
-                "TRACECAT__AWS_ASSUME_ROLE_EXTERNAL_ID"
-            ),
         )
 
     @cached_property

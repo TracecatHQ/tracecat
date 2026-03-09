@@ -148,7 +148,6 @@ async def handle_task(request: dict[str, Any]) -> dict[str, Any]:
             workflow_id=resolved_context.workflow_id,
             run_id=resolved_context.run_id,
             executor_token=resolved_context.executor_token,
-            aws_assume_role_external_id=resolved_context.aws_assume_role_external_id,
         )
         timing["action_ms"] = (time.monotonic() - start) * 1000
 

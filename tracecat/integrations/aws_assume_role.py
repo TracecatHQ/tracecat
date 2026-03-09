@@ -6,8 +6,6 @@ from uuid import UUID
 
 from tracecat import config
 
-AWS_ASSUME_ROLE_EXTERNAL_ID_ENV = "TRACECAT__AWS_ASSUME_ROLE_EXTERNAL_ID"
-
 
 def get_tracecat_aws_account_id() -> str:
     """Return the AWS account ID used by Tracecat workloads."""

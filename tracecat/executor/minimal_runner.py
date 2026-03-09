@@ -167,7 +167,6 @@ async def run_action_minimal_async(
     workflow_id: str,
     run_id: str,
     executor_token: str,
-    aws_assume_role_external_id: str | None = None,
 ) -> Any:
     """Run an action asynchronously (for warm workers with concurrent requests).
 
@@ -200,7 +199,6 @@ async def run_action_minimal_async(
             workflow_id=workflow_id,
             run_id=run_id,
             executor_token=executor_token,
-            aws_assume_role_external_id=aws_assume_role_external_id,
         )
     elif impl_type == "template":
         raise NotImplementedError(
@@ -220,7 +218,6 @@ async def _run_udf_async(
     workflow_id: str,
     run_id: str,
     executor_token: str,
-    aws_assume_role_external_id: str | None = None,
 ) -> Any:
     """Run a UDF action asynchronously with proper context setup."""
     module_path = action_impl.get("module")
@@ -242,7 +239,6 @@ async def _run_udf_async(
             run_id=run_id,
             api_url=_API_URL,  # Static, immutable
             token=executor_token,
-            aws_assume_role_external_id=aws_assume_role_external_id,
         )
         set_context(registry_ctx)
     except ImportError:
@@ -306,9 +302,6 @@ def _run_udf(
             run_id=os.environ.get("TRACECAT__RUN_ID", ""),
             api_url=_API_URL,
             token=os.environ.get("TRACECAT__EXECUTOR_TOKEN", ""),
-            aws_assume_role_external_id=os.environ.get(
-                "TRACECAT__AWS_ASSUME_ROLE_EXTERNAL_ID"
-            ),
         )
         set_context(registry_ctx)
     except ImportError:

@@ -19,13 +19,19 @@ def test_get_sync_temporary_credentials_uses_external_id_and_default_session_nam
     session.client.return_value = sts_client
 
     ctx = SimpleNamespace(
-        aws_assume_role_external_id="tracecat-ws-deadbeef",
         workspace_id="11111111-1111-1111-1111-111111111111",
         run_id="22222222-2222-2222-2222-222222222222",
     )
 
     with (
         patch.object(aws_boto3, "get_context", return_value=ctx),
+        patch.object(
+            aws_boto3.secrets,
+            "get_or_default",
+            side_effect=lambda key, default=None: (
+                "tracecat-ws-deadbeef" if key == "TRACECAT_AWS_EXTERNAL_ID" else default
+            ),
+        ),
         patch.object(aws_boto3.boto3, "Session", return_value=session),
     ):
         creds = aws_boto3.get_sync_temporary_credentials(

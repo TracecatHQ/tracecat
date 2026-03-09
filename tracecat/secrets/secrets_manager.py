@@ -8,8 +8,9 @@ from collections.abc import AsyncIterator, Iterator
 from typing import TYPE_CHECKING, Any, overload
 
 from tracecat.auth.sandbox import AuthSandbox
-from tracecat.contexts import ctx_env, ctx_run, get_env
+from tracecat.contexts import ctx_env, ctx_role, ctx_run, get_env
 from tracecat.exceptions import ScopeDeniedError, TracecatCredentialsError
+from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
@@ -102,6 +103,30 @@ def _infer_grant_type_from_token_name(token_name: str) -> OAuthGrantType | None:
     return None
 
 
+_AWS_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
+_AWS_ROLE_SECRET_NAMES = frozenset({"aws", "amazon_s3"})
+
+
+def _should_inject_aws_external_id(secrets: dict[str, Any]) -> bool:
+    return any(
+        isinstance(secret_values, dict) and secret_values.get("AWS_ROLE_ARN")
+        for secret_name, secret_values in secrets.items()
+        if secret_name in _AWS_ROLE_SECRET_NAMES
+    )
+
+
+def _inject_runtime_aws_external_id(secrets: dict[str, Any]) -> None:
+    if not _should_inject_aws_external_id(secrets):
+        return
+    if _AWS_EXTERNAL_ID_SECRET_KEY in secrets:
+        return
+    if not (role := ctx_role.get()) or role.workspace_id is None:
+        return
+    secrets[_AWS_EXTERNAL_ID_SECRET_KEY] = build_workspace_external_id(
+        role.workspace_id
+    )
+
+
 async def get_action_secrets(
     secret_exprs: builtins.set[str],
     action_secrets: builtins.set[RegistrySecretType],
@@ -174,6 +199,7 @@ async def get_action_secrets(
         optional_secrets=optional_basic_secrets,
     ) as sandbox:
         secrets |= sandbox.secrets.copy()
+    _inject_runtime_aws_external_id(secrets)
 
     # Get oauth integrations (from both action-declared secrets and expression-based secrets)
     all_oauth_provider_keys = builtins.set(oauth_secrets.keys()) | builtins.set(

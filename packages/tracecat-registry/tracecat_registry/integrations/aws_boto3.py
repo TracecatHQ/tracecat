@@ -4,7 +4,6 @@ Provides a interface to Boto3's Client and Paginator APIs.
 Supports role-based authentication and session management.
 """
 
-import os
 from typing import TYPE_CHECKING, Annotated, Any
 from typing_extensions import Doc
 
@@ -22,14 +21,14 @@ else:
 
 from tracecat_registry import (
     RegistrySecret,
-    logger,
-    registry,
     secrets,
     SecretNotFoundError,
+    logger,
+    registry,
 )
 from tracecat_registry.context import get_context
 
-_ASSUME_ROLE_EXTERNAL_ID_ENV = "TRACECAT__AWS_ASSUME_ROLE_EXTERNAL_ID"
+_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
 
 aws_secret = RegistrySecret(
     name="aws",
@@ -59,13 +58,7 @@ aws_secret = RegistrySecret(
 
 
 def _get_assume_role_external_id() -> str:
-    try:
-        if external_id := get_context().aws_assume_role_external_id:
-            return external_id
-    except RuntimeError:
-        pass
-
-    if external_id := os.environ.get(_ASSUME_ROLE_EXTERNAL_ID_ENV):
+    if external_id := secrets.get_or_default(_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY):
         return external_id
 
     raise SecretNotFoundError(

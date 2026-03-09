@@ -193,8 +193,5 @@ def _setup_registry_sdk_context() -> None:
         environment=os.environ.get("TRACECAT__ENVIRONMENT", "default"),
         api_url=os.environ.get("TRACECAT__API_URL", "http://api:8000"),
         token=os.environ.get("TRACECAT__EXECUTOR_TOKEN", ""),
-        aws_assume_role_external_id=os.environ.get(
-            "TRACECAT__AWS_ASSUME_ROLE_EXTERNAL_ID"
-        ),
     )
     set_context(registry_ctx)
