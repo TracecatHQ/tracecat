@@ -187,7 +187,7 @@ class CaseComment(TypedDict):
 class CaseCommentWorkflowRead(TypedDict):
     """Workflow metadata attached to a case comment."""
 
-    workflow_id: UUID
+    workflow_id: UUID | None
     title: str
     alias: str | None
     wf_exec_id: str | None

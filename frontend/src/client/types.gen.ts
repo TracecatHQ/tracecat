@@ -1100,7 +1100,7 @@ export type CaseCommentUpdate = {
 }
 
 export type CaseCommentWorkflowRead = {
-  workflow_id: string
+  workflow_id?: string | null
   title: string
   alias?: string | null
   wf_exec_id?: string | null

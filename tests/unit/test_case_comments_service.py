@@ -226,6 +226,7 @@ class TestCaseCommentsService:
     async def test_create_workflow_backed_comment(
         self,
         case_comments_service: CaseCommentsService,
+        session: AsyncSession,
         test_case: Case,
         workflow: Workflow,
         audit_event_calls: list[SimpleNamespace],
@@ -278,6 +279,52 @@ class TestCaseCommentsService:
         assert (
             workflow_audits[0].data["wf_exec_id"] == created_comment.workflow_wf_exec_id
         )
+
+        await session.delete(workflow)
+        await session.commit()
+
+        persisted_comment = await case_comments_service.get_comment(created_comment.id)
+        assert persisted_comment is not None
+        assert persisted_comment.workflow_id == workflow.id
+
+        serialized_after_delete = case_comments_service.serialize_comment(
+            persisted_comment
+        )
+        assert serialized_after_delete.workflow is not None
+        assert serialized_after_delete.workflow.workflow_id == workflow.id
+        assert serialized_after_delete.workflow.title == workflow.title
+        assert serialized_after_delete.workflow.alias == workflow.alias
+
+    async def test_serialize_comment_preserves_workflow_snapshots_without_workflow_id(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+    ) -> None:
+        now = datetime.now(UTC)
+        comment = CaseComment(
+            id=uuid.uuid4(),
+            workspace_id=case_comments_service.workspace_id,
+            case_id=test_case.id,
+            content="Run this workflow",
+            parent_id=None,
+            user_id=case_comments_service.role.user_id,
+            workflow_id=None,
+            workflow_title="Escalate case",
+            workflow_alias="escalate_case",
+            workflow_wf_exec_id="wf_123/exec_456",
+            workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
+            created_at=now,
+            updated_at=now,
+        )
+
+        serialized = case_comments_service.serialize_comment(comment)
+
+        assert serialized.workflow is not None
+        assert serialized.workflow.workflow_id is None
+        assert serialized.workflow.title == "Escalate case"
+        assert serialized.workflow.alias == "escalate_case"
+        assert serialized.workflow.wf_exec_id == "wf_123/exec_456"
+        assert serialized.workflow.status == CaseCommentWorkflowStatus.RUNNING
 
     async def test_create_workflow_backed_comment_publishes_explicit_trigger(
         self,

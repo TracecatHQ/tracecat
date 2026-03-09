@@ -4084,8 +4084,15 @@ export const $CaseCommentUpdate = {
 export const $CaseCommentWorkflowRead = {
   properties: {
     workflow_id: {
-      type: "string",
-      format: "uuid",
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Workflow Id",
     },
     title: {
@@ -4119,7 +4126,7 @@ export const $CaseCommentWorkflowRead = {
     },
   },
   type: "object",
-  required: ["workflow_id", "title", "status"],
+  required: ["title", "status"],
   title: "CaseCommentWorkflowRead",
 } as const
 

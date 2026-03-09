@@ -1373,7 +1373,7 @@ class CaseCommentsService(BaseWorkspaceService):
         workflow_id = getattr(comment, "workflow_id", None)
         workflow_title = getattr(comment, "workflow_title", None)
         workflow_status = getattr(comment, "workflow_status", None)
-        if workflow_id is None or workflow_title is None or workflow_status is None:
+        if workflow_title is None or workflow_status is None:
             return None
         return CaseCommentWorkflowRead(
             workflow_id=workflow_id,

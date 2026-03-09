@@ -170,7 +170,7 @@ class CaseCommentWorkflowStatus(StrEnum):
 
 
 class CaseCommentWorkflowRead(Schema):
-    workflow_id: uuid.UUID
+    workflow_id: uuid.UUID | None = None
     title: str
     alias: str | None = None
     wf_exec_id: str | None = None
