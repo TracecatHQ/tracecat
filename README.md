@@ -2,10 +2,10 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="img/banner-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="img/banner-light.svg">
-    <img src="img/banner-light.svg" alt="The open source AI platform for enterprise agents and automation.">
+    <img src="img/banner-light.svg" alt="The open source AI automation platform for security teams.">
   </picture>
   <p align="center">
-    Automate enterprise work with secure AI agents.
+    Open source AI automation platform for security teams.
   </p>
 
   <br>
@@ -21,8 +21,8 @@
 
 ## Introduction
 
-[Tracecat](https://tracecat.com) is the open source AI platform for enterprise agents and automation.
-It includes everything technical teams need to automate mission-critical work: agents, workflows, case management, and over 100+ integrations.
+[Tracecat](https://tracecat.com) is the open source AI platform for security teams.
+It includes everything security teams need to automate work: agents, workflows, case management, and over 100+ integrations.
 
 Purpose-built for agents and (human) builders:
 - **Visual builder**: build custom agents and workflows with a simple, intuitive UI
