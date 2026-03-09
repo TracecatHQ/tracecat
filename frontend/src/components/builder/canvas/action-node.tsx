@@ -382,6 +382,9 @@ export default React.memo(function ActionNode({
               actionInputs={actionInputsObj}
               actionIsLoading={actionIsLoading}
               actionIsInteractive={action?.is_interactive}
+              disableSecretsMasking={
+                action?.control_flow?.disable_secrets_masking ?? false
+              }
               submitHandler={form.handleSubmit(onSubmit)}
               style={style}
               breakpoint={breakpoint}
@@ -430,6 +433,7 @@ function ActionNodeContent({
   Icon,
   workspaceId,
   childWorkflowInfo,
+  disableSecretsMasking,
   error,
   validationErrors,
 }: {
@@ -437,6 +441,7 @@ function ActionNodeContent({
   actionInputs?: Record<string, unknown>
   actionIsLoading: boolean
   actionIsInteractive?: boolean
+  disableSecretsMasking?: boolean
   submitHandler: () => void
   style: { fontSize: string; showContent: boolean }
   breakpoint: "small" | "large" | "medium"
@@ -534,6 +539,22 @@ function ActionNodeContent({
           {/* Child workflow */}
 
           <div className="flex items-start gap-1">
+            {disableSecretsMasking && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="outline"
+                    className="h-5 gap-1 border-amber-300/80 bg-amber-50 px-1.5 py-0 text-[10px] font-medium text-amber-800"
+                  >
+                    <AlertTriangleIcon className="size-3.5" />
+                    <span>Unmasked</span>
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="top" align="center" sideOffset={5}>
+                  <p>This action returns secrets without masking.</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
             {childWorkflowInfo.isChildWorkflow && (
               <ChildWorkflowLink
                 workspaceId={workspaceId}
