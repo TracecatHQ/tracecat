@@ -10,6 +10,7 @@ from tracecat.db.tenant_rls import (
     ORG_OPTIONAL_WORKSPACE_POLICY_TABLES,
     ORG_POLICY_TABLES,
     SPECIAL_ORG_POLICY_TABLES,
+    SPECIAL_WORKSPACE_POLICY_TABLES,
     WORKSPACE_POLICY_TABLES,
 )
 
@@ -42,7 +43,9 @@ def _mapped_table_names_with_column(column_name: str) -> set[str]:
 def test_all_workspace_keyed_models_are_registered_for_tenant_rls() -> None:
     workspace_keyed_tables = _mapped_table_names_with_column("workspace_id")
     covered_workspace_tables = (
-        WORKSPACE_POLICY_TABLES | ORG_OPTIONAL_WORKSPACE_POLICY_TABLES
+        WORKSPACE_POLICY_TABLES
+        | ORG_OPTIONAL_WORKSPACE_POLICY_TABLES
+        | SPECIAL_WORKSPACE_POLICY_TABLES
     )
 
     missing_workspace_coverage = workspace_keyed_tables - covered_workspace_tables

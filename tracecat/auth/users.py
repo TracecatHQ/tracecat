@@ -199,6 +199,12 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     async def _resolve_target_org_for_email(
         self, email: str, org_ids: set[OrganizationID]
     ) -> OrganizationID | None:
+        organization_id = await self._get_org_id_for_email_domain(email)
+        if organization_id is None or organization_id not in org_ids:
+            return None
+        return organization_id
+
+    async def _get_org_id_for_email_domain(self, email: str) -> OrganizationID | None:
         _, _, email_domain = email.rpartition("@")
         if not email_domain:
             return None
@@ -214,10 +220,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         )
         async with get_async_session_bypass_rls_context_manager() as session:
             result = await session.execute(statement)
-            organization_id = result.scalar_one_or_none()
-        if organization_id is None or organization_id not in org_ids:
-            return None
-        return organization_id
+            return result.scalar_one_or_none()
 
     async def _is_org_saml_enforced(self, org_id: OrganizationID) -> bool:
         if AuthType.SAML not in config.TRACECAT__AUTH_TYPES:
@@ -258,19 +261,9 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         # 1. Domain-based check: the org owning this email domain enforces SAML
         _, _, email_domain = email.rpartition("@")
         if email_domain:
-            try:
-                normalized = normalize_domain(email_domain).normalized_domain
-            except ValueError:
-                pass
-            else:
-                statement = select(OrganizationDomain.organization_id).where(
-                    OrganizationDomain.normalized_domain == normalized,
-                    OrganizationDomain.is_active.is_(True),
-                )
-                result = await self._user_db.session.execute(statement)
-                org_id = result.scalar_one_or_none()
-                if org_id is not None and await self._is_org_saml_enforced(org_id):
-                    return True
+            org_id = await self._get_org_id_for_email_domain(email)
+            if org_id is not None and await self._is_org_saml_enforced(org_id):
+                return True
 
         # 2. Membership-based check: the user belongs to any enforced org
         try:

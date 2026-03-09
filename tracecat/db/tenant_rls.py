@@ -45,7 +45,6 @@ INITIAL_WORKSPACE_SCOPED_TABLES = (
     "invitation",
     "oauth_integration",
     "oauth_provider",
-    "oauth_state",
     "mcp_integration",
 )
 
@@ -83,8 +82,9 @@ POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
     "watchtower_agent_tool_call",
 )
 
-# Workspace carries custom org-aware policy SQL, and scope allows shared
+# Workspace and oauth_state carry custom policy SQL, and scope allows shared
 # platform-owned rows.
+SPECIAL_WORKSPACE_POLICY_TABLES = frozenset({"oauth_state"})
 SPECIAL_ORG_POLICY_TABLES = frozenset({"workspace", "scope"})
 
 CURRENT_WORKSPACE_SCOPED_TABLES = (
@@ -109,6 +109,7 @@ ALL_TENANT_RLS_TABLES = (
     WORKSPACE_POLICY_TABLES
     | ORG_POLICY_TABLES
     | ORG_OPTIONAL_WORKSPACE_POLICY_TABLES
+    | SPECIAL_WORKSPACE_POLICY_TABLES
     | SPECIAL_ORG_POLICY_TABLES
 )
 
@@ -138,6 +139,34 @@ def disable_workspace_table_rls(table: str) -> str:
     return f"""
         DROP POLICY IF EXISTS {policy_name(table)} ON "{table}";
         ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
+    """
+
+
+def enable_oauth_state_special_rls() -> str:
+    return f"""
+        ALTER TABLE "oauth_state" ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY {policy_name("oauth_state")} ON "oauth_state"
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid
+                OR workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+            )
+            WITH CHECK (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR (
+                    user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid
+                    AND workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                )
+            );
+    """
+
+
+def disable_oauth_state_special_rls() -> str:
+    return f"""
+        DROP POLICY IF EXISTS {policy_name("oauth_state")} ON "oauth_state";
+        ALTER TABLE "oauth_state" DISABLE ROW LEVEL SECURITY;
     """
 
 

@@ -204,6 +204,15 @@ def test_rls_migration_uses_enable_without_force() -> None:
     assert "FORCE ROW LEVEL SECURITY" not in migration_sql
 
 
+def test_rls_migration_uses_special_oauth_state_policy() -> None:
+    migration_sql = RLS_MIGRATION_PATH.read_text()
+    assert 'ALTER TABLE "oauth_state" ENABLE ROW LEVEL SECURITY;' in migration_sql
+    assert (
+        "user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid"
+        in migration_sql
+    )
+
+
 def test_validate_incoming_webhook_uses_bypass_session_manager() -> None:
     source = inspect.getsource(validate_incoming_webhook)
     assert "get_async_session_bypass_rls_context_manager" in source
@@ -367,6 +376,11 @@ def test_get_setting_primes_rls_context_when_session_is_provided() -> None:
 def test_user_manager_saml_check_does_not_reuse_unscoped_request_session() -> None:
     source = inspect.getsource(UserManager._is_org_saml_enforced)
     assert "session=self._user_db.session" not in source
+
+
+def test_user_manager_oauth_saml_domain_check_uses_bypass_session_manager() -> None:
+    source = inspect.getsource(UserManager._get_org_id_for_email_domain)
+    assert "get_async_session_bypass_rls_context_manager" in source
 
 
 def test_auth_discovery_saml_check_does_not_reuse_unscoped_request_session() -> None:

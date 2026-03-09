@@ -77,7 +77,6 @@ WORKSPACE_SCOPED_TABLES = [
     "invitation",
     "oauth_integration",
     "oauth_provider",
-    "oauth_state",
     "mcp_integration",
     "case_table_row",
     "agent_channel_token",
@@ -137,6 +136,36 @@ def _disable_rls_workspace_table(table: str) -> str:
     return f"""
         DROP POLICY IF EXISTS rls_policy_{table} ON "{table}";
         ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
+    """
+
+
+def _enable_rls_oauth_state_special() -> str:
+    """Generate SQL for oauth_state bootstrap reads before workspace is known."""
+    return f"""
+        ALTER TABLE "oauth_state" ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY rls_policy_oauth_state ON "oauth_state"
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid
+                OR workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+            )
+            WITH CHECK (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR (
+                    user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid
+                    AND workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                )
+            );
+    """
+
+
+def _disable_rls_oauth_state_special() -> str:
+    """Generate SQL to disable RLS on oauth_state."""
+    return """
+        DROP POLICY IF EXISTS rls_policy_oauth_state ON "oauth_state";
+        ALTER TABLE "oauth_state" DISABLE ROW LEVEL SECURITY;
     """
 
 
@@ -287,11 +316,17 @@ def upgrade() -> None:
     # Enable RLS on workspace table (special handling)
     op.execute(_enable_rls_workspace_special())
 
+    # Enable RLS on oauth_state (special handling for pre-workspace OAuth callback)
+    op.execute(_enable_rls_oauth_state_special())
+
 
 def downgrade() -> None:
     """Disable RLS on all tenant-scoped tables."""
     # Disable RLS on workspace table first
     op.execute(_disable_rls_workspace_special())
+
+    # Disable RLS on oauth_state (special handling)
+    op.execute(_disable_rls_oauth_state_special())
 
     # Disable RLS on scope table (special handling)
     op.execute(_disable_rls_scope_special())
