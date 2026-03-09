@@ -118,10 +118,6 @@ from tracecat.registry.repositories.router import router as registry_repos_route
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
 from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
-from tracecat.secrets.sync.router import org_router as secret_sync_org_router
-from tracecat.secrets.sync.router import (
-    workspace_router as secret_sync_workspace_router,
-)
 from tracecat.settings.router import router as org_settings_router
 from tracecat.settings.service import SettingsService, get_setting_override
 from tracecat.storage.blob import configure_bucket_lifecycle, ensure_bucket_exists
@@ -440,7 +436,6 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(registry_actions_router)
     app.include_router(org_settings_router)
     app.include_router(org_secrets_router)
-    app.include_router(secret_sync_org_router)
     app.include_router(tables_router)
     app.include_router(cases_router)
     app.include_router(case_rows_router)
@@ -457,7 +452,6 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(mcp_router)
     app.include_router(feature_flags_router)
     app.include_router(vcs_router)
-    app.include_router(secret_sync_workspace_router)
     # RBAC routers - user scopes + role listing + user role assignments are always included (OSS)
     app.include_router(user_scopes_router)
     app.include_router(rbac_roles_read_router)

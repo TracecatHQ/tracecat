@@ -108,12 +108,6 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "delete",
         "Delete organization settings and configuration",
     ),
-    ScopeDefinition(
-        "org:credential-sync:manage",
-        "org:credential-sync",
-        "manage",
-        "Manage organization credential sync configuration and operations",
-    ),
     # Registry administration
     ScopeDefinition(
         "org:registry:read",
