@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_engine
+from tracecat.db.engine import get_async_engine, get_async_session
 from tracecat.db.rls import (
     RLS_BYPASS_OFF,
     RLS_BYPASS_ON,
@@ -337,8 +337,6 @@ class TestRlsWithCtxRole:
         role_workspace_a: Role,
     ):
         """Test that ctx_role is properly read when creating sessions."""
-        from tracecat.db.engine import get_async_session
-
         # Set ctx_role before getting session
         ctx_role.set(role_workspace_a)
 

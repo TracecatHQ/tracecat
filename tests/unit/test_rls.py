@@ -11,6 +11,7 @@ import pytest
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
+from tracecat.db.models import Workflow
 from tracecat.db.rls import (
     RLS_BYPASS_OFF,
     RLS_BYPASS_ON,
@@ -340,9 +341,6 @@ class TestVerifyRlsAccess:
         mock_result.scalar_one_or_none.return_value = MagicMock()
         mock_session.execute.return_value = mock_result
 
-        # Use actual SQLAlchemy model for testing
-        from tracecat.db.models import Workflow
-
         result = await verify_rls_access(mock_session, Workflow, uuid.uuid4())
 
         assert result is True
@@ -355,9 +353,6 @@ class TestVerifyRlsAccess:
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
         mock_session.execute.return_value = mock_result
-
-        # Use actual SQLAlchemy model for testing
-        from tracecat.db.models import Workflow
 
         result = await verify_rls_access(mock_session, Workflow, uuid.uuid4())
 
@@ -375,8 +370,6 @@ class TestRequireRlsAccess:
         """Test that require_rls_access does nothing when RLS is disabled."""
         monkeypatch.setattr("tracecat.db.rls.is_rls_enabled", lambda: False)
 
-        from tracecat.db.models import Workflow
-
         # Should not raise even without setting up mock
         await require_rls_access(mock_session, Workflow, uuid.uuid4())
 
@@ -388,8 +381,6 @@ class TestRequireRlsAccess:
         monkeypatch.setattr(
             "tracecat.db.rls.config.TRACECAT__RLS_MODE", config.RLSMode.ENFORCE
         )
-
-        from tracecat.db.models import Workflow
 
         # Mock query result to return a record
         mock_result = MagicMock()
@@ -407,8 +398,6 @@ class TestRequireRlsAccess:
         monkeypatch.setattr(
             "tracecat.db.rls.config.TRACECAT__RLS_MODE", config.RLSMode.ENFORCE
         )
-
-        from tracecat.db.models import Workflow
 
         # Set role context
         ctx_role.set(test_role)
@@ -439,8 +428,6 @@ class TestRequireRlsAccess:
         monkeypatch.setattr(
             "tracecat.db.rls.config.TRACECAT__RLS_MODE", config.RLSMode.ENFORCE
         )
-
-        from tracecat.db.models import Workflow
 
         ctx_role.set(test_role)
 

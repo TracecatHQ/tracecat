@@ -734,7 +734,16 @@ async def _role_dependency(
     )
 
     ctx_role.set(role)
-    await set_rls_context_from_role(session, role)
+    if config.TRACECAT__RLS_MODE == config.RLSMode.ENFORCE:
+        await set_rls_context_from_role(session, role)
+    else:
+        await set_rls_context(
+            session,
+            org_id=None,
+            workspace_id=None,
+            user_id=role.user_id,
+            bypass=True,
+        )
     return role
 
 

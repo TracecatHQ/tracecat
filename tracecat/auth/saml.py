@@ -91,6 +91,7 @@ from tracecat.db.models import (
     SAMLRequestData,
     User,
 )
+from tracecat.db.rls import set_rls_context
 from tracecat.identifiers import OrganizationID
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.logger import logger
@@ -738,6 +739,16 @@ async def sso_acs(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Authentication failed",
         )
+
+    # Rebind the request session to the validated organization before any
+    # org-scoped settings, domain, or membership queries.
+    await set_rls_context(
+        db_session,
+        org_id=organization_id,
+        workspace_id=None,
+        user_id=None,
+        bypass=False,
+    )
 
     # Load IdP metadata after RelayState validation so ACS config is tied to the
     # validated org context.

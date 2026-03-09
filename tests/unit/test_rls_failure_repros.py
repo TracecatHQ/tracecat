@@ -17,6 +17,7 @@ from tracecat.api.app import info, lifespan
 from tracecat.auth.credentials import _role_dependency
 from tracecat.auth.discovery import AuthDiscoveryService
 from tracecat.auth.saml import login as saml_login
+from tracecat.auth.saml import sso_acs
 from tracecat.auth.types import Role
 from tracecat.auth.users import UserManager
 from tracecat.cases.triggers.consumer import CaseTriggerConsumer
@@ -403,6 +404,19 @@ def test_info_endpoint_uses_bypass_session_dependency() -> None:
 def test_saml_login_uses_bypass_session_dependency() -> None:
     source = inspect.getsource(saml_login)
     assert "db_session: AsyncDBSessionBypass" in source
+
+
+def test_role_dependency_keeps_bypass_context_outside_enforce() -> None:
+    source = inspect.getsource(_role_dependency)
+    assert "config.TRACECAT__RLS_MODE == config.RLSMode.ENFORCE" in source
+    assert "bypass=True" in source
+
+
+def test_saml_acs_primes_rls_context_before_org_scoped_queries() -> None:
+    source = inspect.getsource(sso_acs)
+    assert "await set_rls_context(" in source
+    assert "organization_id = parse_relay_state_org_id" in source
+    assert "get_org_saml_metadata_url(db_session, organization_id)" in source
 
 
 @pytest.mark.anyio
