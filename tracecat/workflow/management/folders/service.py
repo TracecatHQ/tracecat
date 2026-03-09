@@ -39,6 +39,13 @@ class WorkflowFolderService(BaseWorkspaceService):
 
     service_name = "workflow_folders"
 
+    @staticmethod
+    def _normalize_folder_path(path: str) -> str:
+        """Normalize folder paths to materialized-path format."""
+        if path == "/":
+            return path
+        return path if path.endswith("/") else f"{path}/"
+
     @require_scope("workflow:create")
     async def create_folder(
         self, name: str, parent_path: str = "/", commit: bool = True
@@ -56,16 +63,14 @@ class WorkflowFolderService(BaseWorkspaceService):
         if "/" in name:
             raise TracecatValidationError("Folder name cannot contain slashes")
 
+        parent_path = self._normalize_folder_path(parent_path)
+
         # Ensure parent path exists if not root
         if parent_path != "/":
             # We want to create the nested folders if not
             parent_exists = await self._folder_path_exists(parent_path)
             if not parent_exists:
                 raise TracecatValidationError(f"Parent path {parent_path} not found")
-
-        # Ensure parent_path has trailing slash
-        if not parent_path.endswith("/"):
-            parent_path += "/"
 
         # Create full path
         full_path = f"{parent_path}{name}/" if parent_path != "/" else f"/{name}/"
@@ -410,6 +415,7 @@ class WorkflowFolderService(BaseWorkspaceService):
 
     async def _folder_path_exists(self, path: str) -> bool:
         """Check if a folder path exists."""
+        path = self._normalize_folder_path(path)
         statement = (
             select(func.count())
             .select_from(WorkflowFolder)
