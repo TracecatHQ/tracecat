@@ -75,9 +75,15 @@ def traverse_expressions(obj: Any) -> Iterator[str]:
 def safe_url(url: str) -> str:
     """Remove credentials from a url."""
     url_obj = urlparse(url)
+    hostname = url_obj.hostname or ""
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+    netloc = hostname
+    if url_obj.port is not None:
+        netloc = f"{hostname}:{url_obj.port}"
     # XXX(safety): Reconstruct url without credentials.
     # Note that we do not recommend passing credentials in the url.
-    cleaned_url = urlunparse((url_obj.scheme, url_obj.netloc, url_obj.path, "", "", ""))
+    cleaned_url = urlunparse((url_obj.scheme, netloc, url_obj.path, "", "", ""))
     return cleaned_url
 
 

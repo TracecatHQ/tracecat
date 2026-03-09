@@ -20,6 +20,7 @@ export function WorkflowsDashboard() {
   const [bulkPushOpen, setBulkPushOpen] = useState(false)
   const [selectedWorkflowIds, setSelectedWorkflowIds] = useState<string[]>([])
   const [selectedFolderPaths, setSelectedFolderPaths] = useState<string[]>([])
+  const selectionResetKey = workflowView === ViewMode.Folders ? 1 : 0
 
   const selectedCount = selectedWorkflowIds.length + selectedFolderPaths.length
   const sortedSelectedWorkflowIds = useMemo(
@@ -71,6 +72,12 @@ export function WorkflowsDashboard() {
     []
   )
 
+  useEffect(() => {
+    setSelectedWorkflowIds([])
+    setSelectedFolderPaths([])
+    setBulkPushOpen(false)
+  }, [workflowView])
+
   if (workflowView === ViewMode.Folders) {
     return (
       <div className="size-full overflow-auto">
@@ -88,6 +95,7 @@ export function WorkflowsDashboard() {
           <WorkflowFoldersTable
             view={workflowView}
             onSelectionChange={handleDirectorySelectionChange}
+            clearSelectionTrigger={selectionResetKey}
           />
         </div>
         <WorkflowBulkPushDialog
@@ -109,6 +117,7 @@ export function WorkflowsDashboard() {
       selectedWorkflowIds={sortedSelectedWorkflowIds}
       selectedFolderPaths={sortedSelectedFolderPaths}
       onSelectionChange={handleWorkflowSelectionChange}
+      clearSelectionTrigger={selectionResetKey}
     />
   )
 }
@@ -120,6 +129,7 @@ function WorkflowTagsDashboard({
   selectedWorkflowIds,
   selectedFolderPaths,
   onSelectionChange,
+  clearSelectionTrigger,
 }: {
   workspaceId: string
   bulkPushOpen: boolean
@@ -127,6 +137,7 @@ function WorkflowTagsDashboard({
   selectedWorkflowIds: string[]
   selectedFolderPaths: string[]
   onSelectionChange: (workflows: WorkflowReadMinimal[]) => void
+  clearSelectionTrigger: number
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -160,7 +171,10 @@ function WorkflowTagsDashboard({
               {selectedCount > 0 ? ` (${selectedCount})` : ""}
             </Button>
           </div>
-          <WorkflowsTagsDashboardTable onSelectionChange={onSelectionChange} />
+          <WorkflowsTagsDashboardTable
+            onSelectionChange={onSelectionChange}
+            clearSelectionTrigger={clearSelectionTrigger}
+          />
         </div>
       </div>
       <WorkflowBulkPushDialog

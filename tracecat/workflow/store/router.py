@@ -11,6 +11,7 @@ from tracecat.exceptions import (
 from tracecat.git.utils import parse_git_url
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
+from tracecat.parse import safe_url
 from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
 from tracecat.sync import PullOptions, PullResult
 from tracecat.vcs.github.app import GitHubAppError
@@ -28,6 +29,12 @@ from tracecat.workflow.store.sync import WorkflowSyncService
 from tracecat.workspaces.service import WorkspaceService
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
+
+
+def _safe_repository_url(repository_url: str | None) -> str | None:
+    if repository_url is None:
+        return None
+    return safe_url(repository_url)
 
 
 @router.post(
@@ -213,14 +220,20 @@ async def list_workflow_commits(
     except HTTPException:
         raise
     except ValueError as e:
-        logger.error(f"Invalid repository URL: {repository_url}", exc_info=True)
+        logger.error(
+            "Invalid repository URL",
+            repository_url=_safe_repository_url(repository_url),
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid repository URL: {str(e)}",
         ) from e
     except GitHubAppError as e:
         logger.error(
-            f"GitHub App error accessing repository: {repository_url}", exc_info=True
+            "GitHub App error accessing repository",
+            repository_url=_safe_repository_url(repository_url),
+            exc_info=True,
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -229,7 +242,7 @@ async def list_workflow_commits(
     except Exception as e:
         logger.error(
             "Error fetching commits from repository",
-            repository_url=repository_url,
+            repository_url=_safe_repository_url(repository_url),
             error=str(e),
         )
         raise HTTPException(
@@ -282,14 +295,20 @@ async def list_workflow_branches(
     except HTTPException:
         raise
     except ValueError as e:
-        logger.error(f"Invalid repository URL: {repository_url}", exc_info=True)
+        logger.error(
+            "Invalid repository URL",
+            repository_url=_safe_repository_url(repository_url),
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid repository URL: {str(e)}",
         ) from e
     except GitHubAppError as e:
         logger.error(
-            f"GitHub App error accessing repository: {repository_url}", exc_info=True
+            "GitHub App error accessing repository",
+            repository_url=_safe_repository_url(repository_url),
+            exc_info=True,
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -298,7 +317,7 @@ async def list_workflow_branches(
     except Exception as e:
         logger.error(
             "Error fetching branches from repository",
-            repository_url=repository_url,
+            repository_url=_safe_repository_url(repository_url),
             error=str(e),
         )
         raise HTTPException(
@@ -369,7 +388,8 @@ async def pull_workflows(
         ) from e
     except GitHubAppError as e:
         logger.error(
-            f"GitHub App error during workflow pull: {repository_url}",
+            "GitHub App error during workflow pull",
+            repository_url=_safe_repository_url(repository_url),
             exc_info=True,
         )
         raise HTTPException(
@@ -378,7 +398,8 @@ async def pull_workflows(
         ) from e
     except Exception as e:
         logger.error(
-            f"Error pulling workflows from repository: {repository_url}",
+            "Error pulling workflows from repository",
+            repository_url=_safe_repository_url(repository_url),
             exc_info=True,
         )
         raise HTTPException(

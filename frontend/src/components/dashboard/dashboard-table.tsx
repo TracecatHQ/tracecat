@@ -38,8 +38,10 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function WorkflowsTagsDashboardTable({
   onSelectionChange,
+  clearSelectionTrigger,
 }: {
   onSelectionChange?: (workflows: WorkflowReadMinimal[]) => void
+  clearSelectionTrigger?: number
 }) {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
@@ -70,7 +72,7 @@ export function WorkflowsTagsDashboardTable({
     >
       <TooltipProvider>
         <DataTable
-          tableId={`${workspaceId}-${user?.id}:workflows-table`}
+          tableId={`${workspaceId}-${user?.id}:workflows-table:tags`}
           initialColumnVisibility={{
             created_at: false,
           }}
@@ -83,7 +85,9 @@ export function WorkflowsTagsDashboardTable({
           getRowHref={(row) =>
             `/workspaces/${workspaceId}/workflows/${row.original.id}`
           }
+          getRowId={(workflow) => workflow.id}
           onSelectionChange={handleSelectionChange}
+          clearSelectionTrigger={clearSelectionTrigger}
           columns={[
             {
               id: "select",
@@ -125,6 +129,7 @@ export function WorkflowsTagsDashboardTable({
                   "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
                 cellClassName:
                   "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
+                disableRowLink: true,
               },
             },
             {

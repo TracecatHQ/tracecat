@@ -51,9 +51,11 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 export function WorkflowFoldersTable({
   view,
   onSelectionChange,
+  clearSelectionTrigger,
 }: {
   view: ViewMode
   onSelectionChange?: (items: DirectoryItem[]) => void
+  clearSelectionTrigger?: number
 }) {
   const workspaceId = useWorkspaceId()
   const searchParams = useSearchParams()
@@ -72,6 +74,7 @@ export function WorkflowFoldersTable({
       directoryItemsIsLoading={directoryItemsIsLoading}
       directoryItemsError={directoryItemsError}
       onSelectionChange={onSelectionChange}
+      clearSelectionTrigger={clearSelectionTrigger}
     />
   )
 }
@@ -82,12 +85,14 @@ export function WorkflowsDashboardTable({
   directoryItemsIsLoading,
   directoryItemsError,
   onSelectionChange,
+  clearSelectionTrigger,
 }: {
   view: ViewMode
   directoryItems: DirectoryItem[] | undefined
   directoryItemsIsLoading: boolean
   directoryItemsError: ApiError | null
   onSelectionChange?: (items: DirectoryItem[]) => void
+  clearSelectionTrigger?: number
 }) {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
@@ -123,7 +128,7 @@ export function WorkflowsDashboardTable({
     >
       <TooltipProvider>
         <DataTable<DirectoryItem, unknown>
-          tableId={`${workspaceId}-${user?.id}:workflows-table`}
+          tableId={`${workspaceId}-${user?.id}:workflows-table:folders`}
           initialColumnVisibility={{
             created_at: false,
           }}
@@ -140,7 +145,11 @@ export function WorkflowsDashboardTable({
             }
             return undefined
           }}
+          getRowId={(item) =>
+            item.type === "workflow" ? item.id : `folder:${item.path}`
+          }
           onSelectionChange={handleSelectionChange}
+          clearSelectionTrigger={clearSelectionTrigger}
           columns={[
             {
               id: "select",
@@ -186,6 +195,7 @@ export function WorkflowsDashboardTable({
                   "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
                 cellClassName:
                   "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
+                disableRowLink: true,
               },
             },
             {
