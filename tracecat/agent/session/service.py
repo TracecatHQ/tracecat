@@ -58,7 +58,7 @@ from tracecat.chat.tools import get_default_tools
 from tracecat.db.models import AgentSession, AgentSessionHistory, Approval, Chat
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
@@ -412,7 +412,6 @@ class AgentSessionService(BaseWorkspaceService):
         set_fields = params.model_dump(exclude_unset=True)
         preset_id_updated = "agent_preset_id" in set_fields
         version_id_updated = "agent_preset_version_id" in set_fields
-        entity_type = AgentSessionEntity(agent_session.entity_type)
         requested_preset_id = set_fields.pop(
             "agent_preset_id", agent_session.agent_preset_id
         )
@@ -421,6 +420,12 @@ class AgentSessionService(BaseWorkspaceService):
         )
 
         if preset_id_updated or version_id_updated:
+            try:
+                entity_type = AgentSessionEntity(agent_session.entity_type)
+            except (TypeError, ValueError) as e:
+                raise TracecatValidationError(
+                    "Cannot update preset assignment for a session with an invalid entity type"
+                ) from e
             logical_preset_id = self._resolve_logical_preset_id(
                 entity_type=entity_type,
                 entity_id=agent_session.entity_id,

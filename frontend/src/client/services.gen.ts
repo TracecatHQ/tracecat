@@ -4330,7 +4330,10 @@ export const agentPresetsGetAgentPresetBySlug = (
  * @param data The data for the request.
  * @param data.presetId
  * @param data.workspaceId
- * @returns AgentPresetVersionReadMinimal Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_AgentPresetVersionReadMinimal_ Successful Response
  * @throws ApiError
  */
 export const agentPresetsListAgentPresetVersions = (
@@ -4343,6 +4346,9 @@ export const agentPresetsListAgentPresetVersions = (
       preset_id: data.presetId,
     },
     query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
       workspace_id: data.workspaceId,
     },
     errors: {

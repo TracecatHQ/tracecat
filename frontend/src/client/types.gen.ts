@@ -354,11 +354,11 @@ export type AgentPresetRead = {
   mcp_integrations?: Array<string> | null
   retries?: number
   enable_internet_access?: boolean
-  description?: string | null
   id: string
   workspace_id: string
   name: string
   slug: string
+  description?: string | null
   current_version_id?: string | null
   created_at: string
   updated_at: string
@@ -2298,6 +2298,30 @@ export type CreatedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
+  items: Array<AgentPresetVersionReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
 }
 
 export type CursorPaginatedResponse_CaseReadMinimal_ = {
@@ -9053,12 +9077,15 @@ export type AgentPresetsGetAgentPresetBySlugData = {
 export type AgentPresetsGetAgentPresetBySlugResponse = AgentPresetRead
 
 export type AgentPresetsListAgentPresetVersionsData = {
+  cursor?: string | null
+  limit?: number
   presetId: string
+  reverse?: boolean
   workspaceId: string
 }
 
 export type AgentPresetsListAgentPresetVersionsResponse =
-  Array<AgentPresetVersionReadMinimal>
+  CursorPaginatedResponse_AgentPresetVersionReadMinimal_
 
 export type AgentPresetsGetAgentPresetVersionData = {
   presetId: string
@@ -12882,7 +12909,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<AgentPresetVersionReadMinimal>
+        200: CursorPaginatedResponse_AgentPresetVersionReadMinimal_
         /**
          * Validation Error
          */
