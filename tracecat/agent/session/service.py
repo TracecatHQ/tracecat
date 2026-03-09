@@ -365,13 +365,13 @@ class AgentSessionService(BaseWorkspaceService):
     async def update_last_stream_id(
         self,
         agent_session: AgentSession,
-        last_stream_id: str,
+        last_stream_id: str | None,
     ) -> AgentSession:
         """Update the last stream ID for an agent session.
 
         Args:
             agent_session: The agent session to update.
-            last_stream_id: The Redis stream ID to store.
+            last_stream_id: The Redis stream ID to store, or None to clear it.
 
         Returns:
             The updated AgentSession.
@@ -784,10 +784,10 @@ class AgentSessionService(BaseWorkspaceService):
         if workspace_id is None:
             raise ValueError("Workspace ID is required")
 
-        # Get the session
-        agent_session = await self.get_session(session_id)
-        if not agent_session:
-            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        agent_session = await self.validate_turn_request(
+            session_id=session_id,
+            request=request,
+        )
 
         # Parse request to extract user prompt
         user_prompt: str | None = None
@@ -822,12 +822,6 @@ class AgentSessionService(BaseWorkspaceService):
         # Handle continuation (approval submission) vs new turn
         if is_continuation and isinstance(request, ContinueRunRequest):
             return await self._continue_with_approvals(session_id, request)
-
-        if await self.has_pending_approvals(session_id):
-            raise ValueError(
-                "This session is waiting for approval decisions. "
-                "Submit all pending approvals before sending another message."
-            )
 
         if user_prompt is not None:
             await self.auto_title_session_on_first_prompt(agent_session, user_prompt)
@@ -904,6 +898,33 @@ class AgentSessionService(BaseWorkspaceService):
         # Return ChatResponse with session_id for streaming
         stream_url = f"/api/agent/sessions/{session_id}/stream"
         return ChatResponse(stream_url=stream_url, chat_id=session_id)
+
+    async def validate_turn_request(
+        self,
+        session_id: uuid.UUID,
+        request: ChatRequest | ContinueRunRequest | BasicChatRequest,
+    ) -> AgentSession:
+        """Assert a turn can start before mutating session or stream state."""
+        agent_session = await self.get_session(session_id)
+        if not agent_session:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+
+        match request:
+            case ContinueRunRequest():
+                if agent_session.curr_run_id is None:
+                    raise TracecatNotFoundError(
+                        f"No active workflow run for session {session_id}"
+                    )
+                return agent_session
+            case VercelChatRequest() | BasicChatRequest():
+                if await self.has_pending_approvals(session_id):
+                    raise ValueError(
+                        "This session is waiting for approval decisions. "
+                        "Submit all pending approvals before sending another message."
+                    )
+                return agent_session
+            case _:
+                raise ValueError(f"Unsupported request type: {type(request)}")
 
     async def _continue_with_approvals(
         self,

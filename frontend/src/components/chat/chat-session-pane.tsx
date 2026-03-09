@@ -1356,6 +1356,7 @@ function ApprovalRequestPart({
                 />
                 <div className="flex w-full flex-wrap justify-start gap-1 sm:w-auto [&>button]:h-6 [&>button]:rounded-lg">
                   <Button
+                    type="button"
                     size="sm"
                     variant="outline"
                     disabled={disabled || submitting}
@@ -1375,6 +1376,7 @@ function ApprovalRequestPart({
                     Approve
                   </Button>
                   <Button
+                    type="button"
                     size="sm"
                     variant="outline"
                     disabled={disabled || submitting}
@@ -1395,6 +1397,7 @@ function ApprovalRequestPart({
                     Edit + approve
                   </Button>
                   <Button
+                    type="button"
                     size="sm"
                     variant="outline"
                     disabled={disabled || submitting}
@@ -1453,6 +1456,7 @@ function ApprovalRequestPart({
               {isLastApproval && (
                 <div className="flex flex-wrap justify-end gap-2 pt-1">
                   <Button
+                    type="button"
                     onClick={handleSubmit}
                     disabled={disabled || submitting || !readyToSubmit}
                     className="h-6 gap-1 px-2 text-xs"
