@@ -1195,7 +1195,53 @@ class TestCasesService:
         assert aggregates.status_groups.on_hold == 0
         assert aggregates.status_groups.resolved == 1
         assert aggregates.status_groups.closed == 0
+        assert aggregates.status_groups.unknown == 0
         assert aggregates.status_groups.other == 0
+
+    async def test_get_search_case_aggregates_excludes_unknown_from_other(
+        self, cases_service: CasesService, session: AsyncSession
+    ) -> None:
+        """`other` aggregate should not include cases with `unknown` status."""
+
+        now = datetime.now(UTC)
+        session.add_all(
+            [
+                Case(
+                    workspace_id=cases_service.workspace_id,
+                    case_number=1,
+                    summary="Other status case",
+                    description="Other",
+                    status=CaseStatus.OTHER,
+                    priority=CasePriority.MEDIUM,
+                    severity=CaseSeverity.MEDIUM,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                Case(
+                    workspace_id=cases_service.workspace_id,
+                    case_number=2,
+                    summary="Unknown status case",
+                    description="Unknown",
+                    status=CaseStatus.UNKNOWN,
+                    priority=CasePriority.MEDIUM,
+                    severity=CaseSeverity.MEDIUM,
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ]
+        )
+        await session.commit()
+
+        aggregates = await cases_service.get_search_case_aggregates()
+
+        assert aggregates.total == 2
+        assert aggregates.status_groups.new == 0
+        assert aggregates.status_groups.in_progress == 0
+        assert aggregates.status_groups.on_hold == 0
+        assert aggregates.status_groups.resolved == 0
+        assert aggregates.status_groups.closed == 0
+        assert aggregates.status_groups.unknown == 1
+        assert aggregates.status_groups.other == 1
 
     async def test_create_case_with_nonexistent_field(
         self, cases_service: CasesService
