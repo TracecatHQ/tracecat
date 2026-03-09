@@ -80,6 +80,10 @@ jest.mock("@/client", () => {
     authDiscoverAuthMethod: jest.fn(),
     authOauthOidcDatabaseAuthorize: jest.fn(),
     ApiError: MockApiError,
+    OpenAPI: {
+      BASE: "",
+      WITH_CREDENTIALS: false,
+    },
   }
 })
 
