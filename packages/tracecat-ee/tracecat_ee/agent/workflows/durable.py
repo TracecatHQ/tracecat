@@ -184,13 +184,21 @@ class DurableAgentWorkflow:
 
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
         if args.agent_args.preset_slug:
-            preset_config_payload = await workflow.execute_activity(
-                resolve_agent_preset_config_activity,
+            activity_input = (
                 ResolveAgentPresetConfigActivityInput(
+                    role=self.role,
+                    preset_version_id=args.agent_preset_version_id,
+                )
+                if args.agent_preset_version_id is not None
+                else ResolveAgentPresetConfigActivityInput(
                     role=self.role,
                     preset_slug=args.agent_args.preset_slug,
                     preset_version=args.agent_args.preset_version,
-                ),
+                )
+            )
+            preset_config_payload = await workflow.execute_activity(
+                resolve_agent_preset_config_activity,
+                activity_input,
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
