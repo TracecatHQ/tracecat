@@ -1,0 +1,27 @@
+tests/unit/test_mcp_server.py
+  8cf0e8954d02eb12 1683
+tests/unit/test_agent_session_preset_versioning.py
+  8cf0e8954d02eb12 10-14,55-57,59-60,131-135,137,150,199-232
+tracecat/agent/session/service.py
+  8cf0e8954d02eb12 90-97,140,156-157,186,193-194,200-204,211-214,439,443-446,450,452,1205,1266,1304,1308,1337
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.9",
+  "base_commit_sha": "ffa0a36e66effbef703f62359720d43aa01569fa",
+  "prompts": {
+    "8cf0e8954d02eb12": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cd4a8-6a3b-7800-bed0-dfbd14763966",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 97,
+      "total_deletions": 82,
+      "accepted_lines": 88,
+      "overriden_lines": 3
+    }
+  }
+}
