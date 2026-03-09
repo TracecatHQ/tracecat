@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
+from pydantic import ValidationError
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import selectinload
 
@@ -389,14 +390,14 @@ class WorkflowStoreService(BaseWorkspaceService):
                 )
                 continue
 
-            dsl = DSLInput.model_validate(definition.content)
             try:
+                dsl = DSLInput.model_validate(definition.content)
                 remote_definition = self._build_remote_workflow_definition(
                     workflow_id=workflow_id,
                     dsl=dsl,
                     workflow=workflow,
                 )
-            except TracecatValidationError as e:
+            except (TracecatValidationError, ValidationError) as e:
                 excluded_workflows.append(
                     WorkflowBulkPushExcludedWorkflow(
                         workflow_id=workflow_short_id,

@@ -222,6 +222,27 @@ def test_unescape_string_empty() -> None:
     assert unescape_string("") == ""
 
 
+def test_safe_url_removes_credentials() -> None:
+    assert (
+        safe_url("https://user:token@example.com/org/repo.git?x=1")
+        == "https://example.com/org/repo.git"
+    )
+
+
+def test_safe_url_preserves_port_without_credentials() -> None:
+    assert (
+        safe_url("https://user:token@example.com:8443/org/repo.git")
+        == "https://example.com:8443/org/repo.git"
+    )
+
+
+def test_safe_url_handles_malformed_port_without_raising() -> None:
+    assert (
+        safe_url("https://user:token@example.com:notaport/org/repo.git?x=1")
+        == "https://example.com:notaport/org/repo.git"
+    )
+
+
 def test_safe_url_strips_credentials() -> None:
     assert (
         safe_url("https://user:pass@example.com/foo/bar?token=secret#frag")

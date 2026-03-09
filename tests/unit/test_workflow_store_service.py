@@ -101,6 +101,55 @@ async def test_resolve_bulk_push_selection_excludes_invalid_configuration(
 
 
 @pytest.mark.anyio
+async def test_resolve_bulk_push_selection_excludes_invalid_stored_dsl(
+    workflow_store_service: WorkflowStoreService,
+) -> None:
+    """Bulk preview should exclude workflows with malformed stored DSL content."""
+    workflow_id = WorkflowUUID.new(uuid.uuid4())
+    workflow = SimpleNamespace(
+        title="Corrupt workflow",
+        alias="corrupt-workflow",
+        webhook=None,
+        folder=None,
+        tags=[],
+        schedules=[],
+        case_trigger=None,
+    )
+    definition = SimpleNamespace(
+        content={"title": "Corrupt workflow"},
+        version=7,
+        created_at=datetime(2026, 3, 6, 12, 0, 0),
+    )
+
+    with (
+        patch.object(
+            workflow_store_service,
+            "_get_workflows_by_short_id",
+            AsyncMock(return_value={workflow_id.short(): workflow}),
+        ),
+        patch.object(
+            workflow_store_service,
+            "_get_latest_definitions_by_short_id",
+            AsyncMock(return_value={workflow_id.short(): definition}),
+        ),
+    ):
+        resolution = await workflow_store_service._resolve_bulk_push_selection(
+            workflow_ids=[workflow_id],
+            folder_paths=[],
+        )
+
+    assert resolution.prepared_items == []
+    assert resolution.eligible_workflows == []
+    assert resolution.resolved_workflow_ids == [workflow_id.short()]
+    assert len(resolution.excluded_workflows) == 1
+    assert (
+        resolution.excluded_workflows[0].reason
+        == WorkflowBulkPushExclusionReason.INVALID_CONFIGURATION
+    )
+    assert "Field required" in resolution.excluded_workflows[0].message
+
+
+@pytest.mark.anyio
 async def test_list_workflow_ids_in_selected_folders_autoescapes_like_wildcards(
     workflow_store_service: WorkflowStoreService,
 ) -> None:
