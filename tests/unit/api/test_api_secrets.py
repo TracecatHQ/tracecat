@@ -180,7 +180,7 @@ async def test_get_aws_assume_role_access_success(
         patch.object(
             secrets_router,
             "build_workspace_external_id",
-            return_value="tracecat-ws-deadbeef",
+            return_value="11111111111111111111111111111111",
         ),
     ):
         response = client.get(
@@ -192,7 +192,7 @@ async def test_get_aws_assume_role_access_success(
     assert response.json() == {
         "tracecat_aws_account_id": "123456789012",
         "tracecat_aws_principal_arn": "arn:aws:iam::123456789012:role/tracecat-executor",
-        "external_id": "tracecat-ws-deadbeef",
+        "external_id": "11111111111111111111111111111111",
     }
 
 

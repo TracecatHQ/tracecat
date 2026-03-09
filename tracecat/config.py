@@ -235,11 +235,6 @@ TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN = os.environ.get(
 )
 """Dedicated AWS principal ARN used by Tracecat executors for customer AssumeRole."""
 
-TRACECAT__AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET = os.environ.get(
-    "TRACECAT__AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET"
-)
-"""Secret used to derive stable workspace-scoped AWS External IDs."""
-
 # SAML SSO
 
 SAML_PUBLIC_ACS_URL = f"{TRACECAT__PUBLIC_APP_URL}/auth/saml/acs"

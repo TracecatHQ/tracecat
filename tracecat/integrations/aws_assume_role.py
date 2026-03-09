@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import hmac
 from uuid import UUID
 
 from tracecat import config
@@ -22,15 +20,5 @@ def get_tracecat_aws_principal_arn() -> str:
 
 
 def build_workspace_external_id(workspace_id: UUID | str) -> str:
-    """Build a stable workspace-scoped External ID for AWS AssumeRole."""
-    if not (secret := config.TRACECAT__AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET):
-        raise ValueError(
-            "TRACECAT__AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET is not configured"
-        )
-
-    digest = hmac.new(
-        secret.encode("utf-8"),
-        str(workspace_id).encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-    return f"tracecat-ws-{digest[:32]}"
+    """Build a workspace-scoped External ID for AWS AssumeRole."""
+    return str(workspace_id).replace("-", "")
