@@ -512,6 +512,30 @@ variable "caddy_memory" {
   default = "512"
 }
 
+### MCP Service
+
+variable "enable_mcp" {
+  type        = bool
+  description = "Whether to enable the MCP server service in the deployment"
+  default     = false
+}
+
+variable "mcp_cpu" {
+  type    = string
+  default = "1024"
+}
+
+variable "mcp_memory" {
+  type    = string
+  default = "2048"
+}
+
+variable "mcp_desired_count" {
+  type        = number
+  description = "Desired number of MCP service instances to run"
+  default     = 1
+}
+
 variable "db_instance_class" {
   type    = string
   default = "db.t4g.2xlarge"

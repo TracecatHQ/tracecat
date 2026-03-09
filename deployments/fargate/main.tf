@@ -149,6 +149,12 @@ module "ecs" {
   db_allocated_storage            = var.db_allocated_storage
   db_engine_version               = var.db_engine_version
 
+  # MCP Service
+  enable_mcp        = var.enable_mcp
+  mcp_cpu           = var.mcp_cpu
+  mcp_memory        = var.mcp_memory
+  mcp_desired_count = var.mcp_desired_count
+
   # Sentry configuration
   sentry_dsn = var.sentry_dsn
 }

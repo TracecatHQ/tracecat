@@ -329,6 +329,61 @@ resource "aws_iam_role_policy" "temporal_task_db_access" {
   })
 }
 
+# MCP execution role
+resource "aws_iam_role" "mcp_execution" {
+  count              = var.enable_mcp ? 1 : 0
+  name               = "TracecatMCPExecutionRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "mcp_execution_ecs_poll" {
+  count      = var.enable_mcp ? 1 : 0
+  policy_arn = aws_iam_policy.ecs_poll.arn
+  role       = aws_iam_role.mcp_execution[0].name
+}
+
+resource "aws_iam_role_policy_attachment" "mcp_execution_secrets" {
+  count      = var.enable_mcp ? 1 : 0
+  policy_arn = aws_iam_policy.secrets_access.arn
+  role       = aws_iam_role.mcp_execution[0].name
+}
+
+resource "aws_iam_role_policy_attachment" "mcp_execution_cloudwatch_logs" {
+  count      = var.enable_mcp ? 1 : 0
+  policy_arn = aws_iam_policy.cloudwatch_logs.arn
+  role       = aws_iam_role.mcp_execution[0].name
+}
+
+# MCP task role
+resource "aws_iam_role" "mcp_task" {
+  count              = var.enable_mcp ? 1 : 0
+  name               = "TracecatMCPTaskRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role_policy" "mcp_task_db_access" {
+  count = var.enable_mcp ? 1 : 0
+  name  = "TracecatMCPDBAccessPolicy"
+  role  = aws_iam_role.mcp_task[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "rds-db:connect",
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = [
+          "${aws_db_instance.core_database.arn}/postgres",
+          aws_db_instance.core_database.master_user_secret[0].secret_arn,
+        ]
+      }
+    ]
+  })
+}
+
 # Caddy execution role
 resource "aws_iam_role" "caddy_execution" {
   name               = "TracecatCaddyExecutionRole"
