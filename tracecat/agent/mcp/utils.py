@@ -19,6 +19,12 @@ from __future__ import annotations
 from tracecat.agent.common.types import MCPToolDefinition
 
 REGISTRY_MCP_SERVER_NAMES = frozenset({"tracecat-registry", "tracecat_registry"})
+TRACECAT_ACTION_NAMESPACE_PREFIXES = frozenset({"core", "internal", "tools"})
+
+
+def is_reserved_mcp_server_name(server_name: str) -> bool:
+    """Return whether a server name is reserved for Tracecat's registry proxy."""
+    return server_name in REGISTRY_MCP_SERVER_NAMES
 
 
 def action_name_to_mcp_tool_name(action_name: str) -> str:
@@ -50,7 +56,7 @@ def parse_canonical_user_mcp_tool_name(
         return None
 
     parts = tool_name.split(".", 2)
-    if len(parts) < 3 or parts[1] in REGISTRY_MCP_SERVER_NAMES:
+    if len(parts) < 3 or is_reserved_mcp_server_name(parts[1]):
         return None
     return (parts[1], parts[2])
 
@@ -63,6 +69,12 @@ def encode_canonical_tool_name_to_sdk(tool_name: str) -> str:
     return action_name_to_mcp_tool_name(tool_name)
 
 
+def is_tracecat_sdk_tool_name(raw_tool_name: str) -> bool:
+    """Return whether a raw SDK tool name uses Tracecat's action encoding."""
+    prefix, _, _ = raw_tool_name.partition("__")
+    return prefix in TRACECAT_ACTION_NAMESPACE_PREFIXES
+
+
 def decode_sdk_tool_name_to_canonical(raw_tool_name: str) -> str:
     """Decode a raw SDK/MCP tool name into Tracecat's canonical form."""
     if parsed := parse_canonical_user_mcp_tool_name(raw_tool_name):
@@ -72,11 +84,11 @@ def decode_sdk_tool_name_to_canonical(raw_tool_name: str) -> str:
         parts = raw_tool_name.split("__", 2)
         if len(parts) >= 3:
             server_name, server_tool_name = parts[1], parts[2]
-            if server_name in REGISTRY_MCP_SERVER_NAMES:
+            if is_reserved_mcp_server_name(server_name):
                 return decode_sdk_tool_name_to_canonical(server_tool_name)
             return canonical_user_mcp_tool_name(server_name, server_tool_name)
 
-    if "__" in raw_tool_name:
+    if "__" in raw_tool_name and is_tracecat_sdk_tool_name(raw_tool_name):
         return mcp_tool_name_to_action_name(raw_tool_name)
 
     return raw_tool_name

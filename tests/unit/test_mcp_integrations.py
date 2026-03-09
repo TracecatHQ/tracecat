@@ -12,7 +12,7 @@ import uuid
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from pydantic import SecretStr, TypeAdapter
+from pydantic import SecretStr, TypeAdapter, ValidationError
 from sqlalchemy import func, insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -917,6 +917,65 @@ class TestMCPIntegrationValidation:
 
         with pytest.raises(ValueError, match="is not allowed"):
             await integration_service.create_mcp_integration(params=params)
+
+    async def test_create_rejects_reserved_mcp_server_name(self) -> None:
+        """Test reserved MCP server aliases cannot be used as integration names."""
+        with pytest.raises(ValidationError, match="reserved for Tracecat"):
+            MCPHttpIntegrationCreate(
+                name="tracecat-registry",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+
+    async def test_create_strips_name_before_validation(self) -> None:
+        """Test MCP create normalizes the integration name before validation."""
+        params = MCPHttpIntegrationCreate(
+            name="  Test MCP  ",
+            server_uri="https://api.example.com/mcp",
+            auth_type=MCPAuthType.NONE,
+        )
+
+        assert params.name == "Test MCP"
+
+    async def test_create_rejects_whitespace_only_name(self) -> None:
+        """Test MCP create rejects names that are blank after trimming."""
+        with pytest.raises(ValidationError, match="at least 3 characters"):
+            MCPHttpIntegrationCreate(
+                name="   ",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+
+    async def test_update_rejects_reserved_mcp_server_name(self) -> None:
+        """Test reserved MCP server aliases cannot be used during updates."""
+        with pytest.raises(ValidationError, match="reserved for Tracecat"):
+            MCPIntegrationUpdate(name="tracecat_registry")
+
+    async def test_update_strips_name_before_validation(self) -> None:
+        """Test MCP update normalizes the integration name before validation."""
+        params = MCPIntegrationUpdate(name="  Updated MCP  ")
+
+        assert params.name == "Updated MCP"
+
+    async def test_update_rejects_whitespace_only_name(self) -> None:
+        """Test MCP update rejects names that are blank after trimming."""
+        with pytest.raises(ValidationError, match="at least 3 characters"):
+            MCPIntegrationUpdate(name="   ")
+
+    async def test_generated_slug_avoids_reserved_mcp_server_name(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Test slug generation skips reserved MCP server aliases."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="tracecat registry",
+                stdio_command="npx",
+                stdio_args=["@modelcontextprotocol/server-github"],
+            )
+        )
+
+        assert created.slug == "tracecat-registry-1"
 
     async def test_update_stdio_rejects_unsafe_args(
         self,

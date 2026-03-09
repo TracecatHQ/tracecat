@@ -20,6 +20,7 @@ from pydantic import (
     field_validator,
 )
 
+from tracecat.agent.mcp.utils import is_reserved_mcp_server_name
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.integrations.enums import (
     IntegrationStatus,
@@ -374,6 +375,19 @@ class _MCPIntegrationCreateBase(BaseModel):
         description="Timeout in seconds",
     )
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def _validate_name_not_reserved(cls, value: Any) -> Any:
+        """Reject integration names that collide with reserved MCP server aliases."""
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        if is_reserved_mcp_server_name(normalized):
+            raise ValueError(
+                f"MCP integration name '{normalized}' is reserved for Tracecat"
+            )
+        return normalized
+
 
 class MCPHttpIntegrationCreate(_MCPIntegrationCreateBase):
     """Request model for creating an HTTP MCP integration."""
@@ -508,6 +522,21 @@ class MCPIntegrationUpdate(BaseModel):
         le=300,
         description="Timeout in seconds",
     )
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _validate_name_not_reserved(cls, value: Any) -> Any:
+        """Reject integration names that collide with reserved MCP server aliases."""
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        if is_reserved_mcp_server_name(normalized):
+            raise ValueError(
+                f"MCP integration name '{normalized}' is reserved for Tracecat"
+            )
+        return normalized
 
     @field_validator("server_uri", mode="before")
     @classmethod

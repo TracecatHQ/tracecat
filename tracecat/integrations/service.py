@@ -15,6 +15,7 @@ from slugify import slugify
 from sqlalchemy import and_, func, or_, select, update
 
 from tracecat import config
+from tracecat.agent.mcp.utils import is_reserved_mcp_server_name
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
@@ -1118,7 +1119,9 @@ class IntegrationService(BaseWorkspaceService):
 
         candidate = slug
         suffix = 1
-        while await self._mcp_integration_slug_taken(candidate):
+        while is_reserved_mcp_server_name(
+            candidate
+        ) or await self._mcp_integration_slug_taken(candidate):
             candidate = f"{slug}-{suffix}"
             suffix += 1
         return candidate

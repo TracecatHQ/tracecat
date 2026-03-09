@@ -16,6 +16,7 @@ from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import DeferredToolResults
 
+from tracecat.agent.mcp.utils import is_reserved_mcp_server_name
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
@@ -252,6 +253,18 @@ class AgentConfigSchema(BaseModel):
     model_settings: dict[str, Any] | None = None
     mcp_servers: list[MCPServerConfigSchema] | None = None
     retries: int = Field(default=20)
+
+    @model_validator(mode="after")
+    def validate_mcp_server_names(self) -> AgentConfigSchema:
+        """Reject MCP server names reserved for Tracecat's registry proxy."""
+        if self.mcp_servers is None:
+            return self
+        for server in self.mcp_servers:
+            if is_reserved_mcp_server_name(server["name"].strip()):
+                raise ValueError(
+                    f"MCP server name '{server['name']}' is reserved for Tracecat"
+                )
+        return self
 
 
 class RankableItemSchema(TypedDict):

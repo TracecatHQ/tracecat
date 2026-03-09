@@ -6,6 +6,8 @@ command injection and other security vulnerabilities.
 
 import re
 
+from tracecat.agent.mcp.utils import REGISTRY_MCP_SERVER_NAMES
+
 # Allowlist of commands that can be used for MCP servers
 ALLOWED_MCP_COMMANDS = frozenset({"npx", "uvx", "python", "python3", "node"})
 
@@ -224,6 +226,12 @@ def validate_mcp_server_name(name: str) -> None:
 
     if not name:
         raise MCPValidationError("Server name cannot be empty")
+
+    if name in REGISTRY_MCP_SERVER_NAMES:
+        aliases = ", ".join(sorted(REGISTRY_MCP_SERVER_NAMES))
+        raise MCPValidationError(
+            f"Server name '{name}' is reserved. Reserved names: {aliases}"
+        )
 
     if len(name) > MAX_SERVER_NAME_LENGTH:
         raise MCPValidationError(
