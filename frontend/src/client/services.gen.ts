@@ -6157,7 +6157,7 @@ export const registryActionsUpdateRegistryAction = (
 
 /**
  * Delete Registry Action
- * Delete a template action.
+ * Registry actions are versioned snapshots and cannot be deleted individually.
  * @param data The data for the request.
  * @param data.actionName
  * @returns void Successful Response

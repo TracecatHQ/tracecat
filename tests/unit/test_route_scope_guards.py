@@ -11,6 +11,7 @@ from tracecat.exceptions import ScopeDeniedError
 from tracecat.inbox import router as inbox_router
 from tracecat.integrations import router as integrations_router
 from tracecat.organization import router as organization_router
+from tracecat.registry.actions import router as registry_actions_router
 from tracecat.registry.repositories import router as registry_repos_router
 from tracecat.tables import router as tables_router
 from tracecat.vcs import router as vcs_router
@@ -67,6 +68,23 @@ async def _assert_endpoint_requires_scope(
     ],
 )
 async def test_registry_repository_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (registry_actions_router.list_registry_actions, "org:registry:read"),
+        (registry_actions_router.get_registry_action, "org:registry:read"),
+        (registry_actions_router.create_registry_action, "org:registry:create"),
+        (registry_actions_router.update_registry_action, "org:registry:update"),
+        (registry_actions_router.delete_registry_action, "org:registry:delete"),
+    ],
+)
+async def test_registry_action_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
