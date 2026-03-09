@@ -318,13 +318,6 @@ async def send_message(
                 detail="Legacy chat sessions are read-only and cannot receive new messages",
             )
 
-        agent_session = await svc.get_session(session_id)
-        if agent_session is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Session not found",
-            )
-
         await svc.validate_turn_request(session_id=session_id, request=request)
 
         stream = await AgentStream.new(session_id, workspace_id)

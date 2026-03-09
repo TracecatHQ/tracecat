@@ -21,14 +21,6 @@ from tracecat.chat.schemas import (
 from tracecat.exceptions import TracecatNotFoundError
 
 
-class _SessionSentinel:
-    last_stream_id: str | None = None
-
-    @property
-    def id(self) -> uuid.UUID:
-        raise AssertionError("send_message should not access ORM session.id here")
-
-
 async def _empty_event_stream() -> AsyncIterator[None]:
     if False:
         yield
@@ -57,9 +49,6 @@ async def test_send_message_continue_uses_path_session_id_for_stream_key() -> No
 
     fake_svc = SimpleNamespace(
         is_legacy_session=AsyncMock(return_value=False),
-        get_session=AsyncMock(
-            return_value=SimpleNamespace(last_stream_id="1717426372766-0")
-        ),
         validate_turn_request=AsyncMock(return_value=None),
         run_turn=AsyncMock(return_value=None),
     )
@@ -127,7 +116,6 @@ async def test_send_message_new_turn_resets_stream_before_streaming() -> None:
 
     fake_svc = SimpleNamespace(
         is_legacy_session=AsyncMock(return_value=False),
-        get_session=AsyncMock(return_value=_SessionSentinel()),
         validate_turn_request=AsyncMock(return_value=None),
         run_turn=AsyncMock(return_value=None),
     )
@@ -186,7 +174,6 @@ async def test_send_message_does_not_reset_stream_when_validation_fails() -> Non
 
     fake_svc = SimpleNamespace(
         is_legacy_session=AsyncMock(return_value=False),
-        get_session=AsyncMock(return_value=_SessionSentinel()),
         validate_turn_request=AsyncMock(
             side_effect=TracecatNotFoundError("No active workflow run")
         ),
