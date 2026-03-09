@@ -573,6 +573,7 @@ function AgentPresetChatPane({
     versions?.find((version) => version.id === chat?.agent_preset_version_id) ??
     null
   const activeVersion = selectedVersion ?? currentVersion
+  const newChatVersion = selectedVersion ?? currentVersion
 
   const modelInfo: ModelInfo | null = useMemo(() => {
     if (!preset) {
@@ -593,12 +594,20 @@ function AgentPresetChatPane({
     return providersStatus?.[provider] ?? false
   }, [activeVersion, providersStatus, preset])
 
-  const canStartChat = Boolean(preset && providerReady)
+  const newChatProviderReady = useMemo(() => {
+    if (!preset) {
+      return false
+    }
+    const provider = newChatVersion?.model_provider ?? preset.model_provider
+    return providersStatus?.[provider] ?? false
+  }, [newChatVersion, providersStatus, preset])
+
+  const canStartChat = Boolean(preset && newChatProviderReady)
   const shouldAutoCreateChat =
     canStartChat && !activeChatId && !chatsLoading && !createChatPending
 
   const handleCreateChat = async () => {
-    if (!preset || createChatPending || !providerReady) {
+    if (!preset || createChatPending || !newChatProviderReady) {
       return
     }
 
@@ -607,7 +616,9 @@ function AgentPresetChatPane({
         title: `${preset.name} chat`,
         entity_type: "agent_preset",
         entity_id: preset.id,
-        tools: preset.actions ?? undefined,
+        tools: newChatVersion?.actions ?? preset.actions ?? undefined,
+        agent_preset_id: preset.id,
+        agent_preset_version_id: newChatVersion?.id ?? null,
       })
       setSelectedChatId(newChat.id)
       await refetchChats()
