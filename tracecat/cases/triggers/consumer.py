@@ -11,6 +11,7 @@ from typing import Any
 from redis.exceptions import ResponseError
 from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from tenacity import RetryError
 
 from tracecat import config
@@ -631,6 +632,13 @@ class CaseTriggerConsumer:
                 registry_lock=RegistryLock.model_validate(defn.registry_lock)
                 if defn.registry_lock
                 else None,
+            )
+        except WorkflowAlreadyStartedError:
+            logger.info(
+                "Explicit case comment workflow already started; treating replay as success",
+                workflow_id=str(workflow_id),
+                event_id=str(event.id),
+                wf_exec_id=wf_exec_id,
             )
         except Exception as e:
             logger.error(

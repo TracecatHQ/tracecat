@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 from redis.exceptions import ResponseError
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from tenacity import Future, RetryError
 
 from tracecat.audit.enums import AuditEventStatus
@@ -467,3 +468,114 @@ async def test_dispatch_selected_workflow_marks_comment_failed_on_start_error(
     persisted = comment
     assert persisted.workflow_status == CaseCommentWorkflowStatus.FAILED.value
     assert cast(AuditEventStatus, audit_calls[-1]["status"]).value == "FAILURE"
+
+
+@pytest.mark.anyio
+async def test_dispatch_selected_workflow_treats_already_started_as_success(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    test_case = await CasesService(session=session, role=svc_role).create_case(
+        CaseCreate(
+            summary="Consumer replay test case",
+            description="Workflow comment replay test",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+        )
+    )
+    workflow = Workflow(
+        title="Case Trigger Consumer",
+        description="Test workflow",
+        status="online",
+        workspace_id=svc_role.workspace_id,
+        alias="case_trigger_consumer",
+    )
+    session.add(workflow)
+    await session.flush()
+
+    comment = CaseComment(
+        workspace_id=svc_role.workspace_id,
+        case_id=test_case.id,
+        content="Replay this workflow",
+        user_id=svc_role.user_id,
+        workflow_id=workflow.id,
+        workflow_title=workflow.title,
+        workflow_alias=workflow.alias,
+        workflow_wf_exec_id="wf_123/exec_456",
+        workflow_status=CaseCommentWorkflowStatus.RUNNING.value,
+    )
+    session.add(comment)
+    await session.commit()
+
+    consumer = CaseTriggerConsumer(client=AsyncMock())
+    role = _build_role(cast(uuid.UUID, svc_role.workspace_id))
+    exec_service = AsyncMock()
+    exec_service.create_workflow_execution_wait_for_start = AsyncMock(
+        side_effect=WorkflowAlreadyStartedError(
+            "wf_123/exec_456",
+            "DSLWorkflow.run",
+        )
+    )
+
+    audit_calls: list[dict[str, object | None]] = []
+
+    async def mock_audit_create_event(self, **kwargs):
+        del self
+        audit_calls.append(kwargs)
+
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.DSLInput.model_validate",
+        lambda content: content,
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.WorkflowExecutionsService.connect",
+        AsyncMock(return_value=exec_service),
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.WorkflowDefinitionsService.get_definition_by_workflow_id",
+        AsyncMock(
+            return_value=SimpleNamespace(content={"title": "test"}, registry_lock=None)
+        ),
+    )
+    monkeypatch.setattr(AuditService, "create_event", mock_audit_create_event)
+
+    processed = await consumer._dispatch_selected_workflow(
+        session=session,
+        role=role,
+        workflow_id=workflow.id,
+        case=cast(
+            Case,
+            SimpleNamespace(
+                id=comment.case_id,
+                workspace_id=svc_role.workspace_id,
+                tags=[],
+            ),
+        ),
+        event=cast(
+            CaseEvent,
+            SimpleNamespace(
+                id=uuid.uuid4(),
+                created_at=None,
+                type="comment_created",
+                user_id=svc_role.user_id,
+            ),
+        ),
+        fields={
+            "wf_exec_id": "wf_123/exec_456",
+            "text": "Replay this workflow",
+            "triggered_by_type": "user",
+            "triggered_by_user_id": str(svc_role.user_id),
+            "triggered_by_service_id": "tracecat-api",
+        },
+        comment_id=comment.id,
+    )
+
+    assert processed is True
+    exec_service.create_workflow_execution_wait_for_start.assert_awaited_once()
+
+    await session.refresh(comment)
+    persisted = comment
+    assert persisted.workflow_status == CaseCommentWorkflowStatus.RUNNING.value
+    assert cast(AuditEventStatus, audit_calls[-1]["status"]).value == "SUCCESS"

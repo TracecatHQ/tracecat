@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import Request
 from temporalio.client import Client
-from temporalio.common import TypedSearchAttributes
+from temporalio.common import TypedSearchAttributes, WorkflowIDReusePolicy
 
 from tracecat.auth.types import Role
 from tracecat.db.models import WorkflowDefinition
@@ -196,6 +196,37 @@ class TestWebhookStartWorkflowInvariants:
             "time_anchor must be minted for webhook triggers"
         )
         assert before <= dsl_run_args.time_anchor <= after
+
+    @pytest.mark.anyio
+    async def test_workflow_execution_ids_reject_duplicate_reuse(
+        self, service: WorkflowExecutionsService, mock_client: MagicMock
+    ):
+        dsl = _dsl_input()
+        mock_storage = MagicMock()
+        mock_storage.store = AsyncMock(
+            return_value=InlineObject(type="inline", data={"_": "ref"})
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.service.get_object_storage",
+                return_value=mock_storage,
+            ),
+            patch.object(service, "_resolve_execution_timeout", return_value=None),
+        ):
+            await service._start_workflow(
+                dsl=dsl,
+                wf_id=_WF_ID,
+                wf_exec_id=f"{_WF_ID.short()}/exec_test",
+                trigger_inputs={"x": 1},
+                trigger_type=TriggerType.WEBHOOK,
+            )
+
+        call_kwargs = mock_client.start_workflow.call_args
+        assert (
+            call_kwargs.kwargs["id_reuse_policy"]
+            == WorkflowIDReusePolicy.REJECT_DUPLICATE
+        )
 
     @pytest.mark.anyio
     async def test_explicit_time_anchor_is_not_overwritten(
