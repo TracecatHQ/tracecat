@@ -124,7 +124,10 @@ async def get_session() -> aioboto3.Session:
             region_name=aws_region,
         )
     elif aws_profile:
-        session = aioboto3.Session(profile_name=aws_profile)
+        session = aioboto3.Session(
+            profile_name=aws_profile,
+            region_name=aws_region,
+        )
     elif aws_access_key_id and aws_secret_access_key and aws_session_token:
         session = aioboto3.Session(
             aws_access_key_id=aws_access_key_id,
@@ -169,7 +172,10 @@ def get_sync_session() -> boto3.Session:
             region_name=aws_region,
         )
     elif aws_profile:
-        session = boto3.Session(profile_name=aws_profile)
+        session = boto3.Session(
+            profile_name=aws_profile,
+            region_name=aws_region,
+        )
     elif aws_access_key_id and aws_secret_access_key and aws_session_token:
         session = boto3.Session(
             aws_access_key_id=aws_access_key_id,

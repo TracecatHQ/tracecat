@@ -290,6 +290,8 @@ executor:
   # Executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default)
   backend: "ephemeral"
   serviceAccount:
+    # Defaults to the shared app service account for upgrade compatibility.
+    # Managed EKS/Fargate stacks explicitly override this to dedicated executor identities.
     create: false
     name: ""
     annotations: {}
@@ -310,6 +312,8 @@ agentExecutor:
   replicas: 2
   backend: "ephemeral"
   serviceAccount:
+    # Defaults to the shared app service account for upgrade compatibility.
+    # Managed EKS/Fargate stacks explicitly override this to dedicated executor identities.
     create: false
     name: ""
     annotations: {}

@@ -228,6 +228,7 @@ resource "helm_release" "tracecat" {
     value = "true"
   }
 
+  # Managed EKS explicitly opts executor into the dedicated IRSA identity.
   set {
     name  = "executor.serviceAccount.name"
     value = local.tracecat_executor_service_account_name
@@ -243,6 +244,7 @@ resource "helm_release" "tracecat" {
     value = "true"
   }
 
+  # Agent executor also uses the dedicated executor IRSA identity on EKS.
   set {
     name  = "agentExecutor.serviceAccount.name"
     value = local.tracecat_agent_executor_service_account_name
