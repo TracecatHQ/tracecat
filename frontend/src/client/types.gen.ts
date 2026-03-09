@@ -3528,17 +3528,17 @@ export type MCPHttpIntegrationCreate = {
 }
 
 /**
- * Configuration for a user-defined MCP server over HTTP/SSE.
+ * Configuration for a user-defined MCP server over HTTP.
  *
  * Users can connect custom MCP servers to their agents - whether running as
- * Docker containers, local processes, or remote services. The server must
- * expose an HTTP or SSE endpoint.
+ * Docker containers, local processes, or remote services. Streamable HTTP is
+ * the canonical transport; the trusted client may fall back to SSE internally
+ * for compatibility with older servers.
  *
  * Example:
  * {
  * "name": "internal-tools",
  * "url": "http://host.docker.internal:8080",
- * "transport": "http",
  * "headers": {"Authorization": "Bearer ${{ SECRETS.internal.API_KEY }}"}
  * }
  */
@@ -3549,11 +3549,8 @@ export type MCPHttpServerConfig = {
   headers?: {
     [key: string]: string
   }
-  transport?: "http" | "sse"
   timeout?: number
 }
-
-export type transport = "http" | "sse"
 
 export type MCPIntegrationCreate =
   | MCPHttpIntegrationCreate

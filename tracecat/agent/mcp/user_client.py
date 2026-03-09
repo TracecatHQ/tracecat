@@ -1,7 +1,7 @@
 """User MCP client for connecting to user-defined MCP servers.
 
-This client handles HTTP/SSE connections to user-provided MCP servers
-and proxies tool calls through the trusted server.
+This client prefers streamable HTTP for user-provided MCP servers and falls
+back to SSE internally for compatibility with older servers.
 
 The client connects to external MCP servers from outside the sandbox,
 allowing the sandboxed runtime to access user tools via the Unix socket proxy.
@@ -9,7 +9,7 @@ allowing the sandboxed runtime to access user tools via the Unix socket proxy.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from fastmcp import Client
 from fastmcp.client.transports import SSETransport, StreamableHttpTransport
@@ -18,17 +18,26 @@ from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.logger import logger
 
 
-def _create_transport(
+class _TransportProbeError(Exception):
+    """Raised when the preferred MCP transport probe fails."""
+
+
+def _create_streamable_http_transport(
     url: str,
-    transport_type: Literal["http", "sse"],
     headers: dict[str, str] | None = None,
     timeout: int | None = None,
-) -> StreamableHttpTransport | SSETransport:
-    """Create the appropriate transport for the MCP server."""
-    if transport_type == "sse":
-        return SSETransport(url=url, headers=headers, sse_read_timeout=timeout)
-    # Default to HTTP (Streamable HTTP transport)
+) -> StreamableHttpTransport:
+    """Create a streamable HTTP transport."""
     return StreamableHttpTransport(url=url, headers=headers, sse_read_timeout=timeout)
+
+
+def _create_sse_transport(
+    url: str,
+    headers: dict[str, str] | None = None,
+    timeout: int | None = None,
+) -> SSETransport:
+    """Create an SSE transport for compatibility fallback."""
+    return SSETransport(url=url, headers=headers, sse_read_timeout=timeout)
 
 
 class UserMCPClient:
@@ -96,37 +105,57 @@ class UserMCPClient:
             Dict mapping prefixed tool names to definitions.
 
         """
+        server_tools = await self._list_server_tools(server_name, config)
+        tools: dict[str, MCPToolDefinition] = {}
+
+        for tool in server_tools:
+            # Create prefixed tool name: mcp__{server_name}__{tool_name}
+            prefixed_name = f"mcp__{server_name}__{tool.name}"
+
+            # Convert MCP tool schema to our format
+            tools[prefixed_name] = MCPToolDefinition(
+                name=prefixed_name,
+                description=tool.description or f"Tool from {server_name}",
+                parameters_json_schema=tool.inputSchema or {},
+            )
+
+            logger.debug(
+                "Discovered user MCP tool",
+                server_name=server_name,
+                tool_name=tool.name,
+                prefixed_name=prefixed_name,
+            )
+
+        return tools
+
+    async def _list_server_tools(
+        self,
+        server_name: str,
+        config: MCPHttpServerConfig,
+    ) -> list[Any]:
+        """List tools, preferring streamable HTTP and falling back to SSE."""
         url = config["url"]
-        transport_type: Literal["http", "sse"] = config.get("transport", "http")
         headers = config.get("headers")
         timeout = config.get("timeout")
 
-        transport = _create_transport(url, transport_type, headers, timeout)
-        tools: dict[str, MCPToolDefinition] = {}
+        try:
+            async with Client(
+                _create_streamable_http_transport(url, headers, timeout)
+            ) as client:
+                return await client.list_tools()
+        except Exception as exc:
+            logger.info(
+                "Streamable HTTP MCP discovery failed; trying SSE fallback",
+                server_name=server_name,
+                error_type=type(exc).__name__,
+            )
 
-        async with Client(transport) as client:
-            # List tools from the server
-            server_tools = await client.list_tools()
-
-            for tool in server_tools:
-                # Create prefixed tool name: mcp__{server_name}__{tool_name}
-                prefixed_name = f"mcp__{server_name}__{tool.name}"
-
-                # Convert MCP tool schema to our format
-                tools[prefixed_name] = MCPToolDefinition(
-                    name=prefixed_name,
-                    description=tool.description or f"Tool from {server_name}",
-                    parameters_json_schema=tool.inputSchema or {},
-                )
-
-                logger.debug(
-                    "Discovered user MCP tool",
-                    server_name=server_name,
-                    tool_name=tool.name,
-                    prefixed_name=prefixed_name,
-                )
-
-        return tools
+        async with Client(_create_sse_transport(url, headers, timeout)) as client:
+            logger.info(
+                "Using SSE fallback for user MCP discovery",
+                server_name=server_name,
+            )
+            return await client.list_tools()
 
     async def call_tool(
         self,
@@ -152,30 +181,91 @@ class UserMCPClient:
         if server_name not in self._configs:
             raise ValueError(f"Unknown user MCP server: {server_name}")
 
-        config = self._configs[server_name]
-        url = config["url"]
-        transport_type: Literal["http", "sse"] = config.get("transport", "http")
-        headers = config.get("headers")
-        timeout = config.get("timeout")
-
-        transport = _create_transport(url, transport_type, headers, timeout)
-
         logger.info(
             "Calling user MCP tool",
             server_name=server_name,
             tool_name=tool_name,
         )
 
-        async with Client(transport) as client:
-            result = await client.call_tool(tool_name, args)
+        config = self._configs[server_name]
+        result = await self._call_tool_with_fallback(
+            server_name=server_name,
+            config=config,
+            tool_name=tool_name,
+            args=args,
+        )
+        return self._extract_tool_result(result)
 
-            # Extract result from CallToolResult
-            if result.content and len(result.content) > 0:
-                first_block = result.content[0]
-                # TextContent has a .text attribute
-                return getattr(first_block, "text", str(first_block))
+    async def _call_tool_with_fallback(
+        self,
+        *,
+        server_name: str,
+        config: MCPHttpServerConfig,
+        tool_name: str,
+        args: dict[str, Any],
+    ) -> Any:
+        """Call a tool, probing streamable HTTP first and falling back to SSE."""
+        url = config["url"]
+        headers = config.get("headers")
+        timeout = config.get("timeout")
 
-            return ""
+        try:
+            client_cm, client = await self._open_and_probe_client(
+                _create_streamable_http_transport(url, headers, timeout)
+            )
+        except _TransportProbeError as exc:
+            logger.info(
+                "Streamable HTTP MCP call failed during compatibility probe; trying SSE fallback",
+                server_name=server_name,
+                tool_name=tool_name,
+                error_type=type(exc.__cause__).__name__ if exc.__cause__ else None,
+            )
+        else:
+            try:
+                return await client.call_tool(tool_name, args)
+            finally:
+                await client_cm.__aexit__(None, None, None)
+
+        client_cm, client = await self._open_and_probe_client(
+            _create_sse_transport(url, headers, timeout)
+        )
+        try:
+            logger.info(
+                "Using SSE fallback for user MCP tool call",
+                server_name=server_name,
+                tool_name=tool_name,
+            )
+            return await client.call_tool(tool_name, args)
+        finally:
+            await client_cm.__aexit__(None, None, None)
+
+    async def _open_and_probe_client(self, transport: Any) -> tuple[Any, Any]:
+        """Open an MCP client and probe compatibility with list_tools."""
+        client_cm = Client(transport)
+        try:
+            client = await client_cm.__aenter__()
+        except Exception as exc:
+            raise _TransportProbeError from exc
+
+        try:
+            # Probe compatibility before invoking a potentially side-effecting
+            # tool call.
+            await client.list_tools()
+        except Exception as exc:
+            await client_cm.__aexit__(type(exc), exc, exc.__traceback__)
+            raise _TransportProbeError from exc
+
+        return client_cm, client
+
+    @staticmethod
+    def _extract_tool_result(result: Any) -> Any:
+        """Extract a user-facing payload from a CallToolResult."""
+        if result.content and len(result.content) > 0:
+            first_block = result.content[0]
+            # TextContent has a .text attribute
+            return getattr(first_block, "text", str(first_block))
+
+        return ""
 
     @staticmethod
     def parse_user_mcp_tool_name(tool_name: str) -> tuple[str, str] | None:

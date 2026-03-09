@@ -215,13 +215,12 @@ class ToolFilters(BaseModel):
 
 
 class MCPHttpServerConfigSchema(TypedDict):
-    """HTTP/SSE MCP server configuration for request validation."""
+    """HTTP MCP server configuration for request validation."""
 
     type: NotRequired[Literal["http"]]
     name: str
     url: str
     headers: NotRequired[dict[str, str]]
-    transport: NotRequired[Literal["http", "sse"]]
     timeout: NotRequired[int]
 
 

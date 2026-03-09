@@ -175,7 +175,6 @@ class AgentActivities:
                     UserMCPServerClaim(
                         name=cfg["name"],
                         url=cfg["url"],
-                        transport=cfg.get("transport", "http"),
                         headers=cfg.get("headers", {}),
                         timeout=cfg.get("timeout"),
                     )

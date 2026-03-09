@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any
 
 import jwt
 from jwt import PyJWTError
@@ -51,9 +51,7 @@ class UserMCPServerClaim(BaseModel):
     name: str
     """Unique identifier for the server."""
     url: str
-    """HTTP/SSE endpoint URL."""
-    transport: Literal["http", "sse"] = "http"
-    """Transport type: 'http' or 'sse'."""
+    """HTTP endpoint URL."""
     headers: dict[str, str] = Field(default_factory=dict)
     """Auth headers."""
     timeout: int | None = None

@@ -10,17 +10,17 @@ from typing import Any, Literal, NotRequired, TypedDict
 
 
 class MCPHttpServerConfig(TypedDict):
-    """Configuration for a user-defined MCP server over HTTP/SSE.
+    """Configuration for a user-defined MCP server over HTTP.
 
     Users can connect custom MCP servers to their agents - whether running as
-    Docker containers, local processes, or remote services. The server must
-    expose an HTTP or SSE endpoint.
+    Docker containers, local processes, or remote services. Streamable HTTP is
+    the canonical transport; the trusted client may fall back to SSE internally
+    for compatibility with older servers.
 
     Example:
         {
             "name": "internal-tools",
             "url": "http://host.docker.internal:8080",
-            "transport": "http",
             "headers": {"Authorization": "Bearer ${{ SECRETS.internal.API_KEY }}"}
         }
     """
@@ -32,13 +32,10 @@ class MCPHttpServerConfig(TypedDict):
     """Required: Unique identifier for the server. Tools will be prefixed with mcp__{name}__."""
 
     url: str
-    """Required: HTTP/SSE endpoint URL for the MCP server."""
+    """Required: HTTP endpoint URL for the MCP server."""
 
     headers: NotRequired[dict[str, str]]
     """Optional: Auth headers (can reference Tracecat secrets)."""
-
-    transport: NotRequired[Literal["http", "sse"]]
-    """Optional: Transport type. Defaults to 'http'."""
 
     timeout: NotRequired[int]
     """Optional: Request timeout in seconds."""

@@ -180,7 +180,6 @@ async def execute_user_mcp_tool(
             "type": "http",
             "name": server_config.name,
             "url": server_config.url,
-            "transport": server_config.transport,
             "headers": server_config.headers,
         }
         if server_config.timeout is not None:

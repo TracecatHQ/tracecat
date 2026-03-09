@@ -38,13 +38,10 @@ class MCPServerConfig(TypedDict):
     """Required: Unique identifier for the server."""
 
     url: str
-    """Required: HTTP/SSE endpoint URL for the MCP server."""
+    """Required: HTTP endpoint URL for the MCP server."""
 
     headers: NotRequired[dict[str, str]]
     """Optional: Auth headers."""
-
-    transport: NotRequired[Literal["http", "sse"]]
-    """Optional: Transport type. Defaults to 'http'."""
 
 
 class RankableItem(TypedDict):
