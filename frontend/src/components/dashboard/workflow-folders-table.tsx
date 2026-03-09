@@ -5,7 +5,7 @@ import type { Row } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import { CircleDot, FolderIcon, WorkflowIcon } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import type {
   ApiError,
   FolderDirectoryItem,
@@ -97,6 +97,12 @@ export function WorkflowsDashboardTable({
     useState<WorkflowReadMinimal | null>(null)
   const [selectedFolder, setSelectedFolder] =
     useState<FolderDirectoryItem | null>(null)
+  const handleSelectionChange = useCallback(
+    (selectedRows: Row<DirectoryItem>[]) => {
+      onSelectionChange?.(selectedRows.map((row) => row.original))
+    },
+    [onSelectionChange]
+  )
 
   const handleOnClickRow = (row: Row<DirectoryItem>) => () => {
     // Link to workflow detail page
@@ -134,9 +140,7 @@ export function WorkflowsDashboardTable({
             }
             return undefined
           }}
-          onSelectionChange={(selectedRows) => {
-            onSelectionChange?.(selectedRows.map((row) => row.original))
-          }}
+          onSelectionChange={handleSelectionChange}
           columns={[
             {
               id: "select",

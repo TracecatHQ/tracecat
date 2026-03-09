@@ -5,7 +5,7 @@ import type { Row } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import { CircleDot } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import type { WorkflowReadMinimal } from "@/client"
 import { DeleteWorkflowAlertDialog } from "@/components/dashboard/delete-workflow-dialog"
 import { ViewMode } from "@/components/dashboard/folder-view-toggle"
@@ -51,6 +51,12 @@ export function WorkflowsTagsDashboardTable({
   })
   const [selectedWorkflow, setSelectedWorkflow] =
     useState<WorkflowReadMinimal | null>(null)
+  const handleSelectionChange = useCallback(
+    (selectedRows: Row<WorkflowReadMinimal>[]) => {
+      onSelectionChange?.(selectedRows.map((row) => row.original))
+    },
+    [onSelectionChange]
+  )
 
   const handleOnClickRow = (row: Row<WorkflowReadMinimal>) => () => {
     // Link to workflow detail page
@@ -77,9 +83,7 @@ export function WorkflowsTagsDashboardTable({
           getRowHref={(row) =>
             `/workspaces/${workspaceId}/workflows/${row.original.id}`
           }
-          onSelectionChange={(selectedRows) => {
-            onSelectionChange?.(selectedRows.map((row) => row.original))
-          }}
+          onSelectionChange={handleSelectionChange}
           columns={[
             {
               id: "select",

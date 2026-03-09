@@ -2,7 +2,7 @@
 
 import { GitBranchIcon } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type { WorkflowReadMinimal } from "@/client"
 import { WorkflowsTagsDashboardTable } from "@/components/dashboard/dashboard-table"
 import { ViewMode } from "@/components/dashboard/folder-view-toggle"
@@ -31,39 +31,45 @@ export function WorkflowsDashboard() {
     [selectedFolderPaths]
   )
 
-  const handleWorkflowSelectionChange = (workflows: WorkflowReadMinimal[]) => {
-    setSelectedWorkflowIds(
-      Array.from(new Set(workflows.map((workflow) => workflow.id)))
-    )
-    setSelectedFolderPaths([])
-  }
+  const handleWorkflowSelectionChange = useCallback(
+    (workflows: WorkflowReadMinimal[]) => {
+      setSelectedWorkflowIds(
+        Array.from(new Set(workflows.map((workflow) => workflow.id)))
+      )
+      setSelectedFolderPaths([])
+    },
+    []
+  )
 
-  const handleDirectorySelectionChange = (items: DirectoryItem[]) => {
-    setSelectedWorkflowIds(
-      Array.from(
-        new Set(
-          items
-            .filter(
-              (item): item is Extract<DirectoryItem, { type: "workflow" }> =>
-                item.type === "workflow"
-            )
-            .map((item) => item.id)
+  const handleDirectorySelectionChange = useCallback(
+    (items: DirectoryItem[]) => {
+      setSelectedWorkflowIds(
+        Array.from(
+          new Set(
+            items
+              .filter(
+                (item): item is Extract<DirectoryItem, { type: "workflow" }> =>
+                  item.type === "workflow"
+              )
+              .map((item) => item.id)
+          )
         )
       )
-    )
-    setSelectedFolderPaths(
-      Array.from(
-        new Set(
-          items
-            .filter(
-              (item): item is Extract<DirectoryItem, { type: "folder" }> =>
-                item.type === "folder"
-            )
-            .map((item) => item.path)
+      setSelectedFolderPaths(
+        Array.from(
+          new Set(
+            items
+              .filter(
+                (item): item is Extract<DirectoryItem, { type: "folder" }> =>
+                  item.type === "folder"
+              )
+              .map((item) => item.path)
+          )
         )
       )
-    )
-  }
+    },
+    []
+  )
 
   if (workflowView === ViewMode.Folders) {
     return (
