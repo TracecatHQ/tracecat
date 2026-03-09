@@ -8,6 +8,7 @@ These tests cover:
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,6 +17,9 @@ from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
+    ApprovedToolCall,
+    ExecuteApprovedToolsInput,
+    execute_approved_tools_activity,
     run_agent_activity,
 )
 from tracecat.agent.session.activities import (
@@ -31,6 +35,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.registry.lock.types import RegistryLock
 
 
 @pytest.fixture
@@ -439,3 +444,90 @@ class TestRunAgentActivity:
 
             # Should send heartbeat at start and end
             assert mock_activity.heartbeat.call_count >= 2
+
+
+class TestExecuteApprovedToolsActivity:
+    """Tests for execute_approved_tools_activity."""
+
+    @pytest.fixture
+    def mock_registry_lock(self) -> RegistryLock:
+        """Create a mock registry lock for testing."""
+        return RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={"core.http_request": "tracecat_registry"},
+        )
+
+    @pytest.fixture
+    def mock_execute_approved_input(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_registry_lock: RegistryLock,
+    ) -> ExecuteApprovedToolsInput:
+        """Create input with a pydantic-ai encoded tool name."""
+        return ExecuteApprovedToolsInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            role=mock_role,
+            approved_tools=[
+                ApprovedToolCall(
+                    tool_call_id="call_123",
+                    tool_name="core__http_request",
+                    args={"url": "https://example.com"},
+                )
+            ],
+            denied_tools=[],
+            allowed_actions=["core.http_request"],
+            registry_lock=mock_registry_lock,
+        )
+
+    @pytest.mark.anyio
+    async def test_decodes_approved_tool_name_before_execution(
+        self,
+        mock_execute_approved_input: ExecuteApprovedToolsInput,
+    ) -> None:
+        """Test approval execution canonicalizes encoded tool names."""
+        mock_stream = MagicMock()
+        mock_stream.append = AsyncMock()
+
+        @asynccontextmanager
+        async def mock_session(*args, **kwargs):
+            service = AsyncMock()
+            yield service
+
+        with (
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity.registry_resolver.prefetch_lock",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "tracecat.agent.executor.activity.AgentStream.new",
+                new_callable=AsyncMock,
+                return_value=mock_stream,
+            ),
+            patch(
+                "tracecat.agent.executor.activity._execute_action_with_heartbeat",
+                new_callable=AsyncMock,
+                return_value={"ok": True},
+            ) as mock_execute_action,
+            patch(
+                "tracecat.agent.executor.activity.AgentSessionService.with_session",
+                mock_session,
+            ),
+        ):
+            mock_activity.heartbeat = MagicMock()
+
+            result = await execute_approved_tools_activity(mock_execute_approved_input)
+
+        assert result.success is True
+        assert len(result.results) == 1
+        assert result.results[0].is_error is False
+        mock_execute_action.assert_awaited_once()
+        assert mock_execute_action.await_args is not None
+        assert (
+            mock_execute_action.await_args.kwargs["action_name"] == "core.http_request"
+        )
+        assert (
+            mock_execute_action.await_args.kwargs["tool_name"] == "core__http_request"
+        )

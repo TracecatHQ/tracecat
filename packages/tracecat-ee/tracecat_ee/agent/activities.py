@@ -20,6 +20,7 @@ from tracecat.agent.mcp.internal_tools import (
     BUILDER_INTERNAL_TOOL_NAMES,
     get_builder_internal_tool_definitions,
 )
+from tracecat.agent.mcp.utils import parse_canonical_user_mcp_tool_name
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.tokens import InternalToolContext, UserMCPServerClaim
 from tracecat.agent.tools import build_agent_tools
@@ -200,7 +201,8 @@ class AgentActivities:
         registry_action_names = {
             name
             for name in defs.keys()
-            if not name.startswith("mcp__") and not name.startswith("internal.")
+            if parse_canonical_user_mcp_tool_name(name) is None
+            and not name.startswith("internal.")
         }
         async with RegistryLockService.with_session() as lock_service:
             registry_lock = await lock_service.resolve_lock_with_bindings(
