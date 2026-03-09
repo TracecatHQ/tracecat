@@ -94,6 +94,7 @@ const STATUS_GROUPS: Record<StatusGroup, StatusGroupConfig> = {
     icon: CircleHelpIcon,
     statuses: ["unknown"],
     iconColor: "text-slate-600",
+    aggregateKey: "unknown",
   },
 }
 
