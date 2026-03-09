@@ -6868,6 +6868,35 @@ export const $GetWorkflowDefinitionActivityInputs = {
   title: "GetWorkflowDefinitionActivityInputs",
 } as const
 
+export const $GitBranchInfo = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Name",
+      description: "The branch name",
+    },
+    sha: {
+      type: "string",
+      maxLength: 40,
+      minLength: 40,
+      title: "Sha",
+      description: "The latest commit SHA for the branch",
+    },
+    is_default: {
+      type: "boolean",
+      title: "Is Default",
+      description: "Whether this is the repository default branch",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["name", "sha"],
+  title: "GitBranchInfo",
+  description: "Git branch information for repository management.",
+} as const
+
 export const $GitCommitInfo = {
   properties: {
     sha: {
@@ -15500,6 +15529,358 @@ export const $WorkflowAlias = {
   title: "WorkflowAlias",
 } as const
 
+export const $WorkflowBulkPushExcludedWorkflow = {
+  properties: {
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+    },
+    reason: {
+      $ref: "#/components/schemas/WorkflowBulkPushExclusionReason",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: ["reason", "message"],
+  title: "WorkflowBulkPushExcludedWorkflow",
+} as const
+
+export const $WorkflowBulkPushExclusionReason = {
+  type: "string",
+  enum: ["not_found", "not_published", "invalid_configuration"],
+  title: "WorkflowBulkPushExclusionReason",
+} as const
+
+export const $WorkflowBulkPushPreviewRequest = {
+  properties: {
+    workflow_ids: {
+      items: {
+        type: "string",
+        pattern: "wf_[0-9a-zA-Z]+",
+      },
+      type: "array",
+      maxItems: 500,
+      title: "Workflow Ids",
+    },
+    folder_paths: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Folder Paths",
+    },
+  },
+  type: "object",
+  title: "WorkflowBulkPushPreviewRequest",
+} as const
+
+export const $WorkflowBulkPushPreviewResponse = {
+  properties: {
+    eligible_workflows: {
+      items: {
+        $ref: "#/components/schemas/WorkflowBulkPushWorkflowSummary",
+      },
+      type: "array",
+      title: "Eligible Workflows",
+    },
+    excluded_workflows: {
+      items: {
+        $ref: "#/components/schemas/WorkflowBulkPushExcludedWorkflow",
+      },
+      type: "array",
+      title: "Excluded Workflows",
+    },
+    resolved_workflow_ids: {
+      items: {
+        type: "string",
+        pattern: "wf_[0-9a-zA-Z]+",
+      },
+      type: "array",
+      title: "Resolved Workflow Ids",
+    },
+    branch: {
+      type: "string",
+      title: "Branch",
+    },
+    base_branch: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Branch",
+    },
+    commit_message: {
+      type: "string",
+      title: "Commit Message",
+    },
+    pr_title: {
+      type: "string",
+      title: "Pr Title",
+    },
+    pr_body: {
+      type: "string",
+      title: "Pr Body",
+    },
+    can_submit: {
+      type: "boolean",
+      title: "Can Submit",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["branch", "commit_message", "pr_title", "pr_body"],
+  title: "WorkflowBulkPushPreviewResponse",
+} as const
+
+export const $WorkflowBulkPushRequest = {
+  properties: {
+    workflow_ids: {
+      items: {
+        type: "string",
+        pattern: "wf_[0-9a-zA-Z]+",
+      },
+      type: "array",
+      minItems: 1,
+      title: "Workflow Ids",
+    },
+    branch: {
+      type: "string",
+      title: "Branch",
+    },
+    commit_message: {
+      type: "string",
+      maxLength: 512,
+      minLength: 1,
+      title: "Commit Message",
+    },
+    pr_title: {
+      type: "string",
+      maxLength: 256,
+      minLength: 1,
+      title: "Pr Title",
+    },
+    pr_body: {
+      type: "string",
+      title: "Pr Body",
+      default: "",
+    },
+  },
+  type: "object",
+  required: ["branch", "commit_message", "pr_title"],
+  title: "WorkflowBulkPushRequest",
+} as const
+
+export const $WorkflowBulkPushResult = {
+  properties: {
+    status: {
+      type: "string",
+      enum: ["committed", "no_op"],
+      title: "Status",
+    },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+    },
+    branch: {
+      type: "string",
+      title: "Branch",
+    },
+    base_branch: {
+      type: "string",
+      title: "Base Branch",
+    },
+    pr_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Url",
+    },
+    pr_number: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Number",
+    },
+    pr_reused: {
+      type: "boolean",
+      title: "Pr Reused",
+      default: false,
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    selected_count: {
+      type: "integer",
+      title: "Selected Count",
+    },
+    eligible_count: {
+      type: "integer",
+      title: "Eligible Count",
+    },
+    excluded_count: {
+      type: "integer",
+      title: "Excluded Count",
+    },
+    workflow_results: {
+      items: {
+        $ref: "#/components/schemas/WorkflowBulkPushWorkflowResult",
+      },
+      type: "array",
+      title: "Workflow Results",
+    },
+  },
+  type: "object",
+  required: [
+    "status",
+    "branch",
+    "base_branch",
+    "message",
+    "selected_count",
+    "eligible_count",
+    "excluded_count",
+  ],
+  title: "WorkflowBulkPushResult",
+} as const
+
+export const $WorkflowBulkPushWorkflowResult = {
+  properties: {
+    workflow_id: {
+      type: "string",
+      pattern: "wf_[0-9a-zA-Z]+",
+      title: "Workflow Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    status: {
+      $ref: "#/components/schemas/WorkflowBulkPushWorkflowStatus",
+    },
+    message: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: ["workflow_id", "title", "path", "status"],
+  title: "WorkflowBulkPushWorkflowResult",
+} as const
+
+export const $WorkflowBulkPushWorkflowStatus = {
+  type: "string",
+  enum: ["committed", "no_op", "excluded"],
+  title: "WorkflowBulkPushWorkflowStatus",
+} as const
+
+export const $WorkflowBulkPushWorkflowSummary = {
+  properties: {
+    workflow_id: {
+      type: "string",
+      pattern: "wf_[0-9a-zA-Z]+",
+      title: "Workflow Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    alias: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Alias",
+    },
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+    },
+    latest_definition_version: {
+      type: "integer",
+      title: "Latest Definition Version",
+    },
+    latest_definition_created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Latest Definition Created At",
+    },
+  },
+  type: "object",
+  required: [
+    "workflow_id",
+    "title",
+    "latest_definition_version",
+    "latest_definition_created_at",
+  ],
+  title: "WorkflowBulkPushWorkflowSummary",
+} as const
+
 export const $WorkflowCommitResponse = {
   properties: {
     workflow_id: {
@@ -15775,6 +16156,33 @@ export const $WorkflowDslPublish = {
         },
       ],
       title: "Message",
+    },
+    branch: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Branch",
+    },
+    create_pr: {
+      type: "boolean",
+      title: "Create Pr",
+      default: false,
+    },
+    pr_base_branch: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Base Branch",
     },
   },
   type: "object",

@@ -1,8 +1,18 @@
+import re
 from datetime import datetime, timedelta
+from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
+from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowID, WorkflowIDShort
 from tracecat.store import Source
@@ -11,8 +21,62 @@ from tracecat.store import Source
 WorkflowSource = Source[WorkflowID]
 
 
+_INVALID_GIT_REF_CHARS_RE = re.compile(r"[\x00-\x20\x7f~^:?*\[\\]")
+
+
+def validate_short_branch_name(value: str, *, field_name: str) -> str:
+    """Validate Git-safe short branch names."""
+    if value == "":
+        raise ValueError(f"{field_name} cannot be empty")
+    if value.startswith("refs/"):
+        raise ValueError(
+            f"{field_name} must be a short branch name, not a full ref (refs/...)"
+        )
+    if value in {".", "..", "@", "HEAD"}:
+        raise ValueError(f"{field_name} must be a valid branch name")
+    if value.startswith("/") or value.endswith("/"):
+        raise ValueError(f"{field_name} cannot start or end with '/'")
+    if value.startswith("-"):
+        raise ValueError(f"{field_name} cannot start with '-'")
+    if value.endswith("."):
+        raise ValueError(f"{field_name} cannot end with '.'")
+    if any(part.endswith(".lock") for part in value.split("/")):
+        raise ValueError(
+            f"{field_name} cannot contain path segments ending with '.lock'"
+        )
+    if ".." in value:
+        raise ValueError(f"{field_name} cannot contain '..'")
+    if "//" in value:
+        raise ValueError(f"{field_name} cannot contain '//'")
+    if "@{" in value:
+        raise ValueError(f"{field_name} cannot contain '@{{'")
+    if _INVALID_GIT_REF_CHARS_RE.search(value):
+        raise ValueError(
+            f"{field_name} contains invalid characters for a Git branch name"
+        )
+    if any(part.startswith(".") or part.endswith(".") for part in value.split("/")):
+        raise ValueError(
+            f"{field_name} contains invalid path segments for a Git branch name"
+        )
+    return value
+
+
 class WorkflowDslPublish(BaseModel):
     message: str | None = None
+    branch: str | None = None
+    create_pr: bool = False
+    pr_base_branch: str | None = None
+
+
+class WorkflowDslPublishResult(BaseModel):
+    status: Literal["committed", "no_op"]
+    commit_sha: str | None = None
+    branch: str
+    base_branch: str
+    pr_url: str | None = None
+    pr_number: int | None = None
+    pr_reused: bool = False
+    message: str
 
 
 class WorkflowSyncPullRequest(BaseModel):
@@ -29,6 +93,125 @@ class WorkflowSyncPullRequest(BaseModel):
         default=False,
         description="Validate only, don't perform actual import",
     )
+
+
+class WorkflowBulkPushExclusionReason(StrEnum):
+    NOT_FOUND = "not_found"
+    NOT_PUBLISHED = "not_published"
+    INVALID_CONFIGURATION = "invalid_configuration"
+
+
+class WorkflowBulkPushWorkflowStatus(StrEnum):
+    COMMITTED = "committed"
+    NO_OP = "no_op"
+    EXCLUDED = "excluded"
+
+
+class WorkflowBulkPushWorkflowSummary(BaseModel):
+    workflow_id: WorkflowIDShort
+    title: str
+    alias: str | None = None
+    folder_path: str | None = None
+    latest_definition_version: int
+    latest_definition_created_at: datetime
+
+
+class WorkflowBulkPushExcludedWorkflow(BaseModel):
+    workflow_id: WorkflowIDShort | None = None
+    title: str | None = None
+    reason: WorkflowBulkPushExclusionReason
+    message: str
+
+
+class WorkflowBulkPushPreviewRequest(BaseModel):
+    workflow_ids: list[WorkflowIDShort] = Field(default_factory=list, max_length=500)
+    folder_paths: list[str] = Field(default_factory=list, max_length=100)
+
+    @field_validator("folder_paths", mode="before")
+    @classmethod
+    def validate_folder_paths(cls, value: object) -> list[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("folder_paths must be a list of strings")
+
+        paths: list[str] = []
+        for path in value:
+            if not isinstance(path, str):
+                raise ValueError("folder_paths must contain only strings")
+            if stripped := path.strip():
+                paths.append(stripped)
+        return list(dict.fromkeys(paths))
+
+    @model_validator(mode="after")
+    def validate_selection(self) -> "WorkflowBulkPushPreviewRequest":
+        if not self.workflow_ids and not self.folder_paths:
+            raise ValueError("At least one workflow or folder selection is required")
+        return self
+
+
+class WorkflowBulkPushPreviewResponse(BaseModel):
+    eligible_workflows: list[WorkflowBulkPushWorkflowSummary] = Field(
+        default_factory=list
+    )
+    excluded_workflows: list[WorkflowBulkPushExcludedWorkflow] = Field(
+        default_factory=list
+    )
+    resolved_workflow_ids: list[WorkflowIDShort] = Field(default_factory=list)
+    branch: str
+    base_branch: str | None = None
+    commit_message: str
+    pr_title: str
+    pr_body: str
+    can_submit: bool = False
+
+
+class WorkflowBulkPushRequest(BaseModel):
+    workflow_ids: list[WorkflowIDShort] = Field(default_factory=list, min_length=1)
+    branch: str
+    commit_message: str = Field(min_length=1, max_length=512)
+    pr_title: str = Field(min_length=1, max_length=256)
+    pr_body: str = Field(default="")
+
+    @field_validator("branch")
+    @classmethod
+    def validate_branch(cls, value: str) -> str:
+        return validate_short_branch_name(value.strip(), field_name="branch")
+
+    @field_validator("commit_message", "pr_title")
+    @classmethod
+    def validate_required_text_fields(cls, value: str) -> str:
+        if not (stripped := value.strip()):
+            raise ValueError("value cannot be empty")
+        return stripped
+
+    @field_validator("pr_body")
+    @classmethod
+    def strip_pr_body(cls, value: str) -> str:
+        return value.strip()
+
+
+class WorkflowBulkPushWorkflowResult(BaseModel):
+    workflow_id: WorkflowIDShort
+    title: str
+    path: str
+    status: WorkflowBulkPushWorkflowStatus
+    message: str | None = None
+
+
+class WorkflowBulkPushResult(BaseModel):
+    status: Literal["committed", "no_op"]
+    commit_sha: str | None = None
+    branch: str
+    base_branch: str
+    pr_url: str | None = None
+    pr_number: int | None = None
+    pr_reused: bool = False
+    message: str
+    selected_count: int
+    eligible_count: int
+    excluded_count: int
+    workflow_results: list[WorkflowBulkPushWorkflowResult] = Field(default_factory=list)
 
 
 _SER_DSL_KEY_ORDER = (
@@ -63,6 +246,20 @@ class RemoteWebhook(BaseModel):
     """The methods of the webhook."""
     status: Status = Field(default="online")
     """Status of the webhook, either 'online' or 'offline'."""
+
+
+class RemoteCaseTrigger(BaseModel):
+    """Represents a case trigger configuration in a remote store."""
+
+    status: Status = Field(default="offline")
+    event_types: list[CaseEventType] = Field(default_factory=list)
+    tag_filters: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_event_types(self) -> "RemoteCaseTrigger":
+        if self.status == "online" and not self.event_types:
+            raise ValueError("event_types must be non-empty when status is online")
+        return self
 
 
 class RemoteWorkflowSchedule(BaseModel):
@@ -134,6 +331,9 @@ class RemoteWorkflowDefinition(BaseModel):
 
     webhook: RemoteWebhook | None = None
     """Webhook for the workflow."""
+
+    case_trigger: RemoteCaseTrigger | None = None
+    """Case trigger configuration for the workflow."""
 
     definition: DSLInput
 

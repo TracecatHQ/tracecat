@@ -47,6 +47,7 @@ type ColumnMeta = {
   headerStyle?: React.CSSProperties
   cellClassName?: string
   cellStyle?: React.CSSProperties
+  disableRowLink?: boolean
 }
 
 export type TableCol<TData> = {
@@ -72,6 +73,7 @@ interface DataTableProps<TData, TValue> {
   onSelectionChange?: (selectedRows: Row<TData>[]) => void
   serverSidePagination?: ServerSidePaginationProps
   clearSelectionTrigger?: number
+  getRowId?: (originalRow: TData, index: number, parent?: Row<TData>) => string
 }
 
 export function DataTable<TData, TValue>({
@@ -93,6 +95,7 @@ export function DataTable<TData, TValue>({
   onSelectionChange,
   serverSidePagination,
   clearSelectionTrigger,
+  getRowId,
 }: DataTableProps<TData, TValue>) {
   const [tableState, setTableState] = useLocalStorage<Partial<TableState>>(
     `table-state:${tableId}`,
@@ -152,6 +155,7 @@ export function DataTable<TData, TValue>({
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
+    getRowId,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -362,6 +366,7 @@ function TableContents<TData>({
               const columnMeta = cell.column.columnDef.meta as
                 | ColumnMeta
                 | undefined
+              const disableRowLink = columnMeta?.disableRowLink ?? false
               const cellClassName = cn(
                 columnMeta?.cellClassName,
                 isActionsCol && "p-2"
@@ -373,7 +378,7 @@ function TableContents<TData>({
               )
 
               // For action columns, don't wrap in Link
-              if (isActionsCol || !href) {
+              if (isActionsCol || disableRowLink || !href) {
                 return (
                   <TableCell
                     key={cell.id}

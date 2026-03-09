@@ -5,7 +5,7 @@ import type { Row } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import { CircleDot, FolderIcon, WorkflowIcon } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import type {
   ApiError,
   FolderDirectoryItem,
@@ -31,6 +31,7 @@ import {
 import { TagBadge } from "@/components/tag-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,7 +48,15 @@ import { type DirectoryItem, useGetDirectoryItems } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-export function WorkflowFoldersTable({ view }: { view: ViewMode }) {
+export function WorkflowFoldersTable({
+  view,
+  onSelectionChange,
+  clearSelectionTrigger,
+}: {
+  view: ViewMode
+  onSelectionChange?: (items: DirectoryItem[]) => void
+  clearSelectionTrigger?: number
+}) {
   const workspaceId = useWorkspaceId()
   const searchParams = useSearchParams()
   const path = searchParams?.get("path") || "/"
@@ -64,6 +73,8 @@ export function WorkflowFoldersTable({ view }: { view: ViewMode }) {
       directoryItems={directoryItems}
       directoryItemsIsLoading={directoryItemsIsLoading}
       directoryItemsError={directoryItemsError}
+      onSelectionChange={onSelectionChange}
+      clearSelectionTrigger={clearSelectionTrigger}
     />
   )
 }
@@ -73,11 +84,15 @@ export function WorkflowsDashboardTable({
   directoryItems,
   directoryItemsIsLoading,
   directoryItemsError,
+  onSelectionChange,
+  clearSelectionTrigger,
 }: {
   view: ViewMode
   directoryItems: DirectoryItem[] | undefined
   directoryItemsIsLoading: boolean
   directoryItemsError: ApiError | null
+  onSelectionChange?: (items: DirectoryItem[]) => void
+  clearSelectionTrigger?: number
 }) {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
@@ -87,6 +102,12 @@ export function WorkflowsDashboardTable({
     useState<WorkflowReadMinimal | null>(null)
   const [selectedFolder, setSelectedFolder] =
     useState<FolderDirectoryItem | null>(null)
+  const handleSelectionChange = useCallback(
+    (selectedRows: Row<DirectoryItem>[]) => {
+      onSelectionChange?.(selectedRows.map((row) => row.original))
+    },
+    [onSelectionChange]
+  )
 
   const handleOnClickRow = (row: Row<DirectoryItem>) => () => {
     // Link to workflow detail page
@@ -107,7 +128,7 @@ export function WorkflowsDashboardTable({
     >
       <TooltipProvider>
         <DataTable<DirectoryItem, unknown>
-          tableId={`${workspaceId}-${user?.id}:workflows-table`}
+          tableId={`${workspaceId}-${user?.id}:workflows-table:folders`}
           initialColumnVisibility={{
             created_at: false,
           }}
@@ -124,7 +145,59 @@ export function WorkflowsDashboardTable({
             }
             return undefined
           }}
+          getRowId={(item) =>
+            item.type === "workflow" ? item.id : `folder:${item.path}`
+          }
+          onSelectionChange={handleSelectionChange}
+          clearSelectionTrigger={clearSelectionTrigger}
           columns={[
+            {
+              id: "select",
+              header: ({ table }) => (
+                <div className="flex w-full justify-center">
+                  <Checkbox
+                    className="border-foreground/50"
+                    checked={
+                      table.getIsAllPageRowsSelected() ||
+                      (table.getIsSomePageRowsSelected() && "indeterminate")
+                    }
+                    onCheckedChange={(value) =>
+                      table.toggleAllPageRowsSelected(!!value)
+                    }
+                    aria-label="Select all rows"
+                  />
+                </div>
+              ),
+              cell: ({ row }) => (
+                <div
+                  className="flex w-full justify-center"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    event.preventDefault()
+                  }}
+                >
+                  <Checkbox
+                    className="border-foreground/50"
+                    checked={row.getIsSelected()}
+                    onCheckedChange={(value) => row.toggleSelected(!!value)}
+                    aria-label={`Select ${row.original.type} ${
+                      row.original.type === "workflow"
+                        ? row.original.title
+                        : row.original.name
+                    }`}
+                  />
+                </div>
+              ),
+              enableSorting: false,
+              enableHiding: false,
+              meta: {
+                headerClassName:
+                  "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
+                cellClassName:
+                  "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
+                disableRowLink: true,
+              },
+            },
             {
               accessorKey: "type",
               header: ({ column }) => (

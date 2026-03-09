@@ -5,7 +5,7 @@ import type { Row } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import { CircleDot } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import type { WorkflowReadMinimal } from "@/client"
 import { DeleteWorkflowAlertDialog } from "@/components/dashboard/delete-workflow-dialog"
 import { ViewMode } from "@/components/dashboard/folder-view-toggle"
@@ -19,6 +19,7 @@ import {
 import { TagBadge } from "@/components/tag-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,7 +36,13 @@ import { useWorkflowManager } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-export function WorkflowsTagsDashboardTable() {
+export function WorkflowsTagsDashboardTable({
+  onSelectionChange,
+  clearSelectionTrigger,
+}: {
+  onSelectionChange?: (workflows: WorkflowReadMinimal[]) => void
+  clearSelectionTrigger?: number
+}) {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
   const { user } = useAuth()
@@ -46,6 +53,12 @@ export function WorkflowsTagsDashboardTable() {
   })
   const [selectedWorkflow, setSelectedWorkflow] =
     useState<WorkflowReadMinimal | null>(null)
+  const handleSelectionChange = useCallback(
+    (selectedRows: Row<WorkflowReadMinimal>[]) => {
+      onSelectionChange?.(selectedRows.map((row) => row.original))
+    },
+    [onSelectionChange]
+  )
 
   const handleOnClickRow = (row: Row<WorkflowReadMinimal>) => () => {
     // Link to workflow detail page
@@ -59,7 +72,7 @@ export function WorkflowsTagsDashboardTable() {
     >
       <TooltipProvider>
         <DataTable
-          tableId={`${workspaceId}-${user?.id}:workflows-table`}
+          tableId={`${workspaceId}-${user?.id}:workflows-table:tags`}
           initialColumnVisibility={{
             created_at: false,
           }}
@@ -72,7 +85,53 @@ export function WorkflowsTagsDashboardTable() {
           getRowHref={(row) =>
             `/workspaces/${workspaceId}/workflows/${row.original.id}`
           }
+          getRowId={(workflow) => workflow.id}
+          onSelectionChange={handleSelectionChange}
+          clearSelectionTrigger={clearSelectionTrigger}
           columns={[
+            {
+              id: "select",
+              header: ({ table }) => (
+                <div className="flex w-full justify-center">
+                  <Checkbox
+                    className="border-foreground/50"
+                    checked={
+                      table.getIsAllPageRowsSelected() ||
+                      (table.getIsSomePageRowsSelected() && "indeterminate")
+                    }
+                    onCheckedChange={(value) =>
+                      table.toggleAllPageRowsSelected(!!value)
+                    }
+                    aria-label="Select all workflows"
+                  />
+                </div>
+              ),
+              cell: ({ row }) => (
+                <div
+                  className="flex w-full justify-center"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    event.preventDefault()
+                  }}
+                >
+                  <Checkbox
+                    className="border-foreground/50"
+                    checked={row.getIsSelected()}
+                    onCheckedChange={(value) => row.toggleSelected(!!value)}
+                    aria-label={`Select workflow ${row.original.title}`}
+                  />
+                </div>
+              ),
+              enableSorting: false,
+              enableHiding: false,
+              meta: {
+                headerClassName:
+                  "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
+                cellClassName:
+                  "w-12 min-w-[3rem] max-w-[3rem] px-2 text-center",
+                disableRowLink: true,
+              },
+            },
             {
               accessorKey: "title",
               header: ({ column }) => (

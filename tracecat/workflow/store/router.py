@@ -6,15 +6,24 @@ from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
     TracecatCredentialsNotFoundError,
     TracecatSettingsError,
+    TracecatValidationError,
 )
 from tracecat.git.utils import parse_git_url
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
-from tracecat.registry.repositories.schemas import GitCommitInfo
+from tracecat.parse import safe_url
+from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
 from tracecat.sync import PullOptions, PullResult
 from tracecat.vcs.github.app import GitHubAppError
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
-from tracecat.workflow.store.schemas import WorkflowDslPublish, WorkflowSyncPullRequest
+from tracecat.workflow.store.schemas import (
+    WorkflowBulkPushPreviewRequest,
+    WorkflowBulkPushPreviewResponse,
+    WorkflowBulkPushRequest,
+    WorkflowBulkPushResult,
+    WorkflowDslPublish,
+    WorkflowSyncPullRequest,
+)
 from tracecat.workflow.store.service import WorkflowStoreService
 from tracecat.workflow.store.sync import WorkflowSyncService
 from tracecat.workspaces.service import WorkspaceService
@@ -22,7 +31,16 @@ from tracecat.workspaces.service import WorkspaceService
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
 
-@router.post("/{workflow_id}/publish", status_code=status.HTTP_204_NO_CONTENT)
+def _safe_repository_url(repository_url: str | None) -> str | None:
+    if repository_url is None:
+        return None
+    return safe_url(repository_url)
+
+
+@router.post(
+    "/{workflow_id}/publish",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 async def publish_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
@@ -56,7 +74,80 @@ async def publish_workflow(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except TracecatCredentialsNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except GitHubAppError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@router.post(
+    "/push/preview",
+    response_model=WorkflowBulkPushPreviewResponse,
+)
+async def preview_bulk_push_workflows(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    params: WorkflowBulkPushPreviewRequest,
+) -> WorkflowBulkPushPreviewResponse:
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+    store_svc = WorkflowStoreService(session=session, role=role)
+    try:
+        return await store_svc.preview_bulk_push(params)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@router.post(
+    "/push",
+    response_model=WorkflowBulkPushResult,
+)
+async def bulk_push_workflows(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    params: WorkflowBulkPushRequest,
+) -> WorkflowBulkPushResult:
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+    store_svc = WorkflowStoreService(session=session, role=role)
+    try:
+        return await store_svc.bulk_push(params)
+    except TracecatSettingsError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except TracecatCredentialsNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except GitHubAppError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -126,27 +217,112 @@ async def list_workflow_commits(
 
         return commits
 
+    except HTTPException:
+        raise
     except ValueError as e:
-        logger.error(f"Invalid repository URL: {repository_url}", exc_info=True)
+        logger.error(
+            "Invalid repository URL",
+            repository_url=_safe_repository_url(repository_url),
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid repository URL: {str(e)}",
         ) from e
     except GitHubAppError as e:
         logger.error(
-            f"GitHub App error accessing repository: {repository_url}", exc_info=True
+            "GitHub App error accessing repository",
+            repository_url=_safe_repository_url(repository_url),
+            exc_info=True,
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unable to access repository: {str(e)}",
         ) from e
     except Exception as e:
-        logger.exception(
-            f"Error fetching commits from repository: {repository_url}", exc_info=True
+        logger.error(
+            "Error fetching commits from repository",
+            repository_url=_safe_repository_url(repository_url),
+            error=str(e),
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch repository commits",
+        ) from e
+
+
+@router.get("/sync/branches", response_model=list[GitBranchInfo])
+async def list_workflow_branches(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    limit: int = Query(
+        default=100,
+        description="Maximum number of branches to return",
+        ge=1,
+        le=200,
+    ),
+) -> list[GitBranchInfo]:
+    """Get branch list for workflow repository via GitHub App."""
+    if not role.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    repository_url = None
+    try:
+        workspace_service = WorkspaceService(session=session, role=role)
+        workspace = await workspace_service.get_workspace(role.workspace_id)
+
+        if not workspace:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Workspace not found",
+            )
+
+        repository_url = workspace.settings.get("git_repo_url")
+
+        if not repository_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Git repository URL not configured in workspace settings",
+            )
+
+        git_url = parse_git_url(repository_url)
+        sync_service = WorkflowSyncService(session=session, role=role)
+        branches = await sync_service.list_branches(url=git_url, limit=limit)
+        return branches
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.error(
+            "Invalid repository URL",
+            repository_url=_safe_repository_url(repository_url),
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid repository URL: {str(e)}",
+        ) from e
+    except GitHubAppError as e:
+        logger.error(
+            "GitHub App error accessing repository",
+            repository_url=_safe_repository_url(repository_url),
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unable to access repository: {str(e)}",
+        ) from e
+    except Exception as e:
+        logger.error(
+            "Error fetching branches from repository",
+            repository_url=_safe_repository_url(repository_url),
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch repository branches",
         ) from e
 
 
@@ -212,7 +388,8 @@ async def pull_workflows(
         ) from e
     except GitHubAppError as e:
         logger.error(
-            f"GitHub App error during workflow pull: {repository_url}",
+            "GitHub App error during workflow pull",
+            repository_url=_safe_repository_url(repository_url),
             exc_info=True,
         )
         raise HTTPException(
@@ -221,7 +398,8 @@ async def pull_workflows(
         ) from e
     except Exception as e:
         logger.error(
-            f"Error pulling workflows from repository: {repository_url}",
+            "Error pulling workflows from repository",
+            repository_url=_safe_repository_url(repository_url),
             exc_info=True,
         )
         raise HTTPException(

@@ -1,0 +1,454 @@
+"""HTTP-level tests for workflow publish API endpoint."""
+
+import uuid
+from datetime import datetime
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
+from fastapi import status
+from fastapi.testclient import TestClient
+
+from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatValidationError
+from tracecat.registry.repositories.schemas import GitBranchInfo
+from tracecat.vcs.github.app import GitHubAppError
+from tracecat.workflow.store.schemas import (
+    WorkflowBulkPushExcludedWorkflow,
+    WorkflowBulkPushExclusionReason,
+    WorkflowBulkPushPreviewResponse,
+    WorkflowBulkPushResult,
+    WorkflowBulkPushWorkflowResult,
+    WorkflowBulkPushWorkflowStatus,
+    WorkflowBulkPushWorkflowSummary,
+    WorkflowDslPublishResult,
+)
+
+
+def _sample_dsl_content() -> dict[str, object]:
+    return {
+        "title": "Test workflow",
+        "description": "A test workflow",
+        "entrypoint": {"ref": "start", "expects": {}},
+        "actions": [
+            {
+                "ref": "start",
+                "action": "core.transform.passthrough",
+                "args": {"value": "test"},
+            }
+        ],
+    }
+
+
+@pytest.mark.anyio
+async def test_publish_workflow_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test POST /workflows/{workflow_id}/publish keeps legacy 204 behavior."""
+    workflow_id = str(uuid.uuid4())
+    workflow = Mock()
+    workflow.id = uuid.UUID(workflow_id)
+
+    definition = Mock()
+    definition.content = _sample_dsl_content()
+    definition.workflow = workflow
+
+    with (
+        patch(
+            "tracecat.workflow.store.router.WorkflowDefinitionsService"
+        ) as mock_defn_cls,
+        patch("tracecat.workflow.store.router.WorkflowStoreService") as mock_store_cls,
+    ):
+        mock_defn_svc = AsyncMock()
+        mock_defn_svc.get_definition_by_workflow_id.return_value = definition
+        mock_defn_cls.return_value = mock_defn_svc
+
+        mock_store_svc = AsyncMock()
+        mock_store_svc.publish_workflow_dsl.return_value = WorkflowDslPublishResult(
+            status="committed",
+            commit_sha="abc123",
+            branch="feature/shared-workflow",
+            base_branch="main",
+            pr_url="https://github.com/test-org/test-repo/pull/123",
+            pr_number=123,
+            pr_reused=False,
+            message="Committed workflow changes.",
+        )
+        mock_store_cls.return_value = mock_store_svc
+
+        response = client.post(
+            f"/workflows/{workflow_id}/publish",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "message": "Update workflow",
+                "branch": "feature/shared-workflow",
+                "create_pr": True,
+            },
+        )
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    called_params = mock_store_svc.publish_workflow_dsl.call_args.kwargs["params"]
+    assert called_params.branch == "feature/shared-workflow"
+    assert called_params.create_pr is True
+
+
+@pytest.mark.anyio
+async def test_publish_workflow_invalid_branch_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test branch validation errors from service return 400."""
+    workflow_id = str(uuid.uuid4())
+    workflow = Mock()
+    workflow.id = uuid.UUID(workflow_id)
+
+    definition = Mock()
+    definition.content = _sample_dsl_content()
+    definition.workflow = workflow
+
+    with (
+        patch(
+            "tracecat.workflow.store.router.WorkflowDefinitionsService"
+        ) as mock_defn_cls,
+        patch("tracecat.workflow.store.router.WorkflowStoreService") as mock_store_cls,
+    ):
+        mock_defn_svc = AsyncMock()
+        mock_defn_svc.get_definition_by_workflow_id.return_value = definition
+        mock_defn_cls.return_value = mock_defn_svc
+
+        mock_store_svc = AsyncMock()
+        mock_store_svc.publish_workflow_dsl.side_effect = TracecatValidationError(
+            "branch must be a short branch name, not a full ref (refs/...)"
+        )
+        mock_store_cls.return_value = mock_store_svc
+
+        response = client.post(
+            f"/workflows/{workflow_id}/publish",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "branch": "refs/heads/feature/shared-workflow",
+                "create_pr": False,
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "short branch name" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_publish_workflow_definition_not_found_returns_404(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test publish returns 404 when workflow definition does not exist."""
+    workflow_id = str(uuid.uuid4())
+
+    with patch(
+        "tracecat.workflow.store.router.WorkflowDefinitionsService"
+    ) as mock_defn_cls:
+        mock_defn_svc = AsyncMock()
+        mock_defn_svc.get_definition_by_workflow_id.return_value = None
+        mock_defn_cls.return_value = mock_defn_svc
+
+        response = client.post(
+            f"/workflows/{workflow_id}/publish",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"branch": "feature/shared-workflow", "create_pr": False},
+        )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["detail"] == "Workflow definition not found"
+
+
+@pytest.mark.anyio
+async def test_publish_workflow_invalid_create_pr_type_returns_422(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test request validation rejects invalid create_pr type."""
+    workflow_id = str(uuid.uuid4())
+    response = client.post(
+        f"/workflows/{workflow_id}/publish",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+        json={
+            "branch": "feature/shared-workflow",
+            "create_pr": {"invalid": True},
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+@pytest.mark.anyio
+async def test_preview_bulk_push_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test POST /workflows/push/preview returns preview data."""
+    with patch("tracecat.workflow.store.router.WorkflowStoreService") as mock_store_cls:
+        mock_store_svc = AsyncMock()
+        mock_store_svc.preview_bulk_push.return_value = WorkflowBulkPushPreviewResponse(
+            eligible_workflows=[
+                WorkflowBulkPushWorkflowSummary(
+                    workflow_id="wf_123abc",
+                    title="Workflow 1",
+                    alias="workflow-1",
+                    folder_path="/security",
+                    latest_definition_version=3,
+                    latest_definition_created_at=datetime(2026, 3, 6, 12, 0, 0),
+                )
+            ],
+            excluded_workflows=[
+                WorkflowBulkPushExcludedWorkflow(
+                    workflow_id="wf_missing",
+                    title="Missing workflow",
+                    reason=WorkflowBulkPushExclusionReason.NOT_PUBLISHED,
+                    message="Workflow has not been published yet",
+                )
+            ],
+            resolved_workflow_ids=["wf_123abc"],
+            branch="tracecat/bulk-push-20260306-120000",
+            base_branch="release",
+            commit_message="Push workflows to GitHub",
+            pr_title="Push workflows to GitHub",
+            pr_body="Bulk push preview",
+            can_submit=True,
+        )
+        mock_store_cls.return_value = mock_store_svc
+
+        response = client.post(
+            "/workflows/push/preview",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "workflow_ids": ["wf_123abc"],
+                "folder_paths": ["/security"],
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
+    assert payload["branch"] == "tracecat/bulk-push-20260306-120000"
+    assert payload["base_branch"] == "release"
+    assert payload["commit_message"] == "Push workflows to GitHub"
+    assert payload["pr_title"] == "Push workflows to GitHub"
+    assert payload["can_submit"] is True
+    assert payload["resolved_workflow_ids"] == ["wf_123abc"]
+    assert payload["eligible_workflows"][0]["workflow_id"] == "wf_123abc"
+    assert payload["excluded_workflows"][0]["reason"] == "not_published"
+
+    called_params = mock_store_svc.preview_bulk_push.call_args.args[0]
+    assert called_params.workflow_ids == ["wf_123abc"]
+    assert called_params.folder_paths == ["/security"]
+
+
+@pytest.mark.anyio
+async def test_preview_bulk_push_invalid_folder_paths_type_returns_422(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test POST /workflows/push/preview rejects non-list folder_paths."""
+    response = client.post(
+        "/workflows/push/preview",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+        json={
+            "workflow_ids": ["wf_123abc"],
+            "folder_paths": "/security",
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+@pytest.mark.anyio
+async def test_bulk_push_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test POST /workflows/push returns structured bulk push result."""
+    with patch("tracecat.workflow.store.router.WorkflowStoreService") as mock_store_cls:
+        mock_store_svc = AsyncMock()
+        mock_store_svc.bulk_push.return_value = WorkflowBulkPushResult(
+            status="committed",
+            commit_sha="abc123",
+            branch="feature/bulk-push",
+            base_branch="main",
+            pr_url="https://github.com/test-org/test-repo/pull/456",
+            pr_number=456,
+            pr_reused=False,
+            message="Committed changes for 2 workflow file(s).",
+            selected_count=2,
+            eligible_count=2,
+            excluded_count=0,
+            workflow_results=[
+                WorkflowBulkPushWorkflowResult(
+                    workflow_id="wf_123abc",
+                    title="Workflow 1",
+                    path="workflows/wf_123abc/definition.yml",
+                    status=WorkflowBulkPushWorkflowStatus.COMMITTED,
+                    message="Committed",
+                ),
+                WorkflowBulkPushWorkflowResult(
+                    workflow_id="wf_456def",
+                    title="Workflow 2",
+                    path="workflows/wf_456def/definition.yml",
+                    status=WorkflowBulkPushWorkflowStatus.NO_OP,
+                    message="Already up to date",
+                ),
+            ],
+        )
+        mock_store_cls.return_value = mock_store_svc
+
+        response = client.post(
+            "/workflows/push",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "workflow_ids": ["wf_123abc", "wf_456def"],
+                "branch": "feature/bulk-push",
+                "commit_message": "Push workflows to GitHub",
+                "pr_title": "Push workflows to GitHub",
+                "pr_body": "Bulk push body",
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
+    assert payload["status"] == "committed"
+    assert payload["commit_sha"] == "abc123"
+    assert payload["branch"] == "feature/bulk-push"
+    assert payload["base_branch"] == "main"
+    assert payload["pr_number"] == 456
+    assert payload["selected_count"] == 2
+    assert payload["eligible_count"] == 2
+    assert payload["excluded_count"] == 0
+    assert payload["workflow_results"][0]["workflow_id"] == "wf_123abc"
+    assert payload["workflow_results"][1]["status"] == "no_op"
+
+    called_params = mock_store_svc.bulk_push.call_args.args[0]
+    assert called_params.workflow_ids == ["wf_123abc", "wf_456def"]
+    assert called_params.branch == "feature/bulk-push"
+    assert called_params.commit_message == "Push workflows to GitHub"
+    assert called_params.pr_title == "Push workflows to GitHub"
+    assert called_params.pr_body == "Bulk push body"
+
+
+@pytest.mark.anyio
+async def test_bulk_push_whitespace_required_fields_return_422(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test POST /workflows/push rejects whitespace-only required text fields."""
+    response = client.post(
+        "/workflows/push",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+        json={
+            "workflow_ids": ["wf_123abc"],
+            "branch": "feature/bulk-push",
+            "commit_message": "   ",
+            "pr_title": "   ",
+            "pr_body": "body",
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+@pytest.mark.anyio
+async def test_list_workflow_branches_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test GET /workflows/sync/branches returns branch list."""
+    with (
+        patch("tracecat.workflow.store.router.WorkspaceService") as mock_workspace_cls,
+        patch("tracecat.workflow.store.router.WorkflowSyncService") as mock_sync_cls,
+    ):
+        mock_workspace_svc = AsyncMock()
+        mock_workspace = Mock()
+        mock_workspace.settings = {
+            "git_repo_url": "git+ssh://git@github.com/test-org/test-repo.git"
+        }
+        mock_workspace_svc.get_workspace.return_value = mock_workspace
+        mock_workspace_cls.return_value = mock_workspace_svc
+
+        mock_sync_svc = AsyncMock()
+        mock_sync_svc.list_branches.return_value = [
+            GitBranchInfo(name="main", sha="a" * 40, is_default=True),
+            GitBranchInfo(
+                name="feature/workflow-publish",
+                sha="b" * 40,
+                is_default=False,
+            ),
+        ]
+        mock_sync_cls.return_value = mock_sync_svc
+
+        response = client.get(
+            "/workflows/sync/branches",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
+    assert payload == [
+        {"name": "main", "sha": "a" * 40, "is_default": True},
+        {
+            "name": "feature/workflow-publish",
+            "sha": "b" * 40,
+            "is_default": False,
+        },
+    ]
+
+
+@pytest.mark.anyio
+async def test_list_workflow_branches_missing_repo_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test GET /workflows/sync/branches returns 400 when repo URL is missing."""
+    with patch("tracecat.workflow.store.router.WorkspaceService") as mock_workspace_cls:
+        mock_workspace_svc = AsyncMock()
+        mock_workspace = Mock()
+        mock_workspace.settings = {}
+        mock_workspace_svc.get_workspace.return_value = mock_workspace
+        mock_workspace_cls.return_value = mock_workspace_svc
+
+        response = client.get(
+            "/workflows/sync/branches",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Git repository URL not configured" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_list_workflow_branches_github_error_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test GET /workflows/sync/branches maps GitHub errors to 400."""
+    with (
+        patch("tracecat.workflow.store.router.WorkspaceService") as mock_workspace_cls,
+        patch("tracecat.workflow.store.router.WorkflowSyncService") as mock_sync_cls,
+    ):
+        mock_workspace_svc = AsyncMock()
+        mock_workspace = Mock()
+        mock_workspace.settings = {
+            "git_repo_url": "git+ssh://git@github.com/test-org/test-repo.git"
+        }
+        mock_workspace_svc.get_workspace.return_value = mock_workspace
+        mock_workspace_cls.return_value = mock_workspace_svc
+
+        mock_sync_svc = AsyncMock()
+        mock_sync_svc.list_branches.side_effect = GitHubAppError(
+            "Unable to access repository"
+        )
+        mock_sync_cls.return_value = mock_sync_svc
+
+        response = client.get(
+            "/workflows/sync/branches",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Unable to access repository" in response.json()["detail"]
