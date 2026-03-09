@@ -1,0 +1,35 @@
+tracecat/parse.py
+  44a329008e81731a 78-83,86
+frontend/src/components/dashboard/dashboard-table.tsx
+  44a329008e81731a 41,44,75,88,90,132
+frontend/src/components/dashboard/workflow-folders-table.tsx
+  44a329008e81731a 54,58,77,88,95,131,148-150,152,198
+frontend/src/components/data-table/table.tsx
+  44a329008e81731a 50,76,98,158,369,381
+tracecat/workflow/store/router.py
+  44a329008e81731a 14,34-39,224-226,234-236,245,299-301,309-311,320,391-392,401-402
+tests/unit/test_parse.py
+  44a329008e81731a 6,223-235
+frontend/src/components/dashboard/workflows-dashboard.tsx
+  44a329008e81731a 23,75-80,98,120,132,140,176
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "0b4eb63e2006c7795931ec1a446ce38f2c6e79e5",
+  "prompts": {
+    "44a329008e81731a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cd339-9071-7453-a8ae-57b69830d614",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 88,
+      "total_deletions": 13,
+      "accepted_lines": 81,
+      "overriden_lines": 0
+    }
+  }
+}
