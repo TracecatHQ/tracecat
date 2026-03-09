@@ -3449,7 +3449,6 @@ async def run_agent_preset(
                     title=f"MCP: {prompt[:50]}",
                     entity_type=AgentSessionEntity.AGENT_PRESET,
                     entity_id=preset.id,
-                    agent_preset_id=preset.id,
                     agent_preset_version_id=version.id,
                 )
             )
