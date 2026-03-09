@@ -70,7 +70,8 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.integrations.mcp_discovery_workflow import (
         MCPLocalStdioDiscoveryWorkflow,
         MCPRemoteDiscoveryWorkflow,
-        get_mcp_discovery_activities,
+        run_local_mcp_discovery_activity,
+        run_remote_mcp_discovery_activity,
     )
     from tracecat.logger import logger
 
@@ -276,9 +277,6 @@ def get_activities() -> list[Callable[..., object]]:
     # Session management activities
     activities.extend(get_session_activities())
 
-    # Persisted MCP discovery activities
-    activities.extend(get_mcp_discovery_activities())
-
     # Agent executor activity
     activities.append(run_agent_activity)
     activities.append(execute_approved_tools_activity)
@@ -329,7 +327,8 @@ async def main() -> None:
             interceptors.append(SentryInterceptor())
 
         activities = get_activities()
-        mcp_discovery_activities = get_mcp_discovery_activities()
+        mcp_discovery_agent_activities = [run_remote_mcp_discovery_activity]
+        mcp_discovery_mcp_worker_activities = [run_local_mcp_discovery_activity]
         logger.debug(
             "Activities loaded",
             activities=[
@@ -339,7 +338,7 @@ async def main() -> None:
 
         mcp_worker_activities = [
             *LocalMCPArtifactActivities.get_activities(),
-            *mcp_discovery_activities,
+            *mcp_discovery_mcp_worker_activities,
         ]
         with (
             ThreadPoolExecutor(
@@ -351,7 +350,7 @@ async def main() -> None:
                 Worker(
                     client,
                     task_queue=config.TRACECAT__AGENT_QUEUE,
-                    activities=[*activities, *mcp_discovery_activities],
+                    activities=[*activities, *mcp_discovery_agent_activities],
                     workflows=[DurableAgentWorkflow, MCPRemoteDiscoveryWorkflow],
                     workflow_runner=new_sandbox_runner(),
                     interceptors=interceptors,

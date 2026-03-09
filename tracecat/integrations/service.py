@@ -1807,6 +1807,15 @@ class IntegrationService(BaseWorkspaceService):
                 discovery_status,
                 details,
             )
+        if isinstance(exc, PermissionError) and str(
+            config.TRACECAT__MCP_SANDBOX_CACHE_DIR
+        ) in str(exc):
+            return (
+                "cache_permission",
+                "The local MCP discovery cache directory is not writable.",
+                discovery_status,
+                details,
+            )
         return (
             "unexpected_error",
             "Unexpected error during MCP discovery.",

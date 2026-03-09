@@ -1207,6 +1207,55 @@ class TestMCPIntegrationCRUD:
             == LocalMCPDiscoveryPhase.LIST_TOOLS.value
         )
 
+    async def test_run_local_mcp_discovery_failure_maps_cache_permission_error(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test local stdio discovery reports cache permission failures clearly."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPStdioIntegrationCreate(
+                name="Cache blocked MCP",
+                stdio_command="uvx",
+                stdio_args=["blocked-mcp"],
+            )
+        )
+        assert created.last_discovery_attempt_at is not None
+
+        async def _fail_local(_: object) -> MCPServerCatalog:
+            raise PermissionError(
+                f"[Errno 13] Permission denied: '{config.TRACECAT__MCP_SANDBOX_CACHE_DIR / 'org-123'}'"
+            )
+
+        monkeypatch.setattr(
+            "tracecat.integrations.service.discover_local_mcp_server_catalog",
+            _fail_local,
+        )
+        started_at = created.last_discovery_attempt_at + timedelta(seconds=1)
+        result = await integration_service.run_local_mcp_discovery(
+            mcp_integration_id=created.id,
+            trigger=MCPDiscoveryTrigger.REFRESH,
+            started_at=started_at,
+        )
+
+        assert result.status == MCPDiscoveryStatus.FAILED.value
+        assert result.error_code == "cache_permission"
+        assert (
+            result.error_summary
+            == "The local MCP discovery cache directory is not writable."
+        )
+
+        refreshed = await integration_service.get_mcp_integration(
+            mcp_integration_id=created.id
+        )
+        assert refreshed is not None
+        assert refreshed.discovery_status == MCPDiscoveryStatus.FAILED.value
+        assert refreshed.last_discovery_error_code == "cache_permission"
+        assert (
+            refreshed.last_discovery_error_summary
+            == "The local MCP discovery cache directory is not writable."
+        )
+
     async def test_update_mcp_integration_partial(
         self,
         integration_service: IntegrationService,

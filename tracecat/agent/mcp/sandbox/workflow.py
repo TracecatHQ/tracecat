@@ -11,22 +11,24 @@ from pathlib import Path
 from typing import Any, cast
 
 import orjson
-from fastmcp import Client
-from mcp.types import BlobResourceContents, GetPromptResult, TextResourceContents
 from temporalio import activity, workflow
 
-from tracecat import config
-from tracecat.agent.common.exceptions import AgentSandboxValidationError
-from tracecat.agent.mcp.sandbox.types import (
-    LocalMCPArtifactOperation,
-    RunLocalMCPArtifactWorkflowInput,
-    RunLocalMCPArtifactWorkflowResult,
-)
-from tracecat.agent.sandbox.config import _contains_dangerous_chars, _validate_path
-from tracecat.integrations.service import IntegrationService
-from tracecat.logger import logger
-from tracecat.mcp.catalog.artifact_service import MCPCatalogArtifactService
-from tracecat.mcp.config import TRACECAT_MCP__MAX_RESOURCE_CONTENT_CHARS
+with workflow.unsafe.imports_passed_through():
+    from fastmcp import Client
+    from mcp.types import BlobResourceContents, GetPromptResult, TextResourceContents
+
+    from tracecat import config
+    from tracecat.agent.common.exceptions import AgentSandboxValidationError
+    from tracecat.agent.mcp.sandbox.types import (
+        LocalMCPArtifactOperation,
+        RunLocalMCPArtifactWorkflowInput,
+        RunLocalMCPArtifactWorkflowResult,
+    )
+    from tracecat.agent.sandbox.config import _contains_dangerous_chars, _validate_path
+    from tracecat.integrations.service import IntegrationService
+    from tracecat.logger import logger
+    from tracecat.mcp.catalog.artifact_service import MCPCatalogArtifactService
+    from tracecat.mcp.config import TRACECAT_MCP__MAX_RESOURCE_CONTENT_CHARS
 
 _LOCAL_MCP_SANDBOX_SEMAPHORE = asyncio.Semaphore(
     config.TRACECAT__MCP_MAX_CONCURRENT_LOCAL_SANDBOXES

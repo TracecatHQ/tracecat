@@ -114,12 +114,17 @@ RUN mkdir -p /var/lib/tracecat/sandbox-rootfs/tmp \
     /var/lib/tracecat/sandbox-rootfs/packages \
     /var/lib/tracecat/sandbox-rootfs/home/sandbox \
     /var/lib/tracecat/sandbox-cache/packages \
-    /var/lib/tracecat/sandbox-cache/uv-cache && \
+    /var/lib/tracecat/sandbox-cache/uv-cache \
+    /var/lib/tracecat/mcp-sandbox-cache && \
     chmod -R 755 /var/lib/tracecat/sandbox-rootfs && \
     chown -R 1000:1000 /var/lib/tracecat/sandbox-rootfs/work \
         /var/lib/tracecat/sandbox-rootfs/cache \
         /var/lib/tracecat/sandbox-rootfs/packages \
         /var/lib/tracecat/sandbox-rootfs/home/sandbox && \
+    chown -R 1001:1001 /var/lib/tracecat/sandbox-cache \
+        /var/lib/tracecat/mcp-sandbox-cache && \
+    chmod -R 755 /var/lib/tracecat/sandbox-cache \
+        /var/lib/tracecat/mcp-sandbox-cache && \
     chmod 1777 /var/lib/tracecat/sandbox-rootfs/tmp
 
 # Create apiuser for non-root runtime (required for pasta userspace networking)
@@ -140,8 +145,10 @@ FROM base AS development
 ENV TMPDIR=/tmp TEMP=/tmp TMP=/tmp
 
 # Set sandbox cache permissions for apiuser
-RUN chown -R 1001:1001 /var/lib/tracecat/sandbox-cache && \
-    chmod -R 755 /var/lib/tracecat/sandbox-cache
+RUN chown -R 1001:1001 /var/lib/tracecat/sandbox-cache \
+        /var/lib/tracecat/mcp-sandbox-cache && \
+    chmod -R 755 /var/lib/tracecat/sandbox-cache \
+        /var/lib/tracecat/mcp-sandbox-cache
 
 # Prime uv cache (as root, before switching user)
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -189,8 +196,10 @@ FROM base AS production
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
 # Set sandbox cache permissions for apiuser
-RUN chown -R 1001:1001 /var/lib/tracecat/sandbox-cache && \
-    chmod -R 755 /var/lib/tracecat/sandbox-cache
+RUN chown -R 1001:1001 /var/lib/tracecat/sandbox-cache \
+        /var/lib/tracecat/mcp-sandbox-cache && \
+    chmod -R 755 /var/lib/tracecat/sandbox-cache \
+        /var/lib/tracecat/mcp-sandbox-cache
 
 COPY docker/scripts/auto-update.sh ./auto-update.sh
 RUN chmod +x auto-update.sh && ./auto-update.sh && rm auto-update.sh

@@ -192,11 +192,87 @@ async def test_discover_local_mcp_server_catalog_maps_list_tools_failure(
 
 
 @pytest.mark.anyio
-async def test_discover_local_mcp_server_catalog_requires_nsjail_for_network_isolation(
+async def test_discover_local_mcp_server_catalog_uses_direct_transport_in_direct_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    tool = mcp_types.Tool(
+        name="search",
+        description="Search docs",
+        inputSchema={"type": "object"},
+    )
+    fake_client = _fake_client_factory(tools=[tool], resources=[], prompts=[])
+    monkeypatch.setattr(runtime, "Client", fake_client)
+    monkeypatch.setattr(runtime.config, "TRACECAT__DISABLE_NSJAIL", False)
     monkeypatch.setattr(runtime, "is_nsjail_available", lambda: False)
+    monkeypatch.setattr(
+        runtime,
+        "resolve_backend_type",
+        lambda: runtime.ExecutorBackendType.DIRECT,
+    )
+
+    catalog = await runtime.discover_local_mcp_server_catalog(
+        _config(tmp_path, allow_network=False)
+    )
+
+    assert catalog.server_name == "local-scope"
+    transport = fake_client.last_transport
+    assert transport is not None
+    assert transport.command == "uvx"
+
+
+@pytest.mark.anyio
+async def test_discover_local_mcp_server_catalog_uses_direct_transport_when_nsjail_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tool = mcp_types.Tool(
+        name="search",
+        description="Search docs",
+        inputSchema={"type": "object"},
+    )
+    fake_client = _fake_client_factory(tools=[tool], resources=[], prompts=[])
+    monkeypatch.setattr(runtime, "Client", fake_client)
+    monkeypatch.setattr(runtime.config, "TRACECAT__DISABLE_NSJAIL", True)
+    monkeypatch.setattr(
+        runtime,
+        "resolve_backend_type",
+        lambda: runtime.ExecutorBackendType.EPHEMERAL,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_resolve_egress_policy",
+        lambda _config_data: pytest.fail(
+            "_resolve_egress_policy should not run in direct transport mode"
+        ),
+    )
+
+    catalog = await runtime.discover_local_mcp_server_catalog(
+        _config(
+            tmp_path,
+            allow_network=False,
+            egress_allowlist=["example.com"],
+        )
+    )
+
+    assert catalog.server_name == "local-scope"
+    transport = fake_client.last_transport
+    assert transport is not None
+    assert transport.command == "uvx"
+
+
+@pytest.mark.anyio
+async def test_discover_local_mcp_server_catalog_requires_nsjail_in_sandbox_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(runtime.config, "TRACECAT__DISABLE_NSJAIL", False)
+    monkeypatch.setattr(runtime, "is_nsjail_available", lambda: False)
+    monkeypatch.setattr(
+        runtime,
+        "resolve_backend_type",
+        lambda: runtime.ExecutorBackendType.EPHEMERAL,
+    )
 
     with pytest.raises(LocalMCPDiscoveryError) as exc_info:
         await runtime.discover_local_mcp_server_catalog(

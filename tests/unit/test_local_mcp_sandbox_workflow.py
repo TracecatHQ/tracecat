@@ -5,12 +5,15 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 from uuid import uuid4
 
 import pytest
+from temporalio.workflow import _Definition as TemporalWorkflowDefinition
 
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.mcp.sandbox import workflow as workflow_module
+from tracecat.agent.worker import new_sandbox_runner
 
 
 def _build_target(**overrides: object) -> SimpleNamespace:
@@ -131,3 +134,16 @@ def test_build_stdio_nsjail_config_rejects_unsafe_stdio_args(
             rootfs=rootfs_path,
             allow_network=False,
         )
+
+
+@pytest.mark.anyio
+async def test_local_mcp_workflow_prepares_in_temporal_sandbox() -> None:
+    runner = new_sandbox_runner()
+    workflow_definition = cast(
+        TemporalWorkflowDefinition,
+        getattr(
+            workflow_module.RunLocalMCPArtifactWorkflow,
+            "__temporal_workflow_definition",
+        ),
+    )
+    runner.prepare_workflow(workflow_definition)

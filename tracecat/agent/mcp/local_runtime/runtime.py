@@ -27,6 +27,7 @@ from tracecat.agent.mcp.local_runtime.types import (
     LocalMCPDiscoveryError,
     LocalMCPDiscoveryPhase,
 )
+from tracecat.executor.schemas import ExecutorBackendType, resolve_backend_type
 from tracecat.integrations.mcp_validation import validate_mcp_command_config
 from tracecat.logger import logger
 from tracecat.sandbox.utils import is_nsjail_available
@@ -45,6 +46,8 @@ _JAILED_UV_CACHE_DIR = Path("/cache/uv")
 _JAILED_NPM_CACHE_DIR = Path("/cache/npm")
 _JAILED_EGRESS_GUARD_LIB = "/usr/local/lib/libtracecat_mcp_egress_guard.so"
 _NSJAIL_VISIBLE_PATH_PREFIXES = ("/usr/", "/bin/")
+_DIRECT_SANDBOX_WARNING_EMITTED = False
+_EGRESS_POLICY_DIRECT_WARNING_EMITTED = False
 
 
 def _get_local_sandbox_semaphore() -> asyncio.Semaphore:
@@ -54,6 +57,16 @@ def _get_local_sandbox_semaphore() -> asyncio.Semaphore:
             config.TRACECAT__MCP_MAX_CONCURRENT_LOCAL_SANDBOXES
         )
     return _LOCAL_SANDBOX_SEMAPHORE
+
+
+def _should_use_direct_transport() -> bool:
+    if config.TRACECAT__DISABLE_NSJAIL:
+        return True
+    backend_type = resolve_backend_type()
+    return backend_type in {
+        ExecutorBackendType.DIRECT,
+        ExecutorBackendType.TEST,
+    }
 
 
 def _phase_summary(phase: LocalMCPDiscoveryPhase) -> str:
@@ -457,16 +470,13 @@ async def _build_stdio_transport(
     npm_cache_dir: Path,
     home_dir: Path,
 ) -> StdioTransport:
+    global _DIRECT_SANDBOX_WARNING_EMITTED, _EGRESS_POLICY_DIRECT_WARNING_EMITTED
+
     server = config_data.server
     has_egress_policy = bool(
         config_data.egress_allowlist or config_data.egress_denylist
     )
     requires_network_isolation = not config_data.allow_network or has_egress_policy
-    policy = await _resolve_egress_policy(config_data)
-    hosts_resolution_files = _write_hosts_resolution_files(
-        policy=policy,
-        job_dir=job_dir,
-    )
     direct_env = _build_runtime_env(
         config_data=config_data,
         home_dir=home_dir,
@@ -474,11 +484,33 @@ async def _build_stdio_transport(
         npm_cache_dir=npm_cache_dir,
         jailed=False,
     )
+    if _should_use_direct_transport():
+        if not _DIRECT_SANDBOX_WARNING_EMITTED and requires_network_isolation:
+            logger.warning(
+                "Network isolation is not enforced for local MCP discovery in direct executor mode; process will run unsandboxed",
+                executor_backend=config.TRACECAT__EXECUTOR_BACKEND,
+            )
+            _DIRECT_SANDBOX_WARNING_EMITTED = True
+        if not _EGRESS_POLICY_DIRECT_WARNING_EMITTED and has_egress_policy:
+            logger.warning(
+                "Egress allowlist/denylist is not enforced for local MCP discovery in direct executor mode; process will use degraded policy mode",
+                executor_backend=config.TRACECAT__EXECUTOR_BACKEND,
+            )
+            _EGRESS_POLICY_DIRECT_WARNING_EMITTED = True
+        return StdioTransport(
+            command=server["command"],
+            args=server.get("args", []),
+            env=direct_env,
+            cwd=str(job_dir),
+            keep_alive=False,
+            log_file=stderr_path,
+        )
     if not is_nsjail_available():
         if requires_network_isolation:
             raise _config_validation_error(
                 "Local MCP discovery requires nsjail to enforce network policy.",
                 allow_network=config_data.allow_network,
+                executor_backend=config.TRACECAT__EXECUTOR_BACKEND,
             )
         return StdioTransport(
             command=server["command"],
@@ -510,6 +542,11 @@ async def _build_stdio_transport(
             log_file=stderr_path,
         )
 
+    policy = await _resolve_egress_policy(config_data)
+    hosts_resolution_files = _write_hosts_resolution_files(
+        policy=policy,
+        job_dir=job_dir,
+    )
     jailed_env = _build_runtime_env(
         config_data=config_data,
         home_dir=home_dir,
