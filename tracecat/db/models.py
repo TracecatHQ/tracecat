@@ -2158,6 +2158,31 @@ class CaseComment(WorkspaceModel):
         nullable=True,
         doc="The ID of the user who made the comment. If null, the comment is system generated.",
     )
+    workflow_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        nullable=True,
+        doc="The selected workflow ID for workflow-backed comments.",
+    )
+    workflow_title: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Workflow title snapshot captured when the comment was created.",
+    )
+    workflow_alias: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Workflow alias snapshot captured when the comment was created.",
+    )
+    workflow_wf_exec_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Workflow execution ID started from this comment, if any.",
+    )
+    workflow_status: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        doc="Fallback workflow status for workflow-backed comments.",
+    )
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         nullable=True,

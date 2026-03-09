@@ -3906,6 +3906,22 @@ export const $CaseCommentCreate = {
       ],
       title: "Parent Id",
     },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+    },
   },
   type: "object",
   required: ["content"],
@@ -3949,6 +3965,16 @@ export const $CaseCommentRead = {
         },
       ],
       title: "Parent Id",
+    },
+    workflow: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseCommentWorkflowRead",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     user: {
       anyOf: [
@@ -4053,6 +4079,54 @@ export const $CaseCommentUpdate = {
   },
   type: "object",
   title: "CaseCommentUpdate",
+} as const
+
+export const $CaseCommentWorkflowRead = {
+  properties: {
+    workflow_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workflow Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    alias: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Alias",
+    },
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseCommentWorkflowStatus",
+    },
+  },
+  type: "object",
+  required: ["workflow_id", "title", "status"],
+  title: "CaseCommentWorkflowRead",
+} as const
+
+export const $CaseCommentWorkflowStatus = {
+  type: "string",
+  enum: ["running", "succeeded", "failed"],
+  title: "CaseCommentWorkflowStatus",
 } as const
 
 export const $CaseCreate = {

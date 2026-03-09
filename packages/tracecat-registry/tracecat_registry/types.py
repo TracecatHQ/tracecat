@@ -175,8 +175,23 @@ class CaseComment(TypedDict):
     updated_at: datetime
     content: str
     parent_id: UUID | None
+    workflow_id: UUID | None
+    workflow_title: str | None
+    workflow_alias: str | None
+    workflow_wf_exec_id: str | None
+    workflow_status: str | None
     last_edited_at: datetime | None
     deleted_at: datetime | None
+
+
+class CaseCommentWorkflowRead(TypedDict):
+    """Workflow metadata attached to a case comment."""
+
+    workflow_id: UUID
+    title: str
+    alias: str | None
+    wf_exec_id: str | None
+    status: str
 
 
 class CaseCommentRead(TypedDict):
@@ -187,6 +202,7 @@ class CaseCommentRead(TypedDict):
     updated_at: datetime
     content: str
     parent_id: UUID | None
+    workflow: CaseCommentWorkflowRead | None
     user: UserRead | None
     last_edited_at: datetime | None
     deleted_at: datetime | None

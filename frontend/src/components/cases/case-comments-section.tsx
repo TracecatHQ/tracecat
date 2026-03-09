@@ -1,25 +1,49 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import { useQuery } from "@tanstack/react-query"
 import {
   AlertCircle,
   ArrowUpIcon,
   ChevronDown,
   ChevronUp,
+  CircleCheckIcon,
+  ClockIcon,
+  LinkIcon,
   MoreHorizontal,
   PencilIcon,
   Trash2Icon,
+  XCircleIcon,
 } from "lucide-react"
+import Link from "next/link"
 import type React from "react"
-import { useCallback, useLayoutEffect, useRef, useState } from "react"
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import type { CaseCommentRead, CaseCommentThreadRead } from "@/client"
+import {
+  type CaseCommentRead,
+  type CaseCommentThreadRead,
+  foldersListFolders,
+  type WorkflowFolderRead,
+  type WorkflowReadMinimal,
+  workflowsListWorkflows,
+} from "@/client"
+import {
+  ModelSelector,
+  ModelSelectorContent,
+  ModelSelectorEmpty,
+  ModelSelectorGroup,
+  ModelSelectorInput,
+  ModelSelectorItem,
+  ModelSelectorList,
+  ModelSelectorTrigger,
+} from "@/components/ai-elements/model-selector"
 import { CaseCommentViewer } from "@/components/cases/case-description-editor"
 import {
   CaseEventTimestamp,
   CaseUserAvatar,
 } from "@/components/cases/case-panel-common"
+import { TagBadge } from "@/components/tag-badge"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,6 +54,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -44,6 +69,11 @@ import {
   FormItem,
   FormMessage,
 } from "@/components/ui/form"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
@@ -51,13 +81,16 @@ import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { SYSTEM_USER_READ, User } from "@/lib/auth"
+import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
 import {
   useCaseComments,
   useCaseCommentThreads,
+  useCompactWorkflowExecution,
   useCreateCaseComment,
   useDeleteCaseComment,
   useUpdateCaseComment,
 } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
 
 const commentFormSchema = z.object({
   content: z
@@ -70,6 +103,189 @@ type CommentFormSchema = z.infer<typeof commentFormSchema>
 
 function getCommentUser(comment: CaseCommentRead) {
   return new User(comment.user ?? SYSTEM_USER_READ)
+}
+
+type WorkflowCommentSelectorItem = {
+  id: string
+  title: string
+  alias: string | null
+  folderName: string
+  folderPath: string | null
+  showFolderPath: boolean
+  tags: WorkflowReadMinimal["tags"]
+}
+
+type WorkflowCommentStatus = "running" | "succeeded" | "failed"
+
+function getWorkflowCommentStatus(
+  comment: CaseCommentRead
+): WorkflowCommentStatus {
+  if (!comment.workflow) {
+    return "running"
+  }
+  return comment.workflow.status
+}
+
+function getWorkflowStatusBadge(status: WorkflowCommentStatus) {
+  switch (status) {
+    case "succeeded":
+      return (
+        <span
+          aria-label="Completed"
+          className="inline-flex items-center"
+          role="img"
+        >
+          <CircleCheckIcon className="size-4 fill-emerald-500 stroke-background" />
+          <span className="sr-only">Completed</span>
+        </span>
+      )
+    case "failed":
+      return (
+        <span
+          aria-label="Error"
+          className="inline-flex items-center"
+          role="img"
+        >
+          <XCircleIcon className="size-4 fill-rose-500 stroke-background" />
+          <span className="sr-only">Error</span>
+        </span>
+      )
+    default:
+      return (
+        <span
+          aria-label="In progress"
+          className="inline-flex items-center"
+          role="img"
+        >
+          <ClockIcon className="size-3.5 animate-pulse text-amber-500" />
+          <span className="sr-only">In progress</span>
+        </span>
+      )
+  }
+}
+
+function toWorkflowCommentSelectorItems(
+  workflows: WorkflowReadMinimal[],
+  folders: WorkflowFolderRead[]
+): WorkflowCommentSelectorItem[] {
+  const folderMap = new Map(folders.map((folder) => [folder.id, folder]))
+  const folderNameCounts = folders.reduce(
+    (counts, folder) =>
+      counts.set(folder.name, (counts.get(folder.name) ?? 0) + 1),
+    new Map<string, number>()
+  )
+
+  return workflows.map((workflow) => {
+    const folder = workflow.folder_id ? folderMap.get(workflow.folder_id) : null
+    const folderName = folder?.name ?? "No folder"
+    return {
+      id: workflow.id,
+      title: workflow.title,
+      alias: workflow.alias ?? null,
+      folderName,
+      folderPath: folder?.path ?? null,
+      showFolderPath: folder
+        ? (folderNameCounts.get(folder.name) ?? 0) > 1
+        : false,
+      tags: workflow.tags,
+    }
+  })
+}
+
+function useCommentWorkflowSelectorData(
+  workspaceId: string,
+  enabled: boolean
+): {
+  items: WorkflowCommentSelectorItem[]
+  isLoading: boolean
+} {
+  const { data: workflows = [], isLoading: workflowsIsLoading } = useQuery({
+    queryKey: ["comment-workflows", workspaceId],
+    queryFn: async () => {
+      const response = await workflowsListWorkflows({
+        workspaceId,
+        limit: 0,
+      })
+      return response.items
+    },
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  })
+  const { data: folders = [], isLoading: foldersIsLoading } = useQuery({
+    queryKey: ["comment-workflow-folders", workspaceId],
+    queryFn: async () => await foldersListFolders({ workspaceId }),
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const items = useMemo(
+    () => toWorkflowCommentSelectorItems(workflows, folders),
+    [folders, workflows]
+  )
+
+  return {
+    items,
+    isLoading: workflowsIsLoading || foldersIsLoading,
+  }
+}
+
+function WorkflowSelectorTagBadges({
+  tags,
+}: {
+  tags: WorkflowReadMinimal["tags"]
+}) {
+  if (!tags?.length) {
+    return null
+  }
+
+  const [firstTag, ...remainingTags] = tags
+  if (!firstTag) {
+    return null
+  }
+
+  return (
+    <div className="ml-auto flex shrink-0 items-center gap-1">
+      <TagBadge tag={firstTag} className="h-5 shrink-0 px-1.5" />
+      {remainingTags.length ? (
+        <HoverCard openDelay={100} closeDelay={100}>
+          <HoverCardTrigger asChild>
+            <Badge
+              variant="outline"
+              className="h-5 shrink-0 rounded-full px-2 text-[11px]"
+            >
+              + {remainingTags.length}
+            </Badge>
+          </HoverCardTrigger>
+          <HoverCardContent
+            side="top"
+            align="end"
+            className="w-auto max-w-64 px-3 py-2"
+          >
+            <div className="flex flex-wrap gap-1">
+              {tags.map((tag) => (
+                <TagBadge key={tag.id} tag={tag} className="h-5 px-1.5" />
+              ))}
+            </div>
+          </HoverCardContent>
+        </HoverCard>
+      ) : null}
+    </div>
+  )
+}
+
+function getWorkflowRunPath(
+  workspaceId: string,
+  wfExecId: string | null | undefined
+): string | null {
+  if (!wfExecId) {
+    return null
+  }
+  try {
+    const { wf, exec } = executionId(wfExecId)
+    return getWorkflowExecutionUrl("", workspaceId, wf, exec)
+  } catch {
+    return null
+  }
 }
 
 export function CommentSection({
@@ -137,6 +353,7 @@ export function CommentSection({
                 editingCommentId={editingCommentId}
                 onEdit={(commentId) => setEditingCommentId(commentId)}
                 onStopEditing={() => setEditingCommentId(null)}
+                workflowSelectionEnabled={repliesEnabled}
               />
             ))
           : caseComments
@@ -155,7 +372,11 @@ export function CommentSection({
                 </CommentThreadShell>
               ))}
       </div>
-      <CommentComposer caseId={caseId} workspaceId={workspaceId} />
+      <CommentComposer
+        caseId={caseId}
+        workspaceId={workspaceId}
+        workflowSelectionEnabled={repliesEnabled}
+      />
     </div>
   )
 }
@@ -176,6 +397,7 @@ function CommentThread({
   editingCommentId,
   onEdit,
   onStopEditing,
+  workflowSelectionEnabled,
 }: {
   caseId: string
   workspaceId: string
@@ -184,6 +406,7 @@ function CommentThread({
   editingCommentId: string | null
   onEdit: (commentId: string) => void
   onStopEditing: () => void
+  workflowSelectionEnabled: boolean
 }) {
   const { comment } = thread
   const replies = thread.replies ?? []
@@ -258,6 +481,7 @@ function CommentThread({
             parentId={comment.id}
             placeholder="Leave a reply..."
             mode="inline"
+            workflowSelectionEnabled={workflowSelectionEnabled}
           />
         </div>
       ) : null}
@@ -285,44 +509,86 @@ function CommentRow({
   headerActions?: React.ReactNode
 }) {
   const user = getCommentUser(comment)
+  const isWorkflowComment = !!comment.workflow
+  const { execution } = useCompactWorkflowExecution(
+    comment.workflow?.wf_exec_id ?? undefined
+  )
+  const workflowStatus = execution
+    ? execution.status === "COMPLETED"
+      ? "succeeded"
+      : execution.status === "RUNNING"
+        ? "running"
+        : "failed"
+    : getWorkflowCommentStatus(comment)
+  const workflowRunPath = getWorkflowRunPath(
+    workspaceId,
+    execution ? execution.id : null
+  )
   const canManage = !comment.is_deleted && currentUserId === comment.user?.id
 
   return (
     <div className="group space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        {comment.is_deleted ? (
-          <div className="flex min-w-0 flex-1 items-center text-sm text-muted-foreground">
-            <CaseEventTimestamp
-              createdAt={comment.created_at}
-              lastEditedAt={comment.last_edited_at}
-            />
-          </div>
-        ) : (
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <CaseUserAvatar user={user} size="sm" />
-            <span className="truncate text-sm font-medium text-foreground">
-              {user.getDisplayName()}
-            </span>
-            <CaseEventTimestamp
-              createdAt={comment.created_at}
-              lastEditedAt={comment.last_edited_at}
-            />
-          </div>
-        )}
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          {comment.is_deleted ? null : isWorkflowComment && comment.workflow ? (
+            <div className="flex min-w-0 items-center gap-2">
+              {getWorkflowStatusBadge(workflowStatus)}
+              <span className="truncate text-sm font-medium text-foreground">
+                {comment.workflow.title}
+              </span>
+              {comment.workflow.alias ? (
+                <Badge
+                  variant="outline"
+                  className="h-5 shrink-0 rounded-full px-1.5 text-xs leading-none"
+                >
+                  {comment.workflow.alias}
+                </Badge>
+              ) : null}
+              {workflowRunPath ? (
+                <Button
+                  asChild
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-6 rounded-md text-muted-foreground hover:text-foreground"
+                >
+                  <Link href={workflowRunPath}>
+                    <LinkIcon className="size-3.5" />
+                    <span className="sr-only">Open workflow run</span>
+                  </Link>
+                </Button>
+              ) : null}
+            </div>
+          ) : (
+            <div className="flex min-w-0 items-center gap-2">
+              <CaseUserAvatar user={user} size="sm" />
+              <span className="truncate text-sm font-medium text-foreground">
+                {user.getDisplayName()}
+              </span>
+            </div>
+          )}
+        </div>
 
-        {!isEditing && (headerActions || canManage) && (
-          <div className="flex items-center gap-1">
-            {headerActions}
-            {canManage ? (
-              <CommentActionsWithEditing
-                caseId={caseId}
-                workspaceId={workspaceId}
-                comment={comment}
-                onEdit={onEdit}
-              />
-            ) : null}
-          </div>
-        )}
+        <div className="flex shrink-0 items-center gap-1 text-sm text-muted-foreground">
+          <CaseEventTimestamp
+            createdAt={comment.created_at}
+            lastEditedAt={comment.last_edited_at}
+          />
+          {!isEditing && (headerActions || canManage) ? (
+            <div className="flex items-center gap-1">
+              {headerActions}
+              {canManage ? (
+                <CommentActionsWithEditing
+                  caseId={caseId}
+                  workspaceId={workspaceId}
+                  comment={comment}
+                  allowEdit={!isWorkflowComment}
+                  onEdit={onEdit}
+                />
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {isEditing ? (
@@ -384,6 +650,7 @@ function CommentComposer({
   mode = "default",
   onSubmitted,
   autoFocus = false,
+  workflowSelectionEnabled = false,
 }: {
   caseId: string
   workspaceId: string
@@ -392,13 +659,20 @@ function CommentComposer({
   mode?: "default" | "inline"
   onSubmitted?: () => void
   autoFocus?: boolean
+  workflowSelectionEnabled?: boolean
 }) {
   const { createComment, createCommentIsPending } = useCreateCaseComment({
     caseId,
     workspaceId,
   })
   const isInline = mode === "inline"
+  const [selectorOpen, setSelectorOpen] = useState(false)
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
+    null
+  )
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const { items: workflowItems, isLoading: workflowsAreLoading } =
+    useCommentWorkflowSelectorData(workspaceId, workflowSelectionEnabled)
   const form = useForm<CommentFormSchema>({
     resolver: zodResolver(commentFormSchema),
     defaultValues: {
@@ -417,18 +691,44 @@ function CommentComposer({
   }, [isInline])
 
   const content = form.watch("content")
+  const trimmedContent = content.trim()
+  const selectedWorkflow = useMemo(
+    () =>
+      selectedWorkflowId
+        ? (workflowItems.find((item) => item.id === selectedWorkflowId) ?? null)
+        : null,
+    [selectedWorkflowId, workflowItems]
+  )
+  const workflowItemsByFolder = useMemo(() => {
+    const groups = new Map<string, WorkflowCommentSelectorItem[]>()
+    for (const item of workflowItems) {
+      const group = groups.get(item.folderName)
+      if (group) {
+        group.push(item)
+        continue
+      }
+      groups.set(item.folderName, [item])
+    }
+    return [...groups.entries()]
+  }, [workflowItems])
 
   useLayoutEffect(() => {
     adjustTextareaHeight()
   }, [adjustTextareaHeight, content])
 
   const handleSubmit = async (values: CommentFormSchema) => {
+    const nextContent = values.content.trim()
+    if (!nextContent) {
+      return
+    }
     try {
       await createComment({
-        content: values.content,
+        content: nextContent,
         parent_id: parentId,
+        ...(selectedWorkflowId ? { workflow_id: selectedWorkflowId } : {}),
       })
       form.reset({ content: "" })
+      setSelectedWorkflowId(null)
       onSubmitted?.()
     } catch (error) {
       console.error("Error creating comment:", error)
@@ -449,7 +749,10 @@ function CommentComposer({
       }
     >
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(handleSubmit)} className="relative">
+        <form
+          onSubmit={form.handleSubmit(handleSubmit)}
+          className="flex flex-col gap-2"
+        >
           <FormField
             control={form.control}
             name="content"
@@ -464,8 +767,8 @@ function CommentComposer({
                     }}
                     className={
                       isInline
-                        ? "min-h-9 resize-none border-none px-0 py-2 pr-10 text-sm shadow-none focus-visible:ring-0"
-                        : "min-h-[72px] resize-none border-none px-0 py-0 pr-10 text-sm shadow-none focus-visible:ring-0"
+                        ? "min-h-9 resize-none border-none px-0 py-1 text-sm shadow-none focus-visible:ring-0"
+                        : "min-h-[72px] resize-none border-none px-0 py-0 text-sm shadow-none focus-visible:ring-0"
                     }
                     name={field.name}
                     onBlur={field.onBlur}
@@ -483,13 +786,107 @@ function CommentComposer({
             )}
           />
 
-          <div className="pointer-events-none absolute bottom-0 right-0 flex items-end">
+          <div className="flex items-end justify-between gap-2">
+            {workflowSelectionEnabled ? (
+              <ModelSelector open={selectorOpen} onOpenChange={setSelectorOpen}>
+                <ModelSelectorTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className={cn(
+                      "h-7 max-w-full justify-start gap-1.5 rounded-full border border-border/70 px-2 text-xs font-normal text-muted-foreground hover:text-foreground",
+                      isInline && "h-7"
+                    )}
+                  >
+                    <span className="truncate">
+                      {selectedWorkflow
+                        ? selectedWorkflow.title
+                        : "No workflow selected"}
+                    </span>
+                    {selectedWorkflow?.alias ? (
+                      <Badge
+                        variant="outline"
+                        className="h-5 shrink-0 rounded-full px-1.5 text-xs leading-none"
+                      >
+                        {selectedWorkflow.alias}
+                      </Badge>
+                    ) : null}
+                    <ChevronDown className="size-3.5 text-muted-foreground" />
+                  </Button>
+                </ModelSelectorTrigger>
+                <ModelSelectorContent className="max-w-2xl">
+                  <ModelSelectorInput placeholder="Search workflows, folders, or tags..." />
+                  <ModelSelectorList>
+                    <ModelSelectorEmpty>
+                      {workflowsAreLoading
+                        ? "Loading workflows..."
+                        : "No workflows found."}
+                    </ModelSelectorEmpty>
+                    <ModelSelectorGroup heading="Selection">
+                      <ModelSelectorItem
+                        value="no workflow selected"
+                        onSelect={() => {
+                          setSelectedWorkflowId(null)
+                          setSelectorOpen(false)
+                        }}
+                      >
+                        <span className="text-sm">No workflow selected</span>
+                      </ModelSelectorItem>
+                    </ModelSelectorGroup>
+                    {workflowItemsByFolder.map(([folderName, items]) => (
+                      <ModelSelectorGroup key={folderName} heading={folderName}>
+                        {items.map((item) => (
+                          <ModelSelectorItem
+                            key={item.id}
+                            value={[
+                              item.title,
+                              item.alias ?? "",
+                              item.folderName,
+                              item.folderPath ?? "",
+                              ...(item.tags?.map((tag) => tag.name) ?? []),
+                            ].join(" ")}
+                            onSelect={() => {
+                              setSelectedWorkflowId(item.id)
+                              setSelectorOpen(false)
+                            }}
+                          >
+                            <div className="min-w-0 space-y-1 py-1">
+                              <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+                                <span className="truncate text-sm font-medium">
+                                  {item.title}
+                                </span>
+                                {item.alias ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="h-5 shrink-0 rounded-full px-1.5 text-xs leading-none"
+                                  >
+                                    {item.alias}
+                                  </Badge>
+                                ) : null}
+                                <WorkflowSelectorTagBadges tags={item.tags} />
+                              </div>
+                              {item.showFolderPath && item.folderPath ? (
+                                <p className="truncate text-xs text-muted-foreground">
+                                  {item.folderPath}
+                                </p>
+                              ) : null}
+                            </div>
+                          </ModelSelectorItem>
+                        ))}
+                      </ModelSelectorGroup>
+                    ))}
+                  </ModelSelectorList>
+                </ModelSelectorContent>
+              </ModelSelector>
+            ) : (
+              <div />
+            )}
             <Button
               type="submit"
               variant="outline"
               size="icon"
-              className="pointer-events-auto size-7 rounded-full border-border/70"
-              disabled={createCommentIsPending || !content.trim()}
+              className="size-7 shrink-0 rounded-full border-border/70"
+              disabled={createCommentIsPending || !trimmedContent}
               aria-label="Send"
             >
               <ArrowUpIcon className="size-3.5" />
@@ -622,11 +1019,13 @@ function CommentActionsWithEditing({
   caseId,
   workspaceId,
   comment,
+  allowEdit,
   onEdit,
 }: {
   caseId: string
   workspaceId: string
   comment: CaseCommentRead
+  allowEdit: boolean
   onEdit: () => void
 }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -662,13 +1061,15 @@ function CommentActionsWithEditing({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            className="flex cursor-pointer items-center gap-2 text-xs"
-            onClick={onEdit}
-          >
-            <PencilIcon className="size-3" />
-            Edit
-          </DropdownMenuItem>
+          {allowEdit ? (
+            <DropdownMenuItem
+              className="flex cursor-pointer items-center gap-2 text-xs"
+              onClick={onEdit}
+            >
+              <PencilIcon className="size-3" />
+              Edit
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem
             className="flex cursor-pointer items-center gap-2 text-xs text-destructive focus:text-destructive"
             onClick={() => setShowDeleteConfirm(true)}

@@ -6,14 +6,18 @@ or when trigger references become invalid.
 
 import uuid
 from collections.abc import AsyncGenerator
+from typing import cast
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Action, Workflow, Workspace
+from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.management.management import WorkflowsManagementService
+from tracecat.workflow.management.schemas import WorkflowUpdate
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -271,6 +275,78 @@ async def test_get_workflow_triggers_reconciliation(
     assert fetched_workflow is not None
     assert len(fetched_workflow.actions) == 1
     assert fetched_workflow.actions[0].upstream_edges == []
+
+
+@pytest.mark.anyio
+async def test_workflow_management_accepts_short_workflow_ids(
+    session: AsyncSession,
+    svc_workspace: Workspace,
+    svc_role: Role,
+) -> None:
+    """Workflow CRUD methods should accept short workflow IDs."""
+    workflow = Workflow(
+        id=uuid.uuid4(),
+        title="Short ID Workflow",
+        description="Workflow accessed by short id",
+        status="offline",
+        workspace_id=svc_workspace.id,
+        config={},
+    )
+    session.add(workflow)
+    await session.commit()
+
+    service = WorkflowsManagementService(session, role=svc_role)
+    workflow_short_id = WorkflowUUID.new(workflow.id).short()
+
+    fetched_workflow = await service.get_workflow(cast(WorkflowID, workflow_short_id))
+    assert fetched_workflow is not None
+    assert fetched_workflow.id == workflow.id
+
+    updated_workflow = await service.update_workflow(
+        cast(WorkflowID, workflow_short_id),
+        WorkflowUpdate(title="Updated via short id"),
+    )
+    assert updated_workflow.title == "Updated via short id"
+
+    await service.delete_workflow(cast(WorkflowID, workflow_short_id))
+
+    deleted_workflow = await session.scalar(
+        select(Workflow).where(Workflow.id == workflow.id)
+    )
+    assert deleted_workflow is None
+
+
+@pytest.mark.anyio
+async def test_get_workflow_backfills_missing_webhook_and_case_trigger(
+    session: AsyncSession,
+    svc_workspace: Workspace,
+    svc_role: Role,
+) -> None:
+    """get_workflow should recreate missing default workflow resources."""
+    workflow = Workflow(
+        id=uuid.uuid4(),
+        title="Missing resources workflow",
+        description="Workflow missing webhook and case trigger",
+        status="offline",
+        workspace_id=svc_workspace.id,
+        config={},
+    )
+    session.add(workflow)
+    await session.commit()
+
+    service = WorkflowsManagementService(session, role=svc_role)
+    fetched_workflow = await service.get_workflow(
+        cast(WorkflowID, WorkflowUUID.new(workflow.id).short())
+    )
+
+    assert fetched_workflow is not None
+    assert fetched_workflow.webhook is not None
+    assert fetched_workflow.webhook.workflow_id == workflow.id
+    assert fetched_workflow.case_trigger is not None
+    assert fetched_workflow.case_trigger.workflow_id == workflow.id
+    assert fetched_workflow.case_trigger.status == "offline"
+    assert fetched_workflow.case_trigger.event_types == []
+    assert fetched_workflow.case_trigger.tag_filters == []
 
 
 @pytest.mark.anyio

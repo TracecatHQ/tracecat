@@ -15,6 +15,7 @@ async def publish_case_event_payload(
     workspace_id: str,
     event_type: str,
     created_at: datetime,
+    extra_fields: dict[str, str | None] | None = None,
 ) -> None:
     """Publish a case event to the Redis streams pipeline."""
     if not config.TRACECAT__CASE_TRIGGERS_ENABLED:
@@ -30,6 +31,10 @@ async def publish_case_event_payload(
         "event_type": event_type,
         "created_at": created_at.isoformat(),
     }
+    if extra_fields:
+        payload.update(
+            {key: value for key, value in extra_fields.items() if value is not None}
+        )
 
     client = await get_redis_client()
     await client.xadd(

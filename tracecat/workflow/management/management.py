@@ -509,23 +509,57 @@ class WorkflowsManagementService(BaseWorkspaceService):
         )
 
     async def get_workflow(self, workflow_id: WorkflowID) -> Workflow | None:
+        workflow_uuid = WorkflowUUID.new(workflow_id)
         statement = (
             select(Workflow)
             .where(
                 Workflow.workspace_id == self.workspace_id,
-                Workflow.id == workflow_id,
+                Workflow.id == workflow_uuid,
             )
             .options(
                 selectinload(Workflow.actions),
                 selectinload(Workflow.webhook).options(selectinload(Webhook.api_key)),
+                selectinload(Workflow.case_trigger),
                 selectinload(Workflow.schedules),
             )
         )
         result = await self.session.execute(statement)
         workflow = result.scalar_one_or_none()
         if workflow:
+            await self._ensure_workflow_system_resources(workflow)
             await self._reconcile_graph_object_with_actions(workflow)
         return workflow
+
+    async def _ensure_workflow_system_resources(self, workflow: Workflow) -> bool:
+        """Create missing default webhook/case trigger rows for legacy workflows."""
+
+        changed = False
+
+        if workflow.webhook is None:
+            webhook = Webhook(workspace_id=self.workspace_id)
+            webhook.workflow = workflow
+            workflow.webhook = webhook
+            self.session.add(webhook)
+            changed = True
+
+        if workflow.case_trigger is None:
+            case_trigger = CaseTrigger(
+                workspace_id=self.workspace_id,
+                workflow_id=workflow.id,
+                status="offline",
+                event_types=[],
+                tag_filters=[],
+            )
+            case_trigger.workflow = workflow
+            workflow.case_trigger = case_trigger
+            self.session.add(case_trigger)
+            changed = True
+
+        if changed:
+            await self.session.commit()
+            await self.session.refresh(workflow, ["webhook", "case_trigger"])
+
+        return changed
 
     async def _reconcile_graph_object_with_actions(self, workflow: Workflow) -> bool:
         """Remove stale upstream edge references from actions.
@@ -616,9 +650,10 @@ class WorkflowsManagementService(BaseWorkspaceService):
     async def update_workflow(
         self, workflow_id: WorkflowID, params: WorkflowUpdate
     ) -> Workflow:
+        workflow_uuid = WorkflowUUID.new(workflow_id)
         statement = select(Workflow).where(
             Workflow.workspace_id == self.workspace_id,
-            Workflow.id == workflow_id,
+            Workflow.id == workflow_uuid,
         )
         result = await self.session.execute(statement)
         workflow = result.scalar_one()
@@ -646,9 +681,10 @@ class WorkflowsManagementService(BaseWorkspaceService):
         This method ensures that Temporal schedules are properly deleted
         before the database cascade deletion occurs.
         """
+        workflow_uuid = WorkflowUUID.new(workflow_id)
         statement = select(Workflow).where(
             Workflow.workspace_id == self.workspace_id,
-            Workflow.id == workflow_id,
+            Workflow.id == workflow_uuid,
         )
         result = await self.session.execute(statement)
         workflow = result.scalar_one()
@@ -656,7 +692,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         # Clean up Temporal schedules before cascade deletion
         # This prevents orphaned schedules in Temporal
         schedule_service = WorkflowSchedulesService(self.session, role=self.role)
-        schedules = await schedule_service.list_schedules(workflow_id)
+        schedules = await schedule_service.list_schedules(workflow_uuid)
 
         for schedule in schedules:
             try:
@@ -664,14 +700,14 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 self.logger.info(
                     "Deleted Temporal schedule during workflow cleanup",
                     schedule_id=schedule.id,
-                    workflow_id=workflow_id,
+                    workflow_id=workflow_uuid,
                 )
             except Exception as e:
                 # Log but don't fail the entire workflow deletion
                 self.logger.warning(
                     "Failed to delete Temporal schedule during workflow cleanup",
                     schedule_id=schedule.id,
-                    workflow_id=workflow_id,
+                    workflow_id=workflow_uuid,
                     error=str(e),
                 )
 

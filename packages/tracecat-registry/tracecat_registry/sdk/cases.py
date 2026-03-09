@@ -743,6 +743,7 @@ class CasesClient:
         *,
         content: str,
         parent_id: str | Unset = UNSET,
+        workflow_id: str | Unset = UNSET,
     ) -> types.CaseComment:
         """Create a comment on a case and return simple dict format.
 
@@ -752,6 +753,7 @@ class CasesClient:
             case_id: The case UUID.
             content: Comment content.
             parent_id: Parent comment ID for replies.
+            workflow_id: Selected workflow ID for workflow-backed comments.
 
         Returns:
             Created comment data (CaseCommentDict format).
@@ -759,6 +761,8 @@ class CasesClient:
         data: dict[str, Any] = {"content": content}
         if is_set(parent_id):
             data["parent_id"] = parent_id
+        if is_set(workflow_id):
+            data["workflow_id"] = workflow_id
         return await self._client.post(
             f"/cases/{case_id}/comments/simple",
             json=data,
