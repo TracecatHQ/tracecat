@@ -1,0 +1,33 @@
+tests/unit/test_case_fields_service.py
+  1acfe45a706635c3 2,26-31,84-88,101-106,169-176,195-211,336-350
+tracecat/cases/service.py
+  1acfe45a706635c3 1095,1115-1117,1235-1236
+tests/migration/test_dynamic_workspace_rls_migration.py
+  1acfe45a706635c3 1-229,233-452
+tests/unit/test_tables_service.py
+  1acfe45a706635c3 1,8,28-29,31-32,37-40,167-171,173-175,619-627,629-649,894-948
+tests/unit/test_tenant_rls_registry.py
+  1acfe45a706635c3 3,5,9-10,20,88-107,109-110
+tracecat/tables/service.py
+  1acfe45a706635c3 108,694-695,1827,1829-1832,1983,2081-2082,2129-2130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.9",
+  "base_commit_sha": "d526d9861feb30560aadadacb5c3ff0446e2797d",
+  "prompts": {
+    "1acfe45a706635c3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cd37f-2473-7180-b654-3a7283bb3653",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 660,
+      "total_deletions": 5,
+      "accepted_lines": 665,
+      "overriden_lines": 1
+    }
+  }
+}
