@@ -1,10 +1,10 @@
 import type {
-  RegistryActionTemplateImpl_Output,
+  RegistryActionTemplateImpl,
   RegistryActionUDFImpl,
 } from "@/client"
 
 export function isTemplateAction(
-  implementation?: RegistryActionTemplateImpl_Output | RegistryActionUDFImpl
-): implementation is RegistryActionTemplateImpl_Output {
+  implementation?: RegistryActionTemplateImpl | RegistryActionUDFImpl
+): implementation is RegistryActionTemplateImpl {
   return implementation?.type === "template"
 }

@@ -443,14 +443,9 @@ import type {
   RbacUpdateRoleResponse,
   RbacUpdateUserAssignmentData,
   RbacUpdateUserAssignmentResponse,
-  RegistryActionsCreateRegistryActionData,
-  RegistryActionsCreateRegistryActionResponse,
-  RegistryActionsDeleteRegistryActionData,
   RegistryActionsGetRegistryActionData,
   RegistryActionsGetRegistryActionResponse,
   RegistryActionsListRegistryActionsResponse,
-  RegistryActionsUpdateRegistryActionData,
-  RegistryActionsUpdateRegistryActionResponse,
   RegistryRepositoriesCompareRegistryVersionsData,
   RegistryRepositoriesCompareRegistryVersionsResponse,
   RegistryRepositoriesCreateRegistryRepositoryData,
@@ -6084,28 +6079,6 @@ export const registryActionsListRegistryActions =
   }
 
 /**
- * Create Registry Action
- * Create a new registry action.
- * @param data The data for the request.
- * @param data.requestBody
- * @returns RegistryActionRead Successful Response
- * @throws ApiError
- */
-export const registryActionsCreateRegistryAction = (
-  data: RegistryActionsCreateRegistryActionData
-): CancelablePromise<RegistryActionsCreateRegistryActionResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/registry/actions",
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
  * Get Registry Action
  * Get a specific registry action.
  * @param data The data for the request.
@@ -6123,55 +6096,6 @@ export const registryActionsGetRegistryAction = (
       action_name: data.actionName,
     },
     errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Update Registry Action
- * Update a custom registry action.
- * @param data The data for the request.
- * @param data.actionName
- * @param data.requestBody
- * @returns void Successful Response
- * @throws ApiError
- */
-export const registryActionsUpdateRegistryAction = (
-  data: RegistryActionsUpdateRegistryActionData
-): CancelablePromise<RegistryActionsUpdateRegistryActionResponse> => {
-  return __request(OpenAPI, {
-    method: "PATCH",
-    url: "/registry/actions/{action_name}",
-    path: {
-      action_name: data.actionName,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Delete Registry Action
- * Registry actions are versioned snapshots and cannot be deleted individually.
- * @param data The data for the request.
- * @param data.actionName
- * @throws ApiError
- */
-export const registryActionsDeleteRegistryAction = (
-  data: RegistryActionsDeleteRegistryActionData
-): CancelablePromise<void> => {
-  return __request(OpenAPI, {
-    method: "DELETE",
-    url: "/registry/actions/{action_name}",
-    path: {
-      action_name: data.actionName,
-    },
-    errors: {
-      409: "Registry actions are versioned snapshots and cannot be deleted individually.",
       422: "Validation Error",
     },
   })

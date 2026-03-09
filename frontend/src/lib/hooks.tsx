@@ -168,11 +168,8 @@ import {
   providersCreateCustomProvider,
   providersGetProvider,
   providersListProviders,
-  type RegistryActionCreate,
   type RegistryActionRead,
   type RegistryActionReadMinimal,
-  type RegistryActionsDeleteRegistryActionData,
-  type RegistryActionsUpdateRegistryActionData,
   type RegistryRepositoriesDeleteRegistryRepositoryData,
   type RegistryRepositoriesSyncRegistryRepositoryData,
   type RegistryRepositoryErrorDetail,
@@ -203,11 +200,8 @@ import {
   rbacUpdateGroup,
   rbacUpdateRole,
   rbacUpdateUserAssignment,
-  registryActionsCreateRegistryAction,
-  registryActionsDeleteRegistryAction,
   registryActionsGetRegistryAction,
   registryActionsListRegistryActions,
-  registryActionsUpdateRegistryAction,
   registryRepositoriesDeleteRegistryRepository,
   registryRepositoriesListRegistryRepositories,
   registryRepositoriesListRepositoryCommits,
@@ -1847,7 +1841,6 @@ export function useGetRegistryAction(actionName?: string) {
 
 // For selector node
 export function useRegistryActions(versions?: string[]) {
-  const queryClient = useQueryClient()
   const {
     data: registryActions,
     isLoading: registryActionsIsLoading,
@@ -1859,127 +1852,10 @@ export function useRegistryActions(versions?: string[]) {
     },
   })
 
-  const {
-    mutateAsync: createRegistryAction,
-    isPending: createRegistryActionIsPending,
-    error: createRegistryActionError,
-  } = useMutation({
-    mutationFn: async (params: RegistryActionCreate) =>
-      await registryActionsCreateRegistryAction({
-        requestBody: params,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
-      toast({
-        title: "Created registry action",
-        description: "Registry action created successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      switch (error.status) {
-        case 422:
-          console.error("Failed to create registry action", error)
-          toast({
-            title: "Failed to create registry action",
-            description:
-              "An error occurred while creating the registry action.",
-          })
-          break
-        default:
-          console.error("Failed to create registry action", error)
-          toast({
-            title: "Failed to create registry action",
-            description:
-              "An error occurred while creating the registry action.",
-          })
-      }
-    },
-  })
-
-  const {
-    mutateAsync: updateRegistryAction,
-    isPending: updateRegistryActionIsPending,
-    error: updateRegistryActionError,
-  } = useMutation({
-    mutationFn: async (params: RegistryActionsUpdateRegistryActionData) =>
-      await registryActionsUpdateRegistryAction(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
-      toast({
-        title: "Updated registry action",
-        description: "Registry action updated successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      console.error("Failed to update registry action", error)
-      toast({
-        title: "Failed to update registry action",
-        description: "An error occurred while updating the registry action.",
-      })
-    },
-  })
-
-  const {
-    mutateAsync: deleteRegistryAction,
-    isPending: deleteRegistryActionIsPending,
-    error: deleteRegistryActionError,
-  } = useMutation({
-    mutationFn: async (params: RegistryActionsDeleteRegistryActionData) =>
-      await registryActionsDeleteRegistryAction(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
-      toast({
-        title: "Deleted registry action",
-        description: "Registry action deleted successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      console.error("Failed to delete registry action", error)
-      const apiError = error as TracecatApiError
-      switch (apiError.status) {
-        case 400:
-          toast({
-            title: "Failed to delete registry action",
-            description: apiError.message,
-            variant: "destructive",
-          })
-          break
-        case 403:
-          toast({
-            title: "Failed to delete registry action",
-            description: `${apiError.message}: ${apiError.body.detail}`,
-          })
-          break
-        case 404:
-          toast({
-            title: "Registry action not found",
-            description: `${apiError.message}: ${apiError.body.detail}`,
-            variant: "destructive",
-          })
-          break
-        default:
-          toast({
-            title: "Failed to delete registry action",
-            description:
-              "An unexpected error occurred while deleting the registry action.",
-            variant: "destructive",
-          })
-      }
-    },
-  })
   return {
     registryActions,
     registryActionsIsLoading,
     registryActionsError,
-    createRegistryAction,
-    createRegistryActionIsPending,
-    createRegistryActionError,
-    updateRegistryAction,
-    updateRegistryActionIsPending,
-    updateRegistryActionError,
-    deleteRegistryAction,
-    deleteRegistryActionIsPending,
-    deleteRegistryActionError,
   }
 }
 

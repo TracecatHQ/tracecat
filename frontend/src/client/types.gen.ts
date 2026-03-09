@@ -4411,71 +4411,6 @@ export type ReceiveInteractionResponse = {
   message: string
 }
 
-/**
- * API create model for a registered action.
- */
-export type RegistryActionCreate = {
-  /**
-   * The name of the action
-   */
-  name: string
-  /**
-   * The description of the action
-   */
-  description: string
-  /**
-   * The namespace of the action
-   */
-  namespace: string
-  /**
-   * The type of the action
-   */
-  type: "udf" | "template"
-  /**
-   * The origin of the action as a url
-   */
-  origin: string
-  /**
-   * The secrets required by the action
-   */
-  secrets?: Array<RegistrySecretType_Input> | null
-  interface: RegistryActionInterface
-  implementation: RegistryActionTemplateImpl_Input | RegistryActionUDFImpl
-  /**
-   * The default title of the action
-   */
-  default_title?: string | null
-  /**
-   * The presentation group of the action
-   */
-  display_group?: string | null
-  /**
-   * Link to documentation
-   */
-  doc_url?: string | null
-  /**
-   * Author of the action
-   */
-  author?: string | null
-  /**
-   * Marks action as deprecated along with message
-   */
-  deprecated?: string | null
-  /**
-   * The options for the action
-   */
-  options?: RegistryActionOptions
-  /**
-   * The repository id
-   */
-  repository_id: string
-}
-
-/**
- * The type of the action
- */
-export type type2 = "udf" | "template"
-
 export type RegistryActionInterface = {
   expects: {
     [key: string]: unknown
@@ -4516,9 +4451,9 @@ export type RegistryActionRead = {
   /**
    * The secrets required by the action
    */
-  secrets?: Array<RegistrySecretType_Output> | null
+  secrets?: Array<RegistrySecretType> | null
   interface: RegistryActionInterface
-  implementation: RegistryActionTemplateImpl_Output | RegistryActionUDFImpl
+  implementation: RegistryActionTemplateImpl | RegistryActionUDFImpl
   /**
    * The default title of the action
    */
@@ -4562,6 +4497,11 @@ export type RegistryActionRead = {
 }
 
 /**
+ * The type of the action
+ */
+export type type2 = "udf" | "template"
+
+/**
  * API minimal read model for a registered action.
  */
 export type RegistryActionReadMinimal = {
@@ -4603,20 +4543,12 @@ export type RegistryActionReadMinimal = {
   readonly action: string
 }
 
-export type RegistryActionTemplateImpl_Input = {
+export type RegistryActionTemplateImpl = {
   type?: "template"
   /**
    * The template action
    */
-  template_action: TemplateAction_Input
-}
-
-export type RegistryActionTemplateImpl_Output = {
-  type?: "template"
-  /**
-   * The template action
-   */
-  template_action: TemplateAction_Output
+  template_action: TemplateAction
 }
 
 export type RegistryActionUDFImpl = {
@@ -4633,59 +4565,6 @@ export type RegistryActionUDFImpl = {
    * The name of the UDF function name
    */
   name: string
-}
-
-/**
- * API update model for a registered action.
- */
-export type RegistryActionUpdate = {
-  /**
-   * Update the name of the action
-   */
-  name?: string | null
-  /**
-   * Update the description of the action
-   */
-  description?: string | null
-  /**
-   * Update the secrets of the action
-   */
-  secrets?: Array<RegistrySecretType_Input> | null
-  /**
-   * Update the interface of the action
-   */
-  interface?: RegistryActionInterface | null
-  /**
-   * Update the implementation of the action
-   */
-  implementation?:
-    | RegistryActionTemplateImpl_Input
-    | RegistryActionUDFImpl
-    | null
-  /**
-   * Update the default title of the action
-   */
-  default_title?: string | null
-  /**
-   * Update the display group of the action
-   */
-  display_group?: string | null
-  /**
-   * Update the doc url of the action
-   */
-  doc_url?: string | null
-  /**
-   * Update the author of the action
-   */
-  author?: string | null
-  /**
-   * Update the deprecation message of the action
-   */
-  deprecated?: string | null
-  /**
-   * Update the options of the action
-   */
-  options?: RegistryActionOptions | null
 }
 
 export type RegistryActionValidationErrorInfo = {
@@ -4717,25 +4596,15 @@ export type RegistryLock = {
 /**
  * OAuth secret for a provider.
  */
-export type RegistryOAuthSecret_Input = {
-  type?: "oauth"
-  provider_id: string
-  grant_type: "authorization_code" | "client_credentials"
-  optional?: boolean
-}
-
-export type grant_type = "authorization_code" | "client_credentials"
-
-/**
- * OAuth secret for a provider.
- */
-export type RegistryOAuthSecret_Output = {
+export type RegistryOAuthSecret = {
   type?: "oauth"
   provider_id: string
   grant_type: "authorization_code" | "client_credentials"
   optional?: boolean
   readonly name: string
 }
+
+export type grant_type = "authorization_code" | "client_credentials"
 
 export type RegistryRepositoryCreate = {
   /**
@@ -4807,13 +4676,7 @@ export type RegistrySecret = {
   optional?: boolean
 }
 
-export type RegistrySecretType_Input =
-  | RegistrySecret
-  | RegistryOAuthSecret_Input
-
-export type RegistrySecretType_Output =
-  | RegistrySecret
-  | RegistryOAuthSecret_Output
+export type RegistrySecretType = RegistrySecret | RegistryOAuthSecret
 
 export type RegistryStatus = {
   synced: boolean
@@ -6010,17 +5873,12 @@ export type TaskWorkflowChangedEventRead = {
   created_at: string
 }
 
-export type TemplateAction_Input = {
+export type TemplateAction = {
   type?: "action"
-  definition: TemplateActionDefinition_Input
+  definition: TemplateActionDefinition
 }
 
-export type TemplateAction_Output = {
-  type?: "action"
-  definition: TemplateActionDefinition_Output
-}
-
-export type TemplateActionDefinition_Input = {
+export type TemplateActionDefinition = {
   /**
    * The action name
    */
@@ -6056,65 +5914,7 @@ export type TemplateActionDefinition_Input = {
   /**
    * The secrets to pass to the action
    */
-  secrets?: Array<RegistrySecretType_Input> | null
-  /**
-   * The arguments to pass to the action
-   */
-  expects: {
-    [key: string]: ExpectedField_Input
-  }
-  /**
-   * The sequence of steps for the action
-   */
-  steps: Array<ActionStep>
-  /**
-   * The result of the action
-   */
-  returns:
-    | string
-    | Array<string>
-    | {
-        [key: string]: unknown
-      }
-}
-
-export type TemplateActionDefinition_Output = {
-  /**
-   * The action name
-   */
-  name: string
-  /**
-   * The namespace of the action
-   */
-  namespace: string
-  /**
-   * The title of the action
-   */
-  title: string
-  /**
-   * The description of the action
-   */
-  description?: string
-  /**
-   * The display group of the action
-   */
-  display_group: string
-  /**
-   * Link to documentation
-   */
-  doc_url?: string | null
-  /**
-   * Author of the action
-   */
-  author?: string | null
-  /**
-   * Marks action as deprecated along with message
-   */
-  deprecated?: string | null
-  /**
-   * The secrets to pass to the action
-   */
-  secrets?: Array<RegistrySecretType_Output> | null
+  secrets?: Array<RegistrySecretType> | null
   /**
    * The arguments to pass to the action
    */
@@ -9437,28 +9237,11 @@ export type RegistryRepositoriesGetPreviousRegistryVersionResponse =
 export type RegistryActionsListRegistryActionsResponse =
   Array<RegistryActionReadMinimal>
 
-export type RegistryActionsCreateRegistryActionData = {
-  requestBody: RegistryActionCreate
-}
-
-export type RegistryActionsCreateRegistryActionResponse = RegistryActionRead
-
 export type RegistryActionsGetRegistryActionData = {
   actionName: string
 }
 
 export type RegistryActionsGetRegistryActionResponse = RegistryActionRead
-
-export type RegistryActionsUpdateRegistryActionData = {
-  actionName: string
-  requestBody: RegistryActionUpdate
-}
-
-export type RegistryActionsUpdateRegistryActionResponse = void
-
-export type RegistryActionsDeleteRegistryActionData = {
-  actionName: string
-}
 
 export type SettingsGetGitSettingsResponse = GitSettingsRead
 
@@ -13673,19 +13456,6 @@ export type $OpenApiTs = {
         200: Array<RegistryActionReadMinimal>
       }
     }
-    post: {
-      req: RegistryActionsCreateRegistryActionData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: RegistryActionRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
   }
   "/registry/actions/{action_name}": {
     get: {
@@ -13695,32 +13465,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: RegistryActionRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    patch: {
-      req: RegistryActionsUpdateRegistryActionData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: RegistryActionsDeleteRegistryActionData
-      res: {
-        /**
-         * Registry actions are versioned snapshots and cannot be deleted individually.
-         */
-        409: unknown
         /**
          * Validation Error
          */

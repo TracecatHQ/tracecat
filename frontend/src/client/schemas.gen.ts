@@ -13935,171 +13935,6 @@ export const $ReceiveInteractionResponse = {
   title: "ReceiveInteractionResponse",
 } as const
 
-export const $RegistryActionCreate = {
-  properties: {
-    name: {
-      type: "string",
-      maxLength: 100,
-      minLength: 1,
-      title: "Name",
-      description: "The name of the action",
-    },
-    description: {
-      type: "string",
-      maxLength: 1000,
-      title: "Description",
-      description: "The description of the action",
-    },
-    namespace: {
-      type: "string",
-      title: "Namespace",
-      description: "The namespace of the action",
-    },
-    type: {
-      type: "string",
-      enum: ["udf", "template"],
-      title: "Type",
-      description: "The type of the action",
-    },
-    origin: {
-      type: "string",
-      maxLength: 1000,
-      minLength: 1,
-      title: "Origin",
-      description: "The origin of the action as a url",
-    },
-    secrets: {
-      anyOf: [
-        {
-          items: {
-            $ref: "#/components/schemas/RegistrySecretType-Input",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Secrets",
-      description: "The secrets required by the action",
-    },
-    interface: {
-      $ref: "#/components/schemas/RegistryActionInterface",
-    },
-    implementation: {
-      oneOf: [
-        {
-          $ref: "#/components/schemas/RegistryActionTemplateImpl-Input",
-        },
-        {
-          $ref: "#/components/schemas/RegistryActionUDFImpl",
-        },
-      ],
-      title: "Implementation",
-      discriminator: {
-        propertyName: "type",
-        mapping: {
-          template: "#/components/schemas/RegistryActionTemplateImpl-Input",
-          udf: "#/components/schemas/RegistryActionUDFImpl",
-        },
-      },
-    },
-    default_title: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Default Title",
-      description: "The default title of the action",
-    },
-    display_group: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Display Group",
-      description: "The presentation group of the action",
-    },
-    doc_url: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Doc Url",
-      description: "Link to documentation",
-    },
-    author: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Author",
-      description: "Author of the action",
-    },
-    deprecated: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Deprecated",
-      description: "Marks action as deprecated along with message",
-    },
-    options: {
-      $ref: "#/components/schemas/RegistryActionOptions",
-      description: "The options for the action",
-    },
-    repository_id: {
-      type: "string",
-      format: "uuid4",
-      title: "Repository Id",
-      description: "The repository id",
-    },
-  },
-  type: "object",
-  required: [
-    "name",
-    "description",
-    "namespace",
-    "type",
-    "origin",
-    "interface",
-    "implementation",
-    "repository_id",
-  ],
-  title: "RegistryActionCreate",
-  description: "API create model for a registered action.",
-} as const
-
 export const $RegistryActionInterface = {
   properties: {
     expects: {
@@ -14184,7 +14019,7 @@ export const $RegistryActionRead = {
       anyOf: [
         {
           items: {
-            $ref: "#/components/schemas/RegistrySecretType-Output",
+            $ref: "#/components/schemas/RegistrySecretType",
           },
           type: "array",
         },
@@ -14201,7 +14036,7 @@ export const $RegistryActionRead = {
     implementation: {
       oneOf: [
         {
-          $ref: "#/components/schemas/RegistryActionTemplateImpl-Output",
+          $ref: "#/components/schemas/RegistryActionTemplateImpl",
         },
         {
           $ref: "#/components/schemas/RegistryActionUDFImpl",
@@ -14211,7 +14046,7 @@ export const $RegistryActionRead = {
       discriminator: {
         propertyName: "type",
         mapping: {
-          template: "#/components/schemas/RegistryActionTemplateImpl-Output",
+          template: "#/components/schemas/RegistryActionTemplateImpl",
           udf: "#/components/schemas/RegistryActionUDFImpl",
         },
       },
@@ -14412,7 +14247,7 @@ export const $RegistryActionReadMinimal = {
   description: "API minimal read model for a registered action.",
 } as const
 
-export const $RegistryActionTemplateImpl_Input = {
+export const $RegistryActionTemplateImpl = {
   properties: {
     type: {
       type: "string",
@@ -14421,25 +14256,7 @@ export const $RegistryActionTemplateImpl_Input = {
       default: "template",
     },
     template_action: {
-      $ref: "#/components/schemas/TemplateAction-Input",
-      description: "The template action",
-    },
-  },
-  type: "object",
-  required: ["template_action"],
-  title: "RegistryActionTemplateImpl",
-} as const
-
-export const $RegistryActionTemplateImpl_Output = {
-  properties: {
-    type: {
-      type: "string",
-      const: "template",
-      title: "Type",
-      default: "template",
-    },
-    template_action: {
-      $ref: "#/components/schemas/TemplateAction-Output",
+      $ref: "#/components/schemas/TemplateAction",
       description: "The template action",
     },
   },
@@ -14475,174 +14292,6 @@ export const $RegistryActionUDFImpl = {
   type: "object",
   required: ["url", "module", "name"],
   title: "RegistryActionUDFImpl",
-} as const
-
-export const $RegistryActionUpdate = {
-  properties: {
-    name: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Name",
-      description: "Update the name of the action",
-    },
-    description: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Description",
-      description: "Update the description of the action",
-    },
-    secrets: {
-      anyOf: [
-        {
-          items: {
-            $ref: "#/components/schemas/RegistrySecretType-Input",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Secrets",
-      description: "Update the secrets of the action",
-    },
-    interface: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/RegistryActionInterface",
-        },
-        {
-          type: "null",
-        },
-      ],
-      description: "Update the interface of the action",
-    },
-    implementation: {
-      anyOf: [
-        {
-          oneOf: [
-            {
-              $ref: "#/components/schemas/RegistryActionTemplateImpl-Input",
-            },
-            {
-              $ref: "#/components/schemas/RegistryActionUDFImpl",
-            },
-          ],
-          discriminator: {
-            propertyName: "type",
-            mapping: {
-              template: "#/components/schemas/RegistryActionTemplateImpl-Input",
-              udf: "#/components/schemas/RegistryActionUDFImpl",
-            },
-          },
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Implementation",
-      description: "Update the implementation of the action",
-    },
-    default_title: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Default Title",
-      description: "Update the default title of the action",
-    },
-    display_group: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Display Group",
-      description: "Update the display group of the action",
-    },
-    doc_url: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Doc Url",
-      description: "Update the doc url of the action",
-    },
-    author: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Author",
-      description: "Update the author of the action",
-    },
-    deprecated: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Deprecated",
-      description: "Update the deprecation message of the action",
-    },
-    options: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/RegistryActionOptions",
-        },
-        {
-          type: "null",
-        },
-      ],
-      description: "Update the options of the action",
-    },
-  },
-  type: "object",
-  title: "RegistryActionUpdate",
-  description: "API update model for a registered action.",
 } as const
 
 export const $RegistryActionValidationErrorInfo = {
@@ -14711,36 +14360,7 @@ Attributes:
         Example: {"core.transform.reshape": "tracecat_registry"}`,
 } as const
 
-export const $RegistryOAuthSecret_Input = {
-  properties: {
-    type: {
-      type: "string",
-      const: "oauth",
-      title: "Type",
-      default: "oauth",
-    },
-    provider_id: {
-      type: "string",
-      title: "Provider Id",
-    },
-    grant_type: {
-      type: "string",
-      enum: ["authorization_code", "client_credentials"],
-      title: "Grant Type",
-    },
-    optional: {
-      type: "boolean",
-      title: "Optional",
-      default: false,
-    },
-  },
-  type: "object",
-  required: ["provider_id", "grant_type"],
-  title: "RegistryOAuthSecret",
-  description: "OAuth secret for a provider.",
-} as const
-
-export const $RegistryOAuthSecret_Output = {
+export const $RegistryOAuthSecret = {
   properties: {
     type: {
       type: "string",
@@ -15062,38 +14682,20 @@ export const $RegistrySecret = {
   title: "RegistrySecret",
 } as const
 
-export const $RegistrySecretType_Input = {
+export const $RegistrySecretType = {
   oneOf: [
     {
       $ref: "#/components/schemas/RegistrySecret",
     },
     {
-      $ref: "#/components/schemas/RegistryOAuthSecret-Input",
+      $ref: "#/components/schemas/RegistryOAuthSecret",
     },
   ],
   discriminator: {
     propertyName: "type",
     mapping: {
       custom: "#/components/schemas/RegistrySecret",
-      oauth: "#/components/schemas/RegistryOAuthSecret-Input",
-    },
-  },
-} as const
-
-export const $RegistrySecretType_Output = {
-  oneOf: [
-    {
-      $ref: "#/components/schemas/RegistrySecret",
-    },
-    {
-      $ref: "#/components/schemas/RegistryOAuthSecret-Output",
-    },
-  ],
-  discriminator: {
-    propertyName: "type",
-    mapping: {
-      custom: "#/components/schemas/RegistrySecret",
-      oauth: "#/components/schemas/RegistryOAuthSecret-Output",
+      oauth: "#/components/schemas/RegistryOAuthSecret",
     },
   },
 } as const
@@ -18769,7 +18371,7 @@ export const $TaskWorkflowChangedEventRead = {
   description: "Event for when a task workflow is changed.",
 } as const
 
-export const $TemplateAction_Input = {
+export const $TemplateAction = {
   properties: {
     type: {
       type: "string",
@@ -18778,7 +18380,7 @@ export const $TemplateAction_Input = {
       default: "action",
     },
     definition: {
-      $ref: "#/components/schemas/TemplateActionDefinition-Input",
+      $ref: "#/components/schemas/TemplateActionDefinition",
     },
   },
   type: "object",
@@ -18786,24 +18388,7 @@ export const $TemplateAction_Input = {
   title: "TemplateAction",
 } as const
 
-export const $TemplateAction_Output = {
-  properties: {
-    type: {
-      type: "string",
-      const: "action",
-      title: "Type",
-      default: "action",
-    },
-    definition: {
-      $ref: "#/components/schemas/TemplateActionDefinition-Output",
-    },
-  },
-  type: "object",
-  required: ["definition"],
-  title: "TemplateAction",
-} as const
-
-export const $TemplateActionDefinition_Input = {
+export const $TemplateActionDefinition = {
   properties: {
     name: {
       type: "string",
@@ -18871,135 +18456,7 @@ export const $TemplateActionDefinition_Input = {
       anyOf: [
         {
           items: {
-            $ref: "#/components/schemas/RegistrySecretType-Input",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Secrets",
-      description: "The secrets to pass to the action",
-    },
-    expects: {
-      additionalProperties: {
-        $ref: "#/components/schemas/ExpectedField-Input",
-      },
-      type: "object",
-      title: "Expects",
-      description: "The arguments to pass to the action",
-    },
-    steps: {
-      items: {
-        $ref: "#/components/schemas/ActionStep",
-      },
-      type: "array",
-      title: "Steps",
-      description: "The sequence of steps for the action",
-    },
-    returns: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-      ],
-      title: "Returns",
-      description: "The result of the action",
-    },
-  },
-  type: "object",
-  required: [
-    "name",
-    "namespace",
-    "title",
-    "display_group",
-    "expects",
-    "steps",
-    "returns",
-  ],
-  title: "TemplateActionDefinition",
-} as const
-
-export const $TemplateActionDefinition_Output = {
-  properties: {
-    name: {
-      type: "string",
-      title: "Name",
-      description: "The action name",
-    },
-    namespace: {
-      type: "string",
-      title: "Namespace",
-      description: "The namespace of the action",
-    },
-    title: {
-      type: "string",
-      title: "Title",
-      description: "The title of the action",
-    },
-    description: {
-      type: "string",
-      title: "Description",
-      description: "The description of the action",
-      default: "",
-    },
-    display_group: {
-      type: "string",
-      title: "Display Group",
-      description: "The display group of the action",
-    },
-    doc_url: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Doc Url",
-      description: "Link to documentation",
-    },
-    author: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Author",
-      description: "Author of the action",
-    },
-    deprecated: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Deprecated",
-      description: "Marks action as deprecated along with message",
-    },
-    secrets: {
-      anyOf: [
-        {
-          items: {
-            $ref: "#/components/schemas/RegistrySecretType-Output",
+            $ref: "#/components/schemas/RegistrySecretType",
           },
           type: "array",
         },
