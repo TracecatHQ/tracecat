@@ -76,9 +76,6 @@ class AgentWorkflowArgs(BaseModel):
     tools: list[str] | None = Field(
         default=None, description="Tools available to the agent"
     )
-    agent_preset_id: uuid.UUID | None = Field(
-        default=None, description="Agent preset used for this session"
-    )
     agent_preset_version_id: uuid.UUID | None = Field(
         default=None, description="Pinned preset version used for this session"
     )
@@ -316,7 +313,6 @@ class DurableAgentWorkflow:
                 entity_type=args.entity_type,
                 entity_id=args.entity_id,
                 tools=args.tools,
-                agent_preset_id=args.agent_preset_id,
                 agent_preset_version_id=args.agent_preset_version_id,
                 harness_type=HarnessType(self.harness_type),
                 curr_run_id=curr_run_id,

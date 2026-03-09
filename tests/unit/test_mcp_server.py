@@ -1680,7 +1680,7 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     )
 
     assert result == "agent response"
-    assert created_session_request["value"].agent_preset_id == preset.id
+    assert created_session_request["value"].agent_preset_id is None
     assert created_session_request["value"].agent_preset_version_id == version.id
     assert captured["session_id"] == session.id
     assert captured["workspace_id"] == workspace_id

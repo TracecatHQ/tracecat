@@ -1097,7 +1097,6 @@ class DSLWorkflow:
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
-                        agent_preset_id=preset_ref.preset_id,
                         agent_preset_version_id=preset_ref.preset_version_id,
                     )
                     action_result = await workflow.execute_child_workflow(

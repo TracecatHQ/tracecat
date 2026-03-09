@@ -7,8 +7,11 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from tracecat.agent.session.schemas import AgentSessionUpdate
-from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionUpdate
+from tracecat.agent.session.service import (
+    AgentSessionService,
+    ResolvedPresetAssignment,
+)
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession
@@ -48,8 +51,13 @@ async def test_update_session_resolves_current_version_when_preset_changes() -> 
         agent_preset_id=old_preset_id,
         agent_preset_version_id=old_version_id,
     )
-    resolve_mock = AsyncMock(return_value=resolved_version_id)
-    service._resolve_preset_version_for_assignment = resolve_mock
+    resolve_mock = AsyncMock(
+        return_value=ResolvedPresetAssignment(
+            preset_id=new_preset_id,
+            preset_version_id=resolved_version_id,
+        )
+    )
+    service._resolve_preset_assignment = resolve_mock
 
     updated = await service.update_session(
         agent_session,
@@ -120,8 +128,13 @@ async def test_update_session_allows_version_only_repin_for_preset_sessions() ->
         agent_preset_id=None,
         agent_preset_version_id=uuid.uuid4(),
     )
-    resolve_mock = AsyncMock(return_value=new_version_id)
-    service._resolve_preset_version_for_assignment = resolve_mock
+    resolve_mock = AsyncMock(
+        return_value=ResolvedPresetAssignment(
+            preset_id=preset_id,
+            preset_version_id=new_version_id,
+        )
+    )
+    service._resolve_preset_assignment = resolve_mock
 
     updated = await service.update_session(
         agent_session,
@@ -134,7 +147,7 @@ async def test_update_session_allows_version_only_repin_for_preset_sessions() ->
         agent_preset_id=None,
         agent_preset_version_id=new_version_id,
     )
-    assert updated.agent_preset_id is None
+    assert updated.agent_preset_id == preset_id
     assert updated.agent_preset_version_id == new_version_id
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(agent_session)
@@ -183,3 +196,37 @@ async def test_update_session_rejects_preset_updates_for_invalid_entity_type() -
 
     session.commit.assert_not_awaited()
     session.refresh.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_create_session_derives_preset_metadata_from_version_id() -> None:
+    service, session, _role = _build_service()
+    preset_id = uuid.uuid4()
+    preset_version_id = uuid.uuid4()
+    resolve_mock = AsyncMock(
+        return_value=ResolvedPresetAssignment(
+            preset_id=preset_id,
+            preset_version_id=preset_version_id,
+        )
+    )
+    service._resolve_preset_assignment = resolve_mock
+
+    created = await service.create_session(
+        AgentSessionCreate(
+            title="Workflow agent",
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+            agent_preset_version_id=preset_version_id,
+        )
+    )
+
+    resolve_mock.assert_awaited_once_with(
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=created.entity_id,
+        agent_preset_id=None,
+        agent_preset_version_id=preset_version_id,
+    )
+    assert created.agent_preset_id == preset_id
+    assert created.agent_preset_version_id == preset_version_id
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(created)
