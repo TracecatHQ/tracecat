@@ -175,6 +175,11 @@ class TestCaseFieldsService:
                 CaseFieldCreate(name="__tc_workspace_id", type=SqlType.TEXT)
             )
 
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await case_fields_service.create_field(
+                CaseFieldCreate(name="__TC_workspace_id", type=SqlType.TEXT)
+            )
+
     async def test_update_field(self, case_fields_service: CaseFieldsService) -> None:
         """Test updating a case field."""
         # Create field update parameters
