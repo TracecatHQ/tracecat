@@ -5,13 +5,11 @@ import {
   type AgentPresetReadMinimal,
   type AgentPresetUpdate,
   type AgentPresetVersionDiff,
-  type AgentPresetVersionRead,
   type AgentPresetVersionReadMinimal,
   agentPresetsCompareAgentPresetVersions,
   agentPresetsCreateAgentPreset,
   agentPresetsDeleteAgentPreset,
   agentPresetsGetAgentPreset,
-  agentPresetsGetAgentPresetVersion,
   agentPresetsListAgentPresets,
   agentPresetsListAgentPresetVersions,
   agentPresetsRestoreAgentPresetVersion,
@@ -65,10 +63,21 @@ export function useAgentPresetVersions(
       if (!workspaceId || !presetId) {
         throw new Error("workspaceId and presetId are required")
       }
-      return await agentPresetsListAgentPresetVersions({
-        workspaceId,
-        presetId,
-      })
+      const versions: AgentPresetVersionReadMinimal[] = []
+      let cursor: string | undefined
+
+      do {
+        const response = await agentPresetsListAgentPresetVersions({
+          workspaceId,
+          presetId,
+          limit: 200,
+          cursor,
+        })
+        versions.push(...response.items)
+        cursor = response.next_cursor ?? undefined
+      } while (cursor)
+
+      return versions
     },
     enabled: enabled && Boolean(workspaceId) && Boolean(presetId),
     retry: retryHandler,
@@ -109,45 +118,6 @@ export function useAgentPreset(
     presetIsLoading,
     presetError,
     refetchPreset,
-  }
-}
-
-export function useAgentPresetVersion(
-  workspaceId: string,
-  presetId?: string | null,
-  versionId?: string | null,
-  { enabled = true }: { enabled?: boolean } = {}
-) {
-  const {
-    data: version,
-    isLoading: versionIsLoading,
-    error: versionError,
-    refetch: refetchVersion,
-  } = useQuery<AgentPresetVersionRead, TracecatApiError>({
-    queryKey: ["agent-preset-version", workspaceId, presetId, versionId],
-    queryFn: async () => {
-      if (!workspaceId || !presetId || !versionId) {
-        throw new Error("workspaceId, presetId, and versionId are required")
-      }
-      return await agentPresetsGetAgentPresetVersion({
-        workspaceId,
-        presetId,
-        versionId,
-      })
-    },
-    enabled:
-      enabled &&
-      Boolean(workspaceId) &&
-      Boolean(presetId) &&
-      Boolean(versionId),
-    retry: retryHandler,
-  })
-
-  return {
-    version,
-    versionIsLoading,
-    versionError,
-    refetchVersion,
   }
 }
 

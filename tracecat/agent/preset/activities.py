@@ -31,6 +31,17 @@ class ResolveAgentPresetConfigActivityInput(BaseModel):
         return self
 
 
+class ResolveAgentPresetVersionRefActivityInput(BaseModel):
+    role: Role
+    preset_slug: str
+    preset_version: int | None = None
+
+
+class AgentPresetVersionRef(BaseModel):
+    preset_id: uuid.UUID
+    preset_version_id: uuid.UUID
+
+
 @activity.defn
 async def resolve_agent_preset_config_activity(
     args: ResolveAgentPresetConfigActivityInput,
@@ -43,3 +54,18 @@ async def resolve_agent_preset_config_activity(
             preset_version=args.preset_version,
         )
         return agent_config_to_payload(config)
+
+
+@activity.defn
+async def resolve_agent_preset_version_ref_activity(
+    args: ResolveAgentPresetVersionRefActivityInput,
+) -> AgentPresetVersionRef:
+    async with AgentPresetService.with_session(role=args.role) as service:
+        version = await service.resolve_agent_preset_version(
+            slug=args.preset_slug,
+            preset_version=args.preset_version,
+        )
+        return AgentPresetVersionRef(
+            preset_id=version.preset_id,
+            preset_version_id=version.id,
+        )

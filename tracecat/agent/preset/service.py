@@ -7,6 +7,7 @@ import uuid
 from collections.abc import Sequence
 from typing import cast
 
+import sqlalchemy as sa
 from slugify import slugify
 from sqlalchemy import select
 
@@ -43,6 +44,11 @@ from tracecat.integrations.mcp_validation import (
 )
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+)
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.encryption import decrypt_value
@@ -777,21 +783,83 @@ class AgentPresetService(BaseWorkspaceService):
         return result.scalars().first()
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def list_versions(self, preset_id: uuid.UUID) -> Sequence[AgentPresetVersion]:
+    async def list_versions(
+        self,
+        preset_id: uuid.UUID,
+        params: CursorPaginationParams,
+    ) -> CursorPaginatedResponse[AgentPresetVersion]:
         """List immutable versions for a preset ordered newest first."""
-        stmt = (
-            select(AgentPresetVersion)
-            .where(
-                AgentPresetVersion.workspace_id == self.workspace_id,
-                AgentPresetVersion.preset_id == preset_id,
-            )
-            .order_by(
-                AgentPresetVersion.version.desc(),
-                AgentPresetVersion.created_at.desc(),
-            )
+        paginator = BaseCursorPaginator(self.session)
+        stmt = select(AgentPresetVersion).where(
+            AgentPresetVersion.workspace_id == self.workspace_id,
+            AgentPresetVersion.preset_id == preset_id,
         )
+        if params.cursor:
+            cursor_data = paginator.decode_cursor(params.cursor)
+            cursor_version = cursor_data.sort_value
+            if not isinstance(cursor_version, int):
+                raise TracecatValidationError(
+                    "Invalid cursor for agent preset versions"
+                )
+            cursor_id = uuid.UUID(cursor_data.id)
+            cursor_predicate = sa.or_(
+                AgentPresetVersion.version > cursor_version,
+                sa.and_(
+                    AgentPresetVersion.version == cursor_version,
+                    AgentPresetVersion.id > cursor_id,
+                ),
+            )
+            if not params.reverse:
+                cursor_predicate = sa.or_(
+                    AgentPresetVersion.version < cursor_version,
+                    sa.and_(
+                        AgentPresetVersion.version == cursor_version,
+                        AgentPresetVersion.id < cursor_id,
+                    ),
+                )
+            stmt = stmt.where(cursor_predicate)
+
+        if params.reverse:
+            stmt = stmt.order_by(
+                AgentPresetVersion.version.asc(),
+                AgentPresetVersion.id.asc(),
+            )
+        else:
+            stmt = stmt.order_by(
+                AgentPresetVersion.version.desc(),
+                AgentPresetVersion.id.desc(),
+            )
+        stmt = stmt.limit(params.limit + 1)
         result = await self.session.execute(stmt)
-        return result.scalars().all()
+        versions = result.scalars().all()
+        has_more = len(versions) > params.limit
+        items = versions[: params.limit]
+
+        next_cursor = None
+        if has_more and items:
+            last_version = items[-1]
+            next_cursor = paginator.encode_cursor(
+                last_version.id,
+                sort_column="version",
+                sort_value=last_version.version,
+            )
+
+        prev_cursor = None
+        if params.cursor and items:
+            first_version = items[0]
+            prev_cursor = paginator.encode_cursor(
+                first_version.id,
+                sort_column="version",
+                sort_value=first_version.version,
+            )
+
+        return CursorPaginatedResponse(
+            items=list(items),
+            next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
+            has_more=has_more,
+            has_previous=params.cursor is not None,
+        )
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version(self, version_id: uuid.UUID) -> AgentPresetVersion | None:
@@ -859,6 +927,9 @@ class AgentPresetService(BaseWorkspaceService):
             f"Agent preset version for preset '{preset.id}' not found"
         )
 
+    @require_scope("agent:update")
+    @audit_log(resource_type="agent_preset", action="update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def restore_version(
         self, preset: AgentPreset, version: AgentPresetVersion
     ) -> AgentPreset:
@@ -875,6 +946,7 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.refresh(preset)
         return preset
 
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def compare_versions(
         self,
         base_version: AgentPresetVersion,

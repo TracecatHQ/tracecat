@@ -1313,13 +1313,11 @@ export const $AgentPresetRead = {
     model_name: {
       type: "string",
       maxLength: 120,
-      minLength: 1,
       title: "Model Name",
     },
     model_provider: {
       type: "string",
       maxLength: 120,
-      minLength: 1,
       title: "Model Provider",
     },
     base_url: {
@@ -1411,18 +1409,6 @@ export const $AgentPresetRead = {
       title: "Enable Internet Access",
       default: false,
     },
-    description: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Description",
-    },
     id: {
       type: "string",
       format: "uuid",
@@ -1440,6 +1426,18 @@ export const $AgentPresetRead = {
     slug: {
       type: "string",
       title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
     },
     current_version_id: {
       anyOf: [
@@ -1832,13 +1830,11 @@ export const $AgentPresetVersionRead = {
     model_name: {
       type: "string",
       maxLength: 120,
-      minLength: 1,
       title: "Model Name",
     },
     model_provider: {
       type: "string",
       maxLength: 120,
-      minLength: 1,
       title: "Model Provider",
     },
     base_url: {
@@ -1991,13 +1987,11 @@ export const $AgentPresetVersionReadMinimal = {
     model_name: {
       type: "string",
       maxLength: 120,
-      minLength: 1,
       title: "Model Name",
     },
     model_provider: {
       type: "string",
       maxLength: 120,
-      minLength: 1,
       title: "Model Provider",
     },
     base_url: {
@@ -7986,6 +7980,69 @@ export const $CreatedEventRead = {
   required: ["created_at"],
   title: "CreatedEventRead",
   description: "Event for when a case is created.",
+} as const
+
+export const $CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetVersionReadMinimal",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentPresetVersionReadMinimal]",
 } as const
 
 export const $CursorPaginatedResponse_CaseReadMinimal_ = {

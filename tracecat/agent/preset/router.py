@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from tracecat import config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
@@ -18,6 +19,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatValidationError
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 router = APIRouter(prefix="/agent/presets", tags=["agent-presets"])
 
@@ -142,14 +144,24 @@ async def delete_agent_preset(
     await service.delete_preset(preset)
 
 
-@router.get("/{preset_id}/versions", response_model=list[AgentPresetVersionReadMinimal])
+@router.get(
+    "/{preset_id}/versions",
+    response_model=CursorPaginatedResponse[AgentPresetVersionReadMinimal],
+)
 @require_scope("agent:read")
 async def list_agent_preset_versions(
     *,
     preset_id: uuid.UUID,
     role: WorkspaceEditorRole,
     session: AsyncDBSession,
-) -> list[AgentPresetVersionReadMinimal]:
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None),
+    reverse: bool = Query(default=False),
+) -> CursorPaginatedResponse[AgentPresetVersionReadMinimal]:
     """List immutable versions for an agent preset."""
     service = AgentPresetService(session, role=role)
     if not await service.get_preset(preset_id):
@@ -157,8 +169,21 @@ async def list_agent_preset_versions(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset {preset_id} not found",
         )
-    versions = await service.list_versions(preset_id)
-    return [AgentPresetVersionReadMinimal.model_validate(v) for v in versions]
+    versions = await service.list_versions(
+        preset_id,
+        CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
+    )
+    return CursorPaginatedResponse(
+        items=[
+            AgentPresetVersionReadMinimal.model_validate(version)
+            for version in versions.items
+        ],
+        next_cursor=versions.next_cursor,
+        prev_cursor=versions.prev_cursor,
+        has_more=versions.has_more,
+        has_previous=versions.has_previous,
+        total_estimate=versions.total_estimate,
+    )
 
 
 @router.get("/{preset_id}/versions/{version_id}", response_model=AgentPresetVersionRead)

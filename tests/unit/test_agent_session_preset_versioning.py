@@ -12,6 +12,7 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession
+from tracecat.exceptions import TracecatValidationError
 
 
 def _build_service() -> tuple[AgentSessionService, SimpleNamespace, Role]:
@@ -137,3 +138,48 @@ async def test_update_session_allows_version_only_repin_for_preset_sessions() ->
     assert updated.agent_preset_version_id == new_version_id
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(agent_session)
+
+
+@pytest.mark.anyio
+async def test_update_session_skips_entity_type_parsing_for_unrelated_updates() -> None:
+    service, session, role = _build_service()
+    agent_session = AgentSession(
+        workspace_id=role.workspace_id,
+        title="Chat",
+        created_by=uuid.uuid4(),
+        entity_type="not-a-real-entity",
+        entity_id=uuid.uuid4(),
+    )
+
+    updated = await service.update_session(
+        agent_session,
+        params=AgentSessionUpdate(title="Renamed chat"),
+    )
+
+    assert updated.title == "Renamed chat"
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(agent_session)
+
+
+@pytest.mark.anyio
+async def test_update_session_rejects_preset_updates_for_invalid_entity_type() -> None:
+    service, session, role = _build_service()
+    agent_session = AgentSession(
+        workspace_id=role.workspace_id,
+        title="Chat",
+        created_by=uuid.uuid4(),
+        entity_type="not-a-real-entity",
+        entity_id=uuid.uuid4(),
+    )
+
+    with pytest.raises(
+        TracecatValidationError,
+        match="Cannot update preset assignment for a session with an invalid entity type",
+    ):
+        await service.update_session(
+            agent_session,
+            params=AgentSessionUpdate(agent_preset_version_id=uuid.uuid4()),
+        )
+
+    session.commit.assert_not_awaited()
+    session.refresh.assert_not_awaited()

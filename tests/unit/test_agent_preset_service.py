@@ -23,6 +23,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.pagination import CursorPaginationParams
 from tracecat.registry.actions.schemas import RegistryActionType
 from tracecat.registry.versions.schemas import (
     RegistryVersionManifest,
@@ -296,8 +297,11 @@ class TestAgentPresetService:
 
         assert updated_preset.name == "Updated Preset Name"
         assert updated_preset.slug == original_slug  # Slug unchanged
-        versions = await agent_preset_service.list_versions(created_preset.id)
-        assert [version.version for version in versions] == [1]
+        versions = await agent_preset_service.list_versions(
+            created_preset.id,
+            CursorPaginationParams(limit=10),
+        )
+        assert [version.version for version in versions.items] == [1]
 
     async def test_create_preset_creates_initial_version(
         self,
@@ -313,11 +317,14 @@ class TestAgentPresetService:
         current_version = await agent_preset_service.get_current_version_for_preset(
             created_preset
         )
-        versions = await agent_preset_service.list_versions(created_preset.id)
+        versions = await agent_preset_service.list_versions(
+            created_preset.id,
+            CursorPaginationParams(limit=10),
+        )
 
         assert current_version.id == created_preset.current_version_id
         assert current_version.version == 1
-        assert [version.version for version in versions] == [1]
+        assert [version.version for version in versions.items] == [1]
 
     async def test_update_preset_execution_fields_create_new_version(
         self,
@@ -336,13 +343,50 @@ class TestAgentPresetService:
             created_preset,
             AgentPresetUpdate(instructions="Updated instructions", retries=7),
         )
-        versions = await agent_preset_service.list_versions(created_preset.id)
+        versions = await agent_preset_service.list_versions(
+            created_preset.id,
+            CursorPaginationParams(limit=10),
+        )
 
         assert updated_preset.current_version_id is not None
         assert updated_preset.current_version_id != version_1.id
-        assert [version.version for version in versions] == [2, 1]
-        assert versions[0].instructions == "Updated instructions"
-        assert versions[0].retries == 7
+        assert [version.version for version in versions.items] == [2, 1]
+        assert versions.items[0].instructions == "Updated instructions"
+        assert versions.items[0].retries == 7
+
+    async def test_list_versions_returns_cursor_paginated_versions(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(instructions="Version 2"),
+        )
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(instructions="Version 3"),
+        )
+
+        page_1 = await agent_preset_service.list_versions(
+            created_preset.id,
+            CursorPaginationParams(limit=2),
+        )
+
+        assert [version.version for version in page_1.items] == [3, 2]
+        assert page_1.has_more is True
+        assert page_1.next_cursor is not None
+
+        page_2 = await agent_preset_service.list_versions(
+            created_preset.id,
+            CursorPaginationParams(limit=2, cursor=page_1.next_cursor),
+        )
+
+        assert [version.version for version in page_2.items] == [1]
+        assert page_2.has_more is False
 
     async def test_update_preset_concurrently_allocates_unique_versions(
         self,
@@ -502,11 +546,14 @@ class TestAgentPresetService:
         restored_preset = await agent_preset_service.restore_version(
             created_preset, version_1
         )
-        versions = await agent_preset_service.list_versions(created_preset.id)
+        versions = await agent_preset_service.list_versions(
+            created_preset.id,
+            CursorPaginationParams(limit=10),
+        )
 
         assert restored_preset.current_version_id == version_1.id
         assert restored_preset.instructions == agent_preset_create_params.instructions
-        assert [version.version for version in versions] == [2, 1]
+        assert [version.version for version in versions.items] == [2, 1]
 
     async def test_update_preset_slug(
         self,

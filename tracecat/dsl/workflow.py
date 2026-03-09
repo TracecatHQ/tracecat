@@ -36,6 +36,10 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import config, identifiers
     from tracecat.agent.aliases import build_agent_alias
+    from tracecat.agent.preset.activities import (
+        ResolveAgentPresetVersionRefActivityInput,
+        resolve_agent_preset_version_ref_activity,
+    )
     from tracecat.agent.schemas import RunAgentArgs
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.types import AgentConfig
@@ -1050,6 +1054,16 @@ class DSLWorkflow:
                         start_to_close_timeout=timedelta(seconds=60),
                         retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     )
+                    preset_ref = await workflow.execute_activity(
+                        resolve_agent_preset_version_ref_activity,
+                        ResolveAgentPresetVersionRefActivityInput(
+                            role=self.role,
+                            preset_slug=preset_action_args.preset,
+                            preset_version=preset_action_args.preset_version,
+                        ),
+                        start_to_close_timeout=timedelta(seconds=30),
+                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                    )
 
                     # Create override config with placeholder model/provider
                     # These will be ignored by DurableAgentWorkflow when preset_slug is present
@@ -1083,6 +1097,8 @@ class DSLWorkflow:
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
+                        agent_preset_id=preset_ref.preset_id,
+                        agent_preset_version_id=preset_ref.preset_version_id,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,

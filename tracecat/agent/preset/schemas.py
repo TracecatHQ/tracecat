@@ -22,6 +22,10 @@ PresetSlug = Annotated[
 ]
 PresetModelField = Annotated[
     str,
+    StringConstraints(max_length=120),
+]
+PresetModelWriteField = Annotated[
+    str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
 ]
 
@@ -42,7 +46,23 @@ class AgentPresetExecutionConfig(Schema):
     enable_internet_access: bool = Field(default=False)
 
 
-class AgentPresetBase(AgentPresetExecutionConfig):
+class AgentPresetExecutionConfigWrite(Schema):
+    """Write-time execution validation for mutable preset fields."""
+
+    instructions: str | None = Field(default=None)
+    model_name: PresetModelWriteField
+    model_provider: PresetModelWriteField
+    base_url: str | None = Field(default=None, max_length=500)
+    output_type: OutputType | None = Field(default=None)
+    actions: list[str] | None = Field(default=None)
+    namespaces: list[str] | None = Field(default=None)
+    tool_approvals: dict[str, bool] | None = Field(default=None)
+    mcp_integrations: list[str] | None = Field(default=None)
+    retries: int = Field(default=3, ge=0)
+    enable_internet_access: bool = Field(default=False)
+
+
+class AgentPresetBase(AgentPresetExecutionConfigWrite):
     """Shared fields for agent preset mutations."""
 
     description: str | None = Field(default=None, max_length=1000)
@@ -62,8 +82,8 @@ class AgentPresetUpdate(BaseModel):
     slug: PresetSlug | None = None
     description: str | None = Field(default=None, max_length=1000)
     instructions: str | None = Field(default=None)
-    model_name: PresetModelField | None = None
-    model_provider: PresetModelField | None = None
+    model_name: PresetModelWriteField | None = None
+    model_provider: PresetModelWriteField | None = None
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
@@ -87,13 +107,14 @@ class AgentPresetReadMinimal(Schema):
     updated_at: datetime
 
 
-class AgentPresetRead(AgentPresetBase):
+class AgentPresetRead(AgentPresetExecutionConfig):
     """API model for reading agent presets."""
 
     id: uuid.UUID
     workspace_id: WorkspaceID
     name: str
     slug: str
+    description: str | None = Field(default=None, max_length=1000)
     current_version_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
