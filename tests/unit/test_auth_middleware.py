@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.auth.credentials import RoleACL, _role_dependency
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
@@ -51,8 +52,12 @@ def client(test_app):
 
 
 @pytest.mark.anyio
-async def test_role_dependency_rebinds_rls_context_on_session():
+async def test_role_dependency_rebinds_rls_context_on_session(
+    monkeypatch: pytest.MonkeyPatch,
+):
     """Role resolution should re-apply RLS context on the request session."""
+    monkeypatch.setattr(config, "TRACECAT__RLS_MODE", config.RLSMode.ENFORCE)
+
     workspace_id = uuid.uuid4()
     org_id = uuid.uuid4()
     user_id = uuid.uuid4()

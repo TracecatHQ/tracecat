@@ -1,7 +1,7 @@
 """Add Row-Level Security (RLS) policies for multi-tenancy
 
 Revision ID: c76f9b01fad7
-Revises: c9e4f54f0a2b
+Revises: 3b58a1430e95
 Create Date: 2025-01-24
 
 This migration enables PostgreSQL Row-Level Security on all tenant-scoped tables.
@@ -34,7 +34,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "c76f9b01fad7"
-down_revision: str | None = "c9e4f54f0a2b"
+down_revision: str | None = "3b58a1430e95"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -79,6 +79,8 @@ WORKSPACE_SCOPED_TABLES = [
     "oauth_provider",
     "oauth_state",
     "mcp_integration",
+    "case_table_row",
+    "agent_channel_token",
 ]
 
 # Organization-scoped tables (filtered by organization_id)
@@ -95,6 +97,7 @@ ORG_SCOPED_TABLES = [
     "registry_index",
     "role",
     "group",
+    "watchtower_agent",
 ]
 
 # Organization-scoped tables with optional workspace assignment.
@@ -104,6 +107,8 @@ ORG_SCOPED_TABLES = [
 ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = [
     "user_role_assignment",
     "group_role_assignment",
+    "watchtower_agent_session",
+    "watchtower_agent_tool_call",
 ]
 
 

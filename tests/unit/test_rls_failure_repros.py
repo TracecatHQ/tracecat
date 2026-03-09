@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import ast
 import inspect
 import uuid
+from collections import Counter
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -25,6 +25,13 @@ from tracecat.contexts import ctx_role
 from tracecat.db import rls as rls_module
 from tracecat.db.models import Base, OrganizationModel, WorkspaceModel
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
+from tracecat.db.tenant_rls import (
+    CURRENT_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES,
+    CURRENT_ORG_SCOPED_TABLES,
+    CURRENT_WORKSPACE_SCOPED_TABLES,
+    SPECIAL_ORG_POLICY_TABLES,
+)
+from tracecat.dsl.worker import get_activities as get_worker_activities
 from tracecat.executor.registry_resolver import _get_manifest_entry
 from tracecat.executor.service import get_registry_artifacts_for_lock
 from tracecat.organization.router import (
@@ -36,7 +43,7 @@ from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
 from tracecat.service import BaseOrgService
 from tracecat.settings.service import get_setting
 from tracecat.webhooks.dependencies import validate_incoming_webhook
-from tracecat.workflow.schedules.service import WorkflowSchedulesService
+from tracecat.workspaces.activities import get_workspace_organization_id_activity
 
 RLS_MIGRATION_PATH = Path("alembic/versions/c76f9b01fad7_add_rls_policies.py")
 
@@ -45,22 +52,6 @@ RLS_MIGRATION_PATH = Path("alembic/versions/c76f9b01fad7_add_rls_policies.py")
 def workflow_bucket() -> Iterator[None]:
     """Disable MinIO-dependent workflow bucket setup for pure unit repro tests."""
     yield
-
-
-def _extract_list_constant(name: str) -> list[str]:
-    module = ast.parse(RLS_MIGRATION_PATH.read_text())
-    for node in module.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        for target in node.targets:
-            if isinstance(target, ast.Name) and target.id == name:
-                value = ast.literal_eval(node.value)
-                if isinstance(value, list) and all(
-                    isinstance(item, str) for item in value
-                ):
-                    return value
-                raise AssertionError(f"{name} must be a list[str]")
-    raise AssertionError(f"{name} not found in {RLS_MIGRATION_PATH}")
 
 
 def _extract_modeled_tables(
@@ -252,19 +243,21 @@ def test_rls_after_begin_reapplies_cached_context_when_feature_flag_is_off(
 
 
 def test_rls_migration_covers_all_workspace_scoped_case_tables() -> None:
-    workspace_tables = set(_extract_list_constant("WORKSPACE_SCOPED_TABLES"))
     modeled_workspace_tables = _extract_modeled_tables(WorkspaceModel)
+    workspace_tables = set(CURRENT_WORKSPACE_SCOPED_TABLES)
 
     missing_workspace_tables = modeled_workspace_tables - workspace_tables
 
     assert not missing_workspace_tables, (
-        f"Missing workspace-scoped tables in migration: "
+        f"Missing workspace-scoped tables in tenant RLS registry: "
         f"{sorted(missing_workspace_tables)}"
     )
 
 
 def test_rls_migration_covers_org_registry_tables() -> None:
-    org_tables = set(_extract_list_constant("ORG_SCOPED_TABLES"))
+    org_tables = set(CURRENT_ORG_SCOPED_TABLES) | set(
+        CURRENT_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES
+    )
     modeled_org_tables = _extract_modeled_tables(
         OrganizationModel, excluded={"workspace"}
     )
@@ -272,7 +265,8 @@ def test_rls_migration_covers_org_registry_tables() -> None:
     missing_org_tables = modeled_org_tables - org_tables
 
     assert not missing_org_tables, (
-        f"Missing organization-scoped tables in migration: {sorted(missing_org_tables)}"
+        f"Missing organization-scoped tables in tenant RLS registry: "
+        f"{sorted(missing_org_tables)}"
     )
 
 
@@ -280,38 +274,26 @@ def test_rls_migration_sanity_all_tenant_keyed_tables_are_covered_or_allowlisted
     None
 ):
     """Every tenant-keyed table should be policy-covered or explicitly allowlisted."""
-    workspace_policy_tables = set(_extract_list_constant("WORKSPACE_SCOPED_TABLES"))
-    org_policy_tables = set(_extract_list_constant("ORG_SCOPED_TABLES"))
+    workspace_policy_tables = set(CURRENT_WORKSPACE_SCOPED_TABLES)
+    org_policy_tables = set(CURRENT_ORG_SCOPED_TABLES)
     org_optional_workspace_policy_tables = set(
-        _extract_list_constant("ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES")
+        CURRENT_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES
     )
-
-    # Workspace has special policy SQL in migration (outside ORG_SCOPED_TABLES).
-    special_org_policy_tables = {"workspace", "scope"}
-
-    # Keep exclusions empty by default and only add with explicit rationale.
-    intentional_workspace_exclusions: set[str] = set()
-    intentional_org_exclusions: set[str] = set()
 
     workspace_keyed_tables = _extract_tables_with_column("workspace_id")
     org_keyed_tables = _extract_tables_with_column("organization_id")
 
     missing_workspace_coverage = workspace_keyed_tables - (
-        workspace_policy_tables
-        | org_optional_workspace_policy_tables
-        | intentional_workspace_exclusions
+        workspace_policy_tables | org_optional_workspace_policy_tables
     )
     missing_org_coverage = org_keyed_tables - (
         org_policy_tables
         | org_optional_workspace_policy_tables
-        | special_org_policy_tables
-        | intentional_org_exclusions
+        | SPECIAL_ORG_POLICY_TABLES
     )
 
-    stale_workspace_exclusions = (
-        intentional_workspace_exclusions - workspace_keyed_tables
-    )
-    stale_org_exclusions = intentional_org_exclusions - org_keyed_tables
+    stale_workspace_exclusions: set[str] = set()
+    stale_org_exclusions = SPECIAL_ORG_POLICY_TABLES - org_keyed_tables
 
     assert not stale_workspace_exclusions, (
         f"Stale workspace exclusions: {sorted(stale_workspace_exclusions)}"
@@ -390,10 +372,20 @@ def test_loopback_persist_session_line_uses_bypass_session_manager() -> None:
 
 
 def test_schedule_workspace_org_lookup_activity_uses_bypass_session_manager() -> None:
-    source = inspect.getsource(
-        WorkflowSchedulesService.get_workspace_organization_id_activity
-    )
+    source = inspect.getsource(get_workspace_organization_id_activity)
     assert "get_async_session_bypass_rls_context_manager" in source
+
+
+def test_worker_activity_names_are_unique() -> None:
+    activity_names = [
+        getattr(activity, "__temporal_activity_definition").name
+        for activity in get_worker_activities()
+    ]
+    duplicate_names = {
+        name: count for name, count in Counter(activity_names).items() if count > 1
+    }
+
+    assert not duplicate_names, f"Duplicate worker activity names: {duplicate_names}"
 
 
 def test_info_endpoint_uses_bypass_session_dependency() -> None:
