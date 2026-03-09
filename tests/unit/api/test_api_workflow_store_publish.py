@@ -209,6 +209,7 @@ async def test_preview_bulk_push_success(
             ],
             resolved_workflow_ids=["wf_123abc"],
             branch="tracecat/bulk-push-20260306-120000",
+            base_branch="release",
             commit_message="Push workflows to GitHub",
             pr_title="Push workflows to GitHub",
             pr_body="Bulk push preview",
@@ -228,6 +229,7 @@ async def test_preview_bulk_push_success(
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()
     assert payload["branch"] == "tracecat/bulk-push-20260306-120000"
+    assert payload["base_branch"] == "release"
     assert payload["commit_message"] == "Push workflows to GitHub"
     assert payload["pr_title"] == "Push workflows to GitHub"
     assert payload["can_submit"] is True

@@ -440,10 +440,12 @@ export function WorkflowBulkPushDialog({
     },
   })
 
-  const selectedBranchInfo = repoBranches?.find(
-    (branch) => branch.name === selectedBranch
-  )
-  const isSelectedDefaultBranch = selectedBranchInfo?.is_default ?? false
+  const effectiveBaseBranch =
+    previewQuery.data?.base_branch ??
+    repoBranches?.find((branch) => branch.is_default)?.name ??
+    null
+  const isSelectedBaseBranch =
+    Boolean(effectiveBaseBranch) && selectedBranch === effectiveBaseBranch
   const previewErrorMessage = previewQuery.error
     ? getErrorMessage(
         previewQuery.error,
@@ -463,7 +465,7 @@ export function WorkflowBulkPushDialog({
     (previewQuery.data.can_submit ?? false) &&
     hasBranches &&
     !branchesLoading &&
-    !isSelectedDefaultBranch &&
+    !isSelectedBaseBranch &&
     !pushMutation.isPending
 
   return (
@@ -553,7 +555,9 @@ export function WorkflowBulkPushDialog({
                                     <SelectItem
                                       key={branch.name}
                                       value={branch.name}
-                                      disabled={branch.is_default}
+                                      disabled={
+                                        branch.name === effectiveBaseBranch
+                                      }
                                     >
                                       <div className="flex items-center gap-2">
                                         <span>{branch.name}</span>
@@ -600,10 +604,11 @@ export function WorkflowBulkPushDialog({
                               repository.
                             </p>
                           ) : null}
-                          {isSelectedDefaultBranch ? (
+                          {isSelectedBaseBranch ? (
                             <p className="text-xs text-destructive">
                               Bulk pushes always open a pull request, so select
-                              or create a branch other than the default branch.
+                              or create a branch other than the PR base branch (
+                              {effectiveBaseBranch}).
                             </p>
                           ) : null}
                           <FormMessage />

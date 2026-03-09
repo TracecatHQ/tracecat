@@ -15625,6 +15625,17 @@ export const $WorkflowBulkPushPreviewResponse = {
       type: "string",
       title: "Branch",
     },
+    base_branch: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Branch",
+    },
     commit_message: {
       type: "string",
       title: "Commit Message",

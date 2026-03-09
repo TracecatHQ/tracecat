@@ -182,7 +182,7 @@ class WorkflowStoreService(BaseWorkspaceService):
     async def preview_bulk_push(
         self, params: WorkflowBulkPushPreviewRequest
     ) -> WorkflowBulkPushPreviewResponse:
-        workspace = await self._get_workspace()
+        workspace, git_url = await self._get_workspace_and_git_url()
         selection = await self._resolve_bulk_push_selection(
             workflow_ids=self._to_workflow_uuids(params.workflow_ids),
             folder_paths=params.folder_paths,
@@ -196,6 +196,7 @@ class WorkflowStoreService(BaseWorkspaceService):
             excluded_workflows=selection.excluded_workflows,
             resolved_workflow_ids=selection.resolved_workflow_ids,
             branch=branch,
+            base_branch=git_url.ref,
             commit_message=commit_message,
             pr_title=pr_title,
             pr_body=pr_body,

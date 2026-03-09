@@ -780,12 +780,65 @@ class TestWorkflowSyncService:
             assert result.object_results is not None
             assert len(result.object_results) == 1
             assert result.object_results[0].status == PushStatus.NO_OP
-            mock_repo.get_git_ref.assert_called_once_with(
-                "heads/feature/shared-workflow"
-            )
+            assert mock_repo.get_git_ref.call_args_list == [
+                call("heads/feature/shared-workflow"),
+                call("heads/feature/shared-workflow"),
+            ]
             mock_repo.get_git_commit.assert_not_called()
             mock_repo.create_git_tree.assert_not_called()
             mock_repo.create_git_commit.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_push_target_branch_noop_rejects_concurrent_branch_changes(
+        self, workflow_sync_service, git_url, sample_remote_workflow
+    ):
+        """Target-branch no-op pushes should fail if the branch advances mid-prepare."""
+        push_obj = PushObject(
+            data=sample_remote_workflow, path="workflows/test-workflow.yml"
+        )
+        author = Author(name="Test User", email="test@example.com")
+        options = PushOptions(
+            message="Update workflows",
+            author=author,
+            create_pr=False,
+            branch="feature/shared-workflow",
+        )
+
+        expected_yaml = yaml.dump(
+            sample_remote_workflow.model_dump(
+                mode="json", exclude_none=True, exclude_unset=True
+            ),
+            sort_keys=False,
+        )
+
+        mock_repo, _, _, _ = _create_target_branch_repo(
+            branch_name="feature/shared-workflow",
+            existing_file_contents={
+                "workflows/test-workflow.yml": expected_yaml,
+            },
+        )
+        initial_ref = Mock()
+        initial_ref.object.sha = "snapshot123"
+        updated_ref = Mock()
+        updated_ref.object.sha = "snapshot456"
+        mock_repo.get_git_ref.side_effect = [initial_ref, updated_ref]
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="changed while preparing the bulk push",
+        ):
+            with patch("asyncio.to_thread") as mock_to_thread:
+                mock_to_thread.side_effect = _mock_to_thread
+                await workflow_sync_service._push_to_target_branch(
+                    repo=mock_repo,
+                    url=git_url,
+                    objects=[push_obj],
+                    options=options,
+                )
+
+        mock_repo.get_git_commit.assert_not_called()
+        mock_repo.create_git_tree.assert_not_called()
+        mock_repo.create_git_commit.assert_not_called()
 
     @pytest.mark.anyio
     async def test_push_empty_branch_still_uses_target_branch_mode(
@@ -1049,9 +1102,10 @@ class TestWorkflowSyncService:
             assert result.pr_number is None
             assert result.pr_reused is False
             mock_upsert_pr.assert_awaited_once()
-            mock_repo.get_git_ref.assert_called_once_with(
-                "heads/feature/shared-workflow"
-            )
+            assert mock_repo.get_git_ref.call_args_list == [
+                call("heads/feature/shared-workflow"),
+                call("heads/feature/shared-workflow"),
+            ]
             mock_repo.get_git_commit.assert_not_called()
             mock_repo.create_git_tree.assert_not_called()
             mock_repo.create_git_commit.assert_not_called()
@@ -1335,7 +1389,10 @@ class TestWorkflowSyncService:
                 PushStatus.NO_OP,
                 PushStatus.NO_OP,
             ]
-            mock_repo.get_git_ref.assert_called_once_with("heads/feature/bulk-push")
+            assert mock_repo.get_git_ref.call_args_list == [
+                call("heads/feature/bulk-push"),
+                call("heads/feature/bulk-push"),
+            ]
             mock_repo.get_git_commit.assert_not_called()
             mock_repo.create_git_tree.assert_not_called()
             mock_repo.create_git_commit.assert_not_called()

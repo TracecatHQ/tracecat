@@ -4924,6 +4924,7 @@ export type WorkflowBulkPushPreviewResponse = {
   excluded_workflows?: Array<WorkflowBulkPushExcludedWorkflow>
   resolved_workflow_ids?: Array<string>
   branch: string
+  base_branch?: string | null
   commit_message: string
   pr_title: string
   pr_body: string

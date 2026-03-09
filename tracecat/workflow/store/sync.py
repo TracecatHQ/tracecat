@@ -445,14 +445,12 @@ class WorkflowSyncService(BaseWorkspaceService):
         committed_count = sum(
             1 for result in object_results if result.status == PushStatus.COMMITTED
         )
-        if committed_count > 0:
-            branch_ref = await asyncio.to_thread(
-                repo.get_git_ref, f"heads/{branch_name}"
+        branch_ref = await asyncio.to_thread(repo.get_git_ref, f"heads/{branch_name}")
+        if branch_ref.object.sha != initial_branch_sha:
+            raise TracecatValidationError(
+                f"Branch '{branch_name}' changed while preparing the bulk push. Refresh and retry."
             )
-            if branch_ref.object.sha != initial_branch_sha:
-                raise TracecatValidationError(
-                    f"Branch '{branch_name}' changed while preparing the bulk push. Refresh and retry."
-                )
+        if committed_count > 0:
             parent_commit = await asyncio.to_thread(
                 repo.get_git_commit, initial_branch_sha
             )

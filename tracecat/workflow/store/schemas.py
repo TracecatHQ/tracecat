@@ -159,6 +159,7 @@ class WorkflowBulkPushPreviewResponse(BaseModel):
     )
     resolved_workflow_ids: list[WorkflowIDShort] = Field(default_factory=list)
     branch: str
+    base_branch: str | None = None
     commit_message: str
     pr_title: str
     pr_body: str
