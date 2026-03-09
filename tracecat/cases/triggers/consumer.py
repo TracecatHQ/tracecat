@@ -19,6 +19,7 @@ from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.cases.schemas import CaseCommentWorkflowStatus
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import Case, CaseComment, CaseEvent, CaseTrigger, Workspace
 from tracecat.dsl.common import DSLInput
