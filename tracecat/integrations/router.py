@@ -16,6 +16,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import OAuthStateDB
+from tracecat.db.rls import set_rls_context_from_role
 from tracecat.integrations.dependencies import (
     ACProviderInfoDep,
     CCProviderInfoDep,
@@ -114,6 +115,8 @@ async def oauth_callback(
     # This is always authorization code
     role = role.model_copy(update={"workspace_id": oauth_state_db.workspace_id})
     ctx_role.set(role)
+    if config.TRACECAT__RLS_MODE == config.RLSMode.ENFORCE:
+        await set_rls_context_from_role(session, role)
 
     # Create service to resolve provider (including custom providers)
     svc = IntegrationService(session, role=role)
