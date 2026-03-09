@@ -1,6 +1,7 @@
 """HTTP-level tests for workflow publish API endpoint."""
 
 import uuid
+from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -11,7 +12,16 @@ from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatValidationError
 from tracecat.registry.repositories.schemas import GitBranchInfo
 from tracecat.vcs.github.app import GitHubAppError
-from tracecat.workflow.store.schemas import WorkflowDslPublishResult
+from tracecat.workflow.store.schemas import (
+    WorkflowBulkPushExcludedWorkflow,
+    WorkflowBulkPushExclusionReason,
+    WorkflowBulkPushPreviewResponse,
+    WorkflowBulkPushResult,
+    WorkflowBulkPushWorkflowResult,
+    WorkflowBulkPushWorkflowStatus,
+    WorkflowBulkPushWorkflowSummary,
+    WorkflowDslPublishResult,
+)
 
 
 def _sample_dsl_content() -> dict[str, object]:
@@ -172,6 +182,177 @@ async def test_publish_workflow_invalid_create_pr_type_returns_422(
         json={
             "branch": "feature/shared-workflow",
             "create_pr": {"invalid": True},
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+@pytest.mark.anyio
+async def test_preview_bulk_push_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test POST /workflows/push/preview returns preview data."""
+    with patch("tracecat.workflow.store.router.WorkflowStoreService") as mock_store_cls:
+        mock_store_svc = AsyncMock()
+        mock_store_svc.preview_bulk_push.return_value = WorkflowBulkPushPreviewResponse(
+            eligible_workflows=[
+                WorkflowBulkPushWorkflowSummary(
+                    workflow_id="wf_123abc",
+                    title="Workflow 1",
+                    alias="workflow-1",
+                    folder_path="/security",
+                    latest_definition_version=3,
+                    latest_definition_created_at=datetime(2026, 3, 6, 12, 0, 0),
+                )
+            ],
+            excluded_workflows=[
+                WorkflowBulkPushExcludedWorkflow(
+                    workflow_id="wf_missing",
+                    title="Missing workflow",
+                    reason=WorkflowBulkPushExclusionReason.NOT_PUBLISHED,
+                    message="Workflow has not been published yet",
+                )
+            ],
+            resolved_workflow_ids=["wf_123abc"],
+            branch="tracecat/bulk-push-20260306-120000",
+            commit_message="Push workflows to GitHub",
+            pr_title="Push workflows to GitHub",
+            pr_body="Bulk push preview",
+            can_submit=True,
+        )
+        mock_store_cls.return_value = mock_store_svc
+
+        response = client.post(
+            "/workflows/push/preview",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "workflow_ids": ["wf_123abc"],
+                "folder_paths": ["/security"],
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
+    assert payload["branch"] == "tracecat/bulk-push-20260306-120000"
+    assert payload["commit_message"] == "Push workflows to GitHub"
+    assert payload["pr_title"] == "Push workflows to GitHub"
+    assert payload["can_submit"] is True
+    assert payload["resolved_workflow_ids"] == ["wf_123abc"]
+    assert payload["eligible_workflows"][0]["workflow_id"] == "wf_123abc"
+    assert payload["excluded_workflows"][0]["reason"] == "not_published"
+
+    called_params = mock_store_svc.preview_bulk_push.call_args.args[0]
+    assert called_params.workflow_ids == ["wf_123abc"]
+    assert called_params.folder_paths == ["/security"]
+
+
+@pytest.mark.anyio
+async def test_preview_bulk_push_invalid_folder_paths_type_returns_422(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test POST /workflows/push/preview rejects non-list folder_paths."""
+    response = client.post(
+        "/workflows/push/preview",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+        json={
+            "workflow_ids": ["wf_123abc"],
+            "folder_paths": "/security",
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+@pytest.mark.anyio
+async def test_bulk_push_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test POST /workflows/push returns structured bulk push result."""
+    with patch("tracecat.workflow.store.router.WorkflowStoreService") as mock_store_cls:
+        mock_store_svc = AsyncMock()
+        mock_store_svc.bulk_push.return_value = WorkflowBulkPushResult(
+            status="committed",
+            commit_sha="abc123",
+            branch="feature/bulk-push",
+            base_branch="main",
+            pr_url="https://github.com/test-org/test-repo/pull/456",
+            pr_number=456,
+            pr_reused=False,
+            message="Committed changes for 2 workflow file(s).",
+            selected_count=2,
+            eligible_count=2,
+            excluded_count=0,
+            workflow_results=[
+                WorkflowBulkPushWorkflowResult(
+                    workflow_id="wf_123abc",
+                    title="Workflow 1",
+                    path="workflows/wf_123abc/definition.yml",
+                    status=WorkflowBulkPushWorkflowStatus.COMMITTED,
+                    message="Committed",
+                ),
+                WorkflowBulkPushWorkflowResult(
+                    workflow_id="wf_456def",
+                    title="Workflow 2",
+                    path="workflows/wf_456def/definition.yml",
+                    status=WorkflowBulkPushWorkflowStatus.NO_OP,
+                    message="Already up to date",
+                ),
+            ],
+        )
+        mock_store_cls.return_value = mock_store_svc
+
+        response = client.post(
+            "/workflows/push",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "workflow_ids": ["wf_123abc", "wf_456def"],
+                "branch": "feature/bulk-push",
+                "commit_message": "Push workflows to GitHub",
+                "pr_title": "Push workflows to GitHub",
+                "pr_body": "Bulk push body",
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
+    assert payload["status"] == "committed"
+    assert payload["commit_sha"] == "abc123"
+    assert payload["branch"] == "feature/bulk-push"
+    assert payload["base_branch"] == "main"
+    assert payload["pr_number"] == 456
+    assert payload["selected_count"] == 2
+    assert payload["eligible_count"] == 2
+    assert payload["excluded_count"] == 0
+    assert payload["workflow_results"][0]["workflow_id"] == "wf_123abc"
+    assert payload["workflow_results"][1]["status"] == "no_op"
+
+    called_params = mock_store_svc.bulk_push.call_args.args[0]
+    assert called_params.workflow_ids == ["wf_123abc", "wf_456def"]
+    assert called_params.branch == "feature/bulk-push"
+    assert called_params.commit_message == "Push workflows to GitHub"
+    assert called_params.pr_title == "Push workflows to GitHub"
+    assert called_params.pr_body == "Bulk push body"
+
+
+@pytest.mark.anyio
+async def test_bulk_push_whitespace_required_fields_return_422(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test POST /workflows/push rejects whitespace-only required text fields."""
+    response = client.post(
+        "/workflows/push",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+        json={
+            "workflow_ids": ["wf_123abc"],
+            "branch": "feature/bulk-push",
+            "commit_message": "   ",
+            "pr_title": "   ",
+            "pr_body": "body",
         },
     )
 

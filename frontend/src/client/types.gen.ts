@@ -6898,6 +6898,78 @@ export type WorkflowAlias = {
   component_id?: "workflow-alias"
 }
 
+export type WorkflowBulkPushExcludedWorkflow = {
+  workflow_id?: string | null
+  title?: string | null
+  reason: WorkflowBulkPushExclusionReason
+  message: string
+}
+
+export type WorkflowBulkPushExclusionReason =
+  | "not_found"
+  | "not_published"
+  | "invalid_configuration"
+
+export type WorkflowBulkPushPreviewRequest = {
+  workflow_ids?: Array<string>
+  folder_paths?: Array<string>
+}
+
+export type WorkflowBulkPushPreviewResponse = {
+  eligible_workflows?: Array<WorkflowBulkPushWorkflowSummary>
+  excluded_workflows?: Array<WorkflowBulkPushExcludedWorkflow>
+  resolved_workflow_ids?: Array<string>
+  branch: string
+  commit_message: string
+  pr_title: string
+  pr_body: string
+  can_submit?: boolean
+}
+
+export type WorkflowBulkPushRequest = {
+  workflow_ids?: Array<string>
+  branch: string
+  commit_message: string
+  pr_title: string
+  pr_body?: string
+}
+
+export type WorkflowBulkPushResult = {
+  status: "committed" | "no_op"
+  commit_sha?: string | null
+  branch: string
+  base_branch: string
+  pr_url?: string | null
+  pr_number?: number | null
+  pr_reused?: boolean
+  message: string
+  selected_count: number
+  eligible_count: number
+  excluded_count: number
+  workflow_results?: Array<WorkflowBulkPushWorkflowResult>
+}
+
+export type status3 = "committed" | "no_op"
+
+export type WorkflowBulkPushWorkflowResult = {
+  workflow_id: string
+  title: string
+  path: string
+  status: WorkflowBulkPushWorkflowStatus
+  message?: string | null
+}
+
+export type WorkflowBulkPushWorkflowStatus = "committed" | "no_op" | "excluded"
+
+export type WorkflowBulkPushWorkflowSummary = {
+  workflow_id: string
+  title: string
+  alias?: string | null
+  folder_path?: string | null
+  latest_definition_version: number
+  latest_definition_created_at: string
+}
+
 export type WorkflowCommitResponse = {
   workflow_id: string
   status: "success" | "failure"
@@ -6908,7 +6980,7 @@ export type WorkflowCommitResponse = {
   } | null
 }
 
-export type status3 = "success" | "failure"
+export type status4 = "success" | "failure"
 
 /**
  * API response model for persisted workflow definitions.
@@ -6945,6 +7017,7 @@ export type WorkflowDirectoryItem = {
   error_handler?: string | null
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
+  folder_path?: string | null
   trigger_summary?: WorkflowTriggerSummary | null
   type: "workflow"
 }
@@ -6966,8 +7039,6 @@ export type WorkflowDslPublishResult = {
   pr_reused?: boolean
   message: string
 }
-
-export type status4 = "committed" | "no_op"
 
 export type WorkflowEntrypointValidationRequest = {
   expects?: {
@@ -7513,6 +7584,7 @@ export type WorkflowReadMinimal = {
   error_handler?: string | null
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
+  folder_path?: string | null
   trigger_summary?: WorkflowTriggerSummary | null
 }
 
@@ -8447,6 +8519,21 @@ export type WorkflowsPublishWorkflowData = {
 }
 
 export type WorkflowsPublishWorkflowResponse = WorkflowDslPublishResult
+
+export type WorkflowsPreviewBulkPushWorkflowsData = {
+  requestBody: WorkflowBulkPushPreviewRequest
+  workspaceId: string
+}
+
+export type WorkflowsPreviewBulkPushWorkflowsResponse =
+  WorkflowBulkPushPreviewResponse
+
+export type WorkflowsBulkPushWorkflowsData = {
+  requestBody: WorkflowBulkPushRequest
+  workspaceId: string
+}
+
+export type WorkflowsBulkPushWorkflowsResponse = WorkflowBulkPushResult
 
 export type WorkflowsListWorkflowCommitsData = {
   /**
@@ -11762,6 +11849,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkflowDslPublishResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/push/preview": {
+    post: {
+      req: WorkflowsPreviewBulkPushWorkflowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowBulkPushPreviewResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/push": {
+    post: {
+      req: WorkflowsBulkPushWorkflowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowBulkPushResult
         /**
          * Validation Error
          */

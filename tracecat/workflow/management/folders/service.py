@@ -680,6 +680,7 @@ class WorkflowFolderService(BaseWorkspaceService):
                     status=workflow.status,
                     latest_definition=latest_definition,
                     icon_url=workflow.icon_url,
+                    folder_path=path if path != "/" else None,
                     tags=[
                         TagRead.model_validate(tag, from_attributes=True)
                         for tag in workflow.tags

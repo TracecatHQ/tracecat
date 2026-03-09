@@ -492,6 +492,11 @@ interface WorkflowsHeaderProps {
   onPreviousPage: () => void
   onNextPage: () => void
   isPaginationLoading?: boolean
+  selectableItemCount?: number
+  selectedCount?: number
+  onSelectAll?: () => void
+  onDeselectAll?: () => void
+  selectionActions?: ReactNode
 }
 
 export function WorkflowsHeader({
@@ -520,6 +525,11 @@ export function WorkflowsHeader({
   onPreviousPage,
   onNextPage,
   isPaginationLoading = false,
+  selectableItemCount = 0,
+  selectedCount = 0,
+  onSelectAll,
+  onDeselectAll,
+  selectionActions,
 }: WorkflowsHeaderProps) {
   const hasFilters =
     searchQuery.trim().length > 0 ||
@@ -607,7 +617,42 @@ export function WorkflowsHeader({
         </div>
       </header>
 
-      <div className="flex flex-wrap items-center gap-2 px-4 py-2">
+      <div className="flex flex-wrap items-center gap-2 py-2 pl-3 pr-4">
+        {selectableItemCount > 0 && (
+          <button
+            type="button"
+            onClick={
+              selectedCount === selectableItemCount
+                ? onDeselectAll
+                : onSelectAll
+            }
+            className="flex h-7 w-7 shrink-0 items-center justify-center"
+            aria-label={
+              selectedCount === selectableItemCount
+                ? "Deselect all"
+                : "Select all"
+            }
+            title={
+              selectedCount === selectableItemCount
+                ? "Deselect all"
+                : "Select all"
+            }
+          >
+            <div
+              className={cn(
+                "flex size-4 shrink-0 items-center justify-center rounded-sm border transition-colors",
+                selectedCount === selectableItemCount
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-muted-foreground/40 bg-transparent"
+              )}
+            >
+              {selectedCount === selectableItemCount && (
+                <Check className="size-3" aria-hidden />
+              )}
+            </div>
+          </button>
+        )}
+
         <Select
           value={view}
           onValueChange={(nextView) =>
@@ -671,7 +716,8 @@ export function WorkflowsHeader({
           </button>
         )}
 
-        <div className="ml-auto flex items-center">
+        <div className="ml-auto flex items-center gap-2">
+          {selectionActions}
           <Select
             value={`${limit}`}
             onValueChange={(value) => onLimitChange(Number(value))}

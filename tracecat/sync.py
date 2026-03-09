@@ -88,8 +88,22 @@ class PushOptions:
     pr_base_branch: str | None = None
     """Optional PR base branch override; defaults to repository default branch."""
 
+    pr_title: str | None = None
+    """Optional pull request title override."""
+
+    pr_body: str | None = None
+    """Optional pull request body override."""
+
     sign: bool = False
     """GPG signing if configured"""
+
+
+@dataclass(frozen=True)
+class PushObjectResult:
+    """Per-object result for a push operation."""
+
+    path: str
+    status: PushStatus
 
 
 @dataclass(frozen=True)
@@ -119,6 +133,9 @@ class CommitInfo:
 
     message: str = ""
     """Human-readable summary of the push outcome."""
+
+    object_results: list[PushObjectResult] | None = None
+    """Per-object outcomes for batch push operations."""
 
 
 @dataclass(frozen=True)
