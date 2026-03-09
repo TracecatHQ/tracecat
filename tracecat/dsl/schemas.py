@@ -363,6 +363,13 @@ class ActionStatement(BaseModel):
         default=None,
         description="Override environment for this action's execution. Can be a template expression.",
     )
+    disable_secrets_masking: bool = Field(
+        default=False,
+        description=(
+            "Disable secret masking for this action output. "
+            "This is unsafe and should only be enabled when absolutely necessary."
+        ),
+    )
 
     @property
     def title(self) -> str:
