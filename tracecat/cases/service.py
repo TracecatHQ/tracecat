@@ -1384,7 +1384,7 @@ class CaseCommentsService(BaseWorkspaceService):
         )
 
     async def _require_workflow_execute_scope(self) -> None:
-        user_scopes = self.role.scopes or frozenset()
+        user_scopes = self.role.scopes if self.role.scopes is not None else frozenset()
         required = {"workflow:execute"}
         if missing := get_missing_scopes(user_scopes, required):
             raise ScopeDeniedError(
@@ -1759,6 +1759,7 @@ class CaseCommentsService(BaseWorkspaceService):
                     comment_id=comment.id,
                     parent_id=comment.parent_id,
                 ),
+                publish_case_trigger=workflow is None or wf_exec_id is None,
             )
             if workflow is not None and wf_exec_id is not None:
                 await self._audit_workflow_execution_event(
@@ -2030,7 +2031,13 @@ class CaseEventsService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().all()
 
-    async def create_event(self, case: Case, event: CaseEventVariant) -> CaseEvent:
+    async def create_event(
+        self,
+        case: Case,
+        event: CaseEventVariant,
+        *,
+        publish_case_trigger: bool = True,
+    ) -> CaseEvent:
         """Create a new activity record for a case with variant-specific data.
 
         Note: This method is non-committing. The caller is responsible for
@@ -2060,16 +2067,18 @@ class CaseEventsService(BaseWorkspaceService):
         case_id = str(case.id)
         workspace_id = str(case.workspace_id)
 
-        async def _publish_case_event() -> None:
-            await publish_case_event_payload(
-                event_id=event_id,
-                case_id=case_id,
-                workspace_id=workspace_id,
-                event_type=event_type,
-                created_at=created_at,
-            )
+        if publish_case_trigger:
 
-        add_after_commit_callback(self.session, _publish_case_event)
+            async def _publish_case_event() -> None:
+                await publish_case_event_payload(
+                    event_id=event_id,
+                    case_id=case_id,
+                    workspace_id=workspace_id,
+                    event_type=event_type,
+                    created_at=created_at,
+                )
+
+            add_after_commit_callback(self.session, _publish_case_event)
 
         # Auto-sync durations whenever an event is created
         durations_service = CaseDurationService(session=self.session, role=self.role)

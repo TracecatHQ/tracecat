@@ -631,7 +631,13 @@ class CaseTriggerConsumer:
                 if defn.registry_lock
                 else None,
             )
-        except Exception:
+        except Exception as e:
+            logger.error(
+                "Failed to dispatch explicit case comment workflow",
+                error=str(e),
+                workflow_id=str(workflow_id),
+                event_id=str(event.id),
+            )
             await self._set_comment_workflow_status(
                 session,
                 workspace_id=case.workspace_id,

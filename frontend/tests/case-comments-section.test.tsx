@@ -615,4 +615,62 @@ describe("CommentSection", () => {
     )
     expect(screen.queryByText("avatar")).not.toBeInTheDocument()
   })
+
+  it("falls back to the comment execution id for the workflow run link", () => {
+    mockUseCaseCommentThreads.mockReturnValue({
+      caseCommentThreads: [
+        {
+          comment: {
+            id: "workflow-comment-2",
+            created_at: "2024-01-01T00:00:00Z",
+            updated_at: "2024-01-01T00:00:00Z",
+            content: "Kick off the workflow",
+            parent_id: null,
+            workflow: {
+              workflow_id: "workflow-1",
+              title: "Escalate case",
+              alias: "escalate_case",
+              wf_exec_id: "wf_789/exec_999",
+              status: "running",
+            },
+            user: {
+              id: "user-1",
+              email: "owner@example.com",
+              role: "admin",
+              first_name: "Owner",
+              last_name: "One",
+              settings: {},
+            },
+            last_edited_at: null,
+            deleted_at: null,
+            is_deleted: false,
+          },
+          replies: [],
+          reply_count: 0,
+          last_activity_at: "2024-01-01T00:00:00Z",
+        },
+      ],
+      caseCommentThreadsIsLoading: false,
+      caseCommentThreadsError: null,
+    })
+    mockUseCaseComments.mockReturnValue({
+      caseComments: [],
+      caseCommentsIsLoading: false,
+      caseCommentsError: null,
+    })
+    mockUseCompactWorkflowExecution.mockReturnValue({
+      execution: null,
+      executionIsLoading: false,
+      executionError: null,
+    })
+
+    renderCommentSection()
+
+    expect(
+      screen.getByRole("link", { name: "Open workflow run" })
+    ).toHaveAttribute(
+      "href",
+      "/workspaces/workspace-1/workflows/wf_789/executions/exec_999"
+    )
+  })
 })

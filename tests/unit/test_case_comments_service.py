@@ -285,10 +285,12 @@ class TestCaseCommentsService:
         test_case: Case,
         workflow: Workflow,
     ) -> None:
+        callbacks: list[object] = []
+
         with (
             patch(
                 "tracecat.cases.service.add_after_commit_callback",
-                side_effect=lambda _session, _callback: None,
+                side_effect=lambda _session, _callback: callbacks.append(_callback),
             ),
             patch(
                 "tracecat.cases.service.publish_case_event_payload",
@@ -303,6 +305,7 @@ class TestCaseCommentsService:
                 ),
             )
 
+        assert callbacks == []
         workflow_publish = next(
             kwargs
             for _, kwargs in publish_mock.await_args_list

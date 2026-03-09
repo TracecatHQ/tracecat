@@ -2160,6 +2160,7 @@ class CaseComment(WorkspaceModel):
     )
     workflow_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
+        ForeignKey("workflow.id", ondelete="SET NULL"),
         nullable=True,
         doc="The selected workflow ID for workflow-backed comments.",
     )

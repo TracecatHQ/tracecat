@@ -522,7 +522,7 @@ function CommentRow({
     : getWorkflowCommentStatus(comment)
   const workflowRunPath = getWorkflowRunPath(
     workspaceId,
-    execution ? execution.id : null
+    execution?.id ?? comment.workflow?.wf_exec_id ?? null
   )
   const canManage = !comment.is_deleted && currentUserId === comment.user?.id
 

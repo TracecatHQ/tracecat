@@ -56,6 +56,7 @@ from tracecat.validation.schemas import (
 )
 from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.schemas import ActionControlFlow, ActionEdge
+from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.enums import ExecutionType
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.schemas import (
@@ -543,16 +544,9 @@ class WorkflowsManagementService(BaseWorkspaceService):
             changed = True
 
         if workflow.case_trigger is None:
-            case_trigger = CaseTrigger(
-                workspace_id=self.workspace_id,
-                workflow_id=workflow.id,
-                status="offline",
-                event_types=[],
-                tag_filters=[],
-            )
-            case_trigger.workflow = workflow
-            workflow.case_trigger = case_trigger
-            self.session.add(case_trigger)
+            await CaseTriggersService(
+                session=self.session, role=self.role
+            )._ensure_case_trigger_exists(WorkflowUUID.new(workflow.id), commit=False)
             changed = True
 
         if changed:
