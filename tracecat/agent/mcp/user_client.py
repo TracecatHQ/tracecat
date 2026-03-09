@@ -15,6 +15,12 @@ from fastmcp import Client
 from fastmcp.client.transports import SSETransport, StreamableHttpTransport
 
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
+from tracecat.agent.mcp.utils import (
+    REGISTRY_MCP_SERVER_NAMES,
+    canonical_user_mcp_tool_name,
+    decode_legacy_tool_name_to_canonical,
+    parse_canonical_user_mcp_tool_name,
+)
 from tracecat.logger import logger
 
 
@@ -64,7 +70,7 @@ class UserMCPClient:
         """Connect to all configured servers and discover their tools.
 
         Returns:
-            Dict mapping tool names (mcp__{server_name}__{tool_name}) to definitions.
+            Dict mapping canonical tool names to definitions.
 
         """
         tools: dict[str, MCPToolDefinition] = {}
@@ -102,19 +108,18 @@ class UserMCPClient:
             config: Server configuration.
 
         Returns:
-            Dict mapping prefixed tool names to definitions.
+            Dict mapping canonical tool names to definitions.
 
         """
         server_tools = await self._list_server_tools(server_name, config)
         tools: dict[str, MCPToolDefinition] = {}
 
         for tool in server_tools:
-            # Create prefixed tool name: mcp__{server_name}__{tool_name}
-            prefixed_name = f"mcp__{server_name}__{tool.name}"
+            canonical_name = canonical_user_mcp_tool_name(server_name, tool.name)
 
             # Convert MCP tool schema to our format
-            tools[prefixed_name] = MCPToolDefinition(
-                name=prefixed_name,
+            tools[canonical_name] = MCPToolDefinition(
+                name=canonical_name,
                 description=tool.description or f"Tool from {server_name}",
                 parameters_json_schema=tool.inputSchema or {},
             )
@@ -123,7 +128,7 @@ class UserMCPClient:
                 "Discovered user MCP tool",
                 server_name=server_name,
                 tool_name=tool.name,
-                prefixed_name=prefixed_name,
+                canonical_name=canonical_name,
             )
 
         return tools
@@ -271,7 +276,7 @@ class UserMCPClient:
     def parse_user_mcp_tool_name(tool_name: str) -> tuple[str, str] | None:
         """Parse a user MCP tool name into (server_name, tool_name).
 
-        User MCP tools follow the pattern: mcp__{server_name}__{tool_name}
+        Canonical user MCP tools follow the pattern: mcp.{server_name}.{tool_name}
 
         Args:
             tool_name: Full tool name to parse.
@@ -280,23 +285,17 @@ class UserMCPClient:
             Tuple of (server_name, original_tool_name), or None if not a user MCP tool.
 
         """
-        # Skip tracecat registry-reserved prefixes (handled separately).
-        # Support both alias forms.
-        if tool_name.startswith("mcp__tracecat-registry__") or tool_name.startswith(
-            "mcp__tracecat_registry__"
+        canonical_name = decode_legacy_tool_name_to_canonical(tool_name)
+        if parsed := parse_canonical_user_mcp_tool_name(canonical_name):
+            return parsed
+
+        if any(
+            canonical_name.startswith(f"mcp.{alias}.")
+            for alias in REGISTRY_MCP_SERVER_NAMES
         ):
             return None
 
-        # Check for user MCP pattern
-        if not tool_name.startswith("mcp__"):
-            return None
-
-        parts = tool_name.split("__", 2)
-        if len(parts) < 3:
-            return None
-
-        # parts[0] = "mcp", parts[1] = server_name, parts[2] = tool_name
-        return (parts[1], parts[2])
+        return None
 
 
 async def discover_user_mcp_tools(

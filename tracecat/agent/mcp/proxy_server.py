@@ -5,7 +5,7 @@ forwards execution requests to the trusted MCP server via Unix socket.
 
 Handles two types of tools:
 1. Registry actions (e.g., core.cases.list_cases) -> execute_action_tool
-2. User MCP tools (e.g., mcp__my-server__my_tool) -> execute_user_mcp_tool
+2. User MCP tools (e.g., mcp.jira.getIssue) -> execute_user_mcp_tool
 """
 
 from __future__ import annotations
@@ -20,8 +20,10 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
 from tracecat.agent.common.types import MCPToolDefinition
-from tracecat.agent.mcp.user_client import UserMCPClient
-from tracecat.agent.mcp.utils import action_name_to_mcp_tool_name
+from tracecat.agent.mcp.utils import (
+    encode_canonical_tool_name_to_sdk,
+    parse_canonical_user_mcp_tool_name,
+)
 from tracecat.agent.sandbox.config import TRUSTED_MCP_SOCKET_PATH
 from tracecat.logger import logger
 
@@ -137,12 +139,12 @@ async def create_proxy_mcp_server(
 
     Handles three types of tools:
     - Registry actions (e.g., core.cases.list_cases) -> execute_action_tool
-    - User MCP tools (e.g., mcp__my-server__my_tool) -> execute_user_mcp_tool
+    - User MCP tools (e.g., mcp.Linear.list_issues) -> execute_user_mcp_tool
     - Internal tools (e.g., internal.builder.get_preset_summary) -> execute_internal_tool
 
     Args:
         allowed_actions: Dict mapping action names to their definitions.
-            User MCP tools use the format mcp__{server_name}__{tool_name}.
+            User MCP tools use the canonical format mcp.{server_name}.{tool_name}.
             Internal tools use the format internal.{category}.{tool_name}.
         auth_token: JWT token for authenticating with trusted server.
 
@@ -153,10 +155,10 @@ async def create_proxy_mcp_server(
 
     for action_name, defn in allowed_actions.items():
         # Check if this is a user MCP tool
-        parsed = UserMCPClient.parse_user_mcp_tool_name(action_name)
+        parsed = parse_canonical_user_mcp_tool_name(action_name)
 
         if parsed:
-            # User MCP tool: mcp__{server_name}__{tool_name}
+            # User MCP tool: mcp.{server_name}.{tool_name}
             server_name, original_tool_name = parsed
             handler = _make_tool_handler(
                 "execute_user_mcp_tool",
@@ -168,8 +170,7 @@ async def create_proxy_mcp_server(
                     "tool_name": original_tool_name,
                 },
             )
-            # Use the full prefixed name as MCP tool name (already in correct format)
-            mcp_tool_name = action_name
+            mcp_tool_name = encode_canonical_tool_name_to_sdk(action_name)
             tool_type = "user_mcp"
         elif action_name.startswith("internal."):
             # Internal tool: internal.{category}.{tool_name}
@@ -179,8 +180,7 @@ async def create_proxy_mcp_server(
                 auth_token,
                 {"tool_type": "internal", "tool_name": action_name},
             )
-            # Convert dots to underscores for MCP compatibility
-            mcp_tool_name = action_name_to_mcp_tool_name(action_name)
+            mcp_tool_name = encode_canonical_tool_name_to_sdk(action_name)
             tool_type = "internal"
         else:
             # Registry action tool
@@ -190,8 +190,7 @@ async def create_proxy_mcp_server(
                 auth_token,
                 {"tool_type": "registry", "action_name": action_name},
             )
-            # Convert dots to underscores for MCP compatibility
-            mcp_tool_name = action_name_to_mcp_tool_name(action_name)
+            mcp_tool_name = encode_canonical_tool_name_to_sdk(action_name)
             tool_type = "registry"
 
         decorated = tool(mcp_tool_name, defn.description, defn.parameters_json_schema)(

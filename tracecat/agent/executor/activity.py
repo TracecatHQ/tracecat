@@ -46,7 +46,6 @@ from tracecat.agent.executor.loopback import (
     LoopbackResult,
 )
 from tracecat.agent.mcp.executor import ActionExecutionError, execute_action
-from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
 from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime
 from tracecat.agent.session.service import AgentSessionService
@@ -752,8 +751,7 @@ async def execute_approved_tools_activity(
         activity.heartbeat(f"Executing tool: {tool_call.tool_name}")
 
         try:
-            # Normalize tool name (MCP format -> action name)
-            action_name = normalize_mcp_tool_name(tool_call.tool_name)
+            action_name = tool_call.tool_name
 
             logger.info(
                 "Executing approved tool",

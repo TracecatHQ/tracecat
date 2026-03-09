@@ -59,7 +59,7 @@ async def test_discover_user_mcp_tools_falls_back_to_sse(
         ("list_tools", "streamable-http"),
         ("list_tools", "sse"),
     ]
-    assert "mcp__jira__lookup" in tools
+    assert "mcp.jira.lookup" in tools
 
 
 @pytest.mark.anyio

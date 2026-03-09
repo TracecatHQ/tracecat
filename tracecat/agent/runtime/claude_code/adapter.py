@@ -20,7 +20,7 @@ from tracecat.agent.common.stream_types import (
     StreamEventType,
     UnifiedStreamEvent,
 )
-from tracecat.agent.mcp.utils import normalize_mcp_tool_name
+from tracecat.agent.mcp.utils import decode_sdk_tool_name_to_canonical
 
 
 @dataclass(slots=True, kw_only=True)
@@ -175,12 +175,12 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
             if tool_call_id is None:
                 raise ValueError("Claude tool_use block missing required 'id' field")
             raw_tool_name = content_block.get("name", "unknown")
-            normalized_tool_name = normalize_mcp_tool_name(raw_tool_name)
+            canonical_tool_name = decode_sdk_tool_name_to_canonical(raw_tool_name)
             return UnifiedStreamEvent(
                 type=StreamEventType.TOOL_CALL_START,
                 part_id=index,
                 tool_call_id=tool_call_id,
-                tool_name=normalized_tool_name,
+                tool_name=canonical_tool_name,
                 tool_input={},
             )
         else:
@@ -256,12 +256,12 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
                 )
             # Normalize tool name for display
             raw_tool_name = (state.tool_name if state else None) or "unknown"
-            normalized_tool_name = normalize_mcp_tool_name(raw_tool_name)
+            canonical_tool_name = decode_sdk_tool_name_to_canonical(raw_tool_name)
             return UnifiedStreamEvent(
                 type=StreamEventType.TOOL_CALL_STOP,
                 part_id=index,
                 tool_call_id=tool_call_id,
-                tool_name=normalized_tool_name,
+                tool_name=canonical_tool_name,
                 tool_input=args,
             )
         else:

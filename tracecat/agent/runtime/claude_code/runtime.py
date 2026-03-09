@@ -52,7 +52,7 @@ from tracecat.agent.common.types import (
     MCPToolDefinition,
 )
 from tracecat.agent.mcp.proxy_server import create_proxy_mcp_server
-from tracecat.agent.mcp.utils import normalize_mcp_tool_name
+from tracecat.agent.mcp.utils import decode_sdk_tool_name_to_canonical
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
 from tracecat.logger import logger
 
@@ -379,7 +379,7 @@ class ClaudeAgentRuntime:
         tool_name: str = input_data.get("tool_name", "")
         tool_input: dict[str, Any] = input_data.get("tool_input", {})
 
-        action_name = normalize_mcp_tool_name(tool_name)
+        action_name = decode_sdk_tool_name_to_canonical(tool_name)
         requires_approval = (
             self.tool_approvals is not None
             and self.tool_approvals.get(action_name) is True

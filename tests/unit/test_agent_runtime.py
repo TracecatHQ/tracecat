@@ -304,7 +304,7 @@ class TestClaudeAgentRuntimePreToolUseHook:
     """Tests for ClaudeAgentRuntime._pre_tool_use_hook().
 
     The hook uses these rules:
-    1. Auto-approve if it's a user MCP tool (starts with mcp__ but not mcp__tracecat-registry__)
+    1. Auto-approve if it's a user MCP tool
     2. Auto-approve if action is in registry_tools AND doesn't require approval
     3. Deny with reason if requires_approval is True
     4. Deny without reason otherwise (tool not allowed)
@@ -321,10 +321,10 @@ class TestClaudeAgentRuntimePreToolUseHook:
         runtime.registry_tools = sample_init_payload.allowed_actions
         runtime.tool_approvals = sample_init_payload.config.tool_approvals
 
-        # User MCP tool format: mcp__{server_name}__{tool_name}
+        # Claude SDK tool name routed through the registry MCP proxy.
         result = await runtime._pre_tool_use_hook(
             input_data=make_hook_input(
-                tool_name="mcp__tracecat-registry__mcp__some_tool",
+                tool_name="mcp__tracecat-registry__mcp__jira__getIssue",
                 tool_input={"arg": "value"},
             ),
             tool_use_id="call-1",

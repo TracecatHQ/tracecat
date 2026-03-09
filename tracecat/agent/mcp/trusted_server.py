@@ -29,7 +29,7 @@ from tracecat.agent.mcp.internal_tools import (
     InternalToolError,
 )
 from tracecat.agent.mcp.user_client import UserMCPClient
-from tracecat.agent.mcp.utils import normalize_mcp_tool_name
+from tracecat.agent.mcp.utils import decode_legacy_tool_name_to_canonical
 from tracecat.agent.tokens import MCPTokenClaims, verify_mcp_token
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -85,7 +85,7 @@ async def execute_action_tool(
         logger.warning("MCP token verification failed", error_type=_safe_error_type(e))
         raise ToolError("Authentication failed") from None
 
-    normalized_action_name = normalize_mcp_tool_name(action_name)
+    normalized_action_name = decode_legacy_tool_name_to_canonical(action_name)
 
     # Set role context before any service calls that require organization context
     _set_role_context(claims)

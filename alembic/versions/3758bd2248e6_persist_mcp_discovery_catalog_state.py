@@ -121,50 +121,6 @@ def upgrade() -> None:
         "USING gin (lower(artifact_ref) gin_trgm_ops)"
     )
 
-    op.create_table(
-        "mcp_integration_discovery_attempt",
-        sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("mcp_integration_id", sa.UUID(), nullable=False),
-        sa.Column("workspace_id", sa.UUID(), nullable=False),
-        sa.Column("trigger", sa.String(length=32), nullable=False),
-        sa.Column("status", sa.String(length=16), nullable=False),
-        sa.Column("catalog_version", sa.Integer(), nullable=True),
-        sa.Column("started_at", sa.TIMESTAMP(timezone=True), nullable=False),
-        sa.Column("finished_at", sa.TIMESTAMP(timezone=True), nullable=True),
-        sa.Column("duration_ms", sa.Integer(), nullable=True),
-        sa.Column(
-            "artifact_counts", postgresql.JSONB(astext_type=sa.Text()), nullable=True
-        ),
-        sa.Column("error_code", sa.String(length=64), nullable=True),
-        sa.Column("error_summary", sa.String(length=1024), nullable=True),
-        sa.Column(
-            "error_details", postgresql.JSONB(astext_type=sa.Text()), nullable=True
-        ),
-        sa.ForeignKeyConstraint(
-            ["mcp_integration_id"],
-            ["mcp_integration.id"],
-            name=op.f(
-                "fk_mcp_integration_discovery_attempt_mcp_integration_id_mcp_integration"
-            ),
-            ondelete="CASCADE",
-        ),
-        sa.ForeignKeyConstraint(
-            ["workspace_id"],
-            ["workspace.id"],
-            name=op.f("fk_mcp_integration_discovery_attempt_workspace_id_workspace"),
-            ondelete="CASCADE",
-        ),
-        sa.PrimaryKeyConstraint(
-            "id", name=op.f("pk_mcp_integration_discovery_attempt")
-        ),
-    )
-    op.create_index(
-        op.f("ix_mcp_integration_discovery_attempt_id"),
-        "mcp_integration_discovery_attempt",
-        ["id"],
-        unique=True,
-    )
-
     op.add_column(
         "mcp_integration",
         sa.Column("scope_namespace", sa.String(length=16), nullable=True),
@@ -207,32 +163,6 @@ def upgrade() -> None:
             "last_discovery_error_summary", sa.String(length=1024), nullable=True
         ),
     )
-    op.add_column(
-        "mcp_integration",
-        sa.Column(
-            "sandbox_allow_network",
-            sa.Boolean(),
-            nullable=False,
-            server_default=sa.text("false"),
-        ),
-    )
-    op.add_column(
-        "mcp_integration",
-        sa.Column(
-            "sandbox_egress_allowlist",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=True,
-        ),
-    )
-    op.add_column(
-        "mcp_integration",
-        sa.Column(
-            "sandbox_egress_denylist",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=True,
-        ),
-    )
-
     connection = op.get_bind()
     existing_namespaces = {
         namespace
@@ -274,9 +204,6 @@ def downgrade() -> None:
         "mcp_integration",
         type_="unique",
     )
-    op.drop_column("mcp_integration", "sandbox_egress_denylist")
-    op.drop_column("mcp_integration", "sandbox_egress_allowlist")
-    op.drop_column("mcp_integration", "sandbox_allow_network")
     op.drop_column("mcp_integration", "last_discovery_error_summary")
     op.drop_column("mcp_integration", "last_discovery_error_code")
     op.drop_column("mcp_integration", "last_discovered_at")
@@ -284,12 +211,6 @@ def downgrade() -> None:
     op.drop_column("mcp_integration", "catalog_version")
     op.drop_column("mcp_integration", "discovery_status")
     op.drop_column("mcp_integration", "scope_namespace")
-
-    op.drop_index(
-        op.f("ix_mcp_integration_discovery_attempt_id"),
-        table_name="mcp_integration_discovery_attempt",
-    )
-    op.drop_table("mcp_integration_discovery_attempt")
 
     op.execute(
         "DROP INDEX IF EXISTS ix_mcp_integration_catalog_entry_artifact_ref_trgm"

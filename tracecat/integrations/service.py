@@ -1077,7 +1077,6 @@ class IntegrationService(BaseWorkspaceService):
                 oauth_integration_id=integration.id,
                 discovery_status=MCPDiscoveryStatus.PENDING.value,
                 catalog_version=0,
-                sandbox_allow_network=False,
             )
             self.session.add(mcp_integration)
             await self.session.commit()
@@ -1236,7 +1235,6 @@ class IntegrationService(BaseWorkspaceService):
             timeout=params.timeout,
             discovery_status=MCPDiscoveryStatus.PENDING.value,
             catalog_version=0,
-            sandbox_allow_network=False,
         )
 
         self.session.add(mcp_integration)

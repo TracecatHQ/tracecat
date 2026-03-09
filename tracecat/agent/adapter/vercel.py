@@ -60,7 +60,7 @@ from pydantic_ai.messages import (
 from pydantic_core import to_json
 
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
-from tracecat.agent.mcp.utils import normalize_mcp_tool_name
+from tracecat.agent.mcp.utils import decode_legacy_tool_name_to_canonical
 from tracecat.agent.stream.events import (
     StreamDelta,
     StreamEnd,
@@ -1491,7 +1491,7 @@ def convert_chat_messages_to_ui(
             approval = chat_message.approval
             # Create an assistant message with the approval data part
             # Normalize tool name for display
-            tool_name = normalize_mcp_tool_name(approval.tool_name)
+            tool_name = decode_legacy_tool_name_to_canonical(approval.tool_name)
             approval_data = {
                 "tool_call_id": approval.tool_call_id,
                 "tool_name": tool_name,
@@ -1573,7 +1573,7 @@ def convert_chat_messages_to_ui(
                 case "ToolCallPart" | "BuiltinToolCallPart":
                     if approval_payload:
                         continue
-                    tool_name = normalize_mcp_tool_name(part.tool_name)
+                    tool_name = part.tool_name
                     tool_part = MutableToolPart(
                         type=f"tool-{tool_name}",
                         tool_call_id=part.tool_call_id,
@@ -1597,7 +1597,7 @@ def convert_chat_messages_to_ui(
                         tool_name = tool_input.get("tool_name", part.name)
                         tool_input = tool_input.get("args", tool_input)
                     # Normalize MCP registry prefix
-                    tool_name = normalize_mcp_tool_name(tool_name)
+                    tool_name = decode_legacy_tool_name_to_canonical(tool_name)
                     tool_part = MutableToolPart(
                         type=f"tool-{tool_name}",
                         tool_call_id=part.id,
@@ -1616,7 +1616,7 @@ def convert_chat_messages_to_ui(
                     if existing is not None:
                         existing.set_result(part.content, structured_error)
                     else:
-                        tool_name = normalize_mcp_tool_name(part.tool_name)
+                        tool_name = part.tool_name
                         tool_part = MutableToolPart.with_result(
                             type=f"tool-{tool_name}",
                             tool_call_id=part.tool_call_id,
@@ -1658,9 +1658,7 @@ def convert_chat_messages_to_ui(
                         if existing is not None:
                             existing.set_result(part.content, is_error=True)
                         else:
-                            tool_name = normalize_mcp_tool_name(
-                                getattr(part, "tool_name", "unknown")
-                            )
+                            tool_name = getattr(part, "tool_name", "unknown")
                             tool_part = MutableToolPart.with_result(
                                 type=f"tool-{tool_name}",
                                 tool_call_id=tool_call_id,

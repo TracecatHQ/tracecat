@@ -116,9 +116,6 @@ class TestMCPIntegrationCRUD:
         assert mcp_integration.last_discovered_at is None
         assert mcp_integration.last_discovery_error_code is None
         assert mcp_integration.last_discovery_error_summary is None
-        assert mcp_integration.sandbox_allow_network is False
-        assert mcp_integration.sandbox_egress_allowlist is None
-        assert mcp_integration.sandbox_egress_denylist is None
         assert mcp_integration.created_at is not None
         assert mcp_integration.updated_at is not None
 

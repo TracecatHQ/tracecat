@@ -1,7 +1,15 @@
-"""MCP utility functions for tool name normalization and definition fetching.
+"""MCP utility functions for canonical tool naming and definition fetching.
 
-This module provides pure utility functions for MCP tool name conversion
-that can be imported without pulling in heavy dependencies (DB, logging).
+This module owns the conversion between Tracecat's canonical internal tool names
+and the wire names used by Claude/MCP.
+
+Canonical internal names:
+- Registry tools: ``core.http_request``
+- Internal tools: ``internal.builder.get_preset_summary``
+- User MCP tools: ``mcp.Linear.list_issues``
+
+Wire/legacy names are decoded at the edges and should not leak deeper into
+Tracecat-owned state.
 
 The fetch_tool_definitions() function requires DB access and uses lazy imports.
 """
@@ -9,6 +17,8 @@ The fetch_tool_definitions() function requires DB access and uses lazy imports.
 from __future__ import annotations
 
 from tracecat.agent.common.types import MCPToolDefinition
+
+REGISTRY_MCP_SERVER_NAMES = frozenset({"tracecat-registry", "tracecat_registry"})
 
 
 def action_name_to_mcp_tool_name(action_name: str) -> str:
@@ -27,66 +37,69 @@ def mcp_tool_name_to_action_name(tool_name: str) -> str:
     return tool_name.replace("__", ".")
 
 
+def canonical_user_mcp_tool_name(server_name: str, tool_name: str) -> str:
+    """Build the canonical internal name for a user MCP tool."""
+    return f"mcp.{server_name}.{tool_name}"
+
+
+def parse_canonical_user_mcp_tool_name(
+    tool_name: str,
+) -> tuple[str, str] | None:
+    """Parse a canonical user MCP tool name into ``(server_name, tool_name)``."""
+    if not tool_name.startswith("mcp."):
+        return None
+
+    parts = tool_name.split(".", 2)
+    if len(parts) < 3 or parts[1] in REGISTRY_MCP_SERVER_NAMES:
+        return None
+    return (parts[1], parts[2])
+
+
+def encode_canonical_tool_name_to_sdk(tool_name: str) -> str:
+    """Encode a canonical tool name into the MCP tool name exposed to Claude."""
+    if parsed := parse_canonical_user_mcp_tool_name(tool_name):
+        server_name, original_tool_name = parsed
+        return f"mcp__{server_name}__{original_tool_name}"
+    return action_name_to_mcp_tool_name(tool_name)
+
+
+def decode_sdk_tool_name_to_canonical(raw_tool_name: str) -> str:
+    """Decode a raw SDK/MCP tool name into Tracecat's canonical form."""
+    if parsed := parse_canonical_user_mcp_tool_name(raw_tool_name):
+        return canonical_user_mcp_tool_name(*parsed)
+
+    if raw_tool_name.startswith("mcp__"):
+        parts = raw_tool_name.split("__", 2)
+        if len(parts) >= 3:
+            server_name, server_tool_name = parts[1], parts[2]
+            if server_name in REGISTRY_MCP_SERVER_NAMES:
+                return decode_sdk_tool_name_to_canonical(server_tool_name)
+            return canonical_user_mcp_tool_name(server_name, server_tool_name)
+
+    if "__" in raw_tool_name:
+        return mcp_tool_name_to_action_name(raw_tool_name)
+
+    return raw_tool_name
+
+
+def decode_legacy_tool_name_to_canonical(tool_name: str) -> str:
+    """Decode legacy persisted/wire tool names into Tracecat's canonical form."""
+    if any(
+        tool_name.startswith(f"mcp.{alias}.") for alias in REGISTRY_MCP_SERVER_NAMES
+    ):
+        _, _, remainder = tool_name.split(".", 2)
+        return decode_sdk_tool_name_to_canonical(remainder)
+
+    return decode_sdk_tool_name_to_canonical(tool_name)
+
+
 def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
-    """Convert MCP tool name to readable action name for display.
+    """Backward-compatible wrapper for legacy call sites.
 
-    MCP tool naming convention: mcp__{server_name}__{tool_name}
-
-    Handles Tracecat registry tools:
-    - mcp__tracecat-registry__tools__slack__post_message -> tools.slack.post_message
-    - mcp.tracecat-registry.core.cases.create_case -> core.cases.create_case
-
-    Handles user MCP servers routed through the proxy:
-    - mcp__tracecat-registry__mcp__Linear__list_issues -> mcp.Linear.list_issues
-    - mcp.tracecat-registry.mcp.Linear.list_issues -> mcp.Linear.list_issues
-
-    Other MCP tool names are returned as-is.
-
-    Args:
-        mcp_tool_name: The MCP tool name to normalize
-
-    Returns:
-        Human-readable action/tool name
+    Prefer ``decode_sdk_tool_name_to_canonical()`` or
+    ``decode_legacy_tool_name_to_canonical()`` at new call sites.
     """
-    # Handle user MCP tools routed through proxy (dot-separated, persisted)
-    # Pattern: mcp.tracecat-registry.mcp.{server}.{tool}
-    if mcp_tool_name.startswith("mcp.tracecat-registry.mcp."):
-        # Extract mcp.{server}.{tool} part
-        return mcp_tool_name.replace("mcp.tracecat-registry.", "", 1)
-
-    # Handle user MCP tools routed through proxy (underscore-separated, runtime)
-    # Pattern: mcp__tracecat-registry__mcp__{server}__{tool}
-    if mcp_tool_name.startswith("mcp__tracecat-registry__mcp__"):
-        # Extract mcp__{server}__{tool} part and convert to mcp.{server}.{tool}
-        tool_part = mcp_tool_name.replace("mcp__tracecat-registry__", "")
-        return mcp_tool_name_to_action_name(tool_part)
-
-    # Handle dot-separated format (persisted messages) for registry tools
-    if mcp_tool_name.startswith("mcp.tracecat-registry."):
-        return mcp_tool_name.replace("mcp.tracecat-registry.", "", 1)
-
-    # Handle underscore-separated format (runtime MCP tool names) for registry tools
-    if mcp_tool_name.startswith("mcp__tracecat-registry__"):
-        tool_part = mcp_tool_name.replace("mcp__tracecat-registry__", "")
-        return mcp_tool_name_to_action_name(tool_part)
-
-    # Generic MCP prefix stripping for any other servers
-    # Handle pattern: mcp.{server-name}.{tool_name}
-    if mcp_tool_name.startswith("mcp."):
-        parts = mcp_tool_name.split(".", 2)
-        if len(parts) >= 3:
-            # Return everything after mcp.{server-name}.
-            return parts[2]
-
-    # Handle pattern: mcp__{server-name}__{tool_name}
-    if mcp_tool_name.startswith("mcp__"):
-        parts = mcp_tool_name.split("__", 2)
-        if len(parts) >= 3:
-            # Return everything after mcp__{server-name}__ with underscores -> dots
-            return mcp_tool_name_to_action_name(parts[2])
-
-    # Other tool names returned as-is
-    return mcp_tool_name
+    return decode_legacy_tool_name_to_canonical(mcp_tool_name)
 
 
 async def fetch_tool_definitions(
