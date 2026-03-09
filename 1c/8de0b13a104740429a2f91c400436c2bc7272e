@@ -1,0 +1,27 @@
+frontend/src/components/dashboard/workflow-folders-table.tsx
+  f8bfde94ed7502ac 8,100-105,143
+frontend/src/components/dashboard/dashboard-table.tsx
+  f8bfde94ed7502ac 8,54-59,86
+frontend/src/components/dashboard/workflows-dashboard.tsx
+  f8bfde94ed7502ac 5,34-35,40-42,44-45,54,66,70-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "1c8de0b13a104740429a2f91c400436c2bc7272e",
+  "prompts": {
+    "f8bfde94ed7502ac": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cd319-d65a-7550-98c4-402d124f949c",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 51,
+      "total_deletions": 37,
+      "accepted_lines": 29,
+      "overriden_lines": 0
+    }
+  }
+}
