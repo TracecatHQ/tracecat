@@ -1,9 +1,9 @@
 "use client"
 
 import { type ComponentPropsWithoutRef, useState } from "react"
+import { authOauthOidcDatabaseAuthorize } from "@/client"
 import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
-import { getBaseUrl } from "@/lib/api"
 import {
   sanitizeReturnUrl,
   serializeClearPostAuthReturnUrlCookie,
@@ -68,8 +68,9 @@ export function OidcOAuthButton({
   const handleClick = async () => {
     try {
       setIsLoading(true)
+      const { authorization_url } = await authOauthOidcDatabaseAuthorize()
       setPostAuthReturnUrlCookie(returnUrl)
-      window.location.href = `${getBaseUrl()}/auth/oauth/oidc/authorize`
+      window.location.href = authorization_url
     } catch (error) {
       console.error("Error authorizing with OIDC", error)
     } finally {
