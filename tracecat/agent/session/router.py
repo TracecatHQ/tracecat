@@ -32,6 +32,7 @@ from tracecat.chat.schemas import (
     ChatReadMinimal,
     ChatReadVercel,
     ChatRequest,
+    ContinueRunRequest,
 )
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
@@ -326,14 +327,19 @@ async def send_message(
 
         await svc.validate_turn_request(session_id=session_id, request=request)
 
-        # Each execution turn gets a fresh Redis stream buffer. Clear any
-        # leftover entries before starting the next workflow so resumed session
-        # history doesn't get mixed with stale stream events from the prior turn.
         stream = await AgentStream.new(session_id, workspace_id)
-        await stream.reset_for_new_turn()
-        # Read from the beginning of the freshly cleared stream so we still pick
-        # up events emitted before the SSE response starts consuming.
-        start_id = "0-0"
+        if isinstance(request, ContinueRunRequest):
+            # Continuations should follow only newly appended events. Resuming
+            # from the persisted DB cursor can replay the approval request that
+            # the active client already rendered before clicking approve/deny.
+            start_id = "$"
+        else:
+            # Each fresh execution turn gets a new Redis stream buffer so
+            # stale events from the prior turn are never replayed.
+            await stream.reset_for_new_turn()
+            # Read from the beginning of the freshly cleared stream so we still
+            # pick up events emitted before the SSE response starts consuming.
+            start_id = "0-0"
 
         # Run session turn (spawns DurableAgentWorkflow)
         await svc.run_turn(

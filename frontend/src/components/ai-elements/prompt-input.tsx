@@ -14,8 +14,6 @@ import type {
   ChangeEventHandler,
   ClipboardEventHandler,
   ComponentProps,
-  FormEvent,
-  FormEventHandler,
   HTMLAttributes,
   KeyboardEventHandler,
   PropsWithChildren,
@@ -364,7 +362,7 @@ export interface PromptInputMessage {
 }
 
 export type PromptInputProps = Omit<
-  HTMLAttributes<HTMLFormElement>,
+  HTMLAttributes<HTMLDivElement>,
   "onSubmit" | "onError"
 > & {
   // e.g., "image/*" or leave undefined for any
@@ -382,10 +380,7 @@ export type PromptInputProps = Omit<
     code: "max_files" | "max_file_size" | "accept"
     message: string
   }) => void
-  onSubmit: (
-    message: PromptInputMessage,
-    event?: FormEvent<HTMLFormElement>
-  ) => void | Promise<void>
+  onSubmit: (message: PromptInputMessage) => void | Promise<void>
 }
 
 export const PromptInput = ({
@@ -407,7 +402,7 @@ export const PromptInput = ({
 
   // Refs
   const inputRef = useRef<HTMLInputElement | null>(null)
-  const formRef = useRef<HTMLFormElement | null>(null)
+  const rootRef = useRef<HTMLDivElement | null>(null)
 
   // ----- Local attachments (only used when no provider)
   const [items, setItems] = useState<(FileUIPart & { id: string })[]>([])
@@ -605,10 +600,10 @@ export const PromptInput = ({
     }
   }, [files, syncHiddenInput])
 
-  // Attach drop handlers on nearest form and document (opt-in)
+  // Attach drop handlers on the prompt root and document (opt-in)
   useEffect(() => {
-    const form = formRef.current
-    if (!form) {
+    const root = rootRef.current
+    if (!root) {
       return
     }
     if (globalDrop) {
@@ -629,11 +624,11 @@ export const PromptInput = ({
         add(e.dataTransfer.files)
       }
     }
-    form.addEventListener("dragover", onDragOver)
-    form.addEventListener("drop", onDrop)
+    root.addEventListener("dragover", onDragOver)
+    root.addEventListener("drop", onDrop)
     return () => {
-      form.removeEventListener("dragover", onDragOver)
-      form.removeEventListener("drop", onDrop)
+      root.removeEventListener("dragover", onDragOver)
+      root.removeEventListener("drop", onDrop)
     }
   }, [add, globalDrop])
 
@@ -718,79 +713,66 @@ export const PromptInput = ({
     [referencedSources, clearReferencedSources]
   )
 
-  const handleSubmit: FormEventHandler<HTMLFormElement> = useCallback(
-    async (event) => {
-      event.preventDefault()
-      // IMPORTANT: Chat prompt lives inside settings forms on /agents pages.
-      // Stop propagation so parent forms never treat Enter/Cmd+Enter as a save submit.
-      event.stopPropagation()
+  const submitPrompt = useCallback(async () => {
+    const root = rootRef.current
+    if (!root) {
+      return
+    }
 
-      const form = event.currentTarget
-      const messageControl = form.elements.namedItem("message") as
-        | HTMLTextAreaElement
-        | HTMLInputElement
-        | null
-      const text = usingProvider
-        ? controller.textInput.value
-        : (() => {
-            const formData = new FormData(form)
-            return (formData.get("message") as string) || ""
-          })()
+    const messageControl = root.querySelector("[name='message']") as
+      | HTMLTextAreaElement
+      | HTMLInputElement
+      | null
+    const text = usingProvider
+      ? controller.textInput.value
+      : (messageControl?.value ?? "")
 
-      try {
-        // Convert blob URLs to data URLs asynchronously
-        const convertedFiles: FileUIPart[] = await Promise.all(
-          files.map(async ({ id: _id, ...item }) => {
-            if (item.url?.startsWith("blob:")) {
-              const dataUrl = await convertBlobUrlToDataUrl(item.url)
-              // If conversion failed, keep the original blob URL
-              return {
-                ...item,
-                url: dataUrl ?? item.url,
-              }
+    try {
+      // Convert blob URLs to data URLs asynchronously
+      const convertedFiles: FileUIPart[] = await Promise.all(
+        files.map(async ({ id: _id, ...item }) => {
+          if (item.url?.startsWith("blob:")) {
+            const dataUrl = await convertBlobUrlToDataUrl(item.url)
+            // If conversion failed, keep the original blob URL
+            return {
+              ...item,
+              url: dataUrl ?? item.url,
             }
-            return item
-          })
-        )
-
-        const result = onSubmit({ files: convertedFiles, text }, event)
-
-        // Handle both sync and async onSubmit
-        if (result instanceof Promise) {
-          try {
-            await result
-            clear()
-            if (usingProvider) {
-              controller.textInput.clear()
-            } else if (messageControl?.value === text) {
-              // Preserve edits made while submit was in-flight.
-              form.reset()
-            }
-          } catch {
-            // Don't clear on error - user may want to retry
           }
-        } else {
-          // Sync function completed without throwing, clear inputs
+          return item
+        })
+      )
+
+      const result = onSubmit({ files: convertedFiles, text })
+
+      // Handle both sync and async onSubmit
+      if (result instanceof Promise) {
+        try {
+          await result
           clear()
           if (usingProvider) {
             controller.textInput.clear()
           } else if (messageControl?.value === text) {
             // Preserve edits made while submit was in-flight.
-            form.reset()
+            messageControl.value = ""
           }
+        } catch {
+          // Don't clear on error - user may want to retry
         }
-      } catch {
-        // Don't clear on error - user may want to retry
+      } else {
+        // Sync function completed without throwing, clear inputs
+        clear()
+        if (usingProvider) {
+          controller.textInput.clear()
+        } else if (messageControl?.value === text) {
+          // Preserve edits made while submit was in-flight.
+          messageControl.value = ""
+        }
       }
-    },
-    [usingProvider, controller, files, onSubmit, clear]
-  )
-
-  const submitPrompt = useCallback(() => {
-    // Do NOT use `textarea.form` from key handlers: in nested form layouts it can
-    // resolve to an ancestor form and trigger a page/navigation submit.
-    formRef.current?.requestSubmit()
-  }, [])
+    } catch {
+      // Don't clear on error - user may want to retry
+    }
+  }, [usingProvider, controller, files, onSubmit, clear])
 
   // Render with or without local provider
   const inner = (
@@ -805,15 +787,14 @@ export const PromptInput = ({
         title="Upload files"
         type="file"
       />
-      <form
+      <div
         data-prompt-input-root="true"
         className={cn("w-full", className)}
-        onSubmit={handleSubmit}
-        ref={formRef}
+        ref={rootRef}
         {...props}
       >
         <InputGroup className="overflow-hidden">{children}</InputGroup>
-      </form>
+      </div>
     </>
   )
 
@@ -826,7 +807,7 @@ export const PromptInput = ({
   // Always provide LocalAttachmentsContext so children get validated add function
   return (
     <LocalAttachmentsContext.Provider value={attachmentsCtx}>
-      <PromptInputSubmitContext.Provider value={submitPrompt}>
+      <PromptInputSubmitContext.Provider value={() => void submitPrompt()}>
         {withReferencedSources}
       </PromptInputSubmitContext.Provider>
     </LocalAttachmentsContext.Provider>
@@ -886,11 +867,7 @@ export const PromptInputTextarea = ({
 
         if (submitPrompt) {
           submitPrompt()
-          return
         }
-
-        // Fallback for isolated textarea usage outside PromptInput.
-        e.currentTarget.form?.requestSubmit()
       }
 
       // Remove last attachment when Backspace is pressed and textarea is empty
