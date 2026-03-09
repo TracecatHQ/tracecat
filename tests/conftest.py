@@ -77,14 +77,8 @@ else:
     # Extract number from "gwN" format
     WORKER_OFFSET = int(WORKER_ID.replace("gw", ""))
 
-# Detect if running inside Docker container by checking for /.dockerenv file
-# This is more reliable than checking env vars like REDIS_URL, which may be
-# loaded from .env by load_dotenv() even when running on the host
-IN_DOCKER = os.path.exists("/.dockerenv")
-
 # Port configuration - reads from environment for worktree cluster support
-# Default ports are for cluster 1, override with PG_PORT, TEMPORAL_PORT, MINIO_PORT.
-# Redis uses the container port in Docker and the published host port otherwise.
+# Default ports are for cluster 1, override with PG_PORT, TEMPORAL_PORT, MINIO_PORT, REDIS_PORT
 
 
 def _install_case_number_allocator(conn: Any) -> None:
@@ -147,11 +141,7 @@ def _lock_test_db_setup(conn: Any, db_uri: str) -> None:
 PG_PORT = int(os.environ.get("PG_PORT", "5432"))
 TEMPORAL_PORT = int(os.environ.get("TEMPORAL_PORT", "7233"))
 MINIO_PORT = int(os.environ.get("MINIO_PORT", "9000"))
-REDIS_PORT = int(
-    os.environ.get("REDIS_PORT" if IN_DOCKER else "REDIS_PORT_HOST")
-    or os.environ.get("REDIS_PORT")
-    or "6379"
-)
+REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 MINIO_WORKFLOW_BUCKET = "test-tracecat-workflow"
 
 # Worker-specific task queues for pytest-xdist isolation
@@ -159,6 +149,11 @@ MINIO_WORKFLOW_BUCKET = "test-tracecat-workflow"
 TEMPORAL_TASK_QUEUE = f"tracecat-task-queue-{WORKER_ID}"
 EXECUTOR_TASK_QUEUE = f"shared-action-queue-{WORKER_ID}"
 AGENT_TASK_QUEUE = f"shared-agent-queue-{WORKER_ID}"
+
+# Detect if running inside Docker container by checking for /.dockerenv file
+# This is more reliable than checking env vars like REDIS_URL, which may be
+# loaded from .env by load_dotenv() even when running on the host
+IN_DOCKER = os.path.exists("/.dockerenv")
 
 
 def _minio_credentials() -> tuple[str, str]:
@@ -1064,9 +1059,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"http://{api_host}/api")
     monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
-    monkeysession.setenv(
-        "TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:{TEMPORAL_PORT}"
-    )
+    monkeysession.setenv("TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:7233")
     monkeysession.setenv("TEMPORAL__CLUSTER_NAMESPACE", "default")
     # Use worker-specific task queues for pytest-xdist isolation
     monkeysession.setenv("TEMPORAL__CLUSTER_QUEUE", TEMPORAL_TASK_QUEUE)
