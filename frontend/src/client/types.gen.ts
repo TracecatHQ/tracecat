@@ -3853,12 +3853,23 @@ export type MCPIntegrationRead = {
   server_uri: string | null
   auth_type: MCPAuthType
   oauth_integration_id: string | null
+  has_custom_credentials?: boolean
   stdio_command: string | null
   stdio_args: Array<string> | null
   has_stdio_env?: boolean
   timeout: number | null
   created_at: string
   updated_at: string
+}
+
+/**
+ * Decrypted MCP custom credentials payload.
+ */
+export type MCPCustomCredentialsRead = {
+  /**
+   * Decrypted custom credentials JSON headers.
+   */
+  custom_credentials?: string | null
 }
 
 /**
@@ -10457,6 +10468,14 @@ export type McpIntegrationsGetMcpIntegrationData = {
 }
 
 export type McpIntegrationsGetMcpIntegrationResponse = MCPIntegrationRead
+
+export type McpIntegrationsGetMcpCustomCredentialsData = {
+  mcpIntegrationId: string
+  workspaceId: string
+}
+
+export type McpIntegrationsGetMcpCustomCredentialsResponse =
+  MCPCustomCredentialsRead
 
 export type McpIntegrationsUpdateMcpIntegrationData = {
   mcpIntegrationId: string

@@ -538,6 +538,8 @@ class MCPIntegrationRead(BaseModel):
     server_uri: str | None
     auth_type: MCPAuthType
     oauth_integration_id: UUID4 | None
+    has_custom_credentials: bool = False
+    """Whether encrypted custom credentials are configured."""
     # Stdio-type server fields
     stdio_command: str | None
     stdio_args: list[str] | None
@@ -548,3 +550,12 @@ class MCPIntegrationRead(BaseModel):
     timeout: int | None
     created_at: datetime
     updated_at: datetime
+
+
+class MCPCustomCredentialsRead(BaseModel):
+    """Decrypted MCP custom credentials payload."""
+
+    custom_credentials: str | None = Field(
+        default=None,
+        description="Decrypted custom credentials JSON headers.",
+    )

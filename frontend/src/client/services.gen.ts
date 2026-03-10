@@ -336,6 +336,8 @@ import type {
   McpIntegrationsCreateMcpIntegrationResponse,
   McpIntegrationsDeleteMcpIntegrationData,
   McpIntegrationsDeleteMcpIntegrationResponse,
+  McpIntegrationsGetMcpCustomCredentialsData,
+  McpIntegrationsGetMcpCustomCredentialsResponse,
   McpIntegrationsGetMcpIntegrationData,
   McpIntegrationsGetMcpIntegrationResponse,
   McpIntegrationsListMcpIntegrationsData,
@@ -9338,6 +9340,33 @@ export const mcpIntegrationsGetMcpIntegration = (
   return __request(OpenAPI, {
     method: "GET",
     url: "/mcp-integrations/{mcp_integration_id}",
+    path: {
+      mcp_integration_id: data.mcpIntegrationId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Mcp Custom Credentials
+ * Get decrypted custom credentials for an MCP integration.
+ * @param data The data for the request.
+ * @param data.mcpIntegrationId
+ * @param data.workspaceId
+ * @returns MCPCustomCredentialsRead Successful Response
+ * @throws ApiError
+ */
+export const mcpIntegrationsGetMcpCustomCredentials = (
+  data: McpIntegrationsGetMcpCustomCredentialsData
+): CancelablePromise<McpIntegrationsGetMcpCustomCredentialsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/mcp-integrations/{mcp_integration_id}/custom-credentials",
     path: {
       mcp_integration_id: data.mcpIntegrationId,
     },

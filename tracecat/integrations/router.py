@@ -37,6 +37,7 @@ from tracecat.integrations.schemas import (
     IntegrationReadMinimal,
     IntegrationTestConnectionResponse,
     IntegrationUpdate,
+    MCPCustomCredentialsRead,
     MCPIntegrationCreate,
     MCPIntegrationRead,
     MCPIntegrationUpdate,
@@ -837,6 +838,7 @@ async def create_mcp_integration(
         server_uri=mcp_integration.server_uri,
         auth_type=mcp_integration.auth_type,
         oauth_integration_id=mcp_integration.oauth_integration_id,
+        has_custom_credentials=bool(mcp_integration.encrypted_headers),
         created_at=mcp_integration.created_at,
         updated_at=mcp_integration.updated_at,
         server_type=cast(MCPServerType, mcp_integration.server_type),
@@ -873,6 +875,7 @@ async def list_mcp_integrations(
             server_uri=integration.server_uri,
             auth_type=integration.auth_type,
             oauth_integration_id=integration.oauth_integration_id,
+            has_custom_credentials=bool(integration.encrypted_headers),
             created_at=integration.created_at,
             updated_at=integration.updated_at,
             server_type=cast(MCPServerType, integration.server_type),
@@ -916,6 +919,7 @@ async def get_mcp_integration(
         server_uri=integration.server_uri,
         auth_type=integration.auth_type,
         oauth_integration_id=integration.oauth_integration_id,
+        has_custom_credentials=bool(integration.encrypted_headers),
         created_at=integration.created_at,
         updated_at=integration.updated_at,
         server_type=cast(MCPServerType, integration.server_type),
@@ -966,6 +970,7 @@ async def update_mcp_integration(
         server_uri=integration.server_uri,
         auth_type=integration.auth_type,
         oauth_integration_id=integration.oauth_integration_id,
+        has_custom_credentials=bool(integration.encrypted_headers),
         created_at=integration.created_at,
         updated_at=integration.updated_at,
         server_type=cast(MCPServerType, integration.server_type),
@@ -974,6 +979,35 @@ async def update_mcp_integration(
         has_stdio_env=bool(integration.encrypted_stdio_env),
         timeout=integration.timeout,
     )
+
+
+@mcp_router.get("/{mcp_integration_id}/custom-credentials")
+@require_scope("integration:read")
+async def get_mcp_custom_credentials(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    mcp_integration_id: uuid.UUID,
+) -> MCPCustomCredentialsRead:
+    """Get decrypted custom credentials for an MCP integration."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    integration = await svc.get_mcp_integration(mcp_integration_id=mcp_integration_id)
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="MCP integration not found",
+        )
+
+    custom_credentials = None
+    if integration.encrypted_headers:
+        custom_credentials = svc.get_decrypted_mcp_custom_credentials(integration)
+
+    return MCPCustomCredentialsRead(custom_credentials=custom_credentials)
 
 
 @mcp_router.delete("/{mcp_integration_id}", status_code=status.HTTP_204_NO_CONTENT)

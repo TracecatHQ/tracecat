@@ -136,6 +136,7 @@ import {
   integrationsListIntegrations,
   integrationsTestConnection,
   integrationsUpdateIntegration,
+  type MCPCustomCredentialsRead,
   type MCPIntegrationCreate,
   type MCPIntegrationRead,
   type MCPIntegrationUpdate,
@@ -143,6 +144,7 @@ import {
   type ModelCredentialUpdate,
   mcpIntegrationsCreateMcpIntegration,
   mcpIntegrationsDeleteMcpIntegration,
+  mcpIntegrationsGetMcpCustomCredentials,
   mcpIntegrationsGetMcpIntegration,
   mcpIntegrationsListMcpIntegrations,
   mcpIntegrationsUpdateMcpIntegration,
@@ -4605,6 +4607,34 @@ export function useGetMcpIntegration(
     mcpIntegration,
     mcpIntegrationIsLoading,
     mcpIntegrationError,
+  }
+}
+
+export function useGetMcpCustomCredentials(
+  workspaceId: string,
+  mcpIntegrationId: string | null,
+  enabled = true
+) {
+  const {
+    data: mcpCustomCredentials,
+    isLoading: mcpCustomCredentialsIsLoading,
+    error: mcpCustomCredentialsError,
+  } = useQuery<MCPCustomCredentialsRead, TracecatApiError>({
+    queryKey: ["mcp-custom-credentials", workspaceId, mcpIntegrationId],
+    queryFn: async () =>
+      await mcpIntegrationsGetMcpCustomCredentials({
+        workspaceId,
+        mcpIntegrationId: mcpIntegrationId!,
+      }),
+    enabled: Boolean(workspaceId && mcpIntegrationId && enabled),
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+  })
+
+  return {
+    mcpCustomCredentials,
+    mcpCustomCredentialsIsLoading,
+    mcpCustomCredentialsError,
   }
 }
 
