@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -22,6 +23,16 @@ class _AsyncContext:
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         return None
+
+
+@pytest.fixture(scope="session")
+def minio_server() -> Iterator[None]:
+    yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def workflow_bucket() -> Iterator[None]:
+    yield
 
 
 @pytest.mark.anyio
