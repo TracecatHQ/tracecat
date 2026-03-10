@@ -131,7 +131,9 @@ select_cluster_interactive() {
     echo "" >&2
     echo -n "Cluster number: " >&2
     local choice
-    read -r choice </dev/tty
+    # Read a single keypress immediately (no Enter required)
+    read -r -n 1 choice </dev/tty
+    echo "" >&2
 
     # Validate the input is one of the running cluster numbers
     for n in "${nums[@]}"; do
