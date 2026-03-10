@@ -77,6 +77,10 @@ export function buildCredentialGroups(
         normalizeSecretEnvironment(b.environment)
       )
     )
+    const secretTypes: SecretType[] =
+      configuredSecrets.length > 0
+        ? getSecretTypes(configuredSecrets)
+        : ["custom"]
 
     return {
       name: definition.name,
@@ -85,8 +89,8 @@ export function buildCredentialGroups(
       environments: configuredSecrets.map((secret) =>
         normalizeSecretEnvironment(secret.environment)
       ),
-      secretTypes: ["custom"],
-      secretType: "custom",
+      secretTypes,
+      secretType: getManualSecretType(configuredSecrets),
       isPrebuilt: true,
       isConnected: configuredSecrets.length > 0,
     }
