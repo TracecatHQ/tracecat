@@ -1,6 +1,6 @@
 import csv
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
@@ -78,6 +78,29 @@ DYNAMIC_WORKSPACE_RLS_POLICY = "rls_policy_dynamic_workspace"
 RLS_WORKSPACE_VAR = "app.current_workspace_id"
 RLS_BYPASS_VAR = "app.rls_bypass"
 RLS_BYPASS_ON = "on"
+SYSTEM_VISIBLE_COLUMN_NAMES: tuple[str, ...] = ("id", "created_at", "updated_at")
+
+
+def visible_column_names(column_names: Sequence[str]) -> list[str]:
+    """Build the API-facing column order for dynamic table row payloads."""
+    visible_names: list[str] = list(SYSTEM_VISIBLE_COLUMN_NAMES)
+    seen: set[str] = set(SYSTEM_VISIBLE_COLUMN_NAMES)
+    for column_name in column_names:
+        if is_internal_column_name(column_name):
+            continue
+        sanitized_name = sanitize_identifier(column_name)
+        if sanitized_name in seen:
+            continue
+        visible_names.append(sanitized_name)
+        seen.add(sanitized_name)
+    return visible_names
+
+
+def visible_column_clauses(column_names: Sequence[str]) -> list[sa.ColumnClause]:
+    """Return SQLAlchemy column clauses for API-facing row payloads."""
+    return [
+        sa.column(column_name) for column_name in visible_column_names(column_names)
+    ]
 
 
 class BaseTablesService(BaseWorkspaceService):
@@ -110,6 +133,10 @@ class BaseTablesService(BaseWorkspaceService):
     def _workspace_tenant_default_sql(self) -> sa.TextClause:
         """Build the server default expression for the tenant column."""
         return sa.text(f"'{self.ws_uuid}'::uuid")
+
+    def _visible_columns(self, table: Table) -> list[sa.ColumnClause]:
+        """Column list for API-facing queries, excluding internal columns."""
+        return visible_column_clauses([c.name for c in table.columns])
 
     async def _enable_workspace_rls_for_physical_table(
         self, conn: AsyncConnection, full_table_name: str
@@ -718,7 +745,7 @@ class BaseTablesService(BaseWorkspaceService):
         sanitized_table_name = self._sanitize_identifier(table.name)
         conn = await self.session.connection()
         stmt = (
-            sa.select("*")
+            sa.select(*self._visible_columns(table))
             .select_from(sa.table(sanitized_table_name, schema=schema_name))
             .where(sa.column("id") == row_id)
         )
@@ -726,7 +753,7 @@ class BaseTablesService(BaseWorkspaceService):
         row = result.mappings().first()
         if row is None:
             raise TracecatNotFoundError(f"Row {row_id} not found in table {table.name}")
-        return strip_internal_columns(dict(row))
+        return dict(row)
 
     async def insert_row(
         self,
@@ -769,7 +796,7 @@ class BaseTablesService(BaseWorkspaceService):
             stmt = (
                 sa.insert(sa.table(sanitized_table_name, *cols, schema=schema_name))
                 .values(**value_clauses)
-                .returning(sa.text("*"))
+                .returning(*self._visible_columns(table))
             )
         else:
             # For upsert operations
@@ -804,12 +831,12 @@ class BaseTablesService(BaseWorkspaceService):
                 # Complete the statement with on_conflict_do_update
                 stmt = pg_stmt.on_conflict_do_update(
                     index_elements=index, set_=update_dict
-                ).returning(sa.text("*"))
+                ).returning(*self._visible_columns(table))
 
                 result = await conn.execute(stmt)
                 await self.session.flush()
                 row = result.mappings().one()
-                return strip_internal_columns(dict(row))
+                return dict(row)
             except ProgrammingError as e:
                 # Drill down to the root cause
                 original_error = e
@@ -838,7 +865,7 @@ class BaseTablesService(BaseWorkspaceService):
             result = await conn.execute(stmt)
             await self.session.flush()
             row = result.mappings().one()
-            return strip_internal_columns(dict(row))
+            return dict(row)
         except IntegrityError as e:
             # Drill down to the root cause
             original_error = e
@@ -894,7 +921,7 @@ class BaseTablesService(BaseWorkspaceService):
             sa.update(sa.table(sanitized_table_name, *cols, schema=schema_name))
             .where(sa.column("id") == row_id)
             .values(**value_clauses)
-            .returning(sa.text("*"))
+            .returning(*self._visible_columns(table))
         )
 
         result = await conn.execute(stmt)
@@ -907,7 +934,7 @@ class BaseTablesService(BaseWorkspaceService):
                 f"Row {row_id} not found in table {table.name}"
             ) from None
 
-        return strip_internal_columns(dict(row))
+        return dict(row)
 
     async def delete_row(self, table: Table, row_id: UUID) -> None:
         """Delete a row from the table."""
@@ -993,12 +1020,13 @@ class BaseTablesService(BaseWorkspaceService):
         if len(values) != len(columns):
             raise ValueError("Values and column names must have the same length")
 
+        table = await self.get_table_by_name(table_name)
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table_name)
 
         cols = [sa.column(self._sanitize_identifier(c)) for c in columns]
         stmt = (
-            sa.select(sa.text("*"))
+            sa.select(*self._visible_columns(table))
             .select_from(sa.table(sanitized_table_name, schema=schema_name))
             .where(
                 sa.and_(
@@ -1022,9 +1050,7 @@ class BaseTablesService(BaseWorkspaceService):
                         "isolation_level": "READ COMMITTED",
                     },
                 )
-                return [
-                    strip_internal_columns(dict(row)) for row in result.mappings().all()
-                ]
+                return [dict(row) for row in result.mappings().all()]
             except _RETRYABLE_DB_EXCEPTIONS as e:
                 # Log the error for debugging
                 # Note: Context manager handles rollback (savepoint or full) automatically
@@ -1203,7 +1229,7 @@ class BaseTablesService(BaseWorkspaceService):
         conn = await self.session.connection()
 
         # Build the base query
-        stmt = sa.select(sa.text("*")).select_from(
+        stmt = sa.select(*self._visible_columns(table)).select_from(
             sa.table(sanitized_table_name, schema=schema_name)
         )
 
@@ -1379,9 +1405,7 @@ class BaseTablesService(BaseWorkspaceService):
 
         try:
             result = await conn.execute(stmt)
-            rows = [
-                strip_internal_columns(dict(row)) for row in result.mappings().all()
-            ]
+            rows = [dict(row) for row in result.mappings().all()]
         except ProgrammingError as e:
             while (cause := e.__cause__) is not None:
                 e = cause
@@ -1821,6 +1845,7 @@ class TableEditorService(BaseWorkspaceService):
         super().__init__(session, role)
         self.table_name = sanitize_identifier(table_name)
         self.schema_name = schema_name
+        self._visible_columns_cache: list[sa.ColumnClause] | None = None
 
     def _full_table_name(self) -> str:
         """Get the full table name for the current role."""
@@ -1830,6 +1855,21 @@ class TableEditorService(BaseWorkspaceService):
         """Reject operations on internal/system-managed column names."""
         if is_internal_column_name(column_name):
             raise ValueError(f"Column {column_name} is reserved for internal use")
+
+    def _invalidate_visible_columns_cache(self) -> None:
+        self._visible_columns_cache = None
+
+    async def _visible_columns(self) -> list[sa.ColumnClause]:
+        if self._visible_columns_cache is None:
+            reflected_columns = await self.get_columns()
+            self._visible_columns_cache = visible_column_clauses(
+                [
+                    column_name
+                    for column in reflected_columns
+                    if isinstance((column_name := column.get("name")), str)
+                ]
+            )
+        return self._visible_columns_cache
 
     async def get_columns(self) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
         """Get all columns for a table."""
@@ -1892,6 +1932,7 @@ class TableEditorService(BaseWorkspaceService):
         )
 
         await self.session.flush()
+        self._invalidate_visible_columns_cache()
 
     async def update_column(self, column_name: str, params: TableColumnUpdate) -> None:
         """Update a column in an existing table.
@@ -1977,6 +2018,7 @@ class TableEditorService(BaseWorkspaceService):
                 )
 
         await self.session.flush()
+        self._invalidate_visible_columns_cache()
 
     async def delete_column(self, column_name: str) -> None:
         """Remove a column from an existing table."""
@@ -1993,6 +2035,7 @@ class TableEditorService(BaseWorkspaceService):
         )
 
         await self.session.flush()
+        self._invalidate_visible_columns_cache()
 
     async def list_rows(
         self,
@@ -2003,7 +2046,7 @@ class TableEditorService(BaseWorkspaceService):
     ) -> CursorPaginatedResponse[dict[str, Any]]:
         """List rows with cursor-based pagination ordered by row ID."""
         conn = await self.session.connection()
-        stmt = sa.select("*").select_from(
+        stmt = sa.select(*await self._visible_columns()).select_from(
             sa.table(self.table_name, schema=self.schema_name)
         )
 
@@ -2022,7 +2065,7 @@ class TableEditorService(BaseWorkspaceService):
 
         stmt = stmt.limit(limit + 1)
         result = await conn.execute(stmt)
-        rows = [strip_internal_columns(dict(row)) for row in result.mappings().all()]
+        rows = [dict(row) for row in result.mappings().all()]
 
         has_more = len(rows) > limit
         if has_more:
@@ -2054,7 +2097,7 @@ class TableEditorService(BaseWorkspaceService):
         """Get a row by ID."""
         conn = await self.session.connection()
         stmt = (
-            sa.select("*")
+            sa.select(*await self._visible_columns())
             .select_from(sa.table(self.table_name, schema=self.schema_name))
             .where(sa.column("id") == row_id)
         )
@@ -2064,7 +2107,7 @@ class TableEditorService(BaseWorkspaceService):
             raise TracecatNotFoundError(
                 f"Row {row_id} not found in table {self.table_name}"
             )
-        return strip_internal_columns(dict(row))
+        return dict(row)
 
     async def insert_row(self, params: TableRowInsert) -> dict[str, Any]:
         """Insert a new row into the table.
@@ -2080,7 +2123,9 @@ class TableEditorService(BaseWorkspaceService):
         row_data = params.data
         for column_name in row_data:
             self._assert_user_column_name_allowed(column_name)
-        col_map = {c["name"]: c for c in await self.get_columns()}
+        reflected_columns = await self.get_columns()
+        col_map = {c["name"]: c for c in reflected_columns}
+        visible_columns = visible_column_clauses(list(col_map))
 
         value_clauses: dict[str, sa.BindParameter] = {}
         cols = []
@@ -2105,12 +2150,12 @@ class TableEditorService(BaseWorkspaceService):
         stmt = (
             sa.insert(sa.table(self.table_name, *cols, schema=self.schema_name))
             .values(**value_clauses)
-            .returning(sa.text("*"))
+            .returning(*visible_columns)
         )
         result = await conn.execute(stmt)
         await self.session.flush()
         row = result.mappings().one()
-        return strip_internal_columns(dict(row))
+        return dict(row)
 
     async def update_row(self, row_id: UUID, data: dict[str, Any]) -> dict[str, Any]:
         """Update an existing row in the table.
@@ -2128,7 +2173,9 @@ class TableEditorService(BaseWorkspaceService):
         conn = await self.session.connection()
         for column_name in data:
             self._assert_user_column_name_allowed(column_name)
-        col_map = {c["name"]: c for c in await self.get_columns()}
+        reflected_columns = await self.get_columns()
+        col_map = {c["name"]: c for c in reflected_columns}
+        visible_columns = visible_column_clauses(list(col_map))
 
         # Build update statement using SQLAlchemy
         value_clauses: dict[str, sa.BindParameter] = {}
@@ -2157,7 +2204,7 @@ class TableEditorService(BaseWorkspaceService):
             sa.update(sa.table(self.table_name, *cols, schema=self.schema_name))
             .where(sa.column("id") == row_id)
             .values(**value_clauses)
-            .returning(sa.text("*"))
+            .returning(*visible_columns)
         )
 
         result = await conn.execute(stmt)
@@ -2170,7 +2217,7 @@ class TableEditorService(BaseWorkspaceService):
                 f"Row {row_id} not found in table {self.table_name}"
             ) from None
 
-        return strip_internal_columns(dict(row))
+        return dict(row)
 
     async def delete_row(self, row_id: UUID) -> None:
         """Delete a row from the table."""
@@ -2193,10 +2240,3 @@ def sanitize_identifier(identifier: str) -> str:
 def is_internal_column_name(column_name: str) -> bool:
     """Check whether a column is internal/system-managed for dynamic schemas."""
     return column_name.lower().startswith(INTERNAL_COLUMN_PREFIX)
-
-
-def strip_internal_columns(row: Mapping[str, Any]) -> dict[str, Any]:
-    """Remove internal/system-managed columns from API-facing payloads."""
-    return {
-        key: value for key, value in row.items() if not is_internal_column_name(key)
-    }
