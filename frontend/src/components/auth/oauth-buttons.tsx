@@ -1,7 +1,6 @@
 "use client"
 
 import { type ComponentPropsWithoutRef, useState } from "react"
-import { authOauthOidcDatabaseAuthorize } from "@/client"
 import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import {
@@ -19,6 +18,10 @@ type OidcProviderIcon = "google" | "login"
 type OidcOAuthButtonProps = OAuthButtonProps & {
   providerLabel?: string
   providerIcon?: OidcProviderIcon
+}
+
+interface OAuthAuthorizeResponse {
+  authorization_url: string
 }
 
 function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
@@ -68,7 +71,14 @@ export function OidcOAuthButton({
   const handleClick = async () => {
     try {
       setIsLoading(true)
-      const { authorization_url } = await authOauthOidcDatabaseAuthorize()
+      const response = await fetch("/api/auth/oauth/authorize", {
+        credentials: "include",
+      })
+      if (!response.ok) {
+        throw new Error(`OIDC authorize failed with status ${response.status}`)
+      }
+      const { authorization_url } =
+        (await response.json()) as OAuthAuthorizeResponse
       setPostAuthReturnUrlCookie(returnUrl)
       window.location.href = authorization_url
     } catch (error) {

@@ -2894,20 +2894,29 @@ export function useListTables(
   }
 }
 
-export function useGetTable({ tableId, workspaceId }: TablesGetTableData) {
+export function useGetTable(
+  { tableId, workspaceId }: TablesGetTableData,
+  options: { enabled?: boolean } = {}
+) {
+  const enabled = options.enabled ?? true
   const {
     data: table,
     isLoading: tableIsLoading,
     error: tableError,
+    refetch: refetchTable,
   } = useQuery<TableRead, ApiError>({
-    queryKey: ["table", tableId],
+    queryKey: ["table", workspaceId, tableId],
     queryFn: async () => await tablesGetTable({ tableId, workspaceId }),
+    enabled: enabled && Boolean(workspaceId) && Boolean(tableId),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {
     table,
     tableIsLoading,
     tableError,
+    refetchTable,
   }
 }
 
