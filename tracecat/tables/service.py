@@ -72,27 +72,28 @@ _RETRYABLE_DB_EXCEPTIONS = (
     InFailedSQLTransactionError,
 )
 
-INTERNAL_COLUMN_PREFIX = "__tc_"
 DYNAMIC_WORKSPACE_TENANT_COLUMN = "__tc_workspace_id"
 DYNAMIC_WORKSPACE_RLS_POLICY = "rls_policy_dynamic_workspace"
 RLS_WORKSPACE_VAR = "app.current_workspace_id"
 RLS_BYPASS_VAR = "app.rls_bypass"
 RLS_BYPASS_ON = "on"
+INTERNAL_COLUMN_NAMES: frozenset[str] = frozenset({DYNAMIC_WORKSPACE_TENANT_COLUMN})
 SYSTEM_VISIBLE_COLUMN_NAMES: tuple[str, ...] = ("id", "created_at", "updated_at")
 
 
 def visible_column_names(column_names: Sequence[str]) -> list[str]:
     """Build the API-facing column order for dynamic table row payloads."""
     visible_names: list[str] = list(SYSTEM_VISIBLE_COLUMN_NAMES)
-    seen: set[str] = set(SYSTEM_VISIBLE_COLUMN_NAMES)
+    seen_lower: set[str] = {
+        column_name.lower() for column_name in SYSTEM_VISIBLE_COLUMN_NAMES
+    }
     for column_name in column_names:
         if is_internal_column_name(column_name):
             continue
-        sanitized_name = sanitize_identifier(column_name)
-        if sanitized_name in seen:
+        if (normalized_name := column_name.lower()) in seen_lower:
             continue
-        visible_names.append(sanitized_name)
-        seen.add(sanitized_name)
+        visible_names.append(column_name)
+        seen_lower.add(normalized_name)
     return visible_names
 
 
@@ -2239,4 +2240,4 @@ def sanitize_identifier(identifier: str) -> str:
 
 def is_internal_column_name(column_name: str) -> bool:
     """Check whether a column is internal/system-managed for dynamic schemas."""
-    return column_name.lower().startswith(INTERNAL_COLUMN_PREFIX)
+    return column_name.lower() in INTERNAL_COLUMN_NAMES
