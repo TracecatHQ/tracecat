@@ -795,13 +795,18 @@ class AgentPresetService(BaseWorkspaceService):
             AgentPresetVersion.preset_id == preset_id,
         )
         if params.cursor:
-            cursor_data = paginator.decode_cursor(params.cursor)
+            try:
+                cursor_data = paginator.decode_cursor(params.cursor)
+                cursor_id = uuid.UUID(cursor_data.id)
+            except ValueError as err:
+                raise TracecatValidationError(
+                    "Invalid cursor for agent preset versions"
+                ) from err
             cursor_version = cursor_data.sort_value
             if not isinstance(cursor_version, int):
                 raise TracecatValidationError(
                     "Invalid cursor for agent preset versions"
                 )
-            cursor_id = uuid.UUID(cursor_data.id)
             cursor_predicate = sa.or_(
                 AgentPresetVersion.version > cursor_version,
                 sa.and_(

@@ -129,6 +129,11 @@ class AgentSessionService(BaseWorkspaceService):
         tools = args.tools
         if not tools and args.entity_type:
             tools = get_default_tools(args.entity_type.value)
+        logical_preset_id = self._resolve_logical_preset_id(
+            entity_type=args.entity_type,
+            entity_id=args.entity_id,
+            agent_preset_id=args.agent_preset_id,
+        )
         pinned_preset_version_id = await self._resolve_preset_version_for_assignment(
             entity_type=args.entity_type,
             entity_id=args.entity_id,
@@ -145,7 +150,7 @@ class AgentSessionService(BaseWorkspaceService):
             entity_id=args.entity_id,
             channel_context=channel_context,
             tools=tools,
-            agent_preset_id=args.agent_preset_id,
+            agent_preset_id=logical_preset_id,
             agent_preset_version_id=pinned_preset_version_id,
             # Harness
             harness_type=args.harness_type,
@@ -166,12 +171,11 @@ class AgentSessionService(BaseWorkspaceService):
         agent_preset_id: uuid.UUID | None,
     ) -> uuid.UUID | None:
         """Resolve the logical preset ID for a session assignment."""
+        if entity_type is AgentSessionEntity.AGENT_PRESET:
+            return entity_id
         if agent_preset_id is not None:
             return agent_preset_id
-        if entity_type in (
-            AgentSessionEntity.AGENT_PRESET,
-            AgentSessionEntity.EXTERNAL_CHANNEL,
-        ):
+        if entity_type is AgentSessionEntity.EXTERNAL_CHANNEL:
             return entity_id
         return None
 
@@ -468,7 +472,7 @@ class AgentSessionService(BaseWorkspaceService):
                     )
                 else:
                     resolved_version_id = requested_version_id
-                agent_session.agent_preset_id = requested_preset_id
+                agent_session.agent_preset_id = logical_preset_id
                 agent_session.agent_preset_version_id = resolved_version_id
 
         # Update remaining fields if provided

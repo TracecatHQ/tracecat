@@ -23,7 +23,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.pagination import CursorPaginationParams
+from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.registry.actions.schemas import RegistryActionType
 from tracecat.registry.versions.schemas import (
     RegistryVersionManifest,
@@ -387,6 +387,47 @@ class TestAgentPresetService:
 
         assert [version.version for version in page_2.items] == [1]
         assert page_2.has_more is False
+
+    async def test_list_versions_rejects_invalid_cursor(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="Invalid cursor for agent preset versions",
+        ):
+            await agent_preset_service.list_versions(
+                created_preset.id,
+                CursorPaginationParams(limit=2, cursor="invalid-base64!"),
+            )
+
+    async def test_list_versions_rejects_cursor_with_invalid_uuid(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        invalid_uuid_cursor = BaseCursorPaginator.encode_cursor(
+            "not-a-uuid",
+            sort_column="version",
+            sort_value=1,
+        )
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="Invalid cursor for agent preset versions",
+        ):
+            await agent_preset_service.list_versions(
+                created_preset.id,
+                CursorPaginationParams(limit=2, cursor=invalid_uuid_cursor),
+            )
 
     async def test_update_preset_concurrently_allocates_unique_versions(
         self,

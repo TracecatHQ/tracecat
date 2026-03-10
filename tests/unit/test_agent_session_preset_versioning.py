@@ -141,6 +141,46 @@ async def test_update_session_allows_version_only_repin_for_preset_sessions() ->
 
 
 @pytest.mark.anyio
+async def test_update_session_ignores_mismatched_preset_id_for_preset_sessions() -> (
+    None
+):
+    service, session, role = _build_service()
+    preset_id = uuid.uuid4()
+    mismatched_preset_id = uuid.uuid4()
+    new_version_id = uuid.uuid4()
+    agent_session = AgentSession(
+        workspace_id=role.workspace_id,
+        title="Chat",
+        created_by=uuid.uuid4(),
+        entity_type="agent_preset",
+        entity_id=preset_id,
+        agent_preset_id=preset_id,
+        agent_preset_version_id=uuid.uuid4(),
+    )
+    resolve_mock = AsyncMock(return_value=new_version_id)
+    service._resolve_preset_version_for_assignment = resolve_mock
+
+    updated = await service.update_session(
+        agent_session,
+        params=AgentSessionUpdate(
+            agent_preset_id=mismatched_preset_id,
+            agent_preset_version_id=new_version_id,
+        ),
+    )
+
+    resolve_mock.assert_awaited_once_with(
+        entity_type=AgentSessionEntity.AGENT_PRESET,
+        entity_id=preset_id,
+        agent_preset_id=mismatched_preset_id,
+        agent_preset_version_id=new_version_id,
+    )
+    assert updated.agent_preset_id == preset_id
+    assert updated.agent_preset_version_id == new_version_id
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(agent_session)
+
+
+@pytest.mark.anyio
 async def test_update_session_skips_entity_type_parsing_for_unrelated_updates() -> None:
     service, session, role = _build_service()
     agent_session = AgentSession(
