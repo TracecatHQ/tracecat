@@ -120,6 +120,7 @@ from tracecat.workflow.case_triggers.schemas import (
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowCreate, WorkflowUpdate
 from tracecat.workflow.schedules.schemas import (
@@ -228,6 +229,28 @@ async def _resolve_workspace_role(workspace_id: str) -> tuple[uuid.UUID, Any]:
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
     return ws_id, role
+
+
+def _normalize_folder_path_arg(path: str, *, allow_root: bool = True) -> str:
+    """Normalize a user-supplied folder path."""
+    raw = path.strip()
+    if not raw:
+        raise ToolError("Path is required")
+    if raw == "/":
+        if allow_root:
+            return raw
+        raise ToolError("Root path '/' is not valid for this operation")
+    if not raw.startswith("/"):
+        raise ToolError("Path must start with '/'")
+
+    parts = [part for part in raw.split("/") if part]
+    if any(part in {".", ".."} for part in parts):
+        raise ToolError("Path cannot contain '.' or '..' segments")
+    if not parts:
+        if allow_root:
+            return "/"
+        raise ToolError("Root path '/' is not valid for this operation")
+    return f"/{'/'.join(parts)}/"
 
 
 def _build_example_from_schema(schema: dict[str, Any]) -> dict[str, Any]:
@@ -1903,6 +1926,255 @@ async def list_workflows(
     except Exception as e:
         logger.error("Failed to list workflows", error=str(e))
         raise ToolError(f"Failed to list workflows: {e}") from None
+
+
+@mcp.tool()
+async def list_workflow_tree(
+    workspace_id: str,
+    path: str = "/",
+    depth: int = 1,
+    include_workflows: bool = True,
+) -> str:
+    """List workflow folders and workflows under a path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Folder path to list from. Use "/" for the workspace root.
+        depth: Number of folder levels to traverse. Use 1 for direct children
+            only. Use 0 for unlimited depth.
+        include_workflows: Whether to include workflows alongside folders.
+
+    Returns JSON with the normalized root path and a flat list of items.
+    """
+
+    try:
+        if depth < 0:
+            raise ToolError("depth must be >= 0")
+
+        _, role = await _resolve_workspace_role(workspace_id)
+        root_path = _normalize_folder_path_arg(path)
+
+        async with WorkflowFolderService.with_session(role=role) as svc:
+            queue: deque[tuple[str, int]] = deque([(root_path, 1)])
+            items: list[dict[str, Any]] = []
+
+            while queue:
+                current_path, current_depth = queue.popleft()
+                for item in await svc.get_directory_items(
+                    current_path, order_by="desc"
+                ):
+                    payload = item.model_dump(mode="json")
+                    if payload["type"] == "folder":
+                        items.append(
+                            {
+                                "type": "folder",
+                                "path": payload["path"],
+                                "name": payload["name"],
+                                "depth": current_depth,
+                            }
+                        )
+                        if depth == 0 or current_depth < depth:
+                            queue.append((payload["path"], current_depth + 1))
+                    elif include_workflows:
+                        items.append(
+                            {
+                                "type": "workflow",
+                                "workflow_id": payload["id"],
+                                "title": payload["title"],
+                                "alias": payload["alias"],
+                                "status": payload["status"],
+                                "folder_path": current_path,
+                                "depth": current_depth,
+                                "tags": payload.get("tags") or [],
+                            }
+                        )
+
+            return _json(
+                {
+                    "root_path": root_path,
+                    "depth": "unlimited" if depth == 0 else depth,
+                    "items": items,
+                }
+            )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list workflow tree", error=str(e))
+        raise ToolError(f"Failed to list workflow tree: {e}") from None
+
+
+@mcp.tool()
+async def create_workflow_folder(
+    workspace_id: str,
+    path: str,
+    parents: bool = False,
+) -> str:
+    """Create a workflow folder by absolute path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path to create, e.g. "/security/detections/".
+        parents: When true, create missing parent folders as needed.
+
+    Returns JSON describing the resulting folder and any created paths.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+        parts = [part for part in normalized_path.strip("/").split("/") if part]
+
+        async with WorkflowFolderService.with_session(role=role) as svc:
+            if not parents:
+                parent_parts = parts[:-1]
+                parent_path = f"/{'/'.join(parent_parts)}/" if parent_parts else "/"
+                folder = await svc.create_folder(
+                    name=parts[-1], parent_path=parent_path
+                )
+                created_paths = [normalized_path]
+            else:
+                current_path = "/"
+                created_paths: list[str] = []
+                folder = None
+                for part in parts:
+                    next_path = (
+                        f"{current_path}{part}/" if current_path != "/" else f"/{part}/"
+                    )
+                    if existing := await svc.get_folder_by_path(next_path):
+                        folder = existing
+                    else:
+                        folder = await svc.create_folder(
+                            name=part,
+                            parent_path=current_path,
+                        )
+                        created_paths.append(next_path)
+                    current_path = next_path
+
+                if folder is None:
+                    raise ToolError(f"Failed to create folder {normalized_path}")
+
+            return _json(
+                {
+                    "path": normalized_path,
+                    "folder_id": str(folder.id),
+                    "created_paths": created_paths,
+                    "already_existed": not created_paths,
+                }
+            )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create workflow folder", error=str(e))
+        raise ToolError(f"Failed to create workflow folder: {e}") from None
+
+
+@mcp.tool()
+async def move_workflows(
+    workspace_id: str,
+    workflow_ids: list[str],
+    destination_path: str = "/",
+    dry_run: bool = False,
+) -> str:
+    """Move workflows into or out of a folder.
+
+    This tool is best-effort and non-atomic. If one workflow fails to move,
+    the remaining workflow moves still proceed.
+
+    Args:
+        workspace_id: The workspace ID.
+        workflow_ids: Workflow IDs in short or full format.
+        destination_path: Destination folder path, or "/" for root.
+        dry_run: When true, validate and report the move without mutating state.
+
+    Returns JSON with moved workflows and per-workflow errors.
+    """
+
+    try:
+        if not workflow_ids:
+            raise ToolError("workflow_ids must not be empty")
+
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_destination = _normalize_folder_path_arg(destination_path)
+
+        async with WorkflowsManagementService.with_session(role=role) as mgmt_svc:
+            folder_svc = WorkflowFolderService(mgmt_svc.session, role=role)
+            folder = None
+            if normalized_destination != "/":
+                folder = await folder_svc.get_folder_by_path(normalized_destination)
+                if folder is None:
+                    raise ToolError(f"Folder {normalized_destination} not found")
+
+            validated: list[dict[str, str]] = []
+            errors: list[dict[str, str]] = []
+            for raw_workflow_id in workflow_ids:
+                try:
+                    workflow_uuid = WorkflowUUID.new(raw_workflow_id)
+                except ValueError as e:
+                    errors.append({"workflow_id": raw_workflow_id, "error": str(e)})
+                    continue
+
+                workflow = await mgmt_svc.get_workflow(workflow_uuid)
+                if workflow is None:
+                    errors.append(
+                        {
+                            "workflow_id": raw_workflow_id,
+                            "error": f"Workflow {raw_workflow_id} not found",
+                        }
+                    )
+                    continue
+
+                validated.append(
+                    {
+                        "workflow_id": str(workflow_uuid),
+                        "title": workflow.title,
+                    }
+                )
+
+            if dry_run:
+                return _json(
+                    {
+                        "destination_path": normalized_destination,
+                        "requested_count": len(workflow_ids),
+                        "movable_count": len(validated),
+                        "movable_workflows": validated,
+                        "errors": errors,
+                    }
+                )
+
+            moved: list[dict[str, str]] = []
+            for workflow_info in validated:
+                try:
+                    workflow_uuid = WorkflowUUID.new(workflow_info["workflow_id"])
+                    await folder_svc.move_workflow(workflow_uuid, folder)
+                    moved.append(workflow_info)
+                except Exception as e:
+                    errors.append(
+                        {
+                            "workflow_id": workflow_info["workflow_id"],
+                            "error": str(e),
+                        }
+                    )
+
+            return _json(
+                {
+                    "destination_path": normalized_destination,
+                    "requested_count": len(workflow_ids),
+                    "moved_count": len(moved),
+                    "moved_workflows": moved,
+                    "errors": errors,
+                }
+            )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to move workflows", error=str(e))
+        raise ToolError(f"Failed to move workflows: {e}") from None
 
 
 @mcp.tool()
