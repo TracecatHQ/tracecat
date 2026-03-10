@@ -431,9 +431,8 @@ if [[ "$AUTO_SELECT" == "true" ]]; then
         echo "Auto-selected cluster ${CLUSTER_NUM} (global) for worktree '${WORKTREE_ID}'"
     elif [[ "$COMMAND" == "nuke" ]]; then
         # For nuke, try to find any cluster (running or with leftover volumes)
-        local nuke_running
         nuke_running=$(get_running_clusters)
-        local nuke_count=0
+        nuke_count=0
         if [[ -n "$nuke_running" ]]; then
             nuke_count=$(echo "$nuke_running" | wc -l | tr -d ' ')
         fi
