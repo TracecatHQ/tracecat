@@ -3,9 +3,9 @@
   "theme": "aspen",
   "name": "Tracecat Docs",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#6E7ED8",
+    "light": "#8E9BE1",
+    "dark": "#465ACE"
   },
   "favicon": "/favicon.svg",
   "navigation": {
