@@ -78,6 +78,7 @@ RLS_WORKSPACE_VAR = "app.current_workspace_id"
 RLS_BYPASS_VAR = "app.rls_bypass"
 RLS_BYPASS_ON = "on"
 INTERNAL_COLUMN_NAMES: frozenset[str] = frozenset({DYNAMIC_WORKSPACE_TENANT_COLUMN})
+INTERNAL_COLUMN_PREFIX = "__tc_"
 SYSTEM_VISIBLE_COLUMN_NAMES: tuple[str, ...] = ("id", "created_at", "updated_at")
 
 
@@ -2240,4 +2241,7 @@ def sanitize_identifier(identifier: str) -> str:
 
 def is_internal_column_name(column_name: str) -> bool:
     """Check whether a column is internal/system-managed for dynamic schemas."""
-    return column_name.lower() in INTERNAL_COLUMN_NAMES
+    normalized_name = column_name.lower()
+    return normalized_name in INTERNAL_COLUMN_NAMES or normalized_name.startswith(
+        INTERNAL_COLUMN_PREFIX
+    )
