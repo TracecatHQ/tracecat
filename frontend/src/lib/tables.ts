@@ -10,6 +10,7 @@ export const SqlTypeEnum = [
   "TIMESTAMP",
   "TIMESTAMPTZ",
   "JSONB",
+  "UUID",
   "SELECT",
   "MULTI_SELECT",
 ] as const

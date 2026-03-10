@@ -56,6 +56,8 @@ async def test_list_tables_success(
         data = response.json()
         assert len(data) == 1
         assert data[0]["name"] == "test_table"
+        assert data[0]["created_at"] == "2024-01-01T00:00:00Z"
+        assert data[0]["updated_at"] == "2024-01-01T00:00:00Z"
 
 
 @pytest.mark.anyio

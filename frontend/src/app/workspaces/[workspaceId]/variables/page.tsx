@@ -2,7 +2,7 @@
 
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { WorkspaceVariablesTable } from "@/components/workspaces/workspace-variables-table"
+import { WorkspaceVariablesInventory } from "@/components/workspaces/workspace-variables-inventory"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 
 export default function WorkspaceVariablesPage() {
@@ -33,8 +33,8 @@ export default function WorkspaceVariablesPage() {
   }
   return (
     <div className="size-full overflow-auto">
-      <div className="container flex h-full flex-col space-y-12 py-8">
-        <WorkspaceVariablesTable />
+      <div className="flex h-full flex-col">
+        <WorkspaceVariablesInventory />
       </div>
     </div>
   )

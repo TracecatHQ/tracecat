@@ -1339,7 +1339,7 @@ export function useWorkspaceSecrets(
     queryFn: async () =>
       await secretsListSecrets({
         workspaceId,
-        type: ["custom", "ssh-key", "mtls", "ca-cert"],
+        type: ["custom", "ssh-key", "mtls", "ca-cert", "github-app"],
       }),
     enabled: !!workspaceId && listEnabled,
     staleTime: 5 * 60 * 1000,
@@ -2894,21 +2894,40 @@ export function useListTables(
   }
 }
 
-export function useGetTable({ tableId, workspaceId }: TablesGetTableData) {
+export function useGetTable(
+  { tableId, workspaceId }: TablesGetTableData,
+  options: { enabled?: boolean } = {}
+) {
+  const enabled = options.enabled ?? true
   const {
     data: table,
     isLoading: tableIsLoading,
     error: tableError,
+    refetch: refetchTable,
   } = useQuery<TableRead, ApiError>({
-    queryKey: ["table", tableId],
+    queryKey: ["table", workspaceId, tableId],
     queryFn: async () => await tablesGetTable({ tableId, workspaceId }),
+    enabled: enabled && Boolean(workspaceId) && Boolean(tableId),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {
     table,
     tableIsLoading,
     tableError,
+    refetchTable,
   }
+}
+
+function invalidateTableDetailQuery(
+  queryClient: ReturnType<typeof useQueryClient>,
+  workspaceId: string,
+  tableId: string
+) {
+  queryClient.invalidateQueries({
+    queryKey: ["table", workspaceId, tableId],
+  })
 }
 
 export function useCreateTable() {
@@ -2954,9 +2973,11 @@ export function useUpdateTable() {
       queryClient.invalidateQueries({
         queryKey: ["tables", variables.workspaceId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
   })
 
@@ -2980,9 +3001,11 @@ export function useDeleteTable() {
       queryClient.invalidateQueries({
         queryKey: ["tables", variables.workspaceId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -3026,9 +3049,11 @@ export function useInsertColumn() {
       queryClient.invalidateQueries({
         queryKey: ["tables", variables.workspaceId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
@@ -3068,9 +3093,11 @@ export function useUpdateColumn() {
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
     onError: (error: TracecatApiError, variables) => {
       // Check if this was a unique index operation
@@ -3136,9 +3163,11 @@ export function useDeleteColumn() {
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
   })
 
@@ -3300,9 +3329,11 @@ export function useDeleteRow() {
           variables.workspaceId,
         ],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
   })
 
@@ -3334,9 +3365,11 @@ export function useBatchDeleteRows() {
           variables.workspaceId,
         ],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
   })
 
@@ -3368,9 +3401,11 @@ export function useBatchUpdateRows() {
           variables.workspaceId,
         ],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
   })
 
