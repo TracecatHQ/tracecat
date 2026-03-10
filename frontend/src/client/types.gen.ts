@@ -898,6 +898,15 @@ export type AuthDiscoverResponse = {
 export type AuthDiscoveryMethod = "basic" | "oidc" | "saml"
 
 /**
+ * Workspace-scoped AWS AssumeRole details shown in the credentials UI.
+ */
+export type AwsAssumeRoleAccessRead = {
+  tracecat_aws_account_id: string
+  tracecat_aws_principal_arn: string
+  external_id: string
+}
+
+/**
  * Batch update for action and trigger positions.
  */
 export type BatchPositionUpdate = {
@@ -8333,6 +8342,12 @@ export type SecretsListSecretDefinitionsData = {
 
 export type SecretsListSecretDefinitionsResponse = Array<SecretDefinition>
 
+export type SecretsGetAwsAssumeRoleAccessData = {
+  workspaceId: string
+}
+
+export type SecretsGetAwsAssumeRoleAccessResponse = AwsAssumeRoleAccessRead
+
 export type SecretsGetSecretByNameData = {
   secretName: string
   workspaceId: string
@@ -11658,6 +11673,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<SecretDefinition>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/secrets/aws-assume-role": {
+    get: {
+      req: SecretsGetAwsAssumeRoleAccessData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AwsAssumeRoleAccessRead
         /**
          * Validation Error
          */

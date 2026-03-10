@@ -3293,6 +3293,32 @@ export const $AuthDiscoveryMethod = {
   description: "Authentication method hint for client-side routing.",
 } as const
 
+export const $AwsAssumeRoleAccessRead = {
+  properties: {
+    tracecat_aws_account_id: {
+      type: "string",
+      title: "Tracecat Aws Account Id",
+    },
+    tracecat_aws_principal_arn: {
+      type: "string",
+      title: "Tracecat Aws Principal Arn",
+    },
+    external_id: {
+      type: "string",
+      title: "External Id",
+    },
+  },
+  type: "object",
+  required: [
+    "tracecat_aws_account_id",
+    "tracecat_aws_principal_arn",
+    "external_id",
+  ],
+  title: "AwsAssumeRoleAccessRead",
+  description:
+    "Workspace-scoped AWS AssumeRole details shown in the credentials UI.",
+} as const
+
 export const $BatchPositionUpdate = {
   properties: {
     actions: {

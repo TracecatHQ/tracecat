@@ -89,7 +89,7 @@ resource "aws_s3_bucket_policy" "attachments" {
         Sid    = "AllowECSTaskAccess"
         Effect = "Allow"
         Principal = {
-          AWS = aws_iam_role.api_worker_task.arn
+          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
         }
         Action = [
           "s3:GetObject",
@@ -108,7 +108,7 @@ resource "aws_s3_bucket_policy" "attachments" {
         Sid    = "DenyInsecureConnections"
         Effect = "Deny"
         Principal = {
-          AWS = aws_iam_role.api_worker_task.arn
+          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
         }
         Action = "s3:*"
         Resource = [
@@ -221,7 +221,7 @@ resource "aws_s3_bucket_policy" "registry" {
         Sid    = "AllowECSTaskAccess"
         Effect = "Allow"
         Principal = {
-          AWS = aws_iam_role.api_worker_task.arn
+          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
         }
         Action = [
           "s3:GetObject",
@@ -238,7 +238,7 @@ resource "aws_s3_bucket_policy" "registry" {
         Sid    = "DenyInsecureConnections"
         Effect = "Deny"
         Principal = {
-          AWS = aws_iam_role.api_worker_task.arn
+          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
         }
         Action = "s3:*"
         Resource = [
@@ -331,7 +331,7 @@ resource "aws_s3_bucket_policy" "workflow" {
         Sid    = "AllowECSTaskAccess"
         Effect = "Allow"
         Principal = {
-          AWS = aws_iam_role.api_worker_task.arn
+          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
         }
         Action = [
           "s3:GetObject",
@@ -348,7 +348,7 @@ resource "aws_s3_bucket_policy" "workflow" {
         Sid    = "DenyInsecureConnections"
         Effect = "Deny"
         Principal = {
-          AWS = aws_iam_role.api_worker_task.arn
+          AWS = [aws_iam_role.api_worker_task.arn, aws_iam_role.executor_task.arn]
         }
         Action = "s3:*"
         Resource = [

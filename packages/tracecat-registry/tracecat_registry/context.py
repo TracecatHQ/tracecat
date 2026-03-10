@@ -50,7 +50,6 @@ class RegistryContext:
     api_url: str = "http://api:8000"
     executor_url: str = "http://executor:8000"
     token: str = ""
-
     # Lazily initialized SDK client
     _client: TracecatClient | None = field(default=None, repr=False)
 

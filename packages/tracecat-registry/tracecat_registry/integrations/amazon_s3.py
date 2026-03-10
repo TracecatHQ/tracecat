@@ -40,7 +40,6 @@ s3_secret = RegistrySecret(
         "AWS_REGION",
         "AWS_PROFILE",
         "AWS_ROLE_ARN",
-        "AWS_ROLE_SESSION_NAME",
     ],
     optional=True,  # Might be Minio etc.
 )
@@ -55,9 +54,11 @@ s3_secret = RegistrySecret(
         - `AWS_PROFILE`
     Or:
         - `AWS_ROLE_ARN`
-        - `AWS_ROLE_SESSION_NAME` (optional)
     And:
         - `AWS_REGION`
+
+Tracecat automatically supplies the workspace-scoped AWS External ID used for
+cross-account AssumeRole requests and controls the STS session name.
 """
 
 

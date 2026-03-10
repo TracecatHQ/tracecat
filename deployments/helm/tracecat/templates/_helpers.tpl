@@ -84,6 +84,36 @@ Service account name for Tracecat workloads
 {{- end }}
 
 {{/*
+Executor service account name
+*/}}
+{{- define "tracecat.executorServiceAccountName" -}}
+{{- if .Values.executor.serviceAccount.create -}}
+{{- if .Values.executor.serviceAccount.name -}}
+{{- .Values.executor.serviceAccount.name -}}
+{{- else -}}
+{{- printf "%s-executor" (include "tracecat.fullname" .) -}}
+{{- end -}}
+{{- else -}}
+{{- .Values.executor.serviceAccount.name | default (include "tracecat.serviceAccountName" .) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Agent executor service account name
+*/}}
+{{- define "tracecat.agentExecutorServiceAccountName" -}}
+{{- if .Values.agentExecutor.serviceAccount.create -}}
+{{- if .Values.agentExecutor.serviceAccount.name -}}
+{{- .Values.agentExecutor.serviceAccount.name -}}
+{{- else -}}
+{{- printf "%s-agent-executor" (include "tracecat.fullname" .) -}}
+{{- end -}}
+{{- else -}}
+{{- .Values.agentExecutor.serviceAccount.name | default (include "tracecat.executorServiceAccountName" .) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Pod scheduling helpers (nodeSelector, affinity, tolerations, topology spread)
 */}}
 {{- define "tracecat.topologySpreadConstraints" -}}
@@ -463,6 +493,14 @@ Common environment variables shared across all backend services
 {{- end }}
 - name: TRACECAT__APP_ENV
   value: {{ .Values.tracecat.appEnv | quote }}
+{{- if .Values.tracecat.aws.assumeRoleAccountId }}
+- name: TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID
+  value: {{ .Values.tracecat.aws.assumeRoleAccountId | quote }}
+{{- end }}
+{{- if .Values.tracecat.aws.assumeRolePrincipalArn }}
+- name: TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN
+  value: {{ .Values.tracecat.aws.assumeRolePrincipalArn | quote }}
+{{- end }}
 - name: TRACECAT__FEATURE_FLAGS
   value: {{ include "tracecat.featureFlags" . | quote }}
 - name: TRACECAT__EE_MULTI_TENANT

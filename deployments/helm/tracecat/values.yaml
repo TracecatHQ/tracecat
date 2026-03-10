@@ -175,6 +175,10 @@ tracecat:
   sandbox:
     disableNsjail: false
 
+  aws:
+    assumeRoleAccountId: ""
+    assumeRolePrincipalArn: ""
+
   registrySync:
     builtinUseInstalledSitePackages: true
 
@@ -285,6 +289,12 @@ executor:
   replicas: 4
   # Executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default)
   backend: "ephemeral"
+  serviceAccount:
+    # Defaults to the shared app service account for upgrade compatibility.
+    # Managed EKS/Fargate stacks explicitly override this to dedicated executor identities.
+    create: false
+    name: ""
+    annotations: {}
   resources:
     requests:
       cpu: "4000m"
@@ -301,6 +311,12 @@ executor:
 agentExecutor:
   replicas: 2
   backend: "ephemeral"
+  serviceAccount:
+    # Defaults to the shared app service account for upgrade compatibility.
+    # Managed EKS/Fargate stacks explicitly override this to dedicated executor identities.
+    create: false
+    name: ""
+    annotations: {}
   resources:
     requests:
       cpu: "2000m"

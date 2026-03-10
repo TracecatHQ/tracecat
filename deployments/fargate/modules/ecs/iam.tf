@@ -253,6 +253,7 @@ resource "aws_iam_role_policy" "api_worker_task_db_access" {
     ]
   })
 }
+
 # Attach S3 policy to API/Worker task role
 resource "aws_iam_role_policy_attachment" "api_worker_task_s3" {
   policy_arn = aws_iam_policy.s3_blob_access.arn
@@ -263,6 +264,63 @@ resource "aws_iam_role_policy_attachment" "api_worker_task_s3" {
 resource "aws_iam_role_policy_attachment" "api_worker_task_redis" {
   policy_arn = aws_iam_policy.redis_iam_access.arn
   role       = aws_iam_role.api_worker_task.name
+}
+
+resource "aws_iam_role" "executor_task" {
+  name               = "TracecatExecutorTaskRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role_policy" "executor_task_db_access" {
+  name = "TracecatExecutorDBAccessPolicy"
+  role = aws_iam_role.executor_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "rds-db:connect",
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = [
+          "${aws_db_instance.core_database.arn}/postgres",
+          aws_db_instance.core_database.master_user_secret[0].secret_arn,
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "executor_task_assume_role" {
+  name = "TracecatExecutorAssumeRolePolicy"
+  role = aws_iam_role.executor_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sts:AssumeRole"
+        ]
+        Resource = [
+          "arn:aws:iam::*:role/*"
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "executor_task_s3" {
+  policy_arn = aws_iam_policy.s3_blob_access.arn
+  role       = aws_iam_role.executor_task.name
+}
+
+resource "aws_iam_role_policy_attachment" "executor_task_redis" {
+  policy_arn = aws_iam_policy.redis_iam_access.arn
+  role       = aws_iam_role.executor_task.name
 }
 
 # UI execution role

@@ -6,7 +6,7 @@ resource "aws_ecs_task_definition" "agent_executor_task_definition" {
   cpu                      = var.agent_executor_cpu
   memory                   = var.agent_executor_memory
   execution_role_arn       = aws_iam_role.worker_execution.arn
-  task_role_arn            = aws_iam_role.api_worker_task.arn
+  task_role_arn            = aws_iam_role.executor_task.arn
 
   runtime_platform {
     operating_system_family = "LINUX"

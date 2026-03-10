@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from uuid import UUID
 
 import pytest
 from pydantic import SecretStr
@@ -8,9 +9,34 @@ from tracecat_registry import (
     RegistrySecretType,
 )
 
+from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatCredentialsError
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.secrets import secrets_manager
+
+
+def test_flatten_secrets_supports_runtime_scalar_entries() -> None:
+    flattened = secrets_manager.flatten_secrets(
+        {
+            "aws": {"AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role"},
+            "TRACECAT_AWS_EXTERNAL_ID": "11111111111111111111111111111111",
+        }
+    )
+
+    assert flattened == {
+        "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
+        "TRACECAT_AWS_EXTERNAL_ID": "11111111111111111111111111111111",
+    }
+
+
+def test_flatten_secrets_rejects_runtime_scalar_key_collisions() -> None:
+    with pytest.raises(ValueError, match="TRACECAT_AWS_EXTERNAL_ID"):
+        secrets_manager.flatten_secrets(
+            {
+                "aws": {"TRACECAT_AWS_EXTERNAL_ID": "customer-value"},
+                "TRACECAT_AWS_EXTERNAL_ID": "11111111111111111111111111111111",
+            }
+        )
 
 
 @pytest.mark.anyio
@@ -127,6 +153,49 @@ async def test_get_action_secrets_skips_optional_oauth(mocker):
     assert (
         "AZURE_LOG_ANALYTICS_SERVICE_TOKEN" not in secrets["azure_log_analytics_oauth"]
     )
+
+
+@pytest.mark.parametrize("secret_name", ["aws", "amazon_bedrock"])
+@pytest.mark.anyio
+async def test_get_action_secrets_injects_runtime_aws_external_id(
+    mocker, secret_name: str
+):
+    action_secrets: set[RegistrySecretType] = {
+        RegistrySecret(name=secret_name, keys=["AWS_ROLE_ARN"], optional=False),
+    }
+    mocker.patch(
+        "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
+    )
+
+    sandbox = mocker.AsyncMock()
+    sandbox.secrets = {
+        secret_name: {
+            "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
+        }
+    }
+    sandbox.__aenter__.return_value = sandbox
+    sandbox.__aexit__.return_value = None
+    mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox", return_value=sandbox)
+    mocker.patch(
+        "tracecat.secrets.secrets_manager.build_workspace_external_id",
+        return_value="tracecat-ws-deadbeef",
+    )
+
+    token = secrets_manager.ctx_role.set(
+        Role(
+            type="service",
+            workspace_id=UUID("11111111-1111-1111-1111-111111111111"),
+            service_id="tracecat-executor",
+        )
+    )
+    try:
+        secrets = await secrets_manager.get_action_secrets(
+            secret_exprs=set(), action_secrets=action_secrets
+        )
+    finally:
+        secrets_manager.ctx_role.reset(token)
+
+    assert secrets["TRACECAT_AWS_EXTERNAL_ID"] == "tracecat-ws-deadbeef"
 
 
 @pytest.mark.anyio
