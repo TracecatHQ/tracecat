@@ -30,6 +30,7 @@ from tracecat.tables.service import (
     TableEditorService,
     TablesService,
     is_internal_column_name,
+    visible_column_names,
 )
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -151,9 +152,10 @@ async def _list_rows(
 @pytest.mark.anyio
 class TestTablesService:
     async def test_internal_column_name_check_is_case_insensitive(self) -> None:
-        """Internal column detection should normalize case before prefix checks."""
+        """Internal column detection should normalize case for exact matches."""
         assert is_internal_column_name("__tc_workspace_id") is True
         assert is_internal_column_name("__TC_workspace_id") is True
+        assert is_internal_column_name("__tc_shadow") is False
         assert is_internal_column_name("user_field") is False
 
     async def test_create_and_get_table(self, tables_service: TablesService) -> None:
@@ -941,6 +943,15 @@ class TestTableRows:
 
         retrieved = await editor.get_row(inserted["id"])
         assert retrieved["city"] == "NYC"
+
+    async def test_visible_column_names_preserves_legacy_underscore_names(self) -> None:
+        """Visibility filtering should not reject legacy underscore-prefixed names."""
+        assert visible_column_names(["_legacy_field", "__tc_workspace_id"]) == [
+            "id",
+            "created_at",
+            "updated_at",
+            "_legacy_field",
+        ]
 
     async def test_table_editor_insert_row_rejects_internal_column(
         self, tables_service: TablesService, table: Table

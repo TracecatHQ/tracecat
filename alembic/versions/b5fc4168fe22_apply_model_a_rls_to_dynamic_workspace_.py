@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from uuid import UUID
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
 
 from alembic import op
 from tracecat.identifiers.workflow import WorkspaceUUID
@@ -23,6 +24,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 INTERNAL_TENANT_COLUMN = "__tc_workspace_id"
+LEGACY_TENANT_COLUMN_PREFIX = "migrated_tc_workspace_id"
 DYNAMIC_WORKSPACE_RLS_POLICY = "rls_policy_dynamic_workspace"
 RLS_WORKSPACE_VAR = "app.current_workspace_id"
 RLS_BYPASS_VAR = "app.rls_bypass"
@@ -73,6 +75,128 @@ def _policy_expression() -> str:
     )
 
 
+def _next_legacy_tenant_column_name(existing_column_names: set[str]) -> str:
+    """Generate a non-conflicting rename target for legacy tenant collisions."""
+    candidate = LEGACY_TENANT_COLUMN_PREFIX
+    suffix = 1
+    while candidate in existing_column_names:
+        candidate = f"{LEGACY_TENANT_COLUMN_PREFIX}_{suffix}"
+        suffix += 1
+    return candidate
+
+
+def _rename_table_column_metadata(
+    *,
+    workspace_id: UUID,
+    table_name: str,
+    old_name: str,
+    new_name: str,
+) -> None:
+    """Rename matching table-column metadata when a physical column moves."""
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not (
+        inspector.has_table("tables", schema="public")
+        and inspector.has_table("table_column", schema="public")
+    ):
+        return
+
+    bind.execute(
+        sa.text(
+            """
+            UPDATE table_column AS tc
+            SET name = :new_name
+            FROM tables AS t
+            WHERE tc.table_id = t.id
+              AND t.workspace_id = :workspace_id
+              AND t.name = :table_name
+              AND tc.name = :old_name
+            """
+        ),
+        {
+            "workspace_id": str(workspace_id),
+            "table_name": table_name,
+            "old_name": old_name,
+            "new_name": new_name,
+        },
+    )
+
+
+def _rename_case_field_schema_key(
+    *,
+    workspace_id: UUID,
+    old_name: str,
+    new_name: str,
+) -> None:
+    """Rename a case-field schema key when the physical column moves."""
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not inspector.has_table("case_field", schema="public"):
+        return
+
+    case_field_table = sa.table(
+        "case_field",
+        sa.column("workspace_id", sa.UUID()),
+        sa.column("schema", JSONB),
+    )
+    current_schema = bind.execute(
+        sa.select(case_field_table.c.schema).where(
+            case_field_table.c.workspace_id == workspace_id
+        )
+    ).scalar_one_or_none()
+    if not isinstance(current_schema, dict) or old_name not in current_schema:
+        return
+
+    updated_schema = dict(current_schema)
+    updated_schema[new_name] = updated_schema.pop(old_name)
+    bind.execute(
+        sa.update(case_field_table)
+        .where(case_field_table.c.workspace_id == workspace_id)
+        .values(schema=updated_schema)
+    )
+
+
+def _rename_legacy_tenant_column(
+    *,
+    schema_name: str,
+    table_name: str,
+    workspace_id: UUID,
+    preparer: sa.sql.compiler.IdentifierPreparer,
+) -> None:
+    """Rename any pre-existing user column that collides with the tenant column."""
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = inspector.get_columns(table_name, schema=schema_name)
+    column_names = {column["name"] for column in columns}
+    if INTERNAL_TENANT_COLUMN not in column_names:
+        return
+
+    qualified_table = _qualified_table(preparer, schema_name, table_name)
+    legacy_column_name = _next_legacy_tenant_column_name(column_names)
+    op.execute(
+        sa.text(
+            f"""
+            ALTER TABLE {qualified_table}
+            RENAME COLUMN "{INTERNAL_TENANT_COLUMN}" TO "{legacy_column_name}"
+            """
+        )
+    )
+
+    if schema_name.startswith("tables_"):
+        _rename_table_column_metadata(
+            workspace_id=workspace_id,
+            table_name=table_name,
+            old_name=INTERNAL_TENANT_COLUMN,
+            new_name=legacy_column_name,
+        )
+    elif schema_name.startswith("custom_fields_") and table_name == "case_fields":
+        _rename_case_field_schema_key(
+            workspace_id=workspace_id,
+            old_name=INTERNAL_TENANT_COLUMN,
+            new_name=legacy_column_name,
+        )
+
+
 def _ensure_tenant_column(
     *,
     schema_name: str,
@@ -81,10 +205,17 @@ def _ensure_tenant_column(
     preparer: sa.sql.compiler.IdentifierPreparer,
 ) -> None:
     """Add/backfill the internal tenant column on a physical dynamic table."""
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
     qualified_table = _qualified_table(preparer, schema_name, table_name)
 
+    _rename_legacy_tenant_column(
+        schema_name=schema_name,
+        table_name=table_name,
+        workspace_id=workspace_id,
+        preparer=preparer,
+    )
+
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
     has_tenant_column = any(
         column["name"] == INTERNAL_TENANT_COLUMN
         for column in inspector.get_columns(table_name, schema=schema_name)
