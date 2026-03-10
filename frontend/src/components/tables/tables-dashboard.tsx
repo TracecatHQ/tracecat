@@ -98,18 +98,12 @@ function TableTimestampBadge({
   )
 }
 
-function TableColumnsPreview({
-  tableId,
-  isOpen,
-}: {
-  tableId: string
-  isOpen: boolean
-}) {
+function TableColumnsPreview({ tableId }: { tableId: string }) {
   const workspaceId = useWorkspaceId()
-  const { table, tableError, tableIsLoading, refetchTable } = useGetTable(
-    { tableId, workspaceId },
-    { enabled: isOpen }
-  )
+  const { table, tableError, tableIsLoading, refetchTable } = useGetTable({
+    tableId,
+    workspaceId,
+  })
 
   if (tableIsLoading) {
     return (
@@ -251,6 +245,11 @@ export function TablesDashboard() {
               <div className="w-full pb-10">
                 {filteredTables.map((table) => {
                   const isExpanded = expandedTables[table.id] ?? false
+                  const tableHref = `/workspaces/${workspaceId}/tables/${table.id}`
+
+                  function openTable() {
+                    router.push(tableHref)
+                  }
 
                   return (
                     <Collapsible
@@ -268,43 +267,50 @@ export function TablesDashboard() {
                           <CollapsibleTrigger asChild>
                             <button
                               type="button"
-                              className="flex min-w-0 flex-1 items-center gap-2 text-left [&[data-state=open]_.chevron]:rotate-90"
+                              className="flex h-7 w-7 shrink-0 items-center justify-center [&[data-state=open]_.chevron]:rotate-90"
+                              aria-label={
+                                isExpanded
+                                  ? `Collapse ${table.name} columns`
+                                  : `Expand ${table.name} columns`
+                              }
                             >
-                              <div className="flex h-7 w-7 shrink-0 items-center justify-center">
-                                <ChevronRight className="chevron size-4 text-muted-foreground transition-transform duration-200" />
-                              </div>
-                              <Item className="w-full flex-nowrap rounded-none border-none px-0 py-0">
-                                <ItemContent className="min-w-0 gap-0">
-                                  <ItemTitle className="min-w-0 truncate text-xs">
-                                    {table.name}
-                                  </ItemTitle>
-                                </ItemContent>
-                              </Item>
+                              <ChevronRight className="chevron size-4 text-muted-foreground transition-transform duration-200" />
                             </button>
                           </CollapsibleTrigger>
 
-                          <div className="ml-auto flex shrink-0 items-center gap-2">
-                            <TableTimestampBadge
-                              icon={Clock3}
-                              timestamp={table.updated_at}
-                            />
-                            <TableTimestampBadge
-                              icon={CircleCheck}
-                              timestamp={table.created_at}
-                            />
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 bg-white px-3 text-xs"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                router.push(
-                                  `/workspaces/${workspaceId}/tables/${table.id}`
-                                )
-                              }}
-                            >
-                              Open
-                            </Button>
+                          <div
+                            role="link"
+                            tabIndex={0}
+                            className="flex min-w-0 flex-1 items-center gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                            onClick={openTable}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault()
+                                openTable()
+                              }
+                            }}
+                          >
+                            <Item className="w-full flex-nowrap rounded-none border-none px-0 py-0">
+                              <ItemContent className="min-w-0 gap-0">
+                                <ItemTitle className="min-w-0 truncate text-xs">
+                                  {table.name}
+                                </ItemTitle>
+                              </ItemContent>
+                            </Item>
+
+                            <div className="ml-auto flex shrink-0 items-center gap-2">
+                              <TableTimestampBadge
+                                icon={Clock3}
+                                timestamp={table.updated_at}
+                              />
+                              <TableTimestampBadge
+                                icon={CircleCheck}
+                                timestamp={table.created_at}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex shrink-0 items-center gap-2">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button
@@ -331,10 +337,9 @@ export function TablesDashboard() {
                         </div>
 
                         <CollapsibleContent>
-                          <TableColumnsPreview
-                            tableId={table.id}
-                            isOpen={isExpanded}
-                          />
+                          {isExpanded ? (
+                            <TableColumnsPreview tableId={table.id} />
+                          ) : null}
                         </CollapsibleContent>
                       </div>
                     </Collapsible>
