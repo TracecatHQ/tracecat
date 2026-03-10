@@ -3,6 +3,7 @@
 from __future__ import annotations as _annotations
 
 import uuid
+from datetime import datetime
 from typing import (
     Any,
     Literal,
@@ -16,7 +17,13 @@ from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import DeferredToolResults
 
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import (
+    AgentConfig,
+    CustomModelSourceFlavor,
+    CustomModelSourceType,
+    ModelDiscoveryStatus,
+    ModelSourceType,
+)
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
 
@@ -46,8 +53,6 @@ class RunAgentArgs(BaseModel):
     """Results for deferred tool calls from a previous run (CE handshake)."""
     is_continuation: bool = False
     """If True, do not emit a new user message; continue prior run with deferred results."""
-    use_workspace_credentials: bool = True
-    """Credential scope for LiteLLM gateway."""
 
     @model_validator(mode="after")
     def validate_config_or_preset(self) -> RunAgentArgs:
@@ -154,6 +159,140 @@ class ModelCredentialUpdate(BaseModel):
     )
 
 
+class ManualDiscoveredModel(BaseModel):
+    model_name: str = Field(..., min_length=1, max_length=200)
+    display_name: str | None = Field(default=None, min_length=1, max_length=200)
+    model_provider: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+class EnabledModelRuntimeConfig(BaseModel):
+    bedrock_inference_profile_id: str | None = Field(
+        default=None, min_length=1, max_length=2000
+    )
+
+
+class ModelCatalogEntry(BaseModel):
+    catalog_ref: str = Field(..., min_length=1, max_length=500)
+    model_name: str = Field(..., min_length=1, max_length=200)
+    model_provider: str = Field(..., min_length=1, max_length=120)
+    runtime_provider: str = Field(..., min_length=1, max_length=120)
+    display_name: str = Field(..., min_length=1, max_length=200)
+    source_type: ModelSourceType
+    source_name: str = Field(..., min_length=1, max_length=200)
+    source_id: uuid.UUID | None = None
+    base_url: str | None = Field(default=None, max_length=500)
+    enabled: bool = Field(default=False)
+    last_refreshed_at: datetime | None = None
+    metadata: dict[str, Any] | None = None
+    enabled_config: EnabledModelRuntimeConfig | None = None
+
+
+class BuiltInCatalogEntry(ModelCatalogEntry):
+    credential_provider: str | None = Field(default=None, min_length=1, max_length=120)
+    credential_label: str | None = Field(default=None, min_length=1, max_length=200)
+    credential_fields: list[ProviderCredentialField] | None = Field(default=None)
+    credentials_configured: bool = Field(default=False)
+    discovered: bool = Field(default=False)
+    ready: bool = Field(default=False)
+    enableable: bool = Field(default=False)
+    runtime_target_configured: bool = Field(default=True)
+    readiness_message: str | None = Field(default=None, max_length=500)
+
+
+class BuiltInCatalogRead(BaseModel):
+    source_type: str = Field(default="builtin_catalog")
+    source_name: str = Field(default="Built-in catalog")
+    discovery_status: ModelDiscoveryStatus
+    last_refreshed_at: datetime | None = None
+    last_error: str | None = None
+    next_cursor: str | None = None
+    models: list[BuiltInCatalogEntry] = Field(default_factory=list)
+
+
+class AgentModelSourceCreate(BaseModel):
+    type: CustomModelSourceType
+    flavor: CustomModelSourceFlavor | None = Field(default=None)
+    display_name: str = Field(..., min_length=1, max_length=200)
+    base_url: str | None = Field(default=None, max_length=500)
+    api_key: str | None = Field(default=None, min_length=1, max_length=2000)
+    api_key_header: str | None = Field(default=None, min_length=1, max_length=120)
+    api_version: str | None = Field(default=None, min_length=1, max_length=120)
+    declared_models: list[ManualDiscoveredModel] | None = None
+
+
+class AgentModelSourceUpdate(BaseModel):
+    flavor: CustomModelSourceFlavor | None = Field(default=None)
+    display_name: str | None = Field(default=None, min_length=1, max_length=200)
+    base_url: str | None = Field(default=None, max_length=500)
+    api_key: str | None = Field(default=None, min_length=1, max_length=2000)
+    api_key_header: str | None = Field(default=None, min_length=1, max_length=120)
+    api_version: str | None = Field(default=None, min_length=1, max_length=120)
+    declared_models: list[ManualDiscoveredModel] | None = None
+
+
+class AgentModelSourceRead(BaseModel):
+    id: uuid.UUID
+    type: CustomModelSourceType
+    flavor: CustomModelSourceFlavor | None = None
+    display_name: str
+    base_url: str | None = None
+    api_key_configured: bool = False
+    api_key_header: str | None = None
+    api_version: str | None = None
+    discovery_status: ModelDiscoveryStatus
+    last_refreshed_at: datetime | None = None
+    last_error: str | None = None
+    declared_models: list[ManualDiscoveredModel] | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EnabledModelOperation(BaseModel):
+    catalog_ref: str = Field(..., min_length=1, max_length=500)
+
+
+class EnabledModelsBatchOperation(BaseModel):
+    catalog_refs: list[str] = Field(default_factory=list, min_length=1, max_length=200)
+
+
+class EnabledModelRuntimeConfigUpdate(BaseModel):
+    catalog_ref: str = Field(..., min_length=1, max_length=500)
+    config: EnabledModelRuntimeConfig = Field(default_factory=EnabledModelRuntimeConfig)
+
+
+class DefaultModelSelection(BaseModel):
+    catalog_ref: str = Field(..., min_length=1, max_length=500)
+    model_name: str = Field(..., min_length=1, max_length=200)
+    model_provider: str = Field(..., min_length=1, max_length=120)
+    display_name: str = Field(..., min_length=1, max_length=200)
+
+
+class DefaultModelSelectionUpdate(BaseModel):
+    catalog_ref: str = Field(..., min_length=1, max_length=500)
+
+
+class DefaultModelInventoryRead(BaseModel):
+    source_type: ModelSourceType = Field(default=ModelSourceType.DEFAULT_SIDECAR)
+    source_name: str = Field(default="Default models")
+    discovery_status: ModelDiscoveryStatus
+    last_refreshed_at: datetime | None = None
+    last_error: str | None = None
+    discovered_models: list[ModelCatalogEntry] = Field(default_factory=list)
+
+
+class BuiltInProviderRead(BaseModel):
+    provider: str = Field(..., min_length=1, max_length=120)
+    label: str = Field(..., min_length=1, max_length=200)
+    source_type: ModelSourceType
+    credentials_configured: bool = Field(default=False)
+    base_url: str | None = Field(default=None, max_length=500)
+    runtime_target: str | None = Field(default=None, max_length=500)
+    discovery_status: ModelDiscoveryStatus
+    last_refreshed_at: datetime | None = None
+    last_error: str | None = None
+    discovered_models: list[ModelCatalogEntry] = Field(default_factory=list)
+
+
 class RunUsage(BaseModel):
     """LLM usage associated with an agent run."""
 
@@ -248,6 +387,9 @@ class AgentConfigSchema(BaseModel):
 
     model_name: str
     model_provider: str
+    model_catalog_ref: str | None = None
+    model_source_type: str | None = None
+    model_source_id: uuid.UUID | None = None
     base_url: str | None = None
     instructions: str | None = None
     output_type: Any | None = None

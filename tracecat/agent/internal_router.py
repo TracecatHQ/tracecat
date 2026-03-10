@@ -44,6 +44,29 @@ _LIST_OUTPUT_TYPES: set[str] = {
 }
 
 
+def _merge_runtime_overrides(base: AgentConfig, overrides: AgentConfig) -> AgentConfig:
+    """Apply request-scoped fields on top of catalog-resolved runtime config."""
+    if overrides.instructions is not None:
+        base.instructions = overrides.instructions
+    if overrides.output_type is not None:
+        base.output_type = overrides.output_type
+    if overrides.actions is not None:
+        base.actions = overrides.actions
+    if overrides.namespaces is not None:
+        base.namespaces = overrides.namespaces
+    if overrides.tool_approvals is not None:
+        base.tool_approvals = overrides.tool_approvals
+    if overrides.model_settings is not None:
+        base.model_settings = overrides.model_settings
+    if overrides.mcp_servers is not None:
+        base.mcp_servers = overrides.mcp_servers
+    base.retries = overrides.retries
+    base.enable_internet_access = overrides.enable_internet_access
+    if overrides.base_url is not None:
+        base.base_url = overrides.base_url
+    return base
+
+
 async def _resolve_run_config(
     params: InternalRunAgentRequest, agent_svc: AgentManagementService
 ) -> AgentConfig:
@@ -63,10 +86,11 @@ async def _resolve_run_config(
 
 @asynccontextmanager
 async def _provider_secrets_context(
-    agent_svc: AgentManagementService, model_provider: str
+    agent_svc: AgentManagementService,
+    config: AgentConfig,
 ):
-    """Set provider credentials in registry secrets context for this request."""
-    if model_provider in _PROVIDERS_WITH_OPTIONAL_WORKSPACE_CREDENTIALS:
+    """Set runtime credentials in registry secrets context for this request."""
+    if config.model_provider in _PROVIDERS_WITH_OPTIONAL_WORKSPACE_CREDENTIALS:
         secrets_token = registry_secrets.set_context({})
         try:
             yield
@@ -74,12 +98,22 @@ async def _provider_secrets_context(
             registry_secrets.reset_context(secrets_token)
         return
 
-    credentials = await agent_svc.get_runtime_provider_credentials(model_provider)
-    if not credentials:
-        raise ValueError(
-            f"No credentials found for provider '{model_provider}'. "
-            "Please configure credentials for this provider first."
+    if config.model_catalog_ref:
+        resolved_config, credentials = await agent_svc._resolve_catalog_agent_config(
+            catalog_ref=config.model_catalog_ref,
         )
+        config.model_name = resolved_config.model_name
+        config.model_provider = resolved_config.model_provider
+        config.base_url = resolved_config.base_url
+        config.model_source_type = resolved_config.model_source_type
+        config.model_source_id = resolved_config.model_source_id
+    else:
+        credentials = await agent_svc.get_provider_credentials(config.model_provider)
+        if not credentials:
+            raise ValueError(
+                f"No credentials found for provider '{config.model_provider}'. "
+                "Please configure credentials for this provider first."
+            )
 
     secrets_token = registry_secrets.set_context(credentials)
     try:
@@ -120,12 +154,17 @@ async def run_agent_endpoint(
     try:
         agent_svc = AgentManagementService(session, role=role)
         config = await _resolve_run_config(params, agent_svc)
+        if config.model_catalog_ref:
+            catalog_config, _ = await agent_svc._resolve_catalog_agent_config(
+                catalog_ref=config.model_catalog_ref,
+            )
+            config = _merge_runtime_overrides(catalog_config, config)
         mcp_servers = config.mcp_servers
 
         if config and config.tool_approvals:
             await check_entitlement(session, role, Entitlement.AGENT_ADDONS)
 
-        async with _provider_secrets_context(agent_svc, config.model_provider):
+        async with _provider_secrets_context(agent_svc, config):
             result: AgentOutput = await runtime_run_agent(
                 user_prompt=params.user_prompt,
                 model_name=config.model_name,
@@ -169,16 +208,21 @@ async def rank_items_endpoint(
 
     try:
         agent_svc = AgentManagementService(session, role=role)
-        async with _provider_secrets_context(agent_svc, params.model_provider):
+        config = AgentConfig(
+            model_name=params.model_name,
+            model_provider=params.model_provider,
+            base_url=params.base_url,
+        )
+        async with _provider_secrets_context(agent_svc, config):
             return await ranker_rank_items(
                 items=params.items,
                 criteria_prompt=params.criteria_prompt,
-                model_name=params.model_name,
-                model_provider=params.model_provider,
+                model_name=config.model_name,
+                model_provider=config.model_provider,
                 model_settings=params.model_settings,
                 max_requests=params.max_requests,
                 retries=params.retries,
-                base_url=params.base_url,
+                base_url=config.base_url,
                 min_items=params.min_items,
                 max_items=params.max_items,
             )
@@ -202,12 +246,17 @@ async def rank_items_pairwise_endpoint(
 
     try:
         agent_svc = AgentManagementService(session, role=role)
-        async with _provider_secrets_context(agent_svc, params.model_provider):
+        config = AgentConfig(
+            model_name=params.model_name,
+            model_provider=params.model_provider,
+            base_url=params.base_url,
+        )
+        async with _provider_secrets_context(agent_svc, config):
             return await ranker_rank_items_pairwise(
                 items=params.items,
                 criteria_prompt=params.criteria_prompt,
-                model_name=params.model_name,
-                model_provider=params.model_provider,
+                model_name=config.model_name,
+                model_provider=config.model_provider,
                 id_field=params.id_field,
                 batch_size=params.batch_size,
                 num_passes=params.num_passes,
@@ -215,7 +264,7 @@ async def rank_items_pairwise_endpoint(
                 model_settings=params.model_settings,
                 max_requests=params.max_requests,
                 retries=params.retries,
-                base_url=params.base_url,
+                base_url=config.base_url,
                 min_items=params.min_items,
                 max_items=params.max_items,
             )

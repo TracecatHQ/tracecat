@@ -37,6 +37,17 @@ type UpdateableChatRecord =
   | AgentSessionsGetSessionVercelResponse
   | AgentSessionsListSessionsResponse[number]
 
+type SessionModelSelectionFields = {
+  model_catalog_ref?: string | null
+}
+
+type AgentSessionCreateWithModelSelection = AgentSessionCreate &
+  SessionModelSelectionFields
+type AgentSessionUpdateWithModelSelection = AgentSessionUpdate &
+  SessionModelSelectionFields
+type UpdateableChatRecordWithModelSelection = UpdateableChatRecord &
+  SessionModelSelectionFields
+
 type UpdateChatContext = {
   previousChat?: AgentSessionsGetSessionResponse
   previousChatVercel?: AgentSessionsGetSessionVercelResponse
@@ -47,10 +58,10 @@ type UpdateChatContext = {
 
 function applyOptimisticChatUpdate<T extends UpdateableChatRecord>(
   chat: T,
-  update: AgentSessionUpdate
+  update: AgentSessionUpdateWithModelSelection
 ): T {
-  return {
-    ...chat,
+  const updatedChat: UpdateableChatRecordWithModelSelection = {
+    ...(chat as UpdateableChatRecordWithModelSelection),
     updated_at: new Date().toISOString(),
     ...(typeof update.title === "string" ? { title: update.title } : {}),
     ...(update.tools !== undefined ? { tools: update.tools ?? [] } : {}),
@@ -60,10 +71,15 @@ function applyOptimisticChatUpdate<T extends UpdateableChatRecord>(
     ...(update.agent_preset_version_id !== undefined
       ? { agent_preset_version_id: update.agent_preset_version_id }
       : {}),
+    ...(update.model_catalog_ref !== undefined
+      ? { model_catalog_ref: update.model_catalog_ref }
+      : {}),
     ...("harness_type" in chat && update.harness_type !== undefined
       ? { harness_type: update.harness_type }
       : {}),
   }
+
+  return updatedChat as T
 }
 
 export function parseChatError(error: unknown): string {
@@ -125,10 +141,13 @@ export function useCreateChat(workspaceId: string) {
   const { mutateAsync: createChat, isPending: createChatPending } = useMutation<
     AgentSessionRead,
     ApiError,
-    AgentSessionCreate
+    AgentSessionCreateWithModelSelection
   >({
-    mutationFn: (request: AgentSessionCreate) =>
-      agentSessionsCreateSession({ requestBody: request, workspaceId }),
+    mutationFn: (request: AgentSessionCreateWithModelSelection) =>
+      agentSessionsCreateSession({
+        requestBody: request as AgentSessionCreate,
+        workspaceId,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
     },
@@ -210,14 +229,14 @@ export function useUpdateChat(workspaceId: string) {
   const mutation = useMutation<
     AgentSessionRead,
     ApiError,
-    { chatId: string; update: AgentSessionUpdate },
+    { chatId: string; update: AgentSessionUpdateWithModelSelection },
     UpdateChatContext
   >({
     mutationFn: ({ chatId, update }) =>
       agentSessionsUpdateSession({
         sessionId: chatId,
         workspaceId,
-        requestBody: update,
+        requestBody: update as AgentSessionUpdate,
       }),
     onMutate: async ({ chatId, update }) => {
       await Promise.all([

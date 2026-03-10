@@ -7,6 +7,8 @@ import {
   Braces,
   Brackets,
   CopyPlus,
+  Check,
+  ChevronsUpDown,
   Hash,
   History,
   List,
@@ -55,6 +57,14 @@ import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -77,6 +87,11 @@ import {
   FormLabel,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   ResizableHandle,
   ResizablePanel,
@@ -114,16 +129,15 @@ import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import {
   type AgentPresetFormMode,
   buildDuplicateAgentPresetPayload,
-  canSubmitAgentPresetForm,
 } from "@/lib/agent-presets"
 import type { ModelInfo } from "@/lib/chat"
 import {
+  type AgentCatalogEntry,
   useAgentModels,
   useChatReadiness,
   useListMcpIntegrations,
-  useModelProviders,
+  useModelProvidersStatus,
   useRegistryActions,
-  useWorkspaceModelProvidersStatus,
 } from "@/lib/hooks"
 import { cn, slugify } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -141,6 +155,11 @@ const DATA_TYPE_OUTPUT_TYPES = [
 
 const NEW_PRESET_ID = "new"
 const DEFAULT_RETRIES = 3
+const CATALOG_FREE_SOURCE_TYPES = new Set([
+  "default_sidecar",
+  "openai_compatible_gateway",
+  "manual_custom",
+])
 
 /**
  * Maps MCP integration slugs to provider IDs for icon lookup.
@@ -196,8 +215,9 @@ const agentPresetSchema = z
     slug: z.string().trim().min(1, "Slug is required"),
     description: z.string().max(1000).optional(),
     instructions: z.string().optional(),
-    model_provider: z.string().trim().min(1, "Model provider is required"),
-    model_name: z.string().trim().min(1, "Model name is required"),
+    model_catalog_ref: z.string().min(1, "Model is required"),
+    model_provider: z.string().min(1, "Model provider is required"),
+    model_name: z.string().min(1, "Model name is required"),
     base_url: z.union([z.string().url(), z.literal(""), z.undefined()]),
     outputTypeKind: z.enum(["none", "data-type", "json"]),
     outputTypeDataType: z.string().optional(),
@@ -267,6 +287,7 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   slug: "",
   description: "",
   instructions: "",
+  model_catalog_ref: "",
   model_provider: "",
   model_name: "",
   base_url: "",
@@ -299,8 +320,8 @@ export function AgentPresetsBuilder({
     { enabled: agentAddonsEnabled && !entitlementsLoading }
   )
   const { registryActions } = useRegistryActions()
-  const { providers } = useModelProviders()
-  const { models } = useAgentModels()
+  const { models } = useAgentModels(workspaceId)
+  const enabledModelsLoaded = models !== undefined
 
   const { mcpIntegrations, mcpIntegrationsIsLoading } =
     useListMcpIntegrations(workspaceId)
@@ -410,33 +431,10 @@ export function AgentPresetsBuilder({
     return entries.sort((a, b) => a.label.localeCompare(b.label))
   }, [registryActions])
 
-  const modelOptionsByProvider = useMemo(() => {
-    if (!models) {
-      return {}
-    }
-    const grouped: Record<string, { label: string; value: string }[]> = {}
-    for (const [key, config] of Object.entries(models)) {
-      const provider = config.provider
-      if (!grouped[provider]) {
-        grouped[provider] = []
-      }
-      grouped[provider]?.push({
-        label: config.name ?? key,
-        value: config.name ?? key,
-      })
-    }
-    for (const list of Object.values(grouped)) {
-      list.sort((a, b) => a.label.localeCompare(b.label))
-    }
-    return grouped
-  }, [models])
-
-  const modelProviderOptions = useMemo(() => {
-    const set = new Set<string>()
-    providers?.forEach((provider) => set.add(provider))
-    Object.keys(modelOptionsByProvider).forEach((provider) => set.add(provider))
-    return Array.from(set).sort((a, b) => a.localeCompare(b))
-  }, [modelOptionsByProvider, providers])
+  const enabledModelOptions = useMemo(
+    () => buildEnabledModelOptions(models),
+    [models]
+  )
 
   if (presetsIsLoading) {
     return <CenteredSpinner />
@@ -466,8 +464,8 @@ export function AgentPresetsBuilder({
         workspaceId={workspaceId}
         actionSuggestions={actionSuggestions}
         namespaceSuggestions={namespaceSuggestions}
-        modelOptionsByProvider={modelOptionsByProvider}
-        modelProviderOptions={modelProviderOptions}
+        enabledModelOptions={enabledModelOptions}
+        enabledModelsLoaded={enabledModelsLoaded}
         mcpIntegrations={mcpIntegrationsForForm}
         mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
         isSaving={
@@ -535,14 +533,30 @@ export function AgentPresetsBuilder({
 function AgentPresetChatPane({
   preset,
   workspaceId,
+  enabledModelOptions,
+  enabledModelsLoaded,
 }: {
   preset: AgentPresetRead | null
   workspaceId: string
+  enabledModelOptions: EnabledModelOption[]
+  enabledModelsLoaded: boolean
 }) {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
 
   const { providersStatus, isLoading: providersStatusLoading } =
-    useWorkspaceModelProvidersStatus(workspaceId)
+    useModelProvidersStatus()
+  const selectedModel = useMemo(
+    () =>
+      preset
+        ? findEnabledModelOption(enabledModelOptions, {
+            catalogRef: getPresetModelCatalogRef(preset),
+            modelProvider: preset.model_provider,
+            modelName: preset.model_name,
+            baseUrl: preset.base_url ?? null,
+          })
+        : null,
+    [enabledModelOptions, preset]
+  )
 
   const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
     {
@@ -578,7 +592,6 @@ function AgentPresetChatPane({
   const selectedVersion =
     versions?.find((version) => version.id === chat?.agent_preset_version_id) ??
     null
-  const activeVersion = selectedVersion ?? currentVersion
   const newChatVersion = selectedVersion ?? currentVersion
 
   const modelInfo: ModelInfo | null = useMemo(() => {
@@ -586,34 +599,36 @@ function AgentPresetChatPane({
       return null
     }
     return {
-      name: activeVersion?.model_name ?? preset.model_name,
-      provider: activeVersion?.model_provider ?? preset.model_provider,
-      baseUrl: activeVersion?.base_url ?? preset.base_url ?? null,
+      name: selectedModel?.modelName ?? preset.model_name,
+      provider: selectedModel?.runtimeProvider ?? preset.model_provider,
+      baseUrl: selectedModel?.baseUrl ?? preset.base_url ?? null,
     }
-  }, [activeVersion, preset])
+  }, [preset, selectedModel])
 
   const providerReady = useMemo(() => {
     if (!preset) {
       return false
     }
-    const provider = activeVersion?.model_provider ?? preset.model_provider
-    return providersStatus?.[provider] ?? false
-  }, [activeVersion, providersStatus, preset])
-
-  const newChatProviderReady = useMemo(() => {
-    if (!preset) {
-      return false
+    if (selectedModel) {
+      if (CATALOG_FREE_SOURCE_TYPES.has(selectedModel.sourceType)) {
+        return true
+      }
+      return providersStatus?.[selectedModel.runtimeProvider] ?? false
     }
-    const provider = newChatVersion?.model_provider ?? preset.model_provider
-    return providersStatus?.[provider] ?? false
-  }, [newChatVersion, providersStatus, preset])
+    if (CATALOG_FREE_SOURCE_TYPES.has(preset.model_provider)) {
+      return true
+    }
+    return providersStatus?.[preset.model_provider] ?? false
+  }, [preset, providersStatus, selectedModel])
 
-  const canStartChat = Boolean(preset && newChatProviderReady)
+  const canStartChat = Boolean(
+    preset && providerReady && (!enabledModelsLoaded || selectedModel !== null)
+  )
   const shouldAutoCreateChat =
     canStartChat && !activeChatId && !chatsLoading && !createChatPending
 
   const handleCreateChat = async () => {
-    if (!preset || createChatPending || !newChatProviderReady) {
+    if (!preset || createChatPending) {
       return
     }
 
@@ -685,24 +700,38 @@ function AgentPresetChatPane({
       )
     }
 
+    if (enabledModelsLoaded && !selectedModel) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center px-4">
+          <div className="flex max-w-xs flex-col items-center gap-2 text-center text-xs text-muted-foreground">
+            <AlertCircle className="size-5 text-amber-500" />
+            <p className="text-pretty">
+              This preset no longer points at an enabled model. Select a new
+              model in the preset configuration before starting chat.
+            </p>
+          </div>
+        </div>
+      )
+    }
+
     if (!providerReady) {
       return (
         <div className="flex h-full flex-col items-center justify-center px-4">
           <div className="flex max-w-xs flex-col items-center gap-2 text-center text-xs text-muted-foreground">
             <AlertCircle className="size-5 text-amber-500" />
             <p className="text-pretty">
-              This agent uses workspace credentials for{" "}
+              This agent needs organization-level credentials for{" "}
               <span className="font-medium">
-                {activeVersion?.model_provider ?? preset.model_provider}
+                {selectedModel?.runtimeProvider ?? preset.model_provider}
               </span>
-              . Configure them on the{" "}
+              . Configure them in{" "}
               <Link
-                href={`/workspaces/${workspaceId}/credentials`}
+                href="/organization/settings/agent"
                 className="font-medium text-primary hover:underline"
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                credentials page
+                organization agent settings
               </Link>{" "}
               to enable chat.
             </p>
@@ -867,13 +896,6 @@ type AgentPresetSideTab =
   | "structured-output"
   | "versions"
 
-type McpIntegrationOption = {
-  id: string
-  name: string
-  description?: string | null
-  providerId?: string
-}
-
 function getAgentPresetErrorTab(
   errors: FieldErrors<AgentPresetFormValues>
 ): AgentPresetSideTab | null {
@@ -884,22 +906,165 @@ function getAgentPresetErrorTab(
   ) {
     return "structured-output"
   }
-
   if (
-    errors.model_provider ||
-    errors.model_name ||
-    errors.base_url ||
-    errors.retries ||
     errors.actions ||
-    errors.namespaces ||
     errors.mcpIntegrations ||
+    errors.namespaces ||
     errors.toolApprovals ||
+    errors.retries ||
     errors.enableInternetAccess
   ) {
     return "configuration"
   }
-
+  if (
+    errors.instructions ||
+    errors.model_catalog_ref ||
+    errors.model_provider ||
+    errors.model_name ||
+    errors.base_url
+  ) {
+    return "assistant"
+  }
+  if (errors.name || errors.slug || errors.description) {
+    return "live-chat"
+  }
   return null
+}
+
+type McpIntegrationOption = {
+  id: string
+  name: string
+  description?: string | null
+  providerId?: string
+}
+
+type EnabledModelOption = {
+  catalogRef: string
+  modelName: string
+  modelProvider: string
+  runtimeProvider: string
+  displayName: string
+  label: string
+  metadata: string
+  sourceName: string
+  sourceType: string
+  baseUrl?: string | null
+}
+
+type AgentPresetReadWithCatalogRef = AgentPresetRead & {
+  model_catalog_ref?: string | null
+}
+
+type AgentPresetPayload = AgentPresetCreate & {
+  model_catalog_ref?: string | null
+}
+
+type AgentPresetUpdatePayload = AgentPresetUpdate & {
+  model_catalog_ref?: string | null
+}
+
+function buildEnabledModelOptions(
+  models: AgentCatalogEntry[] | undefined
+): EnabledModelOption[] {
+  return (models ?? [])
+    .map((model) => ({
+      catalogRef: model.catalog_ref,
+      modelName: model.model_name,
+      modelProvider: model.model_provider,
+      runtimeProvider: model.runtime_provider,
+      displayName: model.display_name,
+      label: model.display_name,
+      metadata: getEnabledModelMetadata(model),
+      sourceName: model.source_name,
+      sourceType: model.source_type,
+      baseUrl: model.base_url ?? null,
+    }))
+    .sort((a, b) => {
+      const sourceComparison = a.sourceName.localeCompare(b.sourceName)
+      if (sourceComparison !== 0) {
+        return sourceComparison
+      }
+      return a.displayName.localeCompare(b.displayName)
+    })
+}
+
+function getEnabledModelMetadata(model: AgentCatalogEntry): string {
+  const sourceLabel =
+    model.source_name === "Default models"
+      ? "Default models"
+      : model.source_name
+  if (sourceLabel === model.model_provider) {
+    return sourceLabel
+  }
+  return `${sourceLabel} · ${model.model_provider}`
+}
+
+function getProviderIconId(provider: string): string {
+  switch (provider) {
+    case "anthropic":
+      return "anthropic"
+    case "azure_ai":
+    case "azure_openai":
+      return "microsoft"
+    case "bedrock":
+      return "amazon-bedrock"
+    case "gemini":
+    case "vertex_ai":
+      return "google"
+    case "openai":
+      return "openai"
+    default:
+      return "custom-model-provider"
+  }
+}
+
+function getPresetModelCatalogRef(preset: AgentPresetRead): string | null {
+  return (preset as AgentPresetReadWithCatalogRef).model_catalog_ref ?? null
+}
+
+function findEnabledModelOption(
+  options: EnabledModelOption[],
+  selection: {
+    catalogRef?: string | null
+    modelProvider?: string | null
+    modelName?: string | null
+    baseUrl?: string | null
+  }
+): EnabledModelOption | null {
+  if (selection.catalogRef) {
+    const byCatalogRef = options.find(
+      (option) => option.catalogRef === selection.catalogRef
+    )
+    if (byCatalogRef) {
+      return byCatalogRef
+    }
+  }
+
+  if (!selection.modelProvider || !selection.modelName) {
+    return null
+  }
+
+  const normalizedBaseUrl = normalizeOptional(selection.baseUrl)
+  return (
+    options.find(
+      (option) =>
+        (option.runtimeProvider === selection.modelProvider ||
+          option.modelProvider === selection.modelProvider) &&
+        option.modelName === selection.modelName &&
+        normalizeOptional(option.baseUrl) === normalizedBaseUrl
+    ) ?? null
+  )
+}
+
+function syncFormModelSelection(
+  form: UseFormReturn<AgentPresetFormValues>,
+  option: EnabledModelOption,
+  shouldDirty: boolean
+) {
+  form.setValue("model_catalog_ref", option.catalogRef, { shouldDirty })
+  form.setValue("model_provider", option.runtimeProvider, { shouldDirty })
+  form.setValue("model_name", option.modelName, { shouldDirty })
+  form.setValue("base_url", option.baseUrl ?? "", { shouldDirty })
 }
 
 type AgentPresetFormProps = {
@@ -907,10 +1072,10 @@ type AgentPresetFormProps = {
   mode: AgentPresetFormMode
   workspaceId: string
   builderPrompt?: string
-  onCreate: (payload: AgentPresetCreate) => Promise<AgentPresetRead>
+  onCreate: (payload: AgentPresetPayload) => Promise<AgentPresetRead>
   onUpdate: (
     presetId: string,
-    payload: AgentPresetUpdate
+    payload: AgentPresetUpdatePayload
   ) => Promise<AgentPresetRead>
   onDuplicate?: () => Promise<void>
   onDelete?: () => Promise<void>
@@ -918,8 +1083,8 @@ type AgentPresetFormProps = {
   isDeleting: boolean
   actionSuggestions: Suggestion[]
   namespaceSuggestions: Suggestion[]
-  modelProviderOptions: string[]
-  modelOptionsByProvider: Record<string, { label: string; value: string }[]>
+  enabledModelOptions: EnabledModelOption[]
+  enabledModelsLoaded: boolean
   mcpIntegrations: McpIntegrationOption[]
   mcpIntegrationsIsLoading: boolean
 }
@@ -937,8 +1102,8 @@ function AgentPresetForm({
   isDeleting,
   actionSuggestions,
   namespaceSuggestions,
-  modelProviderOptions,
-  modelOptionsByProvider,
+  enabledModelOptions,
+  enabledModelsLoaded,
   mcpIntegrations,
   mcpIntegrationsIsLoading,
 }: AgentPresetFormProps) {
@@ -982,9 +1147,20 @@ function AgentPresetForm({
   }, [form, mode, preset])
 
   const watchedName = form.watch("name")
-  const providerValue = form.watch("model_provider")
-  const modelNameValue = form.watch("model_name")
-  const modelOptions = modelOptionsByProvider[providerValue] ?? []
+  const modelCatalogRef = form.watch("model_catalog_ref")
+  const modelProvider = form.watch("model_provider")
+  const modelName = form.watch("model_name")
+  const baseUrl = form.watch("base_url")
+  const selectedModel = useMemo(
+    () =>
+      findEnabledModelOption(enabledModelOptions, {
+        catalogRef: modelCatalogRef,
+        modelProvider,
+        modelName,
+        baseUrl,
+      }),
+    [baseUrl, enabledModelOptions, modelCatalogRef, modelName, modelProvider]
+  )
 
   useEffect(() => {
     const nextSlug = slugify(watchedName ?? "", "-")
@@ -994,17 +1170,25 @@ function AgentPresetForm({
   }, [form, watchedName])
 
   useEffect(() => {
-    if (
-      modelOptions.length > 0 &&
-      !modelOptions.some(
-        (option) => option.value === form.getValues("model_name")
-      )
-    ) {
-      form.setValue("model_name", modelOptions[0]?.value ?? "", {
-        shouldDirty: false,
-      })
+    if (!enabledModelsLoaded) {
+      return
     }
-  }, [form, modelOptions])
+    if (selectedModel) {
+      syncFormModelSelection(form, selectedModel, false)
+      return
+    }
+    if (
+      form.getValues("model_catalog_ref") ||
+      form.getValues("model_provider") ||
+      form.getValues("model_name") ||
+      form.getValues("base_url")
+    ) {
+      form.setValue("model_catalog_ref", "", { shouldDirty: false })
+      form.setValue("model_provider", "", { shouldDirty: false })
+      form.setValue("model_name", "", { shouldDirty: false })
+      form.setValue("base_url", "", { shouldDirty: false })
+    }
+  }, [enabledModelsLoaded, form, selectedModel])
 
   useEffect(() => {
     if (!channelsEnabled && activeTab === "channels") {
@@ -1031,13 +1215,13 @@ function AgentPresetForm({
     }
   )
 
-  const canSubmit = canSubmitAgentPresetForm({
-    mode,
-    isDirty: form.formState.isDirty,
-    name: watchedName ?? "",
-    modelProvider: providerValue ?? "",
-    modelName: modelNameValue ?? "",
-  })
+  const canSubmit =
+    form.formState.isDirty ||
+    (mode === "create" &&
+      Boolean(form.watch("name")) &&
+      Boolean(form.watch("model_catalog_ref")) &&
+      Boolean(form.watch("model_provider")) &&
+      Boolean(form.watch("model_name")))
 
   const handleDeleteDialogChange = useCallback(
     (nextOpen: boolean) => {
@@ -1123,8 +1307,8 @@ function AgentPresetForm({
               isSaving={isSaving}
               actionSuggestions={actionSuggestions}
               namespaceSuggestions={namespaceSuggestions}
-              modelProviderOptions={modelProviderOptions}
-              modelOptionsByProvider={modelOptionsByProvider}
+              enabledModelOptions={enabledModelOptions}
+              enabledModelsLoaded={enabledModelsLoaded}
               mcpIntegrations={mcpIntegrations}
               mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
               toolApprovalFields={toolApprovalFields}
@@ -1326,8 +1510,8 @@ function AgentPresetRightPanel({
   isSaving,
   actionSuggestions,
   namespaceSuggestions,
-  modelProviderOptions,
-  modelOptionsByProvider,
+  enabledModelOptions,
+  enabledModelsLoaded,
   mcpIntegrations,
   mcpIntegrationsIsLoading,
   toolApprovalFields,
@@ -1344,8 +1528,8 @@ function AgentPresetRightPanel({
   isSaving: boolean
   actionSuggestions: Suggestion[]
   namespaceSuggestions: Suggestion[]
-  modelProviderOptions: string[]
-  modelOptionsByProvider: Record<string, { label: string; value: string }[]>
+  enabledModelOptions: EnabledModelOption[]
+  enabledModelsLoaded: boolean
   mcpIntegrations: McpIntegrationOption[]
   mcpIntegrationsIsLoading: boolean
   toolApprovalFields: Array<{ id: string }>
@@ -1413,7 +1597,12 @@ function AgentPresetRightPanel({
 
         <div className="flex-1 overflow-hidden">
           <TabsContent value="live-chat" className="mt-0 h-full">
-            <AgentPresetChatPane preset={preset} workspaceId={workspaceId} />
+            <AgentPresetChatPane
+              preset={preset}
+              workspaceId={workspaceId}
+              enabledModelOptions={enabledModelOptions}
+              enabledModelsLoaded={enabledModelsLoaded}
+            />
           </TabsContent>
 
           <TabsContent value="assistant" className="mt-0 h-full">
@@ -1430,8 +1619,8 @@ function AgentPresetRightPanel({
               isSaving={isSaving}
               actionSuggestions={actionSuggestions}
               namespaceSuggestions={namespaceSuggestions}
-              modelProviderOptions={modelProviderOptions}
-              modelOptionsByProvider={modelOptionsByProvider}
+              enabledModelOptions={enabledModelOptions}
+              enabledModelsLoaded={enabledModelsLoaded}
               mcpIntegrations={mcpIntegrations}
               mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
               toolApprovalFields={toolApprovalFields}
@@ -1467,8 +1656,8 @@ function AgentPresetConfigurationPanel({
   isSaving,
   actionSuggestions,
   namespaceSuggestions,
-  modelProviderOptions,
-  modelOptionsByProvider,
+  enabledModelOptions,
+  enabledModelsLoaded,
   mcpIntegrations,
   mcpIntegrationsIsLoading,
   toolApprovalFields,
@@ -1479,115 +1668,165 @@ function AgentPresetConfigurationPanel({
   isSaving: boolean
   actionSuggestions: Suggestion[]
   namespaceSuggestions: Suggestion[]
-  modelProviderOptions: string[]
-  modelOptionsByProvider: Record<string, { label: string; value: string }[]>
+  enabledModelOptions: EnabledModelOption[]
+  enabledModelsLoaded: boolean
   mcpIntegrations: McpIntegrationOption[]
   mcpIntegrationsIsLoading: boolean
   toolApprovalFields: Array<{ id: string }>
   onAddToolApproval: () => void
   onRemoveToolApproval: (index: number) => void
 }) {
-  const providerValue = form.watch("model_provider")
+  const modelCatalogRef = form.watch("model_catalog_ref")
+  const modelProvider = form.watch("model_provider")
+  const modelName = form.watch("model_name")
+  const baseUrl = form.watch("base_url")
   const internetAccessEnabled = form.watch("enableInternetAccess")
-  const modelOptions = modelOptionsByProvider[providerValue] ?? []
+  const selectedModel = useMemo(
+    () =>
+      findEnabledModelOption(enabledModelOptions, {
+        catalogRef: modelCatalogRef,
+        modelProvider,
+        modelName,
+        baseUrl,
+      }),
+    [baseUrl, enabledModelOptions, modelCatalogRef, modelName, modelProvider]
+  )
+  const hasMissingEnabledModel =
+    enabledModelsLoaded && !selectedModel && Boolean(modelProvider || modelName)
+  const [isModelPickerOpen, setIsModelPickerOpen] = useState(false)
 
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-8 px-6 py-6 pb-20 text-sm">
         <section className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4">
             <FormField
               control={form.control}
-              name="model_provider"
+              name="model_catalog_ref"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Model provider</FormLabel>
-                  <FormControl>
-                    {modelProviderOptions.length > 0 ? (
-                      <Select
-                        value={field.value}
-                        onValueChange={field.onChange}
-                        disabled={isSaving}
+                  <FormLabel>Model</FormLabel>
+                  <FormDescription>
+                    Presets can only use models that are already enabled in
+                    organization settings.
+                  </FormDescription>
+                  {hasMissingEnabledModel ? (
+                    <p className="text-xs text-amber-600">
+                      This preset&apos;s current model is no longer enabled.
+                      Choose a new enabled model before saving.
+                    </p>
+                  ) : null}
+                  <Popover
+                    open={isModelPickerOpen}
+                    onOpenChange={setIsModelPickerOpen}
+                  >
+                    <FormControl>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          role="combobox"
+                          aria-expanded={isModelPickerOpen}
+                          className={cn(
+                            "flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+                            !selectedModel && "text-muted-foreground"
+                          )}
+                          disabled={
+                            isSaving || enabledModelOptions.length === 0
+                          }
+                        >
+                          {selectedModel ? (
+                            <span className="flex min-w-0 items-center gap-2">
+                              <ProviderIcon
+                                providerId={getProviderIconId(
+                                  selectedModel.runtimeProvider
+                                )}
+                                className="size-4 shrink-0 rounded-none bg-transparent p-0"
+                              />
+                              <span className="truncate">
+                                {selectedModel.displayName}
+                              </span>
+                              <span className="shrink-0 text-muted-foreground">
+                                {selectedModel.sourceName}
+                              </span>
+                            </span>
+                          ) : enabledModelOptions.length ? (
+                            "Select a model"
+                          ) : (
+                            "No enabled models"
+                          )}
+                          <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+                        </button>
+                      </PopoverTrigger>
+                    </FormControl>
+                    <PopoverContent
+                      align="start"
+                      className="w-[--radix-popover-trigger-width] p-0"
+                      sideOffset={4}
+                    >
+                      <Command
+                        filter={(value, search) => {
+                          const option = enabledModelOptions.find(
+                            (o) => o.catalogRef === value
+                          )
+                          if (!option) {
+                            return 0
+                          }
+                          const haystack =
+                            `${option.displayName} ${option.modelName} ${option.sourceName} ${option.modelProvider} ${option.runtimeProvider}`.toLowerCase()
+                          return haystack.includes(search.toLowerCase()) ? 1 : 0
+                        }}
                       >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select provider" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {modelProviderOptions.map((provider) => (
-                            <SelectItem key={provider} value={provider}>
-                              {provider}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <Input
-                        placeholder="openai"
-                        {...field}
-                        disabled={isSaving}
-                      />
-                    )}
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="model_name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Model name</FormLabel>
-                  <FormControl>
-                    {modelOptions.length > 0 ? (
-                      <Select
-                        value={field.value}
-                        onValueChange={field.onChange}
-                        disabled={isSaving}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select model" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {modelOptions.map((option) => (
-                            <SelectItem
-                              key={`${providerValue}-${option.value}`}
-                              value={option.value}
-                            >
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <Input
-                        placeholder="gpt-4o-mini"
-                        {...field}
-                        disabled={isSaving}
-                      />
-                    )}
-                  </FormControl>
+                        <CommandInput placeholder="Search models..." />
+                        <CommandList>
+                          <CommandEmpty>
+                            No models match the search.
+                          </CommandEmpty>
+                          <CommandGroup>
+                            {enabledModelOptions.map((option) => {
+                              const isSelected =
+                                option.catalogRef === selectedModel?.catalogRef
+                              return (
+                                <CommandItem
+                                  key={option.catalogRef}
+                                  value={option.catalogRef}
+                                  onSelect={() => {
+                                    field.onChange(option.catalogRef)
+                                    syncFormModelSelection(form, option, true)
+                                    setIsModelPickerOpen(false)
+                                  }}
+                                  className="flex items-center gap-2"
+                                >
+                                  <ProviderIcon
+                                    providerId={getProviderIconId(
+                                      option.runtimeProvider
+                                    )}
+                                    className="size-4 shrink-0 rounded-none bg-transparent p-0"
+                                  />
+                                  <span className="min-w-0 truncate">
+                                    {option.displayName}
+                                  </span>
+                                  <span className="shrink-0 text-[11px] text-muted-foreground">
+                                    {option.sourceName}
+                                  </span>
+                                  <Check
+                                    className={cn(
+                                      "ml-auto size-4 shrink-0",
+                                      isSelected ? "opacity-100" : "opacity-0"
+                                    )}
+                                  />
+                                </CommandItem>
+                              )
+                            })}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </FormItem>
               )}
             />
           </div>
           <div className="grid gap-4 md:grid-cols-2">
-            <FormField
-              control={form.control}
-              name="base_url"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Custom model base URL</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="https://api.openai.com/v1"
-                      value={field.value ?? ""}
-                      onChange={field.onChange}
-                      disabled={isSaving}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
             <FormField
               control={form.control}
               name="retries"
@@ -1955,7 +2194,7 @@ function AgentPresetBuilderChatPane({
     loading: chatReadyLoading,
     reason: chatReadyReason,
     modelInfo,
-  } = useChatReadiness()
+  } = useChatReadiness({ workspaceId })
 
   const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
     {
@@ -2088,8 +2327,8 @@ function AgentPresetBuilderChatPane({
               </EmptyMedia>
               <EmptyTitle>Builder assistant</EmptyTitle>
               <EmptyDescription>
-                Save the preset name and model provider to activate the builder
-                assistant.
+                Save the preset name and choose an enabled model to activate the
+                builder assistant.
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
@@ -2182,6 +2421,7 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
     slug: preset.slug,
     description: preset.description ?? "",
     instructions: preset.instructions ?? "",
+    model_catalog_ref: getPresetModelCatalogRef(preset) ?? "",
     model_provider: preset.model_provider,
     model_name: preset.model_name,
     base_url: preset.base_url ?? "",
@@ -2211,7 +2451,9 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
   }
 }
 
-function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
+function formValuesToPayload(
+  values: AgentPresetFormValues
+): AgentPresetPayload {
   const outputType =
     values.outputTypeKind === "none"
       ? null
@@ -2231,6 +2473,7 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
         : null,
     model_name: values.model_name.trim(),
     model_provider: values.model_provider.trim(),
+    model_catalog_ref: normalizeOptional(values.model_catalog_ref),
     base_url: normalizeOptional(values.base_url),
     output_type: outputType ?? null,
     actions: values.actions.length > 0 ? values.actions : null,

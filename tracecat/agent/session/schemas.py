@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.common.stream_types import HarnessType
@@ -52,10 +52,24 @@ class AgentSessionCreate(BaseModel):
         default=None,
         description="Pinned preset version used for this session (if any)",
     )
+    model_catalog_ref: str | None = Field(
+        default=None,
+        description="Enabled model catalog reference used when no preset is selected.",
+        min_length=1,
+        max_length=500,
+    )
     # Harness fields
     harness_type: HarnessType = Field(
         default=HarnessType.CLAUDE_CODE, description="Agent harness type"
     )
+
+    @model_validator(mode="after")
+    def validate_model_selection(self) -> AgentSessionCreate:
+        if self.agent_preset_id is not None and self.model_catalog_ref is not None:
+            raise ValueError(
+                "model_catalog_ref cannot be set when agent_preset_id is configured"
+            )
+        return self
 
 
 class AgentSessionUpdate(BaseModel):
@@ -74,9 +88,23 @@ class AgentSessionUpdate(BaseModel):
         default=None,
         description="Pinned preset version to use for this session",
     )
+    model_catalog_ref: str | None = Field(
+        default=None,
+        description="Enabled model catalog reference to use when no preset is selected.",
+        min_length=1,
+        max_length=500,
+    )
     harness_type: HarnessType | None = Field(
         default=None, description="Agent harness type"
     )
+
+    @model_validator(mode="after")
+    def validate_model_selection(self) -> AgentSessionUpdate:
+        if self.agent_preset_id is not None and self.model_catalog_ref is not None:
+            raise ValueError(
+                "model_catalog_ref cannot be set when agent_preset_id is configured"
+            )
+        return self
 
 
 class AgentSessionHistoryRead(BaseModel):
@@ -109,6 +137,7 @@ class AgentSessionRead(BaseModel):
     tools: list[str] | None
     agent_preset_id: uuid.UUID | None
     agent_preset_version_id: uuid.UUID | None
+    model_catalog_ref: str | None
     # Harness
     harness_type: str | None
     # Stream tracking
