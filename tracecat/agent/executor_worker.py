@@ -19,6 +19,7 @@ from tracecat.agent.runtime_services import (
     stop_configured_llm_proxy,
     stop_mcp_server,
 )
+from tracecat.agent.service import sync_model_catalogs_on_startup
 from tracecat.agent.worker import new_sandbox_runner
 from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
@@ -68,6 +69,7 @@ async def main() -> None:
     global runtime_failure_reason
     interrupt_event.clear()
     runtime_failure_reason = None
+    model_catalog_sync_task: asyncio.Task[None] | None = None
     max_concurrent = int(
         os.environ.get("TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES") or 1
     )
@@ -83,6 +85,11 @@ async def main() -> None:
 
     try:
         client = await _start_runtime_services()
+        model_catalog_sync_task = asyncio.create_task(
+            sync_model_catalogs_on_startup(),
+            name="model_catalog_gateway_startup_sync",
+        )
+        logger.debug("Spawned background task for model catalog gateway-startup sync")
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
             async with Worker(
                 client,
@@ -90,13 +97,47 @@ async def main() -> None:
                 activities=get_activities(),
                 workflow_runner=new_sandbox_runner(),
                 max_concurrent_activities=max_concurrent,
-                disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+                disable_eager_activity_execution=(
+                    config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION
+                ),
                 activity_executor=executor,
             ):
                 logger.info("AgentExecutorWorker started, ctrl+c to exit")
                 await interrupt_event.wait()
                 logger.info("Shutting down AgentExecutorWorker")
     finally:
+        if model_catalog_sync_task is not None and not model_catalog_sync_task.done():
+            logger.info(
+                "Waiting for model catalog gateway-startup sync task to complete"
+            )
+            try:
+                await asyncio.wait_for(model_catalog_sync_task, timeout=10.0)
+                logger.info("Model catalog gateway-startup sync task completed")
+            except TimeoutError:
+                logger.warning(
+                    "Model catalog gateway-startup sync task did not complete in time, cancelling"
+                )
+                model_catalog_sync_task.cancel()
+                try:
+                    await model_catalog_sync_task
+                except asyncio.CancelledError:
+                    logger.debug("Model catalog gateway-startup sync task cancelled")
+            except Exception as exc:
+                logger.warning(
+                    "Model catalog gateway-startup sync task failed during shutdown",
+                    error=str(exc),
+                )
+        elif model_catalog_sync_task is not None:
+            try:
+                model_catalog_sync_task.result()
+                logger.debug(
+                    "Model catalog gateway-startup sync task had already completed"
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Model catalog gateway-startup sync task failed before shutdown",
+                    error=str(exc),
+                )
         await _stop_runtime_services()
     if runtime_failure_reason is not None:
         raise RuntimeError(runtime_failure_reason)

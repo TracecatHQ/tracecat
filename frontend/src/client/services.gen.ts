@@ -93,16 +93,37 @@ import type {
   AgentChannelsStartSlackOauthResponse,
   AgentChannelsUpdateChannelTokenData,
   AgentChannelsUpdateChannelTokenResponse,
+  AgentCreateCustomSource1Data,
+  AgentCreateCustomSource1Response,
+  AgentCreateCustomSourceData,
+  AgentCreateCustomSourceResponse,
   AgentCreateProviderCredentialsData,
   AgentCreateProviderCredentialsResponse,
+  AgentDeleteCustomSource1Data,
+  AgentDeleteCustomSource1Response,
+  AgentDeleteCustomSourceData,
+  AgentDeleteCustomSourceResponse,
   AgentDeleteProviderCredentialsData,
   AgentDeleteProviderCredentialsResponse,
+  AgentDisableModelData,
+  AgentDisableModelResponse,
+  AgentDisableModelsData,
+  AgentDisableModelsResponse,
+  AgentEnableModelData,
+  AgentEnableModelResponse,
+  AgentEnableModelsData,
+  AgentEnableModelsResponse,
+  AgentGetDefaultModelInventoryResponse,
   AgentGetDefaultModelResponse,
   AgentGetProviderCredentialConfigData,
   AgentGetProviderCredentialConfigResponse,
   AgentGetProvidersStatusResponse,
-  AgentGetWorkspaceProvidersStatusData,
-  AgentGetWorkspaceProvidersStatusResponse,
+  AgentListBuiltinCatalogData,
+  AgentListBuiltinCatalogResponse,
+  AgentListCustomSources1Response,
+  AgentListCustomSourcesResponse,
+  AgentListDiscoveredModelsResponse,
+  AgentListModelsData,
   AgentListModelsResponse,
   AgentListProviderCredentialConfigsResponse,
   AgentListProvidersResponse,
@@ -126,6 +147,14 @@ import type {
   AgentPresetsRestoreAgentPresetVersionResponse,
   AgentPresetsUpdateAgentPresetData,
   AgentPresetsUpdateAgentPresetResponse,
+  AgentRefreshBuiltinCatalogResponse,
+  AgentRefreshCustomSource1Data,
+  AgentRefreshCustomSource1Response,
+  AgentRefreshCustomSourceData,
+  AgentRefreshCustomSourceResponse,
+  AgentRefreshDefaultModelInventoryResponse,
+  AgentRefreshProviderInventoryData,
+  AgentRefreshProviderInventoryResponse,
   AgentSessionsCreateSessionData,
   AgentSessionsCreateSessionResponse,
   AgentSessionsDeleteSessionData,
@@ -146,6 +175,12 @@ import type {
   AgentSessionsUpdateSessionResponse,
   AgentSetDefaultModelData,
   AgentSetDefaultModelResponse,
+  AgentUpdateCustomSource1Data,
+  AgentUpdateCustomSource1Response,
+  AgentUpdateCustomSourceData,
+  AgentUpdateCustomSourceResponse,
+  AgentUpdateEnabledModelConfigData,
+  AgentUpdateEnabledModelConfigResponse,
   AgentUpdateProviderCredentialsData,
   AgentUpdateProviderCredentialsResponse,
   ApprovalsSubmitApprovalsData,
@@ -3820,21 +3855,87 @@ export const organizationGetInvitationByToken = (
 /**
  * List Models
  * List all available AI models.
- * @returns ModelConfig Successful Response
+ * @param data The data for the request.
+ * @param data.workspaceId Optional workspace filter for workspace-level enabled model subsets.
+ * @returns ModelCatalogEntry Successful Response
  * @throws ApiError
  */
-export const agentListModels =
-  (): CancelablePromise<AgentListModelsResponse> => {
+export const agentListModels = (
+  data: AgentListModelsData = {}
+): CancelablePromise<AgentListModelsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/models",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Builtin Catalog
+ * List the built-in model catalog with org readiness state.
+ * @param data The data for the request.
+ * @param data.query Search models by name.
+ * @param data.provider Filter by provider.
+ * @param data.cursor Opaque cursor for the next built-in catalog page.
+ * @param data.limit
+ * @returns BuiltInCatalogRead Successful Response
+ * @throws ApiError
+ */
+export const agentListBuiltinCatalog = (
+  data: AgentListBuiltinCatalogData = {}
+): CancelablePromise<AgentListBuiltinCatalogResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/catalog/builtins",
+    query: {
+      query: data.query,
+      provider: data.provider,
+      cursor: data.cursor,
+      limit: data.limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Refresh Builtin Catalog
+ * Refresh the built-in model catalog state.
+ * @returns BuiltInCatalogRead Successful Response
+ * @throws ApiError
+ */
+export const agentRefreshBuiltinCatalog =
+  (): CancelablePromise<AgentRefreshBuiltinCatalogResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/agent/catalog/builtins/refresh",
+    })
+  }
+
+/**
+ * List Discovered Models
+ * List discovered models with org enablement state.
+ * @returns ModelCatalogEntry Successful Response
+ * @throws ApiError
+ */
+export const agentListDiscoveredModels =
+  (): CancelablePromise<AgentListDiscoveredModelsResponse> => {
     return __request(OpenAPI, {
       method: "GET",
-      url: "/agent/models",
+      url: "/agent/catalog/discovered",
     })
   }
 
 /**
  * List Providers
- * List all available AI model providers.
- * @returns string Successful Response
+ * List built-in providers with discovery and credential state.
+ * @returns BuiltInProviderRead Successful Response
  * @throws ApiError
  */
 export const agentListProviders =
@@ -3842,6 +3943,34 @@ export const agentListProviders =
     return __request(OpenAPI, {
       method: "GET",
       url: "/agent/providers",
+    })
+  }
+
+/**
+ * Get Default Model Inventory
+ * Get default-sidecar model inventory and sync state.
+ * @returns DefaultModelInventoryRead Successful Response
+ * @throws ApiError
+ */
+export const agentGetDefaultModelInventory =
+  (): CancelablePromise<AgentGetDefaultModelInventoryResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/agent/default-models",
+    })
+  }
+
+/**
+ * Refresh Default Model Inventory
+ * Refresh the default-sidecar model inventory.
+ * @returns DefaultModelInventoryRead Successful Response
+ * @throws ApiError
+ */
+export const agentRefreshDefaultModelInventory =
+  (): CancelablePromise<AgentRefreshDefaultModelInventoryResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/agent/default-models/refresh",
     })
   }
 
@@ -3887,6 +4016,29 @@ export const agentGetProviderCredentialConfig = (
   return __request(OpenAPI, {
     method: "GET",
     url: "/agent/providers/{provider}/config",
+    path: {
+      provider: data.provider,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Refresh Provider Inventory
+ * Refresh a built-in provider inventory.
+ * @param data The data for the request.
+ * @param data.provider
+ * @returns BuiltInProviderRead Successful Response
+ * @throws ApiError
+ */
+export const agentRefreshProviderInventory = (
+  data: AgentRefreshProviderInventoryData
+): CancelablePromise<AgentRefreshProviderInventoryResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/providers/{provider}/refresh",
     path: {
       provider: data.provider,
     },
@@ -3985,8 +4137,8 @@ export const agentGetDefaultModel =
  * Set Default Model
  * Set the organization's default AI model.
  * @param data The data for the request.
- * @param data.modelName
- * @returns string Successful Response
+ * @param data.requestBody
+ * @returns DefaultModelSelection Successful Response
  * @throws ApiError
  */
 export const agentSetDefaultModel = (
@@ -3995,8 +4147,126 @@ export const agentSetDefaultModel = (
   return __request(OpenAPI, {
     method: "PUT",
     url: "/agent/default-model",
-    query: {
-      model_name: data.modelName,
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * @deprecated
+ * List Custom Sources
+ * @returns AgentModelSourceRead Successful Response
+ * @throws ApiError
+ */
+export const agentListCustomSources =
+  (): CancelablePromise<AgentListCustomSourcesResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/agent/model-sources",
+    })
+  }
+
+/**
+ * @deprecated
+ * Create Custom Source
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns AgentModelSourceRead Successful Response
+ * @throws ApiError
+ */
+export const agentCreateCustomSource = (
+  data: AgentCreateCustomSourceData
+): CancelablePromise<AgentCreateCustomSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/model-sources",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Custom Sources
+ * @returns AgentModelSourceRead Successful Response
+ * @throws ApiError
+ */
+export const agentListCustomSources1 =
+  (): CancelablePromise<AgentListCustomSources1Response> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/agent/custom-sources",
+    })
+  }
+
+/**
+ * Create Custom Source
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns AgentModelSourceRead Successful Response
+ * @throws ApiError
+ */
+export const agentCreateCustomSource1 = (
+  data: AgentCreateCustomSource1Data
+): CancelablePromise<AgentCreateCustomSource1Response> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/custom-sources",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * @deprecated
+ * Update Custom Source
+ * @param data The data for the request.
+ * @param data.sourceId
+ * @param data.requestBody
+ * @returns AgentModelSourceRead Successful Response
+ * @throws ApiError
+ */
+export const agentUpdateCustomSource = (
+  data: AgentUpdateCustomSourceData
+): CancelablePromise<AgentUpdateCustomSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/agent/model-sources/{source_id}",
+    path: {
+      source_id: data.sourceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * @deprecated
+ * Delete Custom Source
+ * @param data The data for the request.
+ * @param data.sourceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentDeleteCustomSource = (
+  data: AgentDeleteCustomSourceData
+): CancelablePromise<AgentDeleteCustomSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/model-sources/{source_id}",
+    path: {
+      source_id: data.sourceId,
     },
     errors: {
       422: "Validation Error",
@@ -4005,22 +4275,197 @@ export const agentSetDefaultModel = (
 }
 
 /**
- * Get Workspace Providers Status
- * Get workspace credential status for all providers.
+ * Update Custom Source
  * @param data The data for the request.
- * @param data.workspaceId
- * @returns boolean Successful Response
+ * @param data.sourceId
+ * @param data.requestBody
+ * @returns AgentModelSourceRead Successful Response
  * @throws ApiError
  */
-export const agentGetWorkspaceProvidersStatus = (
-  data: AgentGetWorkspaceProvidersStatusData
-): CancelablePromise<AgentGetWorkspaceProvidersStatusResponse> => {
+export const agentUpdateCustomSource1 = (
+  data: AgentUpdateCustomSource1Data
+): CancelablePromise<AgentUpdateCustomSource1Response> => {
   return __request(OpenAPI, {
-    method: "GET",
-    url: "/agent/workspace/providers/status",
-    query: {
-      workspace_id: data.workspaceId,
+    method: "PATCH",
+    url: "/agent/custom-sources/{source_id}",
+    path: {
+      source_id: data.sourceId,
     },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Custom Source
+ * @param data The data for the request.
+ * @param data.sourceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentDeleteCustomSource1 = (
+  data: AgentDeleteCustomSource1Data
+): CancelablePromise<AgentDeleteCustomSource1Response> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/custom-sources/{source_id}",
+    path: {
+      source_id: data.sourceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * @deprecated
+ * Refresh Custom Source
+ * @param data The data for the request.
+ * @param data.sourceId
+ * @returns ModelCatalogEntry Successful Response
+ * @throws ApiError
+ */
+export const agentRefreshCustomSource = (
+  data: AgentRefreshCustomSourceData
+): CancelablePromise<AgentRefreshCustomSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/model-sources/{source_id}/refresh",
+    path: {
+      source_id: data.sourceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Refresh Custom Source
+ * @param data The data for the request.
+ * @param data.sourceId
+ * @returns ModelCatalogEntry Successful Response
+ * @throws ApiError
+ */
+export const agentRefreshCustomSource1 = (
+  data: AgentRefreshCustomSource1Data
+): CancelablePromise<AgentRefreshCustomSource1Response> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/custom-sources/{source_id}/refresh",
+    path: {
+      source_id: data.sourceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Enable Model
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ModelCatalogEntry Successful Response
+ * @throws ApiError
+ */
+export const agentEnableModel = (
+  data: AgentEnableModelData
+): CancelablePromise<AgentEnableModelResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/models/enabled",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Disable Model
+ * @param data The data for the request.
+ * @param data.catalogRef
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentDisableModel = (
+  data: AgentDisableModelData
+): CancelablePromise<AgentDisableModelResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/models/enabled",
+    query: {
+      catalog_ref: data.catalogRef,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Enabled Model Config
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ModelCatalogEntry Successful Response
+ * @throws ApiError
+ */
+export const agentUpdateEnabledModelConfig = (
+  data: AgentUpdateEnabledModelConfigData
+): CancelablePromise<AgentUpdateEnabledModelConfigResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/agent/models/enabled",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Enable Models
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ModelCatalogEntry Successful Response
+ * @throws ApiError
+ */
+export const agentEnableModels = (
+  data: AgentEnableModelsData
+): CancelablePromise<AgentEnableModelsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/models/enabled/batch",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Disable Models
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentDisableModels = (
+  data: AgentDisableModelsData
+): CancelablePromise<AgentDisableModelsResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/models/enabled/batch",
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

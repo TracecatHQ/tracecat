@@ -21,6 +21,17 @@ const mockAgentSessionsUpdateSession =
     typeof agentSessionsUpdateSession
   >
 
+type AgentSessionReadWithModelSelection = AgentSessionRead & {
+  model_catalog_ref?: string | null
+}
+type AgentSessionReadWithMessagesWithModelSelection =
+  AgentSessionReadWithMessages & {
+    model_catalog_ref?: string | null
+  }
+type AgentSessionReadVercelWithModelSelection = AgentSessionReadVercel & {
+  model_catalog_ref?: string | null
+}
+
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
   let reject!: (reason?: unknown) => void
@@ -32,8 +43,8 @@ function createDeferred<T>() {
 }
 
 function createSessionRead(
-  overrides?: Partial<AgentSessionRead>
-): AgentSessionRead {
+  overrides?: Partial<AgentSessionReadWithModelSelection>
+): AgentSessionReadWithModelSelection {
   return {
     id: "chat-1",
     workspace_id: "workspace-1",
@@ -45,16 +56,17 @@ function createSessionRead(
     tools: [],
     agent_preset_id: null,
     agent_preset_version_id: null,
+    model_catalog_ref: null,
     harness_type: null,
     created_at: new Date("2024-01-01T00:00:00.000Z").toISOString(),
     updated_at: new Date("2024-01-01T00:00:00.000Z").toISOString(),
     ...overrides,
-  }
+  } as AgentSessionReadWithModelSelection
 }
 
 function createSessionReadWithMessages(
-  overrides?: Partial<AgentSessionReadWithMessages>
-): AgentSessionReadWithMessages {
+  overrides?: Partial<AgentSessionReadWithMessagesWithModelSelection>
+): AgentSessionReadWithMessagesWithModelSelection {
   return {
     ...createSessionRead(),
     messages: [],
@@ -63,8 +75,8 @@ function createSessionReadWithMessages(
 }
 
 function createSessionReadVercel(
-  overrides?: Partial<AgentSessionReadVercel>
-): AgentSessionReadVercel {
+  overrides?: Partial<AgentSessionReadVercelWithModelSelection>
+): AgentSessionReadVercelWithModelSelection {
   return {
     ...createSessionRead(),
     messages: [],
@@ -122,15 +134,13 @@ describe("useUpdateChat", () => {
 
     await waitFor(() => {
       expect(
-        queryClient.getQueryData<AgentSessionReadWithMessages>([
-          "chat",
-          "chat-1",
-          "workspace-1",
-        ])?.tools
+        queryClient.getQueryData<AgentSessionReadWithMessagesWithModelSelection>(
+          ["chat", "chat-1", "workspace-1"]
+        )?.tools
       ).toEqual(["core.cases.list_cases"])
     })
     expect(
-      queryClient.getQueryData<AgentSessionReadVercel>([
+      queryClient.getQueryData<AgentSessionReadVercelWithModelSelection>([
         "chat",
         "chat-1",
         "workspace-1",
@@ -138,7 +148,7 @@ describe("useUpdateChat", () => {
       ])?.tools
     ).toEqual(["core.cases.list_cases"])
     expect(
-      queryClient.getQueryData<AgentSessionRead[]>([
+      queryClient.getQueryData<AgentSessionReadWithModelSelection[]>([
         "chats",
         "workspace-1",
         "case",
@@ -202,18 +212,16 @@ describe("useUpdateChat", () => {
 
     await waitFor(() => {
       expect(
-        queryClient.getQueryData<AgentSessionReadWithMessages>([
-          "chat",
-          "chat-1",
-          "workspace-1",
-        ])
+        queryClient.getQueryData<AgentSessionReadWithMessagesWithModelSelection>(
+          ["chat", "chat-1", "workspace-1"]
+        )
       ).toMatchObject({
         agent_preset_id: "preset-new",
         agent_preset_version_id: "version-new",
       })
     })
     expect(
-      queryClient.getQueryData<AgentSessionReadVercel>([
+      queryClient.getQueryData<AgentSessionReadVercelWithModelSelection>([
         "chat",
         "chat-1",
         "workspace-1",
@@ -224,7 +232,7 @@ describe("useUpdateChat", () => {
       agent_preset_version_id: "version-new",
     })
     expect(
-      queryClient.getQueryData<AgentSessionRead[]>([
+      queryClient.getQueryData<AgentSessionReadWithModelSelection[]>([
         "chats",
         "workspace-1",
         "case",
@@ -240,6 +248,74 @@ describe("useUpdateChat", () => {
       createSessionRead({
         agent_preset_id: "preset-new",
         agent_preset_version_id: "version-new",
+      })
+    )
+    await mutationPromise
+  })
+
+  it("optimistically updates matching chat model selections before the mutation resolves", async () => {
+    const deferred = createDeferred<AgentSessionRead>()
+    mockAgentSessionsUpdateSession.mockImplementation(
+      () =>
+        deferred.promise as unknown as ReturnType<
+          typeof agentSessionsUpdateSession
+        >
+    )
+
+    queryClient.setQueryData(
+      ["chat", "chat-1", "workspace-1"],
+      createSessionReadWithMessages()
+    )
+    queryClient.setQueryData(
+      ["chat", "chat-1", "workspace-1", "vercel"],
+      createSessionReadVercel()
+    )
+    queryClient.setQueryData(
+      ["chats", "workspace-1", "case", "case-1", 50],
+      [createSessionRead()]
+    )
+
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+
+    const { result } = renderHook(() => useUpdateChat("workspace-1"), {
+      wrapper,
+    })
+
+    const mutationPromise = result.current.updateChat({
+      chatId: "chat-1",
+      update: { model_catalog_ref: "catalog:source:model" },
+    })
+
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryData<AgentSessionReadWithMessagesWithModelSelection>(
+          ["chat", "chat-1", "workspace-1"]
+        )?.model_catalog_ref
+      ).toBe("catalog:source:model")
+    })
+    expect(
+      queryClient.getQueryData<AgentSessionReadVercelWithModelSelection>([
+        "chat",
+        "chat-1",
+        "workspace-1",
+        "vercel",
+      ])?.model_catalog_ref
+    ).toBe("catalog:source:model")
+    expect(
+      queryClient.getQueryData<AgentSessionReadWithModelSelection[]>([
+        "chats",
+        "workspace-1",
+        "case",
+        "case-1",
+        50,
+      ])?.[0]?.model_catalog_ref
+    ).toBe("catalog:source:model")
+
+    deferred.resolve(
+      createSessionRead({
+        model_catalog_ref: "catalog:source:model",
       })
     )
     await mutationPromise

@@ -7,6 +7,7 @@ import { EntitlementRequiredEmptyState } from "@/components/entitlement-required
 import type { SettingsSection } from "@/components/settings/settings-modal-context"
 import { WorkspaceFilesSettings } from "@/components/settings/workspace-files-settings"
 import { WorkspaceGeneralSettings } from "@/components/settings/workspace-general-settings"
+import { WorkspaceModelSettings } from "@/components/settings/workspace-model-settings"
 import { WorkspaceRuntimeSettings } from "@/components/settings/workspace-runtime-settings"
 import { WorkspaceSyncSettings } from "@/components/settings/workspace-sync-settings"
 import { Button } from "@/components/ui/button"
@@ -52,6 +53,8 @@ export function WorkspaceSettingsContainer({
       return <WorkspaceGeneralSettings workspace={workspace} />
     case "workspace-runtime":
       return <WorkspaceRuntimeSettings workspace={workspace} />
+    case "workspace-models":
+      return <WorkspaceModelSettings workspace={workspace} />
     case "workspace-files":
       return <WorkspaceFilesSettings workspace={workspace} />
     case "workspace-sync":

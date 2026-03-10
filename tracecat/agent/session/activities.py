@@ -39,6 +39,7 @@ class CreateSessionInput(BaseModel):
     tools: list[str] | None = None
     agent_preset_id: uuid.UUID | None = None
     agent_preset_version_id: uuid.UUID | None = None
+    model_catalog_ref: str | None = None
     harness_type: HarnessType = HarnessType.CLAUDE_CODE
     # Workflow run tracking (for approval lookups)
     curr_run_id: uuid.UUID | None = None
@@ -121,6 +122,7 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                     tools=input.tools,
                     agent_preset_id=input.agent_preset_id,
                     agent_preset_version_id=input.agent_preset_version_id,
+                    model_catalog_ref=input.model_catalog_ref,
                     harness_type=input.harness_type,
                 )
             )

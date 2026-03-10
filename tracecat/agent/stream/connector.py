@@ -8,6 +8,7 @@ from typing import Any
 
 import orjson
 from pydantic_core import to_jsonable_python
+from sqlalchemy import select
 
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.stream.events import (
@@ -23,7 +24,11 @@ from tracecat.agent.stream.events import (
     UnifiedStreamEventTA,
 )
 from tracecat.agent.types import ModelMessageTA, StreamKey
+from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat import tokens
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.models import Workspace
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 
@@ -87,10 +92,36 @@ class AgentStream:
                 error=str(exc),
             )
 
+    async def _build_session_service_role(self) -> Role | None:
+        """Resolve an internal workspace-scoped role for stream cursor updates."""
+        async with get_async_session_bypass_rls_context_manager() as session:
+            stmt = select(Workspace.organization_id).where(
+                Workspace.id == self.workspace_id
+            )
+            organization_id = (await session.execute(stmt)).scalar_one_or_none()
+
+        if organization_id is None:
+            logger.warning(
+                "Skipping stream cursor update because workspace organization was not found",
+                workspace_id=self.workspace_id,
+                session_id=self.session_id,
+            )
+            return None
+
+        return Role(
+            type="service",
+            user_id=None,
+            service_id="tracecat-api",
+            workspace_id=self.workspace_id,
+            organization_id=organization_id,
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-api"],
+        )
+
     async def _set_last_stream_id(self, last_stream_id: str | None) -> None:
         """Update last stream ID for reconnection support."""
-
-        async with AgentSessionService.with_session() as session_svc:
+        if not (role := await self._build_session_service_role()):
+            return
+        async with AgentSessionService.with_session(role=role) as session_svc:
             if agent_session := await session_svc.get_session(self.session_id):
                 await session_svc.update_last_stream_id(agent_session, last_stream_id)
 

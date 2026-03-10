@@ -953,7 +953,6 @@ class DSLWorkflow:
                             ),
                             max_requests=action_args.max_requests,
                             max_tool_calls=action_args.max_tool_calls,
-                            use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1016,7 +1015,6 @@ class DSLWorkflow:
                             max_requests=action_args.max_requests,
                             # No tool calls for AI action
                             max_tool_calls=0,
-                            use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1092,7 +1090,6 @@ class DSLWorkflow:
                             config=override_config,
                             max_requests=preset_action_args.max_requests,
                             max_tool_calls=preset_action_args.max_tool_calls,
-                            use_workspace_credentials=preset_action_args.use_workspace_credentials,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,

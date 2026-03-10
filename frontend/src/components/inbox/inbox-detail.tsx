@@ -48,7 +48,7 @@ export function InboxDetail({
     loading: chatReadyLoading,
     reason: chatReason,
     modelInfo,
-  } = useChatReadiness()
+  } = useChatReadiness({ workspaceId })
 
   // Check if the current session is already a forked session
   // (sessionId differs from parentSessionId when viewing a fork)

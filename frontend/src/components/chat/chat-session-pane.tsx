@@ -13,8 +13,6 @@ import {
 import {
   CheckIcon,
   Loader2,
-  MousePointer2OffIcon,
-  MousePointerClickIcon,
   PencilIcon,
   RefreshCcwIcon,
   XIcon,
@@ -30,7 +28,6 @@ import {
   useState,
 } from "react"
 import type {
-  AgentPresetReadMinimal,
   AgentSessionEntity,
   AgentSessionReadVercel,
   ApprovalDecision,
@@ -44,19 +41,8 @@ import {
 } from "@/components/ai-elements/conversation"
 import { Message, MessageContent } from "@/components/ai-elements/message"
 import {
-  ModelSelector,
-  ModelSelectorContent,
-  ModelSelectorEmpty,
-  ModelSelectorGroup,
-  ModelSelectorInput,
-  ModelSelectorItem,
-  ModelSelectorList,
-  ModelSelectorTrigger,
-} from "@/components/ai-elements/model-selector"
-import {
   PromptInput,
   PromptInputBody,
-  PromptInputButton,
   PromptInputFooter,
   PromptInputHeader,
   type PromptInputMessage,
@@ -85,12 +71,23 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
-import { getIcon } from "@/components/icons"
+import { getIcon, ProviderIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Dots } from "@/components/loading/dots"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -106,10 +103,12 @@ import {
   toUIMessage,
   transformMessages,
 } from "@/lib/chat"
+import type { AgentCatalogEntry } from "@/lib/hooks"
 import { useBuilderRegistryActions } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
 const MAX_TOOL_MENTION_RESULTS = 40
+const MAX_VISIBLE_SELECTED_TOOLS = 3
 
 type ToolMentionToken = {
   start: number
@@ -162,16 +161,17 @@ function getToolMentionToken(
   }
 }
 
-type ChatPresetSelector = {
+type ChatFooterModelSelector = {
   label: string
-  presets?: AgentPresetReadMinimal[]
-  presetsIsLoading: boolean
-  presetsError: unknown
-  selectedPresetId: string | null
-  onSelect: (presetId: string | null) => void | Promise<void>
+  defaultLabel: string
+  defaultProvider?: string | null
+  models?: AgentCatalogEntry[]
+  modelsIsLoading: boolean
+  modelsError: unknown
+  selectedModelCatalogRef: string | null
+  onSelect: (catalogRef: string | null) => void | Promise<void>
   disabled?: boolean
   showSpinner?: boolean
-  noPresetDescription?: string
 }
 
 export interface ChatSessionPaneProps {
@@ -184,6 +184,7 @@ export interface ChatSessionPaneProps {
   onMessagesChange?: (messages: UIMessage[]) => void
   modelInfo: ModelInfo
   toolsEnabled?: boolean
+  fallbackTools?: string[]
   /** Autofocus the prompt input when the pane mounts. */
   autoFocusInput?: boolean
   /**
@@ -215,10 +216,7 @@ export interface ChatSessionPaneProps {
    * Placeholder to show when input is disabled.
    */
   inputDisabledPlaceholder?: string
-  /**
-   * Optional preset selector rendered in the prompt footer.
-   */
-  presetSelector?: ChatPresetSelector
+  modelSelector?: ChatFooterModelSelector
 }
 
 export function ChatSessionPane({
@@ -231,13 +229,14 @@ export function ChatSessionPane({
   onMessagesChange,
   modelInfo,
   toolsEnabled = true,
+  fallbackTools,
   autoFocusInput = false,
   onBeforeSend,
   pendingMessage,
   onPendingMessageSent,
   inputDisabled = false,
   inputDisabledPlaceholder,
-  presetSelector,
+  modelSelector,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
   const processedMessageRef = useRef<
@@ -369,7 +368,11 @@ export function ChatSessionPane({
 
   useEffect(() => {
     const nextChatId = chat?.id
-    const nextTools = chat?.tools ?? []
+    const nextTools = nextChatId
+      ? (chat?.tools ?? [])
+      : toolsEnabled
+        ? (fallbackTools ?? [])
+        : []
 
     if (syncedChatIdRef.current !== nextChatId) {
       syncedChatIdRef.current = nextChatId
@@ -394,7 +397,7 @@ export function ChatSessionPane({
       selectedToolsRef.current = nextTools
       setSelectedTools(nextTools)
     }
-  }, [chat?.id, chat?.tools])
+  }, [chat?.id, chat?.tools, fallbackTools, toolsEnabled])
 
   const queuePersistTools = useCallback(
     (tools: string[]) => {
@@ -641,9 +644,11 @@ export function ChatSessionPane({
     [filteredToolSuggestions, handleSelectMentionTool, toolMention]
   )
 
+  const displayedToolIds = !toolsEnabled ? (fallbackTools ?? []) : selectedTools
+
   const selectedToolBadges = useMemo(
     () =>
-      selectedTools.map((toolName) => {
+      displayedToolIds.map((toolName) => {
         const suggestion = toolSuggestionMap.get(toolName)
         return {
           value: toolName,
@@ -653,7 +658,15 @@ export function ChatSessionPane({
           }),
         }
       }),
-    [selectedTools, toolSuggestionMap]
+    [displayedToolIds, toolSuggestionMap]
+  )
+  const visibleSelectedToolBadges = useMemo(
+    () => selectedToolBadges.slice(0, MAX_VISIBLE_SELECTED_TOOLS),
+    [selectedToolBadges]
+  )
+  const hiddenSelectedToolBadges = useMemo(
+    () => selectedToolBadges.slice(MAX_VISIBLE_SELECTED_TOOLS),
+    [selectedToolBadges]
   )
 
   const transformedMessages = useMemo(
@@ -908,11 +921,11 @@ export function ChatSessionPane({
         <PromptInput onSubmit={handleSubmit}>
           {toolsEnabled && selectedToolBadges.length > 0 && (
             <PromptInputHeader className="gap-1.5 px-3 pt-3">
-              {selectedToolBadges.map((tool) => (
+              {visibleSelectedToolBadges.map((tool) => (
                 <Badge
                   key={tool.value}
                   variant="secondary"
-                  className="h-7 gap-1.5 px-2.5 text-xs"
+                  className="h-7 max-w-[11rem] gap-1.5 px-2.5 text-xs"
                 >
                   <span className="inline-flex items-center justify-center text-foreground">
                     {tool.icon}
@@ -934,6 +947,19 @@ export function ChatSessionPane({
                   </button>
                 </Badge>
               ))}
+              {hiddenSelectedToolBadges.length > 0 ? (
+                <SelectedToolsOverflow
+                  disabled={
+                    isUpdatingTools ||
+                    isReadonly ||
+                    inputDisabled ||
+                    !toolsEnabled
+                  }
+                  onClearAll={() => commitSelectedTools([])}
+                  onRemove={removeSelectedTool}
+                  tools={selectedToolBadges}
+                />
+              ) : null}
             </PromptInputHeader>
           )}
           <PromptInputBody>
@@ -955,12 +981,14 @@ export function ChatSessionPane({
           </PromptInputBody>
           <PromptInputFooter>
             <PromptInputTools>
-              {presetSelector && !isReadonly && (
-                <PromptPresetSelector
-                  selector={presetSelector}
+              {!isReadonly && modelSelector ? (
+                <PromptModelSelector
+                  selector={modelSelector}
                   disabled={inputDisabled || !canSubmit}
                 />
-              )}
+              ) : !isReadonly ? (
+                <PromptModelIndicator modelInfo={modelInfo} />
+              ) : null}
             </PromptInputTools>
             <PromptInputSubmit
               disabled={
@@ -976,154 +1004,212 @@ export function ChatSessionPane({
   )
 }
 
-function PromptPresetSelector({
+function PromptModelSelector({
   selector,
   disabled = false,
 }: {
-  selector: ChatPresetSelector
+  selector: ChatFooterModelSelector
   disabled?: boolean
+}) {
+  const effectiveDisabled = Boolean(disabled || selector.disabled)
+  const defaultValue = "__organization_default_model__"
+  const selectedModel =
+    selector.models?.find(
+      (model) => model.catalog_ref === selector.selectedModelCatalogRef
+    ) ?? null
+  const triggerLabel =
+    selectedModel?.display_name ??
+    (selector.selectedModelCatalogRef === null
+      ? `${selector.defaultLabel} (default)`
+      : selector.label)
+  const triggerProvider =
+    selectedModel?.runtime_provider ?? selector.defaultProvider ?? null
+
+  return (
+    <Select
+      value={selector.selectedModelCatalogRef ?? defaultValue}
+      onValueChange={(value) =>
+        void selector.onSelect(value === defaultValue ? null : value)
+      }
+      disabled={effectiveDisabled || selector.modelsIsLoading}
+    >
+      <SelectTrigger
+        aria-label="Select chat model"
+        className="h-7 max-w-[18rem] border-0 bg-transparent px-2 text-xs shadow-none hover:bg-muted/50 focus:ring-0"
+      >
+        <div className="flex min-w-0 items-center gap-1.5">
+          {triggerProvider ? (
+            <ProviderIcon
+              className="size-4 rounded-none bg-transparent p-0"
+              providerId={getProviderIconId(triggerProvider)}
+            />
+          ) : null}
+          <span className="truncate" title={triggerLabel}>
+            {triggerLabel}
+          </span>
+        </div>
+      </SelectTrigger>
+      <SelectContent align="start" className="w-[22rem]">
+        <SelectItem value={defaultValue}>
+          <div className="flex min-w-0 items-center gap-2">
+            {selector.defaultProvider ? (
+              <ProviderIcon
+                className="size-4 rounded-none bg-transparent p-0"
+                providerId={getProviderIconId(selector.defaultProvider)}
+              />
+            ) : null}
+            <span className="truncate">
+              {`Organization default · ${selector.defaultLabel}`}
+            </span>
+          </div>
+        </SelectItem>
+        {(selector.models ?? []).map((model) => (
+          <SelectItem key={model.catalog_ref} value={model.catalog_ref}>
+            <div className="flex min-w-0 items-center gap-2">
+              <ProviderIcon
+                className="size-4 rounded-none bg-transparent p-0"
+                providerId={getProviderIconId(model.runtime_provider)}
+              />
+              <span className="truncate">
+                {`${model.display_name} · ${model.source_name}`}
+              </span>
+            </div>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+function formatProviderLabel(value: string): string {
+  return value.replaceAll("_", " ")
+}
+
+function getProviderIconId(provider: string): string {
+  switch (provider) {
+    case "anthropic":
+      return "anthropic"
+    case "azure_ai":
+    case "azure_openai":
+      return "microsoft"
+    case "bedrock":
+      return "amazon-bedrock"
+    case "gemini":
+    case "vertex_ai":
+      return "google"
+    case "openai":
+      return "openai"
+    default:
+      return "custom-model-provider"
+  }
+}
+
+function PromptModelIndicator({ modelInfo }: { modelInfo: ModelInfo }) {
+  return (
+    <Badge
+      variant="outline"
+      className="h-7 max-w-[18rem] gap-1.5 px-2.5 text-xs font-normal"
+    >
+      <ProviderIcon
+        className="size-4 rounded-none bg-transparent p-0"
+        providerId={getProviderIconId(modelInfo.provider)}
+      />
+      <span
+        className="truncate font-medium text-foreground"
+        title={modelInfo.name}
+      >
+        {modelInfo.name}
+      </span>
+      <span className="shrink-0 text-muted-foreground">
+        {formatProviderLabel(modelInfo.provider)}
+      </span>
+    </Badge>
+  )
+}
+
+function SelectedToolsOverflow({
+  disabled = false,
+  onClearAll,
+  onRemove,
+  tools,
+}: {
+  disabled?: boolean
+  onClearAll: () => void
+  onRemove: (toolName: string) => void
+  tools: Array<{
+    value: string
+    label: string
+    icon: JSX.Element
+  }>
 }) {
   const [open, setOpen] = useState(false)
 
-  const effectiveDisabled = Boolean(disabled || selector.disabled)
-
   useEffect(() => {
-    if (effectiveDisabled) {
+    if (disabled) {
       setOpen(false)
     }
-  }, [effectiveDisabled])
-
-  const errorMessage = useMemo(() => {
-    if (typeof selector.presetsError === "string") {
-      return selector.presetsError
-    }
-    if (
-      selector.presetsError &&
-      typeof selector.presetsError === "object" &&
-      "body" in selector.presetsError &&
-      typeof (selector.presetsError as { body?: { detail?: unknown } }).body
-        ?.detail === "string"
-    ) {
-      return (selector.presetsError as { body?: { detail?: string } }).body
-        ?.detail
-    }
-    if (
-      selector.presetsError &&
-      typeof selector.presetsError === "object" &&
-      "message" in selector.presetsError &&
-      typeof (selector.presetsError as { message?: unknown }).message ===
-        "string"
-    ) {
-      return (selector.presetsError as { message: string }).message
-    }
-    return "Failed to load presets"
-  }, [selector.presetsError])
-
-  const noPresetValue = "__workspace_default_preset__"
-
-  const handleSelect = (value: string) => {
-    setOpen(false)
-    void selector.onSelect(value === noPresetValue ? null : value)
-  }
-  const PresetIcon =
-    selector.selectedPresetId === null
-      ? MousePointer2OffIcon
-      : MousePointerClickIcon
+  }, [disabled])
 
   return (
-    <ModelSelector
+    <Popover
       open={open}
       onOpenChange={(nextOpen) => {
-        if (effectiveDisabled) {
+        if (disabled) {
           return
         }
         setOpen(nextOpen)
       }}
     >
-      <ModelSelectorTrigger asChild>
-        <PromptInputButton
-          size="sm"
-          variant="ghost"
-          disabled={effectiveDisabled}
-          className="h-7 max-w-[16rem] justify-start gap-1.5 px-2 text-xs"
-          aria-label="Select preset agent"
+      <PopoverTrigger asChild>
+        <Badge
+          variant="secondary"
+          className="h-7 cursor-pointer gap-1.5 px-2.5 text-xs"
         >
-          <span className="flex min-w-0 items-center gap-1.5">
-            <PresetIcon className="size-3 text-muted-foreground" />
-            <span className="truncate" title={selector.label}>
-              {selector.label}
-            </span>
-          </span>
-          {selector.showSpinner ? (
-            <span className="ml-auto inline-flex items-center">
-              <Loader2 className="size-3 animate-spin text-muted-foreground" />
-            </span>
-          ) : null}
-        </PromptInputButton>
-      </ModelSelectorTrigger>
-      <ModelSelectorContent title="Select preset agent" className="sm:max-w-lg">
-        {selector.presetsIsLoading ? (
-          <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
-            <Loader2 className="size-3 animate-spin" />
-            Loading presets...
-          </div>
-        ) : selector.presetsError ? (
-          <div className="p-3 text-xs text-red-600">{errorMessage}</div>
-        ) : (
-          <>
-            <ModelSelectorInput
-              placeholder="Search presets..."
-              className="text-xs"
-            />
-            <ModelSelectorList className="max-h-64 overflow-y-auto">
-              <ModelSelectorEmpty className="py-4 text-xs text-muted-foreground">
-                No presets found.
-              </ModelSelectorEmpty>
-              <ModelSelectorGroup>
-                <ModelSelectorItem
-                  value="no preset"
-                  onSelect={() => handleSelect(noPresetValue)}
-                  className="flex items-start justify-between gap-2 py-2 text-xs"
-                >
-                  <div className="flex flex-col">
-                    <span className="font-medium">No preset</span>
-                    <span className="text-muted-foreground">
-                      {selector.noPresetDescription ??
-                        "Use workspace default agent instructions."}
-                    </span>
-                  </div>
-                  {selector.selectedPresetId === null ? (
-                    <CheckIcon className="mt-0.5 size-3.5" />
-                  ) : null}
-                </ModelSelectorItem>
-                {(selector.presets ?? []).map((preset) => (
-                  <ModelSelectorItem
-                    key={preset.id}
-                    value={`${preset.name} ${preset.description ?? ""}`}
-                    onSelect={() => handleSelect(preset.id)}
-                    className="flex items-start justify-between gap-2 py-2 text-xs"
-                  >
-                    <div className="flex min-w-0 flex-col">
-                      <span className="truncate font-medium">
-                        {preset.name}
-                      </span>
-                      {preset.description ? (
-                        <span className="text-muted-foreground">
-                          {preset.description}
-                        </span>
-                      ) : null}
-                    </div>
-                    {selector.selectedPresetId === preset.id ? (
-                      <CheckIcon className="mt-0.5 size-3.5" />
-                    ) : null}
-                  </ModelSelectorItem>
-                ))}
-              </ModelSelectorGroup>
-            </ModelSelectorList>
-          </>
-        )}
-      </ModelSelectorContent>
-    </ModelSelector>
+          <span>{`+${Math.max(0, tools.length - MAX_VISIBLE_SELECTED_TOOLS)} more`}</span>
+        </Badge>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 p-2">
+        <div className="flex items-center justify-between px-1 pb-2">
+          <p className="text-xs font-medium text-foreground">Selected tools</p>
+          <Button
+            disabled={disabled}
+            onClick={() => {
+              onClearAll()
+              setOpen(false)
+            }}
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs"
+          >
+            Clear all
+          </Button>
+        </div>
+        <div className="max-h-64 space-y-1 overflow-y-auto">
+          {tools.map((tool) => (
+            <div
+              key={tool.value}
+              className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5"
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="inline-flex shrink-0 items-center justify-center text-foreground">
+                  {tool.icon}
+                </span>
+                <span className="truncate text-xs">{tool.label}</span>
+              </div>
+              <button
+                type="button"
+                className="inline-flex items-center text-muted-foreground hover:text-foreground"
+                aria-label={`Remove ${tool.label}`}
+                onClick={() => onRemove(tool.value)}
+                disabled={disabled}
+              >
+                <XIcon className="size-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 

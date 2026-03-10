@@ -131,6 +131,10 @@ class AgentSessionService(BaseWorkspaceService):
         Returns:
             The created AgentSession model.
         """
+        if args.model_catalog_ref is not None:
+            agent_svc = AgentManagementService(self.session, self.role)
+            await agent_svc.require_enabled_catalog_ref(args.model_catalog_ref)
+
         # Apply default tools based on entity type if tools not provided
         tools = args.tools
         if not tools and args.entity_type:
@@ -158,6 +162,7 @@ class AgentSessionService(BaseWorkspaceService):
             tools=tools,
             agent_preset_id=logical_preset_id,
             agent_preset_version_id=pinned_preset_version_id,
+            model_catalog_ref=args.model_catalog_ref,
             # Harness
             harness_type=args.harness_type,
         )
@@ -481,6 +486,20 @@ class AgentSessionService(BaseWorkspaceService):
                 agent_session.agent_preset_id = logical_preset_id
                 agent_session.agent_preset_version_id = resolved_version_id
 
+        if "model_catalog_ref" in set_fields:
+            model_catalog_ref = set_fields.pop("model_catalog_ref")
+            effective_preset_id = agent_session.agent_preset_id
+            if model_catalog_ref is not None and effective_preset_id is not None:
+                raise ValueError(
+                    "model_catalog_ref cannot be set when agent_preset_id is configured"
+                )
+            if model_catalog_ref is not None:
+                agent_svc = AgentManagementService(self.session, self.role)
+                await agent_svc.require_enabled_catalog_ref(model_catalog_ref)
+            agent_session.model_catalog_ref = model_catalog_ref
+        if agent_session.agent_preset_id is not None:
+            agent_session.model_catalog_ref = None
+
         # Update remaining fields if provided
         for field, value in set_fields.items():
             setattr(agent_session, field, value)
@@ -779,13 +798,11 @@ class AgentSessionService(BaseWorkspaceService):
                 }
             )
             agent_service = AgentManagementService(self.session, service_role)
-            async with agent_service.with_model_config(
-                use_workspace_credentials=False
-            ) as model_config:
+            async with agent_service.with_model_config() as model_config:
                 new_title = await generate_session_title(
                     user_prompt=prompt,
-                    model_name=model_config.name,
-                    model_provider=model_config.provider,
+                    model_name=model_config.model_name,
+                    model_provider=model_config.model_provider,
                 )
         except (
             AgentRunError,
@@ -984,16 +1001,10 @@ class AgentSessionService(BaseWorkspaceService):
                 )
             run_id = uuid.uuid4()
 
-            # Copilot uses org-level credentials; other entities use workspace credentials
-            use_workspace_credentials = (
-                agent_session.entity_type != AgentSessionEntity.COPILOT
-            )
-
             args = RunAgentArgs(
                 user_prompt=user_prompt or "",
                 session_id=session_id,
                 config=agent_config,
-                use_workspace_credentials=use_workspace_credentials,
             )
 
             client = await get_temporal_client()
@@ -1236,14 +1247,17 @@ class AgentSessionService(BaseWorkspaceService):
         agent_svc = AgentManagementService(self.session, self.role)
 
         if agent_session.entity_type is None:
-            # No entity type - use default config with workspace credentials
             async with agent_svc.with_model_config(
-                use_workspace_credentials=True
+                catalog_ref=agent_session.model_catalog_ref
             ) as model_config:
                 yield AgentConfig(
                     instructions="",
-                    model_name=model_config.name,
-                    model_provider=model_config.provider,
+                    model_name=model_config.model_name,
+                    model_provider=model_config.model_provider,
+                    model_catalog_ref=model_config.model_catalog_ref,
+                    model_source_type=model_config.model_source_type,
+                    model_source_id=model_config.model_source_id,
+                    base_url=model_config.base_url,
                     actions=agent_session.tools,
                 )
             return
@@ -1268,22 +1282,23 @@ class AgentSessionService(BaseWorkspaceService):
                     config = replace(preset_config, instructions=combined_instructions)
                     yield config
             else:
-                # Case chat without preset uses workspace credentials
                 async with agent_svc.with_model_config(
-                    use_workspace_credentials=True
+                    catalog_ref=agent_session.model_catalog_ref
                 ) as model_config:
                     yield AgentConfig(
                         instructions=entity_instructions,
-                        model_name=model_config.name,
-                        model_provider=model_config.provider,
+                        model_name=model_config.model_name,
+                        model_provider=model_config.model_provider,
+                        model_catalog_ref=model_config.model_catalog_ref,
+                        model_source_type=model_config.model_source_type,
+                        model_source_id=model_config.model_source_id,
+                        base_url=model_config.base_url,
                         actions=agent_session.tools,
                     )
         elif session_entity is AgentSessionEntity.AGENT_PRESET:
-            # Live chat uses workspace-level credentials
             async with agent_svc.with_preset_config(
                 preset_id=agent_session.entity_id,
                 preset_version_id=pinned_preset_version_id,
-                use_workspace_credentials=True,
             ) as preset_config:
                 yield preset_config
         elif session_entity is AgentSessionEntity.EXTERNAL_CHANNEL:
@@ -1292,7 +1307,6 @@ class AgentSessionService(BaseWorkspaceService):
             async with agent_svc.with_preset_config(
                 preset_id=preset_id,
                 preset_version_id=pinned_preset_version_id,
-                use_workspace_credentials=True,
             ) as preset_config:
                 yield preset_config
         elif session_entity is AgentSessionEntity.AGENT_PRESET_BUILDER:
@@ -1300,31 +1314,30 @@ class AgentSessionService(BaseWorkspaceService):
                 raise ValueError("Agent preset builder requires entity_id")
             instructions = await self._entity_to_prompt(agent_session)
             try:
-                # Agent preset builder uses workspace credentials
-                # Tools are resolved via MCP path in the durable workflow
-                # (internal tools + bundled registry actions)
                 async with agent_svc.with_model_config(
-                    use_workspace_credentials=True
+                    catalog_ref=agent_session.model_catalog_ref
                 ) as model_config:
                     yield AgentConfig(
                         instructions=instructions,
-                        model_name=model_config.name,
-                        model_provider=model_config.provider,
+                        model_name=model_config.model_name,
+                        model_provider=model_config.model_provider,
+                        model_catalog_ref=model_config.model_catalog_ref,
+                        model_source_type=model_config.model_source_type,
+                        model_source_id=model_config.model_source_id,
+                        base_url=model_config.base_url,
                         actions=None,
                     )
             except TracecatNotFoundError as exc:
                 raise ValueError(
-                    "Agent preset builder requires a default AI model with valid provider credentials. "
-                    "Configure credentials in Workspace settings before chatting."
+                    "Agent preset builder requires a default AI model with valid organization credentials. "
+                    "Configure credentials in organization settings before chatting."
                 ) from exc
         elif session_entity is AgentSessionEntity.COPILOT:
-            # Copilot uses org-level credentials, not workspace credentials
             entity_instructions = await self._entity_to_prompt(agent_session)
             if agent_session.agent_preset_id:
                 async with agent_svc.with_preset_config(
                     preset_id=agent_session.agent_preset_id,
                     preset_version_id=pinned_preset_version_id,
-                    use_workspace_credentials=False,
                 ) as preset_config:
                     combined_instructions = (
                         f"{preset_config.instructions}\n\n{entity_instructions}"
@@ -1334,12 +1347,17 @@ class AgentSessionService(BaseWorkspaceService):
                     config = replace(preset_config, instructions=combined_instructions)
                     yield config
             else:
-                # Copilot without preset uses org-level credentials (default)
-                async with agent_svc.with_model_config() as model_config:
+                async with agent_svc.with_model_config(
+                    catalog_ref=agent_session.model_catalog_ref
+                ) as model_config:
                     yield AgentConfig(
                         instructions=entity_instructions,
-                        model_name=model_config.name,
-                        model_provider=model_config.provider,
+                        model_name=model_config.model_name,
+                        model_provider=model_config.model_provider,
+                        model_catalog_ref=model_config.model_catalog_ref,
+                        model_source_type=model_config.model_source_type,
+                        model_source_id=model_config.model_source_id,
+                        base_url=model_config.base_url,
                         actions=agent_session.tools,
                     )
         elif session_entity in (
@@ -1365,7 +1383,6 @@ class AgentSessionService(BaseWorkspaceService):
                     async with agent_svc.with_preset_config(
                         preset_id=parent_session.agent_preset_id,
                         preset_version_id=parent_version_id,
-                        use_workspace_credentials=True,
                     ) as preset_config:
                         combined_instructions = (
                             f"{fork_context}{preset_config.instructions}"
@@ -1379,14 +1396,17 @@ class AgentSessionService(BaseWorkspaceService):
                             actions=[],  # No tools for forked sessions
                         )
                 else:
-                    # No preset - use workspace model with fork context
                     async with agent_svc.with_model_config(
-                        use_workspace_credentials=True
+                        catalog_ref=agent_session.model_catalog_ref
                     ) as model_config:
                         yield AgentConfig(
                             instructions=fork_context.strip(),
-                            model_name=model_config.name,
-                            model_provider=model_config.provider,
+                            model_name=model_config.model_name,
+                            model_provider=model_config.model_provider,
+                            model_catalog_ref=model_config.model_catalog_ref,
+                            model_source_type=model_config.model_source_type,
+                            model_source_id=model_config.model_source_id,
+                            base_url=model_config.base_url,
                             actions=[],  # No tools for forked sessions
                         )
             elif agent_session.agent_preset_id:
@@ -1394,18 +1414,20 @@ class AgentSessionService(BaseWorkspaceService):
                 async with agent_svc.with_preset_config(
                     preset_id=agent_session.agent_preset_id,
                     preset_version_id=pinned_preset_version_id,
-                    use_workspace_credentials=True,
                 ) as preset_config:
                     yield preset_config
             else:
-                # Workflow without preset uses workspace credentials
                 async with agent_svc.with_model_config(
-                    use_workspace_credentials=True
+                    catalog_ref=agent_session.model_catalog_ref
                 ) as model_config:
                     yield AgentConfig(
                         instructions="",
-                        model_name=model_config.name,
-                        model_provider=model_config.provider,
+                        model_name=model_config.model_name,
+                        model_provider=model_config.model_provider,
+                        model_catalog_ref=model_config.model_catalog_ref,
+                        model_source_type=model_config.model_source_type,
+                        model_source_id=model_config.model_source_id,
+                        base_url=model_config.base_url,
                         actions=agent_session.tools,
                     )
         else:
@@ -1813,6 +1835,7 @@ class AgentSessionService(BaseWorkspaceService):
             channel_context=parent.channel_context,
             tools=[],
             agent_preset_id=None,
+            model_catalog_ref=parent.model_catalog_ref,
             # Harness - inherit from parent
             harness_type=parent.harness_type,
             # Fork reference
