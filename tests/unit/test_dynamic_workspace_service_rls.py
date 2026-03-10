@@ -27,6 +27,12 @@ from tracecat.tables.service import TableEditorService, TablesService
 pytestmark = pytest.mark.usefixtures("db")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def workflow_bucket() -> Iterator[None]:
+    """Disable MinIO-dependent workflow bucket setup for these tests."""
+    yield
+
+
 @pytest.fixture(scope="session")
 def reader_role_name() -> Iterator[str]:
     worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master").replace("-", "_")
