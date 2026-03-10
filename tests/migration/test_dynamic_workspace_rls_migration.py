@@ -20,12 +20,13 @@ from tests.database import TEST_DB_CONFIG
 from tracecat.identifiers.workflow import WorkspaceUUID
 
 MIGRATION_REVISION = "b5fc4168fe22"
-PREVIOUS_REVISION = "c76f9b01fad7"
+PREVIOUS_REVISION = "9a6d0e0ec5b1"
 TABLES_PREFIX = "tables_"
 CUSTOM_FIELDS_PREFIX = "custom_fields_"
 TABLES_TABLE = "alerts"
 CUSTOM_FIELDS_TABLE = "case_fields"
 INTERNAL_TENANT_COLUMN = "__tc_workspace_id"
+LEGACY_TENANT_COLUMN = "migrated_tc_workspace_id"
 DYNAMIC_WORKSPACE_RLS_POLICY = "rls_policy_dynamic_workspace"
 
 
@@ -263,6 +264,80 @@ def test_db():
 
 
 class TestDynamicWorkspaceRlsMigration:
+    def test_upgrade_renames_legacy_exact_tenant_column_collision(
+        self, test_db
+    ) -> None:
+        engine = create_engine(test_db["db_url"])
+        try:
+            with engine.begin() as conn:
+                workspace_id = test_db["workspace_ids"][0]
+                for prefix, table_name in (
+                    (TABLES_PREFIX, TABLES_TABLE),
+                    (CUSTOM_FIELDS_PREFIX, CUSTOM_FIELDS_TABLE),
+                ):
+                    schema_name = _workspace_schema(prefix, workspace_id)
+                    conn.execute(
+                        text(
+                            f'''
+                            ALTER TABLE "{schema_name}"."{table_name}"
+                            ADD COLUMN "{INTERNAL_TENANT_COLUMN}" TEXT
+                            '''
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            f'''
+                            UPDATE "{schema_name}"."{table_name}"
+                            SET "{INTERNAL_TENANT_COLUMN}" = :legacy_value
+                            '''
+                        ),
+                        {"legacy_value": f"legacy-{table_name}"},
+                    )
+        finally:
+            engine.dispose()
+
+        _run_alembic_upgrade(test_db["db_url"])
+
+        engine = create_engine(test_db["db_url"])
+        try:
+            with engine.begin() as conn:
+                workspace_id = test_db["workspace_ids"][0]
+                for prefix, table_name in (
+                    (TABLES_PREFIX, TABLES_TABLE),
+                    (CUSTOM_FIELDS_PREFIX, CUSTOM_FIELDS_TABLE),
+                ):
+                    schema_name = _workspace_schema(prefix, workspace_id)
+                    columns = conn.execute(
+                        text(
+                            """
+                            SELECT column_name
+                            FROM information_schema.columns
+                            WHERE table_schema = :schema_name
+                              AND table_name = :table_name
+                            """
+                        ),
+                        {
+                            "schema_name": schema_name,
+                            "table_name": table_name,
+                        },
+                    ).fetchall()
+                    column_names = {row[0] for row in columns}
+                    assert INTERNAL_TENANT_COLUMN in column_names
+                    assert LEGACY_TENANT_COLUMN in column_names
+
+                    tenant_values = conn.execute(
+                        text(
+                            f'''
+                            SELECT "{INTERNAL_TENANT_COLUMN}", "{LEGACY_TENANT_COLUMN}"
+                            FROM "{schema_name}"."{table_name}"
+                            '''
+                        )
+                    ).one()
+                    assert tenant_values[0] == workspace_id
+                    assert tenant_values[1] == f"legacy-{table_name}"
+        finally:
+            engine.dispose()
+
     def test_upgrade_backfills_tenant_column_and_sets_default(self, test_db) -> None:
         _run_alembic_upgrade(test_db["db_url"])
 
