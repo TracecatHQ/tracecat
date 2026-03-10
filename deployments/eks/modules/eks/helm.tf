@@ -804,6 +804,14 @@ resource "helm_release" "tracecat" {
     }
   }
 
+  dynamic "set_sensitive" {
+    for_each = var.sentry_dsn != "" ? [1] : []
+    content {
+      name  = "tracecat.sentryDsn"
+      value = var.sentry_dsn
+    }
+  }
+
   dynamic "set" {
     for_each = var.oidc_scopes != "" ? [1] : []
     content {

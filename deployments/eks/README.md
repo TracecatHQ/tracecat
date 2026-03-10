@@ -178,6 +178,9 @@ export DOMAIN_NAME="tracecat.example.com"
 export AWS_REGION="us-west-2"
 export SUPERADMIN_EMAIL="admin@example.com"
 
+# Optional
+export SENTRY_DSN="https://examplePublicKey@o0.ingest.sentry.io/0"
+
 # (Optional) For cross-account deploys, both must be set together.
 export AWS_ACCOUNT_ID="123456789012"
 export AWS_ROLE_NAME="YourRole"
@@ -214,6 +217,7 @@ export TF_VAR_tracecat_secrets_arn=$tracecat_secrets_arn
 # Optional
 export TF_VAR_aws_account_id=$AWS_ACCOUNT_ID
 export TF_VAR_aws_role_name=$AWS_ROLE_NAME
+export TF_VAR_sentry_dsn=$SENTRY_DSN
 ```
 
 ### 4. Deploy (3-stage first-time apply)

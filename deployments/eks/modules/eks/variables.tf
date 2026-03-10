@@ -583,6 +583,13 @@ variable "oidc_client_secret" {
   sensitive   = true
 }
 
+variable "sentry_dsn" {
+  description = "The Sentry DSN to use for error reporting"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "oidc_scopes" {
   description = "OIDC scopes to request (space-separated, e.g., 'openid email profile')"
   type        = string
