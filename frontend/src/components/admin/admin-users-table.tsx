@@ -72,6 +72,7 @@ export function AdminUsersTable() {
   const [actionType, setActionType] = useState<"promote" | "demote" | null>(
     null
   )
+  const [actionConfirmation, setActionConfirmation] = useState("")
   const { user: currentUser } = useAuth()
   const {
     users,
@@ -128,7 +129,14 @@ export function AdminUsersTable() {
   }
 
   const handleConfirmAction = async () => {
-    if (!selectedUser || !actionType) return
+    if (
+      !selectedUser ||
+      !actionType ||
+      (actionType === "demote" &&
+        actionConfirmation.trim() !== selectedUser.email)
+    ) {
+      return
+    }
 
     try {
       if (actionType === "promote") {
@@ -295,6 +303,7 @@ export function AdminUsersTable() {
           if (!isOpen) {
             setSelectedUser(null)
             setActionType(null)
+            setActionConfirmation("")
           }
         }}
       >
@@ -470,6 +479,7 @@ export function AdminUsersTable() {
                             onSelect={() => {
                               setSelectedUser(rowUser)
                               setActionType("demote")
+                              setActionConfirmation("")
                             }}
                           >
                             {isLastSuperuser
@@ -485,6 +495,7 @@ export function AdminUsersTable() {
                             onSelect={() => {
                               setSelectedUser(rowUser)
                               setActionType("promote")
+                              setActionConfirmation("")
                             }}
                           >
                             Promote to superuser
@@ -519,12 +530,34 @@ export function AdminUsersTable() {
                 </>
               )}
             </AlertDialogDescription>
+            {actionType === "demote" ? (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Type{" "}
+                  <span className="font-medium">{selectedUser?.email}</span> to
+                  confirm.
+                </p>
+                <Input
+                  value={actionConfirmation}
+                  onChange={(event) =>
+                    setActionConfirmation(event.target.value)
+                  }
+                  placeholder={selectedUser?.email ?? ""}
+                  autoComplete="off"
+                />
+              </div>
+            ) : null}
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant={actionType === "demote" ? "destructive" : "default"}
-              disabled={promotePending || demotePending}
+              disabled={
+                promotePending ||
+                demotePending ||
+                (actionType === "demote" &&
+                  actionConfirmation.trim() !== selectedUser?.email)
+              }
               onClick={handleConfirmAction}
             >
               {actionType === "promote" ? "Promote" : "Demote"}

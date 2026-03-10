@@ -32,6 +32,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 import { useAdminTiers } from "@/hooks/use-admin"
 import { TIER_ENTITLEMENTS } from "@/lib/tier-entitlements"
@@ -39,10 +40,14 @@ import { TIER_ENTITLEMENTS } from "@/lib/tier-entitlements"
 export function AdminTiersTable() {
   const [editTierId, setEditTierId] = useState<string | null>(null)
   const [selectedTier, setSelectedTier] = useState<TierRead | null>(null)
+  const [deleteConfirmation, setDeleteConfirmation] = useState("")
   const { tiers, deleteTier } = useAdminTiers()
 
   const handleDeleteTier = async () => {
-    if (selectedTier) {
+    if (
+      selectedTier &&
+      deleteConfirmation.trim() === selectedTier.display_name
+    ) {
       try {
         await deleteTier(selectedTier.id)
         toast({
@@ -69,6 +74,7 @@ export function AdminTiersTable() {
         onOpenChange={(isOpen) => {
           if (!isOpen) {
             setSelectedTier(null)
+            setDeleteConfirmation("")
           }
         }}
       >
@@ -260,7 +266,10 @@ export function AdminTiersTable() {
                         <DropdownMenuItem
                           className="text-rose-500 focus:text-rose-600"
                           disabled={tier.is_default}
-                          onClick={() => setSelectedTier(tier)}
+                          onClick={() => {
+                            setSelectedTier(tier)
+                            setDeleteConfirmation("")
+                          }}
                         >
                           {tier.is_default
                             ? "Cannot delete default tier"
@@ -283,10 +292,31 @@ export function AdminTiersTable() {
               {selectedTier?.display_name}&quot;? This action cannot be undone.
               Organizations assigned to this tier will need to be reassigned.
             </AlertDialogDescription>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                Type{" "}
+                <span className="font-medium">
+                  {selectedTier?.display_name}
+                </span>{" "}
+                to confirm.
+              </p>
+              <Input
+                value={deleteConfirmation}
+                onChange={(event) => setDeleteConfirmation(event.target.value)}
+                placeholder={selectedTier?.display_name ?? ""}
+                autoComplete="off"
+              />
+            </div>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={handleDeleteTier}>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={handleDeleteTier}
+              disabled={
+                deleteConfirmation.trim() !== selectedTier?.display_name
+              }
+            >
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

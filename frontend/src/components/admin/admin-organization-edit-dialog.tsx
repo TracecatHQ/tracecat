@@ -57,6 +57,7 @@ export function AdminOrganizationEditDialog({
   onOpenChange,
 }: AdminOrganizationEditDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false)
+  const [disableConfirmation, setDisableConfirmation] = useState("")
   const isControlled = controlledOpen !== undefined
   const dialogOpen = isControlled ? controlledOpen : internalOpen
   const setDialogOpen = (nextOpen: boolean) => {
@@ -79,6 +80,7 @@ export function AdminOrganizationEditDialog({
 
   useEffect(() => {
     if (organization && dialogOpen) {
+      setDisableConfirmation("")
       form.reset({
         name: organization.name,
         slug: organization.slug,
@@ -86,6 +88,12 @@ export function AdminOrganizationEditDialog({
       })
     }
   }, [organization, form, dialogOpen])
+
+  const isDisablingOrganization =
+    organization?.is_active === true && form.watch("is_active") === false
+  const isDisableConfirmationValid =
+    !isDisablingOrganization ||
+    disableConfirmation.trim() === organization?.name
 
   const onSubmit = async (values: FormValues) => {
     try {
@@ -177,6 +185,23 @@ export function AdminOrganizationEditDialog({
                   </FormItem>
                 )}
               />
+              {isDisablingOrganization ? (
+                <div className="space-y-2 rounded-md border border-destructive/30 p-3">
+                  <p className="text-sm text-muted-foreground">
+                    Type{" "}
+                    <span className="font-medium">{organization.name}</span> to
+                    disable this organization.
+                  </p>
+                  <Input
+                    value={disableConfirmation}
+                    onChange={(event) =>
+                      setDisableConfirmation(event.target.value)
+                    }
+                    placeholder={organization.name}
+                    autoComplete="off"
+                  />
+                </div>
+              ) : null}
               <DialogFooter>
                 <Button
                   type="button"
@@ -185,7 +210,10 @@ export function AdminOrganizationEditDialog({
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={updatePending}>
+                <Button
+                  type="submit"
+                  disabled={updatePending || !isDisableConfirmationValid}
+                >
                   {updatePending ? "Saving..." : "Save changes"}
                 </Button>
               </DialogFooter>
