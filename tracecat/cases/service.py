@@ -1010,7 +1010,6 @@ class CaseFieldsService(CustomFieldsService):
         "case_id",
         "created_at",
         "updated_at",
-        "workspace_id",
         DYNAMIC_WORKSPACE_TENANT_COLUMN,
     }
 
