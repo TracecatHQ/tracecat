@@ -180,16 +180,14 @@ class TestCaseFieldsService:
                 CaseFieldCreate(name="__TC_workspace_id", type=SqlType.TEXT)
             )
 
-    async def test_create_field_allows_legacy_tc_prefix_name(
+    async def test_create_field_rejects_internal_namespace_prefix(
         self, case_fields_service: CaseFieldsService
     ) -> None:
-        """Only the exact internal tenant column name should be reserved."""
-        with patch.object(
-            case_fields_service.editor, "create_column"
-        ) as mock_create_column:
-            field_params = CaseFieldCreate(name="__tc_shadow", type=SqlType.TEXT)
-            await case_fields_service.create_field(field_params)
-            mock_create_column.assert_called_once_with(field_params)
+        """The internal Tracecat namespace prefix should be reserved."""
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await case_fields_service.create_field(
+                CaseFieldCreate(name="__tc_shadow", type=SqlType.TEXT)
+            )
 
     async def test_update_field(self, case_fields_service: CaseFieldsService) -> None:
         """Test updating a case field."""

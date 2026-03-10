@@ -152,10 +152,10 @@ async def _list_rows(
 @pytest.mark.anyio
 class TestTablesService:
     async def test_internal_column_name_check_is_case_insensitive(self) -> None:
-        """Internal column detection should normalize case for exact matches."""
+        """Internal column detection should normalize case for reserved namespaces."""
         assert is_internal_column_name("__tc_workspace_id") is True
         assert is_internal_column_name("__TC_workspace_id") is True
-        assert is_internal_column_name("__tc_shadow") is False
+        assert is_internal_column_name("__tc_shadow") is True
         assert is_internal_column_name("user_field") is False
 
     async def test_create_and_get_table(self, tables_service: TablesService) -> None:
