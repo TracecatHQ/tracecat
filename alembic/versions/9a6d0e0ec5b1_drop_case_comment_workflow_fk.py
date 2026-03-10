@@ -16,16 +16,16 @@ down_revision: str | None = "286984f514c2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-workflow_fk = op.f("fk_case_comment_workflow_id_workflow")
+WORKFLOW_FK = "fk_case_comment_workflow_id_workflow"
 
 
 def upgrade() -> None:
-    op.drop_constraint(workflow_fk, "case_comment", type_="foreignkey")
+    op.drop_constraint(WORKFLOW_FK, "case_comment", type_="foreignkey")
 
 
 def downgrade() -> None:
     op.create_foreign_key(
-        workflow_fk,
+        WORKFLOW_FK,
         "case_comment",
         "workflow",
         ["workflow_id"],
