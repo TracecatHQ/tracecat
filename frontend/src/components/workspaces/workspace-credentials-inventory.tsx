@@ -7,7 +7,7 @@ import {
   SquareAsterisk,
   Unlink2,
 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type { SecretDefinition } from "@/client"
 import {
   CatalogHeader,
@@ -86,6 +86,8 @@ export function WorkspaceCredentialsInventory() {
   const [searchQuery, setSearchQuery] = useState("")
   const [connectionFilter, setConnectionFilter] =
     useState<CredentialConnectionFilter>("all")
+  const [hasInitializedConnectionFilter, setHasInitializedConnectionFilter] =
+    useState(false)
   const [environmentFilter, setEnvironmentFilter] = useState("all")
   const [secretTypeFilter, setSecretTypeFilter] =
     useState<CredentialSecretTypeFilter>("all")
@@ -105,6 +107,18 @@ export function WorkspaceCredentialsInventory() {
     () => buildCredentialGroups(allSecretDefinitions, allSecrets),
     [allSecretDefinitions, allSecrets]
   )
+
+  useEffect(() => {
+    if (hasInitializedConnectionFilter) {
+      return
+    }
+
+    if (credentialGroups.some((group) => group.isConnected)) {
+      setConnectionFilter("connected")
+    }
+
+    setHasInitializedConnectionFilter(true)
+  }, [credentialGroups, hasInitializedConnectionFilter])
 
   const availableEnvironments = useMemo(
     () =>
