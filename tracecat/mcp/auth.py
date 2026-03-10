@@ -19,16 +19,20 @@ from fastmcp.server.dependencies import get_access_token
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
+from mcp.server.auth.handlers.metadata import MetadataHandler
 from mcp.server.auth.provider import (
     AuthorizationParams,
     TokenError,
 )
+from mcp.server.auth.routes import build_metadata, cors_middleware
+from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
+from starlette.routing import Route
 
 from tracecat import config
 from tracecat.auth.credentials import compute_effective_scopes
@@ -71,6 +75,7 @@ _UUID_SCOPE_PATTERNS: dict[str, re.Pattern[str]] = {
 _MCP_REFRESH_SCOPE = "offline_access"
 _MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 60 * 60
 _MCP_OAUTH_TRANSACTION_TTL_SECONDS = 15 * 60
+_MCP_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"]
 
 
 def append_scope_if_missing(scopes: list[str], scope: str) -> list[str]:
@@ -78,6 +83,14 @@ def append_scope_if_missing(scopes: list[str], scope: str) -> list[str]:
     if scope in scopes:
         return scopes
     return [*scopes, scope]
+
+
+def merge_unique_scopes(scopes: list[str], extra_scopes: Sequence[str]) -> list[str]:
+    """Append extra scopes while preserving order and uniqueness."""
+    merged = scopes
+    for scope in extra_scopes:
+        merged = append_scope_if_missing(merged, scope)
+    return merged
 
 
 def remove_scope(scopes: list[str], scope: str) -> list[str]:
@@ -462,12 +475,13 @@ def create_mcp_auth() -> AuthProvider:
             params: AuthorizationParams,
         ) -> str:
             """Inject refresh scope by default for MCP clients."""
-            scopes = list(params.scopes or [])
+            scopes = merge_unique_scopes(list(params.scopes or []), oidc_config.scopes)
             if self._should_request_refresh_scope():
                 scopes = append_scope_if_missing(scopes, _MCP_REFRESH_SCOPE)
             else:
+                scopes = remove_scope(scopes, _MCP_REFRESH_SCOPE)
                 logger.info(
-                    "Skipping refresh scope request: upstream metadata does not advertise scope",
+                    "Removing refresh scope: upstream metadata does not advertise it",
                     scope=_MCP_REFRESH_SCOPE,
                     issuer=self.oidc_config.issuer,
                 )
@@ -688,6 +702,33 @@ def create_mcp_auth() -> AuthProvider:
             ).encode("utf-8")
             response.headers["content-length"] = str(len(response.body))
             return response
+
+        def get_routes(self, mcp_path: str | None = None) -> list[Route]:
+            """Patch OAuth metadata to advertise public-client auth (``"none"``)."""
+            routes = super().get_routes(mcp_path)
+            if self.base_url is None:
+                return routes
+
+            for route in routes:
+                if not (
+                    isinstance(route, Route)
+                    and route.path.startswith("/.well-known/oauth-authorization-server")
+                ):
+                    continue
+
+                metadata = build_metadata(
+                    self.base_url,
+                    self.service_documentation_url,
+                    self.client_registration_options or ClientRegistrationOptions(),
+                    self.revocation_options or RevocationOptions(),
+                )
+                metadata.token_endpoint_auth_methods_supported = (
+                    _MCP_TOKEN_ENDPOINT_AUTH_METHODS
+                )
+                handler = MetadataHandler(metadata)
+                route.app = cors_middleware(handler.handle, ["GET", "OPTIONS"])
+
+            return routes
 
     # Build Redis-backed storage for OAuth state (client registrations,
     # auth codes, tokens, transactions) so state survives restarts and
