@@ -47,6 +47,7 @@ module "eks" {
   tracecat_ingress_split = var.tracecat_ingress_split
   tracecat_mcp_enabled   = var.tracecat_mcp_enabled
   tracecat_mcp_replicas  = var.tracecat_mcp_replicas
+  tracecat_mcp_auth_methods = var.tracecat_mcp_auth_methods
   superadmin_email       = var.superadmin_email
   sentry_dsn             = var.sentry_dsn
 

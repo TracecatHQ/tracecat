@@ -833,9 +833,9 @@ fastar==0.8.0 \
     --hash=sha256:fb9ee51e5bffe0dab3d3126d3a4fac8d8f7235cedcb4b8e74936087ce1c157f3 \
     --hash=sha256:fc645994d5b927d769121094e8a649b09923b3c13a8b0b98696d8f853f23c532
     # via fastapi-cloud-cli
-fastmcp==3.0.0 \
-    --hash=sha256:561d537cb789f995174c5591f1b54f758ce3f82da3cd951ffe51ce18609569e9 \
-    --hash=sha256:f3b0cfa012f6b2b50b877da181431c6f9a551197f466b0bb7de7f39ceae159a1
+fastmcp==3.1.0 \
+    --hash=sha256:b1f73b56fd3b0cb2bd9e2a144fc650d5cc31587ed129d996db7710e464ae8010 \
+    --hash=sha256:e25264794c734b9977502a51466961eeecff92a0c2f3b49c40c070993628d6d0
     # via tracecat
 fastuuid==0.14.0 \
     --hash=sha256:09098762aad4f8da3a888eb9ae01c84430c907a297b97166b8abc07b640f2995 \
@@ -3054,6 +3054,10 @@ tzlocal==5.3.1 \
     # via
     #   apscheduler
     #   dateparser
+uncalled-for==0.2.0 \
+    --hash=sha256:2c0bd338faff5f930918f79e7eb9ff48290df2cb05fcc0b40a7f334e55d4d85f \
+    --hash=sha256:b4f8fdbcec328c5a113807d653e041c5094473dd4afa7c34599ace69ccb7e69f
+    # via fastmcp
 urllib3==2.6.3 \
     --hash=sha256:1b62b6884944a57dbe321509ab94fd4d3b307075e0c2eae991ac71ee15ad38ed \
     --hash=sha256:bf272323e553dfb2e87d9bfd225ca7b0f467b919d7bbd355436d3fd37cb0acd4

@@ -183,6 +183,12 @@ variable "tracecat_mcp_replicas" {
   default     = 2
 }
 
+variable "tracecat_mcp_auth_methods" {
+  description = "Comma-separated auth methods for the Tracecat MCP server (for example: oidc, api_key, none)."
+  type        = string
+  default     = "oidc"
+}
+
 variable "superadmin_email" {
   description = "Email address for the Tracecat superadmin"
   type        = string

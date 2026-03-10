@@ -6,6 +6,23 @@ import os
 
 from tracecat.config import TRACECAT__PUBLIC_APP_URL
 
+
+def _parse_auth_methods(raw: str) -> frozenset[str]:
+    if not raw.strip():
+        return frozenset({"oidc"})
+    methods = {part.strip().lower() for part in raw.split(",") if part.strip()}
+    if not methods:
+        raise ValueError("TRACECAT_MCP__AUTH_METHODS must include at least one method")
+    valid_methods = {"oidc", "api_key", "none"}
+    invalid_methods = sorted(methods - valid_methods)
+    if invalid_methods:
+        raise ValueError(
+            "TRACECAT_MCP__AUTH_METHODS contains invalid values: "
+            + ", ".join(invalid_methods)
+        )
+    return frozenset(methods)
+
+
 TRACECAT_MCP__HOST: str = os.environ.get("TRACECAT_MCP__HOST", "0.0.0.0")
 """Host to bind the MCP HTTP server to."""
 
@@ -20,6 +37,21 @@ TRACECAT_MCP__BASE_URL: str = os.environ.get(
 This should be the public root URL for the MCP OAuth/discovery endpoints.
 FastMCP derives the protected resource path (for example `/mcp`) separately.
 Defaults to `TRACECAT__PUBLIC_APP_URL` for local development and cluster setups.
+"""
+
+TRACECAT_MCP__AUTH_METHODS: frozenset[str] = _parse_auth_methods(
+    os.environ.get("TRACECAT_MCP__AUTH_METHODS", "oidc")
+)
+"""Enabled MCP auth methods.
+
+Defaults to OIDC-only. Additional methods such as API key and authless mode
+must be explicitly opted into.
+
+Valid options:
+- `oidc`: existing interactive OIDC flow
+- `api_key`: accept `Authorization: Bearer <TRACECAT__SERVICE_KEY>`
+- `none`: accept unauthenticated requests and treat the caller as a
+  superuser-equivalent MCP identity; highly unsafe and not recommended
 """
 
 TRACECAT_MCP__RATE_LIMIT_RPS: float = float(

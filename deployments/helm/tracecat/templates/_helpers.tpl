@@ -836,6 +836,8 @@ Merges: common + temporal + postgres + mcp-specific
   value: {{ .Values.mcp.port | quote }}
 - name: TRACECAT_MCP__BASE_URL
   value: {{ include "tracecat.publicMcpUrl" . | quote }}
+- name: TRACECAT_MCP__AUTH_METHODS
+  value: {{ .Values.tracecat.mcp.authMethods | quote }}
 - name: TRACECAT_MCP__RATE_LIMIT_RPS
   value: {{ .Values.tracecat.mcp.rateLimitRps | quote }}
 - name: TRACECAT_MCP__RATE_LIMIT_BURST
@@ -1044,13 +1046,14 @@ Validate MCP configuration
 */}}
 {{- define "tracecat.validateMcpConfig" -}}
 {{- if .Values.mcp.enabled -}}
-{{- if not .Values.tracecat.oidc.issuer -}}
+{{- $authMethods := lower (default "oidc" .Values.tracecat.mcp.authMethods) -}}
+{{- if and (contains "oidc" $authMethods) (not .Values.tracecat.oidc.issuer) -}}
 {{- fail "tracecat.oidc.issuer is required when mcp.enabled=true" -}}
 {{- end -}}
-{{- if not .Values.tracecat.oidc.clientId -}}
+{{- if and (contains "oidc" $authMethods) (not .Values.tracecat.oidc.clientId) -}}
 {{- fail "tracecat.oidc.clientId is required when mcp.enabled=true" -}}
 {{- end -}}
-{{- if not .Values.tracecat.oidc.clientSecret -}}
+{{- if and (contains "oidc" $authMethods) (not .Values.tracecat.oidc.clientSecret) -}}
 {{- fail "tracecat.oidc.clientSecret is required when mcp.enabled=true" -}}
 {{- end -}}
 {{- end -}}

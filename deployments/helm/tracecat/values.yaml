@@ -220,6 +220,8 @@ tracecat:
     scopes: ""
 
   mcp:
+    # Valid values: oidc, api_key, none
+    authMethods: "oidc"
     rateLimitRps: 2.0
     rateLimitBurst: 10
     toolTimeoutSeconds: 120

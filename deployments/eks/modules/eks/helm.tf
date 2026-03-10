@@ -134,8 +134,9 @@ resource "helm_release" "tracecat" {
         publicMcp = "https://${var.domain_name}"
       }
       mcp = {
-        enabled  = var.tracecat_mcp_enabled
-        replicas = var.tracecat_mcp_replicas
+        enabled     = var.tracecat_mcp_enabled
+        replicas    = var.tracecat_mcp_replicas
+        authMethods = var.tracecat_mcp_auth_methods
       }
       scheduling = local.tracecat_scheduling
       tracecat = {
