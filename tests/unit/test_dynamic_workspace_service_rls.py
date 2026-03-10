@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import uuid
 from collections.abc import AsyncGenerator, Iterator
 
@@ -26,9 +27,10 @@ from tracecat.tables.service import TableEditorService, TablesService
 pytestmark = pytest.mark.usefixtures("db")
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def reader_role_name() -> Iterator[str]:
-    role_name = f"rls_reader_{uuid.uuid4().hex[:8]}"
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master").replace("-", "_")
+    role_name = f"rls_reader_{worker_id}_{uuid.uuid4().hex[:8]}"
     engine = create_engine(TEST_DB_CONFIG.sys_url_sync, isolation_level="AUTOCOMMIT")
     try:
         with engine.connect() as conn:
