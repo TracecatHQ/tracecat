@@ -58,7 +58,7 @@ from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.chat.schemas import BasicChatRequest, ChatRequest
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import Action, WorkflowDefinition
+from tracecat.db.models import Action, Workflow, WorkflowDefinition
 from tracecat.dsl.common import (
     DSLInput,
     get_execution_type_from_search_attr,
@@ -2030,10 +2030,14 @@ async def create_workflow_folder(
             if not parents:
                 parent_parts = parts[:-1]
                 parent_path = f"/{'/'.join(parent_parts)}/" if parent_parts else "/"
-                folder = await svc.create_folder(
-                    name=parts[-1], parent_path=parent_path
-                )
-                created_paths = [normalized_path]
+                if existing := await svc.get_folder_by_path(normalized_path):
+                    folder = existing
+                    created_paths = []
+                else:
+                    folder = await svc.create_folder(
+                        name=parts[-1], parent_path=parent_path
+                    )
+                    created_paths = [normalized_path]
             else:
                 current_path = "/"
                 created_paths: list[str] = []
@@ -2100,8 +2104,7 @@ async def move_workflows(
         _, role = await _resolve_workspace_role(workspace_id)
         normalized_destination = _normalize_folder_path_arg(destination_path)
 
-        async with WorkflowsManagementService.with_session(role=role) as mgmt_svc:
-            folder_svc = WorkflowFolderService(mgmt_svc.session, role=role)
+        async with WorkflowFolderService.with_session(role=role) as folder_svc:
             folder = None
             if normalized_destination != "/":
                 folder = await folder_svc.get_folder_by_path(normalized_destination)
@@ -2117,22 +2120,25 @@ async def move_workflows(
                     errors.append({"workflow_id": raw_workflow_id, "error": str(e)})
                     continue
 
-                workflow = await mgmt_svc.get_workflow(workflow_uuid)
-                if workflow is None:
+                statement = select(Workflow.id, Workflow.title).where(
+                    Workflow.workspace_id == folder_svc.workspace_id,
+                    Workflow.id == workflow_uuid,
+                )
+                result = await folder_svc.session.execute(statement)
+                if row := result.one_or_none():
+                    validated.append(
+                        {
+                            "workflow_id": str(row.id),
+                            "title": row.title,
+                        }
+                    )
+                else:
                     errors.append(
                         {
                             "workflow_id": raw_workflow_id,
                             "error": f"Workflow {raw_workflow_id} not found",
                         }
                     )
-                    continue
-
-                validated.append(
-                    {
-                        "workflow_id": str(workflow_uuid),
-                        "title": workflow.title,
-                    }
-                )
 
             if dry_run:
                 return _json(
@@ -2152,6 +2158,7 @@ async def move_workflows(
                     await folder_svc.move_workflow(workflow_uuid, folder)
                     moved.append(workflow_info)
                 except Exception as e:
+                    await folder_svc.session.rollback()
                     errors.append(
                         {
                             "workflow_id": workflow_info["workflow_id"],
