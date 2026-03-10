@@ -1339,7 +1339,7 @@ export function useWorkspaceSecrets(
     queryFn: async () =>
       await secretsListSecrets({
         workspaceId,
-        type: ["custom", "ssh-key", "mtls", "ca-cert"],
+        type: ["custom", "ssh-key", "mtls", "ca-cert", "github-app"],
       }),
     enabled: !!workspaceId && listEnabled,
     staleTime: 5 * 60 * 1000,

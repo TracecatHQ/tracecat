@@ -4,18 +4,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ChevronRight, Loader2, RotateCcw, SquareAsterisk } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type {
-  IntegrationStatus,
-  OAuthGrantType,
-  SecretDefinition,
-} from "@/client"
+import type { IntegrationStatus, OAuthGrantType } from "@/client"
 import {
   integrationsConnectProvider,
   integrationsDisconnectIntegration,
   integrationsTestConnection,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { ProviderIcon, SecretIcon } from "@/components/icons"
+import { ProviderIcon } from "@/components/icons"
 import {
   type ConnectionFilter,
   IntegrationsHeader,
@@ -36,18 +32,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import {
   Item,
@@ -65,14 +55,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import type { TracecatApiError } from "@/lib/errors"
 import {
   useDeleteMcpIntegration,
   useIntegrations,
   useListMcpIntegrations,
-  useSecretDefinitions,
-  useWorkspaceSecrets,
 } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -98,26 +85,13 @@ type IntegrationItem =
       auth_type: string
       oauth_integration_id?: string | null
     }
-  | {
-      type: "credential"
-      id: string
-      name: string
-      description: string | null
-      definition: SecretDefinition
-    }
 
 const displayStatus = (status: IntegrationStatus) =>
   status === "configured" ? "not_configured" : status
 
-type IntegrationSectionType =
-  | "credential"
-  | "oauth"
-  | "mcp"
-  | "custom_oauth"
-  | "custom_mcp"
+type IntegrationSectionType = "oauth" | "mcp" | "custom_oauth" | "custom_mcp"
 
 const integrationTypeLabels = {
-  credential: "Credential",
   oauth: "OAuth",
   mcp: "MCP",
   custom_oauth: "Custom OAuth",
@@ -125,7 +99,6 @@ const integrationTypeLabels = {
 } as const
 
 const integrationSectionOrder: IntegrationSectionType[] = [
-  "credential",
   "oauth",
   "custom_oauth",
   "mcp",
@@ -133,7 +106,6 @@ const integrationSectionOrder: IntegrationSectionType[] = [
 ]
 
 const integrationSectionTitles: Record<IntegrationSectionType, string> = {
-  credential: "Built-in credentials",
   oauth: "OAuth",
   custom_oauth: "Custom OAuth",
   mcp: "MCP",
@@ -162,8 +134,6 @@ export default function IntegrationsPage() {
   const [activeMcpIntegrationId, setActiveMcpIntegrationId] = useState<
     string | null
   >(null)
-  const [activeCredentialTemplate, setActiveCredentialTemplate] =
-    useState<SecretDefinition | null>(null)
   const [pendingMcpDeleteId, setPendingMcpDeleteId] = useState<string | null>(
     null
   )
@@ -177,7 +147,6 @@ export default function IntegrationsPage() {
     custom_oauth: false,
     mcp: false,
     custom_mcp: false,
-    credential: false,
   })
   const lastHandledConnectRef = useRef<string | null>(null)
 
@@ -185,13 +154,6 @@ export default function IntegrationsPage() {
     useIntegrations(workspaceId)
   const { mcpIntegrations, mcpIntegrationsIsLoading, mcpIntegrationsError } =
     useListMcpIntegrations(workspaceId)
-  const {
-    secretDefinitions,
-    secretDefinitionsIsLoading,
-    secretDefinitionsError,
-  } = useSecretDefinitions(workspaceId)
-  const { secrets, secretsIsLoading, secretsError } =
-    useWorkspaceSecrets(workspaceId)
   const { deleteMcpIntegration, deleteMcpIntegrationIsPending } =
     useDeleteMcpIntegration(workspaceId)
 
@@ -305,36 +267,14 @@ export default function IntegrationsPage() {
     [integrations]
   )
 
-  const credentialEnvironments = useMemo(() => {
-    const environmentMap = new Map<string, Set<string>>()
-    for (const secret of secrets ?? []) {
-      const environment = secret.environment?.trim() || "default"
-      const current = environmentMap.get(secret.name) ?? new Set<string>()
-      current.add(environment)
-      environmentMap.set(secret.name, current)
-    }
-
-    return new Map(
-      Array.from(environmentMap.entries(), ([name, environments]) => [
-        name,
-        Array.from(environments).sort((a, b) => a.localeCompare(b)),
-      ])
-    )
-  }, [secrets])
-
   const getIntegrationStatus = useCallback(
     (item: IntegrationItem): IntegrationStatus => {
-      if (item.type === "credential") {
-        return credentialEnvironments.has(item.name)
-          ? "connected"
-          : "not_configured"
-      }
       if (item.type === "mcp") {
         return getMcpDisplayStatus(item, integrationById)
       }
       return displayStatus(item.integration_status)
     },
-    [credentialEnvironments, integrationById]
+    [integrationById]
   )
 
   const isCustomMcpIntegration = useCallback(
@@ -411,17 +351,8 @@ export default function IntegrationsPage() {
         oauth_integration_id: mcp.oauth_integration_id,
       })) ?? []
 
-    const credentialItems: IntegrationItem[] =
-      secretDefinitions?.map((secret) => ({
-        type: "credential" as const,
-        id: secret.name,
-        name: secret.name,
-        description: null,
-        definition: secret,
-      })) ?? []
-
-    return [...oauthItems, ...mcpItems, ...credentialItems]
-  }, [providers, mcpIntegrations, secretDefinitions, integrationById])
+    return [...oauthItems, ...mcpItems]
+  }, [providers, mcpIntegrations, integrationById])
 
   const filteredIntegrations = useMemo(() => {
     const filtered = allIntegrations.filter((item) => {
@@ -501,7 +432,6 @@ export default function IntegrationsPage() {
       custom_oauth: [],
       mcp: [],
       custom_mcp: [],
-      credential: [],
     }
 
     for (const item of filteredIntegrations) {
@@ -654,10 +584,7 @@ export default function IntegrationsPage() {
     if (item.type === "oauth") {
       return `oauth:${item.id}:${item.grant_type}`
     }
-    if (item.type === "mcp") {
-      return `mcp:${item.id}`
-    }
-    return `credential:${item.id}`
+    return `mcp:${item.id}`
   }, [])
 
   const resetDisconnectConfirmText = useCallback((key: string) => {
@@ -675,9 +602,7 @@ export default function IntegrationsPage() {
     canReadIntegrations === undefined ||
     canUpdateIntegrations === undefined ||
     providersIsLoading ||
-    mcpIntegrationsIsLoading ||
-    secretDefinitionsIsLoading ||
-    secretsIsLoading
+    mcpIntegrationsIsLoading
   ) {
     return <CenteredSpinner />
   }
@@ -685,19 +610,10 @@ export default function IntegrationsPage() {
   if (!canReadIntegrations) {
     return null
   }
-  if (
-    providersError ||
-    mcpIntegrationsError ||
-    secretDefinitionsError ||
-    secretsError
-  ) {
+  if (providersError || mcpIntegrationsError) {
     return (
       <div>
-        Error:{" "}
-        {providersError?.message ||
-          mcpIntegrationsError?.message ||
-          secretDefinitionsError?.message ||
-          secretsError?.message}
+        Error: {providersError?.message || mcpIntegrationsError?.message}
       </div>
     )
   }
@@ -754,31 +670,24 @@ export default function IntegrationsPage() {
                     <div className="divide-y divide-border/50">
                       {section.items.map((item) => {
                         const isOAuth = item.type === "oauth"
-                        const isCredential = item.type === "credential"
                         const isMcp = item.type === "mcp"
                         const status = getIntegrationStatus(item)
-                        const configuredEnvironments = isCredential
-                          ? (credentialEnvironments.get(item.name) ?? [])
-                          : []
                         const isConnected = isMcp
                           ? status === "connected"
-                          : isCredential
-                            ? false
-                            : item.integration_status === "connected"
+                          : item.integration_status === "connected"
                         const isConfigured = status === "connected"
                         const isClickable =
                           (isOAuth && isConnected) ||
                           (canMutateIntegrations &&
-                            (isCredential ||
-                              (isOAuth &&
-                                item.requires_config &&
-                                item.enabled) ||
+                            ((isOAuth &&
+                              item.requires_config &&
+                              item.enabled) ||
                               isMcp))
                         const isDisabled = isOAuth ? !item.enabled : false
                         const showConnect =
                           canMutateIntegrations && !isConnected
                         const showDisconnect =
-                          canMutateIntegrations && isConnected && !isCredential
+                          canMutateIntegrations && isConnected
                         const isConnecting =
                           isOAuth &&
                           ((connectProviderMutation.isPending &&
@@ -813,9 +722,7 @@ export default function IntegrationsPage() {
                             key={
                               isOAuth
                                 ? `${item.id}-${item.grant_type}`
-                                : item.type === "credential"
-                                  ? `credential-${item.id}`
-                                  : item.id
+                                : item.id
                             }
                             variant="default"
                             size="sm"
@@ -825,13 +732,6 @@ export default function IntegrationsPage() {
                               !isClickable && "cursor-default"
                             )}
                             onClick={() => {
-                              if (isCredential) {
-                                if (!canMutateIntegrations) {
-                                  return
-                                }
-                                setActiveCredentialTemplate(item.definition)
-                                return
-                              }
                               if (isOAuth) {
                                 if (isConnected) {
                                   setDetailsProvider({
@@ -860,11 +760,6 @@ export default function IntegrationsPage() {
                               {isOAuth ? (
                                 <ProviderIcon
                                   providerId={item.id}
-                                  className="size-6 rounded"
-                                />
-                              ) : isCredential ? (
-                                <SecretIcon
-                                  secretName={item.name}
                                   className="size-6 rounded"
                                 />
                               ) : mcpProviderIconId ? (
@@ -898,65 +793,20 @@ export default function IntegrationsPage() {
                               </ItemTitle>
                             </ItemContent>
                             <ItemActions className="ml-auto flex shrink-0 items-center gap-1.5 pl-3">
-                              {isConfigured &&
-                                (isCredential &&
-                                configuredEnvironments.length > 0 ? (
-                                  <HoverCard openDelay={100} closeDelay={100}>
-                                    <HoverCardTrigger asChild>
-                                      <button
-                                        type="button"
-                                        className="flex h-6 w-6 items-center justify-center"
-                                        aria-label={`View configured environments for ${item.name}`}
-                                        onClick={(event) =>
-                                          event.stopPropagation()
-                                        }
-                                        onMouseDown={(event) =>
-                                          event.stopPropagation()
-                                        }
-                                      >
+                              {isConfigured ? (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="flex h-6 w-6 items-center justify-center">
                                         <SquareAsterisk className="icon-success size-3.5" />
-                                      </button>
-                                    </HoverCardTrigger>
-                                    <HoverCardContent
-                                      className="w-auto max-w-[240px] p-3"
-                                      align="end"
-                                      side="top"
-                                      sideOffset={6}
-                                    >
-                                      <div className="space-y-2 text-xs">
-                                        <div className="font-medium text-foreground">
-                                          Configured environments
-                                        </div>
-                                        <div className="flex flex-wrap gap-1">
-                                          {configuredEnvironments.map(
-                                            (environment) => (
-                                              <Badge
-                                                key={environment}
-                                                variant="secondary"
-                                                className="text-[10px]"
-                                              >
-                                                {environment}
-                                              </Badge>
-                                            )
-                                          )}
-                                        </div>
-                                      </div>
-                                    </HoverCardContent>
-                                  </HoverCard>
-                                ) : (
-                                  <TooltipProvider>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <span className="flex h-6 w-6 items-center justify-center">
-                                          <SquareAsterisk className="icon-success size-3.5" />
-                                        </span>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        <p>Configured</p>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                ))}
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Configured</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              ) : null}
                               {isOAuth &&
                                 isConnected &&
                                 canMutateIntegrations && (
@@ -994,12 +844,6 @@ export default function IntegrationsPage() {
                                     className="h-6 border-input bg-white px-2.5 text-[11px] text-foreground hover:bg-muted"
                                     onClick={(event) => {
                                       event.stopPropagation()
-                                      if (isCredential) {
-                                        setActiveCredentialTemplate(
-                                          item.definition
-                                        )
-                                        return
-                                      }
                                       if (isOAuth) {
                                         if (item.requires_config) {
                                           handleOpenOAuthModal(
@@ -1021,7 +865,7 @@ export default function IntegrationsPage() {
                                     {isConnecting ? (
                                       <Loader2 className="mr-1.5 size-3 animate-spin" />
                                     ) : null}
-                                    {isCredential ? "Configure" : "Connect"}
+                                    Connect
                                   </Button>
                                 </>
                               )}
@@ -1181,15 +1025,6 @@ export default function IntegrationsPage() {
           hideTrigger
         />
       ) : null}
-      <CreateCredentialDialog
-        open={Boolean(activeCredentialTemplate)}
-        onOpenChange={(nextOpen) => {
-          if (!nextOpen) {
-            setActiveCredentialTemplate(null)
-          }
-        }}
-        template={activeCredentialTemplate}
-      />
     </div>
   )
 }
