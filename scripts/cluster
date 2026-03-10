@@ -114,7 +114,38 @@ get_next_cluster_num() {
     echo "$expected"
 }
 
-# Auto-select cluster: returns the only running cluster, or errors if multiple/none
+# Present an interactive numbered selector when multiple clusters match.
+# Reads cluster numbers from stdin (one per line), shows a menu,
+# and prints the chosen cluster number to stdout.
+select_cluster_interactive() {
+    local nums=()
+    while IFS= read -r n; do
+        [[ -n "$n" ]] && nums+=("$n")
+    done
+
+    for n in "${nums[@]}"; do
+        calculate_ports "$n"
+        echo "  [${n}]  http://localhost:${PUBLIC_APP_PORT}" >&2
+    done
+
+    echo "" >&2
+    echo -n "Cluster number: " >&2
+    local choice
+    read -r choice </dev/tty
+
+    # Validate the input is one of the running cluster numbers
+    for n in "${nums[@]}"; do
+        if [[ "$choice" == "$n" ]]; then
+            echo "$n"
+            return
+        fi
+    done
+
+    echo "Invalid cluster number '${choice}'" >&2
+    exit 1
+}
+
+# Auto-select cluster: returns the only running cluster, or prompts if multiple
 auto_select_cluster() {
     local command=$1
     local running
@@ -137,13 +168,8 @@ auto_select_cluster() {
     elif [[ "$count" -eq 1 ]]; then
         echo "$running"
     else
-        echo "Error: Multiple clusters running for worktree '${WORKTREE_ID}':" >&2
-        echo "$running" | while read -r num; do
-            calculate_ports "$num"
-            echo "  ${num}: http://localhost:${PUBLIC_APP_PORT}" >&2
-        done
-        echo "Please specify a cluster number" >&2
-        exit 1
+        echo "Multiple clusters running — select one:" >&2
+        echo "$running" | select_cluster_interactive
     fi
 }
 
@@ -405,8 +431,19 @@ if [[ "$AUTO_SELECT" == "true" ]]; then
         echo "Auto-selected cluster ${CLUSTER_NUM} (global) for worktree '${WORKTREE_ID}'"
     elif [[ "$COMMAND" == "nuke" ]]; then
         # For nuke, try to find any cluster (running or with leftover volumes)
-        CLUSTER_NUM=$(get_running_clusters | head -1)
-        if [[ -z "$CLUSTER_NUM" ]]; then
+        local nuke_running
+        nuke_running=$(get_running_clusters)
+        local nuke_count=0
+        if [[ -n "$nuke_running" ]]; then
+            nuke_count=$(echo "$nuke_running" | wc -l | tr -d ' ')
+        fi
+
+        if [[ "$nuke_count" -eq 1 ]]; then
+            CLUSTER_NUM="$nuke_running"
+        elif [[ "$nuke_count" -gt 1 ]]; then
+            echo "Multiple clusters running — select one to nuke:" >&2
+            CLUSTER_NUM=$(echo "$nuke_running" | select_cluster_interactive)
+        else
             # No running cluster, check for orphaned volumes
             ORPHAN_VOLUME=$(docker volume ls --format "{{.Name}}" | grep "^tracecat-${WORKTREE_ID}-" | head -1 || true)
             if [[ -n "$ORPHAN_VOLUME" && "$ORPHAN_VOLUME" =~ ^tracecat-${WORKTREE_ID}-([0-9]+)_ ]]; then
