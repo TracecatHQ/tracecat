@@ -811,7 +811,7 @@ field name/column id, not a UUID.
 - `update_case_trigger.tag_filters`: JSON array of tag ref strings, e.g. \
 `["malware","phishing"]`.
 - `create_table.columns_json`: JSON array of objects with schema \
-`{"name": str, "type": SqlType, "nullable": bool?, "default": any?, "options": list[str]?}`. \
+`{{"name": str, "type": SqlType, "nullable": bool?, "default": any?, "options": list[str]?}}`. \
 `options` are only valid for `SELECT` and `MULTI_SELECT`.
 - `create_case_field.options` and `update_case_field.options`: JSON array of strings, \
 e.g. `["low","medium","high"]`; use `[]` to clear options on update.
@@ -1348,6 +1348,38 @@ def _parse_sql_type_arg(raw_value: str, field_name: str = "type") -> SqlType:
         raise ToolError(
             f"Invalid {field_name}: {raw_value!r}. Expected one of: {valid_values}"
         ) from exc
+
+
+def _build_tag_update_params(
+    *,
+    name: str | None = None,
+    color: str | None = None,
+) -> TagUpdate:
+    """Build a partial tag update payload from provided arguments only."""
+    update_kwargs: dict[str, Any] = {}
+    if name is not None:
+        update_kwargs["name"] = name
+    if color is not None:
+        update_kwargs["color"] = color
+    return TagUpdate(**update_kwargs)
+
+
+def _build_case_field_update_params(
+    *,
+    name: str | None = None,
+    type: SqlType | None = None,
+    options: list[str] | None = None,
+    options_provided: bool = False,
+) -> CaseFieldUpdate:
+    """Build a partial case-field update payload from provided arguments only."""
+    update_kwargs: dict[str, Any] = {}
+    if name is not None:
+        update_kwargs["name"] = name
+    if type is not None:
+        update_kwargs["type"] = type
+    if options_provided:
+        update_kwargs["options"] = options
+    return CaseFieldUpdate(**update_kwargs)
 
 
 def _normalize_exception_value(value: Any) -> Any:
@@ -3040,7 +3072,10 @@ async def update_workflow_tag(
         _, role = await _resolve_workspace_role(workspace_id)
         async with TagsService.with_session(role=role) as svc:
             tag = await svc.get_tag_by_ref_or_id(tag_id)
-            updated = await svc.update_tag(tag, TagUpdate(name=name, color=color))
+            updated = await svc.update_tag(
+                tag,
+                _build_tag_update_params(name=name, color=color),
+            )
             return _json(_workflow_tag_payload(updated))
     except NoResultFound:
         raise ToolError(f"Workflow tag {tag_id!r} not found") from None
@@ -3244,7 +3279,10 @@ async def update_case_tag(
         _, role = await _resolve_workspace_role(workspace_id)
         async with CaseTagsService.with_session(role=role) as svc:
             tag = await svc.get_tag_by_ref_or_id(tag_id)
-            updated = await svc.update_tag(tag, TagUpdate(name=name, color=color))
+            updated = await svc.update_tag(
+                tag,
+                _build_tag_update_params(name=name, color=color),
+            )
             return _json(_case_tag_payload(updated))
     except NoResultFound:
         raise ToolError(f"Case tag {tag_id!r} not found") from None
@@ -3464,12 +3502,18 @@ async def update_case_field(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        options_provided = options is not None
         parsed_options = _parse_json_arg(options, "options")
         parsed_type = _parse_sql_type_arg(type) if type is not None else None
         async with CaseFieldsService.with_session(role=role) as svc:
             await svc.update_field(
                 field_id,
-                CaseFieldUpdate(name=name, type=parsed_type, options=parsed_options),
+                _build_case_field_update_params(
+                    name=name,
+                    type=parsed_type,
+                    options=parsed_options,
+                    options_provided=options_provided,
+                ),
             )
             return _json({"message": f"Case field {field_id} updated successfully"})
     except ToolError:
