@@ -898,6 +898,50 @@ class TestTableRows:
         assert reverse_page.next_cursor is not None
         assert reverse_page.prev_cursor is None
 
+    async def test_table_editor_row_payloads_hide_internal_tenant_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Editor row payloads should hide internal tenant columns."""
+        editor = TableEditorService(
+            tables_service.session,
+            tables_service.role,
+            table_name=table.name,
+            schema_name=tables_service._get_schema_name(),
+        )
+
+        inserted = await editor.insert_row(
+            TableRowInsert(data={"name": "Editor hidden", "age": 33})
+        )
+        assert DYNAMIC_WORKSPACE_TENANT_COLUMN not in inserted
+
+        retrieved = await editor.get_row(inserted["id"])
+        assert DYNAMIC_WORKSPACE_TENANT_COLUMN not in retrieved
+
+        page = await editor.list_rows(limit=10)
+        assert all(DYNAMIC_WORKSPACE_TENANT_COLUMN not in row for row in page.items)
+
+    async def test_table_editor_visible_columns_refresh_after_create_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Editor visible-column cache should refresh after schema changes."""
+        editor = TableEditorService(
+            tables_service.session,
+            tables_service.role,
+            table_name=table.name,
+            schema_name=tables_service._get_schema_name(),
+        )
+
+        await editor.list_rows(limit=1)
+        await editor.create_column(TableColumnCreate(name="city", type=SqlType.TEXT))
+
+        inserted = await editor.insert_row(
+            TableRowInsert(data={"name": "Editor city", "age": 4, "city": "NYC"})
+        )
+        assert inserted["city"] == "NYC"
+
+        retrieved = await editor.get_row(inserted["id"])
+        assert retrieved["city"] == "NYC"
+
     async def test_table_editor_insert_row_rejects_internal_column(
         self, tables_service: TablesService, table: Table
     ) -> None:
