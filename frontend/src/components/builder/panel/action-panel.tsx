@@ -462,7 +462,7 @@ function ActionPanelContent({
       requiredFields: requiredFieldEntries,
       optionalFields: optionalFieldEntries,
     }
-  }, [registryAction, required])
+  }, [action?.type, registryAction, required])
 
   // Track manually shown/hidden fields separately from fields with values
   const [manuallyVisibleFields, setManuallyVisibleFields] = useState<

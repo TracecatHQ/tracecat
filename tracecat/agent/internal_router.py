@@ -52,7 +52,8 @@ async def _resolve_run_config(
         if agent_svc.presets is None:
             raise ValueError("Preset-based runs require workspace context.")
         return await agent_svc.presets.resolve_agent_preset_config(
-            slug=params.preset_slug
+            slug=params.preset_slug,
+            preset_version=params.preset_version,
         )
 
     if params.config is None:

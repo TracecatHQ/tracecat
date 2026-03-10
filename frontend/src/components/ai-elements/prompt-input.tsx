@@ -713,13 +713,13 @@ export const PromptInput = ({
     [referencedSources, clearReferencedSources]
   )
 
-  const submitPrompt = useCallback(async () => {
+  const submitPrompt = useCallback(() => {
     const root = rootRef.current
     if (!root) {
       return
     }
 
-    const messageControl = root.querySelector("[name='message']") as
+    const messageControl = root.querySelector('[name="message"]') as
       | HTMLTextAreaElement
       | HTMLInputElement
       | null
@@ -727,28 +727,39 @@ export const PromptInput = ({
       ? controller.textInput.value
       : (messageControl?.value ?? "")
 
-    try {
-      // Convert blob URLs to data URLs asynchronously
-      const convertedFiles: FileUIPart[] = await Promise.all(
-        files.map(async ({ id: _id, ...item }) => {
-          if (item.url?.startsWith("blob:")) {
-            const dataUrl = await convertBlobUrlToDataUrl(item.url)
-            // If conversion failed, keep the original blob URL
-            return {
-              ...item,
-              url: dataUrl ?? item.url,
+    const runSubmit = async () => {
+      try {
+        // Keep prompt submission detached from native form submission so nested
+        // chat inputs never bubble into parent page forms and trigger reloads.
+        const convertedFiles: FileUIPart[] = await Promise.all(
+          files.map(async ({ id: _id, ...item }) => {
+            if (item.url?.startsWith("blob:")) {
+              const dataUrl = await convertBlobUrlToDataUrl(item.url)
+              return {
+                ...item,
+                url: dataUrl ?? item.url,
+              }
             }
+            return item
+          })
+        )
+
+        const result = onSubmit({ files: convertedFiles, text })
+
+        if (result instanceof Promise) {
+          try {
+            await result
+            clear()
+            if (usingProvider) {
+              controller.textInput.clear()
+            } else if (messageControl?.value === text) {
+              // Preserve edits made while submit was in-flight.
+              messageControl.value = ""
+            }
+          } catch {
+            // Don't clear on error - user may want to retry
           }
-          return item
-        })
-      )
-
-      const result = onSubmit({ files: convertedFiles, text })
-
-      // Handle both sync and async onSubmit
-      if (result instanceof Promise) {
-        try {
-          await result
+        } else {
           clear()
           if (usingProvider) {
             controller.textInput.clear()
@@ -756,22 +767,13 @@ export const PromptInput = ({
             // Preserve edits made while submit was in-flight.
             messageControl.value = ""
           }
-        } catch {
-          // Don't clear on error - user may want to retry
         }
-      } else {
-        // Sync function completed without throwing, clear inputs
-        clear()
-        if (usingProvider) {
-          controller.textInput.clear()
-        } else if (messageControl?.value === text) {
-          // Preserve edits made while submit was in-flight.
-          messageControl.value = ""
-        }
+      } catch {
+        // Don't clear on error - user may want to retry
       }
-    } catch {
-      // Don't clear on error - user may want to retry
     }
+
+    void runSubmit()
   }, [usingProvider, controller, files, onSubmit, clear])
 
   // Render with or without local provider

@@ -1617,7 +1617,9 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     workspace_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
     preset = SimpleNamespace(id=uuid.uuid4())
+    version = SimpleNamespace(id=uuid.uuid4())
     session = SimpleNamespace(id=uuid.uuid4(), last_stream_id=last_stream_id)
+    created_session_request: dict[str, Any] = {}
 
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
@@ -1626,8 +1628,19 @@ async def test_run_agent_preset_uses_session_stream_cursor(
         async def get_preset_by_slug(self, _preset_slug: str) -> SimpleNamespace:
             return preset
 
+        async def resolve_agent_preset_version(
+            self,
+            *,
+            slug: str,
+            preset_version: int | None = None,
+        ) -> SimpleNamespace:
+            assert slug == "triage"
+            assert preset_version is None
+            return version
+
     class _SessionService:
-        async def create_session(self, _create: Any) -> SimpleNamespace:
+        async def create_session(self, create: Any) -> SimpleNamespace:
+            created_session_request["value"] = create
             return session
 
         async def run_turn(self, _session_id: uuid.UUID, _request: Any) -> None:
@@ -1667,6 +1680,8 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     )
 
     assert result == "agent response"
+    assert created_session_request["value"].agent_preset_id == preset.id
+    assert created_session_request["value"].agent_preset_version_id == version.id
     assert captured["session_id"] == session.id
     assert captured["workspace_id"] == workspace_id
     assert captured["timeout"] == 120

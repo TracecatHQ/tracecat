@@ -319,7 +319,6 @@ export type AgentPreset = {
  * Payload for creating a new agent preset.
  */
 export type AgentPresetCreate = {
-  description?: string | null
   instructions?: string | null
   model_name: string
   model_provider: string
@@ -333,6 +332,7 @@ export type AgentPresetCreate = {
   mcp_integrations?: Array<string> | null
   retries?: number
   enable_internet_access?: boolean
+  description?: string | null
   name: string
   slug?: string | null
 }
@@ -341,7 +341,6 @@ export type AgentPresetCreate = {
  * API model for reading agent presets.
  */
 export type AgentPresetRead = {
-  description?: string | null
   instructions?: string | null
   model_name: string
   model_provider: string
@@ -359,6 +358,8 @@ export type AgentPresetRead = {
   workspace_id: string
   name: string
   slug: string
+  description?: string | null
+  current_version_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -372,6 +373,7 @@ export type AgentPresetReadMinimal = {
   name: string
   slug: string
   description: string | null
+  current_version_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -396,6 +398,73 @@ export type AgentPresetUpdate = {
   mcp_integrations?: Array<string> | null
   retries?: number | null
   enable_internet_access?: boolean | null
+}
+
+/**
+ * Structured diff between two preset versions.
+ */
+export type AgentPresetVersionDiff = {
+  base_version_id: string
+  base_version: number
+  compare_version_id: string
+  compare_version: number
+  instructions_changed?: boolean
+  base_instructions?: string | null
+  compare_instructions?: string | null
+  scalar_changes?: Array<ScalarFieldChange>
+  list_changes?: Array<StringListFieldChange>
+  tool_approval_changes?: Array<ToolApprovalFieldChange>
+  total_changes?: number
+}
+
+/**
+ * Full response model for an immutable preset version.
+ */
+export type AgentPresetVersionRead = {
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_integrations?: Array<string> | null
+  retries?: number
+  enable_internet_access?: boolean
+  id: string
+  preset_id: string
+  workspace_id: string
+  version: number
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Minimal response model for agent preset versions.
+ */
+export type AgentPresetVersionReadMinimal = {
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_integrations?: Array<string> | null
+  retries?: number
+  enable_internet_access?: boolean
+  id: string
+  preset_id: string
+  workspace_id: string
+  version: number
+  created_at: string
+  updated_at: string
 }
 
 /**
@@ -430,6 +499,10 @@ export type AgentSessionCreate = {
    * Agent preset used for this session (if any)
    */
   agent_preset_id?: string | null
+  /**
+   * Pinned preset version used for this session (if any)
+   */
+  agent_preset_version_id?: string | null
   /**
    * Agent harness type
    */
@@ -482,6 +555,7 @@ export type AgentSessionRead = {
   } | null
   tools: Array<string> | null
   agent_preset_id: string | null
+  agent_preset_version_id: string | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -504,6 +578,7 @@ export type AgentSessionReadVercel = {
   } | null
   tools: Array<string> | null
   agent_preset_id: string | null
+  agent_preset_version_id: string | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -530,6 +605,7 @@ export type AgentSessionReadWithMessages = {
   } | null
   tools: Array<string> | null
   agent_preset_id: string | null
+  agent_preset_version_id: string | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -557,6 +633,10 @@ export type AgentSessionUpdate = {
    * Agent preset to use for this session
    */
   agent_preset_id?: string | null
+  /**
+   * Pinned preset version to use for this session
+   */
+  agent_preset_version_id?: string | null
   /**
    * Agent harness type
    */
@@ -1863,6 +1943,10 @@ export type ChatRead = {
    */
   agent_preset_id?: string | null
   /**
+   * Pinned preset version used for this chat, if any
+   */
+  agent_preset_version_id?: string | null
+  /**
    * When the chat was created
    */
   created_at: string
@@ -1919,6 +2003,10 @@ export type ChatReadMinimal = {
    */
   agent_preset_id?: string | null
   /**
+   * Pinned preset version used for this chat, if any
+   */
+  agent_preset_version_id?: string | null
+  /**
    * When the chat was created
    */
   created_at: string
@@ -1968,6 +2056,10 @@ export type ChatReadVercel = {
    * Agent preset used for this chat, if any
    */
   agent_preset_id?: string | null
+  /**
+   * Pinned preset version used for this chat, if any
+   */
+  agent_preset_version_id?: string | null
   /**
    * When the chat was created
    */
@@ -2215,6 +2307,30 @@ export type CreatedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
+  items: Array<AgentPresetVersionReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
 }
 
 export type CursorPaginatedResponse_CaseReadMinimal_ = {
@@ -4982,6 +5098,15 @@ export type SAMLSettingsUpdate = {
   saml_idp_metadata_url?: string | null
 }
 
+/**
+ * Scalar field change between two preset versions.
+ */
+export type ScalarFieldChange = {
+  field: string
+  old_value?: unknown
+  new_value?: unknown
+}
+
 export type ScheduleCreate = {
   workflow_id: string
   inputs?: {
@@ -5412,6 +5537,15 @@ export type StreamEvent = {
     [key: string]: unknown
   }
   parent_tool_use_id?: string | null
+}
+
+/**
+ * List diff for preset version fields.
+ */
+export type StringListFieldChange = {
+  field: string
+  added?: Array<string>
+  removed?: Array<string>
 }
 
 export type SyntaxToken = {
@@ -6065,6 +6199,15 @@ export type Toggle = {
   label_on?: string
   label_off?: string
   component_id?: "toggle"
+}
+
+/**
+ * Approval diff for a single tool.
+ */
+export type ToolApprovalFieldChange = {
+  tool: string
+  old_value?: boolean | null
+  new_value?: boolean | null
 }
 
 export type ToolApproved = {
@@ -8747,6 +8890,46 @@ export type AgentPresetsGetAgentPresetBySlugData = {
 }
 
 export type AgentPresetsGetAgentPresetBySlugResponse = AgentPresetRead
+
+export type AgentPresetsListAgentPresetVersionsData = {
+  cursor?: string | null
+  limit?: number
+  presetId: string
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type AgentPresetsListAgentPresetVersionsResponse =
+  CursorPaginatedResponse_AgentPresetVersionReadMinimal_
+
+export type AgentPresetsGetAgentPresetVersionData = {
+  presetId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type AgentPresetsGetAgentPresetVersionResponse = AgentPresetVersionRead
+
+export type AgentPresetsCompareAgentPresetVersionsData = {
+  /**
+   * Version ID to compare against
+   */
+  compareTo: string
+  presetId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type AgentPresetsCompareAgentPresetVersionsResponse =
+  AgentPresetVersionDiff
+
+export type AgentPresetsRestoreAgentPresetVersionData = {
+  presetId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type AgentPresetsRestoreAgentPresetVersionResponse = AgentPresetRead
 
 export type AgentSessionsCreateSessionData = {
   requestBody: AgentSessionCreate
@@ -12518,6 +12701,66 @@ export type $OpenApiTs = {
   "/agent/presets/by-slug/{slug}": {
     get: {
       req: AgentPresetsGetAgentPresetBySlugData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/{preset_id}/versions": {
+    get: {
+      req: AgentPresetsListAgentPresetVersionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_AgentPresetVersionReadMinimal_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/{preset_id}/versions/{version_id}": {
+    get: {
+      req: AgentPresetsGetAgentPresetVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetVersionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/{preset_id}/versions/{version_id}/compare": {
+    get: {
+      req: AgentPresetsCompareAgentPresetVersionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetVersionDiff
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/{preset_id}/versions/{version_id}/restore": {
+    post: {
+      req: AgentPresetsRestoreAgentPresetVersionData
       res: {
         /**
          * Successful Response

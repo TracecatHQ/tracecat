@@ -297,6 +297,7 @@ class AgentsClient:
         user_prompt: str,
         config: AgentConfig | None = None,
         preset_slug: str | None = None,
+        preset_version: int | None = None,
         max_requests: int = 120,
         max_tool_calls: int | None = None,
     ) -> registry_types.AgentOutputRead:
@@ -308,6 +309,7 @@ class AgentsClient:
             user_prompt: The prompt for the agent.
             config: Inline agent configuration.
             preset_slug: Slug of a preset to use (resolves on server).
+            preset_version: Optional preset version number to pin.
             max_requests: Maximum LLM requests.
             max_tool_calls: Maximum tool calls.
 
@@ -322,6 +324,8 @@ class AgentsClient:
             data["config"] = asdict(config)
         if preset_slug is not None:
             data["preset_slug"] = preset_slug
+        if preset_version is not None:
+            data["preset_version"] = preset_version
         if max_tool_calls is not None:
             data["max_tool_calls"] = max_tool_calls
 

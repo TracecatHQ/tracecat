@@ -1147,18 +1147,6 @@ export const $AgentPreset = {
 
 export const $AgentPresetCreate = {
   properties: {
-    description: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Description",
-    },
     instructions: {
       anyOf: [
         {
@@ -1271,6 +1259,18 @@ export const $AgentPresetCreate = {
       title: "Enable Internet Access",
       default: false,
     },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
     name: {
       type: "string",
       maxLength: 120,
@@ -1299,18 +1299,6 @@ export const $AgentPresetCreate = {
 
 export const $AgentPresetRead = {
   properties: {
-    description: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Description",
-    },
     instructions: {
       anyOf: [
         {
@@ -1325,13 +1313,11 @@ export const $AgentPresetRead = {
     model_name: {
       type: "string",
       maxLength: 120,
-      minLength: 1,
       title: "Model Name",
     },
     model_provider: {
       type: "string",
       maxLength: 120,
-      minLength: 1,
       title: "Model Provider",
     },
     base_url: {
@@ -1440,6 +1426,30 @@ export const $AgentPresetRead = {
     slug: {
       type: "string",
       title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    current_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Current Version Id",
     },
     created_at: {
       type: "string",
@@ -1497,6 +1507,18 @@ export const $AgentPresetReadMinimal = {
         },
       ],
       title: "Description",
+    },
+    current_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Current Version Id",
     },
     created_at: {
       type: "string",
@@ -1707,6 +1729,405 @@ export const $AgentPresetUpdate = {
   description: "Payload for updating an existing agent preset.",
 } as const
 
+export const $AgentPresetVersionDiff = {
+  properties: {
+    base_version_id: {
+      type: "string",
+      format: "uuid",
+      title: "Base Version Id",
+    },
+    base_version: {
+      type: "integer",
+      title: "Base Version",
+    },
+    compare_version_id: {
+      type: "string",
+      format: "uuid",
+      title: "Compare Version Id",
+    },
+    compare_version: {
+      type: "integer",
+      title: "Compare Version",
+    },
+    instructions_changed: {
+      type: "boolean",
+      title: "Instructions Changed",
+      default: false,
+    },
+    base_instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Instructions",
+    },
+    compare_instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Compare Instructions",
+    },
+    scalar_changes: {
+      items: {
+        $ref: "#/components/schemas/ScalarFieldChange",
+      },
+      type: "array",
+      title: "Scalar Changes",
+    },
+    list_changes: {
+      items: {
+        $ref: "#/components/schemas/StringListFieldChange",
+      },
+      type: "array",
+      title: "List Changes",
+    },
+    tool_approval_changes: {
+      items: {
+        $ref: "#/components/schemas/ToolApprovalFieldChange",
+      },
+      type: "array",
+      title: "Tool Approval Changes",
+    },
+    total_changes: {
+      type: "integer",
+      title: "Total Changes",
+      default: 0,
+    },
+  },
+  type: "object",
+  required: [
+    "base_version_id",
+    "base_version",
+    "compare_version_id",
+    "compare_version",
+  ],
+  title: "AgentPresetVersionDiff",
+  description: "Structured diff between two preset versions.",
+} as const
+
+export const $AgentPresetVersionRead = {
+  properties: {
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 120,
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      title: "Model Provider",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    output_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OutputType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    actions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actions",
+    },
+    namespaces: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Namespaces",
+    },
+    tool_approvals: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "boolean",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Approvals",
+    },
+    mcp_integrations: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integrations",
+    },
+    retries: {
+      type: "integer",
+      minimum: 0,
+      title: "Retries",
+      default: 3,
+    },
+    enable_internet_access: {
+      type: "boolean",
+      title: "Enable Internet Access",
+      default: false,
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Preset Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "model_name",
+    "model_provider",
+    "id",
+    "preset_id",
+    "workspace_id",
+    "version",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentPresetVersionRead",
+  description: "Full response model for an immutable preset version.",
+} as const
+
+export const $AgentPresetVersionReadMinimal = {
+  properties: {
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 120,
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      title: "Model Provider",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    output_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OutputType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    actions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actions",
+    },
+    namespaces: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Namespaces",
+    },
+    tool_approvals: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "boolean",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Approvals",
+    },
+    mcp_integrations: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integrations",
+    },
+    retries: {
+      type: "integer",
+      minimum: 0,
+      title: "Retries",
+      default: 3,
+    },
+    enable_internet_access: {
+      type: "boolean",
+      title: "Enable Internet Access",
+      default: false,
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Preset Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "model_name",
+    "model_provider",
+    "id",
+    "preset_id",
+    "workspace_id",
+    "version",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentPresetVersionReadMinimal",
+  description: "Minimal response model for agent preset versions.",
+} as const
+
 export const $AgentSessionCreate = {
   properties: {
     id: {
@@ -1781,6 +2202,19 @@ export const $AgentSessionCreate = {
       ],
       title: "Agent Preset Id",
       description: "Agent preset used for this session (if any)",
+    },
+    agent_preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Version Id",
+      description: "Pinned preset version used for this session (if any)",
     },
     harness_type: {
       $ref: "#/components/schemas/HarnessType",
@@ -1913,6 +2347,18 @@ export const $AgentSessionRead = {
       ],
       title: "Agent Preset Id",
     },
+    agent_preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Version Id",
+    },
     harness_type: {
       anyOf: [
         {
@@ -1969,6 +2415,7 @@ export const $AgentSessionRead = {
     "channel_context",
     "tools",
     "agent_preset_id",
+    "agent_preset_version_id",
     "harness_type",
     "created_at",
     "updated_at",
@@ -2052,6 +2499,18 @@ export const $AgentSessionReadVercel = {
       ],
       title: "Agent Preset Id",
     },
+    agent_preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Version Id",
+    },
     harness_type: {
       anyOf: [
         {
@@ -2116,6 +2575,7 @@ export const $AgentSessionReadVercel = {
     "channel_context",
     "tools",
     "agent_preset_id",
+    "agent_preset_version_id",
     "harness_type",
     "created_at",
     "updated_at",
@@ -2199,6 +2659,18 @@ export const $AgentSessionReadWithMessages = {
       ],
       title: "Agent Preset Id",
     },
+    agent_preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Version Id",
+    },
     harness_type: {
       anyOf: [
         {
@@ -2261,6 +2733,7 @@ export const $AgentSessionReadWithMessages = {
     "channel_context",
     "tools",
     "agent_preset_id",
+    "agent_preset_version_id",
     "harness_type",
     "created_at",
     "updated_at",
@@ -2313,6 +2786,19 @@ export const $AgentSessionUpdate = {
       ],
       title: "Agent Preset Id",
       description: "Agent preset to use for this session",
+    },
+    agent_preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Version Id",
+      description: "Pinned preset version to use for this session",
     },
     harness_type: {
       anyOf: [
@@ -6591,6 +7077,19 @@ export const $ChatRead = {
       title: "Agent Preset Id",
       description: "Agent preset used for this chat, if any",
     },
+    agent_preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Version Id",
+      description: "Pinned preset version used for this chat, if any",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -6697,6 +7196,19 @@ export const $ChatReadMinimal = {
       title: "Agent Preset Id",
       description: "Agent preset used for this chat, if any",
     },
+    agent_preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Version Id",
+      description: "Pinned preset version used for this chat, if any",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -6796,6 +7308,19 @@ export const $ChatReadVercel = {
       ],
       title: "Agent Preset Id",
       description: "Agent preset used for this chat, if any",
+    },
+    agent_preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Version Id",
+      description: "Pinned preset version used for this chat, if any",
     },
     created_at: {
       type: "string",
@@ -7481,6 +8006,69 @@ export const $CreatedEventRead = {
   required: ["created_at"],
   title: "CreatedEventRead",
   description: "Event for when a case is created.",
+} as const
+
+export const $CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetVersionReadMinimal",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentPresetVersionReadMinimal]",
 } as const
 
 export const $CursorPaginatedResponse_CaseReadMinimal_ = {
@@ -15683,6 +16271,25 @@ export const $SAMLSettingsUpdate = {
   title: "SAMLSettingsUpdate",
 } as const
 
+export const $ScalarFieldChange = {
+  properties: {
+    field: {
+      type: "string",
+      title: "Field",
+    },
+    old_value: {
+      title: "Old Value",
+    },
+    new_value: {
+      title: "New Value",
+    },
+  },
+  type: "object",
+  required: ["field"],
+  title: "ScalarFieldChange",
+  description: "Scalar field change between two preset versions.",
+} as const
+
 export const $ScheduleCreate = {
   properties: {
     workflow_id: {
@@ -17098,6 +17705,33 @@ export const $StreamEvent = {
   type: "object",
   required: ["uuid", "session_id", "event"],
   title: "StreamEvent",
+} as const
+
+export const $StringListFieldChange = {
+  properties: {
+    field: {
+      type: "string",
+      title: "Field",
+    },
+    added: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Added",
+    },
+    removed: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Removed",
+    },
+  },
+  type: "object",
+  required: ["field"],
+  title: "StringListFieldChange",
+  description: "List diff for preset version fields.",
 } as const
 
 export const $SyntaxToken = {
@@ -19145,6 +19779,41 @@ export const $Toggle = {
   },
   type: "object",
   title: "Toggle",
+} as const
+
+export const $ToolApprovalFieldChange = {
+  properties: {
+    tool: {
+      type: "string",
+      title: "Tool",
+    },
+    old_value: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Old Value",
+    },
+    new_value: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Value",
+    },
+  },
+  type: "object",
+  required: ["tool"],
+  title: "ToolApprovalFieldChange",
+  description: "Approval diff for a single tool.",
 } as const
 
 export const $ToolApproved = {

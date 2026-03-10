@@ -7,6 +7,7 @@ import {
   Braces,
   Brackets,
   Hash,
+  History,
   List,
   ListOrdered,
   ListTodo,
@@ -33,13 +34,20 @@ import {
   useRef,
   useState,
 } from "react"
-import { type UseFormReturn, useFieldArray, useForm } from "react-hook-form"
+import {
+  type FieldErrors,
+  type UseFormReturn,
+  useFieldArray,
+  useForm,
+} from "react-hook-form"
 import { z } from "zod"
 import type {
   AgentPresetCreate,
   AgentPresetRead,
   AgentPresetUpdate,
 } from "@/client"
+import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
+import { AgentPresetVersionsPanel } from "@/components/agents/agent-preset-versions-panel"
 import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
 import { ActionSelect } from "@/components/chat/action-select"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
@@ -104,13 +112,23 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   useAgentPreset,
   useAgentPresets,
+  useAgentPresetVersions,
   useCreateAgentPreset,
   useDeleteAgentPreset,
   useUpdateAgentPreset,
 } from "@/hooks"
-import { useCreateChat, useGetChatVercel, useListChats } from "@/hooks/use-chat"
+import {
+  useCreateChat,
+  useGetChatVercel,
+  useListChats,
+  useUpdateChat,
+} from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import {
+  type AgentPresetFormMode,
+  canSubmitAgentPresetForm,
+} from "@/lib/agent-presets"
 import type { ModelInfo } from "@/lib/chat"
 import {
   useAgentModels,
@@ -187,12 +205,12 @@ function getMcpProviderId(slug: string): string | undefined {
 
 const agentPresetSchema = z
   .object({
-    name: z.string().min(1, "Name is required"),
-    slug: z.string().min(1, "Slug is required"),
+    name: z.string().trim().min(1, "Name is required"),
+    slug: z.string().trim().min(1, "Slug is required"),
     description: z.string().max(1000).optional(),
     instructions: z.string().optional(),
-    model_provider: z.string().min(1, "Model provider is required"),
-    model_name: z.string().min(1, "Model name is required"),
+    model_provider: z.string().trim().min(1, "Model provider is required"),
+    model_name: z.string().trim().min(1, "Model name is required"),
     base_url: z.union([z.string().url(), z.literal(""), z.undefined()]),
     outputTypeKind: z.enum(["none", "data-type", "json"]),
     outputTypeDataType: z.string().optional(),
@@ -203,7 +221,7 @@ const agentPresetSchema = z
     toolApprovals: z
       .array(
         z.object({
-          tool: z.string().min(1, "Tool name is required"),
+          tool: z.string().trim().min(1, "Tool name is required"),
           allow: z.boolean(),
         })
       )
@@ -537,35 +555,59 @@ function AgentPresetChatPane({
   const activeChatId = selectedChatId ?? latestChatId
 
   const { createChat, createChatPending } = useCreateChat(workspaceId)
+  const { updateChat, isUpdating } = useUpdateChat(workspaceId)
   const { chat, chatLoading, chatError } = useGetChatVercel({
     chatId: activeChatId,
     workspaceId,
   })
+  const { versions, versionsIsLoading, versionsError } = useAgentPresetVersions(
+    workspaceId,
+    preset?.id,
+    { enabled: Boolean(preset && workspaceId) }
+  )
+  const currentVersion =
+    versions?.find((version) => version.id === preset?.current_version_id) ??
+    versions?.[0] ??
+    null
+  const selectedVersion =
+    versions?.find((version) => version.id === chat?.agent_preset_version_id) ??
+    null
+  const activeVersion = selectedVersion ?? currentVersion
+  const newChatVersion = selectedVersion ?? currentVersion
 
   const modelInfo: ModelInfo | null = useMemo(() => {
     if (!preset) {
       return null
     }
     return {
-      name: preset.model_name,
-      provider: preset.model_provider,
-      baseUrl: preset.base_url ?? null,
+      name: activeVersion?.model_name ?? preset.model_name,
+      provider: activeVersion?.model_provider ?? preset.model_provider,
+      baseUrl: activeVersion?.base_url ?? preset.base_url ?? null,
     }
-  }, [preset])
+  }, [activeVersion, preset])
 
   const providerReady = useMemo(() => {
     if (!preset) {
       return false
     }
-    return providersStatus?.[preset.model_provider] ?? false
-  }, [providersStatus, preset])
+    const provider = activeVersion?.model_provider ?? preset.model_provider
+    return providersStatus?.[provider] ?? false
+  }, [activeVersion, providersStatus, preset])
 
-  const canStartChat = Boolean(preset && providerReady)
+  const newChatProviderReady = useMemo(() => {
+    if (!preset) {
+      return false
+    }
+    const provider = newChatVersion?.model_provider ?? preset.model_provider
+    return providersStatus?.[provider] ?? false
+  }, [newChatVersion, providersStatus, preset])
+
+  const canStartChat = Boolean(preset && newChatProviderReady)
   const shouldAutoCreateChat =
     canStartChat && !activeChatId && !chatsLoading && !createChatPending
 
   const handleCreateChat = async () => {
-    if (!preset || createChatPending || !providerReady) {
+    if (!preset || createChatPending || !newChatProviderReady) {
       return
     }
 
@@ -574,12 +616,31 @@ function AgentPresetChatPane({
         title: `${preset.name} chat`,
         entity_type: "agent_preset",
         entity_id: preset.id,
-        tools: preset.actions ?? undefined,
+        tools: newChatVersion?.actions ?? preset.actions ?? undefined,
+        agent_preset_id: preset.id,
+        agent_preset_version_id: newChatVersion?.id ?? null,
       })
       setSelectedChatId(newChat.id)
       await refetchChats()
     } catch (error) {
       console.error("Failed to create agent preset chat", error)
+    }
+  }
+
+  const handlePresetVersionChange = async (nextVersionId: string | null) => {
+    if (!activeChatId) {
+      return
+    }
+
+    try {
+      await updateChat({
+        chatId: activeChatId,
+        update: {
+          agent_preset_version_id: nextVersionId,
+        },
+      })
+    } catch (error) {
+      console.error("Failed to update preset chat version", error)
     }
   }
 
@@ -625,8 +686,10 @@ function AgentPresetChatPane({
             <AlertCircle className="size-5 text-amber-500" />
             <p className="text-pretty">
               This agent uses workspace credentials for{" "}
-              <span className="font-medium">{preset.model_provider}</span>.
-              Configure them on the{" "}
+              <span className="font-medium">
+                {activeVersion?.model_provider ?? preset.model_provider}
+              </span>
+              . Configure them on the{" "}
               <Link
                 href={`/workspaces/${workspaceId}/credentials`}
                 className="font-medium text-primary hover:underline"
@@ -697,7 +760,17 @@ function AgentPresetChatPane({
   return (
     <div className="flex h-full flex-col bg-background">
       {preset ? (
-        <div className="flex h-10 items-center justify-end border-b px-3">
+        <div className="flex h-10 items-center justify-between gap-3 border-b px-3">
+          <AgentPresetVersionSelect
+            versions={versions}
+            versionsIsLoading={versionsIsLoading}
+            versionsError={versionsError}
+            selectedVersionId={chat?.agent_preset_version_id ?? null}
+            currentVersionId={preset.current_version_id ?? null}
+            onSelect={handlePresetVersionChange}
+            disabled={!activeChatId || !chat || isUpdating}
+            triggerClassName="h-8 w-[10.5rem] text-xs"
+          />
           <div className="flex items-center gap-1">
             <ChatHistoryDropdown
               chats={chats}
@@ -780,19 +853,47 @@ function AutoResizeTextarea({
   )
 }
 
-type AgentPresetFormMode = "create" | "edit"
 type AgentPresetSideTab =
   | "live-chat"
   | "assistant"
   | "configuration"
   | "channels"
   | "structured-output"
+  | "versions"
 
 type McpIntegrationOption = {
   id: string
   name: string
   description?: string | null
   providerId?: string
+}
+
+function getAgentPresetErrorTab(
+  errors: FieldErrors<AgentPresetFormValues>
+): AgentPresetSideTab | null {
+  if (
+    errors.outputTypeKind ||
+    errors.outputTypeDataType ||
+    errors.outputTypeJson
+  ) {
+    return "structured-output"
+  }
+
+  if (
+    errors.model_provider ||
+    errors.model_name ||
+    errors.base_url ||
+    errors.retries ||
+    errors.actions ||
+    errors.namespaces ||
+    errors.mcpIntegrations ||
+    errors.toolApprovals ||
+    errors.enableInternetAccess
+  ) {
+    return "configuration"
+  }
+
+  return null
 }
 
 type AgentPresetFormProps = {
@@ -873,6 +974,7 @@ function AgentPresetForm({
 
   const watchedName = form.watch("name")
   const providerValue = form.watch("model_provider")
+  const modelNameValue = form.watch("model_name")
   const modelOptions = modelOptionsByProvider[providerValue] ?? []
 
   useEffect(() => {
@@ -901,23 +1003,32 @@ function AgentPresetForm({
     }
   }, [activeTab, channelsEnabled])
 
-  const handleSubmit = form.handleSubmit(async (values) => {
-    const payload = formValuesToPayload(values)
-    if (mode === "edit" && preset) {
-      const updated = await onUpdate(preset.id, payload)
-      form.reset(presetToFormValues(updated))
-    } else {
-      const created = await onCreate(payload)
-      form.reset(presetToFormValues(created))
+  const handleSubmit = form.handleSubmit(
+    async (values) => {
+      const payload = formValuesToPayload(values)
+      if (mode === "edit" && preset) {
+        const updated = await onUpdate(preset.id, payload)
+        form.reset(presetToFormValues(updated))
+      } else {
+        const created = await onCreate(payload)
+        form.reset(presetToFormValues(created))
+      }
+    },
+    (errors) => {
+      const nextTab = getAgentPresetErrorTab(errors)
+      if (nextTab) {
+        setActiveTab(nextTab)
+      }
     }
-  })
+  )
 
-  const canSubmit =
-    form.formState.isDirty ||
-    (mode === "create" &&
-      Boolean(form.watch("name")) &&
-      Boolean(form.watch("model_provider")) &&
-      Boolean(form.watch("model_name")))
+  const canSubmit = canSubmitAgentPresetForm({
+    mode,
+    isDirty: form.formState.isDirty,
+    name: watchedName ?? "",
+    modelProvider: providerValue ?? "",
+    modelName: modelNameValue ?? "",
+  })
 
   const handleDeleteDialogChange = useCallback(
     (nextOpen: boolean) => {
@@ -1225,8 +1336,8 @@ function AgentPresetRightPanel({
         className="flex h-full w-full flex-col"
       >
         <div className="w-full shrink-0">
-          <div className="flex items-center justify-start">
-            <TabsList className="h-9 justify-start rounded-none bg-transparent p-0">
+          <div className="overflow-x-auto">
+            <TabsList className="min-w-max h-9 justify-start rounded-none bg-transparent p-0">
               <TabsTrigger
                 className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                 value="live-chat"
@@ -1254,6 +1365,13 @@ function AgentPresetRightPanel({
               >
                 <Box className="mr-2 size-4" />
                 <span>Output</span>
+              </TabsTrigger>
+              <TabsTrigger
+                className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                value="versions"
+              >
+                <History className="mr-2 size-4" />
+                <span>Versions</span>
               </TabsTrigger>
               {channelsEnabled ? (
                 <TabsTrigger
@@ -1300,6 +1418,13 @@ function AgentPresetRightPanel({
 
           <TabsContent value="structured-output" className="mt-0 h-full">
             <AgentPresetStructuredOutputPanel form={form} isSaving={isSaving} />
+          </TabsContent>
+
+          <TabsContent value="versions" className="mt-0 h-full">
+            <AgentPresetVersionsPanel
+              workspaceId={workspaceId}
+              preset={preset}
+            />
           </TabsContent>
 
           {channelsEnabled ? (
@@ -2080,8 +2205,8 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
       values.instructions && values.instructions.trim().length > 0
         ? values.instructions
         : null,
-    model_name: values.model_name,
-    model_provider: values.model_provider,
+    model_name: values.model_name.trim(),
+    model_provider: values.model_provider.trim(),
     base_url: normalizeOptional(values.base_url),
     output_type: outputType ?? null,
     actions: values.actions.length > 0 ? values.actions : null,

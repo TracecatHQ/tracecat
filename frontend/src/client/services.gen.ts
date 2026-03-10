@@ -106,6 +106,8 @@ import type {
   AgentListModelsResponse,
   AgentListProviderCredentialConfigsResponse,
   AgentListProvidersResponse,
+  AgentPresetsCompareAgentPresetVersionsData,
+  AgentPresetsCompareAgentPresetVersionsResponse,
   AgentPresetsCreateAgentPresetData,
   AgentPresetsCreateAgentPresetResponse,
   AgentPresetsDeleteAgentPresetData,
@@ -114,8 +116,14 @@ import type {
   AgentPresetsGetAgentPresetBySlugResponse,
   AgentPresetsGetAgentPresetData,
   AgentPresetsGetAgentPresetResponse,
+  AgentPresetsGetAgentPresetVersionData,
+  AgentPresetsGetAgentPresetVersionResponse,
   AgentPresetsListAgentPresetsData,
   AgentPresetsListAgentPresetsResponse,
+  AgentPresetsListAgentPresetVersionsData,
+  AgentPresetsListAgentPresetVersionsResponse,
+  AgentPresetsRestoreAgentPresetVersionData,
+  AgentPresetsRestoreAgentPresetVersionResponse,
   AgentPresetsUpdateAgentPresetData,
   AgentPresetsUpdateAgentPresetResponse,
   AgentSessionsCreateSessionData,
@@ -4325,6 +4333,128 @@ export const agentPresetsGetAgentPresetBySlug = (
     url: "/agent/presets/by-slug/{slug}",
     path: {
       slug: data.slug,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Agent Preset Versions
+ * List immutable versions for an agent preset.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_AgentPresetVersionReadMinimal_ Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsListAgentPresetVersions = (
+  data: AgentPresetsListAgentPresetVersionsData
+): CancelablePromise<AgentPresetsListAgentPresetVersionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/presets/{preset_id}/versions",
+    path: {
+      preset_id: data.presetId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Agent Preset Version
+ * Retrieve an immutable agent preset version.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.versionId
+ * @param data.workspaceId
+ * @returns AgentPresetVersionRead Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsGetAgentPresetVersion = (
+  data: AgentPresetsGetAgentPresetVersionData
+): CancelablePromise<AgentPresetsGetAgentPresetVersionResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/presets/{preset_id}/versions/{version_id}",
+    path: {
+      preset_id: data.presetId,
+      version_id: data.versionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Compare Agent Preset Versions
+ * Compare two preset versions belonging to the same preset.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.versionId
+ * @param data.compareTo Version ID to compare against
+ * @param data.workspaceId
+ * @returns AgentPresetVersionDiff Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsCompareAgentPresetVersions = (
+  data: AgentPresetsCompareAgentPresetVersionsData
+): CancelablePromise<AgentPresetsCompareAgentPresetVersionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/presets/{preset_id}/versions/{version_id}/compare",
+    path: {
+      preset_id: data.presetId,
+      version_id: data.versionId,
+    },
+    query: {
+      compare_to: data.compareTo,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Restore Agent Preset Version
+ * Restore a historical preset version as current.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.versionId
+ * @param data.workspaceId
+ * @returns AgentPresetRead Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsRestoreAgentPresetVersion = (
+  data: AgentPresetsRestoreAgentPresetVersionData
+): CancelablePromise<AgentPresetsRestoreAgentPresetVersionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/presets/{preset_id}/versions/{version_id}/restore",
+    path: {
+      preset_id: data.presetId,
+      version_id: data.versionId,
     },
     query: {
       workspace_id: data.workspaceId,

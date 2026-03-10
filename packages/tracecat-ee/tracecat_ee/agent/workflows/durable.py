@@ -79,6 +79,9 @@ class AgentWorkflowArgs(BaseModel):
     agent_preset_id: uuid.UUID | None = Field(
         default=None, description="Agent preset used for this session"
     )
+    agent_preset_version_id: uuid.UUID | None = Field(
+        default=None, description="Pinned preset version used for this session"
+    )
     harness_type: HarnessType | None = Field(
         default=None,
         description="Agent harness type. Reserved for future multi-harness support.",
@@ -181,11 +184,21 @@ class DurableAgentWorkflow:
 
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
         if args.agent_args.preset_slug:
+            activity_input = (
+                ResolveAgentPresetConfigActivityInput(
+                    role=self.role,
+                    preset_version_id=args.agent_preset_version_id,
+                )
+                if args.agent_preset_version_id is not None
+                else ResolveAgentPresetConfigActivityInput(
+                    role=self.role,
+                    preset_slug=args.agent_args.preset_slug,
+                    preset_version=args.agent_args.preset_version,
+                )
+            )
             preset_config_payload = await workflow.execute_activity(
                 resolve_agent_preset_config_activity,
-                ResolveAgentPresetConfigActivityInput(
-                    role=self.role, preset_slug=args.agent_args.preset_slug
-                ),
+                activity_input,
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
@@ -304,6 +317,7 @@ class DurableAgentWorkflow:
                 entity_id=args.entity_id,
                 tools=args.tools,
                 agent_preset_id=args.agent_preset_id,
+                agent_preset_version_id=args.agent_preset_version_id,
                 harness_type=HarnessType(self.harness_type),
                 curr_run_id=curr_run_id,
                 initial_user_prompt=args.agent_args.user_prompt,

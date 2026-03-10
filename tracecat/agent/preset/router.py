@@ -1,13 +1,17 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
+from tracecat import config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
     AgentPresetReadMinimal,
     AgentPresetUpdate,
+    AgentPresetVersionDiff,
+    AgentPresetVersionRead,
+    AgentPresetVersionReadMinimal,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.credentials import RoleACL
@@ -15,6 +19,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatValidationError
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 router = APIRouter(prefix="/agent/presets", tags=["agent-presets"])
 
@@ -137,3 +142,125 @@ async def delete_agent_preset(
             detail=f"Agent preset {preset_id} not found",
         )
     await service.delete_preset(preset)
+
+
+@router.get(
+    "/{preset_id}/versions",
+    response_model=CursorPaginatedResponse[AgentPresetVersionReadMinimal],
+)
+@require_scope("agent:read")
+async def list_agent_preset_versions(
+    *,
+    preset_id: uuid.UUID,
+    role: WorkspaceEditorRole,
+    session: AsyncDBSession,
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None),
+    reverse: bool = Query(default=False),
+) -> CursorPaginatedResponse[AgentPresetVersionReadMinimal]:
+    """List immutable versions for an agent preset."""
+    service = AgentPresetService(session, role=role)
+    if not await service.get_preset(preset_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Agent preset {preset_id} not found",
+        )
+    versions = await service.list_versions(
+        preset_id,
+        CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
+    )
+    return CursorPaginatedResponse(
+        items=[
+            AgentPresetVersionReadMinimal.model_validate(version)
+            for version in versions.items
+        ],
+        next_cursor=versions.next_cursor,
+        prev_cursor=versions.prev_cursor,
+        has_more=versions.has_more,
+        has_previous=versions.has_previous,
+        total_estimate=versions.total_estimate,
+    )
+
+
+@router.get("/{preset_id}/versions/{version_id}", response_model=AgentPresetVersionRead)
+@require_scope("agent:read")
+async def get_agent_preset_version(
+    *,
+    preset_id: uuid.UUID,
+    version_id: uuid.UUID,
+    role: WorkspaceEditorRole,
+    session: AsyncDBSession,
+) -> AgentPresetVersionRead:
+    """Retrieve an immutable agent preset version."""
+    service = AgentPresetService(session, role=role)
+    version = await service.get_version(version_id)
+    if version is None or version.preset_id != preset_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Agent preset version '{version_id}' not found",
+        )
+    return AgentPresetVersionRead.model_validate(version)
+
+
+@router.get(
+    "/{preset_id}/versions/{version_id}/compare",
+    response_model=AgentPresetVersionDiff,
+)
+@require_scope("agent:read")
+async def compare_agent_preset_versions(
+    *,
+    preset_id: uuid.UUID,
+    version_id: uuid.UUID,
+    compare_to: uuid.UUID = Query(..., description="Version ID to compare against"),
+    role: WorkspaceEditorRole,
+    session: AsyncDBSession,
+) -> AgentPresetVersionDiff:
+    """Compare two preset versions belonging to the same preset."""
+    service = AgentPresetService(session, role=role)
+    base_version = await service.get_version(version_id)
+    compare_version = await service.get_version(compare_to)
+    if base_version is None or base_version.preset_id != preset_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Agent preset version '{version_id}' not found",
+        )
+    if compare_version is None or compare_version.preset_id != preset_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Agent preset version '{compare_to}' not found",
+        )
+    return await service.compare_versions(base_version, compare_version)
+
+
+@router.post(
+    "/{preset_id}/versions/{version_id}/restore",
+    response_model=AgentPresetRead,
+)
+@require_scope("agent:update")
+async def restore_agent_preset_version(
+    *,
+    preset_id: uuid.UUID,
+    version_id: uuid.UUID,
+    role: WorkspaceEditorRole,
+    session: AsyncDBSession,
+) -> AgentPresetRead:
+    """Restore a historical preset version as current."""
+    service = AgentPresetService(session, role=role)
+    preset = await service.get_preset(preset_id)
+    if preset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Agent preset {preset_id} not found",
+        )
+    version = await service.get_version(version_id)
+    if version is None or version.preset_id != preset_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Agent preset version '{version_id}' not found",
+        )
+    restored = await service.restore_version(preset, version)
+    return AgentPresetRead.model_validate(restored)

@@ -95,6 +95,14 @@ class ChatCreate(BaseModel):
         description="Tools available to the agent for this chat",
         max_length=50,
     )
+    agent_preset_id: uuid.UUID | None = Field(
+        default=None,
+        description="Agent preset used for this chat, if any",
+    )
+    agent_preset_version_id: uuid.UUID | None = Field(
+        default=None,
+        description="Pinned preset version used for this chat, if any",
+    )
 
 
 class ChatReadMinimal(BaseModel):
@@ -114,6 +122,10 @@ class ChatReadMinimal(BaseModel):
     agent_preset_id: uuid.UUID | None = Field(
         default=None,
         description="Agent preset used for this chat, if any",
+    )
+    agent_preset_version_id: uuid.UUID | None = Field(
+        default=None,
+        description="Pinned preset version used for this chat, if any",
     )
     created_at: datetime = Field(..., description="When the chat was created")
     updated_at: datetime = Field(..., description="When the chat was last updated")
@@ -155,6 +167,10 @@ class ChatUpdate(BaseModel):
     agent_preset_id: uuid.UUID | None = Field(
         default=None,
         description="Agent preset to use for the chat session (set to null for default instructions)",
+    )
+    agent_preset_version_id: uuid.UUID | None = Field(
+        default=None,
+        description="Pinned preset version to use for the chat session",
     )
 
 

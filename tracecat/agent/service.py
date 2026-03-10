@@ -371,6 +371,8 @@ class AgentManagementService(BaseOrgService):
         *,
         preset_id: uuid.UUID | None = None,
         slug: str | None = None,
+        preset_version_id: uuid.UUID | None = None,
+        preset_version: int | None = None,
         use_workspace_credentials: bool = True,
     ) -> AsyncIterator[AgentConfig]:
         """Yield an agent preset configuration with provider credentials loaded.
@@ -378,6 +380,8 @@ class AgentManagementService(BaseOrgService):
         Args:
             preset_id: Agent preset ID to load
             slug: Agent preset slug to load (alternative to preset_id)
+            preset_version_id: Optional preset version ID to pin
+            preset_version: Optional preset version number to pin
             use_workspace_credentials: If True (default), use workspace-scoped credentials.
                 If False, use organization-scoped credentials.
         """
@@ -389,6 +393,8 @@ class AgentManagementService(BaseOrgService):
         preset_config = await self.presets.resolve_agent_preset_config(
             preset_id=preset_id,
             slug=slug,
+            preset_version_id=preset_version_id,
+            preset_version=preset_version,
         )
 
         # Get credentials from appropriate scope

@@ -4,10 +4,15 @@ import {
   type AgentPresetRead,
   type AgentPresetReadMinimal,
   type AgentPresetUpdate,
+  type AgentPresetVersionDiff,
+  type AgentPresetVersionReadMinimal,
+  agentPresetsCompareAgentPresetVersions,
   agentPresetsCreateAgentPreset,
   agentPresetsDeleteAgentPreset,
   agentPresetsGetAgentPreset,
   agentPresetsListAgentPresets,
+  agentPresetsListAgentPresetVersions,
+  agentPresetsRestoreAgentPresetVersion,
   agentPresetsUpdateAgentPreset,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
@@ -42,6 +47,50 @@ export function useAgentPresets(
   }
 }
 
+export function useAgentPresetVersions(
+  workspaceId: string,
+  presetId?: string | null,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
+  const {
+    data: versions,
+    isLoading: versionsIsLoading,
+    error: versionsError,
+    refetch: refetchVersions,
+  } = useQuery<AgentPresetVersionReadMinimal[], TracecatApiError>({
+    queryKey: ["agent-preset-versions", workspaceId, presetId],
+    queryFn: async () => {
+      if (!workspaceId || !presetId) {
+        throw new Error("workspaceId and presetId are required")
+      }
+      const versions: AgentPresetVersionReadMinimal[] = []
+      let cursor: string | undefined
+
+      do {
+        const response = await agentPresetsListAgentPresetVersions({
+          workspaceId,
+          presetId,
+          limit: 200,
+          cursor,
+        })
+        versions.push(...response.items)
+        cursor = response.next_cursor ?? undefined
+      } while (cursor)
+
+      return versions
+    },
+    enabled: enabled && Boolean(workspaceId) && Boolean(presetId),
+    retry: retryHandler,
+  })
+
+  return {
+    versions,
+    versionsIsLoading,
+    versionsError,
+    refetchVersions,
+  }
+}
+
 export function useAgentPreset(
   workspaceId: string,
   presetId?: string | null,
@@ -72,6 +121,56 @@ export function useAgentPreset(
   }
 }
 
+export function useCompareAgentPresetVersions(
+  workspaceId: string,
+  presetId?: string | null,
+  baseVersionId?: string | null,
+  compareToId?: string | null,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
+  const {
+    data: diff,
+    isLoading: diffIsLoading,
+    error: diffError,
+    refetch: refetchDiff,
+  } = useQuery<AgentPresetVersionDiff, TracecatApiError>({
+    queryKey: [
+      "agent-preset-version-diff",
+      workspaceId,
+      presetId,
+      baseVersionId,
+      compareToId,
+    ],
+    queryFn: async () => {
+      if (!workspaceId || !presetId || !baseVersionId || !compareToId) {
+        throw new Error(
+          "workspaceId, presetId, baseVersionId, and compareToId are required"
+        )
+      }
+      return await agentPresetsCompareAgentPresetVersions({
+        workspaceId,
+        presetId,
+        versionId: baseVersionId,
+        compareTo: compareToId,
+      })
+    },
+    enabled:
+      enabled &&
+      Boolean(workspaceId) &&
+      Boolean(presetId) &&
+      Boolean(baseVersionId) &&
+      Boolean(compareToId),
+    retry: retryHandler,
+  })
+
+  return {
+    diff,
+    diffIsLoading,
+    diffError,
+    refetchDiff,
+  }
+}
+
 export function useCreateAgentPreset(workspaceId: string) {
   const queryClient = useQueryClient()
 
@@ -88,6 +187,9 @@ export function useCreateAgentPreset(workspaceId: string) {
     onSuccess: (preset) => {
       queryClient.invalidateQueries({
         queryKey: ["agent-presets", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-versions", workspaceId, preset.id],
       })
       toast({
         title: "Agent preset created",
@@ -138,6 +240,9 @@ export function useUpdateAgentPreset(workspaceId: string) {
       })
       queryClient.invalidateQueries({
         queryKey: ["agent-preset", workspaceId, preset.id],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-versions", workspaceId, preset.id],
       })
       queryClient.invalidateQueries({
         queryKey: ["workspace-agent-providers-status", workspaceId],
@@ -213,5 +318,58 @@ export function useDeleteAgentPreset(workspaceId: string) {
     deleteAgentPreset,
     deleteAgentPresetIsPending,
     deleteAgentPresetError,
+  }
+}
+
+export function useRestoreAgentPresetVersion(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: restoreAgentPresetVersion,
+    isPending: restoreAgentPresetVersionIsPending,
+    error: restoreAgentPresetVersionError,
+  } = useMutation<
+    AgentPresetRead,
+    TracecatApiError,
+    { presetId: string; versionId: string }
+  >({
+    mutationFn: async ({ presetId, versionId }) =>
+      await agentPresetsRestoreAgentPresetVersion({
+        workspaceId,
+        presetId,
+        versionId,
+      }),
+    onSuccess: (preset) => {
+      queryClient.invalidateQueries({
+        queryKey: ["agent-presets", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset", workspaceId, preset.id],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-versions", workspaceId, preset.id],
+      })
+      toast({
+        title: "Version restored",
+        description: `${preset.name} now points to the selected version.`,
+      })
+    },
+    onError: (error) => {
+      const detail =
+        typeof error.body?.detail === "string"
+          ? error.body.detail
+          : "Failed to restore preset version."
+      toast({
+        title: "Restore failed",
+        description: detail,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    restoreAgentPresetVersion,
+    restoreAgentPresetVersionIsPending,
+    restoreAgentPresetVersionError,
   }
 }
