@@ -119,6 +119,20 @@ resource "aws_wafv2_web_acl" "this" {
           }
         }
 
+        rule_action_override {
+          name = "EC2MetaDataSSRF_BODY"
+          action_to_use {
+            count {}
+          }
+        }
+
+        rule_action_override {
+          name = "EC2MetaDataSSRF_QUERYARGUMENTS"
+          action_to_use {
+            count {}
+          }
+        }
+
       }
     }
 
@@ -284,10 +298,66 @@ resource "aws_wafv2_web_acl" "this" {
     }
   }
 
+  rule {
+    name     = "BlockSSRFExceptMcpOAuth"
+    priority = 7
+
+    action {
+      block {}
+    }
+
+    statement {
+      and_statement {
+        statement {
+          or_statement {
+            statement {
+              label_match_statement {
+                scope = "LABEL"
+                key   = "awswaf:managed:aws:core-rule-set:EC2MetaDataSSRF_Body"
+              }
+            }
+
+            statement {
+              label_match_statement {
+                scope = "LABEL"
+                key   = "awswaf:managed:aws:core-rule-set:EC2MetaDataSSRF_QueryArguments"
+              }
+            }
+          }
+        }
+
+        statement {
+          not_statement {
+            statement {
+              regex_pattern_set_reference_statement {
+                arn = aws_wafv2_regex_pattern_set.mcp_oauth_endpoints[0].arn
+
+                field_to_match {
+                  uri_path {}
+                }
+
+                text_transformation {
+                  priority = 0
+                  type     = "NONE"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "BlockSSRFExceptMcpOAuth"
+      sampled_requests_enabled   = true
+    }
+  }
+
   # Custom rule to block oversized query strings except for attachment uploads
   rule {
     name     = "BlockQueryStringSizeExceptAttachments"
-    priority = 7
+    priority = 8
 
     action {
       block {}
@@ -344,6 +414,18 @@ resource "aws_wafv2_regex_pattern_set" "attachments_endpoint" {
 
   regular_expression {
     regex_string = "^/api/cases/[a-fA-F0-9-]+/attachments(\\?.*)?$"
+  }
+}
+
+resource "aws_wafv2_regex_pattern_set" "mcp_oauth_endpoints" {
+  count = var.enable_waf ? 1 : 0
+
+  name        = "mcp-oauth-endpoints-pattern"
+  description = "Matches MCP OAuth endpoints that carry localhost redirect URIs"
+  scope       = "REGIONAL"
+
+  regular_expression {
+    regex_string = "^/(mcp/)?(register|authorize|consent|token|auth/callback)$"
   }
 }
 
