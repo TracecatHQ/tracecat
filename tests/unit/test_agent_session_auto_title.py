@@ -42,9 +42,9 @@ class _DummyAgentManagementService:
         pass
 
     @asynccontextmanager
-    async def with_model_config(self, *, use_workspace_credentials: bool = False):
-        assert use_workspace_credentials is False
-        yield SimpleNamespace(name="gpt-4o-mini", provider="openai")
+    async def with_model_config(self, *, catalog_ref: str | None = None):
+        assert catalog_ref is None
+        yield SimpleNamespace(model_name="gpt-4o-mini", model_provider="openai")
 
 
 @pytest.mark.anyio
@@ -109,9 +109,9 @@ async def test_auto_title_uses_service_role_for_model_config(user_role: Role) ->
             captured_roles.append(role)
 
         @asynccontextmanager
-        async def with_model_config(self, *, use_workspace_credentials: bool = False):
-            assert use_workspace_credentials is False
-            yield SimpleNamespace(name="gpt-4o-mini", provider="openai")
+        async def with_model_config(self, *, catalog_ref: str | None = None):
+            assert catalog_ref is None
+            yield SimpleNamespace(model_name="gpt-4o-mini", model_provider="openai")
 
     with (
         patch(

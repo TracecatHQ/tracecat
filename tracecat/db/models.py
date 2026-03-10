@@ -1595,6 +1595,126 @@ class PlatformSetting(Base, TimestampMixin):
     )
 
 
+class AgentModelSource(OrganizationModel):
+    """Organization-scoped model source configuration."""
+
+    __tablename__ = "agent_model_sources"
+    __table_args__ = (UniqueConstraint("organization_id", "id"),)
+
+    organization_id: Mapped[OrganizationID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    type: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    encrypted_config: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    api_key_header: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    api_version: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    discovery_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="never",
+        server_default=text("'never'"),
+    )
+    last_refreshed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    declared_models: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Manual model declarations for manual_custom sources.",
+    )
+
+    discovered_models: Mapped[list[AgentDiscoveredModel]] = relationship(
+        "AgentDiscoveredModel",
+        back_populates="source",
+        cascade="all, delete-orphan",
+    )
+
+
+class AgentDiscoveredModel(Base, TimestampMixin):
+    """Normalized discovered model catalog entries."""
+
+    __tablename__ = "agent_discovered_models"
+    __table_args__ = (
+        UniqueConstraint("catalog_ref"),
+        Index("ix_agent_discovered_models_source_id", "source_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[OrganizationID | None] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_model_sources.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    source_type: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    source_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    catalog_ref: Mapped[str] = mapped_column(String(500), nullable=False, index=True)
+    model_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    model_provider: Mapped[str] = mapped_column(String(120), nullable=False)
+    runtime_provider: Mapped[str] = mapped_column(String(120), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    raw_model_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    model_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    last_refreshed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+    source: Mapped[AgentModelSource | None] = relationship(
+        "AgentModelSource", back_populates="discovered_models"
+    )
+
+
+class AgentEnabledModel(OrganizationModel):
+    """Organization-enabled subset of the discovered model catalog."""
+
+    __tablename__ = "agent_enabled_models"
+    __table_args__ = (UniqueConstraint("organization_id", "catalog_ref"),)
+
+    organization_id: Mapped[OrganizationID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    catalog_ref: Mapped[str] = mapped_column(String(500), nullable=False, index=True)
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_model_sources.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    model_provider: Mapped[str] = mapped_column(String(120), nullable=False)
+    runtime_provider: Mapped[str] = mapped_column(String(120), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    enabled_config: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
+
 class Table(WorkspaceModel):
     """Metadata for lookup tables."""
 
@@ -2482,6 +2602,12 @@ class AgentSession(WorkspaceModel):
         nullable=True,
         doc="Pinned agent preset version used for this session (if any)",
     )
+    model_catalog_ref: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        index=True,
+        doc="Enabled model catalog reference used when this session runs without a preset.",
+    )
     # Agent harness fields
     harness_type: Mapped[str | None] = mapped_column(
         String(50),
@@ -3023,6 +3149,12 @@ class AgentPreset(WorkspaceModel):
         Text,
         nullable=True,
         doc="System instructions for the agent",
+    )
+    model_catalog_ref: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        index=True,
+        doc="Stable catalog reference used to resolve model routing and validation.",
     )
     model_name: Mapped[str] = mapped_column(
         String(120), nullable=False, doc="Model name used for execution"

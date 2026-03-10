@@ -303,6 +303,42 @@ export type AgentChannelTokenUpdate = {
   is_active?: boolean | null
 }
 
+export type AgentModelSourceCreate = {
+  type: CustomModelSourceType
+  flavor?: CustomModelSourceFlavor | null
+  display_name: string
+  base_url?: string | null
+  api_key?: string | null
+  api_key_header?: string | null
+  api_version?: string | null
+  declared_models?: Array<ManualDiscoveredModel> | null
+}
+
+export type AgentModelSourceRead = {
+  id: string
+  type: CustomModelSourceType
+  flavor?: CustomModelSourceFlavor | null
+  display_name: string
+  base_url?: string | null
+  api_key_configured?: boolean
+  api_key_header?: string | null
+  api_version?: string | null
+  discovery_status: ModelDiscoveryStatus
+  last_refreshed_at?: string | null
+  last_error?: string | null
+  declared_models?: Array<ManualDiscoveredModel> | null
+}
+
+export type AgentModelSourceUpdate = {
+  flavor?: CustomModelSourceFlavor | null
+  display_name?: string | null
+  base_url?: string | null
+  api_key?: string | null
+  api_key_header?: string | null
+  api_version?: string | null
+  declared_models?: Array<ManualDiscoveredModel> | null
+}
+
 export type AgentOutput = {
   output: unknown
   message_history?: Array<ChatMessage> | null
@@ -322,6 +358,7 @@ export type AgentPresetCreate = {
   instructions?: string | null
   model_name: string
   model_provider: string
+  model_catalog_ref?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -344,6 +381,7 @@ export type AgentPresetRead = {
   instructions?: string | null
   model_name: string
   model_provider: string
+  model_catalog_ref?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -388,6 +426,7 @@ export type AgentPresetUpdate = {
   instructions?: string | null
   model_name?: string | null
   model_provider?: string | null
+  model_catalog_ref?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -424,6 +463,7 @@ export type AgentPresetVersionRead = {
   instructions?: string | null
   model_name: string
   model_provider: string
+  model_catalog_ref?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -449,6 +489,7 @@ export type AgentPresetVersionReadMinimal = {
   instructions?: string | null
   model_name: string
   model_provider: string
+  model_catalog_ref?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -504,6 +545,10 @@ export type AgentSessionCreate = {
    */
   agent_preset_version_id?: string | null
   /**
+   * Enabled model catalog reference used when no preset is selected.
+   */
+  model_catalog_ref?: string | null
+  /**
    * Agent harness type
    */
   harness_type?: HarnessType
@@ -556,6 +601,7 @@ export type AgentSessionRead = {
   tools: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
+  model_catalog_ref: string | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -579,6 +625,7 @@ export type AgentSessionReadVercel = {
   tools: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
+  model_catalog_ref: string | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -606,6 +653,7 @@ export type AgentSessionReadWithMessages = {
   tools: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
+  model_catalog_ref: string | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -638,6 +686,10 @@ export type AgentSessionUpdate = {
    */
   agent_preset_version_id?: string | null
   /**
+   * Enabled model catalog reference to use when no preset is selected.
+   */
+  model_catalog_ref?: string | null
+  /**
    * Agent harness type
    */
   harness_type?: HarnessType | null
@@ -645,6 +697,7 @@ export type AgentSessionUpdate = {
 
 export type AgentSettingsRead = {
   agent_default_model: string | null
+  agent_default_model_ref: string | null
   agent_fixed_args: string | null
   agent_case_chat_prompt: string
   agent_case_chat_inject_content: boolean
@@ -652,9 +705,13 @@ export type AgentSettingsRead = {
 
 export type AgentSettingsUpdate = {
   /**
-   * The default AI model to use for agent operations.
+   * Legacy raw AI model name for compatibility during migration.
    */
   agent_default_model?: string | null
+  /**
+   * The default AI model to use for agent operations.
+   */
+  agent_default_model_ref?: string | null
   /**
    * Fixed arguments for agent tools as a JSON string. Format: {'tool_name': {'arg': 'value'}}
    */
@@ -1093,6 +1150,56 @@ export type Body_workflows_create_workflow = {
    */
   use_workflow_id?: boolean
   file?: (Blob | File) | null
+}
+
+export type BuiltInCatalogEntry = {
+  catalog_ref: string
+  model_name: string
+  model_provider: string
+  runtime_provider: string
+  display_name: string
+  source_type: ModelSourceType
+  source_name: string
+  source_id?: string | null
+  base_url?: string | null
+  enabled?: boolean
+  last_refreshed_at?: string | null
+  metadata?: {
+    [key: string]: unknown
+  } | null
+  enabled_config?: EnabledModelRuntimeConfig | null
+  credential_provider?: string | null
+  credential_label?: string | null
+  credential_fields?: Array<ProviderCredentialField> | null
+  credentials_configured?: boolean
+  discovered?: boolean
+  ready?: boolean
+  enableable?: boolean
+  runtime_target_configured?: boolean
+  readiness_message?: string | null
+}
+
+export type BuiltInCatalogRead = {
+  source_type?: string
+  source_name?: string
+  discovery_status: ModelDiscoveryStatus
+  last_refreshed_at?: string | null
+  last_error?: string | null
+  next_cursor?: string | null
+  models?: Array<BuiltInCatalogEntry>
+}
+
+export type BuiltInProviderRead = {
+  provider: string
+  label: string
+  source_type: ModelSourceType
+  credentials_configured?: boolean
+  base_url?: string | null
+  runtime_target?: string | null
+  discovery_status: ModelDiscoveryStatus
+  last_refreshed_at?: string | null
+  last_error?: string | null
+  discovered_models?: Array<ModelCatalogEntry>
 }
 
 export type CachePoint = {
@@ -2477,6 +2584,17 @@ export type CursorPaginatedResponse_WorkflowRunReadMinimal_ = {
   total_estimate?: number | null
 }
 
+export type CustomModelSourceFlavor =
+  | "generic_openai_compatible"
+  | "ollama"
+  | "vllm"
+  | "litellm"
+  | "manual"
+
+export type CustomModelSourceType =
+  | "openai_compatible_gateway"
+  | "manual_custom"
+
 /**
  * Request payload for creating a custom OAuth provider.
  */
@@ -2657,6 +2775,26 @@ export type DataUIPart = {
   data: unknown
 }
 
+export type DefaultModelInventoryRead = {
+  source_type?: ModelSourceType
+  source_name?: string
+  discovery_status: ModelDiscoveryStatus
+  last_refreshed_at?: string | null
+  last_error?: string | null
+  discovered_models?: Array<ModelCatalogEntry>
+}
+
+export type DefaultModelSelection = {
+  catalog_ref: string
+  model_name: string
+  model_provider: string
+  display_name: string
+}
+
+export type DefaultModelSelectionUpdate = {
+  catalog_ref: string
+}
+
 /**
  * The URL of the document.
  */
@@ -2832,6 +2970,23 @@ export type EffectiveEntitlements = {
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
+}
+
+export type EnabledModelOperation = {
+  catalog_ref: string
+}
+
+export type EnabledModelRuntimeConfig = {
+  bedrock_inference_profile_id?: string | null
+}
+
+export type EnabledModelRuntimeConfigUpdate = {
+  catalog_ref: string
+  config?: EnabledModelRuntimeConfig
+}
+
+export type EnabledModelsBatchOperation = {
+  catalog_refs?: Array<string>
 }
 
 /**
@@ -3944,6 +4099,12 @@ export type MCPStdioServerConfig = {
   timeout?: number
 }
 
+export type ManualDiscoveredModel = {
+  model_name: string
+  display_name?: string | null
+  model_provider?: string | null
+}
+
 /**
  * The type/kind of message stored in the chat.
  */
@@ -3953,23 +4114,22 @@ export type MessageKind =
   | "approval-decision"
   | "internal"
 
-export type ModelConfig = {
-  /**
-   * The name of the model. This is used to identify the model in the system.
-   */
-  name: string
-  /**
-   * The provider of the model. This is used to determine which organization secret to use for this model.
-   */
-  provider: string
-  /**
-   * The name of the organization secret to use for this model. This secret must be configured in the organization settings.
-   */
-  org_secret_name: string
-  /**
-   * The secrets to use for this model. This is used to determine which organization secret to use for this model.
-   */
-  secrets: ModelSecretConfig
+export type ModelCatalogEntry = {
+  catalog_ref: string
+  model_name: string
+  model_provider: string
+  runtime_provider: string
+  display_name: string
+  source_type: ModelSourceType
+  source_name: string
+  source_id?: string | null
+  base_url?: string | null
+  enabled?: boolean
+  last_refreshed_at?: string | null
+  metadata?: {
+    [key: string]: unknown
+  } | null
+  enabled_config?: EnabledModelRuntimeConfig | null
 }
 
 /**
@@ -3997,10 +4157,19 @@ export type ModelCredentialUpdate = {
   }
 }
 
-export type ModelSecretConfig = {
-  required?: Array<string>
-  optional?: Array<string>
-}
+export type ModelDiscoveryStatus = "never" | "ready" | "failed"
+
+export type ModelSourceType =
+  | "default_sidecar"
+  | "openai_compatible_gateway"
+  | "manual_custom"
+  | "openai"
+  | "anthropic"
+  | "gemini"
+  | "bedrock"
+  | "vertex_ai"
+  | "azure_openai"
+  | "azure_ai"
 
 export type OAuth2AuthorizeResponse = {
   authorization_url: string
@@ -7689,6 +7858,7 @@ export type WorkspaceSettingsRead = {
   allowed_attachment_extensions?: Array<string> | null
   allowed_attachment_mime_types?: Array<string> | null
   validate_attachment_magic_number?: boolean | null
+  agent_enabled_model_refs?: Array<string> | null
   /**
    * Returns workspace-specific extensions if set, otherwise system defaults.
    */
@@ -7721,6 +7891,10 @@ export type WorkspaceSettingsUpdate = {
    * Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.
    */
   validate_attachment_magic_number?: boolean | null
+  /**
+   * Optional workspace-level subset of organization-enabled agent model catalog refs. When omitted, the workspace inherits the full organization-enabled catalog.
+   */
+  agent_enabled_model_refs?: Array<string> | null
 }
 
 export type WorkspaceUpdate = {
@@ -8757,11 +8931,43 @@ export type OrganizationGetInvitationByTokenData = {
 
 export type OrganizationGetInvitationByTokenResponse = OrgInvitationReadMinimal
 
-export type AgentListModelsResponse = {
-  [key: string]: ModelConfig
+export type AgentListModelsData = {
+  /**
+   * Optional workspace filter for workspace-level enabled model subsets.
+   */
+  workspaceId?: string | null
 }
 
-export type AgentListProvidersResponse = Array<string>
+export type AgentListModelsResponse = Array<ModelCatalogEntry>
+
+export type AgentListBuiltinCatalogData = {
+  /**
+   * Opaque cursor for the next built-in catalog page.
+   */
+  cursor?: string | null
+  limit?: number
+  /**
+   * Filter by provider.
+   */
+  provider?: string | null
+  /**
+   * Search models by name.
+   */
+  query?: string | null
+}
+
+export type AgentListBuiltinCatalogResponse = BuiltInCatalogRead
+
+export type AgentRefreshBuiltinCatalogResponse = BuiltInCatalogRead
+
+export type AgentListDiscoveredModelsResponse = Array<ModelCatalogEntry>
+
+export type AgentListProvidersResponse = Array<BuiltInProviderRead>
+
+export type AgentGetDefaultModelInventoryResponse = DefaultModelInventoryRead
+
+export type AgentRefreshDefaultModelInventoryResponse =
+  DefaultModelInventoryRead
 
 export type AgentGetProvidersStatusResponse = {
   [key: string]: boolean
@@ -8775,6 +8981,12 @@ export type AgentGetProviderCredentialConfigData = {
 }
 
 export type AgentGetProviderCredentialConfigResponse = ProviderCredentialConfig
+
+export type AgentRefreshProviderInventoryData = {
+  provider: string
+}
+
+export type AgentRefreshProviderInventoryResponse = BuiltInProviderRead
 
 export type AgentCreateProviderCredentialsData = {
   requestBody: ModelCredentialCreate
@@ -8801,23 +9013,97 @@ export type AgentDeleteProviderCredentialsResponse = {
   [key: string]: string
 }
 
-export type AgentGetDefaultModelResponse = string | null
+export type AgentGetDefaultModelResponse = DefaultModelSelection | null
 
 export type AgentSetDefaultModelData = {
-  modelName: string
+  requestBody: DefaultModelSelectionUpdate
 }
 
-export type AgentSetDefaultModelResponse = {
-  [key: string]: string
+export type AgentSetDefaultModelResponse = DefaultModelSelection
+
+export type AgentListCustomSourcesResponse = Array<AgentModelSourceRead>
+
+export type AgentCreateCustomSourceData = {
+  requestBody: AgentModelSourceCreate
 }
 
-export type AgentGetWorkspaceProvidersStatusData = {
-  workspaceId: string
+export type AgentCreateCustomSourceResponse = AgentModelSourceRead
+
+export type AgentListCustomSources1Response = Array<AgentModelSourceRead>
+
+export type AgentCreateCustomSource1Data = {
+  requestBody: AgentModelSourceCreate
 }
 
-export type AgentGetWorkspaceProvidersStatusResponse = {
-  [key: string]: boolean
+export type AgentCreateCustomSource1Response = AgentModelSourceRead
+
+export type AgentUpdateCustomSourceData = {
+  requestBody: AgentModelSourceUpdate
+  sourceId: string
 }
+
+export type AgentUpdateCustomSourceResponse = AgentModelSourceRead
+
+export type AgentDeleteCustomSourceData = {
+  sourceId: string
+}
+
+export type AgentDeleteCustomSourceResponse = void
+
+export type AgentUpdateCustomSource1Data = {
+  requestBody: AgentModelSourceUpdate
+  sourceId: string
+}
+
+export type AgentUpdateCustomSource1Response = AgentModelSourceRead
+
+export type AgentDeleteCustomSource1Data = {
+  sourceId: string
+}
+
+export type AgentDeleteCustomSource1Response = void
+
+export type AgentRefreshCustomSourceData = {
+  sourceId: string
+}
+
+export type AgentRefreshCustomSourceResponse = Array<ModelCatalogEntry>
+
+export type AgentRefreshCustomSource1Data = {
+  sourceId: string
+}
+
+export type AgentRefreshCustomSource1Response = Array<ModelCatalogEntry>
+
+export type AgentEnableModelData = {
+  requestBody: EnabledModelOperation
+}
+
+export type AgentEnableModelResponse = ModelCatalogEntry
+
+export type AgentDisableModelData = {
+  catalogRef: string
+}
+
+export type AgentDisableModelResponse = void
+
+export type AgentUpdateEnabledModelConfigData = {
+  requestBody: EnabledModelRuntimeConfigUpdate
+}
+
+export type AgentUpdateEnabledModelConfigResponse = ModelCatalogEntry
+
+export type AgentEnableModelsData = {
+  requestBody: EnabledModelsBatchOperation
+}
+
+export type AgentEnableModelsResponse = Array<ModelCatalogEntry>
+
+export type AgentDisableModelsData = {
+  requestBody: EnabledModelsBatchOperation
+}
+
+export type AgentDisableModelsResponse = void
 
 export type AgentChannelsCreateChannelTokenData = {
   requestBody: AgentChannelTokenCreate
@@ -12423,13 +12709,51 @@ export type $OpenApiTs = {
   }
   "/agent/models": {
     get: {
+      req: AgentListModelsData
       res: {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: ModelConfig
-        }
+        200: Array<ModelCatalogEntry>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/catalog/builtins": {
+    get: {
+      req: AgentListBuiltinCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BuiltInCatalogRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/catalog/builtins/refresh": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BuiltInCatalogRead
+      }
+    }
+  }
+  "/agent/catalog/discovered": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ModelCatalogEntry>
       }
     }
   }
@@ -12439,7 +12763,27 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<string>
+        200: Array<BuiltInProviderRead>
+      }
+    }
+  }
+  "/agent/default-models": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: DefaultModelInventoryRead
+      }
+    }
+  }
+  "/agent/default-models/refresh": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: DefaultModelInventoryRead
       }
     }
   }
@@ -12473,6 +12817,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ProviderCredentialConfig
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/providers/{provider}/refresh": {
+    post: {
+      req: AgentRefreshProviderInventoryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BuiltInProviderRead
         /**
          * Validation Error
          */
@@ -12535,7 +12894,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: string | null
+        200: DefaultModelSelection | null
       }
     }
     put: {
@@ -12544,9 +12903,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: string
-        }
+        200: DefaultModelSelection
         /**
          * Validation Error
          */
@@ -12554,16 +12911,200 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/workspace/providers/status": {
+  "/agent/model-sources": {
     get: {
-      req: AgentGetWorkspaceProvidersStatusData
       res: {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: boolean
-        }
+        200: Array<AgentModelSourceRead>
+      }
+    }
+    post: {
+      req: AgentCreateCustomSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentModelSourceRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/custom-sources": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentModelSourceRead>
+      }
+    }
+    post: {
+      req: AgentCreateCustomSource1Data
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentModelSourceRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/model-sources/{source_id}": {
+    patch: {
+      req: AgentUpdateCustomSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentModelSourceRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentDeleteCustomSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/custom-sources/{source_id}": {
+    patch: {
+      req: AgentUpdateCustomSource1Data
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentModelSourceRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentDeleteCustomSource1Data
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/model-sources/{source_id}/refresh": {
+    post: {
+      req: AgentRefreshCustomSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ModelCatalogEntry>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/custom-sources/{source_id}/refresh": {
+    post: {
+      req: AgentRefreshCustomSource1Data
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ModelCatalogEntry>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/models/enabled": {
+    post: {
+      req: AgentEnableModelData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ModelCatalogEntry
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentDisableModelData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: AgentUpdateEnabledModelConfigData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ModelCatalogEntry
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/models/enabled/batch": {
+    post: {
+      req: AgentEnableModelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ModelCatalogEntry>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentDisableModelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

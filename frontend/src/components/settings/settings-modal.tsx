@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  Cpu,
   FileIcon,
   GitBranchIcon,
   LockIcon,
@@ -208,6 +209,13 @@ function SettingsModalContent() {
                     icon={WorkflowIcon}
                     label="Workflows"
                     section="workspace-runtime"
+                    activeSection={displayedSection}
+                    onSelect={setActiveSection}
+                  />
+                  <NavItem
+                    icon={Cpu}
+                    label="AI models"
+                    section="workspace-models"
                     activeSection={displayedSection}
                     onSelect={setActiveSection}
                   />

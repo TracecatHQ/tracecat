@@ -5,6 +5,7 @@ Pure dataclasses with no Pydantic dependencies for minimal import footprint.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Any, Literal, NotRequired, TypedDict
 
@@ -104,6 +105,9 @@ class SandboxAgentConfig:
     # Model
     model_name: str
     model_provider: str
+    model_catalog_ref: str | None = None
+    model_source_type: str | None = None
+    model_source_id: uuid.UUID | None = None
     base_url: str | None = None
 
     # Agent
@@ -131,6 +135,13 @@ class SandboxAgentConfig:
         return cls(
             model_name=data["model_name"],
             model_provider=data["model_provider"],
+            model_catalog_ref=data.get("model_catalog_ref"),
+            model_source_type=data.get("model_source_type"),
+            model_source_id=(
+                uuid.UUID(data["model_source_id"])
+                if isinstance(data.get("model_source_id"), str)
+                else data.get("model_source_id")
+            ),
             base_url=data.get("base_url"),
             instructions=data.get("instructions"),
             tool_approvals=data.get("tool_approvals"),
@@ -151,6 +162,9 @@ class SandboxAgentConfig:
         return cls(
             model_name=config.model_name,
             model_provider=config.model_provider,
+            model_catalog_ref=getattr(config, "model_catalog_ref", None),
+            model_source_type=getattr(config, "model_source_type", None),
+            model_source_id=getattr(config, "model_source_id", None),
             base_url=config.base_url,
             instructions=config.instructions,
             tool_approvals=config.tool_approvals,
@@ -165,6 +179,12 @@ class SandboxAgentConfig:
             "model_name": self.model_name,
             "model_provider": self.model_provider,
         }
+        if self.model_catalog_ref is not None:
+            result["model_catalog_ref"] = self.model_catalog_ref
+        if self.model_source_type is not None:
+            result["model_source_type"] = self.model_source_type
+        if self.model_source_id is not None:
+            result["model_source_id"] = str(self.model_source_id)
         if self.base_url is not None:
             result["base_url"] = self.base_url
         if self.instructions is not None:
