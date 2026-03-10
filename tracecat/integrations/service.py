@@ -1242,6 +1242,15 @@ class IntegrationService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalars().first()
 
+
+    def get_decrypted_mcp_custom_credentials(
+        self, mcp_integration: MCPIntegration
+    ) -> str | None:
+        """Get decrypted custom MCP header credentials."""
+        if not mcp_integration.encrypted_headers:
+            return None
+        return self._decrypt_token(mcp_integration.encrypted_headers)
+
     @require_scope("integration:update")
     async def update_mcp_integration(
         self, *, mcp_integration_id: uuid.UUID, params: MCPIntegrationUpdate

@@ -1,7 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Loader2, Plus, Trash2 } from "lucide-react"
+import { Eye, EyeOff, Loader2, Plus, Trash2 } from "lucide-react"
 import React, { useState } from "react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
@@ -42,6 +42,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import {
   useCreateMcpIntegration,
+  useGetMcpCustomCredentials,
   useGetMcpIntegration,
   useIntegrations,
   useUpdateMcpIntegration,
@@ -81,6 +82,9 @@ const AUTH_TYPES = [
 ] as const
 
 const ALLOWED_COMMANDS = ["npx", "uvx", "python", "python3", "node"] as const
+const REDACTED_CUSTOM_CREDENTIALS_JSON = `{
+  "******": "******"
+}`
 
 function isAllowedCommand(
   command: string
@@ -304,6 +308,12 @@ export function MCPIntegrationDialog({
   )
   const [internalOpen, setInternalOpen] = useState(false)
   const [isEditHydrated, setIsEditHydrated] = useState(false)
+  const [showCustomCredentials, setShowCustomCredentials] = useState(false)
+  const { mcpCustomCredentials } = useGetMcpCustomCredentials(
+    workspaceId,
+    mcpIntegrationId ?? null,
+    isEditMode && showCustomCredentials
+  )
   const open = controlledOpen ?? internalOpen
   const { className: triggerClassName, ...restTriggerProps } =
     triggerProps ?? {}
@@ -331,14 +341,19 @@ export function MCPIntegrationDialog({
 
   const serverType = form.watch("server_type")
   const authType = form.watch("auth_type")
+  const hasConfiguredCredentials = Boolean(
+    isEditMode && mcpIntegration?.has_custom_credentials
+  )
 
   React.useEffect(() => {
     if (!isEditMode) {
       setIsEditHydrated(true)
+      setShowCustomCredentials(false)
       return
     }
     if (open) {
       setIsEditHydrated(false)
+      setShowCustomCredentials(false)
     }
   }, [isEditMode, open, mcpIntegrationId])
 
@@ -357,7 +372,9 @@ export function MCPIntegrationDialog({
         server_uri: mcpIntegration.server_uri || "",
         auth_type: mcpIntegration.auth_type,
         oauth_integration_id: mcpIntegration.oauth_integration_id || "",
-        custom_credentials: "", // Don't populate for security
+        custom_credentials: mcpIntegration.has_custom_credentials
+          ? REDACTED_CUSTOM_CREDENTIALS_JSON
+          : "",
         stdio_command: mcpIntegration.stdio_command || "",
         stdio_args: hydratedStdioArgs,
         stdio_env: "", // Env vars are not returned from API for security
@@ -366,6 +383,7 @@ export function MCPIntegrationDialog({
       // Explicitly sync field-array state; reset() can lag on first mount.
       replaceStdioArgs(hydratedStdioArgs)
       setIsEditHydrated(true)
+      setShowCustomCredentials(false)
     }
   }, [
     isEditMode,
@@ -375,6 +393,19 @@ export function MCPIntegrationDialog({
     form,
     replaceStdioArgs,
   ])
+
+  React.useEffect(() => {
+    if (!showCustomCredentials || !isEditMode) {
+      return
+    }
+    if (mcpCustomCredentials?.custom_credentials !== undefined) {
+      form.setValue(
+        "custom_credentials",
+        mcpCustomCredentials.custom_credentials ?? "",
+        { shouldDirty: false }
+      )
+    }
+  }, [form, isEditMode, mcpCustomCredentials, showCustomCredentials])
 
   const resetForm = () => {
     if (
@@ -391,7 +422,9 @@ export function MCPIntegrationDialog({
         server_uri: mcpIntegration.server_uri || "",
         auth_type: mcpIntegration.auth_type,
         oauth_integration_id: mcpIntegration.oauth_integration_id || "",
-        custom_credentials: "",
+        custom_credentials: mcpIntegration.has_custom_credentials
+          ? REDACTED_CUSTOM_CREDENTIALS_JSON
+          : "",
         stdio_command: mcpIntegration.stdio_command || "",
         stdio_args: hydratedStdioArgs,
         stdio_env: "", // Env vars are not returned from API for security
@@ -399,10 +432,12 @@ export function MCPIntegrationDialog({
       })
       replaceStdioArgs(hydratedStdioArgs)
       setIsEditHydrated(true)
+      setShowCustomCredentials(false)
     } else {
       form.reset(DEFAULT_VALUES)
       replaceStdioArgs([])
       setIsEditHydrated(false)
+      setShowCustomCredentials(false)
     }
   }
 
@@ -414,6 +449,7 @@ export function MCPIntegrationDialog({
     if (!nextOpen) {
       resetForm()
       setIsEditHydrated(false)
+      setShowCustomCredentials(false)
     }
   }
 
@@ -1016,20 +1052,69 @@ export function MCPIntegrationDialog({
                               : "Custom credentials (JSON)"}
                           </FormLabel>
                           <FormControl>
-                            <CodeEditor
-                              value={field.value || ""}
-                              onChange={field.onChange}
-                              language="json"
-                              className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[120px]"
-                            />
+                            <div className="space-y-2">
+                              {isEditMode && hasConfiguredCredentials && (
+                                <div className="flex items-center justify-end">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={() => {
+                                      const willShow = !showCustomCredentials
+                                      setShowCustomCredentials(willShow)
+                                      if (
+                                        !isEditMode ||
+                                        !hasConfiguredCredentials
+                                      ) {
+                                        return
+                                      }
+                                      if (!willShow) {
+                                        form.setValue(
+                                          "custom_credentials",
+                                          REDACTED_CUSTOM_CREDENTIALS_JSON,
+                                          { shouldDirty: false }
+                                        )
+                                      }
+                                    }}
+                                  >
+                                    {showCustomCredentials ? (
+                                      <EyeOff className="mr-1 h-3.5 w-3.5" />
+                                    ) : (
+                                      <Eye className="mr-1 h-3.5 w-3.5" />
+                                    )}
+                                    {showCustomCredentials ? "Hide" : "Show"}{" "}
+                                    secret
+                                  </Button>
+                                </div>
+                              )}
+                              <CodeEditor
+                                value={field.value || ""}
+                                onChange={field.onChange}
+                                language="json"
+                                readOnly={
+                                  isEditMode &&
+                                  hasConfiguredCredentials &&
+                                  !showCustomCredentials
+                                }
+                                className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[120px]"
+                              />
+                            </div>
                           </FormControl>
-                          <FormDescription className="text-xs">
-                            {authType === "OAUTH2"
-                              ? "Optional: add extra request headers as JSON. Authorization is set from OAuth and cannot be overridden."
-                              : "Enter headers as a JSON object, for example "}
-                            {authType !== "OAUTH2" && (
-                              <code>{`{"Authorization":"Bearer token123"}`}</code>
+                          <FormDescription className="space-y-1 text-xs">
+                            {isEditMode && hasConfiguredCredentials && (
+                              <p>
+                                Configured credentials are redacted by default.
+                              </p>
                             )}
+                            <p>
+                              {authType === "OAUTH2"
+                                ? "Optional: add extra request headers as JSON. Authorization is set from OAuth and cannot be overridden."
+                                : "Enter headers as a JSON object, for example "}
+                              {authType !== "OAUTH2" && (
+                                <code>{`{"Authorization":"Bearer token123"}`}</code>
+                              )}
+                            </p>
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
