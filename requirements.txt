@@ -1371,17 +1371,17 @@ ldap3==2.9.1 \
     --hash=sha256:5869596fc4948797020d3f03b7939da938778a0f9e2009f7a072ccf92b8e8d70 \
     --hash=sha256:f3e7fc4718e3f09dda568b57100095e0ce58633bcabbed8667ce3f8fbaa4229f
     # via tracecat-registry
-litellm==1.81.13 \
-    --hash=sha256:083788d9c94e3371ff1c42e40e0e8198c497772643292a65b1bc91a3b3b537ea \
-    --hash=sha256:ae4aea2a55e85993f5f6dd36d036519422d24812a1a3e8540d9e987f2d7a4304
+litellm==1.82.1 \
+    --hash=sha256:a9ec3fe42eccb1611883caaf8b1bf33c9f4e12163f94c7d1004095b14c379eb2 \
+    --hash=sha256:bc8427cdccc99e191e08e36fcd631c93b27328d1af789839eb3ac01a7d281890
     # via tracecat
-litellm-enterprise==0.1.32 \
-    --hash=sha256:5648f982f92a3a2323ed49c3eee61e281e4ccb284dd8c45ee997dadea0f56a5a \
-    --hash=sha256:db043d2628e6a6a1369b3d582360fc5c6676bb213b53a4e6dd35d0c563d4d3e5
+litellm-enterprise==0.1.34 \
+    --hash=sha256:d6fe43ef28728c1a6c131ba22667f1a8304035b70b435aa3e6cf1c2b91e84657 \
+    --hash=sha256:e2e8d084055f8c96e646d906d7dbee8bafee03d343247a349e8ccf2745fb7822
     # via litellm
-litellm-proxy-extras==0.4.40 \
-    --hash=sha256:291cc5556b739d7b17b1ff79cd8881505cc560c6d5c0706302075550ae02c4bb \
-    --hash=sha256:964c151ec56a40c5d7b3532888dd19db9203306d4a70a3c54fb2eb0a1bcff154
+litellm-proxy-extras==0.4.53 \
+    --hash=sha256:22c53fa8890d93d4a0d24171726e4e2bba8be6fef4838317cb74284fa9d27f70 \
+    --hash=sha256:9224c667144774b6119e4de9b4b2d52fafc58442e6db317785c43b2d833665d6
     # via litellm
 lockfile==0.12.2 \
     --hash=sha256:6aed02de03cba24efabcd600b30540140634fc06cfa603822d508d5361e9f799 \

@@ -7,8 +7,13 @@ import {
   useAgentPresetVersions,
 } from "@/hooks/use-agent-presets"
 import { parseChatError, type useUpdateChat } from "@/hooks/use-chat"
+import { useAgentDefaultModel, useAgentModels } from "@/lib/hooks"
 
-type DraftPresetSelection = {
+type AgentSessionWithModelSelection = AgentSessionsGetSessionVercelResponse & {
+  model_catalog_ref?: string | null
+}
+
+type DraftSelection = {
   ownerId: string | null
   value: string | null
 }
@@ -23,6 +28,26 @@ interface UseChatPresetManagerProps {
   enabled?: boolean
 }
 
+function getSessionModelCatalogRef(
+  chat: AgentSessionsGetSessionVercelResponse | undefined
+): string | null {
+  return (
+    (chat as AgentSessionWithModelSelection | undefined)?.model_catalog_ref ??
+    null
+  )
+}
+
+function getDraftSelectionValue(
+  selection: DraftSelection | null,
+  ownerId: string | null,
+  fallback: string | null
+): string | null {
+  if (selection?.ownerId === ownerId) {
+    return selection.value
+  }
+  return fallback
+}
+
 export function useChatPresetManager({
   workspaceId,
   chat,
@@ -32,35 +57,41 @@ export function useChatPresetManager({
   selectedChatId,
   enabled = true,
 }: UseChatPresetManagerProps) {
-  const [draftPresetId, setDraftPresetId] =
-    useState<DraftPresetSelection | null>(null)
+  const [draftPresetId, setDraftPresetId] = useState<DraftSelection | null>(
+    null
+  )
   const [draftPresetVersionId, setDraftPresetVersionId] =
-    useState<DraftPresetSelection | null>(null)
+    useState<DraftSelection | null>(null)
+  const [draftModelCatalogRef, setDraftModelCatalogRef] =
+    useState<DraftSelection | null>(null)
 
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
     { enabled }
   )
+  const { defaultModel, defaultModelLoading } = useAgentDefaultModel()
+  const { models, modelsLoading, modelsError } = useAgentModels(workspaceId)
 
   const presetOptions = enabled ? (presets ?? []) : []
   const selectionOwnerId = selectedChatId ?? null
-  const effectivePresetId =
-    draftPresetId?.ownerId === selectionOwnerId
-      ? draftPresetId.value
-      : selectedChatId
-        ? (chat?.agent_preset_id ?? null)
-        : null
-  const effectivePresetVersionId =
-    draftPresetVersionId?.ownerId === selectionOwnerId
-      ? draftPresetVersionId.value
-      : selectedChatId
-        ? (chat?.agent_preset_version_id ?? null)
-        : null
+  const effectivePresetId = getDraftSelectionValue(
+    draftPresetId,
+    selectionOwnerId,
+    selectedChatId ? (chat?.agent_preset_id ?? null) : null
+  )
+  const effectivePresetVersionId = getDraftSelectionValue(
+    draftPresetVersionId,
+    selectionOwnerId,
+    selectedChatId ? (chat?.agent_preset_version_id ?? null) : null
+  )
+  const effectiveModelCatalogRef = getDraftSelectionValue(
+    draftModelCatalogRef,
+    selectionOwnerId,
+    selectedChatId ? getSessionModelCatalogRef(chat) : null
+  )
 
   useEffect(() => {
     if (!selectedChatId) {
-      setDraftPresetId(null)
-      setDraftPresetVersionId(null)
       return
     }
     setDraftPresetId({
@@ -71,7 +102,16 @@ export function useChatPresetManager({
       ownerId: selectedChatId,
       value: chat?.agent_preset_version_id ?? null,
     })
-  }, [chat?.agent_preset_id, chat?.agent_preset_version_id, selectedChatId])
+    setDraftModelCatalogRef({
+      ownerId: selectedChatId,
+      value: getSessionModelCatalogRef(chat),
+    })
+  }, [
+    chat?.agent_preset_id,
+    chat?.agent_preset_version_id,
+    chat,
+    selectedChatId,
+  ])
 
   const { preset: selectedPreset, presetIsLoading: selectedPresetLoading } =
     useAgentPreset(workspaceId, effectivePresetId, {
@@ -84,6 +124,7 @@ export function useChatPresetManager({
       enabled: enabled && Boolean(effectivePresetId),
     }
   )
+
   const currentPresetVersion =
     versions?.find(
       (version) => version.id === selectedPreset?.current_version_id
@@ -92,6 +133,13 @@ export function useChatPresetManager({
     null
   const selectedPresetVersion =
     versions?.find((version) => version.id === effectivePresetVersionId) ?? null
+  const selectedPresetConfig = selectedPresetVersion ?? selectedPreset
+
+  const selectedModel =
+    models?.find((model) => model.catalog_ref === effectiveModelCatalogRef) ??
+    null
+  const effectiveChatModel =
+    selectedModel ?? (effectiveModelCatalogRef ? null : (defaultModel ?? null))
 
   const handlePresetChange = async (nextPresetId: string | null) => {
     if (nextPresetId === effectivePresetId) {
@@ -101,13 +149,21 @@ export function useChatPresetManager({
     if (!selectedChatId) {
       setDraftPresetId({ ownerId: null, value: nextPresetId })
       setDraftPresetVersionId({ ownerId: null, value: null })
+      if (nextPresetId !== null) {
+        setDraftModelCatalogRef({ ownerId: null, value: null })
+      }
       return
     }
 
     const previousPresetId = effectivePresetId
     const previousPresetVersionId = effectivePresetVersionId
+    const previousModelCatalogRef = effectiveModelCatalogRef
+
     setDraftPresetId({ ownerId: selectedChatId, value: nextPresetId })
     setDraftPresetVersionId({ ownerId: selectedChatId, value: null })
+    if (nextPresetId !== null) {
+      setDraftModelCatalogRef({ ownerId: selectedChatId, value: null })
+    }
 
     try {
       await updateChat({
@@ -115,6 +171,7 @@ export function useChatPresetManager({
         update: {
           agent_preset_id: nextPresetId,
           agent_preset_version_id: null,
+          ...(nextPresetId !== null ? { model_catalog_ref: null } : {}),
         },
       })
     } catch (error) {
@@ -122,6 +179,10 @@ export function useChatPresetManager({
       setDraftPresetVersionId({
         ownerId: selectedChatId,
         value: previousPresetVersionId,
+      })
+      setDraftModelCatalogRef({
+        ownerId: selectedChatId,
+        value: previousModelCatalogRef,
       })
       console.error("Failed to update chat preset:", error)
       toast({
@@ -167,25 +228,74 @@ export function useChatPresetManager({
     }
   }
 
+  const handleModelCatalogChange = async (nextCatalogRef: string | null) => {
+    if (nextCatalogRef === effectiveModelCatalogRef) {
+      return
+    }
+
+    if (!selectedChatId) {
+      setDraftPresetId({ ownerId: null, value: null })
+      setDraftPresetVersionId({ ownerId: null, value: null })
+      setDraftModelCatalogRef({ ownerId: null, value: nextCatalogRef })
+      return
+    }
+
+    const previousPresetId = effectivePresetId
+    const previousPresetVersionId = effectivePresetVersionId
+    const previousCatalogRef = effectiveModelCatalogRef
+
+    setDraftPresetId({ ownerId: selectedChatId, value: null })
+    setDraftPresetVersionId({ ownerId: selectedChatId, value: null })
+    setDraftModelCatalogRef({ ownerId: selectedChatId, value: nextCatalogRef })
+
+    try {
+      await updateChat({
+        chatId: selectedChatId,
+        update: {
+          agent_preset_id: null,
+          agent_preset_version_id: null,
+          model_catalog_ref: nextCatalogRef,
+        },
+      })
+    } catch (error) {
+      setDraftPresetId({ ownerId: selectedChatId, value: previousPresetId })
+      setDraftPresetVersionId({
+        ownerId: selectedChatId,
+        value: previousPresetVersionId,
+      })
+      setDraftModelCatalogRef({
+        ownerId: selectedChatId,
+        value: previousCatalogRef,
+      })
+      console.error("Failed to update chat model selection:", error)
+      toast({
+        title: "Failed to update model",
+        description: parseChatError(error),
+        variant: "destructive",
+      })
+    }
+  }
+
   const presetMenuLabel = selectedPreset?.name ?? "No preset"
   const presetMenuDisabled = !enabled || chatLoading || isUpdatingChat
   const showPresetSpinner =
     presetsIsLoading || isUpdatingChat || chatLoading || selectedPresetLoading
-  const presetVersionMenuLabel = selectedPresetVersion
-    ? selectedPresetVersion.id === currentPresetVersion?.id
-      ? `Current (v${selectedPresetVersion.version})`
-      : `Pinned v${selectedPresetVersion.version}`
-    : currentPresetVersion
-      ? `Current (v${currentPresetVersion.version})`
-      : "Current"
   const versionMenuDisabled =
     !enabled ||
     !effectivePresetId ||
     chatLoading ||
     isUpdatingChat ||
     versionsIsLoading
-  const showVersionSpinner = versionsIsLoading || isUpdatingChat || chatLoading
-  const selectedPresetConfig = selectedPresetVersion ?? selectedPreset
+  const modelSelectorLabel = selectedModel
+    ? selectedModel.display_name
+    : effectiveChatModel?.display_name
+      ? `${effectiveChatModel.display_name} (default)`
+      : "Default model"
+  const defaultModelLabel = defaultModel?.display_name ?? "Default model"
+  const defaultModelProvider = defaultModel?.model_provider ?? null
+  const modelSelectorDisabled = !enabled || chatLoading || isUpdatingChat
+  const showModelSelectorSpinner =
+    modelsLoading || defaultModelLoading || isUpdatingChat || chatLoading
 
   return {
     presets: presetOptions,
@@ -205,8 +315,18 @@ export function useChatPresetManager({
     presetMenuLabel,
     presetMenuDisabled,
     showPresetSpinner,
-    presetVersionMenuLabel,
     versionMenuDisabled,
-    showVersionSpinner,
+    enabledModels: models ?? [],
+    enabledModelsError: modelsError,
+    enabledModelsLoading: modelsLoading,
+    selectedModel,
+    selectedModelCatalogRef: effectiveModelCatalogRef,
+    effectiveChatModel,
+    handleModelCatalogChange,
+    defaultModelLabel,
+    defaultModelProvider,
+    modelSelectorLabel,
+    modelSelectorDisabled,
+    showModelSelectorSpinner,
   }
 }

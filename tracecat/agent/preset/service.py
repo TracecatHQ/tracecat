@@ -106,6 +106,7 @@ class AgentPresetService(BaseWorkspaceService):
             name=params.name,
             description=params.description,
             instructions=params.instructions,
+            model_catalog_ref=params.model_catalog_ref,
             model_name=params.model_name,
             model_provider=params.model_provider,
             base_url=params.base_url,

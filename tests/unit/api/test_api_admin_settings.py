@@ -55,3 +55,12 @@ async def test_update_registry_settings_success(
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["git_repo_url"] == "https://example.com/new.git"
+
+
+@pytest.mark.anyio
+async def test_agent_gateway_settings_route_is_removed(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    response = client.get("/admin/settings/agent-gateway")
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND

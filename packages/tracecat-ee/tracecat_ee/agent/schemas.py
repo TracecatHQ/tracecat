@@ -29,10 +29,6 @@ class AgentActionArgs(BaseModel):
     retries: int = 3
     base_url: str | None = None
     tool_approvals: dict[str, bool] | None = None
-    use_workspace_credentials: bool = Field(
-        default=True,
-        description="If True, use workspace-scoped credentials; otherwise org-level",
-    )
 
 
 class PresetAgentActionArgs(BaseModel):
@@ -52,8 +48,4 @@ class PresetAgentActionArgs(BaseModel):
         ge=1,
         le=config.TRACECAT__AGENT_MAX_REQUESTS,
         description="The maximum number of model requests to make per agent run",
-    )
-    use_workspace_credentials: bool = Field(
-        default=True,
-        description="If True, use workspace-scoped credentials; otherwise org-level",
     )

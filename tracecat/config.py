@@ -146,6 +146,23 @@ TRACECAT__SERVICE_ROLES_WHITELIST = [
 ]
 TRACECAT__DEFAULT_USER_ID = uuid.UUID(int=0)
 
+TRACECAT__AGENT_DEPLOYMENT_GATEWAY_BASE_URL = os.environ.get(
+    "TRACECAT__AGENT_DEPLOYMENT_GATEWAY_BASE_URL"
+) or os.environ.get("TRACECAT__AGENT_DEFAULT_SIDECAR_BASE_URL")
+"""Optional deployment/runtime override for default-sidecar model discovery."""
+
+TRACECAT__AGENT_DEPLOYMENT_GATEWAY_API_KEY = os.environ.get(
+    "TRACECAT__AGENT_DEPLOYMENT_GATEWAY_API_KEY"
+) or os.environ.get("TRACECAT__AGENT_DEFAULT_SIDECAR_API_KEY")
+"""Optional deployment/runtime auth token for default-sidecar model discovery."""
+
+TRACECAT__AGENT_DEPLOYMENT_GATEWAY_API_KEY_HEADER = (
+    os.environ.get("TRACECAT__AGENT_DEPLOYMENT_GATEWAY_API_KEY_HEADER")
+    or os.environ.get("TRACECAT__AGENT_DEFAULT_SIDECAR_API_KEY_HEADER")
+    or "Authorization"
+)
+"""Optional deployment/runtime auth header name for default-sidecar discovery."""
+
 # === DB Config === #
 TRACECAT__DB_URI = os.environ.get(
     "TRACECAT__DB_URI",
