@@ -30,6 +30,33 @@ This document lists the currently registered MCP tools in
 - `get_case_trigger(workspace_id, workflow_id)`
 - `update_case_trigger(workspace_id, workflow_id, status=None, event_types=None, tag_filters=None)`
 
+## Workflow tag tools
+
+- `list_workflow_tags(workspace_id)`
+- `create_workflow_tag(workspace_id, name, color=None)`
+- `update_workflow_tag(workspace_id, tag_id, name=None, color=None)`
+- `delete_workflow_tag(workspace_id, tag_id)`
+- `list_tags_for_workflow(workspace_id, workflow_id)`
+- `add_workflow_tag(workspace_id, workflow_id, tag_id)`
+- `remove_workflow_tag(workspace_id, workflow_id, tag_id)`
+
+## Case tag tools
+
+- `list_case_tags(workspace_id)`
+- `create_case_tag(workspace_id, name, color=None)`
+- `update_case_tag(workspace_id, tag_id, name=None, color=None)`
+- `delete_case_tag(workspace_id, tag_id)`
+- `list_tags_for_case(workspace_id, case_id)`
+- `add_case_tag(workspace_id, case_id, tag_identifier)`
+- `remove_case_tag(workspace_id, case_id, tag_identifier)`
+
+## Case field tools
+
+- `list_case_fields(workspace_id)`
+- `create_case_field(workspace_id, name, type, options=None)`
+- `update_case_field(workspace_id, field_id, name=None, type=None, options=None)`
+- `delete_case_field(workspace_id, field_id)`
+
 ## Table tools
 
 - `list_tables(workspace_id)`

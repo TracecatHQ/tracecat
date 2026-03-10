@@ -839,6 +839,446 @@ async def test_update_case_trigger(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Workflow tag tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_list_workflow_tags(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    tags = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            name="Critical",
+            ref="critical",
+            color="#ff0000",
+        )
+    ]
+
+    async def _list_tags():
+        return tags
+
+    tag_service = SimpleNamespace(list_tags=_list_tags)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "TagsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(tag_service)),
+    )
+
+    result = await _tool(mcp_server.list_workflow_tags)(workspace_id=str(uuid.uuid4()))
+    payload = _payload(result)
+    assert payload == [
+        {
+            "id": str(tags[0].id),
+            "name": "Critical",
+            "ref": "critical",
+            "color": "#ff0000",
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_update_workflow_tag(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    tag = SimpleNamespace(
+        id=uuid.uuid4(),
+        name="Old name",
+        ref="old-name",
+        color="#111111",
+    )
+    captured: dict[str, Any] = {}
+
+    async def _get_tag_by_ref_or_id(tag_id):
+        captured["tag_id"] = tag_id
+        return tag
+
+    async def _update_tag(_tag, params):
+        captured["name"] = params.name
+        captured["color"] = params.color
+        return SimpleNamespace(
+            id=tag.id,
+            name=params.name or tag.name,
+            ref="new-name",
+            color=params.color or tag.color,
+        )
+
+    tag_service = SimpleNamespace(
+        get_tag_by_ref_or_id=_get_tag_by_ref_or_id,
+        update_tag=_update_tag,
+    )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "TagsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(tag_service)),
+    )
+
+    result = await _tool(mcp_server.update_workflow_tag)(
+        workspace_id=str(uuid.uuid4()),
+        tag_id="old-name",
+        name="New name",
+        color="#222222",
+    )
+    payload = _payload(result)
+    assert captured == {
+        "tag_id": "old-name",
+        "name": "New name",
+        "color": "#222222",
+    }
+    assert payload["ref"] == "new-name"
+    assert payload["color"] == "#222222"
+
+
+@pytest.mark.anyio
+async def test_add_workflow_tag(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    tag_id = uuid.uuid4()
+    captured: dict[str, Any] = {}
+
+    async def _add_workflow_tag(wf_id, parsed_tag_id):
+        captured["workflow_id"] = wf_id
+        captured["tag_id"] = parsed_tag_id
+
+    tag_service = SimpleNamespace(add_workflow_tag=_add_workflow_tag)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "WorkflowTagsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(tag_service)),
+    )
+
+    result = await _tool(mcp_server.add_workflow_tag)(
+        workspace_id=str(uuid.uuid4()),
+        workflow_id=str(workflow_id),
+        tag_id=str(tag_id),
+    )
+    payload = _payload(result)
+    assert captured == {"workflow_id": workflow_id, "tag_id": tag_id}
+    assert "added to workflow" in payload["message"]
+
+
+# ---------------------------------------------------------------------------
+# Case tag tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_list_case_tags(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    tags = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            name="Malware",
+            ref="malware",
+            color="#ff8800",
+        )
+    ]
+
+    async def _list_workspace_tags():
+        return tags
+
+    tag_service = SimpleNamespace(list_workspace_tags=_list_workspace_tags)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseTagsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(tag_service)),
+    )
+
+    result = await _tool(mcp_server.list_case_tags)(workspace_id=str(uuid.uuid4()))
+    payload = _payload(result)
+    assert payload[0]["ref"] == "malware"
+    assert payload[0]["color"] == "#ff8800"
+
+
+@pytest.mark.anyio
+async def test_update_case_tag(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    tag = SimpleNamespace(
+        id=uuid.uuid4(),
+        name="Malware",
+        ref="malware",
+        color="#ff8800",
+    )
+    captured: dict[str, Any] = {}
+
+    async def _get_tag_by_ref_or_id(tag_id):
+        captured["tag_id"] = tag_id
+        return tag
+
+    async def _update_tag(_tag, params):
+        captured["name"] = params.name
+        captured["color"] = params.color
+        return SimpleNamespace(
+            id=tag.id,
+            name=params.name or tag.name,
+            ref="incident-response",
+            color=params.color or tag.color,
+        )
+
+    tag_service = SimpleNamespace(
+        get_tag_by_ref_or_id=_get_tag_by_ref_or_id,
+        update_tag=_update_tag,
+    )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseTagsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(tag_service)),
+    )
+
+    result = await _tool(mcp_server.update_case_tag)(
+        workspace_id=str(uuid.uuid4()),
+        tag_id="malware",
+        name="Incident response",
+        color="#123456",
+    )
+    payload = _payload(result)
+    assert captured["tag_id"] == "malware"
+    assert payload["ref"] == "incident-response"
+    assert payload["color"] == "#123456"
+
+
+@pytest.mark.anyio
+async def test_add_case_tag(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    tag = SimpleNamespace(
+        id=uuid.uuid4(),
+        name="Escalated",
+        ref="escalated",
+        color="#00aa00",
+    )
+    captured: dict[str, Any] = {}
+
+    async def _add_case_tag(parsed_case_id, tag_identifier):
+        captured["case_id"] = parsed_case_id
+        captured["tag_identifier"] = tag_identifier
+        return tag
+
+    tag_service = SimpleNamespace(add_case_tag=_add_case_tag)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseTagsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(tag_service)),
+    )
+
+    result = await _tool(mcp_server.add_case_tag)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+        tag_identifier="Escalated",
+    )
+    payload = _payload(result)
+    assert captured == {"case_id": case_id, "tag_identifier": "Escalated"}
+    assert payload["ref"] == "escalated"
+
+
+@pytest.mark.anyio
+async def test_remove_case_tag(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    captured: dict[str, Any] = {}
+
+    async def _remove_case_tag(parsed_case_id, tag_identifier):
+        captured["case_id"] = parsed_case_id
+        captured["tag_identifier"] = tag_identifier
+
+    tag_service = SimpleNamespace(remove_case_tag=_remove_case_tag)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseTagsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(tag_service)),
+    )
+
+    result = await _tool(mcp_server.remove_case_tag)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+        tag_identifier="escalated",
+    )
+    payload = _payload(result)
+    assert captured == {"case_id": case_id, "tag_identifier": "escalated"}
+    assert "removed from case" in payload["message"]
+
+
+# ---------------------------------------------------------------------------
+# Case field tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_list_case_fields(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    columns = [
+        {
+            "name": "status_reason",
+            "type": "TEXT",
+            "nullable": True,
+            "default": None,
+            "comment": "Reason for the current status",
+        },
+        {
+            "name": "severity_band",
+            "type": "TEXT",
+            "nullable": True,
+            "default": None,
+            "comment": "Severity band",
+        },
+    ]
+    field_schema = {"severity_band": {"type": "SELECT", "options": ["low", "high"]}}
+
+    async def _list_fields():
+        return columns
+
+    async def _get_field_schema():
+        return field_schema
+
+    field_service = SimpleNamespace(
+        list_fields=_list_fields,
+        get_field_schema=_get_field_schema,
+    )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseFieldsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(field_service)),
+    )
+
+    result = await _tool(mcp_server.list_case_fields)(workspace_id=str(uuid.uuid4()))
+    payload = _payload(result)
+    assert payload[0]["id"] == "status_reason"
+    assert payload[0]["type"] == "TEXT"
+    assert payload[1]["type"] == "SELECT"
+    assert payload[1]["options"] == ["low", "high"]
+
+
+@pytest.mark.anyio
+async def test_create_case_field_parses_type_and_options(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    captured: dict[str, Any] = {}
+
+    async def _create_field(params):
+        captured["name"] = params.name
+        captured["type"] = params.type
+        captured["options"] = params.options
+
+    field_service = SimpleNamespace(create_field=_create_field)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseFieldsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(field_service)),
+    )
+
+    result = await _tool(mcp_server.create_case_field)(
+        workspace_id=str(uuid.uuid4()),
+        name="severity_band",
+        type="SELECT",
+        options='["low","medium","high"]',
+    )
+    payload = _payload(result)
+    assert captured["name"] == "severity_band"
+    assert str(captured["type"]) == "SELECT"
+    assert captured["options"] == ["low", "medium", "high"]
+    assert "created successfully" in payload["message"]
+
+
+@pytest.mark.anyio
+async def test_update_case_field_parses_type_and_options(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    captured: dict[str, Any] = {}
+
+    async def _update_field(field_id, params):
+        captured["field_id"] = field_id
+        captured["name"] = params.name
+        captured["type"] = params.type
+        captured["options"] = params.options
+
+    field_service = SimpleNamespace(update_field=_update_field)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseFieldsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(field_service)),
+    )
+
+    result = await _tool(mcp_server.update_case_field)(
+        workspace_id=str(uuid.uuid4()),
+        field_id="severity_band",
+        name="priority_band",
+        type="MULTI_SELECT",
+        options='["p1","p2"]',
+    )
+    payload = _payload(result)
+    assert captured["field_id"] == "severity_band"
+    assert captured["name"] == "priority_band"
+    assert str(captured["type"]) == "MULTI_SELECT"
+    assert captured["options"] == ["p1", "p2"]
+    assert "updated successfully" in payload["message"]
+
+
+@pytest.mark.anyio
+async def test_delete_case_field(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    captured: dict[str, Any] = {}
+
+    async def _delete_field(field_id):
+        captured["field_id"] = field_id
+
+    field_service = SimpleNamespace(delete_field=_delete_field)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseFieldsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(field_service)),
+    )
+
+    result = await _tool(mcp_server.delete_case_field)(
+        workspace_id=str(uuid.uuid4()),
+        field_id="severity_band",
+    )
+    payload = _payload(result)
+    assert captured["field_id"] == "severity_band"
+    assert "deleted successfully" in payload["message"]
+
+
+# ---------------------------------------------------------------------------
 # Middleware tests
 # ---------------------------------------------------------------------------
 
