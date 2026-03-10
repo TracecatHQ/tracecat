@@ -154,13 +154,21 @@ async def save_github_app_credentials(
         }
 
     except GitHubAppError as e:
-        logger.error("Failed to save GitHub App credentials", error=str(e))
+        logger.error(
+            "Failed to save GitHub App credentials",
+            error_type=type(e).__name__,
+            error=str(e),
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to save GitHub App credentials: {str(e)}",
         ) from e
     except Exception as e:
-        logger.error("Error saving GitHub App credentials", error=str(e))
+        logger.error(
+            "Error saving GitHub App credentials",
+            error_type=type(e).__name__,
+            error=str(e),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error while saving credentials",
@@ -208,7 +216,11 @@ async def get_github_app_credentials_status(
         return GitHubAppCredentialsStatus(**status_data)
 
     except Exception as e:
-        logger.error("Error getting GitHub App credentials status", error=str(e))
+        logger.error(
+            "Error getting GitHub App credentials status",
+            error_type=type(e).__name__,
+            error=str(e),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error while getting credentials status",

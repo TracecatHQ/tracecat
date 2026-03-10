@@ -3166,6 +3166,7 @@ export type GitHubAppCredentialsRequest = {
  */
 export type GitHubAppCredentialsStatus = {
   exists: boolean
+  is_corrupted?: boolean
   app_id?: string | null
   has_webhook_secret?: boolean
   webhook_secret_preview?: string | null

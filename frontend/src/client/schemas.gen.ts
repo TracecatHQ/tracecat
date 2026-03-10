@@ -10410,6 +10410,11 @@ export const $GitHubAppCredentialsStatus = {
       type: "boolean",
       title: "Exists",
     },
+    is_corrupted: {
+      type: "boolean",
+      title: "Is Corrupted",
+      default: false,
+    },
     app_id: {
       anyOf: [
         {

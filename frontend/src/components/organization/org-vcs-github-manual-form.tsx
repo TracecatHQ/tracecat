@@ -43,12 +43,14 @@ type GitHubAppCredentialsFormData = z.infer<typeof gitHubAppCredentialsSchema>
 interface GitHubAppManualFormProps {
   onSuccess?: () => void
   existingAppId?: string
+  hasStoredCredentials?: boolean
   className?: string
 }
 
 export function GitHubAppManualForm({
   onSuccess,
   existingAppId,
+  hasStoredCredentials = false,
   className,
 }: GitHubAppManualFormProps) {
   const { saveCredentials } = useGitHubAppCredentials()
@@ -76,7 +78,7 @@ export function GitHubAppManualForm({
         client_id: data.client_id || undefined,
       })
 
-      const action = existingAppId ? "updated" : "registered"
+      const action = hasStoredCredentials ? "updated" : "registered"
       toast({
         title: `GitHub App ${action} successfully`,
         description: `Your GitHub App credentials have been ${action}.`,
@@ -104,7 +106,7 @@ export function GitHubAppManualForm({
     }
   }
 
-  const buttonLabel = existingAppId ? "Save changes" : "Save credentials"
+  const buttonLabel = hasStoredCredentials ? "Save changes" : "Save credentials"
 
   const containerClass = className ? `space-y-4 ${className}` : "space-y-4"
 
