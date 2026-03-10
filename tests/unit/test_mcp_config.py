@@ -69,3 +69,13 @@ def test_mcp_auth_methods_reject_invalid_values(
 
     monkeypatch.setenv("TRACECAT_MCP__AUTH_METHODS", "oidc")
     importlib.reload(mcp_config)
+
+
+def test_mcp_api_key_blank_env_treated_as_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TRACECAT_MCP__AUTH_METHODS", "oidc")
+    monkeypatch.setenv("TRACECAT_MCP__API_KEY", "")
+    reloaded = importlib.reload(mcp_config)
+
+    assert reloaded.TRACECAT_MCP__API_KEY is None

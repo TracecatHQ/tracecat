@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import html
 import json
 import re
@@ -128,7 +129,7 @@ def _build_api_key_access_token() -> AccessToken:
         _MCP_BYPASS_CLAIM: True,
     }
     return AccessToken(
-        token=config.TRACECAT__SERVICE_KEY or "",
+        token=mcp_config.TRACECAT_MCP__API_KEY or "",
         client_id=_MCP_API_KEY_CLIENT_ID,
         scopes=["*"],
         claims=claims,
@@ -185,16 +186,16 @@ class _TracecatMultiAuthBackend(AuthenticationBackend):
 
 
 class TracecatAPIKeyVerifier(TokenVerifier):
-    """Token verifier that accepts the configured Tracecat service key."""
+    """Token verifier that accepts the configured MCP API key."""
 
     def __init__(self) -> None:
         super().__init__()
 
     async def verify_token(self, token: str) -> AccessToken | None:
         if (
-            config.TRACECAT__SERVICE_KEY
+            mcp_config.TRACECAT_MCP__API_KEY
             and token
-            and token == config.TRACECAT__SERVICE_KEY
+            and hmac.compare_digest(token, mcp_config.TRACECAT_MCP__API_KEY)
         ):
             return _build_api_key_access_token()
         return None
@@ -927,12 +928,12 @@ def create_mcp_auth() -> AuthProvider:
         return oidc_provider
 
     if MCPAuthSource.API_KEY.value in auth_methods:
-        if not config.TRACECAT__SERVICE_KEY:
+        if not mcp_config.TRACECAT_MCP__API_KEY:
             raise ValueError(
-                "TRACECAT__SERVICE_KEY must be configured when MCP api_key auth is enabled."
+                "TRACECAT_MCP__API_KEY must be configured when MCP api_key auth is enabled."
             )
         logger.warning(
-            "MCP api_key auth is enabled; bearer callers with TRACECAT__SERVICE_KEY will have broad MCP access",
+            "MCP api_key auth is enabled; bearer callers with TRACECAT_MCP__API_KEY will have broad MCP access",
             auth_methods=sorted(auth_methods),
         )
 

@@ -118,7 +118,7 @@ def test_create_mcp_auth_skips_unconfigured_oidc_in_mixed_mode(
     monkeypatch.setattr(
         mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
     )
-    monkeypatch.setattr(mcp_auth.config, "TRACECAT__SERVICE_KEY", "service-secret")
+    monkeypatch.setattr(mcp_auth.mcp_config, "TRACECAT_MCP__API_KEY", "mcp-secret")
 
     with (
         patch(
@@ -345,7 +345,7 @@ def test_create_mcp_auth_returns_composite_provider_for_api_key(
     monkeypatch.setattr(
         mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
     )
-    monkeypatch.setattr(mcp_auth.config, "TRACECAT__SERVICE_KEY", "service-secret")
+    monkeypatch.setattr(mcp_auth.mcp_config, "TRACECAT_MCP__API_KEY", "mcp-secret")
     with (
         patch(
             "tracecat.mcp.auth.get_platform_oidc_config",
@@ -376,7 +376,7 @@ def test_create_mcp_auth_returns_composite_provider_for_api_key(
     )
 
 
-def test_create_mcp_auth_raises_when_api_key_enabled_without_service_key(
+def test_create_mcp_auth_raises_when_api_key_enabled_without_mcp_api_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -385,11 +385,11 @@ def test_create_mcp_auth_raises_when_api_key_enabled_without_service_key(
     monkeypatch.setattr(
         mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
     )
-    monkeypatch.setattr(mcp_auth.config, "TRACECAT__SERVICE_KEY", "")
+    monkeypatch.setattr(mcp_auth.mcp_config, "TRACECAT_MCP__API_KEY", None)
 
     with pytest.raises(
         ValueError,
-        match="TRACECAT__SERVICE_KEY must be configured when MCP api_key auth is enabled",
+        match="TRACECAT_MCP__API_KEY must be configured when MCP api_key auth is enabled",
     ):
         mcp_auth.create_mcp_auth()
 
@@ -467,13 +467,13 @@ def test_get_token_identity_does_not_trust_unexpected_bypass_claims(
 async def test_tracecat_multi_auth_provider_accepts_api_key_bearer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mcp_auth.config, "TRACECAT__SERVICE_KEY", "service-secret")
+    monkeypatch.setattr(mcp_auth.mcp_config, "TRACECAT_MCP__API_KEY", "mcp-secret")
     provider = mcp_auth.TracecatMCPAuthProvider(
         base_url="https://mcp.example.com",
         auth_methods=frozenset({"api_key"}),
         oidc_provider=None,
     )
-    verified = await provider.verify_token("service-secret")
+    verified = await provider.verify_token("mcp-secret")
 
     assert verified is not None
     assert verified.client_id == "tracecat-mcp-api-key"

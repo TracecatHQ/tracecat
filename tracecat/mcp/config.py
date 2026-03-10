@@ -40,7 +40,7 @@ Defaults to `TRACECAT__PUBLIC_APP_URL` for local development and cluster setups.
 """
 
 TRACECAT_MCP__AUTH_METHODS: frozenset[str] = _parse_auth_methods(
-    os.environ.get("TRACECAT_MCP__AUTH_METHODS", "oidc")
+    os.environ.get("TRACECAT_MCP__AUTH_METHODS") or "oidc"
 )
 """Enabled MCP auth methods.
 
@@ -49,9 +49,16 @@ must be explicitly opted into.
 
 Valid options:
 - `oidc`: existing interactive OIDC flow
-- `api_key`: accept `Authorization: Bearer <TRACECAT__SERVICE_KEY>`
+- `api_key`: accept `Authorization: Bearer <TRACECAT_MCP__API_KEY>`
 - `none`: accept unauthenticated requests and treat the caller as a
   superuser-equivalent MCP identity; highly unsafe and not recommended
+"""
+
+TRACECAT_MCP__API_KEY: str | None = os.environ.get("TRACECAT_MCP__API_KEY") or None
+"""Dedicated bearer token for MCP `api_key` auth.
+
+This is intentionally separate from `TRACECAT__SERVICE_KEY` so MCP bypass access
+can be scoped and rotated independently from other internal service credentials.
 """
 
 TRACECAT_MCP__RATE_LIMIT_RPS: float = float(

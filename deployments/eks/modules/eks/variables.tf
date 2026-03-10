@@ -177,6 +177,16 @@ variable "tracecat_mcp_auth_methods" {
   description = "Comma-separated auth methods for the Tracecat MCP server (for example: oidc, api_key, none)."
   type        = string
   default     = "oidc"
+
+  validation {
+    condition = length(
+      compact([for method in split(",", var.tracecat_mcp_auth_methods) : trimspace(method)])
+    ) > 0 && alltrue([
+      for method in compact([for method in split(",", var.tracecat_mcp_auth_methods) : trimspace(method)]) :
+      contains(["oidc", "api_key", "none"], method)
+    ])
+    error_message = "tracecat_mcp_auth_methods must contain one or more comma-separated values from: oidc, api_key, none."
+  }
 }
 
 variable "superadmin_email" {
