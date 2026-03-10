@@ -132,8 +132,7 @@ export function AdminUsersTable() {
     if (
       !selectedUser ||
       !actionType ||
-      (actionType === "demote" &&
-        actionConfirmation.trim() !== selectedUser.email)
+      (actionType === "demote" && actionConfirmation !== selectedUser.email)
     ) {
       return
     }
@@ -556,7 +555,7 @@ export function AdminUsersTable() {
                 promotePending ||
                 demotePending ||
                 (actionType === "demote" &&
-                  actionConfirmation.trim() !== selectedUser?.email)
+                  actionConfirmation !== selectedUser?.email)
               }
               onClick={handleConfirmAction}
             >

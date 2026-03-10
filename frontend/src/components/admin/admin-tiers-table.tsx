@@ -44,10 +44,7 @@ export function AdminTiersTable() {
   const { tiers, deleteTier } = useAdminTiers()
 
   const handleDeleteTier = async () => {
-    if (
-      selectedTier &&
-      deleteConfirmation.trim() === selectedTier.display_name
-    ) {
+    if (selectedTier && deleteConfirmation === selectedTier.display_name) {
       try {
         await deleteTier(selectedTier.id)
         toast({
@@ -313,9 +310,7 @@ export function AdminTiersTable() {
             <AlertDialogAction
               variant="destructive"
               onClick={handleDeleteTier}
-              disabled={
-                deleteConfirmation.trim() !== selectedTier?.display_name
-              }
+              disabled={deleteConfirmation !== selectedTier?.display_name}
             >
               Delete
             </AlertDialogAction>

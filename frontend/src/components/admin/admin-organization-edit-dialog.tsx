@@ -92,8 +92,7 @@ export function AdminOrganizationEditDialog({
   const isDisablingOrganization =
     organization?.is_active === true && form.watch("is_active") === false
   const isDisableConfirmationValid =
-    !isDisablingOrganization ||
-    disableConfirmation.trim() === organization?.name
+    !isDisablingOrganization || disableConfirmation === organization?.name
 
   const onSubmit = async (values: FormValues) => {
     try {
