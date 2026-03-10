@@ -12,6 +12,10 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
+from tracecat.db.tenant_rls import (
+    disable_workspace_table_rls,
+    enable_workspace_table_rls,
+)
 
 # revision identifiers, used by Alembic.
 revision: str = "6171727be56a"
@@ -199,6 +203,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
+    op.execute(enable_workspace_table_rls("agent_preset_version"))
 
 
 def downgrade() -> None:
@@ -207,6 +212,7 @@ def downgrade() -> None:
         "agent_session",
         type_="foreignkey",
     )
+    op.execute(disable_workspace_table_rls("agent_preset_version"))
     op.drop_column("agent_session", "agent_preset_version_id")
     op.drop_constraint(
         op.f("fk_agent_preset_current_version_id_agent_preset_version"),

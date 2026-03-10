@@ -134,7 +134,7 @@ async def test_update_session_allows_version_only_repin_for_preset_sessions() ->
         agent_preset_id=None,
         agent_preset_version_id=new_version_id,
     )
-    assert updated.agent_preset_id is None
+    assert updated.agent_preset_id == preset_id
     assert updated.agent_preset_version_id == new_version_id
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(agent_session)
