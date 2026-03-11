@@ -53,6 +53,11 @@ class WorkflowRead(Schema):
     trigger_position_y: float = 0.0
     graph_version: int = 1
 
+    @field_validator("outbound_http_interception_enabled", mode="before")
+    @classmethod
+    def coerce_outbound_http_interception_enabled(cls, value: Any) -> bool:
+        return False if value is None else bool(value)
+
 
 class WorkflowDefinitionReadMinimal(Schema):
     id: uuid.UUID
@@ -98,6 +103,11 @@ class WorkflowReadMinimal(Schema):
     latest_definition: WorkflowDefinitionReadMinimal | None = None
     folder_id: uuid.UUID | None = None
     trigger_summary: WorkflowTriggerSummary | None = None
+
+    @field_validator("outbound_http_interception_enabled", mode="before")
+    @classmethod
+    def coerce_outbound_http_interception_enabled(cls, value: Any) -> bool:
+        return False if value is None else bool(value)
 
 
 class WorkflowUpdate(BaseModel):

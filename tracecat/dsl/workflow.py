@@ -215,6 +215,7 @@ class DSLWorkflow:
     organization_id: identifiers.OrganizationID
     dep_list: dict[str, list[str]]
     scheduler: DSLScheduler
+    outbound_http_interception_enabled: bool = False
 
     # Tier limit tracking
     _tier_limits: EffectiveLimits | None = None
