@@ -8,6 +8,7 @@ from fastmcp import FastMCP
 from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
+from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
 from tracecat.mcp import auth as mcp_auth
@@ -100,6 +101,33 @@ def test_create_mcp_auth_metadata_advertises_public_client_auth(
     assert payload["token_endpoint"] == "https://mcp.example.com/token"
     assert payload["registration_endpoint"] == "https://mcp.example.com/register"
     assert "none" in payload["token_endpoint_auth_methods_supported"]
+
+
+def test_create_mcp_auth_metadata_preserves_upstream_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+    upstream_app = Starlette(routes=mcp_auth.OIDCProxy.get_routes(auth))
+    upstream_client = TestClient(upstream_app)
+    client = TestClient(
+        FastMCP("test", auth=auth).http_app(path="/mcp", transport="streamable-http")
+    )
+
+    upstream_metadata = upstream_client.get("/.well-known/oauth-authorization-server")
+    metadata_response = client.get("/.well-known/oauth-authorization-server")
+
+    assert upstream_metadata.status_code == 200
+    assert metadata_response.status_code == 200
+
+    upstream_payload = upstream_metadata.json()
+    payload = metadata_response.json()
+    assert payload["client_id_metadata_document_supported"] is True
+    assert payload == {
+        **upstream_payload,
+        "token_endpoint_auth_methods_supported": (
+            mcp_auth._MCP_TOKEN_ENDPOINT_AUTH_METHODS
+        ),
+    }
 
 
 def test_create_mcp_auth_protected_resource_metadata_uses_mcp_path(

@@ -19,20 +19,19 @@ from fastmcp.server.dependencies import get_access_token
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
-from mcp.server.auth.handlers.metadata import MetadataHandler
 from mcp.server.auth.provider import (
     AuthorizationParams,
     TokenError,
 )
-from mcp.server.auth.routes import build_metadata, cors_middleware
-from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
+from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
 from starlette.routing import Route
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from tracecat import config
 from tracecat.auth.credentials import compute_effective_scopes
@@ -104,6 +103,52 @@ def supports_refresh_scope(scopes_supported: Sequence[str] | None) -> bool:
         # If provider metadata omits scopes_supported, optimistically request.
         return True
     return _MCP_REFRESH_SCOPE in scopes_supported
+
+
+def _patch_oauth_metadata_route(app: ASGIApp) -> ASGIApp:
+    """Patch only the advertised token auth methods on discovery responses."""
+
+    async def patched_app(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await app(scope, receive, send)
+            return
+
+        start_message: Message | None = None
+        body_chunks: list[bytes] = []
+
+        async def capture(message: Message) -> None:
+            nonlocal start_message
+
+            match message["type"]:
+                case "http.response.start":
+                    start_message = dict(message)
+                case "http.response.body":
+                    body_chunks.append(message.get("body", b""))
+                case _:
+                    await send(message)
+
+        await app(scope, receive, capture)
+
+        if start_message is None:
+            return
+
+        body = b"".join(body_chunks)
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            payload["token_endpoint_auth_methods_supported"] = (
+                _MCP_TOKEN_ENDPOINT_AUTH_METHODS
+            )
+            body = json.dumps(payload).encode("utf-8")
+
+        headers = MutableHeaders(raw=start_message["headers"])
+        headers["content-length"] = str(len(body))
+        await send(start_message)
+        await send({"type": "http.response.body", "body": body, "more_body": False})
+
+    return patched_app
 
 
 def _coerce_uuid(value: object) -> uuid.UUID | None:
@@ -716,17 +761,7 @@ def create_mcp_auth() -> AuthProvider:
                 ):
                     continue
 
-                metadata = build_metadata(
-                    self.base_url,
-                    self.service_documentation_url,
-                    self.client_registration_options or ClientRegistrationOptions(),
-                    self.revocation_options or RevocationOptions(),
-                )
-                metadata.token_endpoint_auth_methods_supported = (
-                    _MCP_TOKEN_ENDPOINT_AUTH_METHODS
-                )
-                handler = MetadataHandler(metadata)
-                route.app = cors_middleware(handler.handle, ["GET", "OPTIONS"])
+                route.app = _patch_oauth_metadata_route(route.app)
 
             return routes
 
