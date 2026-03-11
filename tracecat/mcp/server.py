@@ -14,7 +14,7 @@ import uuid
 from collections import deque
 from datetime import datetime, timedelta
 from io import StringIO
-from typing import Any, Literal, cast
+from typing import Any, Literal, cast, get_args
 
 import sqlalchemy as sa
 import yaml
@@ -40,13 +40,16 @@ from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 from tracecat import config
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetRead
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamError
 from tracecat.agent.tools import create_tool_from_registry
+from tracecat.agent.types import OutputType
 from tracecat.cases.enums import CaseEventType
 from tracecat.cases.schemas import (
     CaseFieldCreate,
@@ -73,6 +76,9 @@ from tracecat.identifiers.workflow import (
     WorkflowUUID,
     exec_id_to_parts,
 )
+from tracecat.integrations.enums import IntegrationStatus
+from tracecat.integrations.providers import all_providers
+from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.mcp.auth import (
     create_mcp_auth,
@@ -340,6 +346,143 @@ def _evaluate_configuration(
             if key not in available_keys:
                 missing.append(f"missing key: {secret_name}.{key}")
     return len(missing) == 0, missing
+
+
+def _get_supported_output_type_literals() -> list[str]:
+    """Return the supported primitive output_type literal values."""
+    output_type_value = getattr(OutputType, "__value__", OutputType)
+    for arg in get_args(output_type_value):
+        literal_values = get_args(arg)
+        if literal_values and all(isinstance(value, str) for value in literal_values):
+            return sorted(cast(list[str], list(literal_values)))
+    return []
+
+
+def _build_output_type_context() -> dict[str, Any]:
+    """Return compact authoring guidance for preset output_type."""
+    return {
+        "supported_literals": _get_supported_output_type_literals(),
+        "accepts_json_schema": True,
+        "examples": {
+            "primitive": "str",
+            "structured": {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string"},
+                    "severity": {"type": "string"},
+                },
+                "required": ["summary"],
+            },
+        },
+        "notes": [
+            "Use a literal string output_type for simple primitive responses.",
+            "Use a JSON Schema object when you want structured agent output.",
+        ],
+    }
+
+
+async def _build_integrations_inventory(role: Any) -> dict[str, Any]:
+    """Build integration inventory for workflow and preset authoring."""
+    async with IntegrationService.with_session(role=role) as svc:
+        existing = {
+            (integration.provider_id, integration.grant_type): integration
+            for integration in await svc.list_integrations()
+        }
+        mcp_integrations = await svc.list_mcp_integrations()
+        oauth_providers: list[dict[str, Any]] = []
+        for provider_impl in all_providers():
+            metadata = provider_impl.metadata
+            integration = existing.get((provider_impl.id, provider_impl.grant_type))
+            oauth_providers.append(
+                {
+                    "provider_id": provider_impl.id,
+                    "name": metadata.name,
+                    "description": metadata.description,
+                    "grant_type": provider_impl.grant_type.value,
+                    "enabled": metadata.enabled,
+                    "requires_config": metadata.requires_config,
+                    "integration_status": (
+                        integration.status.value
+                        if integration
+                        else IntegrationStatus.NOT_CONFIGURED.value
+                    ),
+                }
+            )
+
+        for custom_provider in await svc.list_custom_providers():
+            integration = existing.get(
+                (custom_provider.provider_id, custom_provider.grant_type)
+            )
+            oauth_providers.append(
+                {
+                    "provider_id": custom_provider.provider_id,
+                    "name": custom_provider.name,
+                    "description": custom_provider.description
+                    or "Custom OAuth provider",
+                    "grant_type": custom_provider.grant_type.value,
+                    "enabled": True,
+                    "requires_config": True,
+                    "integration_status": (
+                        integration.status.value
+                        if integration
+                        else IntegrationStatus.NOT_CONFIGURED.value
+                    ),
+                }
+            )
+
+        return {
+            "mcp_integrations": [
+                {
+                    "id": str(integration.id),
+                    "name": integration.name,
+                    "slug": integration.slug,
+                    "description": integration.description,
+                    "server_type": integration.server_type,
+                    "auth_type": integration.auth_type.value,
+                    "oauth_integration_id": (
+                        str(integration.oauth_integration_id)
+                        if integration.oauth_integration_id
+                        else None
+                    ),
+                    "timeout": integration.timeout,
+                    "attachable_to_agent_preset": True,
+                }
+                for integration in mcp_integrations
+            ],
+            "oauth_providers": oauth_providers,
+            "notes": [
+                "Only mcp_integrations can be attached directly to agent presets via mcp_integration_ids.",
+                "oauth_providers describe broader workspace integration availability and connection status.",
+            ],
+        }
+
+
+async def _resolve_agent_preset_model(
+    role: Any,
+    *,
+    model_name: str | None,
+    model_provider: str | None,
+) -> tuple[str, str]:
+    """Resolve explicit or default model inputs for preset creation."""
+    if model_name is not None or model_provider is not None:
+        if not model_name or not model_provider:
+            raise ToolError(
+                "model_name and model_provider must both be provided when setting an explicit model"
+            )
+        return model_name, model_provider
+
+    async with AgentManagementService.with_session(role=role) as svc:
+        if not (default_model := await svc.get_default_model()):
+            raise ToolError(
+                "No default model configured for this organization. Set one before creating a preset without explicit model fields."
+            )
+        try:
+            model_config = await svc.get_model_config(default_model)
+        except TracecatNotFoundError as exc:
+            raise ToolError(
+                f"Default model '{default_model}' is configured but no longer exists"
+            ) from exc
+        return model_config.name, model_config.provider
 
 
 _WORKFLOW_YAML_TOP_LEVEL_KEYS = frozenset(
@@ -733,7 +876,9 @@ core.script.run_python, core.table.*, core.open_case, core.send_email, etc.)
 
 Use `list_actions` to discover available actions. Use `get_action_context` or \
 `get_workflow_authoring_context` to get parameter schemas for any action \
-(including platform/interface actions like ai.agent, scatter, gather, etc.).
+(including platform/interface actions like ai.agent, scatter, gather, etc.). \
+Use `get_agent_preset_authoring_context` before creating agent presets to inspect \
+available models, integration options, and output_type configuration.
 
 ## Expression syntax (used in action `args:` values)
 - `${{ TRIGGER.<field> }}` — workflow trigger input
@@ -788,6 +933,13 @@ Within a scatter stream, each child action accesses its item via \
 5. `run_published_workflow` or `run_draft_workflow` — execute it
 6. `list_workflow_executions` — see run history, find execution IDs
 7. `get_workflow_execution` — inspect execution status, per-action results/errors
+
+## Agent preset authoring
+1. `get_agent_preset_authoring_context` — inspect models, provider readiness, integrations, variables, and output_type options
+2. `list_integrations` — inspect workspace MCP integrations and broader provider status
+3. `list_actions` / `get_action_context` — choose preset tools and inspect arg schemas
+4. `create_agent_preset` — create a reusable preset
+5. `list_agent_presets` / `run_agent_preset` — inspect and test saved presets
 
 ## Debugging workflow runs
 After running a workflow, use `list_workflow_executions` to see recent runs and their \
@@ -4253,6 +4405,156 @@ async def get_secret_metadata(
     except Exception as e:
         logger.error("Failed to get secret metadata", error=str(e))
         raise ToolError(f"Failed to get secret metadata: {e}") from None
+
+
+async def _build_agent_preset_authoring_context(role: Any) -> dict[str, Any]:
+    """Build authoring context for MCP preset creation."""
+    async with AgentManagementService.with_session(role=role) as svc:
+        models = await svc.list_models()
+        default_model = await svc.get_default_model()
+        provider_status_org = await svc.get_providers_status()
+        provider_status_workspace = await svc.get_workspace_providers_status()
+
+    async with VariablesService.with_session(role=role) as svc:
+        variables = await svc.list_variables(environment=DEFAULT_SECRETS_ENVIRONMENT)
+
+    workspace_inventory = await _load_secret_inventory(role)
+
+    return {
+        "default_model": default_model,
+        "models": [
+            model.model_dump(mode="json")
+            for _, model in sorted(models.items(), key=lambda item: item[0])
+        ],
+        "provider_status_org": provider_status_org,
+        "provider_status_workspace": provider_status_workspace,
+        "workspace_variables": [
+            {
+                "name": variable.name,
+                "keys": sorted(variable.values.keys()),
+                "environment": variable.environment,
+            }
+            for variable in variables
+        ],
+        "workspace_secret_hints": [
+            {
+                "name": secret_name,
+                "keys": sorted(keys),
+                "environment": DEFAULT_SECRETS_ENVIRONMENT,
+            }
+            for secret_name, keys in sorted(workspace_inventory.items())
+        ],
+        "integrations": await _build_integrations_inventory(role),
+        "output_type_context": _build_output_type_context(),
+        "notes": [
+            "provider_status_org describes organization-scoped model credentials.",
+            "provider_status_workspace describes workspace-scoped model credentials used by some agent flows.",
+        ],
+    }
+
+
+@mcp.tool()
+async def list_integrations(workspace_id: str) -> str:
+    """List workspace integrations useful for workflow and preset authoring."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        return _json(await _build_integrations_inventory(role))
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list integrations", error=str(e))
+        raise ToolError(f"Failed to list integrations: {e}") from None
+
+
+@mcp.tool()
+async def get_agent_preset_authoring_context(workspace_id: str) -> str:
+    """Get models, integrations, output_type guidance, and other preset authoring context."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        return _json(await _build_agent_preset_authoring_context(role))
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to build agent preset authoring context", error=str(e))
+        raise ToolError(
+            f"Failed to build agent preset authoring context: {e}"
+        ) from None
+
+
+@mcp.tool()
+async def create_agent_preset(
+    workspace_id: str,
+    name: str,
+    slug: str | None = None,
+    description: str | None = None,
+    instructions: str | None = None,
+    model_name: str | None = None,
+    model_provider: str | None = None,
+    base_url: str | None = None,
+    output_type: OutputType | None = None,
+    actions: list[str] | None = None,
+    namespaces: list[str] | None = None,
+    tool_approvals: dict[str, bool] | None = None,
+    mcp_integration_ids: list[str] | None = None,
+    retries: int | None = None,
+    enable_internet_access: bool | None = None,
+) -> str:
+    """Create an agent preset in the selected workspace."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        (
+            resolved_model_name,
+            resolved_model_provider,
+        ) = await _resolve_agent_preset_model(
+            role,
+            model_name=model_name,
+            model_provider=model_provider,
+        )
+        create_data: dict[str, Any] = {
+            "name": name,
+            "model_name": resolved_model_name,
+            "model_provider": resolved_model_provider,
+        }
+        optional_fields = {
+            "slug": slug,
+            "description": description,
+            "instructions": instructions,
+            "base_url": base_url,
+            "output_type": output_type,
+            "actions": actions,
+            "namespaces": namespaces,
+            "tool_approvals": tool_approvals,
+            "mcp_integrations": mcp_integration_ids,
+            "retries": retries,
+            "enable_internet_access": enable_internet_access,
+        }
+        create_data.update(
+            {
+                field: value
+                for field, value in optional_fields.items()
+                if value is not None
+            }
+        )
+        params = AgentPresetCreate.model_validate(create_data)
+        async with AgentPresetService.with_session(role=role) as svc:
+            preset = await svc.create_preset(params)
+        return _json(AgentPresetRead.model_validate(preset).model_dump(mode="json"))
+    except ToolError:
+        raise
+    except ValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create agent preset", error=str(e))
+        raise ToolError(f"Failed to create agent preset: {e}") from None
 
 
 def _parse_iso8601_duration(duration_str: str) -> timedelta:
