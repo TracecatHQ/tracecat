@@ -1,0 +1,57 @@
+tracecat/api/app.py
+  dd490bc0ee9fb320 541
+tracecat/auth/dependencies.py
+  dd490bc0ee9fb320 86-87
+tracecat/config.py
+  dd490bc0ee9fb320 181,185-191,213,216,219
+deployments/eks/modules/eks/variables.tf
+  dd490bc0ee9fb320 568
+docs/self-hosting/authentication/oidc.mdx
+  dd490bc0ee9fb320 1-51
+docs/quickstart/admin.mdx
+  dd490bc0ee9fb320 10
+tests/unit/test_dependencies.py
+  dd490bc0ee9fb320 33,80,128,133,150,152
+deployments/fargate/modules/ecs/secrets.tf
+  dd490bc0ee9fb320 7-8
+tests/unit/test_oidc_config.py
+  dd490bc0ee9fb320 3-4,7-8,30,48,56-57,61-146
+tracecat/auth/discovery.py
+  dd490bc0ee9fb320 150,172
+frontend/src/components/auth/sign-in.tsx
+  dd490bc0ee9fb320 98-100
+deployments/eks/variables.tf
+  dd490bc0ee9fb320 568
+docs/self-hosting/authentication/overview.mdx
+  dd490bc0ee9fb320 24,31,45-47,49
+docs/snippets/basic-auth-warning.mdx
+  dd490bc0ee9fb320 5
+tests/unit/test_auth_discovery_service.py
+  dd490bc0ee9fb320 63,65-66,85,106,125,144-147,170,172-173,204-207,231
+tracecat/auth/oidc.py
+  dd490bc0ee9fb320 35,39,51,54-57,60,62
+docs/docs.json
+  dd490bc0ee9fb320 58
+docs/self-hosting/authentication/basic.mdx
+  dd490bc0ee9fb320 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "55b21dbbc0b4b9731a4e96765fd168adcaa7d9ee",
+  "prompts": {
+    "dd490bc0ee9fb320": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cdd50-9dd6-71a0-9253-884613dc9549",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 211,
+      "overriden_lines": 0
+    }
+  }
+}
