@@ -536,6 +536,42 @@ variable "mcp_desired_count" {
   default     = 1
 }
 
+variable "mcp_rate_limit_rps" {
+  type        = string
+  description = "Sustained requests per second per user for MCP rate limiting"
+  default     = "2.0"
+}
+
+variable "mcp_rate_limit_burst" {
+  type        = string
+  description = "Burst capacity for per-user MCP rate limiting"
+  default     = "10"
+}
+
+variable "mcp_tool_timeout_seconds" {
+  type        = string
+  description = "Maximum execution time in seconds for a single MCP tool call"
+  default     = "120"
+}
+
+variable "mcp_max_input_size_bytes" {
+  type        = string
+  description = "Maximum size in bytes for any single string argument to an MCP tool call"
+  default     = "524288"
+}
+
+variable "mcp_startup_max_attempts" {
+  type        = string
+  description = "Maximum MCP server startup attempts before failing"
+  default     = "3"
+}
+
+variable "mcp_startup_retry_delay_seconds" {
+  type        = string
+  description = "Seconds to wait between MCP startup retries"
+  default     = "2"
+}
+
 variable "db_instance_class" {
   type    = string
   default = "db.t4g.2xlarge"
