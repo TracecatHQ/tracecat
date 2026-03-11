@@ -69,7 +69,6 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
-      PYTHONPATH: '/app/local_registry:'
       # Redis
       REDIS_URL: ${REDIS_URL}
 
