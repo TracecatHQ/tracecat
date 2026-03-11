@@ -84,10 +84,13 @@ export function useChatPresetManager({
     selectionOwnerId,
     selectedChatId ? (chat?.agent_preset_version_id ?? null) : null
   )
+  const effectiveSessionModelCatalogRef = selectedChatId
+    ? getSessionModelCatalogRef(chat)
+    : null
   const effectiveModelCatalogRef = getDraftSelectionValue(
     draftModelCatalogRef,
     selectionOwnerId,
-    selectedChatId ? getSessionModelCatalogRef(chat) : null
+    effectiveSessionModelCatalogRef
   )
 
   useEffect(() => {
@@ -104,12 +107,12 @@ export function useChatPresetManager({
     })
     setDraftModelCatalogRef({
       ownerId: selectedChatId,
-      value: getSessionModelCatalogRef(chat),
+      value: effectiveSessionModelCatalogRef,
     })
   }, [
     chat?.agent_preset_id,
     chat?.agent_preset_version_id,
-    chat,
+    effectiveSessionModelCatalogRef,
     selectedChatId,
   ])
 

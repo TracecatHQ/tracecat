@@ -23,6 +23,7 @@ def test_agent_preset_create_trims_required_fields() -> None:
         instructions=None,
         model_name="  gpt-4o-mini  ",
         model_provider="  openai  ",
+        model_catalog_ref="  builtin:openai:test:gpt-5  ",
         base_url=None,
         output_type=None,
         actions=None,
@@ -36,6 +37,7 @@ def test_agent_preset_create_trims_required_fields() -> None:
     assert payload.slug == "triage-preset"
     assert payload.model_name == "gpt-4o-mini"
     assert payload.model_provider == "openai"
+    assert payload.model_catalog_ref == "builtin:openai:test:gpt-5"
 
 
 @pytest.mark.parametrize(
@@ -72,6 +74,26 @@ def test_agent_preset_request_schemas_reject_blank_trimmed_values(
 ) -> None:
     with pytest.raises(ValidationError):
         schema_cls.model_validate(kwargs)
+
+
+def test_agent_preset_request_schemas_reject_blank_trimmed_model_catalog_ref() -> None:
+    with pytest.raises(ValidationError):
+        AgentPresetCreate(
+            name="Preset",
+            slug="preset",
+            description=None,
+            instructions=None,
+            model_name="gpt-5",
+            model_provider="openai",
+            model_catalog_ref="   ",
+            base_url=None,
+            output_type=None,
+            actions=None,
+            namespaces=None,
+            tool_approvals=None,
+            mcp_integrations=None,
+            retries=3,
+        )
 
 
 def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> None:

@@ -943,6 +943,7 @@ type EnabledModelOption = {
   modelName: string
   modelProvider: string
   runtimeProvider: string
+  iconId: string
   displayName: string
   label: string
   metadata: string
@@ -972,6 +973,7 @@ function buildEnabledModelOptions(
       modelName: model.model_name,
       modelProvider: model.model_provider,
       runtimeProvider: model.runtime_provider,
+      iconId: getEnabledModelIconId(model),
       displayName: model.display_name,
       label: model.display_name,
       metadata: getEnabledModelMetadata(model),
@@ -999,6 +1001,40 @@ function getEnabledModelMetadata(model: AgentCatalogEntry): string {
   return `${sourceLabel} · ${model.model_provider}`
 }
 
+function normalizeSourceName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "")
+}
+
+function getCustomSourceIconId(sourceType: string, sourceName: string): string {
+  const normalizedSourceName = normalizeSourceName(sourceName)
+  if (normalizedSourceName.includes("ollama")) {
+    return "ollama"
+  }
+  if (normalizedSourceName.includes("vllm")) {
+    return "vllm"
+  }
+  if (normalizedSourceName.includes("litellm")) {
+    return "litellm"
+  }
+  if (sourceType === "manual_custom") {
+    return "manual-custom-source"
+  }
+  return "custom"
+}
+
+function getEnabledModelIconId(model: AgentCatalogEntry): string {
+  switch (model.source_type) {
+    case "openai_compatible_gateway":
+    case "manual_custom":
+      return getCustomSourceIconId(model.source_type, model.source_name)
+    default:
+      return getProviderIconId(model.runtime_provider)
+  }
+}
+
 function getProviderIconId(provider: string): string {
   switch (provider) {
     case "anthropic":
@@ -1014,7 +1050,7 @@ function getProviderIconId(provider: string): string {
     case "openai":
       return "openai"
     default:
-      return "custom-model-provider"
+      return "custom"
   }
 }
 
@@ -1707,8 +1743,7 @@ function AgentPresetConfigurationPanel({
                 <FormItem>
                   <FormLabel>Model</FormLabel>
                   <FormDescription>
-                    Presets can only use models that are already enabled in
-                    organization settings.
+                    Choose from the models available in this workspace.
                   </FormDescription>
                   {hasMissingEnabledModel ? (
                     <p className="text-xs text-amber-600">
@@ -1737,9 +1772,7 @@ function AgentPresetConfigurationPanel({
                           {selectedModel ? (
                             <span className="flex min-w-0 items-center gap-2">
                               <ProviderIcon
-                                providerId={getProviderIconId(
-                                  selectedModel.runtimeProvider
-                                )}
+                                providerId={selectedModel.iconId}
                                 className="size-4 shrink-0 rounded-none bg-transparent p-0"
                               />
                               <span className="truncate">
@@ -1797,9 +1830,7 @@ function AgentPresetConfigurationPanel({
                                   className="flex items-center gap-2"
                                 >
                                   <ProviderIcon
-                                    providerId={getProviderIconId(
-                                      option.runtimeProvider
-                                    )}
+                                    providerId={option.iconId}
                                     className="size-4 shrink-0 rounded-none bg-transparent p-0"
                                   />
                                   <span className="min-w-0 truncate">
