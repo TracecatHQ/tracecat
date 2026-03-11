@@ -28,6 +28,10 @@ PresetModelWriteField = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
 ]
+PresetCatalogRefField = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=500),
+]
 
 
 class AgentPresetExecutionConfig(Schema):
@@ -36,7 +40,7 @@ class AgentPresetExecutionConfig(Schema):
     instructions: str | None = Field(default=None)
     model_name: PresetModelField
     model_provider: PresetModelField
-    model_catalog_ref: str | None = Field(default=None, min_length=1, max_length=500)
+    model_catalog_ref: PresetCatalogRefField | None = Field(default=None)
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
@@ -53,7 +57,7 @@ class AgentPresetExecutionConfigWrite(Schema):
     instructions: str | None = Field(default=None)
     model_name: PresetModelWriteField
     model_provider: PresetModelWriteField
-    model_catalog_ref: str | None = Field(default=None, min_length=1, max_length=500)
+    model_catalog_ref: PresetCatalogRefField | None = Field(default=None)
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
@@ -86,7 +90,7 @@ class AgentPresetUpdate(BaseModel):
     instructions: str | None = Field(default=None)
     model_name: PresetModelWriteField | None = None
     model_provider: PresetModelWriteField | None = None
-    model_catalog_ref: str | None = Field(default=None, min_length=1, max_length=500)
+    model_catalog_ref: PresetCatalogRefField | None = Field(default=None)
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)

@@ -5216,12 +5216,13 @@ interface AgentModelSourceUpdateInput {
 }
 
 async function fetchAgentJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const { headers, ...rest } = init ?? {}
   const response = await fetch(`/api${path}`, {
     headers: {
       "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
+      ...(headers ?? {}),
     },
-    ...init,
+    ...rest,
   })
 
   if (!response.ok) {

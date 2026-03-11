@@ -2986,7 +2986,7 @@ export type EnabledModelRuntimeConfigUpdate = {
 }
 
 export type EnabledModelsBatchOperation = {
-  catalog_refs?: Array<string>
+  catalog_refs: Array<string>
 }
 
 /**

@@ -188,11 +188,12 @@ class AgentManagementService(BaseOrgService):
             return PROVIDER_CREDENTIAL_CONFIGS[provider].label
         return provider.replace("_", " ").title()
 
-    def _ensure_builtin_provider(self, provider: str) -> None:
+    def _ensure_builtin_provider(self, provider: str) -> str:
         if provider not in {
             source_type.value for source_type in _BUILT_IN_PROVIDER_ORDER
         }:
             raise TracecatNotFoundError(f"Provider {provider} not found")
+        return provider
 
     def _source_config_payload(
         self,
@@ -278,8 +279,18 @@ class AgentManagementService(BaseOrgService):
         )
 
     def _catalog_entry_from_enabled_row(
-        self, row: AgentEnabledModel
+        self,
+        row: AgentEnabledModel,
+        *,
+        source: AgentModelSource | None = None,
     ) -> ModelCatalogEntry:
+        metadata: dict[str, Any] | None = None
+        source_name = self._provider_label(row.runtime_provider)
+        if source is not None:
+            source_name = source.display_name
+            source_config = self._deserialize_sensitive_config(source.encrypted_config)
+            if flavor := self._source_flavor(source_config):
+                metadata = {"source_flavor": flavor.value}
         return ModelCatalogEntry(
             catalog_ref=row.catalog_ref,
             model_name=row.model_name,
@@ -287,12 +298,12 @@ class AgentManagementService(BaseOrgService):
             runtime_provider=row.runtime_provider,
             display_name=row.display_name,
             source_type=ModelSourceType(row.source_type),
-            source_name=self._provider_label(row.runtime_provider),
+            source_name=source_name,
             source_id=row.source_id,
             base_url=row.base_url,
             enabled=True,
             last_refreshed_at=row.updated_at,
-            metadata=None,
+            metadata=metadata,
             enabled_config=(
                 EnabledModelRuntimeConfig.model_validate(row.enabled_config)
                 if row.enabled_config
@@ -442,11 +453,20 @@ class AgentManagementService(BaseOrgService):
 
         stale_refs = existing_refs - set(ordered_refs)
         if stale_refs:
-            await self.session.execute(
-                delete(AgentDiscoveredModel).where(
-                    AgentDiscoveredModel.catalog_ref.in_(stale_refs)
-                )
+            delete_discovered = delete(AgentDiscoveredModel).where(
+                AgentDiscoveredModel.catalog_ref.in_(stale_refs),
+                AgentDiscoveredModel.source_type == source_type.value,
+                AgentDiscoveredModel.source_id == source_id,
             )
+            if organization_scoped:
+                delete_discovered = delete_discovered.where(
+                    AgentDiscoveredModel.organization_id == self.organization_id
+                )
+            else:
+                delete_discovered = delete_discovered.where(
+                    AgentDiscoveredModel.organization_id.is_(None)
+                )
+            await self.session.execute(delete_discovered)
             delete_enabled = delete(AgentEnabledModel).where(
                 AgentEnabledModel.catalog_ref.in_(stale_refs)
             )
@@ -482,36 +502,70 @@ class AgentManagementService(BaseOrgService):
             if (model := models_by_ref.get(catalog_ref)) is not None
         ]
         stmt = pg_insert(AgentDiscoveredModel).values(values)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["catalog_ref"],
-            set_={
-                "organization_id": stmt.excluded.organization_id,
-                "source_id": stmt.excluded.source_id,
-                "source_type": stmt.excluded.source_type,
-                "source_name": stmt.excluded.source_name,
-                "model_name": stmt.excluded.model_name,
-                "model_provider": stmt.excluded.model_provider,
-                "runtime_provider": stmt.excluded.runtime_provider,
-                "display_name": stmt.excluded.display_name,
-                "raw_model_id": stmt.excluded.raw_model_id,
-                "base_url": stmt.excluded.base_url,
-                "model_metadata": stmt.excluded.model_metadata,
-                "last_refreshed_at": stmt.excluded.last_refreshed_at,
-                "updated_at": func.now(),
-            },
-        )
+        if organization_scoped:
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["organization_id", "catalog_ref"],
+                index_where=AgentDiscoveredModel.organization_id.is_not(None),
+                set_={
+                    "organization_id": stmt.excluded.organization_id,
+                    "source_id": stmt.excluded.source_id,
+                    "source_type": stmt.excluded.source_type,
+                    "source_name": stmt.excluded.source_name,
+                    "model_name": stmt.excluded.model_name,
+                    "model_provider": stmt.excluded.model_provider,
+                    "runtime_provider": stmt.excluded.runtime_provider,
+                    "display_name": stmt.excluded.display_name,
+                    "raw_model_id": stmt.excluded.raw_model_id,
+                    "base_url": stmt.excluded.base_url,
+                    "model_metadata": stmt.excluded.model_metadata,
+                    "last_refreshed_at": stmt.excluded.last_refreshed_at,
+                    "updated_at": func.now(),
+                },
+            )
+        else:
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["catalog_ref"],
+                index_where=AgentDiscoveredModel.organization_id.is_(None),
+                set_={
+                    "organization_id": stmt.excluded.organization_id,
+                    "source_id": stmt.excluded.source_id,
+                    "source_type": stmt.excluded.source_type,
+                    "source_name": stmt.excluded.source_name,
+                    "model_name": stmt.excluded.model_name,
+                    "model_provider": stmt.excluded.model_provider,
+                    "runtime_provider": stmt.excluded.runtime_provider,
+                    "display_name": stmt.excluded.display_name,
+                    "raw_model_id": stmt.excluded.raw_model_id,
+                    "base_url": stmt.excluded.base_url,
+                    "model_metadata": stmt.excluded.model_metadata,
+                    "last_refreshed_at": stmt.excluded.last_refreshed_at,
+                    "updated_at": func.now(),
+                },
+            )
         await self.session.execute(stmt)
         persisted_rows = (
             (
                 await self.session.execute(
                     select(AgentDiscoveredModel).where(
-                        AgentDiscoveredModel.catalog_ref.in_(ordered_refs)
+                        AgentDiscoveredModel.catalog_ref.in_(ordered_refs),
+                        AgentDiscoveredModel.source_type == source_type.value,
+                        AgentDiscoveredModel.source_id == source_id,
                     )
                 )
             )
             .scalars()
             .all()
         )
+        if organization_scoped:
+            persisted_rows = [
+                row
+                for row in persisted_rows
+                if row.organization_id == self.organization_id
+            ]
+        else:
+            persisted_rows = [
+                row for row in persisted_rows if row.organization_id is None
+            ]
         persisted_by_ref = {row.catalog_ref: row for row in persisted_rows}
         return [persisted_by_ref[catalog_ref] for catalog_ref in ordered_refs]
 
@@ -869,6 +923,16 @@ class AgentManagementService(BaseOrgService):
             ]
         if provider:
             items = [item for item in items if item.runtime_provider == provider]
+        provider_order = {
+            item.value: index for index, item in enumerate(_BUILT_IN_PROVIDER_ORDER)
+        }
+        items.sort(
+            key=lambda item: (
+                provider_order.get(item.runtime_provider, len(provider_order)),
+                -int(bool(item.enabled)),
+                item.display_name.lower(),
+            )
+        )
         start = int(cursor) if cursor else 0
         bounded_limit = max(1, min(limit, 200))
         page = items[start : start + bounded_limit]
@@ -923,7 +987,34 @@ class AgentManagementService(BaseOrgService):
         enabled_rows = await self._filter_enabled_rows_for_workspace(
             await self._list_enabled_rows(), workspace_id
         )
-        items = [self._catalog_entry_from_enabled_row(row) for row in enabled_rows]
+        source_ids = {
+            row.source_id
+            for row in enabled_rows
+            if row.source_id is not None
+            and row.source_type
+            in {
+                ModelSourceType.OPENAI_COMPATIBLE_GATEWAY.value,
+                ModelSourceType.MANUAL_CUSTOM.value,
+            }
+        }
+        sources_by_id: dict[uuid.UUID, AgentModelSource] = {}
+        if source_ids:
+            stmt = select(AgentModelSource).where(AgentModelSource.id.in_(source_ids))
+            sources_by_id = {
+                row.id: row
+                for row in (await self.session.execute(stmt)).scalars().all()
+            }
+        items = [
+            self._catalog_entry_from_enabled_row(
+                row,
+                source=(
+                    sources_by_id.get(row.source_id)
+                    if row.source_id is not None
+                    else None
+                ),
+            )
+            for row in enabled_rows
+        ]
         items.sort(key=lambda item: (item.source_name, item.display_name))
         return items
 
@@ -1101,13 +1192,14 @@ class AgentManagementService(BaseOrgService):
         await self._validate_source_uniqueness(
             source_type=CustomModelSourceType(source.type), exclude_id=source.id
         )
-        await self.session.delete(source)
         await self.session.execute(
             delete(AgentEnabledModel).where(
                 AgentEnabledModel.organization_id == self.organization_id,
                 AgentEnabledModel.source_id == source_id,
             )
         )
+        await self.session.flush()
+        await self.session.delete(source)
         await self.session.commit()
 
     def _build_auth_headers(
@@ -2010,15 +2102,15 @@ class AgentManagementService(BaseOrgService):
             )
             return preset_config.model_catalog_ref
         for item in await self.list_models(workspace_id=self.role.workspace_id):
-            if (
-                item.model_name == preset_config.model_name
-                and item.model_provider == preset_config.model_provider
+            if item.model_name == preset_config.model_name and (
+                item.model_provider == preset_config.model_provider
+                or item.runtime_provider == preset_config.model_provider
             ):
                 return item.catalog_ref
         for item in await self.list_discovered_models():
-            if (
-                item.model_name == preset_config.model_name
-                and item.model_provider == preset_config.model_provider
+            if item.model_name == preset_config.model_name and (
+                item.model_provider == preset_config.model_provider
+                or item.runtime_provider == preset_config.model_provider
             ):
                 return item.catalog_ref
         return None

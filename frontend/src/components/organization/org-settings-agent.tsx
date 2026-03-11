@@ -154,31 +154,6 @@ function formatLabel(value: string): string {
   return value.replaceAll("_", " ")
 }
 
-function normalizeProviderLabel(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_-]+/g, "")
-}
-
-function getModelProviderBadgeLabel(
-  model: Pick<AgentCatalogEntry, "model_provider" | "source_name">
-): string {
-  return normalizeProviderLabel(model.model_provider) ===
-    normalizeProviderLabel(model.source_name)
-    ? model.source_name
-    : model.model_provider
-}
-
-function shouldShowModelSourceBadge(
-  model: Pick<AgentCatalogEntry, "model_provider" | "source_name">
-): boolean {
-  return (
-    normalizeProviderLabel(model.model_provider) !==
-    normalizeProviderLabel(model.source_name)
-  )
-}
-
 function canEnableBuiltInCatalogModel(model: BuiltInCatalogEntry): boolean {
   return (
     model.enabled ||
@@ -1161,7 +1136,6 @@ export function OrgSettingsAgentForm() {
   const [credentialsProvider, setCredentialsProvider] = useState<string | null>(
     null
   )
-  const [defaultModelQuery, setDefaultModelQuery] = useState("")
   const [deletingSource, setDeletingSource] =
     useState<AgentModelSourceRead | null>(null)
   const [editingSource, setEditingSource] =
@@ -1190,22 +1164,11 @@ export function OrgSettingsAgentForm() {
     isLoading: discoveredModelsLoading,
     models: discoveredModels,
   } = useDiscoveredAgentModels()
-  const selectedDefaultModel = models?.find(
+  const selectedDefaultCatalogModel = models?.find(
     (model) => model.catalog_ref === defaultModel?.catalog_ref
   )
-  const filteredEnabledModels =
-    models?.filter((model) => {
-      const query = defaultModelQuery.trim().toLowerCase()
-      if (!query) {
-        return true
-      }
-      return (
-        model.display_name.toLowerCase().includes(query) ||
-        model.model_name.toLowerCase().includes(query) ||
-        model.source_name.toLowerCase().includes(query) ||
-        model.model_provider.toLowerCase().includes(query)
-      )
-    }) ?? []
+  const currentDefaultModel =
+    selectedDefaultCatalogModel ?? defaultModel ?? null
   const {
     createSource,
     deleteSource,
@@ -1525,47 +1488,7 @@ export function OrgSettingsAgentForm() {
           </p>
         </div>
         <Card>
-          <CardHeader className="space-y-2 pb-4">
-            <CardTitle>Default model selection</CardTitle>
-            <CardDescription>
-              Presets and runtime resolution stay catalog-backed while keeping
-              the existing compatibility fields behind the scenes.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between gap-4 border-t pt-4">
-              <p className="text-sm font-medium">Enabled models</p>
-              <Badge variant={defaultModel ? "secondary" : "outline"}>
-                {defaultModel ? "Configured" : "Not set"}
-              </Badge>
-            </div>
-
-            {defaultModel ? (
-              <div className="rounded-lg border p-4">
-                <div className="flex items-start gap-3">
-                  <ProviderIcon
-                    className="size-7 rounded-sm p-0.5"
-                    providerId={getProviderIconId(defaultModel.model_provider)}
-                  />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">
-                      {defaultModel.display_name}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {defaultModel.model_provider}
-                      {" · "}
-                      {defaultModel.model_name}
-                    </p>
-                    {selectedDefaultModel ? (
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        Source: {selectedDefaultModel.source_name}
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
+          <CardContent className="space-y-4 pt-6">
             {!models?.length ? (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
                 Enable at least one model from the sections below before
@@ -1573,84 +1496,86 @@ export function OrgSettingsAgentForm() {
               </div>
             ) : (
               <div className="space-y-3">
-                <Input
-                  className="focus-visible:ring-0 focus-visible:ring-offset-0"
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Choose default</p>
+                  <p className="text-xs text-muted-foreground">
+                    Select an enabled model for the organization default.
+                  </p>
+                </div>
+                <Select
                   disabled={defaultModelUpdating || isUpdating || modelsLoading}
-                  onChange={(event) => {
-                    setDefaultModelQuery(event.target.value)
+                  onValueChange={(catalogRef) => {
+                    if (catalogRef === defaultModel?.catalog_ref) {
+                      return
+                    }
+                    void handleSetDefaultModel(catalogRef)
                   }}
-                  placeholder="Search enabled models"
-                  value={defaultModelQuery}
-                />
-                <ScrollArea className="h-80 rounded-lg border">
-                  <div className="divide-y">
-                    {filteredEnabledModels.length ? (
-                      filteredEnabledModels.map((model) => {
-                        const isSelected =
-                          model.catalog_ref === defaultModel?.catalog_ref
-                        return (
-                          <button
-                            className={cn(
-                              "flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-muted/30",
-                              isSelected && "bg-muted/40"
-                            )}
-                            disabled={
-                              defaultModelUpdating ||
-                              isUpdating ||
-                              modelsLoading
-                            }
-                            key={model.catalog_ref}
-                            onClick={() => {
-                              if (isSelected) {
-                                return
-                              }
-                              void handleSetDefaultModel(model.catalog_ref)
-                            }}
-                            type="button"
-                          >
-                            <div className="flex min-w-0 items-start gap-3">
-                              <ProviderIcon
-                                className="mt-0.5 size-6 rounded-sm p-0.5"
-                                providerId={getProviderIconId(
-                                  model.model_provider
-                                )}
-                              />
-                              <div className="min-w-0 space-y-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <p className="text-sm font-medium">
-                                    {model.display_name}
-                                  </p>
-                                  <ProviderMetaPill>
-                                    {getModelProviderBadgeLabel(model)}
-                                  </ProviderMetaPill>
-                                  {shouldShowModelSourceBadge(model) ? (
-                                    <ProviderMetaPill>
-                                      {model.source_name}
-                                    </ProviderMetaPill>
-                                  ) : null}
-                                </div>
-                                <p className="truncate text-xs text-muted-foreground">
-                                  {model.model_name}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {isSelected ? (
-                                <ProviderMetaPill active>
-                                  Current default
-                                </ProviderMetaPill>
-                              ) : null}
-                            </div>
-                          </button>
-                        )
-                      })
-                    ) : (
-                      <div className="px-4 py-6 text-sm text-muted-foreground">
-                        No enabled models matched the current search.
+                  value={defaultModel?.catalog_ref}
+                >
+                  <SelectTrigger className="h-auto min-h-16 px-4 py-3 [&>span]:w-full">
+                    {currentDefaultModel ? (
+                      <div className="flex min-w-0 items-start gap-3 text-left">
+                        <ProviderIcon
+                          className="mt-0.5 size-6 rounded-sm p-0.5"
+                          providerId={getProviderIconId(
+                            currentDefaultModel.model_provider
+                          )}
+                        />
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <p className="truncate text-sm font-medium">
+                              {currentDefaultModel.display_name}
+                            </p>
+                          </div>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {selectedDefaultCatalogModel?.source_name ??
+                              currentDefaultModel.model_provider}
+                          </p>
+                        </div>
                       </div>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">
+                        Select a default model
+                      </span>
                     )}
-                  </div>
-                </ScrollArea>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {models.map((model) => {
+                      const isSelected =
+                        model.catalog_ref === defaultModel?.catalog_ref
+                      return (
+                        <SelectItem
+                          key={model.catalog_ref}
+                          value={model.catalog_ref}
+                        >
+                          <div className="flex min-w-0 items-start gap-3 py-1">
+                            <ProviderIcon
+                              className="mt-0.5 size-5 rounded-sm p-0.5"
+                              providerId={getProviderIconId(
+                                model.model_provider
+                              )}
+                            />
+                            <div className="min-w-0 space-y-1">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="truncate text-sm font-medium">
+                                  {model.display_name}
+                                </span>
+                                {isSelected ? (
+                                  <span className="shrink-0 text-xs text-muted-foreground">
+                                    Current default
+                                  </span>
+                                ) : null}
+                              </div>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {model.source_name}
+                              </p>
+                            </div>
+                          </div>
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
               </div>
             )}
 
