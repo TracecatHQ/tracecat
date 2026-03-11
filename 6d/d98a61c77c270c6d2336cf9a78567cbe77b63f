@@ -1,0 +1,36 @@
+tracecat/config.py
+  ac9357fd1bd1040f 179,182-187,189-196,198,200-206,208-211,236-239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "6dd98a61c77c270c6d2336cf9a78567cbe77b63f",
+  "prompts": {
+    "ac9357fd1bd1040f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cde2a-bb55-7b51-838f-a57f5646eb3f",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 33,
+      "total_deletions": 7,
+      "accepted_lines": 33,
+      "overriden_lines": 0
+    },
+    "dd47eedab200acc9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cddae-9258-7931-b8b1-c8e983bb8f27",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  }
+}
