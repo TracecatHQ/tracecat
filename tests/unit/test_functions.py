@@ -1,10 +1,12 @@
 from collections import Counter
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 import orjson
 import pytest
+from pydantic import BaseModel
 
 from tracecat.contexts import ctx_logical_time
 from tracecat.expressions.functions import (
@@ -90,6 +92,7 @@ from tracecat.expressions.functions import (
     regex_match,
     regex_not_match,
     seconds_between,
+    serialize,
     serialize_json,
     set_timezone,
     slice_str,
@@ -116,6 +119,15 @@ from tracecat.expressions.functions import (
     weeks_between,
     zip_iterables,
 )
+
+
+class _SerializePydanticModel(BaseModel):
+    value: int
+
+
+@dataclass
+class _SerializeDataclassModel:
+    value: int
 
 
 @pytest.mark.parametrize(
@@ -767,6 +779,24 @@ def test_logical_operations(func, a: bool, b: Any, expected: bool) -> None:
         assert func(a) == expected
     else:
         assert func(a, b) == expected
+
+
+@pytest.mark.parametrize(
+    "input_data,expected",
+    [
+        ({"a": 1}, {"a": 1}),
+        (_SerializePydanticModel(value=42), {"value": 42}),
+        (_SerializeDataclassModel(value=7), {"value": 7}),
+    ],
+)
+def test_serialize(input_data: Any, expected: dict[str, Any]) -> None:
+    result = serialize(input_data)
+    assert orjson.loads(result) == expected
+
+
+def test_serialize_unsupported_type_raises() -> None:
+    with pytest.raises(TypeError):
+        serialize({"value": object()})
 
 
 @pytest.mark.parametrize(

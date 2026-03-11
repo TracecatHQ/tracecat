@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import csv
+import dataclasses
 import hashlib
 import ipaddress
 import itertools
@@ -19,6 +20,7 @@ from uuid import uuid4
 
 import orjson
 import yaml
+from pydantic import BaseModel
 from slugify import slugify
 from tracecat_registry._internal.flatten import flatten_dict as _flatten_dict
 
@@ -525,6 +527,27 @@ def map_dict_keys(x: dict[str, Any], keys: dict[str, str]) -> dict[str, Any]:
 def serialize_json(x: Any) -> str:
     """Convert object to JSON string."""
     return orjson.dumps(x).decode()
+
+
+def serialize(x: Any) -> str:
+    """Serialize an object to string.
+
+    Uses `orjson` for performance and falls back to common model protocols
+    (pydantic/dataclass) for objects that need conversion before serialization.
+    """
+
+    def _default(value: Any) -> Any:
+        if isinstance(value, BaseModel):
+            return value.model_dump(mode="json")
+        if dataclasses.is_dataclass(value):
+            return dataclasses.asdict(value)
+        if hasattr(value, "model_dump") and callable(value.model_dump):
+            return value.model_dump(mode="json")
+        if hasattr(value, "dict") and callable(value.dict):
+            return value.dict()
+        raise TypeError
+
+    return orjson.dumps(x, default=_default).decode()
 
 
 def prettify_json(x: Any) -> str:
@@ -1147,6 +1170,7 @@ _FUNCTION_MAPPING = {
     "deserialize_ndjson": deserialize_ndjson,
     "deserialize_yaml": deserialize_yaml,
     "prettify_json": prettify_json,
+    "serialize": serialize,
     "serialize_json": serialize_json,
     "serialize_yaml": serialize_yaml,
     # Time related
