@@ -1,7 +1,7 @@
 """add outbound HTTP interception flags
 
 Revision ID: a352c2bdda17
-Revises: 6171727be56a
+Revises: cd84c08340a5
 Create Date: 2026-03-10 16:20:58.046254
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "a352c2bdda17"
-down_revision: str | None = "6171727be56a"
+down_revision: str | None = "cd84c08340a5"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
