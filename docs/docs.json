@@ -8,6 +8,9 @@
     "dark": "#465ACE"
   },
   "favicon": "/favicon.svg",
+  "icons": {
+    "library": "lucide"
+  },
   "navigation": {
     "tabs": [
       {
@@ -15,76 +18,83 @@
         "groups": [
           {
             "group": "Overview",
+            "icon": "flag",
             "pages": [
               "overview/introduction",
               "overview/getting-started"
             ]
           },
           {
-            "group": "Building workflows",
+            "group": "Building automations",
+            "icon": "workflow",
             "pages": [
-              "building-workflows/overview",
-              "building-workflows/mcp",
-              "building-workflows/expressions",
-              "building-workflows/jsonpath",
-              "building-workflows/functions",
-              "building-workflows/secrets",
-              "building-workflows/variables",
+              "automations/overview",
+              "automations/mcp",
+              "automations/expressions",
+              "automations/jsonpath",
+              "automations/functions",
+              "automations/secrets",
+              "automations/variables",
+              "automations/tables",
               {
                 "group": "Core actions",
                 "pages": [
-                  "building-workflows/core-actions/http",
-                  "building-workflows/core-actions/reshape",
-                  "building-workflows/core-actions/email",
-                  "building-workflows/core-actions/python-script",
-                  "building-workflows/core-actions/for-each",
-                  "building-workflows/core-actions/scatter-gather-loops",
-                  "building-workflows/core-actions/subflows",
-                  "building-workflows/core-actions/data-transforms",
-                  "building-workflows/core-actions/cases",
-                  "building-workflows/core-actions/tables",
-                  "building-workflows/core-actions/sql"
+                  "automations/core-actions/http",
+                  "automations/core-actions/reshape",
+                  "automations/core-actions/email",
+                  "automations/core-actions/python-script",
+                  "automations/core-actions/for-each",
+                  "automations/core-actions/scatter-gather-loops",
+                  "automations/core-actions/subflows",
+                  "automations/core-actions/data-transforms",
+                  "automations/core-actions/cases",
+                  "automations/core-actions/tables",
+                  "automations/core-actions/sql"
                 ]
               },
               {
                 "group": "Integrations",
                 "pages": [
-                  "building-workflows/oauth-integrations",
-                  "building-workflows/mcp-integrations",
-                  "building-workflows/prebuilt-credentials"
+                  "automations/oauth-integrations",
+                  "automations/mcp-integrations",
+                  "automations/prebuilt-credentials"
                 ]
               },
               {
                 "group": "Triggers",
                 "pages": [
-                  "building-workflows/triggers/webhooks",
-                  "building-workflows/triggers/schedules",
-                  "building-workflows/triggers/case-triggers",
-                  "building-workflows/triggers/comment-triggers"
+                  "automations/triggers/webhooks",
+                  "automations/triggers/schedules",
+                  "automations/triggers/case-triggers",
+                  "automations/triggers/comment-triggers"
                 ]
               }
             ]
           },
           {
             "group": "Building agents",
+            "icon": "sparkles",
             "pages": [
-              "building-agents/ai-action",
-              "building-agents/ai-agent",
-              "building-agents/ai-preset-agent",
-              "building-agents/slackbot"
+              "agents/ai-action",
+              "agents/ai-agent",
+              "agents/ai-preset-agent",
+              "agents/slackbot"
             ]
           }
           ,
           {
-            "group": "Building custom integrations",
+            "group": "Building custom actions",
+            "icon": "blocks",
             "pages": [
-              "building-custom-integrations/install",
-              "building-custom-integrations/python",
-              "building-custom-integrations/yaml"
+              "custom-actions/install",
+              "custom-actions/sync",
+              "custom-actions/python",
+              "custom-actions/yaml"
             ]
           },
           {
             "group": "Self-hosting",
+            "icon": "server",
             "pages": [
               "self-hosting/docker-compose",
               "self-hosting/aws-fargate",
@@ -94,6 +104,7 @@
           },
           {
             "group": "Authentication",
+            "icon": "shield",
             "pages": [
               "authentication/basic",
               "authentication/saml",
@@ -107,6 +118,7 @@
         "groups": [
           {
             "group": "Tools",
+            "icon": "wrench",
             "pages": [
               "tools/abuseipdb",
               "tools/alertmedia",
@@ -186,8 +198,8 @@
     ]
   },
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "light": "/img/logos/light.svg",
+    "dark": "/img/logos/dark.svg"
   },
   "fonts": {
     "family": "Instrument Sans"

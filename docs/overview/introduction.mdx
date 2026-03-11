@@ -1,10 +1,23 @@
 ---
-title: "Introduction"
-description: "Welcome to Tracecat documentation"
+title: "Welcome to Tracecat"
 ---
 
-# Introduction
+import { Card, Columns } from "/snippets/components.mdx";
 
-Welcome to the Tracecat documentation.
+Tracecat is the AI-native security automation platform.
+Purpose-built for agents and open source for builders.
 
-Use this section to get oriented with the platform and core workflows.
+<Columns cols={2}>
+  <Card title="Automations" icon="workflow" href="/automations/overview">
+    Turn prompts into workflows, triggers, and tables via Tracecat MCP.
+  </Card>
+  <Card title="Agents" icon="sparkles" href="/agents/ai-agent">
+    Build AI assistants that call tools and 3rd-party MCPs to solve complex tasks.
+  </Card>
+  <Card title="Custom actions" icon="blocks" href="/custom-actions/install">
+    Build your own custom actions and sync them into Tracecat via git.
+  </Card>
+  <Card title="Self-hosting" icon="server" href="/self-hosting/docker-compose">
+    Deploy Tracecat into Docker, AWS Fargate, or Kubernetes (enterprise only).
+  </Card>
+</Columns>
