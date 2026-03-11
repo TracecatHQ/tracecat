@@ -328,7 +328,6 @@ function WorkflowSettingsPanel({
                     <Switch
                       checked={field.value}
                       onCheckedChange={(checked) => {
-                        field.onChange(checked)
                         void handleOutboundHttpInterceptionChange(checked)
                       }}
                       size="sm"
