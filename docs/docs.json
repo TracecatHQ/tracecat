@@ -14,45 +14,171 @@
         "tab": "Documentation",
         "groups": [
           {
-            "group": "Get started",
+            "group": "Overview",
             "pages": [
-              "get-started/welcome",
-              "get-started/getting-started"
+              "overview/introduction",
+              "overview/getting-started"
             ]
           },
           {
-            "group": "Core concepts",
+            "group": "Building workflows",
             "pages": [
+              "building-workflows/overview",
+              "building-workflows/mcp",
+              "building-workflows/expressions",
+              "building-workflows/jsonpath",
+              "building-workflows/functions",
+              "building-workflows/secrets",
+              "building-workflows/variables",
               {
-                "group": "Building agents",
+                "group": "Core actions",
                 "pages": [
-                  "core-concepts/building-agents/overview"
+                  "building-workflows/core-actions/http",
+                  "building-workflows/core-actions/reshape",
+                  "building-workflows/core-actions/email",
+                  "building-workflows/core-actions/python-script",
+                  "building-workflows/core-actions/for-each",
+                  "building-workflows/core-actions/scatter-gather-loops",
+                  "building-workflows/core-actions/subflows",
+                  "building-workflows/core-actions/data-transforms",
+                  "building-workflows/core-actions/cases",
+                  "building-workflows/core-actions/tables",
+                  "building-workflows/core-actions/sql"
                 ]
               },
               {
-                "group": "Building workflows",
+                "group": "Integrations",
                 "pages": [
-                  "core-concepts/building-workflows/overview"
+                  "building-workflows/oauth-integrations",
+                  "building-workflows/mcp-integrations",
+                  "building-workflows/prebuilt-credentials"
                 ]
               },
               {
-                "group": "Credentials",
+                "group": "Triggers",
                 "pages": [
-                  "core-concepts/credentials/overview"
-                ]
-              },
-              {
-                "group": "Custom integrations",
-                "pages": [
-                  "core-concepts/custom-integrations/overview"
+                  "building-workflows/triggers/webhooks",
+                  "building-workflows/triggers/schedules",
+                  "building-workflows/triggers/case-triggers",
+                  "building-workflows/triggers/comment-triggers"
                 ]
               }
             ]
           },
           {
-            "group": "Deployment",
+            "group": "Building agents",
             "pages": [
-              "deployment/overview"
+              "building-agents/ai-action",
+              "building-agents/ai-agent",
+              "building-agents/ai-preset-agent",
+              "building-agents/slackbot"
+            ]
+          }
+          ,
+          {
+            "group": "Building custom integrations",
+            "pages": [
+              "building-custom-integrations/install",
+              "building-custom-integrations/python",
+              "building-custom-integrations/yaml"
+            ]
+          },
+          {
+            "group": "Self-hosting",
+            "pages": [
+              "self-hosting/docker-compose",
+              "self-hosting/aws-fargate",
+              "self-hosting/kubernetes",
+              "self-hosting/environment-variables"
+            ]
+          },
+          {
+            "group": "Authentication",
+            "pages": [
+              "authentication/basic",
+              "authentication/saml",
+              "authentication/oidc"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Tools",
+        "groups": [
+          {
+            "group": "Tools",
+            "pages": [
+              "tools/abuseipdb",
+              "tools/alertmedia",
+              "tools/amazon_s3",
+              "tools/ansible",
+              "tools/anthropic",
+              "tools/anyrun",
+              "tools/azure_log_analytics",
+              "tools/aws_boto3",
+              "tools/bedrock",
+              "tools/caldera",
+              "tools/confluence",
+              "tools/crowdsec_cti",
+              "tools/crowdstrike",
+              "tools/crowdstrike_falconpy",
+              "tools/datadog",
+              "tools/elastic_security",
+              "tools/elasticsearch",
+              "tools/emailrep",
+              "tools/exa",
+              "tools/gemini",
+              "tools/github",
+              "tools/gmail",
+              "tools/google_api",
+              "tools/google_docs",
+              "tools/google_drive",
+              "tools/google_maps",
+              "tools/google_secops_detection",
+              "tools/google_secops_soar",
+              "tools/google_sheets",
+              "tools/gophish",
+              "tools/hackerone",
+              "tools/hibp",
+              "tools/hybrid_analysis",
+              "tools/ipinfo",
+              "tools/jira",
+              "tools/ldap3",
+              "tools/leakcheck",
+              "tools/linear",
+              "tools/microsoft_defender_endpoint",
+              "tools/microsoft_entra",
+              "tools/microsoft_sentinel",
+              "tools/microsoft_teams",
+              "tools/minio",
+              "tools/notion",
+              "tools/okta",
+              "tools/okta_oar",
+              "tools/ollama",
+              "tools/openai",
+              "tools/pagerduty",
+              "tools/panther",
+              "tools/phishlabs",
+              "tools/pymongo",
+              "tools/rootly",
+              "tools/runreveal",
+              "tools/sentinel_one",
+              "tools/sentry",
+              "tools/servicenow",
+              "tools/slack",
+              "tools/slack_sdk",
+              "tools/slackbot",
+              "tools/splunk",
+              "tools/sublime",
+              "tools/tavily",
+              "tools/tenable_sc",
+              "tools/terraform_cloud",
+              "tools/threatstream",
+              "tools/urlhaus",
+              "tools/urlscan",
+              "tools/virustotal",
+              "tools/wazuh",
+              "tools/zendesk"
             ]
           }
         ]
