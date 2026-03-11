@@ -326,6 +326,23 @@ class TestAgentPresetService:
         assert current_version.version == 1
         assert [version.version for version in versions.items] == [1]
 
+    async def test_create_preset_initial_version_keeps_model_catalog_ref(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        agent_preset_create_params.model_catalog_ref = "builtin:openai:test:gpt-5"
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+
+        current_version = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+
+        assert created_preset.model_catalog_ref == "builtin:openai:test:gpt-5"
+        assert current_version.model_catalog_ref == "builtin:openai:test:gpt-5"
+
     async def test_update_preset_execution_fields_create_new_version(
         self,
         agent_preset_service: AgentPresetService,
@@ -353,6 +370,50 @@ class TestAgentPresetService:
         assert [version.version for version in versions.items] == [2, 1]
         assert versions.items[0].instructions == "Updated instructions"
         assert versions.items[0].retries == 7
+
+    async def test_update_preset_versions_keep_model_catalog_ref(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        agent_preset_create_params.model_catalog_ref = "source:custom:test:qwen"
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+
+        updated_preset = await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(instructions="Updated instructions"),
+        )
+        current_version = await agent_preset_service.get_current_version_for_preset(
+            updated_preset
+        )
+
+        assert updated_preset.model_catalog_ref == "source:custom:test:qwen"
+        assert current_version.model_catalog_ref == "source:custom:test:qwen"
+
+    async def test_resolve_agent_preset_config_uses_head_catalog_ref_for_current_version(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        agent_preset_create_params.model_catalog_ref = "source:custom:test:qwen"
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        current_version = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+        current_version.model_catalog_ref = None
+        session.add(current_version)
+        await session.commit()
+
+        resolved = await agent_preset_service.resolve_agent_preset_config(
+            preset_id=created_preset.id
+        )
+
+        assert resolved.model_catalog_ref == "source:custom:test:qwen"
 
     async def test_list_versions_returns_cursor_paginated_versions(
         self,

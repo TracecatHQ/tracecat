@@ -655,7 +655,7 @@ function ChatModelSelectorBar({ selector }: { selector: ChatModelSelector }) {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="__default__">
-                Organization default · {selector.label}
+                Organization default · {selector.defaultLabel}
               </SelectItem>
               {selector.models?.map((model) => (
                 <SelectItem key={model.catalog_ref} value={model.catalog_ref}>

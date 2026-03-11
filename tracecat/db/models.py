@@ -1647,8 +1647,20 @@ class AgentDiscoveredModel(Base, TimestampMixin):
 
     __tablename__ = "agent_discovered_models"
     __table_args__ = (
-        UniqueConstraint("catalog_ref"),
         Index("ix_agent_discovered_models_source_id", "source_id"),
+        Index(
+            "uq_agent_discovered_models_catalog_ref_global",
+            "catalog_ref",
+            unique=True,
+            postgresql_where=text("organization_id IS NULL"),
+        ),
+        Index(
+            "uq_agent_discovered_models_organization_id_catalog_ref",
+            "organization_id",
+            "catalog_ref",
+            unique=True,
+            postgresql_where=text("organization_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
@@ -3259,6 +3271,12 @@ class AgentPresetVersion(WorkspaceModel):
     )
     model_provider: Mapped[str] = mapped_column(
         String(120), nullable=False, doc="LLM provider identifier"
+    )
+    model_catalog_ref: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        index=True,
+        doc="Optional enabled catalog reference used for execution",
     )
     base_url: Mapped[str | None] = mapped_column(
         String(500),

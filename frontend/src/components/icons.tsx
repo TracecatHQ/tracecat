@@ -532,7 +532,7 @@ export const providerIcons: Record<
   ),
   vllm: ({ className, ...rest }) => (
     <div className={className}>
-      <Cpu {...rest} />
+      <VllmIcon {...rest} />
     </div>
   ),
   "manual-custom-source": ({ className, ...rest }) => (
@@ -1140,6 +1140,24 @@ export function OllamaIcon({ className, ...rest }: IconProps) {
         d="M478.153 364.982C469.755 367.25 462.276 373.502 458.291 381.717L455.717 386.989L455.778 394.345C455.778 401.211 455.901 402.069 457.862 406.911C460.56 413.777 463.257 418.007 468.222 422.85C476.743 431.309 486.367 433.516 499.241 430.145C506.658 428.183 514.075 421.93 517.631 414.635C520.696 408.444 521.431 403.969 520.451 396.919C518.183 380.797 508.742 369.089 494.704 364.982C490.597 363.756 482.628 363.756 478.153 364.982Z"
         fill="black"
       />
+    </svg>
+  )
+}
+
+export function VllmIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      role="img"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      {...rest}
+    >
+      <rect x="2" y="2" width="20" height="20" rx="5" fill="#111827" />
+      <path d="M5.5 7.5h2.3l2 6.3 2-6.3h2.2l-3.3 9h-1.8z" fill="#F8FAFC" />
+      <rect x="14.8" y="8" width="1.5" height="8" rx="0.75" fill="#60A5FA" />
+      <rect x="17.2" y="8" width="1.5" height="8" rx="0.75" fill="#34D399" />
+      <rect x="19.6" y="8" width="1.5" height="8" rx="0.75" fill="#FBBF24" />
     </svg>
   )
 }
