@@ -67,6 +67,20 @@ def test_resolve_site_packages_path_falls_back_to_sysconfig() -> None:
     assert _resolve_site_packages_path([]) == fallback
 
 
+def test_resolve_timeout_ms_rejects_unsupported_timeout_objects() -> None:
+    class UnsupportedTimeout:
+        connect = "slow"
+        read = "slower"
+
+    with pytest.raises(
+        outbound_http_gateway_sitecustomize_module.TracecatOutboundHTTPGatewayError,
+        match="Unsupported timeout value",
+    ):
+        outbound_http_gateway_sitecustomize_module._resolve_timeout_ms(
+            UnsupportedTimeout()
+        )
+
+
 @contextmanager
 def _mock_gateway() -> Any:
     """Start a local HTTP server that mimics the outbound HTTP gateway.

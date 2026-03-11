@@ -166,7 +166,7 @@ def _resolve_timeout_ms(value: object) -> int | None:
         ]
         if numeric_values:
             return max(int(max(numeric_values) * 1000), 0)
-        raise TracecatOutboundHTTPGatewayError(f"Unsupported timeout value: {value!r}")
+    raise TracecatOutboundHTTPGatewayError(f"Unsupported timeout value: {value!r}")
 
 
 def _resolve_httpx_timeout_ms(request: object, client: object) -> int | None:
