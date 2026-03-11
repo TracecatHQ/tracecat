@@ -1,0 +1,25 @@
+tests/unit/test_registry_repositories_router.py
+  baffc6a2ebfc68d0 1-77
+tracecat/registry/repositories/router.py
+  baffc6a2ebfc68d0 457-465,523-524,526-533
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "3170835bbed75f8255c140843c18f02422690f87",
+  "prompts": {
+    "baffc6a2ebfc68d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cdeec-fae6-79a3-b6c1-cc4789af8824",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 228,
+      "total_deletions": 64,
+      "accepted_lines": 172,
+      "overriden_lines": 0
+    }
+  }
+}
