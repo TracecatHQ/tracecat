@@ -1,0 +1,39 @@
+name: API Governance
+on:
+  pull_request:
+    paths:
+      - 'docs/openapi.yml'
+      - '**/*.py'
+
+jobs:
+  api-governance:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+
+      - name: Checkout base branch spec
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: _base
+
+      - name: Check for spec changes
+        id: check
+        run: |
+          if [ -f "docs/openapi.yml" ] && [ -f "_base/docs/openapi.yml" ]; then
+            echo "old_spec=_base/docs/openapi.yml" >> "$GITHUB_OUTPUT"
+            echo "new_spec=docs/openapi.yml" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
+
+      - name: Delimit — Lint API changes
+        if: steps.check.outputs.skip != 'true'
+        uses: delimit-ai/delimit@v1
+        with:
+          old_spec: ${{ steps.check.outputs.old_spec }}
+          new_spec: ${{ steps.check.outputs.new_spec }}
+          mode: advisory
