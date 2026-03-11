@@ -258,6 +258,23 @@ class TestActionRunner:
         # S3 keys are case-sensitive, so different cases should produce different keys
         assert key1 != key2
 
+    def test_build_action_env_map_preserves_registry_pythonpath_when_user_value_empty(
+        self, tmp_path: Path
+    ) -> None:
+        executor = NsjailExecutor()
+        registry_path = tmp_path / "registry"
+        registry_path.mkdir()
+
+        env_map = executor._build_action_env_map(
+            ActionSandboxConfig(
+                registry_paths=[registry_path],
+                tracecat_app_dir=tmp_path,
+                env_vars={"PYTHONPATH": ""},
+            )
+        )
+
+        assert env_map["PYTHONPATH"] == "/packages/0"
+
     def test_compute_tarball_cache_key_different_uris(self, temp_cache_dir):
         """Test that different URIs produce different cache keys."""
         runner = ActionRunner(cache_dir=temp_cache_dir)
