@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import os
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -13,6 +15,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+import aiohttp
+import httpx
 import pytest
 
 from tracecat.executor import (
@@ -23,6 +27,25 @@ from tracecat.executor import (
 )
 
 _SITE_PACKAGES = next(path for path in sys.path if "site-packages" in path)
+
+
+async def _count_event_loop_ticks(awaitable: Any) -> tuple[Any, int]:
+    ticks = 0
+    stop = asyncio.Event()
+
+    async def ticker() -> None:
+        nonlocal ticks
+        while not stop.is_set():
+            ticks += 1
+            await asyncio.sleep(0.01)
+
+    ticker_task = asyncio.create_task(ticker())
+    try:
+        result = await awaitable
+    finally:
+        stop.set()
+        await ticker_task
+    return result, ticks
 
 
 @contextmanager
@@ -358,3 +381,79 @@ print(json.dumps({{
     payload = json.loads(completed.stdout.strip())
     assert payload == {"status": 200, "body": {"ok": True}, "patched": True}
     assert len(state["requests"]) == 1
+
+
+@pytest.mark.anyio
+async def test_httpx_async_patch_offloads_gateway_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request_url = "https://example.com/test"
+    original_sync_send = httpx.Client.send
+    original_async_send = httpx.AsyncClient.send
+
+    def fake_dispatch(**_: Any) -> dict[str, Any]:
+        time.sleep(0.1)
+        return {
+            "status_code": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": b'{"ok":true}',
+            "url": request_url,
+            "reason_phrase": "OK",
+        }
+
+    monkeypatch.setattr(
+        outbound_http_gateway_sitecustomize_module,
+        "_dispatch_to_gateway",
+        fake_dispatch,
+    )
+    outbound_http_gateway_sitecustomize_module._patch_httpx(httpx)
+    try:
+        async with httpx.AsyncClient() as client:
+            response, ticks = await _count_event_loop_ticks(client.get(request_url))
+    finally:
+        httpx.Client.send = original_sync_send
+        httpx.AsyncClient.send = original_async_send
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert ticks >= 3
+
+
+@pytest.mark.anyio
+async def test_aiohttp_async_patch_offloads_gateway_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request_url = "https://example.com/test"
+    original_request = aiohttp.ClientSession._request
+
+    def fake_dispatch(**_: Any) -> dict[str, Any]:
+        time.sleep(0.1)
+        return {
+            "status_code": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": b'{"ok":true}',
+            "url": request_url,
+            "reason_phrase": "OK",
+        }
+
+    monkeypatch.setattr(
+        outbound_http_gateway_sitecustomize_module,
+        "_dispatch_to_gateway",
+        fake_dispatch,
+    )
+    outbound_http_gateway_sitecustomize_module._patch_aiohttp(aiohttp)
+    try:
+        async with aiohttp.ClientSession() as session:
+
+            async def make_request() -> tuple[int, dict[str, Any]]:
+                async with session.get(request_url) as response:
+                    return response.status, await response.json()
+
+            result, ticks = await _count_event_loop_ticks(make_request())
+    finally:
+        aiohttp.ClientSession._request = original_request
+
+    status_code, payload = result
+    assert status_code == 200
+    assert payload == {"ok": True}
+    assert ticks >= 3

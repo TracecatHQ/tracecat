@@ -11,6 +11,7 @@ It is intentionally self-contained and must not import ``tracecat``.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import contextvars
 import email.message
@@ -332,6 +333,10 @@ def _dispatch_to_gateway(
     }
 
 
+async def _dispatch_to_gateway_async(**kwargs: object) -> _GatewayDispatchResponse:
+    return await asyncio.to_thread(_dispatch_to_gateway, **kwargs)
+
+
 def _build_requests_response(
     requests_module: types.ModuleType,
     prepared_request: object,
@@ -596,7 +601,7 @@ def _patch_httpx(httpx_module: types.ModuleType) -> None:
                 "Streaming responses are not supported with outbound HTTP interception"
             )
         body = await request.aread()
-        envelope = _dispatch_to_gateway(
+        envelope = await _dispatch_to_gateway_async(
             method=request.method,
             url=request_url,
             headers=request.headers,
@@ -767,7 +772,7 @@ def _patch_aiohttp(aiohttp_module: types.ModuleType) -> None:
         )
         if content_type and "Content-Type" not in headers:
             headers["Content-Type"] = content_type
-        envelope = _dispatch_to_gateway(
+        envelope = await _dispatch_to_gateway_async(
             method=method.upper(),
             url=url,
             headers=headers,
