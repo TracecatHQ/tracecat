@@ -276,7 +276,8 @@ async def test_bucket(minio_client: Minio, mock_org_id: uuid.UUID):
         if not minio_client.bucket_exists(bucket_name):
             minio_client.make_bucket(bucket_name)
     except S3Error as e:
-        pytest.fail(f"Failed to ensure test MinIO bucket '{bucket_name}': {e}")
+        if e.code not in {"BucketAlreadyOwnedByYou", "BucketAlreadyExists"}:
+            pytest.fail(f"Failed to ensure test MinIO bucket '{bucket_name}': {e}")
 
     yield bucket_name
 

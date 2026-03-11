@@ -350,7 +350,7 @@ class Membership(Base):
     )
     workspace_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("workspace.id"),
+        ForeignKey("workspace.id", ondelete="CASCADE"),
         primary_key=True,
     )
 
