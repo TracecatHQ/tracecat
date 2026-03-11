@@ -1,168 +1,239 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "palm",
-  "name": "Tracecat | Documentation",
+  "theme": "aspen",
+  "name": "Tracecat Docs",
   "colors": {
-    "primary": "#6F9954",
-    "light": "#C1DEAF",
-    "dark": "#111011"
+    "primary": "#6E7ED8",
+    "light": "#8E9BE1",
+    "dark": "#465ACE"
   },
-  "favicon": "/favicon.png",
+  "favicon": "/favicon.svg",
+  "icons": {
+    "library": "lucide"
+  },
   "navigation": {
     "tabs": [
       {
         "tab": "Documentation",
         "groups": [
           {
-            "group": "Get Started",
+            "group": "Overview",
+            "icon": "flag",
             "pages": [
-              "introduction",
-              "quickstart/install",
-              "quickstart/admin",
-              "quickstart/tutorial",
-              "quickstart/core-actions",
-              "quickstart/script-actions",
-              "quickstart/control-flow",
-              "quickstart/expressions",
-              "quickstart/secrets"
+              "overview/introduction",
+              "overview/getting-started"
             ]
           },
           {
-            "group": "Tutorials",
+            "group": "Building automations",
+            "icon": "workflow",
             "pages": [
-              "tutorials/workflow-triggers",
-              "tutorials/child-workflows",
-              "tutorials/data-transforms",
-              "tutorials/scatter-gather",
-              "tutorials/wait-retry-until",
-              "tutorials/custom-integrations",
-              "tutorials/alert-on-failure"
+              "automations/overview",
+              "automations/mcp",
+              "automations/expressions",
+              "automations/jsonpath",
+              "automations/functions",
+              "automations/secrets",
+              "automations/variables",
+              "automations/tables",
+              {
+                "group": "Core actions",
+                "pages": [
+                  "automations/core-actions/http",
+                  "automations/core-actions/reshape",
+                  "automations/core-actions/email",
+                  "automations/core-actions/python-script",
+                  "automations/core-actions/for-each",
+                  "automations/core-actions/scatter-gather-loops",
+                  "automations/core-actions/subflows",
+                  "automations/core-actions/data-transforms",
+                  "automations/core-actions/cases",
+                  "automations/core-actions/tables",
+                  "automations/core-actions/sql"
+                ]
+              },
+              {
+                "group": "Integrations",
+                "pages": [
+                  "automations/oauth-integrations",
+                  "automations/mcp-integrations",
+                  "automations/prebuilt-credentials"
+                ]
+              },
+              {
+                "group": "Triggers",
+                "pages": [
+                  "automations/triggers/webhooks",
+                  "automations/triggers/schedules",
+                  "automations/triggers/case-triggers",
+                  "automations/triggers/comment-triggers"
+                ]
+              }
             ]
           },
           {
-            "group": "Self Host",
+            "group": "Building agents",
+            "icon": "sparkles",
             "pages": [
-              "self-hosting/overview",
-              {
-                "group": "Deployments",
-                "pages": [
-                  "self-hosting/deployment-options/docker-compose",
-                  "self-hosting/deployment-options/aws-ecs"
-                ]
-              },
-              {
-                "group": "Authentication",
-                "pages": [
-                  "self-hosting/authentication/overview",
-                  "self-hosting/authentication/basic",
-                  "self-hosting/authentication/google-oauth",
-                  "self-hosting/authentication/saml-sso"
-                ]
-              },
-              "self-hosting/updating"
+              "agents/ai-action",
+              "agents/ai-agent",
+              "agents/ai-preset-agent",
+              "agents/slackbot"
+            ]
+          }
+          ,
+          {
+            "group": "Building custom actions",
+            "icon": "blocks",
+            "pages": [
+              "custom-actions/install",
+              "custom-actions/sync",
+              "custom-actions/python",
+              "custom-actions/yaml"
+            ]
+          },
+          {
+            "group": "Self-hosting",
+            "icon": "server",
+            "pages": [
+              "self-hosting/docker-compose",
+              "self-hosting/aws-fargate",
+              "self-hosting/kubernetes",
+              "self-hosting/environment-variables"
+            ]
+          },
+          {
+            "group": "Authentication",
+            "icon": "shield",
+            "pages": [
+              "authentication/basic",
+              "authentication/saml",
+              "authentication/oidc"
             ]
           }
         ]
       },
       {
-        "tab": "Integrations",
+        "tab": "Tools",
         "groups": [
           {
-            "group": "Integrations",
+            "group": "Tools",
+            "icon": "wrench",
             "pages": [
-              "integrations/overview",
-              "integrations/action-templates",
-              "integrations/python-udfs",
-              "integrations/development",
-              "integrations/openapi-converter",
-              "integrations/oauth-integrations"
+              "tools/abuseipdb",
+              "tools/alertmedia",
+              "tools/amazon_s3",
+              "tools/ansible",
+              "tools/anthropic",
+              "tools/anyrun",
+              "tools/azure_log_analytics",
+              "tools/aws_boto3",
+              "tools/bedrock",
+              "tools/caldera",
+              "tools/confluence",
+              "tools/crowdsec_cti",
+              "tools/crowdstrike",
+              "tools/crowdstrike_falconpy",
+              "tools/datadog",
+              "tools/elastic_security",
+              "tools/elasticsearch",
+              "tools/emailrep",
+              "tools/exa",
+              "tools/gemini",
+              "tools/github",
+              "tools/gmail",
+              "tools/google_api",
+              "tools/google_docs",
+              "tools/google_drive",
+              "tools/google_maps",
+              "tools/google_secops_detection",
+              "tools/google_secops_soar",
+              "tools/google_sheets",
+              "tools/gophish",
+              "tools/hackerone",
+              "tools/hibp",
+              "tools/hybrid_analysis",
+              "tools/ipinfo",
+              "tools/jira",
+              "tools/ldap3",
+              "tools/leakcheck",
+              "tools/linear",
+              "tools/microsoft_defender_endpoint",
+              "tools/microsoft_entra",
+              "tools/microsoft_sentinel",
+              "tools/microsoft_teams",
+              "tools/minio",
+              "tools/notion",
+              "tools/okta",
+              "tools/okta_oar",
+              "tools/ollama",
+              "tools/openai",
+              "tools/pagerduty",
+              "tools/panther",
+              "tools/phishlabs",
+              "tools/pymongo",
+              "tools/rootly",
+              "tools/runreveal",
+              "tools/sentinel_one",
+              "tools/sentry",
+              "tools/servicenow",
+              "tools/slack",
+              "tools/slack_sdk",
+              "tools/slackbot",
+              "tools/splunk",
+              "tools/sublime",
+              "tools/tavily",
+              "tools/tenable_sc",
+              "tools/terraform_cloud",
+              "tools/threatstream",
+              "tools/urlhaus",
+              "tools/urlscan",
+              "tools/virustotal",
+              "tools/wazuh",
+              "tools/zendesk"
             ]
-          }
-        ]
-      },
-      {
-        "tab": "Cheatsheets",
-        "pages": [
-          "cheatsheets/functions",
-          "cheatsheets/integrations",
-          "cheatsheets/yaml",
-          "cheatsheets/jsonpath"
-        ]
-      },
-      {
-        "tab": "API Reference",
-        "groups": [
-          {
-            "group": "REST API",
-            "pages": [
-              "api-reference/overview"
-            ]
-          },
-          {
-            "group": "Endpoints",
-            "openapi": "/openapi.yml"
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Website",
-          "href": "https://tracecat.com",
-          "icon": "globe"
-        },
-        {
-          "anchor": "Get Live Help",
-          "href": "https://cal.com/team/tracecat/onboarding",
-          "icon": "headphones"
-        },
-        {
-          "anchor": "Join Discord",
-          "href": "https://discord.gg/n3GF4qxFU8",
-          "icon": "discord"
-        }
-      ]
-    }
+    ]
   },
-  "redirects": [
-    {
-      "source": "/self-hosting/introduction",
-      "destination": "/self-hosting/overview"
-    },
-    {
-      "source": "/self-hosting/authentication/introduction",
-      "destination": "/self-hosting/authentication/overview"
-    },
-    {
-      "source": "/tutorials/1-quickstart",
-      "destination": "/quickstart/tutorial"
-    }
-  ],
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "light": "/img/logos/light.svg",
+    "dark": "/img/logos/dark.svg"
   },
-  "appearance": {
-    "default": "light"
-  },
-  "background": {
-    "color": {
-      "light": "#FFFFFF",
-      "dark": "#111011"
-    }
+  "fonts": {
+    "family": "Instrument Sans"
   },
   "navbar": {
-    "links": [],
+    "links": [
+      {
+        "label": "Support",
+        "href": "mailto:hi@mintlify.com"
+      }
+    ],
     "primary": {
-      "type": "github",
-      "href": "https://github.com/TracecatHQ/tracecat"
+      "type": "button",
+      "label": "Dashboard",
+      "href": "https://dashboard.mintlify.com"
     }
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "perplexity",
+      "mcp",
+      "cursor",
+      "vscode"
+    ]
   },
   "footer": {
     "socials": {
-      "discord": "https://discord.gg/n3GF4qxFU8",
-      "github": "https://github.com/TracecatHQ/tracecat"
+      "x": "https://x.com/mintlify",
+      "github": "https://github.com/mintlify",
+      "linkedin": "https://linkedin.com/company/mintlify"
     }
   }
 }

@@ -1,0 +1,71 @@
+---
+title: Setup your Git repo
+---
+
+import DeploymentNote from "/snippets/deployment-note.mdx";
+import PublicUrlNote from "/snippets/public-url-note.mdx";
+import BasicAuthWarning from "/snippets/basic-auth-warning.mdx";
+
+<Info>
+  The following is a quickstart guide. Need more help? Check out Tracecat's full
+  [self-hosting guide](/self-hosting/overview).
+</Info>
+
+Tracecat supports three deployment options:
+
+- Docker Compose
+- AWS Fargate via Terraform
+- Kubernetes via Helm (coming soon)
+
+### Docker Compose
+
+<DeploymentNote />
+
+Deploy a local Tracecat stack using Docker Compose. View step-by-step instructions [here](https://docs.tracecat.com/self-hosting/deployment-options/docker-compose).
+
+<BasicAuthWarning />
+
+```bash
+# 1. setup .env configs and secrets (you'll be prompted for superadmin email)
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.17/env.sh
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.17/.env.example
+chmod +x env.sh && ./env.sh
+
+# 2. download caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.17/Caddyfile
+
+# 3. download docker compose file
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.17/docker-compose.yml
+
+# Run tracecat
+docker compose up -d
+```
+
+<PublicUrlNote />
+
+Check out the generated `.env` file to better understand Tracecat's configurations.
+You can also view the template `.env.example` file [here](https://github.com/TracecatHQ/tracecat/blob/1.0.0-beta.17/.env.example).
+
+### AWS Fargate
+
+**For advanced users:** deploy a production-ready Tracecat stack on AWS Fargate using Terraform. View step-by-step instructions [here](https://docs.tracecat.com/self-hosting/deployment-options/aws-ecs).
+
+```bash
+# Download terraform files
+git clone https://github.com/TracecatHQ/terraform-fargate
+
+# Create and add encryption keys to AWS secrets manager
+./scripts/create-aws-secrets.sh
+
+# Run terraform to deploy tracecat
+terraform init
+terraform apply
+```
+
+### Kubernetes
+
+Coming soon.
+
+## Next steps
+
+Learn how to [log into Tracecat](/quickstart/admin) and create your [first workflow](/quickstart/tutorial).
