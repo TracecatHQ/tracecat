@@ -116,6 +116,7 @@ from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerConfig,
     CaseTriggerRead,
     CaseTriggerUpdate,
+    is_case_trigger_configured,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.service import WorkflowExecutionsService
@@ -1683,11 +1684,19 @@ async def get_workflow(
                 case_trigger = await CaseTriggersService(
                     svc.session, role=role
                 ).get_case_trigger(wf_id)
-                payload["case_trigger"] = {
-                    "status": case_trigger.status,
-                    "event_types": case_trigger.event_types,
-                    "tag_filters": case_trigger.tag_filters,
-                }
+                payload["case_trigger"] = (
+                    {
+                        "status": case_trigger.status,
+                        "event_types": case_trigger.event_types,
+                        "tag_filters": case_trigger.tag_filters,
+                    }
+                    if is_case_trigger_configured(
+                        status=case_trigger.status,
+                        event_types=case_trigger.event_types,
+                        tag_filters=case_trigger.tag_filters,
+                    )
+                    else None
+                )
             except TracecatNotFoundError:
                 payload["case_trigger"] = None
             except Exception as e:

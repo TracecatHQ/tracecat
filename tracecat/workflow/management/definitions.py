@@ -34,8 +34,9 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
                 WorkflowDefinition.workflow_id == workflow_id,
             )
             .options(
-                selectinload(WorkflowDefinition.workflow).selectinload(
-                    Workflow.case_trigger
+                selectinload(WorkflowDefinition.workflow).options(
+                    selectinload(Workflow.case_trigger),
+                    selectinload(Workflow.actions),
                 )
             )
         )

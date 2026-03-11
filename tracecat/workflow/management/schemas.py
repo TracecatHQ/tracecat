@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
@@ -22,7 +23,10 @@ from tracecat.tags.schemas import TagRead
 from tracecat.validation.schemas import ValidationResult
 from tracecat.webhooks.schemas import WebhookRead
 from tracecat.workflow.actions.schemas import ActionRead
-from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
+from tracecat.workflow.case_triggers.schemas import (
+    CaseTriggerConfig,
+    is_case_trigger_configured,
+)
 from tracecat.workflow.schedules.schemas import ScheduleRead
 
 
@@ -204,6 +208,7 @@ class ExternalWorkflowDefinition(BaseModel):
     )
     version: int = Field(default=1, gt=0)
     definition: DSLInput
+    layout: WorkflowLayout | None = None
     case_trigger: CaseTriggerConfig | None = None
 
     @staticmethod
@@ -213,13 +218,19 @@ class ExternalWorkflowDefinition(BaseModel):
         case_trigger: CaseTriggerConfig | None = None,
     ) -> ExternalWorkflowDefinition:
         if case_trigger is None and defn.workflow and defn.workflow.case_trigger:
-            case_trigger = CaseTriggerConfig.model_validate(
-                {
-                    "status": defn.workflow.case_trigger.status,
-                    "event_types": defn.workflow.case_trigger.event_types,
-                    "tag_filters": defn.workflow.case_trigger.tag_filters,
-                }
-            )
+            workflow_case_trigger = defn.workflow.case_trigger
+            if is_case_trigger_configured(
+                status=workflow_case_trigger.status,
+                event_types=workflow_case_trigger.event_types,
+                tag_filters=workflow_case_trigger.tag_filters,
+            ):
+                case_trigger = CaseTriggerConfig.model_validate(
+                    {
+                        "status": workflow_case_trigger.status,
+                        "event_types": workflow_case_trigger.event_types,
+                        "tag_filters": workflow_case_trigger.tag_filters,
+                    }
+                )
         return ExternalWorkflowDefinition(
             workspace_id=defn.workspace_id,
             workflow_id=WorkflowUUID.new(defn.workflow_id),
@@ -227,6 +238,9 @@ class ExternalWorkflowDefinition(BaseModel):
             updated_at=defn.updated_at,
             version=defn.version,
             definition=DSLInput.model_validate(defn.content),
+            layout=WorkflowLayout.from_workflow(defn.workflow)
+            if defn.workflow
+            else None,
             case_trigger=case_trigger,
         )
 
@@ -237,6 +251,117 @@ class ExternalWorkflowDefinition(BaseModel):
         if v is None:
             return None
         return WorkflowUUID.new(v)
+
+    def extract_layout_positions(
+        self,
+    ) -> tuple[
+        tuple[float, float] | None,
+        tuple[float, float, float] | None,
+        dict[str, tuple[float, float]] | None,
+    ]:
+        if self.layout is None:
+            return None, None, None
+        return self.layout.extract_positions()
+
+
+class WorkflowLayoutPosition(BaseModel):
+    x: float | None = None
+    y: float | None = None
+    position: dict[str, float] | None = None
+
+    @field_validator("position")
+    @classmethod
+    def validate_position(
+        cls, value: dict[str, float] | None
+    ) -> dict[str, float] | None:
+        if value is None:
+            return None
+        return {
+            key: coordinate for key, coordinate in value.items() if key in {"x", "y"}
+        }
+
+    @field_validator("x", "y", mode="before")
+    @classmethod
+    def coerce_coordinate(cls, value: Any) -> float | None:
+        if value is None:
+            return None
+        return float(value)
+
+    def resolved(self) -> tuple[float, float]:
+        x = self.x
+        y = self.y
+        if self.position is not None:
+            if x is None:
+                x = self.position.get("x")
+            if y is None:
+                y = self.position.get("y")
+        return (x if x is not None else 0.0, y if y is not None else 0.0)
+
+
+class WorkflowLayoutViewport(BaseModel):
+    x: float | None = None
+    y: float | None = None
+    zoom: float | None = None
+
+
+class WorkflowLayoutActionPosition(WorkflowLayoutPosition):
+    ref: str
+
+
+class WorkflowLayout(BaseModel):
+    trigger: WorkflowLayoutPosition | None = None
+    viewport: WorkflowLayoutViewport | None = None
+    actions: list[WorkflowLayoutActionPosition] = Field(default_factory=list)
+
+    @classmethod
+    def from_workflow(cls, workflow: Workflow) -> WorkflowLayout:
+        return cls(
+            trigger=WorkflowLayoutPosition(
+                x=workflow.trigger_position_x,
+                y=workflow.trigger_position_y,
+            ),
+            viewport=WorkflowLayoutViewport(
+                x=workflow.viewport_x,
+                y=workflow.viewport_y,
+                zoom=workflow.viewport_zoom,
+            ),
+            actions=[
+                WorkflowLayoutActionPosition(
+                    ref=action.ref,
+                    x=action.position_x,
+                    y=action.position_y,
+                )
+                for action in _iter_sorted_actions(workflow.actions or [])
+            ],
+        )
+
+    def extract_positions(
+        self,
+    ) -> tuple[
+        tuple[float, float] | None,
+        tuple[float, float, float] | None,
+        dict[str, tuple[float, float]] | None,
+    ]:
+        trigger_position = self.trigger.resolved() if self.trigger is not None else None
+        viewport = (
+            (
+                self.viewport.x if self.viewport.x is not None else 0.0,
+                self.viewport.y if self.viewport.y is not None else 0.0,
+                self.viewport.zoom if self.viewport.zoom is not None else 1.0,
+            )
+            if self.viewport is not None
+            else None
+        )
+        action_positions = (
+            {action.ref: action.resolved() for action in self.actions}
+            if self.actions
+            else None
+        )
+        return trigger_position, viewport, action_positions
+
+
+def _iter_sorted_actions(actions: Iterable[Any]) -> list[Any]:
+    return sorted(actions, key=lambda action: action.ref)
 
 
 class WorkflowCommitResponse(BaseModel):
