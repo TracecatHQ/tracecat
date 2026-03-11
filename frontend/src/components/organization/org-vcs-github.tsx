@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
+  AlertTriangleIcon,
   CheckCircle2Icon,
   ExternalLinkIcon,
   GithubIcon,
@@ -104,6 +105,7 @@ export function GitHubAppSetup() {
   }, [])
 
   const isConfigured = credentialsStatus?.exists ?? false
+  const isCorrupted = credentialsStatus?.is_corrupted ?? false
 
   const handleFormSuccess = () => {
     setDialogOpen(false)
@@ -143,7 +145,9 @@ export function GitHubAppSetup() {
     <>
       <div className="flex items-center justify-between rounded-lg border p-4">
         <div className="flex items-center gap-3">
-          {isConfigured ? (
+          {isCorrupted ? (
+            <AlertTriangleIcon className="size-5 text-amber-500" />
+          ) : isConfigured ? (
             <CheckCircle2Icon className="size-5 text-green-500" />
           ) : (
             <GithubIcon className="size-5 text-muted-foreground" />
@@ -151,7 +155,9 @@ export function GitHubAppSetup() {
           <div>
             <p className="text-sm font-medium">GitHub</p>
             <p className="text-xs text-muted-foreground">
-              {isConfigured ? (
+              {isCorrupted ? (
+                "Stored credentials are unreadable. Re-enter the GitHub App credentials to reconnect."
+              ) : isConfigured ? (
                 <>
                   App ID: {credentialsStatus?.app_id}
                   {credentialsStatus?.has_webhook_secret
@@ -175,7 +181,7 @@ export function GitHubAppSetup() {
                 size="sm"
                 onClick={() => setDialogOpen(true)}
               >
-                Update
+                {isCorrupted ? "Reconnect" : "Update"}
               </Button>
               <Button
                 variant="destructive"
@@ -198,6 +204,7 @@ export function GitHubAppSetup() {
         onOpenChange={setDialogOpen}
         manifest={manifest}
         onFormSuccess={handleFormSuccess}
+        hasStoredCredentials={isConfigured}
         existingAppId={
           isConfigured ? credentialsStatus?.app_id || undefined : undefined
         }
@@ -235,12 +242,14 @@ function GitHubConnectionDialog({
   onOpenChange,
   manifest,
   onFormSuccess,
+  hasStoredCredentials,
   existingAppId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   manifest: { manifest: Record<string, unknown> } | undefined
   onFormSuccess: () => void
+  hasStoredCredentials: boolean
   existingAppId?: string
 }) {
   const { toast } = useToast()
@@ -316,7 +325,7 @@ function GitHubConnectionDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {existingAppId ? "Update GitHub App" : "Connect GitHub App"}
+            {hasStoredCredentials ? "Update GitHub App" : "Connect GitHub App"}
           </DialogTitle>
         </DialogHeader>
         <Tabs defaultValue="create" className="w-full">
@@ -378,6 +387,7 @@ function GitHubConnectionDialog({
             <GitHubAppManualForm
               onSuccess={onFormSuccess}
               existingAppId={existingAppId}
+              hasStoredCredentials={hasStoredCredentials}
             />
           </TabsContent>
         </Tabs>
