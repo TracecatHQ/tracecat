@@ -181,12 +181,11 @@ TRACECAT__DB_POOL_RECYCLE = int(os.environ.get("TRACECAT__DB_POOL_RECYCLE") or 6
 # Infrastructure config
 def _parse_auth_types() -> set[AuthType]:
     auth_types: set[AuthType] = set()
-    raw_auth_types = os.environ.get("TRACECAT__AUTH_TYPES")
-    configured_auth_types = (
-        raw_auth_types if raw_auth_types is not None else AuthType.BASIC.value
-    )
+    raw_auth_types = os.environ.get("TRACECAT__AUTH_TYPES", "").strip()
+    if not raw_auth_types:
+        return {AuthType.BASIC}
 
-    for auth_type in configured_auth_types.split(","):
+    for auth_type in raw_auth_types.split(","):
         if not (t := auth_type.strip().lower()):
             continue
         if t == "google_oauth":

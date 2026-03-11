@@ -103,11 +103,9 @@ def test_config_rejects_empty_auth_types(monkeypatch) -> None:
     with monkeypatch.context() as env:
         env.setenv("TRACECAT__AUTH_TYPES", "")
         env.delenv("OIDC_ISSUER", raising=False)
-        with pytest.raises(
-            ValueError,
-            match="TRACECAT__AUTH_TYPES must include at least one supported auth type",
-        ):
-            importlib.reload(config)
+        importlib.reload(config)
+
+        assert config.TRACECAT__AUTH_TYPES == {AuthType.BASIC}
 
     importlib.reload(config)
 
