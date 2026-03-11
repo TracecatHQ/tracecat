@@ -30,7 +30,7 @@ async def test_verify_auth_type_invalid_type():
         ),
         pytest.param(
             AuthType.SAML,
-            [AuthType.GOOGLE_OAUTH, AuthType.BASIC],
+            [AuthType.OIDC, AuthType.BASIC],
             id="saml_auth",
         ),
     ],
@@ -77,7 +77,7 @@ async def test_verify_auth_type_invalid_setting(mocker: MockerFixture):
 
 @pytest.mark.parametrize(
     "auth_type",
-    [AuthType.BASIC, AuthType.OIDC, AuthType.GOOGLE_OAUTH],
+    [AuthType.BASIC, AuthType.OIDC],
 )
 @pytest.mark.anyio
 async def test_verify_auth_type_non_saml_is_platform_controlled(
@@ -125,12 +125,12 @@ async def test_require_any_auth_type_enabled_succeeds_on_first_match(
     """First matching auth type is accepted without further checks."""
     mocker.patch(
         "tracecat.config.TRACECAT__AUTH_TYPES",
-        [AuthType.OIDC, AuthType.GOOGLE_OAUTH],
+        [AuthType.OIDC],
     )
     verify_mock = mocker.patch(
         "tracecat.auth.dependencies.verify_auth_type",
     )
-    dependency = require_any_auth_type_enabled([AuthType.OIDC, AuthType.GOOGLE_OAUTH])
+    dependency = require_any_auth_type_enabled([AuthType.OIDC])
     check_any = dependency.dependency
     assert check_any is not None
 
@@ -147,9 +147,9 @@ async def test_require_any_auth_type_enabled_rejects_when_none_allowed(
     """Raises 403 when no candidate auth type is in the allowed list."""
     mocker.patch(
         "tracecat.config.TRACECAT__AUTH_TYPES",
-        [AuthType.BASIC],  # Neither OIDC nor Google OAuth
+        [AuthType.BASIC],
     )
-    dependency = require_any_auth_type_enabled([AuthType.OIDC, AuthType.GOOGLE_OAUTH])
+    dependency = require_any_auth_type_enabled([AuthType.OIDC])
     check_any = dependency.dependency
     assert check_any is not None
 

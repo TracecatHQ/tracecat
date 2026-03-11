@@ -4,8 +4,8 @@
 # 3. TRACECAT__SIGNING_SECRET
 #
 # Optional secrets:
-# 1. OAUTH_CLIENT_ID
-# 2. OAUTH_CLIENT_SECRET
+# 1. OAUTH_CLIENT_ID (legacy OIDC alias)
+# 2. OAUTH_CLIENT_SECRET (legacy OIDC alias)
 
 ### Required secrets
 data "aws_secretsmanager_secret" "tracecat_db_encryption_key" {

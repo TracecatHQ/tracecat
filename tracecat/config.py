@@ -176,12 +176,36 @@ TRACECAT__DB_POOL_TIMEOUT = int(os.environ.get("TRACECAT__DB_POOL_TIMEOUT") or 3
 TRACECAT__DB_POOL_RECYCLE = int(os.environ.get("TRACECAT__DB_POOL_RECYCLE") or 600)
 """The time to recycle the connection pool."""
 
+
 # === Auth config === #
 # Infrastructure config
-TRACECAT__AUTH_TYPES = {
-    AuthType(t.lower())
-    for t in os.environ.get("TRACECAT__AUTH_TYPES", "basic,google_oauth").split(",")
-}
+def _parse_auth_types() -> set[AuthType]:
+    auth_types: set[AuthType] = set()
+    raw_auth_types = os.environ.get("TRACECAT__AUTH_TYPES", "").strip()
+    if not raw_auth_types:
+        return {AuthType.BASIC}
+
+    for auth_type in raw_auth_types.split(","):
+        if not (t := auth_type.strip().lower()):
+            continue
+        if t == "google_oauth":
+            logger.warning(
+                "Ignoring removed auth type 'google_oauth' in TRACECAT__AUTH_TYPES; use 'oidc' instead."
+            )
+            continue
+        try:
+            auth_types.add(AuthType(t))
+        except ValueError:
+            logger.warning("Invalid auth type %r in TRACECAT__AUTH_TYPES, skipping", t)
+
+    if not auth_types:
+        raise ValueError(
+            "TRACECAT__AUTH_TYPES must include at least one supported auth type"
+        )
+    return auth_types
+
+
+TRACECAT__AUTH_TYPES = _parse_auth_types()
 """The set of allowed auth types on the platform. If an auth type is not in this set,
 it cannot be enabled."""
 
@@ -206,19 +230,18 @@ TRACECAT__AUTH_SUPERADMIN_EMAIL = os.environ.get("TRACECAT__AUTH_SUPERADMIN_EMAI
 
 # OIDC Login Flow
 OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "").strip().rstrip("/")
-"""OIDC issuer URL (without trailing slash). If unset, legacy Google OAuth client is used."""
+"""OIDC issuer URL (without trailing slash). Required when oidc auth is enabled."""
+
+if TRACECAT__AUTH_TYPES == {AuthType.OIDC} and not OIDC_ISSUER:
+    raise ValueError(
+        "OIDC_ISSUER must be set when TRACECAT__AUTH_TYPES includes 'oidc'"
+    )
 
 OIDC_CLIENT_ID = (
-    os.environ.get("OIDC_CLIENT_ID")
-    or os.environ.get("OAUTH_CLIENT_ID")
-    or os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
-    or ""
+    os.environ.get("OIDC_CLIENT_ID") or os.environ.get("OAUTH_CLIENT_ID") or ""
 )
 OIDC_CLIENT_SECRET = (
-    os.environ.get("OIDC_CLIENT_SECRET")
-    or os.environ.get("OAUTH_CLIENT_SECRET")
-    or os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
-    or ""
+    os.environ.get("OIDC_CLIENT_SECRET") or os.environ.get("OAUTH_CLIENT_SECRET") or ""
 )
 OIDC_SCOPES = tuple(
     scope

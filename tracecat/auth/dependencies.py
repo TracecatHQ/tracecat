@@ -83,9 +83,8 @@ async def verify_auth_type(
             detail="Auth type not allowed",
         )
 
-    # OIDC/Google OAuth/basic availability is platform-configured, not org-setting
-    # controlled.
-    if auth_type in {AuthType.BASIC, AuthType.OIDC, AuthType.GOOGLE_OAUTH}:
+    # OIDC/basic availability is platform-configured, not org-setting controlled.
+    if auth_type in {AuthType.BASIC, AuthType.OIDC}:
         return
 
     # 2. Check that the setting is enabled
@@ -119,7 +118,6 @@ def require_auth_type_enabled(auth_type: AuthType) -> Any:
     if auth_type not in AUTH_TYPE_TO_SETTING_KEY and auth_type not in {
         AuthType.BASIC,
         AuthType.OIDC,
-        AuthType.GOOGLE_OAUTH,
     }:
         raise ValueError(f"Invalid auth type: {auth_type}")
 

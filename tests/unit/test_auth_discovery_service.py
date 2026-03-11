@@ -60,7 +60,10 @@ async def test_discovery_prefers_saml_for_mapped_domains(
     monkeypatch.setattr(
         config,
         "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.GOOGLE_OAUTH, AuthType.SAML},
+        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+    )
+    monkeypatch.setattr(
+        auth_discovery_module, "get_setting", AsyncMock(return_value=True)
     )
     service = AuthDiscoveryService(session)
 
@@ -79,7 +82,7 @@ async def test_discovery_returns_oidc_for_mapped_non_saml_domains(
     monkeypatch.setattr(
         config,
         "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.GOOGLE_OAUTH},
+        {AuthType.BASIC, AuthType.OIDC},
     )
     service = AuthDiscoveryService(session)
 
@@ -100,7 +103,7 @@ async def test_discovery_falls_back_when_mapped_org_is_inactive(
     monkeypatch.setattr(
         config,
         "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.GOOGLE_OAUTH, AuthType.SAML},
+        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
     )
     monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
     service = AuthDiscoveryService(session)
@@ -119,7 +122,7 @@ async def test_discovery_returns_safe_platform_fallback_for_unknown_domains(
     monkeypatch.setattr(
         config,
         "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.GOOGLE_OAUTH},
+        {AuthType.BASIC, AuthType.OIDC},
     )
     service = AuthDiscoveryService(session)
 
@@ -138,7 +141,10 @@ async def test_discovery_prefers_default_org_saml_for_unknown_domains_in_single_
     monkeypatch.setattr(
         config,
         "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.GOOGLE_OAUTH, AuthType.SAML},
+        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+    )
+    monkeypatch.setattr(
+        auth_discovery_module, "get_setting", AsyncMock(return_value=True)
     )
     monkeypatch.setattr(
         auth_discovery_module,
@@ -161,7 +167,10 @@ async def test_discovery_unknown_domains_fallback_to_oidc_in_multi_tenant_with_s
     monkeypatch.setattr(
         config,
         "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.GOOGLE_OAUTH, AuthType.SAML},
+        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+    )
+    monkeypatch.setattr(
+        auth_discovery_module, "get_setting", AsyncMock(return_value=True)
     )
     service = AuthDiscoveryService(session)
 
@@ -192,7 +201,10 @@ async def test_discovery_prefers_org_hint_over_email_domain(
     monkeypatch.setattr(
         config,
         "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.GOOGLE_OAUTH, AuthType.SAML},
+        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+    )
+    monkeypatch.setattr(
+        auth_discovery_module, "get_setting", AsyncMock(return_value=True)
     )
     service = AuthDiscoveryService(session)
 
@@ -216,7 +228,7 @@ async def test_discovery_rejects_invalid_org_hint_without_fallback(
     monkeypatch.setattr(
         config,
         "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.GOOGLE_OAUTH, AuthType.SAML},
+        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
     )
     service = AuthDiscoveryService(session)
 
