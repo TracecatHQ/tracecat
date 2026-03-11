@@ -94,6 +94,66 @@ class TestWorkspaceService:
         # Verify settings are preserved through validation
         assert workspace.settings is not None
 
+    async def test_delete_workspace_removes_memberships(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        """Deleting a workspace should cascade to membership rows."""
+        workspace = Workspace(
+            name="test-workspace",
+            organization_id=svc_organization.id,
+        )
+        other_workspace = Workspace(
+            name="other-workspace",
+            organization_id=svc_organization.id,
+        )
+        member = User(
+            id=uuid.uuid4(),
+            email=f"member-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.BASIC,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add_all([workspace, other_workspace, member])
+        await session.flush()
+
+        session.add(
+            Membership(
+                user_id=member.id,
+                workspace_id=workspace.id,
+            )
+        )
+        await session.commit()
+
+        service = WorkspaceService(
+            session=session,
+            role=Role(
+                type="user",
+                workspace_id=workspace.id,
+                organization_id=svc_organization.id,
+                user_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=ADMIN_SCOPES,
+            ),
+        )
+        await service.delete_workspace(workspace.id)
+
+        membership = await session.scalar(
+            select(Membership).where(
+                Membership.workspace_id == workspace.id,
+                Membership.user_id == member.id,
+            )
+        )
+        deleted_workspace = await session.scalar(
+            select(Workspace).where(Workspace.id == workspace.id)
+        )
+
+        assert membership is None
+        assert deleted_workspace is None
+
 
 @pytest.mark.parametrize(
     "valid_url",
