@@ -16,6 +16,7 @@ TRACECAT__AUTH_TYPES=oidc
 
 Set the following variables for your provider:
 
+- `TRACECAT__PUBLIC_APP_URL`
 - `OIDC_ISSUER`
 - `OIDC_CLIENT_ID`
 - `OIDC_CLIENT_SECRET`
@@ -34,11 +35,14 @@ Set the following variables for your provider:
     For the local Docker Compose deployment, use `http://localhost/auth/oauth/callback`.
   </Step>
   <Step title="Configure environment variables in Tracecat">
-    Add the issuer URL and client credentials to your `.env` file.
+    Add the public Tracecat URL, issuer URL, and client credentials to your `.env`
+    file. Tracecat generates OAuth callback URLs from
+    `TRACECAT__PUBLIC_APP_URL`, so this must match the external URL users visit.
 
     Example:
 
     ```bash
+    TRACECAT__PUBLIC_APP_URL=https://tracecat.example.com
     OIDC_ISSUER=https://issuer.example.com
     OIDC_CLIENT_ID=tracecat
     OIDC_CLIENT_SECRET=replace-me

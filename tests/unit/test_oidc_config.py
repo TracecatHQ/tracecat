@@ -99,6 +99,19 @@ def test_config_rejects_removed_google_oauth_only_auth_type(monkeypatch) -> None
     importlib.reload(config)
 
 
+def test_config_rejects_empty_auth_types(monkeypatch) -> None:
+    with monkeypatch.context() as env:
+        env.setenv("TRACECAT__AUTH_TYPES", "")
+        env.delenv("OIDC_ISSUER", raising=False)
+        with pytest.raises(
+            ValueError,
+            match="TRACECAT__AUTH_TYPES must include at least one supported auth type",
+        ):
+            importlib.reload(config)
+
+    importlib.reload(config)
+
+
 def test_config_requires_issuer_when_oidc_enabled(monkeypatch) -> None:
     with monkeypatch.context() as env:
         env.setenv("TRACECAT__AUTH_TYPES", "oidc")
