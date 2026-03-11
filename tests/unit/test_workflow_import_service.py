@@ -1,5 +1,9 @@
 """Tests for WorkflowImportService functionality."""
 
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import patch
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +22,7 @@ from tracecat.dsl.schemas import ActionStatement
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.store.import_service import WorkflowImportService
 from tracecat.workflow.store.schemas import (
+    RemoteCaseTrigger,
     RemoteWebhook,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,
@@ -181,6 +186,27 @@ class TestWorkflowImportService:
         tags = result.scalars().all()
         tag_names = {tag.name for tag in tags}
         assert tag_names == {"test", "import"}
+
+    @pytest.mark.anyio
+    async def test_update_case_trigger_ignores_empty_remote_block(
+        self,
+        import_service: WorkflowImportService,
+    ) -> None:
+        remote_case_trigger = RemoteCaseTrigger(
+            status="offline",
+            event_types=[],
+            tag_filters=[],
+        )
+
+        with patch(
+            "tracecat.workflow.store.import_service.CaseTriggersService"
+        ) as case_trigger_service_cls:
+            await import_service._update_case_trigger(
+                cast(Workflow, SimpleNamespace(id=WorkflowUUID.new_uuid4())),
+                remote_case_trigger,
+            )
+
+        case_trigger_service_cls.assert_not_called()
 
     @pytest.mark.anyio
     async def test_import_workflow_overwrite_behavior(
