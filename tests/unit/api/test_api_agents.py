@@ -428,6 +428,22 @@ async def test_refresh_provider_inventory_success(
 
 
 @pytest.mark.anyio
+async def test_refresh_provider_inventory_unexpected_error_is_sanitized(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.refresh_provider_inventory.side_effect = RuntimeError("db exploded")
+        mock_service_cls.return_value = mock_svc
+
+        response = client.post("/agent/providers/openai/refresh")
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.json() == {"detail": "Failed to refresh provider inventory."}
+
+
+@pytest.mark.anyio
 async def test_create_provider_credentials_success(
     client: TestClient,
     test_admin_role: Role,

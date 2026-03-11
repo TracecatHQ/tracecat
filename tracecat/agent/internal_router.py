@@ -44,44 +44,56 @@ _LIST_OUTPUT_TYPES: set[str] = {
 }
 
 
-def _merge_runtime_overrides(base: AgentConfig, overrides: AgentConfig) -> AgentConfig:
+def _merge_runtime_overrides(
+    base: AgentConfig,
+    overrides: AgentConfig,
+    *,
+    override_fields: set[str],
+) -> AgentConfig:
     """Apply request-scoped fields on top of catalog-resolved runtime config."""
-    if overrides.instructions is not None:
+    if "instructions" in override_fields and overrides.instructions is not None:
         base.instructions = overrides.instructions
-    if overrides.output_type is not None:
+    if "output_type" in override_fields and overrides.output_type is not None:
         base.output_type = overrides.output_type
-    if overrides.actions is not None:
+    if "actions" in override_fields and overrides.actions is not None:
         base.actions = overrides.actions
-    if overrides.namespaces is not None:
+    if "namespaces" in override_fields and overrides.namespaces is not None:
         base.namespaces = overrides.namespaces
-    if overrides.tool_approvals is not None:
+    if "tool_approvals" in override_fields and overrides.tool_approvals is not None:
         base.tool_approvals = overrides.tool_approvals
-    if overrides.model_settings is not None:
+    if "model_settings" in override_fields and overrides.model_settings is not None:
         base.model_settings = overrides.model_settings
-    if overrides.mcp_servers is not None:
+    if "mcp_servers" in override_fields and overrides.mcp_servers is not None:
         base.mcp_servers = overrides.mcp_servers
-    base.retries = overrides.retries
-    base.enable_internet_access = overrides.enable_internet_access
-    if overrides.base_url is not None:
+    if "retries" in override_fields:
+        base.retries = overrides.retries
+    if "enable_internet_access" in override_fields:
+        base.enable_internet_access = overrides.enable_internet_access
+    if "base_url" in override_fields and overrides.base_url is not None:
         base.base_url = overrides.base_url
     return base
 
 
 async def _resolve_run_config(
     params: InternalRunAgentRequest, agent_svc: AgentManagementService
-) -> AgentConfig:
+) -> tuple[AgentConfig, set[str]]:
     """Resolve runtime config from request config or preset slug."""
     if params.preset_slug:
         if agent_svc.presets is None:
             raise ValueError("Preset-based runs require workspace context.")
-        return await agent_svc.presets.resolve_agent_preset_config(
-            slug=params.preset_slug,
-            preset_version=params.preset_version,
+        return (
+            await agent_svc.presets.resolve_agent_preset_config(
+                slug=params.preset_slug,
+                preset_version=params.preset_version,
+            ),
+            set(),
         )
 
     if params.config is None:
         raise ValueError("Either 'config' or 'preset_slug' must be provided")
-    return AgentConfig(**params.config.model_dump())
+    return AgentConfig(**params.config.model_dump()), set(
+        params.config.model_fields_set
+    )
 
 
 @asynccontextmanager
@@ -104,16 +116,36 @@ async def _provider_secrets_context(
         )
         config.model_name = resolved_config.model_name
         config.model_provider = resolved_config.model_provider
-        config.base_url = resolved_config.base_url
+        if config.base_url is None:
+            config.base_url = resolved_config.base_url
         config.model_source_type = resolved_config.model_source_type
         config.model_source_id = resolved_config.model_source_id
     else:
-        credentials = await agent_svc.get_provider_credentials(config.model_provider)
-        if not credentials:
-            raise ValueError(
-                f"No credentials found for provider '{config.model_provider}'. "
-                "Please configure credentials for this provider first."
-            )
+        match config.model_source_type:
+            case "openai_compatible_gateway" | "manual_custom":
+                credentials = {}
+                if config.model_source_id is not None:
+                    source = await agent_svc.get_model_source(
+                        uuid.UUID(str(config.model_source_id))
+                    )
+                    source_config = agent_svc._deserialize_sensitive_config(
+                        source.encrypted_config
+                    )
+                    if api_key := source_config.get("api_key"):
+                        credentials["OPENAI_API_KEY"] = api_key
+                    if config.base_url is None and source.base_url is not None:
+                        config.base_url = source.base_url
+                    if config.base_url is not None:
+                        credentials["OPENAI_BASE_URL"] = config.base_url
+            case _:
+                credentials = await agent_svc.get_provider_credentials(
+                    config.model_provider
+                )
+                if not credentials:
+                    raise ValueError(
+                        f"No credentials found for provider '{config.model_provider}'. "
+                        "Please configure credentials for this provider first."
+                    )
 
     secrets_token = registry_secrets.set_context(credentials)
     try:
@@ -153,12 +185,16 @@ async def run_agent_endpoint(
 
     try:
         agent_svc = AgentManagementService(session, role=role)
-        config = await _resolve_run_config(params, agent_svc)
+        config, override_fields = await _resolve_run_config(params, agent_svc)
         if config.model_catalog_ref:
             catalog_config, _ = await agent_svc._resolve_catalog_agent_config(
                 catalog_ref=config.model_catalog_ref,
             )
-            config = _merge_runtime_overrides(catalog_config, config)
+            config = _merge_runtime_overrides(
+                catalog_config,
+                config,
+                override_fields=override_fields,
+            )
         mcp_servers = config.mcp_servers
 
         if config and config.tool_approvals:

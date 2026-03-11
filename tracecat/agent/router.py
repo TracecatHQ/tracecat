@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, HTTPException, Query, status
 
@@ -26,8 +26,18 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.logger import logger
 
 router = APIRouter(prefix="/agent", tags=["agent"])
+
+
+def _raise_unexpected_agent_api_error(*, action: str, exc: Exception) -> NoReturn:
+    logger.exception("Unexpected agent API error", action=action)
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"Failed to {action}.",
+    ) from exc
+
 
 OrganizationAdminUserRole = Annotated[
     Role,
@@ -208,11 +218,13 @@ async def refresh_provider_inventory(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    except Exception as e:
+        _raise_unexpected_agent_api_error(action="refresh provider inventory", exc=e)
 
 
 @router.post("/credentials", status_code=status.HTTP_201_CREATED)
@@ -228,11 +240,13 @@ async def create_provider_credentials(
     try:
         await service.create_provider_credentials(params)
         return {"message": f"Credentials for {params.provider} created successfully"}
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to create credentials: {str(e)}",
+            detail=str(e),
         ) from e
+    except Exception as e:
+        _raise_unexpected_agent_api_error(action="create credentials", exc=e)
 
 
 @router.put("/credentials/{provider}")
@@ -254,11 +268,13 @@ async def update_provider_credentials(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Credentials for provider {provider} not found",
         ) from e
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to update credentials: {str(e)}",
+            detail=str(e),
         ) from e
+    except Exception as e:
+        _raise_unexpected_agent_api_error(action="update credentials", exc=e)
 
 
 @router.delete("/credentials/{provider}")
@@ -304,11 +320,13 @@ async def set_default_model(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to set default model: {str(e)}",
+            detail=str(e),
         ) from e
+    except Exception as e:
+        _raise_unexpected_agent_api_error(action="set default model", exc=e)
 
 
 @router.get("/custom-sources")
@@ -335,11 +353,13 @@ async def create_custom_source(
     service = AgentManagementService(session, role=role)
     try:
         return await service.create_model_source(params)
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    except Exception as e:
+        _raise_unexpected_agent_api_error(action="create custom source", exc=e)
 
 
 @router.patch("/custom-sources/{source_id}")
@@ -357,10 +377,12 @@ async def update_custom_source(
         return await service.update_model_source(source_id=source_id, params=params)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
+    except Exception as e:
+        _raise_unexpected_agent_api_error(action="update custom source", exc=e)
 
 
 @router.delete("/custom-sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -397,10 +419,12 @@ async def refresh_custom_source(
         return await service.refresh_model_source(source_id=source_id)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
+    except Exception as e:
+        _raise_unexpected_agent_api_error(action="refresh custom source", exc=e)
 
 
 @router.post("/models/enabled")

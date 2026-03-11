@@ -3,7 +3,7 @@
 import uuid
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -22,7 +22,12 @@ from tracecat.agent.service import (
     ResolvedCatalogRecord,
     sync_model_catalogs_on_startup,
 )
-from tracecat.agent.types import AgentConfig, ModelDiscoveryStatus, ModelSourceType
+from tracecat.agent.types import (
+    AgentConfig,
+    CustomModelSourceType,
+    ModelDiscoveryStatus,
+    ModelSourceType,
+)
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.secrets import secrets_manager
@@ -219,7 +224,7 @@ async def test_upsert_discovered_models_uses_postgres_upsert_and_dedupes_refs(
     role: Role,
 ) -> None:
     session = AsyncMock()
-    execute_calls: list[object] = []
+    execute_calls: list[Any] = []
 
     def result_with_scalars(items: list[object]) -> SimpleNamespace:
         return SimpleNamespace(
@@ -236,8 +241,8 @@ async def test_upsert_discovered_models_uses_postgres_upsert_and_dedupes_refs(
             case 5:
                 return result_with_scalars(
                     [
-                        SimpleNamespace(catalog_ref="dup-ref"),
-                        SimpleNamespace(catalog_ref="other-ref"),
+                        SimpleNamespace(catalog_ref="dup-ref", organization_id=None),
+                        SimpleNamespace(catalog_ref="other-ref", organization_id=None),
                     ]
                 )
             case _:
@@ -289,10 +294,75 @@ async def test_upsert_discovered_models_uses_postgres_upsert_and_dedupes_refs(
     compiled_sql = str(compiled)
     compiled_values = list(compiled.params.values())
 
-    assert "ON CONFLICT (catalog_ref) DO UPDATE" in compiled_sql
+    assert (
+        "ON CONFLICT (catalog_ref) WHERE organization_id IS NULL DO UPDATE"
+        in compiled_sql
+    )
     assert compiled_values.count("dup-ref") == 1
     assert compiled_values.count("other-ref") == 1
     assert [row.catalog_ref for row in persisted] == ["dup-ref", "other-ref"]
+
+
+@pytest.mark.anyio
+async def test_upsert_discovered_models_scopes_org_conflict_target(
+    role: Role,
+) -> None:
+    session = AsyncMock()
+    execute_calls: list[Any] = []
+
+    def result_with_scalars(items: list[object]) -> SimpleNamespace:
+        return SimpleNamespace(
+            scalars=lambda: SimpleNamespace(all=lambda: items),
+        )
+
+    async def execute_side_effect(stmt: object) -> object:
+        execute_calls.append(stmt)
+        match len(execute_calls):
+            case 1:
+                return result_with_scalars([])
+            case 2:
+                return SimpleNamespace()
+            case 3:
+                return result_with_scalars(
+                    [
+                        SimpleNamespace(
+                            catalog_ref="org-ref", organization_id=role.organization_id
+                        )
+                    ]
+                )
+            case _:
+                raise AssertionError("Unexpected execute call")
+
+    session.execute = AsyncMock(side_effect=execute_side_effect)
+    service = AgentManagementService(session, role=role)
+
+    persisted = await service._upsert_discovered_models(
+        source_type=ModelSourceType.OPENAI_COMPATIBLE_GATEWAY,
+        source_name="Custom gateway",
+        source_id=uuid.uuid4(),
+        models=[
+            {
+                "catalog_ref": "org-ref",
+                "model_name": "gpt-5",
+                "model_provider": "openai",
+                "runtime_provider": "openai_compatible_gateway",
+                "display_name": "gpt-5",
+                "raw_model_id": "gpt-5",
+                "base_url": "https://gateway.example/v1",
+                "metadata": {"source": "custom"},
+            }
+        ],
+        organization_scoped=True,
+    )
+
+    compiled = execute_calls[1].compile(dialect=postgresql.dialect())
+    compiled_sql = str(compiled)
+
+    assert (
+        "ON CONFLICT (organization_id, catalog_ref) WHERE organization_id IS NOT NULL DO UPDATE"
+        in compiled_sql
+    )
+    assert [row.catalog_ref for row in persisted] == ["org-ref"]
 
 
 @pytest.mark.anyio
@@ -343,11 +413,45 @@ async def test_refresh_default_sidecar_inventory_rolls_back_before_failure_state
 
 
 @pytest.mark.anyio
+async def test_delete_model_source_removes_enabled_rows_before_deleting_source(
+    role: Role,
+) -> None:
+    session = AsyncMock()
+    service = AgentManagementService(session, role=role)
+    source_id = uuid.uuid4()
+    source = SimpleNamespace(
+        id=source_id,
+        type=CustomModelSourceType.MANUAL_CUSTOM.value,
+    )
+    service.get_model_source = AsyncMock(return_value=source)
+    service._validate_source_uniqueness = AsyncMock()
+    operation_order: list[str] = []
+
+    async def execute_side_effect(stmt: object) -> object:
+        del stmt
+        operation_order.append("delete-enabled")
+        return SimpleNamespace()
+
+    async def delete_side_effect(obj: object) -> None:
+        assert obj is source
+        operation_order.append("delete-source")
+
+    session.execute = AsyncMock(side_effect=execute_side_effect)
+    session.delete = AsyncMock(side_effect=delete_side_effect)
+
+    await service.delete_model_source(source_id)
+
+    assert operation_order == ["delete-enabled", "delete-source"]
+    session.flush.assert_awaited_once()
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_enable_models_uses_single_postgres_insert_and_dedupes_refs(
     role: Role,
 ) -> None:
     session = AsyncMock()
-    execute_calls: list[object] = []
+    execute_calls: list[Any] = []
 
     async def execute_side_effect(stmt: object) -> object:
         execute_calls.append(stmt)
@@ -582,6 +686,48 @@ async def test_list_models_filters_enabled_catalog_by_workspace_allowlist(
 
 
 @pytest.mark.anyio
+async def test_list_models_uses_custom_source_display_name_for_enabled_models(
+    role: Role,
+) -> None:
+    session = AsyncMock()
+    service = AgentManagementService(session, role=role)
+    source_id = uuid.uuid4()
+    service._list_enabled_rows = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                catalog_ref="openai_compatible_gateway:source:1:qwen2.5:0.5b",
+                model_name="qwen2.5:0.5b",
+                model_provider="openai",
+                runtime_provider="openai_compatible_gateway",
+                display_name="qwen2.5:0.5b",
+                source_type=ModelSourceType.OPENAI_COMPATIBLE_GATEWAY.value,
+                source_id=source_id,
+                base_url="http://localhost:11434/v1",
+                updated_at=None,
+                enabled_config=None,
+            )
+        ]
+    )
+
+    source = SimpleNamespace(
+        id=source_id,
+        display_name="Ollama",
+        encrypted_config=None,
+    )
+
+    async def execute_side_effect(stmt: object) -> object:
+        del stmt
+        return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [source]))
+
+    session.execute = AsyncMock(side_effect=execute_side_effect)
+
+    models = await service.list_models()
+
+    assert len(models) == 1
+    assert models[0].source_name == "Ollama"
+
+
+@pytest.mark.anyio
 async def test_list_discovered_models_does_not_refresh_default_inventory(
     role: Role,
 ) -> None:
@@ -673,7 +819,9 @@ async def test_ensure_default_enabled_models_uses_conflict_safe_bulk_insert(
     await service._ensure_default_enabled_models()
 
     session.execute.assert_awaited_once()
-    compiled = session.execute.await_args.args[0].compile(dialect=postgresql.dialect())
+    compiled = cast(Any, session.execute.await_args.args[0]).compile(
+        dialect=postgresql.dialect()
+    )
     assert "ON CONFLICT (organization_id, catalog_ref) DO NOTHING" in str(compiled)
     session.commit.assert_awaited_once()
     session.add.assert_not_called()
@@ -744,9 +892,36 @@ async def test_with_preset_config_rejects_disabled_catalog_ref(role: Role) -> No
 
 
 @pytest.mark.anyio
+async def test_resolve_preset_catalog_ref_matches_custom_runtime_provider(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    service.list_models = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                catalog_ref="openai_compatible_gateway:source:1:qwen2.5:0.5b",
+                model_name="qwen2.5:0.5b",
+                model_provider="ollama",
+                runtime_provider="openai_compatible_gateway",
+            )
+        ]
+    )
+    service.list_discovered_models = AsyncMock(return_value=[])
+
+    catalog_ref = await service._resolve_preset_catalog_ref(
+        AgentConfig(
+            model_name="qwen2.5:0.5b",
+            model_provider="openai_compatible_gateway",
+        )
+    )
+
+    assert catalog_ref == "openai_compatible_gateway:source:1:qwen2.5:0.5b"
+
+
+@pytest.mark.anyio
 async def test_disable_models_deletes_in_batch_and_clears_default(role: Role) -> None:
     session = AsyncMock()
-    execute_calls: list[object] = []
+    execute_calls: list[Any] = []
     default_setting = SimpleNamespace(value="provider:model-a")
 
     async def execute_side_effect(stmt: object) -> object:

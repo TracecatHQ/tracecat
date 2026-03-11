@@ -10586,6 +10586,7 @@ export const $EnabledModelsBatchOperation = {
     },
   },
   type: "object",
+  required: ["catalog_refs"],
   title: "EnabledModelsBatchOperation",
 } as const
 

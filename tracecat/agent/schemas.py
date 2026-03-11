@@ -254,7 +254,7 @@ class EnabledModelOperation(BaseModel):
 
 
 class EnabledModelsBatchOperation(BaseModel):
-    catalog_refs: list[str] = Field(default_factory=list, min_length=1, max_length=200)
+    catalog_refs: list[str] = Field(..., min_length=1, max_length=200)
 
 
 class EnabledModelRuntimeConfigUpdate(BaseModel):
@@ -401,6 +401,7 @@ class AgentConfigSchema(BaseModel):
     model_settings: dict[str, Any] | None = None
     mcp_servers: list[MCPServerConfigSchema] | None = None
     retries: int = Field(default=20)
+    enable_internet_access: bool = Field(default=False)
 
 
 class RankableItemSchema(TypedDict):
