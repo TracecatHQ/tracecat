@@ -27,8 +27,11 @@ from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
+from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
+from starlette.routing import Route
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from tracecat import config
 from tracecat.auth.credentials import compute_effective_scopes
@@ -71,6 +74,7 @@ _UUID_SCOPE_PATTERNS: dict[str, re.Pattern[str]] = {
 _MCP_REFRESH_SCOPE = "offline_access"
 _MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 60 * 60
 _MCP_OAUTH_TRANSACTION_TTL_SECONDS = 15 * 60
+_MCP_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"]
 
 
 def append_scope_if_missing(scopes: list[str], scope: str) -> list[str]:
@@ -78,6 +82,14 @@ def append_scope_if_missing(scopes: list[str], scope: str) -> list[str]:
     if scope in scopes:
         return scopes
     return [*scopes, scope]
+
+
+def merge_unique_scopes(scopes: list[str], extra_scopes: Sequence[str]) -> list[str]:
+    """Append extra scopes while preserving order and uniqueness."""
+    merged = scopes
+    for scope in extra_scopes:
+        merged = append_scope_if_missing(merged, scope)
+    return merged
 
 
 def remove_scope(scopes: list[str], scope: str) -> list[str]:
@@ -91,6 +103,52 @@ def supports_refresh_scope(scopes_supported: Sequence[str] | None) -> bool:
         # If provider metadata omits scopes_supported, optimistically request.
         return True
     return _MCP_REFRESH_SCOPE in scopes_supported
+
+
+def _patch_oauth_metadata_route(app: ASGIApp) -> ASGIApp:
+    """Patch only the advertised token auth methods on discovery responses."""
+
+    async def patched_app(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await app(scope, receive, send)
+            return
+
+        start_message: Message | None = None
+        body_chunks: list[bytes] = []
+
+        async def capture(message: Message) -> None:
+            nonlocal start_message
+
+            match message["type"]:
+                case "http.response.start":
+                    start_message = dict(message)
+                case "http.response.body":
+                    body_chunks.append(message.get("body", b""))
+                case _:
+                    await send(message)
+
+        await app(scope, receive, capture)
+
+        if start_message is None:
+            return
+
+        body = b"".join(body_chunks)
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            payload["token_endpoint_auth_methods_supported"] = (
+                _MCP_TOKEN_ENDPOINT_AUTH_METHODS
+            )
+            body = json.dumps(payload).encode("utf-8")
+
+        headers = MutableHeaders(raw=start_message["headers"])
+        headers["content-length"] = str(len(body))
+        await send(start_message)
+        await send({"type": "http.response.body", "body": body, "more_body": False})
+
+    return patched_app
 
 
 def _coerce_uuid(value: object) -> uuid.UUID | None:
@@ -462,12 +520,13 @@ def create_mcp_auth() -> AuthProvider:
             params: AuthorizationParams,
         ) -> str:
             """Inject refresh scope by default for MCP clients."""
-            scopes = list(params.scopes or [])
+            scopes = merge_unique_scopes(list(params.scopes or []), oidc_config.scopes)
             if self._should_request_refresh_scope():
                 scopes = append_scope_if_missing(scopes, _MCP_REFRESH_SCOPE)
             else:
+                scopes = remove_scope(scopes, _MCP_REFRESH_SCOPE)
                 logger.info(
-                    "Skipping refresh scope request: upstream metadata does not advertise scope",
+                    "Removing refresh scope: upstream metadata does not advertise it",
                     scope=_MCP_REFRESH_SCOPE,
                     issuer=self.oidc_config.issuer,
                 )
@@ -688,6 +747,23 @@ def create_mcp_auth() -> AuthProvider:
             ).encode("utf-8")
             response.headers["content-length"] = str(len(response.body))
             return response
+
+        def get_routes(self, mcp_path: str | None = None) -> list[Route]:
+            """Patch OAuth metadata to advertise public-client auth (``"none"``)."""
+            routes = super().get_routes(mcp_path)
+            if self.base_url is None:
+                return routes
+
+            for route in routes:
+                if not (
+                    isinstance(route, Route)
+                    and route.path.startswith("/.well-known/oauth-authorization-server")
+                ):
+                    continue
+
+                route.app = _patch_oauth_metadata_route(route.app)
+
+            return routes
 
     # Build Redis-backed storage for OAuth state (client registrations,
     # auth codes, tokens, transactions) so state survives restarts and

@@ -35,6 +35,22 @@ resource "aws_wafv2_regex_pattern_set" "mcp_oauth_endpoints" {
   tags = var.tags
 }
 
+# Regex pattern set for MCP public endpoints that must remain reachable even
+# when clients omit a User-Agent header during connection bootstrapping.
+resource "aws_wafv2_regex_pattern_set" "mcp_public_endpoints" {
+  count = var.enable_waf ? 1 : 0
+
+  name        = "${var.cluster_name}-mcp-public-endpoints"
+  description = "Matches MCP discovery, transport, and OAuth endpoints"
+  scope       = "REGIONAL"
+
+  regular_expression {
+    regex_string = "^/(mcp|\\.well-known/oauth-(protected-resource|authorization-server)(/mcp)?|(mcp/)?(register|authorize|consent|token|auth/callback))$"
+  }
+
+  tags = var.tags
+}
+
 resource "aws_wafv2_web_acl" "main" {
   count = var.enable_waf ? 1 : 0
 
@@ -106,6 +122,13 @@ resource "aws_wafv2_web_acl" "main" {
 
         rule_action_override {
           name = "GenericLFI_BODY"
+          action_to_use {
+            count {}
+          }
+        }
+
+        rule_action_override {
+          name = "NoUserAgent_HEADER"
           action_to_use {
             count {}
           }
@@ -203,12 +226,60 @@ resource "aws_wafv2_web_acl" "main" {
     }
   }
 
-  # Priority 5: Block XSS except on attachment upload endpoints
+  # Priority 5: Block missing User-Agent except on MCP public endpoints.
+  # Some MCP clients bootstrap OAuth without a User-Agent header. Keep WAF
+  # protection in place globally, but carve out the MCP public surface.
+  rule {
+    name     = "BlockMissingUserAgentExceptMcpPublic"
+    priority = 5
+
+    action {
+      block {}
+    }
+
+    statement {
+      and_statement {
+        statement {
+          label_match_statement {
+            scope = "LABEL"
+            key   = "awswaf:managed:aws:core-rule-set:NoUserAgent_Header"
+          }
+        }
+
+        statement {
+          not_statement {
+            statement {
+              regex_pattern_set_reference_statement {
+                arn = aws_wafv2_regex_pattern_set.mcp_public_endpoints[0].arn
+
+                field_to_match {
+                  uri_path {}
+                }
+
+                text_transformation {
+                  priority = 0
+                  type     = "NONE"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${var.cluster_name}-missing-ua-except-mcp"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # Priority 6: Block XSS except on attachment upload endpoints
   # The CommonRuleSet sets CrossSiteScripting_BODY to count mode above,
   # and this rule re-blocks it unless the request is to an attachment endpoint.
   rule {
     name     = "BlockXSSExceptAttachments"
-    priority = 5
+    priority = 6
 
     action {
       block {}
@@ -251,12 +322,12 @@ resource "aws_wafv2_web_acl" "main" {
     }
   }
 
-  # Priority 6: Block LFI except on attachment upload endpoints
+  # Priority 7: Block LFI except on attachment upload endpoints
   # Same pattern as XSS - CommonRuleSet GenericLFI_BODY is set to count,
   # and this rule re-blocks unless the request targets an attachment endpoint.
   rule {
     name     = "BlockLFIExceptAttachments"
-    priority = 6
+    priority = 7
 
     action {
       block {}
@@ -299,14 +370,14 @@ resource "aws_wafv2_web_acl" "main" {
     }
   }
 
-  # Priority 7: Block SSRF except on MCP OAuth endpoints
+  # Priority 8: Block SSRF except on MCP OAuth endpoints
   # The CommonRuleSet sets EC2MetaDataSSRF_BODY and _QUERYARGUMENTS to count
   # mode above, and this rule re-blocks them unless the request targets an MCP
   # OAuth endpoint. Local MCP clients legitimately send localhost redirect URIs
   # in register bodies and authorize/consent query strings.
   rule {
     name     = "BlockSSRFExceptMcpOAuth"
-    priority = 7
+    priority = 8
 
     action {
       block {}
@@ -360,10 +431,10 @@ resource "aws_wafv2_web_acl" "main" {
     }
   }
 
-  # Priority 8: IP Reputation List - blocks known bad IPs (botnets, scanners)
+  # Priority 9: IP Reputation List - blocks known bad IPs (botnets, scanners)
   rule {
     name     = "AWSManagedRulesAmazonIpReputationList"
-    priority = 8
+    priority = 9
 
     override_action {
       none {}
