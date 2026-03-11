@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from httpx_oauth.clients.google import GoogleOAuth2
 from httpx_oauth.clients.openid import OpenID
 from httpx_oauth.oauth2 import BaseOAuth2
 
@@ -33,14 +32,11 @@ class OIDCProviderConfig:
 
 def oidc_auth_type_enabled() -> bool:
     """Whether platform auth policy allows OIDC-style login."""
-    return (
-        AuthType.OIDC in config.TRACECAT__AUTH_TYPES
-        or AuthType.GOOGLE_OAUTH in config.TRACECAT__AUTH_TYPES
-    )
+    return AuthType.OIDC in config.TRACECAT__AUTH_TYPES
 
 
 def get_platform_oidc_config() -> OIDCProviderConfig:
-    """Return normalized OIDC config with backward-compatible defaults."""
+    """Return normalized OIDC config."""
     issuer = config.OIDC_ISSUER.strip().rstrip("/") or None
     scopes = config.OIDC_SCOPES or _DEFAULT_OIDC_SCOPES
     return OIDCProviderConfig(
@@ -52,25 +48,16 @@ def get_platform_oidc_config() -> OIDCProviderConfig:
 
 
 def create_platform_oauth_client() -> BaseOAuth2:
-    """Create the platform OAuth client used for login/callback routes.
-
-    Behavior:
-    - If `OIDC_ISSUER` is configured, use generic OIDC discovery.
-    - Otherwise, fall back to Google OAuth client wiring for legacy deployments.
-    """
+    """Create the platform OAuth client used for login/callback routes."""
     oidc_config = get_platform_oidc_config()
     scopes = list(oidc_config.scopes)
-    if oidc_config.discovery_endpoint is not None:
-        return OpenID(
-            client_id=oidc_config.client_id,
-            client_secret=oidc_config.client_secret,
-            openid_configuration_endpoint=oidc_config.discovery_endpoint,
-            name="oidc",
-            base_scopes=scopes,
-        )
-    return GoogleOAuth2(
+    discovery_endpoint = oidc_config.discovery_endpoint
+    if discovery_endpoint is None:
+        raise ValueError("OIDC_ISSUER must be configured for OIDC login.")
+    return OpenID(
         client_id=oidc_config.client_id,
         client_secret=oidc_config.client_secret,
-        scopes=scopes,
+        openid_configuration_endpoint=discovery_endpoint,
         name="oidc",
+        base_scopes=scopes,
     )

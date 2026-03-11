@@ -1,0 +1,51 @@
+---
+title: OIDC
+description: Learn how to authenticate into Tracecat using OpenID Connect.
+icon: fingerprint
+---
+
+## Configuration
+
+In your `.env` file, enable the OIDC auth type.
+
+```bash
+TRACECAT__AUTH_TYPES=oidc
+```
+
+## Required environment variables
+
+Set the following variables for your provider:
+
+- `OIDC_ISSUER`
+- `OIDC_CLIENT_ID`
+- `OIDC_CLIENT_SECRET`
+- `OIDC_SCOPES` (optional, defaults to `openid profile email`)
+
+## Instructions
+
+<Steps>
+  <Step title="Create an OIDC application with your identity provider">
+    Register Tracecat as an application with your provider and allow the standard
+    OpenID Connect scopes needed for sign-in.
+  </Step>
+  <Step title="Configure the redirect URI">
+    Set the provider redirect URI to `<your-domain>/auth/oauth/callback`.
+
+    For the local Docker Compose deployment, use `http://localhost/auth/oauth/callback`.
+  </Step>
+  <Step title="Configure environment variables in Tracecat">
+    Add the issuer URL and client credentials to your `.env` file.
+
+    Example:
+
+    ```bash
+    OIDC_ISSUER=https://issuer.example.com
+    OIDC_CLIENT_ID=tracecat
+    OIDC_CLIENT_SECRET=replace-me
+    OIDC_SCOPES="openid profile email"
+    ```
+  </Step>
+  <Step title="Restart Tracecat">
+    Restart the application so the new auth configuration is loaded.
+  </Step>
+</Steps>

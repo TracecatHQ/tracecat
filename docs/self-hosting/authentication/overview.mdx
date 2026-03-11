@@ -21,14 +21,14 @@ TRACECAT__AUTH_ALLOWED_DOMAINS=acme.com,acme.ai
 ## Authentication Methods
 
 <Warning>
-  In production, use [Google OAuth](/self-hosting/authentication/google-oauth) or [SAML SSO](/self-hosting/authentication/saml-sso).
+  In production, use [OIDC](/self-hosting/authentication/oidc) or [SAML SSO](/self-hosting/authentication/saml-sso).
   Basic auth is meant for local development only.
 </Warning>
 
 Tracecat currently supports the following authentication methods:
 
 - `basic`: Email and Password
-- `google_oauth`: Google OAuth
+- `oidc`: OpenID Connect
 - `saml`: SAML SSO
 
 Choose from a number of authentication methods listed below to get started.
@@ -42,11 +42,11 @@ Choose from a number of authentication methods listed below to get started.
     Email and password authentication.
   </Card>
   <Card
-    title="Google OAuth"
-    icon="google"
-    href="/self-hosting/authentication/google-oauth"
+    title="OIDC"
+    icon="fingerprint"
+    href="/self-hosting/authentication/oidc"
   >
-    Learn how to authenticate into Tracecat using Google OAuth.
+    Learn how to authenticate into Tracecat using OpenID Connect.
   </Card>
   <Card
     title="SAML SSO"

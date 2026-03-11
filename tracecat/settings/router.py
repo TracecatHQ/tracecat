@@ -23,7 +23,8 @@ from tracecat.settings.schemas import (
     SAMLSettingsUpdate,
 )
 from tracecat.settings.service import SettingsService
-from tracecat.tiers.entitlements import Entitlement, check_entitlement
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -43,7 +44,6 @@ async def check_other_auth_enabled(
         for candidate_auth_type in (
             AuthType.BASIC,
             AuthType.OIDC,
-            AuthType.GOOGLE_OAUTH,
         )
     ):
         return

@@ -565,7 +565,7 @@ variable "auth_types" {
 
 # OIDC Configuration
 variable "oidc_issuer" {
-  description = "OIDC issuer URL (e.g., https://accounts.google.com)"
+  description = "OIDC issuer URL (e.g., https://issuer.example.com)"
   type        = string
   default     = ""
 }

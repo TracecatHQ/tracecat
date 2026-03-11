@@ -55,7 +55,7 @@
                 "pages": [
                   "self-hosting/authentication/overview",
                   "self-hosting/authentication/basic",
-                  "self-hosting/authentication/google-oauth",
+                  "self-hosting/authentication/oidc",
                   "self-hosting/authentication/saml-sso"
                 ]
               },
