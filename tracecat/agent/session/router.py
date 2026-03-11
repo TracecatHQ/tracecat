@@ -32,6 +32,7 @@ from tracecat.chat.schemas import (
     ChatReadMinimal,
     ChatReadVercel,
     ChatRequest,
+    ContinueRunRequest,
 )
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
@@ -134,6 +135,7 @@ async def get_session(
             channel_context=agent_session.channel_context,
             tools=agent_session.tools,
             agent_preset_id=agent_session.agent_preset_id,
+            agent_preset_version_id=agent_session.agent_preset_version_id,
             harness_type=agent_session.harness_type,
             created_at=agent_session.created_at,
             updated_at=agent_session.updated_at,
@@ -156,6 +158,7 @@ async def get_session(
             entity_id=legacy_chat.entity_id,
             tools=legacy_chat.tools or [],
             agent_preset_id=legacy_chat.agent_preset_id,
+            agent_preset_version_id=None,
             created_at=legacy_chat.created_at,
             updated_at=legacy_chat.updated_at,
             last_stream_id=legacy_chat.last_stream_id,
@@ -196,6 +199,7 @@ async def get_session_vercel(
             channel_context=agent_session.channel_context,
             tools=agent_session.tools,
             agent_preset_id=agent_session.agent_preset_id,
+            agent_preset_version_id=agent_session.agent_preset_version_id,
             harness_type=agent_session.harness_type,
             created_at=agent_session.created_at,
             updated_at=agent_session.updated_at,
@@ -216,6 +220,7 @@ async def get_session_vercel(
             entity_id=legacy_chat.entity_id,
             tools=legacy_chat.tools or [],
             agent_preset_id=legacy_chat.agent_preset_id,
+            agent_preset_version_id=None,
             created_at=legacy_chat.created_at,
             updated_at=legacy_chat.updated_at,
             last_stream_id=legacy_chat.last_stream_id,
@@ -317,17 +322,21 @@ async def send_message(
                 detail="Legacy chat sessions are read-only and cannot receive new messages",
             )
 
-        agent_session = await svc.get_session(session_id)
-        if agent_session is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Session not found",
-            )
+        await svc.validate_turn_request(session_id=session_id, request=request)
 
-        # Use last_stream_id if available (valid cursor from previous turn),
-        # otherwise "$" to only read new events (avoids replaying old events
-        # when cursor wasn't updated due to race conditions).
-        start_id = agent_session.last_stream_id or "$"
+        stream = await AgentStream.new(session_id, workspace_id)
+        if isinstance(request, ContinueRunRequest):
+            # Continuations should follow only newly appended events. Resuming
+            # from the persisted DB cursor can replay the approval request that
+            # the active client already rendered before clicking approve/deny.
+            start_id = "$"
+        else:
+            # Each fresh execution turn gets a new Redis stream buffer so
+            # stale events from the prior turn are never replayed.
+            await stream.reset_for_new_turn()
+            # Read from the beginning of the freshly cleared stream so we still
+            # pick up events emitted before the SSE response starts consuming.
+            start_id = "0-0"
 
         # Run session turn (spawns DurableAgentWorkflow)
         await svc.run_turn(
@@ -342,7 +351,6 @@ async def send_message(
         )
 
         # Create stream and return with Vercel format
-        stream = await AgentStream.new(session_id, workspace_id)
         return StreamingResponse(
             stream.sse(http_request.is_disconnected, last_id=start_id, format="vercel"),
             media_type="text/event-stream",

@@ -106,6 +106,7 @@ const createChatFixture = (
   last_stream_id: null,
   messages: [],
   ...overrides,
+  agent_preset_version_id: overrides?.agent_preset_version_id ?? null,
 })
 
 describe("ChatSessionPane", () => {

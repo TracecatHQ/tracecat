@@ -350,7 +350,7 @@ class Membership(Base):
     )
     workspace_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("workspace.id"),
+        ForeignKey("workspace.id", ondelete="CASCADE"),
         primary_key=True,
     )
 
@@ -2476,6 +2476,12 @@ class AgentSession(WorkspaceModel):
         nullable=True,
         doc="Agent preset used for this session (if any)",
     )
+    agent_preset_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_preset_version.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="Pinned agent preset version used for this session (if any)",
+    )
     # Agent harness fields
     harness_type: Mapped[str | None] = mapped_column(
         String(50),
@@ -3007,6 +3013,12 @@ class AgentPreset(WorkspaceModel):
         nullable=True,
         doc="Optional description for the preset",
     )
+    current_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_preset_version.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="Current immutable version for this preset.",
+    )
     instructions: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
@@ -3060,10 +3072,107 @@ class AgentPreset(WorkspaceModel):
     )
 
     workspace: Mapped[Workspace] = relationship(back_populates="agent_presets")
+    versions: Mapped[list[AgentPresetVersion]] = relationship(
+        "AgentPresetVersion",
+        back_populates="preset",
+        cascade="all, delete",
+        foreign_keys="[AgentPresetVersion.preset_id]",
+    )
+    current_version: Mapped[AgentPresetVersion | None] = relationship(
+        "AgentPresetVersion",
+        foreign_keys=[current_version_id],
+        uselist=False,
+        post_update=True,
+    )
     chats: Mapped[list[Chat]] = relationship(
         "Chat",
         back_populates="agent_preset",
         cascade="save-update",
+    )
+
+
+class AgentPresetVersion(WorkspaceModel):
+    """Immutable version snapshot for an agent preset."""
+
+    __tablename__ = "agent_preset_version"
+    __table_args__ = (UniqueConstraint("workspace_id", "preset_id", "version"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Unique agent preset version identifier",
+    )
+    preset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_preset.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Logical preset this version belongs to",
+    )
+    version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        doc="Monotonic version number scoped to the preset",
+    )
+    instructions: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="System instructions for the agent",
+    )
+    model_name: Mapped[str] = mapped_column(
+        String(120), nullable=False, doc="Model name used for execution"
+    )
+    model_provider: Mapped[str] = mapped_column(
+        String(120), nullable=False, doc="LLM provider identifier"
+    )
+    base_url: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        doc="Optional model base URL override",
+    )
+    output_type: Mapped[dict[str, Any] | str | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Optional structured output type definition",
+    )
+    actions: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Tool identifiers available to the agent",
+    )
+    namespaces: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Tool namespaces available to the agent",
+    )
+    tool_approvals: Mapped[dict[str, bool] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Tool approval requirements by tool name",
+    )
+    mcp_integrations: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="MCP integrations to use",
+    )
+    retries: Mapped[int] = mapped_column(
+        Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
+    )
+    enable_internet_access: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=text("false"),
+        nullable=False,
+        doc="Whether to enable direct internet access in the agent sandbox",
+    )
+
+    preset: Mapped[AgentPreset] = relationship(
+        "AgentPreset",
+        back_populates="versions",
+        foreign_keys=[preset_id],
     )
 
 

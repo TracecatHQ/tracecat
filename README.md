@@ -2,10 +2,10 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="img/banner-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="img/banner-light.svg">
-    <img src="img/banner-light.svg" alt="The open source AI platform for enterprise agents and automation.">
+    <img src="img/banner-light.svg" alt="The AI-native security automation platform.">
   </picture>
   <p align="center">
-    Automate enterprise work with secure AI agents.
+    The AI-native security automation platform.
   </p>
 
   <br>
@@ -15,19 +15,18 @@
 
 ![Commits](https://img.shields.io/github/commit-activity/m/TracecatHQ/tracecat?style=for-the-badge&logo=github&color=6E7ED8)
 ![License](https://img.shields.io/badge/License-AGPL%203.0-6E7ED8?style=for-the-badge&logo=agpl)
-[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/wQhrFQUz)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/H4XZwsYzY4)
 
 </div>
 
 ## Introduction
 
-[Tracecat](https://tracecat.com) is the open source AI platform for enterprise agents and automation.
-It includes everything technical teams need to automate mission-critical work: agents, workflows, case management, and over 100+ integrations.
+[Tracecat](https://tracecat.com) is the AI-native security automation platform.
 
-Purpose-built for agents and (human) builders:
-- **Visual builder**: build custom agents and workflows with a simple, intuitive UI
-- **Tracecat MCP**: build and run agents and workflows from your own harness (e.g. Claude code, Codex)
-- **Code-native**: sync custom Python scripts from your Git repo into Tracecat
+Purpose-built for agents and open source for builders:
+- **Prompt-to-automations**: build end-to-end automations with agents, workflows, and tables from your own agent harness (e.g. Claude code, Codex, OpenCode).
+- **Code-native**: sync custom Python scripts from your Git repo into Tracecat.
+- **All-in-one**: agents, workflows, lookup tables, and case management. Everything security teams need to automate work in one place. 
 - **Self-host anywhere**: Docker, Kubernetes, AWS Fargate.
 
 Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run on [Temporal](https://temporal.io) for security, reliability, and scale.

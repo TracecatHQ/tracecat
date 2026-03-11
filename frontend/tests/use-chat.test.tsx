@@ -44,6 +44,7 @@ function createSessionRead(
     channel_context: null,
     tools: [],
     agent_preset_id: null,
+    agent_preset_version_id: null,
     harness_type: null,
     created_at: new Date("2024-01-01T00:00:00.000Z").toISOString(),
     updated_at: new Date("2024-01-01T00:00:00.000Z").toISOString(),
@@ -147,6 +148,100 @@ describe("useUpdateChat", () => {
     ).toEqual(["core.cases.list_cases"])
 
     deferred.resolve(createSessionRead({ tools: ["core.cases.list_cases"] }))
+    await mutationPromise
+  })
+
+  it("optimistically updates preset selection and pinned version caches", async () => {
+    const deferred = createDeferred<AgentSessionRead>()
+    mockAgentSessionsUpdateSession.mockImplementation(
+      () =>
+        deferred.promise as unknown as ReturnType<
+          typeof agentSessionsUpdateSession
+        >
+    )
+
+    queryClient.setQueryData(
+      ["chat", "chat-1", "workspace-1"],
+      createSessionReadWithMessages({
+        agent_preset_id: "preset-old",
+        agent_preset_version_id: "version-old",
+      })
+    )
+    queryClient.setQueryData(
+      ["chat", "chat-1", "workspace-1", "vercel"],
+      createSessionReadVercel({
+        agent_preset_id: "preset-old",
+        agent_preset_version_id: "version-old",
+      })
+    )
+    queryClient.setQueryData(
+      ["chats", "workspace-1", "case", "case-1", 50],
+      [
+        createSessionRead({
+          agent_preset_id: "preset-old",
+          agent_preset_version_id: "version-old",
+        }),
+      ]
+    )
+
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+
+    const { result } = renderHook(() => useUpdateChat("workspace-1"), {
+      wrapper,
+    })
+
+    const mutationPromise = result.current.updateChat({
+      chatId: "chat-1",
+      update: {
+        agent_preset_id: "preset-new",
+        agent_preset_version_id: "version-new",
+      },
+    })
+
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryData<AgentSessionReadWithMessages>([
+          "chat",
+          "chat-1",
+          "workspace-1",
+        ])
+      ).toMatchObject({
+        agent_preset_id: "preset-new",
+        agent_preset_version_id: "version-new",
+      })
+    })
+    expect(
+      queryClient.getQueryData<AgentSessionReadVercel>([
+        "chat",
+        "chat-1",
+        "workspace-1",
+        "vercel",
+      ])
+    ).toMatchObject({
+      agent_preset_id: "preset-new",
+      agent_preset_version_id: "version-new",
+    })
+    expect(
+      queryClient.getQueryData<AgentSessionRead[]>([
+        "chats",
+        "workspace-1",
+        "case",
+        "case-1",
+        50,
+      ])?.[0]
+    ).toMatchObject({
+      agent_preset_id: "preset-new",
+      agent_preset_version_id: "version-new",
+    })
+
+    deferred.resolve(
+      createSessionRead({
+        agent_preset_id: "preset-new",
+        agent_preset_version_id: "version-new",
+      })
+    )
     await mutationPromise
   })
 })

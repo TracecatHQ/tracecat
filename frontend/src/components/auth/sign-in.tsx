@@ -33,25 +33,14 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 import { useAuthActions } from "@/hooks/use-auth"
-import {
-  sanitizeReturnUrl,
-  serializeClearPostAuthReturnUrlCookie,
-  serializePostAuthReturnUrlCookie,
-} from "@/lib/auth-return-url"
+import { setPostAuthReturnUrlCookie, startOidcLogin } from "@/lib/auth-login"
+import { sanitizeReturnUrl } from "@/lib/auth-return-url"
 import { useAppInfo } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
 interface SignInProps extends React.HTMLProps<HTMLDivElement> {
   returnUrl?: string | null
   organizationSlug?: string | null
-}
-
-function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
-  const secure = window.location.protocol === "https:"
-  const sanitizedReturnUrl = sanitizeReturnUrl(returnUrl)
-  document.cookie = sanitizedReturnUrl
-    ? serializePostAuthReturnUrlCookie(sanitizedReturnUrl, secure)
-    : serializeClearPostAuthReturnUrlCookie(secure)
 }
 
 function buildSignUpPath(
@@ -142,9 +131,7 @@ export function SignIn({
         if (!showOidcAuth) {
           throw new Error("OIDC login is not enabled")
         }
-        // Fall through — show OIDC buttons so user can click
-        // (OIDC requires user-initiated navigation for OAuth redirects)
-        setDiscoveredMethod(null)
+        await startOidcLogin(returnUrl)
         return
       }
       if (data.method === "saml") {

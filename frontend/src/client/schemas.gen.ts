@@ -1147,18 +1147,6 @@ export const $AgentPreset = {
 
 export const $AgentPresetCreate = {
   properties: {
-    description: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Description",
-    },
     instructions: {
       anyOf: [
         {
@@ -1271,6 +1259,18 @@ export const $AgentPresetCreate = {
       title: "Enable Internet Access",
       default: false,
     },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
     name: {
       type: "string",
       maxLength: 120,
@@ -1299,18 +1299,6 @@ export const $AgentPresetCreate = {
 
 export const $AgentPresetRead = {
   properties: {
-    description: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Description",
-    },
     instructions: {
       anyOf: [
         {
@@ -1325,13 +1313,11 @@ export const $AgentPresetRead = {
     model_name: {
       type: "string",
       maxLength: 120,
-      minLength: 1,
       title: "Model Name",
     },
     model_provider: {
       type: "string",
       maxLength: 120,
-      minLength: 1,
       title: "Model Provider",
     },
     base_url: {
@@ -1440,6 +1426,30 @@ export const $AgentPresetRead = {
     slug: {
       type: "string",
       title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    current_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Current Version Id",
     },
     created_at: {
       type: "string",
@@ -1497,6 +1507,18 @@ export const $AgentPresetReadMinimal = {
         },
       ],
       title: "Description",
+    },
+    current_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Current Version Id",
     },
     created_at: {
       type: "string",
@@ -1707,6 +1729,405 @@ export const $AgentPresetUpdate = {
   description: "Payload for updating an existing agent preset.",
 } as const
 
+export const $AgentPresetVersionDiff = {
+  properties: {
+    base_version_id: {
+      type: "string",
+      format: "uuid",
+      title: "Base Version Id",
+    },
+    base_version: {
+      type: "integer",
+      title: "Base Version",
+    },
+    compare_version_id: {
+      type: "string",
+      format: "uuid",
+      title: "Compare Version Id",
+    },
+    compare_version: {
+      type: "integer",
+      title: "Compare Version",
+    },
+    instructions_changed: {
+      type: "boolean",
+      title: "Instructions Changed",
+      default: false,
+    },
+    base_instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Instructions",
+    },
+    compare_instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Compare Instructions",
+    },
+    scalar_changes: {
+      items: {
+        $ref: "#/components/schemas/ScalarFieldChange",
+      },
+      type: "array",
+      title: "Scalar Changes",
+    },
+    list_changes: {
+      items: {
+        $ref: "#/components/schemas/StringListFieldChange",
+      },
+      type: "array",
+      title: "List Changes",
+    },
+    tool_approval_changes: {
+      items: {
+        $ref: "#/components/schemas/ToolApprovalFieldChange",
+      },
+      type: "array",
+      title: "Tool Approval Changes",
+    },
+    total_changes: {
+      type: "integer",
+      title: "Total Changes",
+      default: 0,
+    },
+  },
+  type: "object",
+  required: [
+    "base_version_id",
+    "base_version",
+    "compare_version_id",
+    "compare_version",
+  ],
+  title: "AgentPresetVersionDiff",
+  description: "Structured diff between two preset versions.",
+} as const
+
+export const $AgentPresetVersionRead = {
+  properties: {
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 120,
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      title: "Model Provider",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    output_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OutputType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    actions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actions",
+    },
+    namespaces: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Namespaces",
+    },
+    tool_approvals: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "boolean",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Approvals",
+    },
+    mcp_integrations: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integrations",
+    },
+    retries: {
+      type: "integer",
+      minimum: 0,
+      title: "Retries",
+      default: 3,
+    },
+    enable_internet_access: {
+      type: "boolean",
+      title: "Enable Internet Access",
+      default: false,
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Preset Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "model_name",
+    "model_provider",
+    "id",
+    "preset_id",
+    "workspace_id",
+    "version",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentPresetVersionRead",
+  description: "Full response model for an immutable preset version.",
+} as const
+
+export const $AgentPresetVersionReadMinimal = {
+  properties: {
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 120,
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      title: "Model Provider",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    output_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OutputType",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    actions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actions",
+    },
+    namespaces: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Namespaces",
+    },
+    tool_approvals: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "boolean",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Approvals",
+    },
+    mcp_integrations: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integrations",
+    },
+    retries: {
+      type: "integer",
+      minimum: 0,
+      title: "Retries",
+      default: 3,
+    },
+    enable_internet_access: {
+      type: "boolean",
+      title: "Enable Internet Access",
+      default: false,
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Preset Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "model_name",
+    "model_provider",
+    "id",
+    "preset_id",
+    "workspace_id",
+    "version",
+    "created_at",
+    "updated_at",
+  ],
+  title: "AgentPresetVersionReadMinimal",
+  description: "Minimal response model for agent preset versions.",
+} as const
+
 export const $AgentSessionCreate = {
   properties: {
     id: {
@@ -1781,6 +2202,19 @@ export const $AgentSessionCreate = {
       ],
       title: "Agent Preset Id",
       description: "Agent preset used for this session (if any)",
+    },
+    agent_preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Version Id",
+      description: "Pinned preset version used for this session (if any)",
     },
     harness_type: {
       $ref: "#/components/schemas/HarnessType",
@@ -1913,6 +2347,18 @@ export const $AgentSessionRead = {
       ],
       title: "Agent Preset Id",
     },
+    agent_preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Version Id",
+    },
     harness_type: {
       anyOf: [
         {
@@ -1969,6 +2415,7 @@ export const $AgentSessionRead = {
     "channel_context",
     "tools",
     "agent_preset_id",
+    "agent_preset_version_id",
     "harness_type",
     "created_at",
     "updated_at",
@@ -2052,6 +2499,18 @@ export const $AgentSessionReadVercel = {
       ],
       title: "Agent Preset Id",
     },
+    agent_preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Version Id",
+    },
     harness_type: {
       anyOf: [
         {
@@ -2116,6 +2575,7 @@ export const $AgentSessionReadVercel = {
     "channel_context",
     "tools",
     "agent_preset_id",
+    "agent_preset_version_id",
     "harness_type",
     "created_at",
     "updated_at",
@@ -2199,6 +2659,18 @@ export const $AgentSessionReadWithMessages = {
       ],
       title: "Agent Preset Id",
     },
+    agent_preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Version Id",
+    },
     harness_type: {
       anyOf: [
         {
@@ -2261,6 +2733,7 @@ export const $AgentSessionReadWithMessages = {
     "channel_context",
     "tools",
     "agent_preset_id",
+    "agent_preset_version_id",
     "harness_type",
     "created_at",
     "updated_at",
@@ -2313,6 +2786,19 @@ export const $AgentSessionUpdate = {
       ],
       title: "Agent Preset Id",
       description: "Agent preset to use for this session",
+    },
+    agent_preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Version Id",
+      description: "Pinned preset version to use for this session",
     },
     harness_type: {
       anyOf: [
@@ -3291,6 +3777,32 @@ export const $AuthDiscoveryMethod = {
   enum: ["basic", "oidc", "saml"],
   title: "AuthDiscoveryMethod",
   description: "Authentication method hint for client-side routing.",
+} as const
+
+export const $AwsAssumeRoleAccessRead = {
+  properties: {
+    tracecat_aws_account_id: {
+      type: "string",
+      title: "Tracecat Aws Account Id",
+    },
+    tracecat_aws_principal_arn: {
+      type: "string",
+      title: "Tracecat Aws Principal Arn",
+    },
+    external_id: {
+      type: "string",
+      title: "External Id",
+    },
+  },
+  type: "object",
+  required: [
+    "tracecat_aws_account_id",
+    "tracecat_aws_principal_arn",
+    "external_id",
+  ],
+  title: "AwsAssumeRoleAccessRead",
+  description:
+    "Workspace-scoped AWS AssumeRole details shown in the credentials UI.",
 } as const
 
 export const $BatchPositionUpdate = {
@@ -6565,6 +7077,19 @@ export const $ChatRead = {
       title: "Agent Preset Id",
       description: "Agent preset used for this chat, if any",
     },
+    agent_preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Version Id",
+      description: "Pinned preset version used for this chat, if any",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -6671,6 +7196,19 @@ export const $ChatReadMinimal = {
       title: "Agent Preset Id",
       description: "Agent preset used for this chat, if any",
     },
+    agent_preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Version Id",
+      description: "Pinned preset version used for this chat, if any",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -6770,6 +7308,19 @@ export const $ChatReadVercel = {
       ],
       title: "Agent Preset Id",
       description: "Agent preset used for this chat, if any",
+    },
+    agent_preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Preset Version Id",
+      description: "Pinned preset version used for this chat, if any",
     },
     created_at: {
       type: "string",
@@ -7455,6 +8006,69 @@ export const $CreatedEventRead = {
   required: ["created_at"],
   title: "CreatedEventRead",
   description: "Event for when a case is created.",
+} as const
+
+export const $CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetVersionReadMinimal",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentPresetVersionReadMinimal]",
 } as const
 
 export const $CursorPaginatedResponse_CaseReadMinimal_ = {
@@ -9706,7 +10320,6 @@ export const $GitCommitInfo = {
     },
     message: {
       type: "string",
-      maxLength: 1000,
       title: "Message",
       description: "The commit message",
     },
@@ -9795,6 +10408,11 @@ export const $GitHubAppCredentialsStatus = {
     exists: {
       type: "boolean",
       title: "Exists",
+    },
+    is_corrupted: {
+      type: "boolean",
+      title: "Is Corrupted",
+      default: false,
     },
     app_id: {
       anyOf: [
@@ -14016,171 +14634,6 @@ export const $ReceiveInteractionResponse = {
   title: "ReceiveInteractionResponse",
 } as const
 
-export const $RegistryActionCreate = {
-  properties: {
-    name: {
-      type: "string",
-      maxLength: 100,
-      minLength: 1,
-      title: "Name",
-      description: "The name of the action",
-    },
-    description: {
-      type: "string",
-      maxLength: 1000,
-      title: "Description",
-      description: "The description of the action",
-    },
-    namespace: {
-      type: "string",
-      title: "Namespace",
-      description: "The namespace of the action",
-    },
-    type: {
-      type: "string",
-      enum: ["udf", "template"],
-      title: "Type",
-      description: "The type of the action",
-    },
-    origin: {
-      type: "string",
-      maxLength: 1000,
-      minLength: 1,
-      title: "Origin",
-      description: "The origin of the action as a url",
-    },
-    secrets: {
-      anyOf: [
-        {
-          items: {
-            $ref: "#/components/schemas/RegistrySecretType-Input",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Secrets",
-      description: "The secrets required by the action",
-    },
-    interface: {
-      $ref: "#/components/schemas/RegistryActionInterface",
-    },
-    implementation: {
-      oneOf: [
-        {
-          $ref: "#/components/schemas/RegistryActionTemplateImpl-Input",
-        },
-        {
-          $ref: "#/components/schemas/RegistryActionUDFImpl",
-        },
-      ],
-      title: "Implementation",
-      discriminator: {
-        propertyName: "type",
-        mapping: {
-          template: "#/components/schemas/RegistryActionTemplateImpl-Input",
-          udf: "#/components/schemas/RegistryActionUDFImpl",
-        },
-      },
-    },
-    default_title: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Default Title",
-      description: "The default title of the action",
-    },
-    display_group: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Display Group",
-      description: "The presentation group of the action",
-    },
-    doc_url: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Doc Url",
-      description: "Link to documentation",
-    },
-    author: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Author",
-      description: "Author of the action",
-    },
-    deprecated: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Deprecated",
-      description: "Marks action as deprecated along with message",
-    },
-    options: {
-      $ref: "#/components/schemas/RegistryActionOptions",
-      description: "The options for the action",
-    },
-    repository_id: {
-      type: "string",
-      format: "uuid4",
-      title: "Repository Id",
-      description: "The repository id",
-    },
-  },
-  type: "object",
-  required: [
-    "name",
-    "description",
-    "namespace",
-    "type",
-    "origin",
-    "interface",
-    "implementation",
-    "repository_id",
-  ],
-  title: "RegistryActionCreate",
-  description: "API create model for a registered action.",
-} as const
-
 export const $RegistryActionInterface = {
   properties: {
     expects: {
@@ -14265,7 +14718,7 @@ export const $RegistryActionRead = {
       anyOf: [
         {
           items: {
-            $ref: "#/components/schemas/RegistrySecretType-Output",
+            $ref: "#/components/schemas/RegistrySecretType",
           },
           type: "array",
         },
@@ -14282,7 +14735,7 @@ export const $RegistryActionRead = {
     implementation: {
       oneOf: [
         {
-          $ref: "#/components/schemas/RegistryActionTemplateImpl-Output",
+          $ref: "#/components/schemas/RegistryActionTemplateImpl",
         },
         {
           $ref: "#/components/schemas/RegistryActionUDFImpl",
@@ -14292,7 +14745,7 @@ export const $RegistryActionRead = {
       discriminator: {
         propertyName: "type",
         mapping: {
-          template: "#/components/schemas/RegistryActionTemplateImpl-Output",
+          template: "#/components/schemas/RegistryActionTemplateImpl",
           udf: "#/components/schemas/RegistryActionUDFImpl",
         },
       },
@@ -14493,7 +14946,7 @@ export const $RegistryActionReadMinimal = {
   description: "API minimal read model for a registered action.",
 } as const
 
-export const $RegistryActionTemplateImpl_Input = {
+export const $RegistryActionTemplateImpl = {
   properties: {
     type: {
       type: "string",
@@ -14502,25 +14955,7 @@ export const $RegistryActionTemplateImpl_Input = {
       default: "template",
     },
     template_action: {
-      $ref: "#/components/schemas/TemplateAction-Input",
-      description: "The template action",
-    },
-  },
-  type: "object",
-  required: ["template_action"],
-  title: "RegistryActionTemplateImpl",
-} as const
-
-export const $RegistryActionTemplateImpl_Output = {
-  properties: {
-    type: {
-      type: "string",
-      const: "template",
-      title: "Type",
-      default: "template",
-    },
-    template_action: {
-      $ref: "#/components/schemas/TemplateAction-Output",
+      $ref: "#/components/schemas/TemplateAction",
       description: "The template action",
     },
   },
@@ -14556,174 +14991,6 @@ export const $RegistryActionUDFImpl = {
   type: "object",
   required: ["url", "module", "name"],
   title: "RegistryActionUDFImpl",
-} as const
-
-export const $RegistryActionUpdate = {
-  properties: {
-    name: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Name",
-      description: "Update the name of the action",
-    },
-    description: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Description",
-      description: "Update the description of the action",
-    },
-    secrets: {
-      anyOf: [
-        {
-          items: {
-            $ref: "#/components/schemas/RegistrySecretType-Input",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Secrets",
-      description: "Update the secrets of the action",
-    },
-    interface: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/RegistryActionInterface",
-        },
-        {
-          type: "null",
-        },
-      ],
-      description: "Update the interface of the action",
-    },
-    implementation: {
-      anyOf: [
-        {
-          oneOf: [
-            {
-              $ref: "#/components/schemas/RegistryActionTemplateImpl-Input",
-            },
-            {
-              $ref: "#/components/schemas/RegistryActionUDFImpl",
-            },
-          ],
-          discriminator: {
-            propertyName: "type",
-            mapping: {
-              template: "#/components/schemas/RegistryActionTemplateImpl-Input",
-              udf: "#/components/schemas/RegistryActionUDFImpl",
-            },
-          },
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Implementation",
-      description: "Update the implementation of the action",
-    },
-    default_title: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Default Title",
-      description: "Update the default title of the action",
-    },
-    display_group: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Display Group",
-      description: "Update the display group of the action",
-    },
-    doc_url: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Doc Url",
-      description: "Update the doc url of the action",
-    },
-    author: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Author",
-      description: "Update the author of the action",
-    },
-    deprecated: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Deprecated",
-      description: "Update the deprecation message of the action",
-    },
-    options: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/RegistryActionOptions",
-        },
-        {
-          type: "null",
-        },
-      ],
-      description: "Update the options of the action",
-    },
-  },
-  type: "object",
-  title: "RegistryActionUpdate",
-  description: "API update model for a registered action.",
 } as const
 
 export const $RegistryActionValidationErrorInfo = {
@@ -14792,36 +15059,7 @@ Attributes:
         Example: {"core.transform.reshape": "tracecat_registry"}`,
 } as const
 
-export const $RegistryOAuthSecret_Input = {
-  properties: {
-    type: {
-      type: "string",
-      const: "oauth",
-      title: "Type",
-      default: "oauth",
-    },
-    provider_id: {
-      type: "string",
-      title: "Provider Id",
-    },
-    grant_type: {
-      type: "string",
-      enum: ["authorization_code", "client_credentials"],
-      title: "Grant Type",
-    },
-    optional: {
-      type: "boolean",
-      title: "Optional",
-      default: false,
-    },
-  },
-  type: "object",
-  required: ["provider_id", "grant_type"],
-  title: "RegistryOAuthSecret",
-  description: "OAuth secret for a provider.",
-} as const
-
-export const $RegistryOAuthSecret_Output = {
+export const $RegistryOAuthSecret = {
   properties: {
     type: {
       type: "string",
@@ -15143,38 +15381,20 @@ export const $RegistrySecret = {
   title: "RegistrySecret",
 } as const
 
-export const $RegistrySecretType_Input = {
+export const $RegistrySecretType = {
   oneOf: [
     {
       $ref: "#/components/schemas/RegistrySecret",
     },
     {
-      $ref: "#/components/schemas/RegistryOAuthSecret-Input",
+      $ref: "#/components/schemas/RegistryOAuthSecret",
     },
   ],
   discriminator: {
     propertyName: "type",
     mapping: {
       custom: "#/components/schemas/RegistrySecret",
-      oauth: "#/components/schemas/RegistryOAuthSecret-Input",
-    },
-  },
-} as const
-
-export const $RegistrySecretType_Output = {
-  oneOf: [
-    {
-      $ref: "#/components/schemas/RegistrySecret",
-    },
-    {
-      $ref: "#/components/schemas/RegistryOAuthSecret-Output",
-    },
-  ],
-  discriminator: {
-    propertyName: "type",
-    mapping: {
-      custom: "#/components/schemas/RegistrySecret",
-      oauth: "#/components/schemas/RegistryOAuthSecret-Output",
+      oauth: "#/components/schemas/RegistryOAuthSecret",
     },
   },
 } as const
@@ -16053,6 +16273,25 @@ export const $SAMLSettingsUpdate = {
   },
   type: "object",
   title: "SAMLSettingsUpdate",
+} as const
+
+export const $ScalarFieldChange = {
+  properties: {
+    field: {
+      type: "string",
+      title: "Field",
+    },
+    old_value: {
+      title: "Old Value",
+    },
+    new_value: {
+      title: "New Value",
+    },
+  },
+  type: "object",
+  required: ["field"],
+  title: "ScalarFieldChange",
+  description: "Scalar field change between two preset versions.",
 } as const
 
 export const $ScheduleCreate = {
@@ -17472,6 +17711,33 @@ export const $StreamEvent = {
   title: "StreamEvent",
 } as const
 
+export const $StringListFieldChange = {
+  properties: {
+    field: {
+      type: "string",
+      title: "Field",
+    },
+    added: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Added",
+    },
+    removed: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Removed",
+    },
+  },
+  type: "object",
+  required: ["field"],
+  title: "StringListFieldChange",
+  description: "List diff for preset version fields.",
+} as const
+
 export const $SyntaxToken = {
   properties: {
     type: {
@@ -17783,9 +18049,19 @@ export const $TableReadMinimal = {
       type: "string",
       title: "Name",
     },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
   },
   type: "object",
-  required: ["id", "name"],
+  required: ["id", "name", "created_at", "updated_at"],
   title: "TableReadMinimal",
   description: "Read model for a table.",
 } as const
@@ -18850,7 +19126,7 @@ export const $TaskWorkflowChangedEventRead = {
   description: "Event for when a task workflow is changed.",
 } as const
 
-export const $TemplateAction_Input = {
+export const $TemplateAction = {
   properties: {
     type: {
       type: "string",
@@ -18859,7 +19135,7 @@ export const $TemplateAction_Input = {
       default: "action",
     },
     definition: {
-      $ref: "#/components/schemas/TemplateActionDefinition-Input",
+      $ref: "#/components/schemas/TemplateActionDefinition",
     },
   },
   type: "object",
@@ -18867,24 +19143,7 @@ export const $TemplateAction_Input = {
   title: "TemplateAction",
 } as const
 
-export const $TemplateAction_Output = {
-  properties: {
-    type: {
-      type: "string",
-      const: "action",
-      title: "Type",
-      default: "action",
-    },
-    definition: {
-      $ref: "#/components/schemas/TemplateActionDefinition-Output",
-    },
-  },
-  type: "object",
-  required: ["definition"],
-  title: "TemplateAction",
-} as const
-
-export const $TemplateActionDefinition_Input = {
+export const $TemplateActionDefinition = {
   properties: {
     name: {
       type: "string",
@@ -18952,135 +19211,7 @@ export const $TemplateActionDefinition_Input = {
       anyOf: [
         {
           items: {
-            $ref: "#/components/schemas/RegistrySecretType-Input",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Secrets",
-      description: "The secrets to pass to the action",
-    },
-    expects: {
-      additionalProperties: {
-        $ref: "#/components/schemas/ExpectedField-Input",
-      },
-      type: "object",
-      title: "Expects",
-      description: "The arguments to pass to the action",
-    },
-    steps: {
-      items: {
-        $ref: "#/components/schemas/ActionStep",
-      },
-      type: "array",
-      title: "Steps",
-      description: "The sequence of steps for the action",
-    },
-    returns: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-      ],
-      title: "Returns",
-      description: "The result of the action",
-    },
-  },
-  type: "object",
-  required: [
-    "name",
-    "namespace",
-    "title",
-    "display_group",
-    "expects",
-    "steps",
-    "returns",
-  ],
-  title: "TemplateActionDefinition",
-} as const
-
-export const $TemplateActionDefinition_Output = {
-  properties: {
-    name: {
-      type: "string",
-      title: "Name",
-      description: "The action name",
-    },
-    namespace: {
-      type: "string",
-      title: "Namespace",
-      description: "The namespace of the action",
-    },
-    title: {
-      type: "string",
-      title: "Title",
-      description: "The title of the action",
-    },
-    description: {
-      type: "string",
-      title: "Description",
-      description: "The description of the action",
-      default: "",
-    },
-    display_group: {
-      type: "string",
-      title: "Display Group",
-      description: "The display group of the action",
-    },
-    doc_url: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Doc Url",
-      description: "Link to documentation",
-    },
-    author: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Author",
-      description: "Author of the action",
-    },
-    deprecated: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Deprecated",
-      description: "Marks action as deprecated along with message",
-    },
-    secrets: {
-      anyOf: [
-        {
-          items: {
-            $ref: "#/components/schemas/RegistrySecretType-Output",
+            $ref: "#/components/schemas/RegistrySecretType",
           },
           type: "array",
         },
@@ -19662,6 +19793,41 @@ export const $Toggle = {
   },
   type: "object",
   title: "Toggle",
+} as const
+
+export const $ToolApprovalFieldChange = {
+  properties: {
+    tool: {
+      type: "string",
+      title: "Tool",
+    },
+    old_value: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Old Value",
+    },
+    new_value: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Value",
+    },
+  },
+  type: "object",
+  required: ["tool"],
+  title: "ToolApprovalFieldChange",
+  description: "Approval diff for a single tool.",
 } as const
 
 export const $ToolApproved = {

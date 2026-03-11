@@ -1,7 +1,9 @@
 """HTTP-level tests for workflow management API endpoints."""
 
+import json
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -389,6 +391,91 @@ async def test_get_workflow_not_found(
         # Should return 404
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert "not found" in response.json()["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_export_workflow_includes_layout(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    mock_workflow.trigger_position_x = 12.0
+    mock_workflow.trigger_position_y = 24.0
+    mock_workflow.viewport_x = 30.0
+    mock_workflow.viewport_y = 40.0
+    mock_workflow.viewport_zoom = 1.5
+    mock_workflow.actions = [
+        Action(
+            id=uuid.uuid4(),
+            workflow_id=mock_workflow.id,
+            workspace_id=mock_workflow.workspace_id,
+            type="core.transform.reshape",
+            title="entrypoint_1",
+            description="",
+            status="offline",
+            inputs="{}",
+            control_flow={},
+            is_interactive=False,
+            interaction=None,
+            position_x=100.0,
+            position_y=200.0,
+            upstream_edges=[],
+        )
+    ]
+
+    with (
+        patch(
+            "tracecat.workflow.management.router.get_setting",
+            new=AsyncMock(return_value=True),
+        ),
+        patch(
+            "tracecat.workflow.management.router.WorkflowDefinitionsService"
+        ) as MockDefinitionsService,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.get_definition_by_workflow_id.return_value = SimpleNamespace(
+            workspace_id=mock_workflow.workspace_id,
+            workflow_id=mock_workflow.id,
+            created_at=datetime(2024, 1, 1, tzinfo=UTC),
+            updated_at=datetime(2024, 1, 1, tzinfo=UTC),
+            version=1,
+            content={
+                "title": "Test Workflow",
+                "description": "Test workflow description",
+                "entrypoint": {"expects": {}, "ref": None},
+                "actions": [
+                    {
+                        "ref": "entrypoint_1",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "ENTRYPOINT_1"},
+                    }
+                ],
+            },
+            workflow=mock_workflow,
+        )
+        MockDefinitionsService.return_value = mock_svc
+
+        response = client.get(
+            f"/workflows/{mock_workflow.id}/export",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "format": "json",
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = json.loads(response.text)
+    assert payload["layout"] == {
+        "trigger": {"x": 12.0, "y": 24.0},
+        "viewport": {"x": 30.0, "y": 40.0, "zoom": 1.5},
+        "actions": [
+            {
+                "ref": "entrypoint_1",
+                "x": 100.0,
+                "y": 200.0,
+            }
+        ],
+    }
 
 
 @pytest.mark.anyio

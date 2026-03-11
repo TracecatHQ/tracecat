@@ -57,6 +57,9 @@ function applyOptimisticChatUpdate<T extends UpdateableChatRecord>(
     ...(update.agent_preset_id !== undefined
       ? { agent_preset_id: update.agent_preset_id }
       : {}),
+    ...(update.agent_preset_version_id !== undefined
+      ? { agent_preset_version_id: update.agent_preset_version_id }
+      : {}),
     ...("harness_type" in chat && update.harness_type !== undefined
       ? { harness_type: update.harness_type }
       : {}),

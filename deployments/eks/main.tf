@@ -48,6 +48,7 @@ module "eks" {
   tracecat_mcp_enabled   = var.tracecat_mcp_enabled
   tracecat_mcp_replicas  = var.tracecat_mcp_replicas
   superadmin_email       = var.superadmin_email
+  sentry_dsn             = var.sentry_dsn
 
   # Tracecat Secrets (AWS Secrets Manager ARN)
   tracecat_secrets_arn = var.tracecat_secrets_arn

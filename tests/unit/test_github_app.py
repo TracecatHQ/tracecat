@@ -17,6 +17,7 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.git.types import GitUrl
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
+from tracecat.secrets.service import SecretsService
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.vcs.github.schemas import (
     GitHubAppConfig,
@@ -26,6 +27,17 @@ from tracecat.vcs.github.schemas import (
 )
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture(autouse=True)
+def mock_git_sync_entitlement():
+    """These tests exercise GitHub logic, not tier resolution."""
+    with patch.object(
+        GitHubAppService,
+        "has_entitlement",
+        new=AsyncMock(return_value=True),
+    ):
+        yield
 
 
 @pytest.fixture
@@ -175,6 +187,31 @@ class TestGitHubAppService:
                 await github_admin_service.get_github_app_credentials()
 
     @pytest.mark.anyio
+    async def test_get_github_app_credentials_corrupted_secret(
+        self, github_admin_service, mock_credentials
+    ) -> None:
+        """Corrupted encrypted_keys should raise a recoverable GitHubAppError."""
+        await github_admin_service.register_app(
+            app_id=mock_credentials.app_id,
+            private_key_pem=mock_credentials.private_key,
+            webhook_secret=mock_credentials.webhook_secret,
+            client_id=mock_credentials.client_id,
+        )
+        secrets_service = SecretsService(
+            session=github_admin_service.session, role=github_admin_service.role
+        )
+        secret = await secrets_service.get_org_secret_by_name("github-app-credentials")
+        secret.encrypted_keys = b"not-a-valid-fernet-token"
+        github_admin_service.session.add(secret)
+        await github_admin_service.session.commit()
+
+        with pytest.raises(
+            GitHubAppError,
+            match="Failed to retrieve GitHub App credentials: invalid credential data",
+        ):
+            await github_admin_service.get_github_app_credentials()
+
+    @pytest.mark.anyio
     async def test_update_github_app_credentials_success(
         self, github_admin_service, mock_credentials, mock_secret
     ):
@@ -221,39 +258,139 @@ class TestGitHubAppService:
         self, github_service, mock_credentials, mock_secret
     ):
         """Test getting credentials status when they exist."""
-        with patch.object(
-            github_service, "get_github_app_credentials", return_value=mock_credentials
-        ):
-            with patch(
-                "tracecat.vcs.github.app.SecretsService"
-            ) as mock_secrets_service:
-                mock_service = AsyncMock()
-                mock_service.get_org_secret_by_name.return_value = mock_secret
-                mock_secrets_service.return_value = mock_service
+        with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
+            mock_service = Mock()
+            mock_service.get_org_secret_by_name = AsyncMock(return_value=mock_secret)
+            mock_service.decrypt_keys = Mock(
+                return_value=[
+                    SecretKeyValue(
+                        key="app_id", value=SecretStr(mock_credentials.app_id)
+                    ),
+                    SecretKeyValue(
+                        key="private_key", value=mock_credentials.private_key
+                    ),
+                    SecretKeyValue(
+                        key="webhook_secret", value=mock_credentials.webhook_secret
+                    ),
+                    SecretKeyValue(
+                        key="client_id", value=SecretStr(mock_credentials.client_id)
+                    ),
+                ]
+            )
+            mock_secrets_service.return_value = mock_service
 
-                status = await github_service.get_github_app_credentials_status()
-
-                assert status["exists"] is True
-                assert status["app_id"] == mock_credentials.app_id
-                assert status["has_webhook_secret"] is True
-                assert status["webhook_secret_preview"] == "webh****"
-                assert status["client_id"] == mock_credentials.client_id
-
-    @pytest.mark.anyio
-    async def test_get_github_app_credentials_status_not_exists(self, github_service):
-        """Test getting credentials status when they don't exist."""
-        with patch.object(
-            github_service,
-            "get_github_app_credentials",
-            side_effect=GitHubAppError("Not found"),
-        ):
             status = await github_service.get_github_app_credentials_status()
 
-            assert status["exists"] is False
-            assert status["app_id"] is None
-            assert status["has_webhook_secret"] is False
-            assert status["webhook_secret_preview"] is None
-            assert status["client_id"] is None
+            assert status["exists"] is True
+            assert status["is_corrupted"] is False
+            assert status["app_id"] == mock_credentials.app_id
+            assert status["has_webhook_secret"] is True
+            assert status["webhook_secret_preview"] == "webh****"
+            assert status["client_id"] == mock_credentials.client_id
+
+    @pytest.mark.anyio
+    async def test_get_github_app_credentials_status_corrupted_secret(
+        self, github_admin_service, mock_credentials
+    ) -> None:
+        """Corrupted stored credentials should degrade to reconfiguration status."""
+        await github_admin_service.register_app(
+            app_id=mock_credentials.app_id,
+            private_key_pem=mock_credentials.private_key,
+            webhook_secret=mock_credentials.webhook_secret,
+            client_id=mock_credentials.client_id,
+        )
+        secrets_service = SecretsService(
+            session=github_admin_service.session, role=github_admin_service.role
+        )
+        secret = await secrets_service.get_org_secret_by_name("github-app-credentials")
+        created_at = secret.created_at
+        secret.encrypted_keys = b"not-a-valid-fernet-token"
+        github_admin_service.session.add(secret)
+        await github_admin_service.session.commit()
+
+        status = await github_admin_service.get_github_app_credentials_status()
+
+        assert status["exists"] is True
+        assert status["is_corrupted"] is True
+        assert status["app_id"] is None
+        assert status["has_webhook_secret"] is False
+        assert status["webhook_secret_preview"] is None
+        assert status["client_id"] is None
+        assert status["created_at"] == (
+            created_at.isoformat() if created_at is not None else None
+        )
+
+    @pytest.mark.anyio
+    async def test_get_github_app_credentials_status_not_exists(
+        self, github_admin_service
+    ):
+        """Test getting credentials status when they don't exist."""
+        status = await github_admin_service.get_github_app_credentials_status()
+
+        assert status["exists"] is False
+        assert status["is_corrupted"] is False
+        assert status["app_id"] is None
+        assert status["has_webhook_secret"] is False
+        assert status["webhook_secret_preview"] is None
+        assert status["client_id"] is None
+
+    @pytest.mark.anyio
+    async def test_save_github_app_credentials_recovers_corrupted_secret(
+        self, github_admin_service, mock_credentials
+    ) -> None:
+        """Saving full credentials should repair a corrupted stored org secret."""
+        await github_admin_service.register_app(
+            app_id=mock_credentials.app_id,
+            private_key_pem=mock_credentials.private_key,
+            webhook_secret=mock_credentials.webhook_secret,
+            client_id=mock_credentials.client_id,
+        )
+        secrets_service = SecretsService(
+            session=github_admin_service.session, role=github_admin_service.role
+        )
+        secret = await secrets_service.get_org_secret_by_name("github-app-credentials")
+        original_secret_id = secret.id
+        secret.encrypted_keys = b"not-a-valid-fernet-token"
+        github_admin_service.session.add(secret)
+        await github_admin_service.session.commit()
+
+        updated_private_key = SecretStr(
+            "-----BEGIN RSA PRIVATE KEY-----\nrecovered-key\n-----END RSA PRIVATE KEY-----"
+        )
+        (
+            recovered_config,
+            was_created,
+        ) = await github_admin_service.save_github_app_credentials(
+            app_id="654321",
+            private_key_pem=updated_private_key,
+            webhook_secret=SecretStr("new-webhook-secret"),
+            client_id="client-456",
+        )
+
+        recovered_secret = await secrets_service.get_org_secret_by_name(
+            "github-app-credentials"
+        )
+        recovered_credentials = await github_admin_service.get_github_app_credentials()
+        recovered_status = (
+            await github_admin_service.get_github_app_credentials_status()
+        )
+
+        assert was_created is False
+        assert recovered_config.app_id == "654321"
+        assert recovered_secret.id == original_secret_id
+        assert recovered_credentials.app_id == "654321"
+        assert (
+            recovered_credentials.private_key.get_secret_value()
+            == updated_private_key.get_secret_value()
+        )
+        assert (
+            recovered_credentials.webhook_secret
+            and recovered_credentials.webhook_secret.get_secret_value()
+            == "new-webhook-secret"
+        )
+        assert recovered_credentials.client_id == "client-456"
+        assert recovered_status["exists"] is True
+        assert recovered_status["is_corrupted"] is False
 
     # ============================================================================
     # Installation Management Tests

@@ -173,7 +173,7 @@ async def execute_user_mcp_tool(
             server_name=server_name,
             workspace_id=str(claims.workspace_id),
         )
-        raise ToolError(server_name) from None
+        raise ToolError(f"User MCP server '{server_name}' not authorized") from None
 
     try:
         config_dict: MCPHttpServerConfig = {
@@ -207,7 +207,9 @@ async def execute_user_mcp_tool(
             workspace_id=str(claims.workspace_id),
             error_type=_safe_error_type(e),
         )
-        raise ToolError(server_name) from None
+        raise ToolError(
+            f"User MCP tool '{tool_name}' on server '{server_name}' failed"
+        ) from None
 
 
 @mcp.tool

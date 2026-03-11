@@ -451,7 +451,7 @@ resource "aws_iam_role_policy" "external_dns" {
   })
 }
 
-# S3 Access IAM Role for Tracecat (IRSA)
+# App IAM Role for Tracecat API and worker workloads (IRSA)
 resource "aws_iam_role" "tracecat_s3" {
   name = "${var.cluster_name}-tracecat-s3-role"
 
@@ -514,6 +514,74 @@ resource "aws_iam_role_policy" "tracecat_s3" {
         ]
         Resource = [
           local.rds_master_secret_arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role" "tracecat_executor" {
+  name = "${var.cluster_name}-tracecat-executor-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Federated = aws_iam_openid_connect_provider.eks.arn
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = [
+              "system:serviceaccount:${kubernetes_namespace.tracecat.metadata[0].name}:${local.tracecat_executor_service_account_name}",
+              "system:serviceaccount:${kubernetes_namespace.tracecat.metadata[0].name}:${local.tracecat_agent_executor_service_account_name}"
+            ]
+            "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" = "sts.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy" "tracecat_executor" {
+  name = "${var.cluster_name}-tracecat-executor-policy"
+  role = aws_iam_role.tracecat_executor.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:ListBucket",
+          "s3:PutLifecycleConfiguration",
+          "s3:GetLifecycleConfiguration",
+          "s3:DeleteLifecycleConfiguration"
+        ]
+        Resource = [
+          aws_s3_bucket.attachments.arn,
+          "${aws_s3_bucket.attachments.arn}/*",
+          aws_s3_bucket.registry.arn,
+          "${aws_s3_bucket.registry.arn}/*",
+          aws_s3_bucket.workflow.arn,
+          "${aws_s3_bucket.workflow.arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "sts:AssumeRole"
+        ]
+        Resource = [
+          "arn:aws:iam::*:role/*"
         ]
       }
     ]

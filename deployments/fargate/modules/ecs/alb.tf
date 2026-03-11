@@ -133,6 +133,13 @@ resource "aws_wafv2_web_acl" "this" {
           }
         }
 
+        rule_action_override {
+          name = "NoUserAgent_HEADER"
+          action_to_use {
+            count {}
+          }
+        }
+
       }
     }
 
@@ -212,10 +219,55 @@ resource "aws_wafv2_web_acl" "this" {
     }
   }
 
+  # Custom rule to block missing User-Agent except for MCP public endpoints.
+  # Some MCP clients bootstrap OAuth without a User-Agent header. Keep the
+  # managed rule active everywhere else.
+  rule {
+    name     = "BlockMissingUserAgentExceptMcpPublic"
+    priority = 5
+
+    action {
+      block {}
+    }
+
+    statement {
+      and_statement {
+        statement {
+          label_match_statement {
+            scope = "LABEL"
+            key   = "awswaf:managed:aws:core-rule-set:NoUserAgent_Header"
+          }
+        }
+        statement {
+          not_statement {
+            statement {
+              regex_pattern_set_reference_statement {
+                arn = aws_wafv2_regex_pattern_set.mcp_public_endpoints[0].arn
+                field_to_match {
+                  uri_path {}
+                }
+                text_transformation {
+                  priority = 0
+                  type     = "NONE"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "BlockMissingUserAgentExceptMcpPublic"
+      sampled_requests_enabled   = true
+    }
+  }
+
   # Custom rule to block XSS threats except for attachment uploads
   rule {
     name     = "BlockXSSExceptAttachments"
-    priority = 5
+    priority = 6
 
     action {
       block {}
@@ -258,7 +310,7 @@ resource "aws_wafv2_web_acl" "this" {
   # Custom rule to block LFI threats except for attachment uploads
   rule {
     name     = "BlockLFIExceptAttachments"
-    priority = 6
+    priority = 7
 
     action {
       block {}
@@ -300,7 +352,7 @@ resource "aws_wafv2_web_acl" "this" {
 
   rule {
     name     = "BlockSSRFExceptMcpOAuth"
-    priority = 7
+    priority = 8
 
     action {
       block {}
@@ -357,7 +409,7 @@ resource "aws_wafv2_web_acl" "this" {
   # Custom rule to block oversized query strings except for attachment uploads
   rule {
     name     = "BlockQueryStringSizeExceptAttachments"
-    priority = 8
+    priority = 9
 
     action {
       block {}
@@ -426,6 +478,20 @@ resource "aws_wafv2_regex_pattern_set" "mcp_oauth_endpoints" {
 
   regular_expression {
     regex_string = "^/(mcp/)?(register|authorize|consent|token|auth/callback)$"
+  }
+}
+
+# Regex pattern set for MCP public endpoints that must remain reachable even
+# when clients omit a User-Agent header during connection bootstrapping.
+resource "aws_wafv2_regex_pattern_set" "mcp_public_endpoints" {
+  count = var.enable_waf ? 1 : 0
+
+  name        = "mcp-public-endpoint-pattern"
+  description = "Matches MCP discovery, transport, and OAuth endpoints"
+  scope       = "REGIONAL"
+
+  regular_expression {
+    regex_string = "^/(mcp|\\.well-known/oauth-(protected-resource|authorization-server)(/mcp)?|(mcp/)?(register|authorize|consent|token|auth/callback))$"
   }
 }
 

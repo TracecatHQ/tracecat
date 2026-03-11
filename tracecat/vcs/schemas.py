@@ -30,6 +30,7 @@ class GitHubAppCredentialsStatus(BaseModel):
     """Status of GitHub App credentials."""
 
     exists: bool
+    is_corrupted: bool = False
     app_id: str | None = None
     has_webhook_secret: bool = False
     webhook_secret_preview: str | None = None

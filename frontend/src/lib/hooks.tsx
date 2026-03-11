@@ -23,6 +23,7 @@ import {
   ApiError,
   type AppSettingsRead,
   type AuditSettingsRead,
+  type AwsAssumeRoleAccessRead,
   actionsDeleteAction,
   actionsGetAction,
   actionsUpdateAction,
@@ -168,11 +169,8 @@ import {
   providersCreateCustomProvider,
   providersGetProvider,
   providersListProviders,
-  type RegistryActionCreate,
   type RegistryActionRead,
   type RegistryActionReadMinimal,
-  type RegistryActionsDeleteRegistryActionData,
-  type RegistryActionsUpdateRegistryActionData,
   type RegistryRepositoriesDeleteRegistryRepositoryData,
   type RegistryRepositoriesSyncRegistryRepositoryData,
   type RegistryRepositoryErrorDetail,
@@ -203,11 +201,8 @@ import {
   rbacUpdateGroup,
   rbacUpdateRole,
   rbacUpdateUserAssignment,
-  registryActionsCreateRegistryAction,
-  registryActionsDeleteRegistryAction,
   registryActionsGetRegistryAction,
   registryActionsListRegistryActions,
-  registryActionsUpdateRegistryAction,
   registryRepositoriesDeleteRegistryRepository,
   registryRepositoriesListRegistryRepositories,
   registryRepositoriesListRepositoryCommits,
@@ -236,6 +231,7 @@ import {
   schedulesUpdateSchedule,
   secretsCreateSecret,
   secretsDeleteSecretById,
+  secretsGetAwsAssumeRoleAccess,
   secretsListSecretDefinitions,
   secretsListSecrets,
   secretsUpdateSecretById,
@@ -353,6 +349,7 @@ import {
   workspacesListWorkspaces,
   workspacesUpdateWorkspace,
 } from "@/client"
+
 import { toast } from "@/components/ui/use-toast"
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { client as apiClient, getBaseUrl } from "@/lib/api"
@@ -1342,7 +1339,7 @@ export function useWorkspaceSecrets(
     queryFn: async () =>
       await secretsListSecrets({
         workspaceId,
-        type: ["custom", "ssh-key", "mtls", "ca-cert"],
+        type: ["custom", "ssh-key", "mtls", "ca-cert", "github-app"],
       }),
     enabled: !!workspaceId && listEnabled,
     staleTime: 5 * 60 * 1000,
@@ -1486,6 +1483,30 @@ export function useSecretDefinitions(workspaceId: string) {
     secretDefinitions,
     secretDefinitionsIsLoading,
     secretDefinitionsError,
+  }
+}
+
+export function useAwsAssumeRoleAccess(
+  workspaceId: string,
+  options: { enabled?: boolean } = {}
+) {
+  const enabled = options.enabled ?? true
+  const {
+    data: awsAssumeRoleAccess,
+    isLoading: awsAssumeRoleAccessIsLoading,
+    error: awsAssumeRoleAccessError,
+  } = useQuery<AwsAssumeRoleAccessRead, ApiError>({
+    queryKey: ["aws-assume-role-access", workspaceId],
+    queryFn: async () => await secretsGetAwsAssumeRoleAccess({ workspaceId }),
+    enabled: !!workspaceId && enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+
+  return {
+    awsAssumeRoleAccess,
+    awsAssumeRoleAccessIsLoading,
+    awsAssumeRoleAccessError,
   }
 }
 
@@ -1846,7 +1867,6 @@ export function useGetRegistryAction(actionName?: string) {
 
 // For selector node
 export function useRegistryActions(versions?: string[]) {
-  const queryClient = useQueryClient()
   const {
     data: registryActions,
     isLoading: registryActionsIsLoading,
@@ -1858,127 +1878,10 @@ export function useRegistryActions(versions?: string[]) {
     },
   })
 
-  const {
-    mutateAsync: createRegistryAction,
-    isPending: createRegistryActionIsPending,
-    error: createRegistryActionError,
-  } = useMutation({
-    mutationFn: async (params: RegistryActionCreate) =>
-      await registryActionsCreateRegistryAction({
-        requestBody: params,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
-      toast({
-        title: "Created registry action",
-        description: "Registry action created successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      switch (error.status) {
-        case 422:
-          console.error("Failed to create registry action", error)
-          toast({
-            title: "Failed to create registry action",
-            description:
-              "An error occurred while creating the registry action.",
-          })
-          break
-        default:
-          console.error("Failed to create registry action", error)
-          toast({
-            title: "Failed to create registry action",
-            description:
-              "An error occurred while creating the registry action.",
-          })
-      }
-    },
-  })
-
-  const {
-    mutateAsync: updateRegistryAction,
-    isPending: updateRegistryActionIsPending,
-    error: updateRegistryActionError,
-  } = useMutation({
-    mutationFn: async (params: RegistryActionsUpdateRegistryActionData) =>
-      await registryActionsUpdateRegistryAction(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
-      toast({
-        title: "Updated registry action",
-        description: "Registry action updated successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      console.error("Failed to update registry action", error)
-      toast({
-        title: "Failed to update registry action",
-        description: "An error occurred while updating the registry action.",
-      })
-    },
-  })
-
-  const {
-    mutateAsync: deleteRegistryAction,
-    isPending: deleteRegistryActionIsPending,
-    error: deleteRegistryActionError,
-  } = useMutation({
-    mutationFn: async (params: RegistryActionsDeleteRegistryActionData) =>
-      await registryActionsDeleteRegistryAction(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
-      toast({
-        title: "Deleted registry action",
-        description: "Registry action deleted successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      console.error("Failed to delete registry action", error)
-      const apiError = error as TracecatApiError
-      switch (apiError.status) {
-        case 400:
-          toast({
-            title: "Failed to delete registry action",
-            description: apiError.message,
-            variant: "destructive",
-          })
-          break
-        case 403:
-          toast({
-            title: "Failed to delete registry action",
-            description: `${apiError.message}: ${apiError.body.detail}`,
-          })
-          break
-        case 404:
-          toast({
-            title: "Registry action not found",
-            description: `${apiError.message}: ${apiError.body.detail}`,
-            variant: "destructive",
-          })
-          break
-        default:
-          toast({
-            title: "Failed to delete registry action",
-            description:
-              "An unexpected error occurred while deleting the registry action.",
-            variant: "destructive",
-          })
-      }
-    },
-  })
   return {
     registryActions,
     registryActionsIsLoading,
     registryActionsError,
-    createRegistryAction,
-    createRegistryActionIsPending,
-    createRegistryActionError,
-    updateRegistryAction,
-    updateRegistryActionIsPending,
-    updateRegistryActionError,
-    deleteRegistryAction,
-    deleteRegistryActionIsPending,
-    deleteRegistryActionError,
   }
 }
 
@@ -2991,21 +2894,40 @@ export function useListTables(
   }
 }
 
-export function useGetTable({ tableId, workspaceId }: TablesGetTableData) {
+export function useGetTable(
+  { tableId, workspaceId }: TablesGetTableData,
+  options: { enabled?: boolean } = {}
+) {
+  const enabled = options.enabled ?? true
   const {
     data: table,
     isLoading: tableIsLoading,
     error: tableError,
+    refetch: refetchTable,
   } = useQuery<TableRead, ApiError>({
-    queryKey: ["table", tableId],
+    queryKey: ["table", workspaceId, tableId],
     queryFn: async () => await tablesGetTable({ tableId, workspaceId }),
+    enabled: enabled && Boolean(workspaceId) && Boolean(tableId),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {
     table,
     tableIsLoading,
     tableError,
+    refetchTable,
   }
+}
+
+function invalidateTableDetailQuery(
+  queryClient: ReturnType<typeof useQueryClient>,
+  workspaceId: string,
+  tableId: string
+) {
+  queryClient.invalidateQueries({
+    queryKey: ["table", workspaceId, tableId],
+  })
 }
 
 export function useCreateTable() {
@@ -3051,9 +2973,11 @@ export function useUpdateTable() {
       queryClient.invalidateQueries({
         queryKey: ["tables", variables.workspaceId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
   })
 
@@ -3077,9 +3001,11 @@ export function useDeleteTable() {
       queryClient.invalidateQueries({
         queryKey: ["tables", variables.workspaceId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -3123,9 +3049,11 @@ export function useInsertColumn() {
       queryClient.invalidateQueries({
         queryKey: ["tables", variables.workspaceId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
@@ -3165,9 +3093,11 @@ export function useUpdateColumn() {
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
     onError: (error: TracecatApiError, variables) => {
       // Check if this was a unique index operation
@@ -3233,9 +3163,11 @@ export function useDeleteColumn() {
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
   })
 
@@ -3397,9 +3329,11 @@ export function useDeleteRow() {
           variables.workspaceId,
         ],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
   })
 
@@ -3431,9 +3365,11 @@ export function useBatchDeleteRows() {
           variables.workspaceId,
         ],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
   })
 
@@ -3465,9 +3401,11 @@ export function useBatchUpdateRows() {
           variables.workspaceId,
         ],
       })
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      })
+      invalidateTableDetailQuery(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
   })
 

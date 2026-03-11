@@ -48,6 +48,10 @@ class AgentSessionCreate(BaseModel):
         default=None,
         description="Agent preset used for this session (if any)",
     )
+    agent_preset_version_id: uuid.UUID | None = Field(
+        default=None,
+        description="Pinned preset version used for this session (if any)",
+    )
     # Harness fields
     harness_type: HarnessType = Field(
         default=HarnessType.CLAUDE_CODE, description="Agent harness type"
@@ -65,6 +69,10 @@ class AgentSessionUpdate(BaseModel):
     )
     agent_preset_id: uuid.UUID | None = Field(
         default=None, description="Agent preset to use for this session"
+    )
+    agent_preset_version_id: uuid.UUID | None = Field(
+        default=None,
+        description="Pinned preset version to use for this session",
     )
     harness_type: HarnessType | None = Field(
         default=None, description="Agent harness type"
@@ -100,6 +108,7 @@ class AgentSessionRead(BaseModel):
     channel_context: dict[str, Any] | None
     tools: list[str] | None
     agent_preset_id: uuid.UUID | None
+    agent_preset_version_id: uuid.UUID | None
     # Harness
     harness_type: str | None
     # Stream tracking

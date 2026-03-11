@@ -1,21 +1,15 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import type { Row } from "@tanstack/react-table"
-import { CopyIcon, TrashIcon } from "lucide-react"
-import { useMemo, useState } from "react"
+import { CopyIcon } from "lucide-react"
+import { useMemo } from "react"
 import type { RegistryActionReadMinimal } from "@/client"
-import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
 import { getIcon } from "@/components/icons"
-import {
-  DeleteRegistryActionAlertDialog,
-  DeleteRegistryActionAlertDialogTrigger,
-} from "@/components/registry/delete-registry-action"
 import { actionTypeToLabel } from "@/components/registry/icons"
 import { Button } from "@/components/ui/button"
 import {
@@ -28,11 +22,8 @@ import { toast } from "@/components/ui/use-toast"
 import { useRegistryActions } from "@/lib/hooks"
 
 export function RegistryActionsTable() {
-  const canDeleteAction = useScopeCheck("org:registry:delete") === true
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useRegistryActions()
-  const [selectedAction, setSelectedAction] =
-    useState<RegistryActionReadMinimal | null>(null)
 
   // Create a memoized version of the toolbar props
   const toolbarProps: DataTableToolbarProps<RegistryActionReadMinimal> =
@@ -88,196 +79,158 @@ export function RegistryActionsTable() {
         ],
       }
     }, [registryActions])
-
-  const handleOnClickRow = (row: Row<RegistryActionReadMinimal>) => () => {
-    // Link to workflow detail page
-    console.debug("Clicked row", row)
-    setSelectedAction(row.original)
-  }
   return (
-    <DeleteRegistryActionAlertDialog
-      selectedAction={selectedAction}
-      setSelectedAction={setSelectedAction}
-    >
-      <DataTable
-        isLoading={registryActionsIsLoading}
-        error={registryActionsError ?? undefined}
-        data={registryActions}
-        emptyMessage="No actions found."
-        errorMessage="Error loading workflows."
-        onClickRow={handleOnClickRow}
-        columns={[
-          {
-            accessorKey: "default_title",
-            header: ({ column }) => (
-              <DataTableColumnHeader
-                className="text-xs"
-                column={column}
-                title="Title"
-              />
-            ),
-            cell: ({ row }) => (
+    <DataTable
+      isLoading={registryActionsIsLoading}
+      error={registryActionsError ?? undefined}
+      data={registryActions}
+      emptyMessage="No actions found."
+      errorMessage="Error loading workflows."
+      columns={[
+        {
+          accessorKey: "default_title",
+          header: ({ column }) => (
+            <DataTableColumnHeader
+              className="text-xs"
+              column={column}
+              title="Title"
+            />
+          ),
+          cell: ({ row }) => (
+            <div className="text-xs text-foreground/80">
+              {row.getValue<RegistryActionReadMinimal["default_title"]>(
+                "default_title"
+              )}
+            </div>
+          ),
+          enableSorting: true,
+          enableHiding: false,
+        },
+        {
+          accessorKey: "namespace",
+          header: ({ column }) => (
+            <DataTableColumnHeader
+              className="text-xs"
+              column={column}
+              title="Action name"
+            />
+          ),
+          cell: ({ row }) => (
+            <div className="flex items-center gap-2">
+              {getIcon(row.original.action, { className: "size-6 border" })}
               <div className="text-xs text-foreground/80">
-                {row.getValue<RegistryActionReadMinimal["default_title"]>(
-                  "default_title"
-                )}
+                {row.original.action}
               </div>
-            ),
-            enableSorting: true,
-            enableHiding: false,
+            </div>
+          ),
+          enableSorting: true,
+          enableHiding: false,
+          enableColumnFilter: true,
+          filterFn: (row, id, value) => {
+            return value.includes(
+              row.getValue<RegistryActionReadMinimal["namespace"]>(id)
+            )
           },
-          {
-            accessorKey: "namespace",
-            header: ({ column }) => (
-              <DataTableColumnHeader
-                className="text-xs"
-                column={column}
-                title="Action name"
-              />
-            ),
-            cell: ({ row }) => (
-              <div className="flex items-center gap-2">
-                {getIcon(row.original.action, { className: "size-6 border" })}
-                <div className="text-xs text-foreground/80">
-                  {row.original.action}
-                </div>
+        },
+        {
+          accessorKey: "origin",
+          header: ({ column }) => (
+            <DataTableColumnHeader
+              className="text-xs"
+              column={column}
+              title="Origin"
+            />
+          ),
+          cell: ({ row }) => {
+            return (
+              <div className="text-xs text-foreground/80">
+                {row.getValue<RegistryActionReadMinimal["origin"]>("origin") ||
+                  "-"}
               </div>
-            ),
-            enableSorting: true,
-            enableHiding: false,
-            enableColumnFilter: true,
-            filterFn: (row, id, value) => {
-              return value.includes(
-                row.getValue<RegistryActionReadMinimal["namespace"]>(id)
-              )
-            },
+            )
           },
-          {
-            accessorKey: "origin",
-            header: ({ column }) => (
-              <DataTableColumnHeader
-                className="text-xs"
-                column={column}
-                title="Origin"
-              />
-            ),
-            cell: ({ row }) => {
-              return (
-                <div className="text-xs text-foreground/80">
-                  {row.getValue<RegistryActionReadMinimal["origin"]>(
-                    "origin"
-                  ) || "-"}
-                </div>
-              )
-            },
-            enableSorting: true,
-            enableHiding: false,
-            enableColumnFilter: true,
-            filterFn: (row, id, value) => {
-              return value.includes(
-                row.getValue<RegistryActionReadMinimal["origin"]>(id)
-              )
-            },
+          enableSorting: true,
+          enableHiding: false,
+          enableColumnFilter: true,
+          filterFn: (row, id, value) => {
+            return value.includes(
+              row.getValue<RegistryActionReadMinimal["origin"]>(id)
+            )
           },
-          {
-            accessorKey: "type",
-            header: ({ column }) => (
-              <DataTableColumnHeader
-                className="text-xs"
-                column={column}
-                title="Type"
-              />
-            ),
-            cell: ({ row }) => {
-              const type =
-                row.getValue<RegistryActionReadMinimal["type"]>("type")
-              const { label, icon: Icon } = actionTypeToLabel[type]
-              return (
-                <div className="flex items-center gap-2 text-xs text-foreground/80">
-                  <Icon className="size-3" />
-                  {label}
-                </div>
-              )
-            },
-            enableSorting: true,
-            enableHiding: false,
-            enableColumnFilter: true,
-            filterFn: (row, id, value) => {
-              return value.includes(
-                row.getValue<RegistryActionReadMinimal["type"]>(id)
-              )
-            },
+        },
+        {
+          accessorKey: "type",
+          header: ({ column }) => (
+            <DataTableColumnHeader
+              className="text-xs"
+              column={column}
+              title="Type"
+            />
+          ),
+          cell: ({ row }) => {
+            const type = row.getValue<RegistryActionReadMinimal["type"]>("type")
+            const { label, icon: Icon } = actionTypeToLabel[type]
+            return (
+              <div className="flex items-center gap-2 text-xs text-foreground/80">
+                <Icon className="size-3" />
+                {label}
+              </div>
+            )
           },
-          {
-            id: "actions",
-            enableHiding: false,
-            cell: ({ row }) => {
-              return (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      className="size-8 p-0"
-                      onClick={(e) => e.stopPropagation()} // Prevent row click
-                    >
-                      <span className="sr-only">Open menu</span>
-                      <DotsHorizontalIcon className="size-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem
-                      className="flex items-center text-xs"
-                      onClick={(e) => {
-                        e.stopPropagation() // Prevent row click
-                        navigator.clipboard.writeText(row.original.action)
-                        toast({
-                          title: "Action name copied",
-                          description: (
-                            <div className="flex flex-col space-y-2">
-                              <span>
-                                Action name copied for{" "}
-                                <b className="inline-block">
-                                  {row.original.default_title}
-                                </b>
-                              </span>
-                              <span className="text-muted-foreground">
-                                Action name: {row.original.action}
-                              </span>
-                            </div>
-                          ),
-                        })
-                      }}
-                    >
-                      <CopyIcon className="mr-2 size-4" />
-                      <span>Copy action name</span>
-                    </DropdownMenuItem>
-                    {canDeleteAction && (
-                      <>
-                        <DeleteRegistryActionAlertDialogTrigger asChild>
-                          <DropdownMenuItem
-                            className="text-xs text-rose-500 focus:text-rose-600"
-                            onClick={() => {
-                              setSelectedAction(row.original)
-                              console.debug(
-                                "Selected action to delete",
-                                row.original
-                              )
-                            }}
-                          >
-                            <TrashIcon className="mr-2 size-4 text-rose-500" />
-                            <span className="text-rose-500">Delete action</span>
-                          </DropdownMenuItem>
-                        </DeleteRegistryActionAlertDialogTrigger>
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )
-            },
+          enableSorting: true,
+          enableHiding: false,
+          enableColumnFilter: true,
+          filterFn: (row, id, value) => {
+            return value.includes(
+              row.getValue<RegistryActionReadMinimal["type"]>(id)
+            )
           },
-        ]}
-        toolbarProps={toolbarProps}
-      />
-    </DeleteRegistryActionAlertDialog>
+        },
+        {
+          id: "actions",
+          enableHiding: false,
+          cell: ({ row }) => {
+            return (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="size-8 p-0">
+                    <span className="sr-only">Open menu</span>
+                    <DotsHorizontalIcon className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem
+                    className="flex items-center text-xs"
+                    onClick={() => {
+                      navigator.clipboard.writeText(row.original.action)
+                      toast({
+                        title: "Action name copied",
+                        description: (
+                          <div className="flex flex-col space-y-2">
+                            <span>
+                              Action name copied for{" "}
+                              <b className="inline-block">
+                                {row.original.default_title}
+                              </b>
+                            </span>
+                            <span className="text-muted-foreground">
+                              Action name: {row.original.action}
+                            </span>
+                          </div>
+                        ),
+                      })
+                    }}
+                  >
+                    <CopyIcon className="mr-2 size-4" />
+                    <span>Copy action name</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )
+          },
+        },
+      ]}
+      toolbarProps={toolbarProps}
+    />
   )
 }

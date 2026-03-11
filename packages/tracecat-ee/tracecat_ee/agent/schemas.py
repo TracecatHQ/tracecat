@@ -37,6 +37,7 @@ class AgentActionArgs(BaseModel):
 
 class PresetAgentActionArgs(BaseModel):
     preset: str
+    preset_version: int | None = None
     user_prompt: str
     actions: list[str] | None = None
     instructions: str | None = None

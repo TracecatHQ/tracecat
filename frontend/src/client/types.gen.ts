@@ -319,7 +319,6 @@ export type AgentPreset = {
  * Payload for creating a new agent preset.
  */
 export type AgentPresetCreate = {
-  description?: string | null
   instructions?: string | null
   model_name: string
   model_provider: string
@@ -333,6 +332,7 @@ export type AgentPresetCreate = {
   mcp_integrations?: Array<string> | null
   retries?: number
   enable_internet_access?: boolean
+  description?: string | null
   name: string
   slug?: string | null
 }
@@ -341,7 +341,6 @@ export type AgentPresetCreate = {
  * API model for reading agent presets.
  */
 export type AgentPresetRead = {
-  description?: string | null
   instructions?: string | null
   model_name: string
   model_provider: string
@@ -359,6 +358,8 @@ export type AgentPresetRead = {
   workspace_id: string
   name: string
   slug: string
+  description?: string | null
+  current_version_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -372,6 +373,7 @@ export type AgentPresetReadMinimal = {
   name: string
   slug: string
   description: string | null
+  current_version_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -396,6 +398,73 @@ export type AgentPresetUpdate = {
   mcp_integrations?: Array<string> | null
   retries?: number | null
   enable_internet_access?: boolean | null
+}
+
+/**
+ * Structured diff between two preset versions.
+ */
+export type AgentPresetVersionDiff = {
+  base_version_id: string
+  base_version: number
+  compare_version_id: string
+  compare_version: number
+  instructions_changed?: boolean
+  base_instructions?: string | null
+  compare_instructions?: string | null
+  scalar_changes?: Array<ScalarFieldChange>
+  list_changes?: Array<StringListFieldChange>
+  tool_approval_changes?: Array<ToolApprovalFieldChange>
+  total_changes?: number
+}
+
+/**
+ * Full response model for an immutable preset version.
+ */
+export type AgentPresetVersionRead = {
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_integrations?: Array<string> | null
+  retries?: number
+  enable_internet_access?: boolean
+  id: string
+  preset_id: string
+  workspace_id: string
+  version: number
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Minimal response model for agent preset versions.
+ */
+export type AgentPresetVersionReadMinimal = {
+  instructions?: string | null
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+  output_type?: OutputType | null
+  actions?: Array<string> | null
+  namespaces?: Array<string> | null
+  tool_approvals?: {
+    [key: string]: boolean
+  } | null
+  mcp_integrations?: Array<string> | null
+  retries?: number
+  enable_internet_access?: boolean
+  id: string
+  preset_id: string
+  workspace_id: string
+  version: number
+  created_at: string
+  updated_at: string
 }
 
 /**
@@ -430,6 +499,10 @@ export type AgentSessionCreate = {
    * Agent preset used for this session (if any)
    */
   agent_preset_id?: string | null
+  /**
+   * Pinned preset version used for this session (if any)
+   */
+  agent_preset_version_id?: string | null
   /**
    * Agent harness type
    */
@@ -482,6 +555,7 @@ export type AgentSessionRead = {
   } | null
   tools: Array<string> | null
   agent_preset_id: string | null
+  agent_preset_version_id: string | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -504,6 +578,7 @@ export type AgentSessionReadVercel = {
   } | null
   tools: Array<string> | null
   agent_preset_id: string | null
+  agent_preset_version_id: string | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -530,6 +605,7 @@ export type AgentSessionReadWithMessages = {
   } | null
   tools: Array<string> | null
   agent_preset_id: string | null
+  agent_preset_version_id: string | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -557,6 +633,10 @@ export type AgentSessionUpdate = {
    * Agent preset to use for this session
    */
   agent_preset_id?: string | null
+  /**
+   * Pinned preset version to use for this session
+   */
+  agent_preset_version_id?: string | null
   /**
    * Agent harness type
    */
@@ -896,6 +976,15 @@ export type AuthDiscoverResponse = {
  * Authentication method hint for client-side routing.
  */
 export type AuthDiscoveryMethod = "basic" | "oidc" | "saml"
+
+/**
+ * Workspace-scoped AWS AssumeRole details shown in the credentials UI.
+ */
+export type AwsAssumeRoleAccessRead = {
+  tracecat_aws_account_id: string
+  tracecat_aws_principal_arn: string
+  external_id: string
+}
 
 /**
  * Batch update for action and trigger positions.
@@ -1854,6 +1943,10 @@ export type ChatRead = {
    */
   agent_preset_id?: string | null
   /**
+   * Pinned preset version used for this chat, if any
+   */
+  agent_preset_version_id?: string | null
+  /**
    * When the chat was created
    */
   created_at: string
@@ -1910,6 +2003,10 @@ export type ChatReadMinimal = {
    */
   agent_preset_id?: string | null
   /**
+   * Pinned preset version used for this chat, if any
+   */
+  agent_preset_version_id?: string | null
+  /**
    * When the chat was created
    */
   created_at: string
@@ -1959,6 +2056,10 @@ export type ChatReadVercel = {
    * Agent preset used for this chat, if any
    */
   agent_preset_id?: string | null
+  /**
+   * Pinned preset version used for this chat, if any
+   */
+  agent_preset_version_id?: string | null
   /**
    * When the chat was created
    */
@@ -2206,6 +2307,30 @@ export type CreatedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
+  items: Array<AgentPresetVersionReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
 }
 
 export type CursorPaginatedResponse_CaseReadMinimal_ = {
@@ -3041,6 +3166,7 @@ export type GitHubAppCredentialsRequest = {
  */
 export type GitHubAppCredentialsStatus = {
   exists: boolean
+  is_corrupted?: boolean
   app_id?: string | null
   has_webhook_secret?: boolean
   webhook_secret_preview?: string | null
@@ -4423,71 +4549,6 @@ export type ReceiveInteractionResponse = {
   message: string
 }
 
-/**
- * API create model for a registered action.
- */
-export type RegistryActionCreate = {
-  /**
-   * The name of the action
-   */
-  name: string
-  /**
-   * The description of the action
-   */
-  description: string
-  /**
-   * The namespace of the action
-   */
-  namespace: string
-  /**
-   * The type of the action
-   */
-  type: "udf" | "template"
-  /**
-   * The origin of the action as a url
-   */
-  origin: string
-  /**
-   * The secrets required by the action
-   */
-  secrets?: Array<RegistrySecretType_Input> | null
-  interface: RegistryActionInterface
-  implementation: RegistryActionTemplateImpl_Input | RegistryActionUDFImpl
-  /**
-   * The default title of the action
-   */
-  default_title?: string | null
-  /**
-   * The presentation group of the action
-   */
-  display_group?: string | null
-  /**
-   * Link to documentation
-   */
-  doc_url?: string | null
-  /**
-   * Author of the action
-   */
-  author?: string | null
-  /**
-   * Marks action as deprecated along with message
-   */
-  deprecated?: string | null
-  /**
-   * The options for the action
-   */
-  options?: RegistryActionOptions
-  /**
-   * The repository id
-   */
-  repository_id: string
-}
-
-/**
- * The type of the action
- */
-export type type2 = "udf" | "template"
-
 export type RegistryActionInterface = {
   expects: {
     [key: string]: unknown
@@ -4528,9 +4589,9 @@ export type RegistryActionRead = {
   /**
    * The secrets required by the action
    */
-  secrets?: Array<RegistrySecretType_Output> | null
+  secrets?: Array<RegistrySecretType> | null
   interface: RegistryActionInterface
-  implementation: RegistryActionTemplateImpl_Output | RegistryActionUDFImpl
+  implementation: RegistryActionTemplateImpl | RegistryActionUDFImpl
   /**
    * The default title of the action
    */
@@ -4574,6 +4635,11 @@ export type RegistryActionRead = {
 }
 
 /**
+ * The type of the action
+ */
+export type type2 = "udf" | "template"
+
+/**
  * API minimal read model for a registered action.
  */
 export type RegistryActionReadMinimal = {
@@ -4615,20 +4681,12 @@ export type RegistryActionReadMinimal = {
   readonly action: string
 }
 
-export type RegistryActionTemplateImpl_Input = {
+export type RegistryActionTemplateImpl = {
   type?: "template"
   /**
    * The template action
    */
-  template_action: TemplateAction_Input
-}
-
-export type RegistryActionTemplateImpl_Output = {
-  type?: "template"
-  /**
-   * The template action
-   */
-  template_action: TemplateAction_Output
+  template_action: TemplateAction
 }
 
 export type RegistryActionUDFImpl = {
@@ -4645,59 +4703,6 @@ export type RegistryActionUDFImpl = {
    * The name of the UDF function name
    */
   name: string
-}
-
-/**
- * API update model for a registered action.
- */
-export type RegistryActionUpdate = {
-  /**
-   * Update the name of the action
-   */
-  name?: string | null
-  /**
-   * Update the description of the action
-   */
-  description?: string | null
-  /**
-   * Update the secrets of the action
-   */
-  secrets?: Array<RegistrySecretType_Input> | null
-  /**
-   * Update the interface of the action
-   */
-  interface?: RegistryActionInterface | null
-  /**
-   * Update the implementation of the action
-   */
-  implementation?:
-    | RegistryActionTemplateImpl_Input
-    | RegistryActionUDFImpl
-    | null
-  /**
-   * Update the default title of the action
-   */
-  default_title?: string | null
-  /**
-   * Update the display group of the action
-   */
-  display_group?: string | null
-  /**
-   * Update the doc url of the action
-   */
-  doc_url?: string | null
-  /**
-   * Update the author of the action
-   */
-  author?: string | null
-  /**
-   * Update the deprecation message of the action
-   */
-  deprecated?: string | null
-  /**
-   * Update the options of the action
-   */
-  options?: RegistryActionOptions | null
 }
 
 export type RegistryActionValidationErrorInfo = {
@@ -4729,25 +4734,15 @@ export type RegistryLock = {
 /**
  * OAuth secret for a provider.
  */
-export type RegistryOAuthSecret_Input = {
-  type?: "oauth"
-  provider_id: string
-  grant_type: "authorization_code" | "client_credentials"
-  optional?: boolean
-}
-
-export type grant_type = "authorization_code" | "client_credentials"
-
-/**
- * OAuth secret for a provider.
- */
-export type RegistryOAuthSecret_Output = {
+export type RegistryOAuthSecret = {
   type?: "oauth"
   provider_id: string
   grant_type: "authorization_code" | "client_credentials"
   optional?: boolean
   readonly name: string
 }
+
+export type grant_type = "authorization_code" | "client_credentials"
 
 export type RegistryRepositoryCreate = {
   /**
@@ -4819,13 +4814,7 @@ export type RegistrySecret = {
   optional?: boolean
 }
 
-export type RegistrySecretType_Input =
-  | RegistrySecret
-  | RegistryOAuthSecret_Input
-
-export type RegistrySecretType_Output =
-  | RegistrySecret
-  | RegistryOAuthSecret_Output
+export type RegistrySecretType = RegistrySecret | RegistryOAuthSecret
 
 export type RegistryStatus = {
   synced: boolean
@@ -5108,6 +5097,15 @@ export type SAMLSettingsUpdate = {
    */
   saml_enforced?: boolean
   saml_idp_metadata_url?: string | null
+}
+
+/**
+ * Scalar field change between two preset versions.
+ */
+export type ScalarFieldChange = {
+  field: string
+  old_value?: unknown
+  new_value?: unknown
 }
 
 export type ScheduleCreate = {
@@ -5542,6 +5540,15 @@ export type StreamEvent = {
   parent_tool_use_id?: string | null
 }
 
+/**
+ * List diff for preset version fields.
+ */
+export type StringListFieldChange = {
+  field: string
+  added?: Array<string>
+  removed?: Array<string>
+}
+
 export type SyntaxToken = {
   type: string
   value: string
@@ -5651,6 +5658,8 @@ export type TableRead = {
 export type TableReadMinimal = {
   id: string
   name: string
+  created_at: string
+  updated_at: string
 }
 
 /**
@@ -6022,17 +6031,12 @@ export type TaskWorkflowChangedEventRead = {
   created_at: string
 }
 
-export type TemplateAction_Input = {
+export type TemplateAction = {
   type?: "action"
-  definition: TemplateActionDefinition_Input
+  definition: TemplateActionDefinition
 }
 
-export type TemplateAction_Output = {
-  type?: "action"
-  definition: TemplateActionDefinition_Output
-}
-
-export type TemplateActionDefinition_Input = {
+export type TemplateActionDefinition = {
   /**
    * The action name
    */
@@ -6068,65 +6072,7 @@ export type TemplateActionDefinition_Input = {
   /**
    * The secrets to pass to the action
    */
-  secrets?: Array<RegistrySecretType_Input> | null
-  /**
-   * The arguments to pass to the action
-   */
-  expects: {
-    [key: string]: ExpectedField_Input
-  }
-  /**
-   * The sequence of steps for the action
-   */
-  steps: Array<ActionStep>
-  /**
-   * The result of the action
-   */
-  returns:
-    | string
-    | Array<string>
-    | {
-        [key: string]: unknown
-      }
-}
-
-export type TemplateActionDefinition_Output = {
-  /**
-   * The action name
-   */
-  name: string
-  /**
-   * The namespace of the action
-   */
-  namespace: string
-  /**
-   * The title of the action
-   */
-  title: string
-  /**
-   * The description of the action
-   */
-  description?: string
-  /**
-   * The display group of the action
-   */
-  display_group: string
-  /**
-   * Link to documentation
-   */
-  doc_url?: string | null
-  /**
-   * Author of the action
-   */
-  author?: string | null
-  /**
-   * Marks action as deprecated along with message
-   */
-  deprecated?: string | null
-  /**
-   * The secrets to pass to the action
-   */
-  secrets?: Array<RegistrySecretType_Output> | null
+  secrets?: Array<RegistrySecretType> | null
   /**
    * The arguments to pass to the action
    */
@@ -6256,6 +6202,15 @@ export type Toggle = {
   label_on?: string
   label_off?: string
   component_id?: "toggle"
+}
+
+/**
+ * Approval diff for a single tool.
+ */
+export type ToolApprovalFieldChange = {
+  tool: string
+  old_value?: boolean | null
+  new_value?: boolean | null
 }
 
 export type ToolApproved = {
@@ -8533,6 +8488,12 @@ export type SecretsListSecretDefinitionsData = {
 
 export type SecretsListSecretDefinitionsResponse = Array<SecretDefinition>
 
+export type SecretsGetAwsAssumeRoleAccessData = {
+  workspaceId: string
+}
+
+export type SecretsGetAwsAssumeRoleAccessResponse = AwsAssumeRoleAccessRead
+
 export type SecretsGetSecretByNameData = {
   secretName: string
   workspaceId: string
@@ -8932,6 +8893,46 @@ export type AgentPresetsGetAgentPresetBySlugData = {
 }
 
 export type AgentPresetsGetAgentPresetBySlugResponse = AgentPresetRead
+
+export type AgentPresetsListAgentPresetVersionsData = {
+  cursor?: string | null
+  limit?: number
+  presetId: string
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type AgentPresetsListAgentPresetVersionsResponse =
+  CursorPaginatedResponse_AgentPresetVersionReadMinimal_
+
+export type AgentPresetsGetAgentPresetVersionData = {
+  presetId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type AgentPresetsGetAgentPresetVersionResponse = AgentPresetVersionRead
+
+export type AgentPresetsCompareAgentPresetVersionsData = {
+  /**
+   * Version ID to compare against
+   */
+  compareTo: string
+  presetId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type AgentPresetsCompareAgentPresetVersionsResponse =
+  AgentPresetVersionDiff
+
+export type AgentPresetsRestoreAgentPresetVersionData = {
+  presetId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type AgentPresetsRestoreAgentPresetVersionResponse = AgentPresetRead
 
 export type AgentSessionsCreateSessionData = {
   requestBody: AgentSessionCreate
@@ -9449,30 +9450,11 @@ export type RegistryRepositoriesGetPreviousRegistryVersionResponse =
 export type RegistryActionsListRegistryActionsResponse =
   Array<RegistryActionReadMinimal>
 
-export type RegistryActionsCreateRegistryActionData = {
-  requestBody: RegistryActionCreate
-}
-
-export type RegistryActionsCreateRegistryActionResponse = RegistryActionRead
-
 export type RegistryActionsGetRegistryActionData = {
   actionName: string
 }
 
 export type RegistryActionsGetRegistryActionResponse = RegistryActionRead
-
-export type RegistryActionsUpdateRegistryActionData = {
-  actionName: string
-  requestBody: RegistryActionUpdate
-}
-
-export type RegistryActionsUpdateRegistryActionResponse = void
-
-export type RegistryActionsDeleteRegistryActionData = {
-  actionName: string
-}
-
-export type RegistryActionsDeleteRegistryActionResponse = void
 
 export type SettingsGetGitSettingsResponse = GitSettingsRead
 
@@ -11884,6 +11866,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/secrets/aws-assume-role": {
+    get: {
+      req: SecretsGetAwsAssumeRoleAccessData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AwsAssumeRoleAccessRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/secrets/{secret_name}": {
     get: {
       req: SecretsGetSecretByNameData
@@ -12707,6 +12704,66 @@ export type $OpenApiTs = {
   "/agent/presets/by-slug/{slug}": {
     get: {
       req: AgentPresetsGetAgentPresetBySlugData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/{preset_id}/versions": {
+    get: {
+      req: AgentPresetsListAgentPresetVersionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_AgentPresetVersionReadMinimal_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/{preset_id}/versions/{version_id}": {
+    get: {
+      req: AgentPresetsGetAgentPresetVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetVersionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/{preset_id}/versions/{version_id}/compare": {
+    get: {
+      req: AgentPresetsCompareAgentPresetVersionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetVersionDiff
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/presets/{preset_id}/versions/{version_id}/restore": {
+    post: {
+      req: AgentPresetsRestoreAgentPresetVersionData
       res: {
         /**
          * Successful Response
@@ -13687,19 +13744,6 @@ export type $OpenApiTs = {
         200: Array<RegistryActionReadMinimal>
       }
     }
-    post: {
-      req: RegistryActionsCreateRegistryActionData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: RegistryActionRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
   }
   "/registry/actions/{action_name}": {
     get: {
@@ -13709,32 +13753,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: RegistryActionRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    patch: {
-      req: RegistryActionsUpdateRegistryActionData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: RegistryActionsDeleteRegistryActionData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
         /**
          * Validation Error
          */

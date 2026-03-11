@@ -107,6 +107,17 @@ class TestWorkflowFolderService:
         assert child.parent_path == "/parent/"
         assert grandchild.parent_path == "/parent/child/"
 
+    async def test_create_nested_folder_with_parent_path_without_trailing_slash(
+        self, folder_service: WorkflowFolderService
+    ) -> None:
+        """Test creating a nested folder when the parent path omits the trailing slash."""
+        parent = await folder_service.create_folder(name="parent", parent_path="/")
+
+        child = await folder_service.create_folder(name="child", parent_path="/parent")
+
+        assert parent.path == "/parent/"
+        assert child.path == "/parent/child/"
+
     async def test_list_folders(self, folder_service: WorkflowFolderService) -> None:
         """Test listing folders in a hierarchy."""
         # Create multiple folders

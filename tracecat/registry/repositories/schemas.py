@@ -99,7 +99,6 @@ class GitCommitInfo(BaseModel):
     message: str = Field(
         ...,
         description="The commit message",
-        max_length=1000,
     )
     author: str = Field(
         ...,

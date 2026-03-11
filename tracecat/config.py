@@ -234,6 +234,15 @@ OAUTH_CLIENT_SECRET = OIDC_CLIENT_SECRET
 USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET", "")
 TRACECAT__DB_ENCRYPTION_KEY = os.environ.get("TRACECAT__DB_ENCRYPTION_KEY")
 TRACECAT__SIGNING_SECRET = os.environ.get("TRACECAT__SIGNING_SECRET")
+TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID = os.environ.get(
+    "TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID"
+)
+"""AWS account ID for Tracecat workloads that assume customer roles."""
+
+TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN = os.environ.get(
+    "TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN"
+)
+"""Dedicated AWS principal ARN used by Tracecat executors for customer AssumeRole."""
 
 # SAML SSO
 

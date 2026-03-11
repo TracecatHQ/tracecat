@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from io import StringIO
 from typing import Any, Literal, cast
 
+import sqlalchemy as sa
 import yaml
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -33,6 +34,7 @@ from pydantic import (
     model_validator,
 )
 from sqlalchemy import delete, select
+from sqlalchemy.exc import NoResultFound
 from temporalio.client import WorkflowExecutionStatus
 from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
@@ -45,9 +47,18 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamError
 from tracecat.agent.tools import create_tool_from_registry
+from tracecat.cases.enums import CaseEventType
+from tracecat.cases.schemas import (
+    CaseFieldCreate,
+    CaseFieldReadMinimal,
+    CaseFieldUpdate,
+)
+from tracecat.cases.service import CaseFieldsService
+from tracecat.cases.tags.schemas import CaseTagRead
+from tracecat.cases.tags.service import CaseTagsService
 from tracecat.chat.schemas import BasicChatRequest, ChatRequest
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import Action, WorkflowDefinition
+from tracecat.db.models import Action, Workflow, WorkflowDefinition
 from tracecat.dsl.common import (
     DSLInput,
     get_execution_type_from_search_attr,
@@ -94,6 +105,8 @@ from tracecat.secrets.service import SecretsService
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableCreate, TableRowInsert, TableUpdate
 from tracecat.tables.service import TablesService
+from tracecat.tags.schemas import TagCreate, TagRead, TagUpdate
+from tracecat.tags.service import TagsService
 from tracecat.validation.schemas import ValidationDetail
 from tracecat.validation.service import validate_dsl
 from tracecat.variables.service import VariablesService
@@ -103,10 +116,12 @@ from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerConfig,
     CaseTriggerRead,
     CaseTriggerUpdate,
+    is_case_trigger_configured,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowCreate, WorkflowUpdate
 from tracecat.workflow.schedules.schemas import (
@@ -115,6 +130,7 @@ from tracecat.workflow.schedules.schemas import (
     ScheduleUpdate,
 )
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
+from tracecat.workflow.tags.service import WorkflowTagsService
 
 
 def _parse_json_arg(raw_value: str | None, field_name: str) -> Any | None:
@@ -214,6 +230,28 @@ async def _resolve_workspace_role(workspace_id: str) -> tuple[uuid.UUID, Any]:
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
     return ws_id, role
+
+
+def _normalize_folder_path_arg(path: str, *, allow_root: bool = True) -> str:
+    """Normalize a user-supplied folder path."""
+    raw = path.strip()
+    if not raw:
+        raise ToolError("Path is required")
+    if raw == "/":
+        if allow_root:
+            return raw
+        raise ToolError("Root path '/' is not valid for this operation")
+    if not raw.startswith("/"):
+        raise ToolError("Path must start with '/'")
+
+    parts = [part for part in raw.split("/") if part]
+    if any(part in {".", ".."} for part in parts):
+        raise ToolError("Path cannot contain '.' or '..' segments")
+    if not parts:
+        if allow_root:
+            return "/"
+        raise ToolError("Root path '/' is not valid for this operation")
+    return f"/{'/'.join(parts)}/"
 
 
 def _build_example_from_schema(schema: dict[str, Any]) -> dict[str, Any]:
@@ -671,11 +709,16 @@ async def _apply_case_trigger_payload(
 
 auth = create_mcp_auth()
 
+_CASE_EVENT_TYPE_VALUES = [event_type.value for event_type in CaseEventType]
+_CASE_EVENT_TYPE_VALUES_JSON = json.dumps(
+    _CASE_EVENT_TYPE_VALUES, separators=(",", ":")
+)
+
 # ---------------------------------------------------------------------------
 # Server instructions — sent to every MCP client on connection
 # ---------------------------------------------------------------------------
 
-_MCP_INSTRUCTIONS = """\
+_MCP_INSTRUCTIONS = f"""\
 Tracecat workflow management server. Use `list_workspaces` to discover available \
 workspaces, then pass `workspace_id` to all other tools.
 
@@ -735,7 +778,7 @@ Within a scatter stream, each child action accesses its item via \
 - `run_if` — conditional expression to skip execution
 - `for_each` — iterate over a list \
 (syntax: `${{ for var.x in ACTIONS.step.result }}`, access item as `${{ var.x }}`)
-- `retry_policy` — {max_attempts, timeout}
+- `retry_policy` — {{max_attempts, timeout}}
 - `join_strategy` — `all` (default) or `any`
 
 ## Recommended authoring sequence
@@ -759,6 +802,44 @@ Action names like `core.open_case` are for use *inside* workflow YAML definition
 To manage cases directly, use the MCP tools `create_case`, `list_cases`, `get_case`, \
 `update_case`, and `delete_case`. Similarly, use `create_workflow` (not \
 `core.workflow.execute`) to create workflows via MCP.
+
+## Tag and case field argument rules
+- Workflow tag definition tools (`list_workflow_tags`, `create_workflow_tag`, \
+`update_workflow_tag`, `delete_workflow_tag`) operate on workspace tag definitions. \
+Use `tag_id` from `list_workflow_tags`; refs are also accepted for update/delete.
+- Workflow tag association tools (`list_tags_for_workflow`, `add_workflow_tag`, \
+`remove_workflow_tag`) use `workflow_id` plus a workflow tag definition `tag_id`.
+- Case tag definition tools (`list_case_tags`, `create_case_tag`, \
+`update_case_tag`, `delete_case_tag`) operate on workspace case tag definitions.
+- Case tag association tools (`list_tags_for_case`, `add_case_tag`, \
+`remove_case_tag`) use `tag_identifier`, which can be a case tag UUID, ref, or a \
+free-form name that slugifies to an existing tag. If no tag exists yet, create it \
+first with `create_case_tag`.
+- Case field tools use `field_id` from `list_case_fields`. This field id is the \
+field name/column id, not a UUID.
+- Case field `type` must be an uppercase SqlType value: `TEXT`, `INTEGER`, \
+`NUMERIC`, `DATE`, `BOOLEAN`, `TIMESTAMP`, `TIMESTAMPTZ`, `JSONB`, `UUID`, \
+`SELECT`, or `MULTI_SELECT`.
+- Case field `options` must be a JSON array string such as `["low","medium","high"]`. \
+`options` are required for `SELECT` and `MULTI_SELECT`, and invalid for other types.
+
+## Structured argument schema quick reference
+- `update_webhook.status`: `"online"` or `"offline"`.
+- `update_webhook.methods`: JSON array of uppercase HTTP method strings, e.g. \
+`["GET","POST"]`.
+- `update_webhook.allowlisted_cidrs`: JSON array of CIDR strings, e.g. \
+`["10.0.0.0/8","192.168.1.0/24"]`.
+- `update_case_trigger.status`: `"online"` or `"offline"`.
+- `update_case_trigger.event_types`: JSON array of case event strings. Valid values: \
+`{_CASE_EVENT_TYPE_VALUES_JSON}`.
+- `update_case_trigger.tag_filters`: JSON array of tag ref strings, e.g. \
+`["malware","phishing"]`.
+- `create_table.columns_json`: JSON array of objects with schema \
+`{{"name": str, "type": SqlType, "nullable": bool?, "default": any?, "options": list[str]?}}`. \
+`options` are only valid for `SELECT` and `MULTI_SELECT`.
+- `create_case_field.options` and `update_case_field.options`: JSON array of strings, \
+e.g. `["low","medium","high"]`; use `[]` to clear options on update.
+- Tag `color` values should be hex strings such as `"#ff0000"` when provided.
 
 Read the `tracecat://platform/dsl-reference` resource for the full DSL specification.
 """
@@ -1244,6 +1325,28 @@ def _json(obj: Any) -> str:
     return json.dumps(obj, default=str)
 
 
+def _workflow_tag_payload(tag: Any) -> dict[str, Any]:
+    """Serialize a workflow tag definition."""
+    return TagRead.model_validate(tag, from_attributes=True).model_dump(mode="json")
+
+
+def _case_tag_payload(tag: Any) -> dict[str, Any]:
+    """Serialize a case tag definition."""
+    return CaseTagRead.model_validate(tag, from_attributes=True).model_dump(mode="json")
+
+
+def _case_field_payload(
+    column: sa.engine.interfaces.ReflectedColumn,
+    *,
+    field_schema: dict[str, Any],
+) -> dict[str, Any]:
+    """Serialize a case field definition."""
+    return CaseFieldReadMinimal.from_sa(
+        column,
+        field_schema=field_schema,
+    ).model_dump(mode="json")
+
+
 def _format_temporal_status(status: Any) -> str | None:
     """Return a stable workflow status string for MCP responses."""
     if status is None:
@@ -1258,6 +1361,49 @@ def _format_temporal_status(status: Any) -> str | None:
     if hasattr(status, "name"):
         return str(status.name)
     return str(status)
+
+
+def _parse_sql_type_arg(raw_value: str, field_name: str = "type") -> SqlType:
+    """Parse an uppercase SqlType string argument."""
+    try:
+        return SqlType(raw_value)
+    except ValueError as exc:
+        valid_values = ", ".join(sql_type.value for sql_type in SqlType)
+        raise ToolError(
+            f"Invalid {field_name}: {raw_value!r}. Expected one of: {valid_values}"
+        ) from exc
+
+
+def _build_tag_update_params(
+    *,
+    name: str | None = None,
+    color: str | None = None,
+) -> TagUpdate:
+    """Build a partial tag update payload from provided arguments only."""
+    update_kwargs: dict[str, Any] = {}
+    if name is not None:
+        update_kwargs["name"] = name
+    if color is not None:
+        update_kwargs["color"] = color
+    return TagUpdate(**update_kwargs)
+
+
+def _build_case_field_update_params(
+    *,
+    name: str | None = None,
+    type: SqlType | None = None,
+    options: list[str] | None = None,
+    options_provided: bool = False,
+) -> CaseFieldUpdate:
+    """Build a partial case-field update payload from provided arguments only."""
+    update_kwargs: dict[str, Any] = {}
+    if name is not None:
+        update_kwargs["name"] = name
+    if type is not None:
+        update_kwargs["type"] = type
+    if options_provided:
+        update_kwargs["options"] = options
+    return CaseFieldUpdate(**update_kwargs)
 
 
 def _normalize_exception_value(value: Any) -> Any:
@@ -1538,11 +1684,19 @@ async def get_workflow(
                 case_trigger = await CaseTriggersService(
                     svc.session, role=role
                 ).get_case_trigger(wf_id)
-                payload["case_trigger"] = {
-                    "status": case_trigger.status,
-                    "event_types": case_trigger.event_types,
-                    "tag_filters": case_trigger.tag_filters,
-                }
+                payload["case_trigger"] = (
+                    {
+                        "status": case_trigger.status,
+                        "event_types": case_trigger.event_types,
+                        "tag_filters": case_trigger.tag_filters,
+                    }
+                    if is_case_trigger_configured(
+                        status=case_trigger.status,
+                        event_types=case_trigger.event_types,
+                        tag_filters=case_trigger.tag_filters,
+                    )
+                    else None
+                )
             except TracecatNotFoundError:
                 payload["case_trigger"] = None
             except Exception as e:
@@ -1781,6 +1935,262 @@ async def list_workflows(
     except Exception as e:
         logger.error("Failed to list workflows", error=str(e))
         raise ToolError(f"Failed to list workflows: {e}") from None
+
+
+@mcp.tool()
+async def list_workflow_tree(
+    workspace_id: str,
+    path: str = "/",
+    depth: int = 1,
+    include_workflows: bool = True,
+) -> str:
+    """List workflow folders and workflows under a path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Folder path to list from. Use "/" for the workspace root.
+        depth: Number of folder levels to traverse. Use 1 for direct children
+            only. Use 0 for unlimited depth.
+        include_workflows: Whether to include workflows alongside folders.
+
+    Returns JSON with the normalized root path and a flat list of items.
+    """
+
+    try:
+        if depth < 0:
+            raise ToolError("depth must be >= 0")
+
+        _, role = await _resolve_workspace_role(workspace_id)
+        root_path = _normalize_folder_path_arg(path)
+
+        async with WorkflowFolderService.with_session(role=role) as svc:
+            queue: deque[tuple[str, int]] = deque([(root_path, 1)])
+            items: list[dict[str, Any]] = []
+
+            while queue:
+                current_path, current_depth = queue.popleft()
+                for item in await svc.get_directory_items(
+                    current_path, order_by="desc"
+                ):
+                    payload = item.model_dump(mode="json")
+                    if payload["type"] == "folder":
+                        items.append(
+                            {
+                                "type": "folder",
+                                "path": payload["path"],
+                                "name": payload["name"],
+                                "depth": current_depth,
+                            }
+                        )
+                        if depth == 0 or current_depth < depth:
+                            queue.append((payload["path"], current_depth + 1))
+                    elif include_workflows:
+                        items.append(
+                            {
+                                "type": "workflow",
+                                "workflow_id": payload["id"],
+                                "title": payload["title"],
+                                "alias": payload["alias"],
+                                "status": payload["status"],
+                                "folder_path": current_path,
+                                "depth": current_depth,
+                                "tags": payload.get("tags") or [],
+                            }
+                        )
+
+            return _json(
+                {
+                    "root_path": root_path,
+                    "depth": "unlimited" if depth == 0 else depth,
+                    "items": items,
+                }
+            )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list workflow tree", error=str(e))
+        raise ToolError(f"Failed to list workflow tree: {e}") from None
+
+
+@mcp.tool()
+async def create_workflow_folder(
+    workspace_id: str,
+    path: str,
+    parents: bool = False,
+) -> str:
+    """Create a workflow folder by absolute path.
+
+    Args:
+        workspace_id: The workspace ID.
+        path: Absolute folder path to create, e.g. "/security/detections/".
+        parents: When true, create missing parent folders as needed.
+
+    Returns JSON describing the resulting folder and any created paths.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+        parts = [part for part in normalized_path.strip("/").split("/") if part]
+
+        async with WorkflowFolderService.with_session(role=role) as svc:
+            if not parents:
+                parent_parts = parts[:-1]
+                parent_path = f"/{'/'.join(parent_parts)}/" if parent_parts else "/"
+                if existing := await svc.get_folder_by_path(normalized_path):
+                    folder = existing
+                    created_paths = []
+                else:
+                    folder = await svc.create_folder(
+                        name=parts[-1], parent_path=parent_path
+                    )
+                    created_paths = [normalized_path]
+            else:
+                current_path = "/"
+                created_paths: list[str] = []
+                folder = None
+                for part in parts:
+                    next_path = (
+                        f"{current_path}{part}/" if current_path != "/" else f"/{part}/"
+                    )
+                    if existing := await svc.get_folder_by_path(next_path):
+                        folder = existing
+                    else:
+                        folder = await svc.create_folder(
+                            name=part,
+                            parent_path=current_path,
+                        )
+                        created_paths.append(next_path)
+                    current_path = next_path
+
+                if folder is None:
+                    raise ToolError(f"Failed to create folder {normalized_path}")
+
+            return _json(
+                {
+                    "path": normalized_path,
+                    "folder_id": str(folder.id),
+                    "created_paths": created_paths,
+                    "already_existed": not created_paths,
+                }
+            )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create workflow folder", error=str(e))
+        raise ToolError(f"Failed to create workflow folder: {e}") from None
+
+
+@mcp.tool()
+async def move_workflows(
+    workspace_id: str,
+    workflow_ids: list[str],
+    destination_path: str = "/",
+    dry_run: bool = False,
+) -> str:
+    """Move workflows into or out of a folder.
+
+    This tool is best-effort and non-atomic. If one workflow fails to move,
+    the remaining workflow moves still proceed.
+
+    Args:
+        workspace_id: The workspace ID.
+        workflow_ids: Workflow IDs in short or full format.
+        destination_path: Destination folder path, or "/" for root.
+        dry_run: When true, validate and report the move without mutating state.
+
+    Returns JSON with moved workflows and per-workflow errors.
+    """
+
+    try:
+        if not workflow_ids:
+            raise ToolError("workflow_ids must not be empty")
+
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_destination = _normalize_folder_path_arg(destination_path)
+
+        async with WorkflowFolderService.with_session(role=role) as folder_svc:
+            folder = None
+            if normalized_destination != "/":
+                folder = await folder_svc.get_folder_by_path(normalized_destination)
+                if folder is None:
+                    raise ToolError(f"Folder {normalized_destination} not found")
+
+            validated: list[dict[str, str]] = []
+            errors: list[dict[str, str]] = []
+            for raw_workflow_id in workflow_ids:
+                try:
+                    workflow_uuid = WorkflowUUID.new(raw_workflow_id)
+                except ValueError as e:
+                    errors.append({"workflow_id": raw_workflow_id, "error": str(e)})
+                    continue
+
+                statement = select(Workflow.id, Workflow.title).where(
+                    Workflow.workspace_id == folder_svc.workspace_id,
+                    Workflow.id == workflow_uuid,
+                )
+                result = await folder_svc.session.execute(statement)
+                if row := result.one_or_none():
+                    validated.append(
+                        {
+                            "workflow_id": str(row.id),
+                            "title": row.title,
+                        }
+                    )
+                else:
+                    errors.append(
+                        {
+                            "workflow_id": raw_workflow_id,
+                            "error": f"Workflow {raw_workflow_id} not found",
+                        }
+                    )
+
+            if dry_run:
+                return _json(
+                    {
+                        "destination_path": normalized_destination,
+                        "requested_count": len(workflow_ids),
+                        "movable_count": len(validated),
+                        "movable_workflows": validated,
+                        "errors": errors,
+                    }
+                )
+
+            moved: list[dict[str, str]] = []
+            for workflow_info in validated:
+                try:
+                    workflow_uuid = WorkflowUUID.new(workflow_info["workflow_id"])
+                    await folder_svc.move_workflow(workflow_uuid, folder)
+                    moved.append(workflow_info)
+                except Exception as e:
+                    await folder_svc.session.rollback()
+                    errors.append(
+                        {
+                            "workflow_id": workflow_info["workflow_id"],
+                            "error": str(e),
+                        }
+                    )
+
+            return _json(
+                {
+                    "destination_path": normalized_destination,
+                    "requested_count": len(workflow_ids),
+                    "moved_count": len(moved),
+                    "moved_workflows": moved,
+                    "errors": errors,
+                }
+            )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to move workflows", error=str(e))
+        raise ToolError(f"Failed to move workflows: {e}") from None
 
 
 @mcp.tool()
@@ -2728,10 +3138,12 @@ async def update_webhook(
     Args:
         workspace_id: The workspace ID.
         workflow_id: The workflow ID.
-        status: "online" or "offline".
-        methods: JSON array of HTTP methods, e.g. '["GET", "POST"]'.
+        status: Enum string: `"online"` or `"offline"`.
+        methods: JSON array of uppercase HTTP methods, e.g.
+            '["GET","POST"]'. Schema: list[str].
         entrypoint_ref: Entrypoint action ref.
-        allowlisted_cidrs: JSON array of CIDR strings.
+        allowlisted_cidrs: JSON array of CIDR strings, e.g.
+            '["10.0.0.0/8","192.168.1.0/24"]'. Schema: list[str].
 
     Returns a confirmation message.
     """
@@ -2830,11 +3242,12 @@ async def update_case_trigger(
     Args:
         workspace_id: The workspace ID.
         workflow_id: The workflow ID.
-        status: "online" or "offline".
-        event_types: JSON array of case event type strings using underscores
-            (e.g. '["case_created", "case_updated"]'). See create_case_trigger
-            for full list of valid values.
-        tag_filters: JSON array of tag filter strings.
+        status: Enum string: `"online"` or `"offline"`.
+        event_types: JSON array of case event type strings using underscores.
+            Schema: list[str]. Valid values are the `CaseEventType` enum values
+            documented in the shared MCP instructions.
+        tag_filters: JSON array of tag ref strings, e.g.
+            '["malware","phishing"]'. Schema: list[str].
 
     Returns a confirmation message.
     """
@@ -2874,6 +3287,556 @@ async def update_case_trigger(
 
 
 # ---------------------------------------------------------------------------
+# Workflow tag tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def list_workflow_tags(workspace_id: str) -> str:
+    """List workflow tag definitions in a workspace.
+
+    Returns a JSON array of tag objects with `id`, `name`, `ref`, and `color`.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with TagsService.with_session(role=role) as svc:
+            tags = await svc.list_tags()
+            return _json([_workflow_tag_payload(tag) for tag in tags])
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list workflow tags", error=str(e))
+        raise ToolError(f"Failed to list workflow tags: {e}") from None
+
+
+@mcp.tool()
+async def create_workflow_tag(
+    workspace_id: str,
+    name: str,
+    color: str | None = None,
+) -> str:
+    """Create a workflow tag definition.
+
+    Args:
+        workspace_id: The workspace ID.
+        name: Tag display name.
+        color: Optional hex color string such as `"#ff0000"`.
+
+    Returns JSON with the created tag's `id`, `name`, `ref`, and `color`.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with TagsService.with_session(role=role) as svc:
+            tag = await svc.create_tag(TagCreate(name=name, color=color))
+            return _json(_workflow_tag_payload(tag))
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create workflow tag", error=str(e))
+        raise ToolError(f"Failed to create workflow tag: {e}") from None
+
+
+@mcp.tool()
+async def update_workflow_tag(
+    workspace_id: str,
+    tag_id: str,
+    name: str | None = None,
+    color: str | None = None,
+) -> str:
+    """Update a workflow tag definition.
+
+    Args:
+        workspace_id: The workspace ID.
+        tag_id: Tag UUID from `list_workflow_tags`. Tag refs are also accepted.
+        name: Optional new tag name.
+        color: Optional new hex color string such as `"#ff0000"`.
+
+    Returns JSON with the updated tag's `id`, `name`, `ref`, and `color`.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with TagsService.with_session(role=role) as svc:
+            tag = await svc.get_tag_by_ref_or_id(tag_id)
+            updated = await svc.update_tag(
+                tag,
+                _build_tag_update_params(name=name, color=color),
+            )
+            return _json(_workflow_tag_payload(updated))
+    except NoResultFound:
+        raise ToolError(f"Workflow tag {tag_id!r} not found") from None
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to update workflow tag", error=str(e))
+        raise ToolError(f"Failed to update workflow tag: {e}") from None
+
+
+@mcp.tool()
+async def delete_workflow_tag(workspace_id: str, tag_id: str) -> str:
+    """Delete a workflow tag definition.
+
+    Args:
+        workspace_id: The workspace ID.
+        tag_id: Tag UUID from `list_workflow_tags`. Tag refs are also accepted.
+
+    Returns a confirmation message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with TagsService.with_session(role=role) as svc:
+            tag = await svc.get_tag_by_ref_or_id(tag_id)
+            await svc.delete_tag(tag)
+            return _json({"message": f"Workflow tag {tag_id} deleted successfully"})
+    except NoResultFound:
+        raise ToolError(f"Workflow tag {tag_id!r} not found") from None
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to delete workflow tag", error=str(e))
+        raise ToolError(f"Failed to delete workflow tag: {e}") from None
+
+
+@mcp.tool()
+async def list_tags_for_workflow(workspace_id: str, workflow_id: str) -> str:
+    """List tags attached to a workflow.
+
+    Returns a JSON array of tag objects with `id`, `name`, `ref`, and `color`.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        wf_id = WorkflowUUID.new(workflow_id)
+        async with WorkflowTagsService.with_session(role=role) as svc:
+            tags = await svc.list_tags_for_workflow(wf_id)
+            return _json([_workflow_tag_payload(tag) for tag in tags])
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list workflow tags for workflow", error=str(e))
+        raise ToolError(f"Failed to list workflow tags for workflow: {e}") from None
+
+
+@mcp.tool()
+async def add_workflow_tag(
+    workspace_id: str,
+    workflow_id: str,
+    tag_id: str,
+) -> str:
+    """Attach an existing workflow tag definition to a workflow.
+
+    Args:
+        workspace_id: The workspace ID.
+        workflow_id: Workflow ID.
+        tag_id: Workflow tag UUID from `list_workflow_tags`.
+
+    Returns a confirmation message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        wf_id = WorkflowUUID.new(workflow_id)
+        parsed_tag_id = uuid.UUID(tag_id)
+        async with WorkflowTagsService.with_session(role=role) as svc:
+            await svc.add_workflow_tag(wf_id, parsed_tag_id)
+            return _json(
+                {"message": (f"Workflow tag {tag_id} added to workflow {workflow_id}")}
+            )
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to add workflow tag", error=str(e))
+        raise ToolError(f"Failed to add workflow tag: {e}") from None
+
+
+@mcp.tool()
+async def remove_workflow_tag(
+    workspace_id: str,
+    workflow_id: str,
+    tag_id: str,
+) -> str:
+    """Remove a workflow tag association from a workflow.
+
+    Args:
+        workspace_id: The workspace ID.
+        workflow_id: Workflow ID.
+        tag_id: Workflow tag UUID from `list_workflow_tags`.
+
+    Returns a confirmation message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        wf_id = WorkflowUUID.new(workflow_id)
+        parsed_tag_id = uuid.UUID(tag_id)
+        async with WorkflowTagsService.with_session(role=role) as svc:
+            wf_tag = await svc.get_workflow_tag(wf_id, parsed_tag_id)
+            await svc.remove_workflow_tag(wf_tag)
+            return _json(
+                {
+                    "message": (
+                        f"Workflow tag {tag_id} removed from workflow {workflow_id}"
+                    )
+                }
+            )
+    except NoResultFound:
+        raise ToolError(
+            f"Workflow tag {tag_id!r} is not attached to workflow {workflow_id}"
+        ) from None
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to remove workflow tag", error=str(e))
+        raise ToolError(f"Failed to remove workflow tag: {e}") from None
+
+
+# ---------------------------------------------------------------------------
+# Case tag tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def list_case_tags(workspace_id: str) -> str:
+    """List case tag definitions in a workspace.
+
+    Returns a JSON array of tag objects with `id`, `name`, `ref`, and `color`.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with CaseTagsService.with_session(role=role) as svc:
+            tags = await svc.list_workspace_tags()
+            return _json([_case_tag_payload(tag) for tag in tags])
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list case tags", error=str(e))
+        raise ToolError(f"Failed to list case tags: {e}") from None
+
+
+@mcp.tool()
+async def create_case_tag(
+    workspace_id: str,
+    name: str,
+    color: str | None = None,
+) -> str:
+    """Create a case tag definition.
+
+    Args:
+        workspace_id: The workspace ID.
+        name: Tag display name.
+        color: Optional hex color string such as `"#ff0000"`.
+
+    Returns JSON with the created tag's `id`, `name`, `ref`, and `color`.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with CaseTagsService.with_session(role=role) as svc:
+            tag = await svc.create_tag(TagCreate(name=name, color=color))
+            return _json(_case_tag_payload(tag))
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create case tag", error=str(e))
+        raise ToolError(f"Failed to create case tag: {e}") from None
+
+
+@mcp.tool()
+async def update_case_tag(
+    workspace_id: str,
+    tag_id: str,
+    name: str | None = None,
+    color: str | None = None,
+) -> str:
+    """Update a case tag definition.
+
+    Args:
+        workspace_id: The workspace ID.
+        tag_id: Case tag UUID or ref from `list_case_tags`.
+        name: Optional new tag name.
+        color: Optional new hex color string such as `"#ff0000"`.
+
+    Returns JSON with the updated tag's `id`, `name`, `ref`, and `color`.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with CaseTagsService.with_session(role=role) as svc:
+            tag = await svc.get_tag_by_ref_or_id(tag_id)
+            updated = await svc.update_tag(
+                tag,
+                _build_tag_update_params(name=name, color=color),
+            )
+            return _json(_case_tag_payload(updated))
+    except NoResultFound:
+        raise ToolError(f"Case tag {tag_id!r} not found") from None
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to update case tag", error=str(e))
+        raise ToolError(f"Failed to update case tag: {e}") from None
+
+
+@mcp.tool()
+async def delete_case_tag(workspace_id: str, tag_id: str) -> str:
+    """Delete a case tag definition.
+
+    Args:
+        workspace_id: The workspace ID.
+        tag_id: Case tag UUID or ref from `list_case_tags`.
+
+    Returns a confirmation message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with CaseTagsService.with_session(role=role) as svc:
+            tag = await svc.get_tag_by_ref_or_id(tag_id)
+            await svc.delete_tag(tag)
+            return _json({"message": f"Case tag {tag_id} deleted successfully"})
+    except NoResultFound:
+        raise ToolError(f"Case tag {tag_id!r} not found") from None
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to delete case tag", error=str(e))
+        raise ToolError(f"Failed to delete case tag: {e}") from None
+
+
+@mcp.tool()
+async def list_tags_for_case(workspace_id: str, case_id: str) -> str:
+    """List tags attached to a case.
+
+    Returns a JSON array of tag objects with `id`, `name`, `ref`, and `color`.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        async with CaseTagsService.with_session(role=role) as svc:
+            tags = await svc.list_tags_for_case(parsed_case_id)
+            return _json([_case_tag_payload(tag) for tag in tags])
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list case tags for case", error=str(e))
+        raise ToolError(f"Failed to list case tags for case: {e}") from None
+
+
+@mcp.tool()
+async def add_case_tag(
+    workspace_id: str,
+    case_id: str,
+    tag_identifier: str,
+) -> str:
+    """Attach a case tag to a case.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID.
+        tag_identifier: Case tag UUID, ref, or free-form name that resolves to an
+            existing tag definition. Resolution order is UUID, then exact ref, then
+            slugified free-form name. Create the tag first with `create_case_tag`
+            if needed.
+
+    Returns JSON for the added tag with `id`, `name`, `ref`, and `color`.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        async with CaseTagsService.with_session(role=role) as svc:
+            tag = await svc.add_case_tag(parsed_case_id, tag_identifier)
+            return _json(_case_tag_payload(tag))
+    except NoResultFound as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to add case tag", error=str(e))
+        raise ToolError(f"Failed to add case tag: {e}") from None
+
+
+@mcp.tool()
+async def remove_case_tag(
+    workspace_id: str,
+    case_id: str,
+    tag_identifier: str,
+) -> str:
+    """Remove a case tag association from a case.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID.
+        tag_identifier: Case tag UUID, ref, or free-form name. Resolution order is
+            UUID, then exact ref, then slugified free-form name.
+
+    Returns a confirmation message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        async with CaseTagsService.with_session(role=role) as svc:
+            await svc.remove_case_tag(parsed_case_id, tag_identifier)
+            return _json(
+                {"message": (f"Case tag {tag_identifier} removed from case {case_id}")}
+            )
+    except NoResultFound as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to remove case tag", error=str(e))
+        raise ToolError(f"Failed to remove case tag: {e}") from None
+
+
+# ---------------------------------------------------------------------------
+# Case field tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def list_case_fields(workspace_id: str) -> str:
+    """List case field definitions in a workspace.
+
+    Returns a JSON array of field objects with `id`, `type`, `description`,
+    `nullable`, `default`, `reserved`, and `options`.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with CaseFieldsService.with_session(role=role) as svc:
+            columns = await svc.list_fields()
+            field_schema = await svc.get_field_schema()
+            return _json(
+                [
+                    _case_field_payload(column, field_schema=field_schema)
+                    for column in columns
+                ]
+            )
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list case fields", error=str(e))
+        raise ToolError(f"Failed to list case fields: {e}") from None
+
+
+@mcp.tool()
+async def create_case_field(
+    workspace_id: str,
+    name: str,
+    type: str,
+    options: str | None = None,
+) -> str:
+    """Create a case field definition.
+
+    Args:
+        workspace_id: The workspace ID.
+        name: Field name / column id. Schema: string matching
+            `^[a-zA-Z_][a-zA-Z0-9_]*$`.
+        type: Uppercase SqlType value: TEXT, INTEGER, NUMERIC, DATE, BOOLEAN,
+            TIMESTAMP, TIMESTAMPTZ, JSONB, UUID, SELECT, or MULTI_SELECT.
+        options: Optional JSON array string of strings, e.g.
+            '["low","medium","high"]'. Required for SELECT and MULTI_SELECT,
+            and invalid for all other field types. Schema: list[str].
+
+    Returns a confirmation message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_options = _parse_json_arg(options, "options")
+        parsed_type = _parse_sql_type_arg(type)
+        async with CaseFieldsService.with_session(role=role) as svc:
+            await svc.create_field(
+                CaseFieldCreate(name=name, type=parsed_type, options=parsed_options)
+            )
+            return _json({"message": f"Case field {name} created successfully"})
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create case field", error=str(e))
+        raise ToolError(f"Failed to create case field: {e}") from None
+
+
+@mcp.tool()
+async def update_case_field(
+    workspace_id: str,
+    field_id: str,
+    name: str | None = None,
+    type: str | None = None,
+    options: str | None = None,
+) -> str:
+    """Update a case field definition.
+
+    Args:
+        workspace_id: The workspace ID.
+        field_id: Existing field id from `list_case_fields` (field name, not UUID).
+        name: Optional new field name. Schema: string matching
+            `^[a-zA-Z_][a-zA-Z0-9_]*$`.
+        type: Optional uppercase SqlType value.
+        options: Optional JSON array string of strings. Use `[]` to clear select
+            options. Schema: list[str].
+
+    Returns a confirmation message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        options_provided = options is not None
+        parsed_options = _parse_json_arg(options, "options")
+        parsed_type = _parse_sql_type_arg(type) if type is not None else None
+        async with CaseFieldsService.with_session(role=role) as svc:
+            await svc.update_field(
+                field_id,
+                _build_case_field_update_params(
+                    name=name,
+                    type=parsed_type,
+                    options=parsed_options,
+                    options_provided=options_provided,
+                ),
+            )
+            return _json({"message": f"Case field {field_id} updated successfully"})
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to update case field", error=str(e))
+        raise ToolError(f"Failed to update case field: {e}") from None
+
+
+@mcp.tool()
+async def delete_case_field(workspace_id: str, field_id: str) -> str:
+    """Delete a case field definition.
+
+    Args:
+        workspace_id: The workspace ID.
+        field_id: Existing field id from `list_case_fields` (field name, not UUID).
+
+    Returns a confirmation message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with CaseFieldsService.with_session(role=role) as svc:
+            await svc.delete_field(field_id)
+            return _json({"message": f"Case field {field_id} deleted successfully"})
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to delete case field", error=str(e))
+        raise ToolError(f"Failed to delete case field: {e}") from None
+
+
+# ---------------------------------------------------------------------------
 # Tables, cases, variables, and secrets metadata tools
 # ---------------------------------------------------------------------------
 
@@ -2908,11 +3871,14 @@ async def create_table(
         workspace_id: The workspace ID.
         name: Table name.
         columns_json: Optional JSON array of column definitions. Each column
-            object has: name (str), type (str), nullable (bool, optional),
-            default (str, optional), is_primary_key (bool, optional).
+            object schema is:
+            `{"name": str, "type": SqlType, "nullable": bool?, "default": any?,`
+            ` "options": list[str]?}`.
             Column type must be UPPERCASE — one of: TEXT, INTEGER, NUMERIC,
             DATE, BOOLEAN, TIMESTAMP, TIMESTAMPTZ, JSONB, UUID, SELECT,
-            MULTI_SELECT.
+            MULTI_SELECT. `options` are only valid for SELECT or MULTI_SELECT.
+            Example:
+            `'[{"name":"severity","type":"SELECT","options":["low","high"]}]'`.
 
     Returns JSON with the new table's id and name.
     """
@@ -3409,6 +4375,7 @@ async def run_agent_preset(
     workspace_id: str,
     preset_slug: str,
     prompt: str,
+    preset_version: int | None = None,
     timeout_seconds: int = 120,
 ) -> str:
     """Run an agent preset with a prompt and return text or approval status.
@@ -3420,6 +4387,7 @@ async def run_agent_preset(
         workspace_id: The workspace ID (from list_workspaces).
         preset_slug: Slug of the agent preset to run (from list_agent_presets).
         prompt: The user prompt to send to the agent.
+        preset_version: Optional preset version number to pin.
         timeout_seconds: Max seconds to wait for response (default 120, max 300).
 
     Returns:
@@ -3435,6 +4403,10 @@ async def run_agent_preset(
             preset = await svc.get_preset_by_slug(preset_slug)
             if not preset:
                 raise ToolError(f"Agent preset '{preset_slug}' not found")
+            version = await svc.resolve_agent_preset_version(
+                slug=preset_slug,
+                preset_version=preset_version,
+            )
 
         # Create ephemeral session and run turn
         async with AgentSessionService.with_session(role=role) as svc:
@@ -3444,6 +4416,7 @@ async def run_agent_preset(
                     entity_type=AgentSessionEntity.AGENT_PRESET,
                     entity_id=preset.id,
                     agent_preset_id=preset.id,
+                    agent_preset_version_id=version.id,
                 )
             )
             # BasicChatRequest is handled at runtime by run_turn's match statement

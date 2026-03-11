@@ -6,6 +6,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { authDiscoverAuthMethod } from "@/client"
 import { SignIn } from "@/components/auth/sign-in"
 import { SignUp } from "@/components/auth/sign-up"
+import { startOidcLogin } from "@/lib/auth-login"
 
 type MockAppInfo = {
   version: string
@@ -66,6 +67,11 @@ jest.mock("@/lib/hooks", () => ({
   }),
 }))
 
+jest.mock("@/lib/auth-login", () => ({
+  startOidcLogin: jest.fn(),
+  setPostAuthReturnUrlCookie: jest.fn(),
+}))
+
 jest.mock("@/client", () => {
   class MockApiError extends Error {
     body: { detail: unknown }
@@ -100,6 +106,9 @@ function setMultiTenant(eeMultiTenant: boolean): void {
 describe("Auth UI matrix", () => {
   const mockDiscoverAuthMethod = authDiscoverAuthMethod as jest.MockedFunction<
     typeof authDiscoverAuthMethod
+  >
+  const mockStartOidcLogin = startOidcLogin as jest.MockedFunction<
+    typeof startOidcLogin
   >
   let consoleErrorSpy: jest.SpyInstance
 
@@ -192,6 +201,34 @@ describe("Auth UI matrix", () => {
     expect(
       screen.queryByRole("link", { name: "Sign up" })
     ).not.toBeInTheDocument()
+  })
+
+  it("starts OIDC login immediately when discovery resolves to oidc", async () => {
+    setAuthTypes(["oidc"])
+    mockDiscoverAuthMethod.mockResolvedValue({
+      method: "oidc",
+      next_url: null,
+      organization_slug: null,
+    })
+    mockStartOidcLogin.mockResolvedValue()
+
+    render(<SignIn returnUrl="/workspaces" />)
+
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "user@example.com" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+
+    await waitFor(() => {
+      expect(mockDiscoverAuthMethod).toHaveBeenCalledWith({
+        requestBody: {
+          email: "user@example.com",
+        },
+      })
+    })
+    await waitFor(() => {
+      expect(mockStartOidcLogin).toHaveBeenCalledWith("/workspaces")
+    })
   })
 
   it.each([

@@ -4,7 +4,10 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import type { DialogProps } from "@radix-ui/react-dialog"
 import {
   Braces,
+  CheckCheckIcon,
+  CopyIcon,
   FileKey2,
+  InfoIcon,
   KeyRoundIcon,
   PlusCircle,
   ShieldCheck,
@@ -22,6 +25,7 @@ import type { SecretCreate, SecretDefinition } from "@/client"
 import { CreateSecretTooltip } from "@/components/secrets/create-secret-tooltip"
 import { sshKeyRegex } from "@/components/ssh-keys/ssh-key-utils"
 import { SshPrivateKeyField } from "@/components/ssh-keys/ssh-private-key-field"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -40,6 +44,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -49,11 +54,137 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
-import { useWorkspaceSecrets } from "@/lib/hooks"
+import { useAwsAssumeRoleAccess, useWorkspaceSecrets } from "@/lib/hooks"
+import { copyToClipboard } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const pemCertificateRegex =
   /-----BEGIN CERTIFICATE-----(?:\r?\n)[A-Za-z0-9+/=\s]+(?:\r?\n)-----END CERTIFICATE-----/
+
+const AWS_ROLE_ARN_KEY = "AWS_ROLE_ARN"
+
+function buildAwsTrustPolicy(args: {
+  tracecatAwsPrincipalArn: string
+  externalId: string
+}) {
+  return JSON.stringify(
+    {
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Effect: "Allow",
+          Principal: {
+            AWS: args.tracecatAwsPrincipalArn,
+          },
+          Action: "sts:AssumeRole",
+          Condition: {
+            StringEquals: {
+              "sts:ExternalId": args.externalId,
+            },
+          },
+        },
+      ],
+    },
+    null,
+    2
+  )
+}
+
+function shouldSuppressAwsAssumeRoleError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false
+  }
+
+  const status =
+    "status" in error && typeof error.status === "number" ? error.status : null
+  const body =
+    "body" in error && typeof error.body === "object" && error.body
+      ? error.body
+      : null
+  const detail =
+    body && "detail" in body && typeof body.detail === "string"
+      ? body.detail
+      : null
+
+  return (
+    status === 503 &&
+    detail === "AWS AssumeRole access is not available right now."
+  )
+}
+
+function highlightJson(json: string): React.ReactNode[] {
+  const tokenRegex =
+    /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g
+  const tokens: React.ReactNode[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = tokenRegex.exec(json)) !== null) {
+    if (match.index > lastIndex) {
+      tokens.push(json.slice(lastIndex, match.index))
+    }
+
+    const [value] = match
+    const isKey = Boolean(match[2])
+    let className = "text-amber-700 dark:text-amber-300"
+
+    if (isKey) {
+      className = "text-sky-700 dark:text-sky-300"
+    } else if (value.startsWith('"')) {
+      className = "text-emerald-700 dark:text-emerald-300"
+    } else if (match[3]) {
+      className = "text-violet-700 dark:text-violet-300"
+    }
+
+    tokens.push(
+      <span key={`${match.index}-${value}`} className={className}>
+        {value}
+      </span>
+    )
+    lastIndex = match.index + value.length
+  }
+
+  if (lastIndex < json.length) {
+    tokens.push(json.slice(lastIndex))
+  }
+
+  return tokens
+}
+
+function JsonSyntaxBlock({ value }: { value: string }) {
+  const [copied, setCopied] = React.useState(false)
+
+  function handleCopy() {
+    void copyToClipboard({
+      value,
+      message: "Copied trust policy.",
+    })
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="relative overflow-hidden rounded-md border bg-muted/30">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="absolute right-1 top-1 z-10 size-6"
+        onClick={handleCopy}
+        aria-label="Copy trust policy"
+      >
+        {copied ? (
+          <CheckCheckIcon className="size-3.5" />
+        ) : (
+          <CopyIcon className="size-3.5" />
+        )}
+      </Button>
+      <pre className="overflow-x-auto p-3 pr-10 font-mono text-xs leading-relaxed text-foreground">
+        <code>{highlightJson(value)}</code>
+      </pre>
+    </div>
+  )
+}
 
 const validatePemField = (
   value: string | undefined,
@@ -199,6 +330,20 @@ export function CreateCredentialDialog({
   const { createSecret } = useWorkspaceSecrets(workspaceId, {
     listEnabled: false,
   })
+  const isAwsAssumeRoleTemplate = Boolean(
+    selectedTool &&
+      [
+        ...(selectedTool.keys ?? []),
+        ...(selectedTool.optional_keys ?? []),
+      ].includes(AWS_ROLE_ARN_KEY)
+  )
+  const {
+    awsAssumeRoleAccess,
+    awsAssumeRoleAccessError,
+    awsAssumeRoleAccessIsLoading,
+  } = useAwsAssumeRoleAccess(workspaceId, {
+    enabled: open && isAwsAssumeRoleTemplate,
+  })
 
   // Form handling
   const methods = useForm<CreateSecretForm>({
@@ -262,6 +407,20 @@ export function CreateCredentialDialog({
   const { control, register } = methods
   const secretType = methods.watch("type")
   const isTemplateSecret = Boolean(selectedTool)
+  const roleArn =
+    methods
+      .watch("keys")
+      .find((item) => item.key === AWS_ROLE_ARN_KEY)
+      ?.value?.trim() ?? ""
+  const awsTrustPolicy = awsAssumeRoleAccess
+    ? buildAwsTrustPolicy({
+        tracecatAwsPrincipalArn: awsAssumeRoleAccess.tracecat_aws_principal_arn,
+        externalId: awsAssumeRoleAccess.external_id,
+      })
+    : ""
+  const shouldHideAwsAssumeRoleNote = shouldSuppressAwsAssumeRoleError(
+    awsAssumeRoleAccessError
+  )
 
   const renderTextareaField = (
     name: FieldPath<CreateSecretForm>,
@@ -517,6 +676,79 @@ export function CreateCredentialDialog({
                   render={() => (
                     <FormItem>
                       <FormLabel className="text-sm">Keys</FormLabel>
+                      {isAwsAssumeRoleTemplate && (
+                        <div className="space-y-3">
+                          {awsAssumeRoleAccess ? (
+                            <>
+                              <Alert>
+                                <InfoIcon className="size-4" />
+                                <AlertTitle className="text-xs">
+                                  Cross-role AWS access
+                                </AlertTitle>
+                                <AlertDescription className="space-y-3 text-xs">
+                                  <p>
+                                    Set <code>AWS_ROLE_ARN</code> to the role in
+                                    the target AWS account. Tracecat assumes it
+                                    with the principal and External ID below.{" "}
+                                    <code>AWS_ROLE_SESSION_NAME</code> is not
+                                    used and should not be added.
+                                  </p>
+                                  <dl className="grid gap-2 md:grid-cols-[140px_1fr]">
+                                    <dt className="text-muted-foreground">
+                                      Tracecat account
+                                    </dt>
+                                    <dd className="break-all font-mono text-foreground">
+                                      {
+                                        awsAssumeRoleAccess.tracecat_aws_account_id
+                                      }
+                                    </dd>
+                                    <dt className="text-muted-foreground">
+                                      Principal ARN
+                                    </dt>
+                                    <dd className="break-all font-mono text-foreground">
+                                      {
+                                        awsAssumeRoleAccess.tracecat_aws_principal_arn
+                                      }
+                                    </dd>
+                                    <dt className="text-muted-foreground">
+                                      External ID
+                                    </dt>
+                                    <dd className="break-all font-mono text-foreground">
+                                      {awsAssumeRoleAccess.external_id}
+                                    </dd>
+                                    <dt className="text-muted-foreground">
+                                      Target role
+                                    </dt>
+                                    <dd className="break-all font-mono text-foreground">
+                                      {roleArn || "Paste AWS_ROLE_ARN below"}
+                                    </dd>
+                                  </dl>
+                                </AlertDescription>
+                              </Alert>
+                              <div className="space-y-1">
+                                <Label className="text-xs font-medium">
+                                  Trust policy
+                                </Label>
+                                <JsonSyntaxBlock value={awsTrustPolicy} />
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                Create the role in the third-party account, add
+                                the trust policy above, then paste that role ARN
+                                into <code>AWS_ROLE_ARN</code>.
+                              </p>
+                            </>
+                          ) : awsAssumeRoleAccessIsLoading ? (
+                            <p className="text-xs text-muted-foreground">
+                              Loading AWS role access details...
+                            </p>
+                          ) : shouldHideAwsAssumeRoleNote ? null : (
+                            <p className="text-xs text-destructive">
+                              {awsAssumeRoleAccessError?.message ||
+                                "Unable to load AWS role access details."}
+                            </p>
+                          )}
+                        </div>
+                      )}
                       <div className="flex flex-col space-y-2">
                         {fields.map((field, index) => {
                           return (

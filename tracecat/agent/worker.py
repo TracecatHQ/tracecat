@@ -58,6 +58,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.mcp.trusted_server import app
     from tracecat.agent.preset.activities import (
         resolve_agent_preset_config_activity,
+        resolve_agent_preset_version_ref_activity,
     )
     from tracecat.agent.session.activities import get_session_activities
     from tracecat.dsl.client import get_temporal_client
@@ -269,6 +270,7 @@ def get_activities() -> list[Callable[..., object]]:
     activities.extend(ApprovalManager.get_activities())
     # Preset resolution
     activities.append(resolve_agent_preset_config_activity)
+    activities.append(resolve_agent_preset_version_ref_activity)
 
     # Session management activities
     activities.extend(get_session_activities())

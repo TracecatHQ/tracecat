@@ -13,6 +13,11 @@ output "ecs_cluster_arn" {
   value       = aws_ecs_cluster.tracecat_cluster.arn
 }
 
+output "executor_assume_role_arn" {
+  description = "Dedicated ECS task role ARN used by executors for customer AssumeRole"
+  value       = aws_iam_role.executor_task.arn
+}
+
 output "public_app_url" {
   description = "The public URL of the app"
   value       = local.public_app_url

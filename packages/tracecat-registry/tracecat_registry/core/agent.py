@@ -58,7 +58,6 @@ bedrock_secret = RegistrySecret(
         "AWS_REGION",
         "AWS_PROFILE",
         "AWS_ROLE_ARN",
-        "AWS_ROLE_SESSION_NAME",
         "AWS_SESSION_TOKEN",
         "AWS_BEARER_TOKEN_BEDROCK",
         "AWS_MODEL_ID",
@@ -74,7 +73,7 @@ bedrock_secret = RegistrySecret(
         - `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`
         - `AWS_BEARER_TOKEN_BEDROCK`
         - `AWS_PROFILE`
-        - `AWS_ROLE_ARN` + `AWS_ROLE_SESSION_NAME` (optional)
+        - `AWS_ROLE_ARN`
         - `AWS_SESSION_TOKEN`
     Model configuration (one of):
         - `AWS_INFERENCE_PROFILE_ID`: Required for newer models (Claude 4, etc.).
@@ -239,6 +238,10 @@ async def preset_agent(
         Doc("User prompt to the agent."),
         TextArea(),
     ],
+    preset_version: Annotated[
+        int | None,
+        Doc("Optional preset version number to pin for this run."),
+    ] = None,
     actions: Annotated[
         list[str] | None,
         Doc(

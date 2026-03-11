@@ -2,7 +2,7 @@
 
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { WorkspaceSecretsTable } from "@/components/workspaces/workspace-secrets-table"
+import { WorkspaceCredentialsInventory } from "@/components/workspaces/workspace-credentials-inventory"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 
 export default function WorkspaceCredentialsPage() {
@@ -33,8 +33,8 @@ export default function WorkspaceCredentialsPage() {
   }
   return (
     <div className="size-full overflow-auto">
-      <div className="container flex h-full flex-col space-y-12 py-8">
-        <WorkspaceSecretsTable />
+      <div className="flex h-full flex-col">
+        <WorkspaceCredentialsInventory />
       </div>
     </div>
   )

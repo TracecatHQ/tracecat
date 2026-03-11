@@ -223,10 +223,52 @@ resource "helm_release" "tracecat" {
     value = aws_iam_role.tracecat_s3.arn
   }
 
+  set {
+    name  = "executor.serviceAccount.create"
+    value = "true"
+  }
+
+  # Managed EKS explicitly opts executor into the dedicated IRSA identity.
+  set {
+    name  = "executor.serviceAccount.name"
+    value = local.tracecat_executor_service_account_name
+  }
+
+  set {
+    name  = "executor.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = aws_iam_role.tracecat_executor.arn
+  }
+
+  set {
+    name  = "agentExecutor.serviceAccount.create"
+    value = "true"
+  }
+
+  # Agent executor also uses the dedicated executor IRSA identity on EKS.
+  set {
+    name  = "agentExecutor.serviceAccount.name"
+    value = local.tracecat_agent_executor_service_account_name
+  }
+
+  set {
+    name  = "agentExecutor.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = aws_iam_role.tracecat_executor.arn
+  }
+
   # Superadmin
   set {
     name  = "tracecat.auth.superadminEmail"
     value = var.superadmin_email
+  }
+
+  set {
+    name  = "tracecat.aws.assumeRoleAccountId"
+    value = local.aws_account_id
+  }
+
+  set {
+    name  = "tracecat.aws.assumeRolePrincipalArn"
+    value = aws_iam_role.tracecat_executor.arn
   }
 
   # Replica counts
@@ -759,6 +801,14 @@ resource "helm_release" "tracecat" {
     content {
       name  = "tracecat.oidc.clientSecret"
       value = var.oidc_client_secret
+    }
+  }
+
+  dynamic "set_sensitive" {
+    for_each = var.sentry_dsn != "" ? [1] : []
+    content {
+      name  = "tracecat.sentryDsn"
+      value = var.sentry_dsn
     }
   }
 

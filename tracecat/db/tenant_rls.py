@@ -73,6 +73,7 @@ INITIAL_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
 POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "case_table_row",
     "agent_channel_token",
+    "agent_preset_version",
 )
 
 POST_RLS_ORG_SCOPED_TABLES = ("watchtower_agent",)
