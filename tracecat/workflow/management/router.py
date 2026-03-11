@@ -197,6 +197,7 @@ def wfs_and_defns_to_response(
                 version=workflow.version,
                 tags=tags,
                 alias=workflow.alias,
+                outbound_http_interception_enabled=workflow.outbound_http_interception_enabled,
                 error_handler=workflow.error_handler,
                 latest_definition=latest_defn,
                 folder_id=workflow.folder_id,
@@ -297,6 +298,7 @@ async def create_workflow(
         created_at=workflow.created_at,
         updated_at=workflow.updated_at,
         version=workflow.version,
+        outbound_http_interception_enabled=workflow.outbound_http_interception_enabled,
         error_handler=workflow.error_handler,
     )
 
@@ -342,6 +344,7 @@ async def get_workflow(
         returns=workflow.returns,
         entrypoint=workflow.entrypoint,
         config=DSLConfig(**workflow.config),
+        outbound_http_interception_enabled=workflow.outbound_http_interception_enabled,
         actions=actions_responses,
         webhook=WebhookRead.model_validate(workflow.webhook, from_attributes=True),
         schedules=ScheduleRead.list_adapter().validate_python(workflow.schedules),

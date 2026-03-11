@@ -852,6 +852,10 @@ class DSLRunArgs(BaseModel):
     wf_id: WorkflowUUID
     trigger_inputs: StoredObject | None = None
     parent_run_context: RunContext | None = None
+    outbound_http_interception_enabled: bool = Field(
+        default=False,
+        description="Whether outbound HTTP interception is enabled for this run.",
+    )
     runtime_config: DSLConfig = Field(
         default_factory=DSLConfig,
         description=(

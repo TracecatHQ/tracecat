@@ -864,6 +864,13 @@ class Workflow(WorkspaceModel):
         nullable=True,
         doc="Workflow configuration",
     )
+    outbound_http_interception_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=text("false"),
+        nullable=False,
+        doc="Whether draft executions should enable outbound HTTP interception.",
+    )
     alias: Mapped[str | None] = mapped_column(
         String, nullable=True, index=True, doc="Alias for the workflow"
     )
@@ -2469,6 +2476,13 @@ class AgentSession(WorkspaceModel):
         default=None,
         nullable=True,
         doc="The tools available to the agent for this session",
+    )
+    outbound_http_interception_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=text("false"),
+        nullable=False,
+        doc="Whether tool executions in this session should enable outbound HTTP interception.",
     )
     agent_preset_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,

@@ -54,6 +54,7 @@ from tracecat.workflow.executions.enums import (
     TriggerType,
 )
 from tracecat.workflow.executions.schemas import (
+    DraftWorkflowExecutionCreate,
     WorkflowExecutionBulkResetRequest,
     WorkflowExecutionBulkResetResponse,
     WorkflowExecutionCollectionPageItem,
@@ -1008,7 +1009,7 @@ async def create_workflow_execution(
 @require_scope("workflow:execute")
 async def create_draft_workflow_execution(
     role: WorkspaceUserRole,
-    params: WorkflowExecutionCreate,
+    params: DraftWorkflowExecutionCreate,
     session: AsyncDBSession,
 ) -> WorkflowExecutionCreateResponse:
     """Create and schedule a draft workflow execution.
@@ -1065,6 +1066,11 @@ async def create_draft_workflow_execution(
             wf_id=wf_id,
             payload=params.inputs,
             time_anchor=params.time_anchor,
+            outbound_http_interception_enabled=(
+                workflow.outbound_http_interception_enabled
+                if params.outbound_http_interception_enabled is None
+                else params.outbound_http_interception_enabled
+            ),
             # For draft workflow executions, pass None to dynamically resolve the registry lock
         )
         return response

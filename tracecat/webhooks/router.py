@@ -433,6 +433,7 @@ async def incoming_webhook_draft(
         wf_id=workflow_id,
         payload=payload,
         trigger_type=TriggerType.WEBHOOK,
+        outbound_http_interception_enabled=draft_ctx.outbound_http_interception_enabled,
         registry_lock=RegistryLock.model_validate(draft_ctx.registry_lock)
         if draft_ctx.registry_lock
         else None,

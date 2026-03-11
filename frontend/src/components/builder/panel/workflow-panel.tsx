@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
+import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   isRequestValidationErrorArray,
@@ -84,6 +85,7 @@ const createWorkflowUpdateFormSchema = (workspaceId: string) =>
         .string()
         .max(100, { message: "Error handler cannot exceed 100 characters" })
         .nullish(),
+      outbound_http_interception_enabled: z.boolean(),
     })
     .superRefine(async (values, ctx) => {
       if (!values.expects || Object.keys(values.expects).length === 0) {
@@ -211,12 +213,13 @@ function WorkflowSettingsPanel({
           : undefined,
       returns: workflow.returns,
       error_handler: workflow.error_handler || "",
+      outbound_http_interception_enabled:
+        workflow.outbound_http_interception_enabled ?? false,
     },
   })
 
-  const onSubmit = useCallback(
+  const persistWorkflowSettings = useCallback(
     async (values: WorkflowUpdateForm) => {
-      console.log("Saving changes...", values)
       try {
         const updateData: WorkflowUpdate = {
           ...values,
@@ -256,18 +259,18 @@ function WorkflowSettingsPanel({
     [updateWorkflow, methods]
   )
 
-  const onPanelBlur = useCallback(async () => {
-    // Save whenever focus changes, regardless of where it's going
-    const values = methods.getValues()
+  const onSubmit = persistWorkflowSettings
 
-    // Parse values through zod schema first
-    const result = await workflowUpdateFormSchema.safeParseAsync(values)
-    if (result.success) {
-      methods.clearErrors()
-      await onSubmit(result.data)
-    } else {
+  const validateAndPersist = useCallback(
+    async (values: WorkflowUpdateForm) => {
+      const result = await workflowUpdateFormSchema.safeParseAsync(values)
+      if (result.success) {
+        methods.clearErrors()
+        await persistWorkflowSettings(result.data)
+        return
+      }
+
       console.warn("Validation failed:", result.error)
-      // Set form errors with field name and message
       Object.entries(result.error.formErrors.fieldErrors).forEach(
         ([fieldName, error]) => {
           methods.setError(fieldName as keyof WorkflowUpdateForm, {
@@ -276,8 +279,26 @@ function WorkflowSettingsPanel({
           })
         }
       )
-    }
-  }, [methods, onSubmit, workflowUpdateFormSchema])
+    },
+    [methods, persistWorkflowSettings, workflowUpdateFormSchema]
+  )
+
+  const onPanelBlur = useCallback(async () => {
+    await validateAndPersist(methods.getValues())
+  }, [methods, validateAndPersist])
+
+  const handleOutboundHttpInterceptionChange = useCallback(
+    async (checked: boolean) => {
+      methods.setValue("outbound_http_interception_enabled", checked, {
+        shouldDirty: true,
+      })
+      await validateAndPersist({
+        ...methods.getValues(),
+        outbound_http_interception_enabled: checked,
+      })
+    },
+    [methods, validateAndPersist]
+  )
 
   return (
     <div onBlur={onPanelBlur} className="flex h-full flex-col">
@@ -288,6 +309,35 @@ function WorkflowSettingsPanel({
         >
           {/* All other fields in one flat section */}
           <div className="flex flex-col gap-6 overflow-y-auto px-4 pb-32 pt-4">
+            <FormField
+              control={methods.control}
+              name="outbound_http_interception_enabled"
+              render={({ field }) => (
+                <FormItem className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <div className="space-y-0.5 pr-4">
+                    <FormLabel className="text-xs">
+                      Intercept API requests
+                    </FormLabel>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      Draft runs only. Send outbound HTTP from actions through
+                      your configured gateway so you can inspect, simulate, or
+                      forward requests.
+                    </p>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={(checked) => {
+                        field.onChange(checked)
+                        void handleOutboundHttpInterceptionChange(checked)
+                      }}
+                      size="sm"
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
             {/* Name */}
             <FormField
               control={methods.control}

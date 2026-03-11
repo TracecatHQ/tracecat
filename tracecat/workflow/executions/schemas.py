@@ -842,6 +842,15 @@ class WorkflowExecutionCreate(BaseModel):
     )
 
 
+class DraftWorkflowExecutionCreate(WorkflowExecutionCreate):
+    outbound_http_interception_enabled: bool | None = Field(
+        default=None,
+        description=(
+            "Optional per-run override for the workflow draft's outbound HTTP interception flag."
+        ),
+    )
+
+
 class WorkflowExecutionCreateResponse(TypedDict):
     message: str
     wf_id: WorkflowID

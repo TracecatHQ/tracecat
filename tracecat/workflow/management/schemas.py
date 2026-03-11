@@ -41,6 +41,7 @@ class WorkflowRead(Schema):
     expects_schema: dict[str, Any] | None = None
     returns: Any
     config: DSLConfig | None
+    outbound_http_interception_enabled: bool = False
     alias: str | None = None
     git_sync_branch: str | None = None
     error_handler: str | None = None
@@ -88,6 +89,7 @@ class WorkflowReadMinimal(Schema):
     version: int | None
     tags: list[TagRead] | None = None
     alias: str | None = None
+    outbound_http_interception_enabled: bool = False
     error_handler: str | None = None
     latest_definition: WorkflowDefinitionReadMinimal | None = None
     folder_id: uuid.UUID | None = None
@@ -113,6 +115,7 @@ class WorkflowUpdate(BaseModel):
     expects: dict[str, ExpectedField] | None = None
     returns: Any | None = None
     config: DSLConfig | None = None
+    outbound_http_interception_enabled: bool | None = None
     alias: str | None = None
     error_handler: str | None = None
 
