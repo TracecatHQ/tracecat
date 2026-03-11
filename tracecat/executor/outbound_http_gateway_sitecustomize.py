@@ -169,6 +169,25 @@ def _resolve_timeout_ms(value: object) -> int | None:
         raise TracecatOutboundHTTPGatewayError(f"Unsupported timeout value: {value!r}")
 
 
+def _resolve_httpx_timeout_ms(request: object, client: object) -> int | None:
+    request_extensions = getattr(request, "extensions", {})
+    request_timeout = (
+        request_extensions.get("timeout")
+        if isinstance(request_extensions, Mapping)
+        else None
+    )
+    if isinstance(request_timeout, Mapping):
+        numeric_values = [
+            float(item)
+            for item in request_timeout.values()
+            if isinstance(item, (int, float))
+        ]
+        if numeric_values:
+            return max(int(max(numeric_values) * 1000), 0)
+        return None
+    return _resolve_timeout_ms(request_timeout or getattr(client, "timeout", None))
+
+
 def _encode_body(
     body: object,
     *,
@@ -569,7 +588,7 @@ def _patch_httpx(httpx_module: types.ModuleType) -> None:
             url=request_url,
             headers=request.headers,
             body=body,
-            timeout_ms=None,
+            timeout_ms=_resolve_httpx_timeout_ms(request, self),
             follow_redirects=_resolve_follow_redirects(
                 self.follow_redirects
                 if follow_redirects is sentinel
@@ -606,7 +625,7 @@ def _patch_httpx(httpx_module: types.ModuleType) -> None:
             url=request_url,
             headers=request.headers,
             body=body,
-            timeout_ms=None,
+            timeout_ms=_resolve_httpx_timeout_ms(request, self),
             follow_redirects=_resolve_follow_redirects(
                 self.follow_redirects
                 if follow_redirects is sentinel

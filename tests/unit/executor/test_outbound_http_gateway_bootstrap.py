@@ -457,3 +457,75 @@ async def test_aiohttp_async_patch_offloads_gateway_dispatch(
     assert status_code == 200
     assert payload == {"ok": True}
     assert ticks >= 3
+
+
+def test_httpx_sync_patch_uses_client_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    request_url = "https://example.com/test"
+    original_sync_send = httpx.Client.send
+    original_async_send = httpx.AsyncClient.send
+    captured_timeout_ms: int | None = None
+
+    def fake_dispatch(**kwargs: Any) -> dict[str, Any]:
+        nonlocal captured_timeout_ms
+        captured_timeout_ms = kwargs["timeout_ms"]
+        return {
+            "status_code": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": b'{"ok":true}',
+            "url": request_url,
+            "reason_phrase": "OK",
+        }
+
+    monkeypatch.setattr(
+        outbound_http_gateway_sitecustomize_module,
+        "_dispatch_to_gateway",
+        fake_dispatch,
+    )
+    outbound_http_gateway_sitecustomize_module._patch_httpx(httpx)
+    try:
+        with httpx.Client(timeout=httpx.Timeout(2.0, connect=3.0)) as client:
+            response = client.get(request_url)
+    finally:
+        httpx.Client.send = original_sync_send
+        httpx.AsyncClient.send = original_async_send
+
+    assert response.status_code == 200
+    assert captured_timeout_ms == 3000
+
+
+@pytest.mark.anyio
+async def test_httpx_async_patch_prefers_request_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request_url = "https://example.com/test"
+    original_sync_send = httpx.Client.send
+    original_async_send = httpx.AsyncClient.send
+    captured_timeout_ms: int | None = None
+
+    def fake_dispatch(**kwargs: Any) -> dict[str, Any]:
+        nonlocal captured_timeout_ms
+        captured_timeout_ms = kwargs["timeout_ms"]
+        return {
+            "status_code": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": b'{"ok":true}',
+            "url": request_url,
+            "reason_phrase": "OK",
+        }
+
+    monkeypatch.setattr(
+        outbound_http_gateway_sitecustomize_module,
+        "_dispatch_to_gateway",
+        fake_dispatch,
+    )
+    outbound_http_gateway_sitecustomize_module._patch_httpx(httpx)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            request = client.build_request("GET", request_url, timeout=1.5)
+            response = await client.send(request)
+    finally:
+        httpx.Client.send = original_sync_send
+        httpx.AsyncClient.send = original_async_send
+
+    assert response.status_code == 200
+    assert captured_timeout_ms == 1500
