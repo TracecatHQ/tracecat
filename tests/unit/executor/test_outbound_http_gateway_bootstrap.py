@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import sysconfig
 import threading
 import time
 import uuid
@@ -26,7 +27,20 @@ from tracecat.executor import (
     outbound_http_gateway_sitecustomize as outbound_http_gateway_sitecustomize_module,
 )
 
-_SITE_PACKAGES = next(path for path in sys.path if "site-packages" in path)
+
+def _resolve_site_packages_path(paths: list[str]) -> str | None:
+    if site_packages := next(
+        (path for path in paths if "site-packages" in path),
+        None,
+    ):
+        return site_packages
+    for key in ("purelib", "platlib"):
+        if candidate := sysconfig.get_path(key):
+            return candidate
+    return None
+
+
+_SITE_PACKAGES = _resolve_site_packages_path(sys.path)
 
 
 async def _count_event_loop_ticks(awaitable: Any) -> tuple[Any, int]:
@@ -46,6 +60,11 @@ async def _count_event_loop_ticks(awaitable: Any) -> tuple[Any, int]:
         stop.set()
         await ticker_task
     return result, ticks
+
+
+def test_resolve_site_packages_path_falls_back_to_sysconfig() -> None:
+    fallback = sysconfig.get_path("purelib") or sysconfig.get_path("platlib")
+    assert _resolve_site_packages_path([]) == fallback
 
 
 @contextmanager
@@ -362,6 +381,8 @@ requests.get('http://127.0.0.1:%s/test-data')
 
 def test_bootstrap_patches_modules_imported_before_hook_install() -> None:
     """Modules imported before hook installation should still be patched from sys.modules."""
+    if _SITE_PACKAGES is None:
+        pytest.skip("site-packages path is unavailable in this environment")
     script = f"""\
 import json, sys
 sys.path.append({_SITE_PACKAGES!r})
