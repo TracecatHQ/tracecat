@@ -804,19 +804,14 @@ async def resolve_workspace_membership(
 async def resolve_role(email: str, workspace_id: WorkspaceID) -> Role:
     """Resolve a user's Role for a given workspace from their OAuth email.
 
-    Pipeline: email -> User -> Workspace.organization_id -> OrganizationMembership -> Membership -> Role
-
-    The workspace's owning organization is resolved first, then the user's
-    membership in *that* organization is checked. This prevents an admin in
-    org A from gaining access to a workspace belonging to org B.
+    Pipeline: email -> User -> Workspace.organization_id -> scopes/membership -> Role
 
     Org admins/owners (users with ``org:workspace:read`` scope) bypass the
     workspace-level membership check, matching the behaviour of the main API.
+    Platform superusers also bypass direct membership checks.
     """
     user = await resolve_user_by_email(email)
     org_id = await resolve_workspace_org(workspace_id)
-    # Validate the user belongs to the organization (raises on missing membership)
-    await resolve_org_membership(user.id, org_id)
 
     # Compute scopes early so we can check for org-level workspace access
     role = Role(
@@ -829,8 +824,8 @@ async def resolve_role(email: str, workspace_id: WorkspaceID) -> Role:
     )
     scopes = await compute_effective_scopes(role)
 
-    # Org admins/owners can access any workspace in their org
-    if not has_scope(scopes, "org:workspace:read"):
+    # Platform superusers and org admins/owners can access any workspace.
+    if not user.is_superuser and not has_scope(scopes, "org:workspace:read"):
         await resolve_workspace_membership(user.id, workspace_id)
 
     role = role.model_copy(update={"scopes": scopes})
@@ -853,6 +848,25 @@ async def list_user_workspaces(
     user = await resolve_user_by_email(email)
 
     async with get_async_session_context_manager() as session:
+
+        async def _list_direct_membership_rows(
+            scoped_org_ids: set[OrganizationID] | None = None,
+        ) -> list[tuple[uuid.UUID, str]]:
+            member_stmt = (
+                select(Workspace.id, Workspace.name)
+                .join(Membership, Membership.workspace_id == Workspace.id)
+                .where(Membership.user_id == user.id)
+            )
+            if scoped_org_ids:
+                member_stmt = member_stmt.where(
+                    Workspace.organization_id.in_(scoped_org_ids)
+                )
+            member_result = await session.execute(member_stmt)
+            return sorted(
+                member_result.tuples().all(),
+                key=lambda item: (item[1], str(item[0])),
+            )
+
         # Platform superusers can see all workspaces without org memberships.
         if user.is_superuser:
             stmt = select(Workspace.id, Workspace.name)
@@ -869,12 +883,15 @@ async def list_user_workspaces(
         org_result = await session.execute(org_stmt)
         org_ids = set(org_result.scalars().all())
 
-        if not org_ids:
-            return []
         if organization_ids:
             org_ids &= set(organization_ids)
             if not org_ids:
-                return []
+                return [
+                    {"id": str(workspace_id), "name": name}
+                    for workspace_id, name in await _list_direct_membership_rows(
+                        set(organization_ids)
+                    )
+                ]
 
         # Determine org-admin visibility on a per-organization basis.
         org_admin_ids: set[OrganizationID] = set()
@@ -915,6 +932,10 @@ async def list_user_workspaces(
             )
             member_result = await session.execute(member_stmt)
             for workspace_id, workspace_name in member_result.tuples().all():
+                workspace_map[workspace_id] = workspace_name
+
+        if not org_ids:
+            for workspace_id, workspace_name in await _list_direct_membership_rows():
                 workspace_map[workspace_id] = workspace_name
 
         ordered = sorted(

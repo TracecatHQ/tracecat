@@ -2135,11 +2135,19 @@ async def test_list_integrations_returns_mcp_and_provider_inventory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id)
+    current_user_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id, user_id=current_user_id)
     oauth_integration = SimpleNamespace(
         provider_id="slack",
         grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        user_id=current_user_id,
         status=SimpleNamespace(value="connected"),
+    )
+    other_user_integration = SimpleNamespace(
+        provider_id="slack",
+        grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        user_id=uuid.uuid4(),
+        status=SimpleNamespace(value="configured"),
     )
     mcp_integration_id = uuid.uuid4()
     mcp_integration = SimpleNamespace(
@@ -2174,7 +2182,7 @@ async def test_list_integrations_returns_mcp_and_provider_inventory(
 
     class _IntegrationService:
         async def list_integrations(self):
-            return [oauth_integration]
+            return [other_user_integration, oauth_integration]
 
         async def list_mcp_integrations(self):
             return [mcp_integration]
@@ -2277,6 +2285,13 @@ async def test_get_agent_preset_authoring_context_includes_output_type_guidance(
     payload = _payload(result)
     assert payload["default_model"] == "gpt-4o-mini"
     assert payload["models"][0]["provider"] == "openai"
+    assert payload["agent_credentials"]["providers"][0]["provider"] == "openai"
+    assert payload["agent_credentials"]["providers"][0]["configured_org"] is True
+    assert payload["agent_credentials"]["providers"][0]["configured_workspace"] is False
+    assert (
+        payload["agent_credentials"]["providers"][0]["ready_for_agent_presets"] is False
+    )
+    assert payload["agent_credentials"]["default_model_workspace_ready"] is False
     assert payload["workspace_variables"][0]["name"] == "splunk"
     assert payload["workspace_secret_hints"][0]["name"] == "slack"
     assert "str" in payload["output_type_context"]["supported_literals"]
@@ -2302,6 +2317,10 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
         async def get_model_config(self, model_name: str) -> SimpleNamespace:
             assert model_name == "gpt-4o-mini"
             return SimpleNamespace(name="gpt-4o-mini", provider="openai")
+
+        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+            assert provider == "openai"
+            return True
 
     class _PresetService:
         async def create_preset(self, params: Any) -> SimpleNamespace:
@@ -2379,6 +2398,9 @@ async def test_create_agent_preset_requires_default_model_when_model_not_provide
         async def get_default_model(self) -> str | None:
             return None
 
+        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+            return True
+
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
         mcp_server.AgentManagementService,
@@ -2411,6 +2433,10 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
         async def get_model_config(self, model_name: str) -> SimpleNamespace:
             assert model_name == "gpt-4o-mini"
             return SimpleNamespace(name="gpt-4o-mini", provider="openai")
+
+        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+            assert provider == "openai"
+            return True
 
     class _PresetService:
         async def create_preset(self, params: Any) -> SimpleNamespace:
@@ -2461,6 +2487,80 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
     assert params.enable_internet_access is False
     assert payload["retries"] == 3
     assert payload["enable_internet_access"] is False
+
+
+@pytest.mark.anyio
+async def test_create_agent_preset_validates_explicit_model_provider_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _AgentManagementService:
+        async def get_model_config(self, model_name: str) -> SimpleNamespace:
+            assert model_name == "gpt-4o-mini"
+            return SimpleNamespace(name="gpt-4o-mini", provider="openai")
+
+        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+            assert provider == "openai"
+            return True
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+
+    with pytest.raises(ToolError, match="belongs to provider 'openai', not 'opneai'"):
+        await _tool(mcp_server.create_agent_preset)(
+            workspace_id=str(workspace_id),
+            name="Security triage",
+            model_name="gpt-4o-mini",
+            model_provider="opneai",
+        )
+
+
+@pytest.mark.anyio
+async def test_create_agent_preset_requires_workspace_credentials_for_default_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _AgentManagementService:
+        async def get_default_model(self) -> str | None:
+            return "gpt-4o-mini"
+
+        async def get_model_config(self, model_name: str) -> SimpleNamespace:
+            assert model_name == "gpt-4o-mini"
+            return SimpleNamespace(name="gpt-4o-mini", provider="openai")
+
+        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+            assert provider == "openai"
+            return False
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+
+    with pytest.raises(
+        ToolError,
+        match="Workspace credentials for provider 'openai' are not configured",
+    ):
+        await _tool(mcp_server.create_agent_preset)(
+            workspace_id=str(workspace_id),
+            name="Security triage",
+        )
 
 
 def test_mcp_instructions_include_agent_preset_authoring_tools() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -286,3 +287,158 @@ async def test_list_workspaces_for_request_without_claimed_org_ids(
 
     assert captured["email"] == "user@example.com"
     assert captured["organization_ids"] is None
+
+
+@pytest.mark.anyio
+async def test_resolve_role_allows_superuser_without_org_membership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+
+    async def _resolve_user_by_email(_email: str) -> SimpleNamespace:
+        return SimpleNamespace(id=user_id, is_superuser=True)
+
+    async def _resolve_workspace_org(_workspace_id: uuid.UUID) -> uuid.UUID:
+        assert _workspace_id == workspace_id
+        return organization_id
+
+    async def _compute_effective_scopes(_role) -> frozenset[str]:
+        return frozenset({"*"})
+
+    async def _resolve_workspace_membership(
+        _user_id: uuid.UUID, _workspace_id: uuid.UUID
+    ) -> None:
+        raise AssertionError("superusers should not require workspace membership")
+
+    monkeypatch.setattr(mcp_auth, "resolve_user_by_email", _resolve_user_by_email)
+    monkeypatch.setattr(mcp_auth, "resolve_workspace_org", _resolve_workspace_org)
+    monkeypatch.setattr(mcp_auth, "compute_effective_scopes", _compute_effective_scopes)
+    monkeypatch.setattr(
+        mcp_auth,
+        "resolve_workspace_membership",
+        _resolve_workspace_membership,
+    )
+
+    role = await mcp_auth.resolve_role("user@example.com", workspace_id)
+
+    assert role.user_id == user_id
+    assert role.workspace_id == workspace_id
+    assert role.organization_id == organization_id
+    assert role.scopes == frozenset({"*"})
+
+
+@pytest.mark.anyio
+async def test_resolve_role_allows_direct_workspace_membership_without_org_membership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+    captured: dict[str, object] = {}
+
+    async def _resolve_user_by_email(_email: str) -> SimpleNamespace:
+        return SimpleNamespace(id=user_id, is_superuser=False)
+
+    async def _resolve_workspace_org(_workspace_id: uuid.UUID) -> uuid.UUID:
+        return organization_id
+
+    async def _compute_effective_scopes(_role) -> frozenset[str]:
+        return frozenset()
+
+    async def _resolve_workspace_membership(
+        user_id_arg: uuid.UUID, workspace_id_arg: uuid.UUID
+    ) -> None:
+        captured["user_id"] = user_id_arg
+        captured["workspace_id"] = workspace_id_arg
+
+    monkeypatch.setattr(mcp_auth, "resolve_user_by_email", _resolve_user_by_email)
+    monkeypatch.setattr(mcp_auth, "resolve_workspace_org", _resolve_workspace_org)
+    monkeypatch.setattr(mcp_auth, "compute_effective_scopes", _compute_effective_scopes)
+    monkeypatch.setattr(
+        mcp_auth,
+        "resolve_workspace_membership",
+        _resolve_workspace_membership,
+    )
+
+    role = await mcp_auth.resolve_role("user@example.com", workspace_id)
+
+    assert captured == {"user_id": user_id, "workspace_id": workspace_id}
+    assert role.organization_id == organization_id
+    assert role.workspace_id == workspace_id
+    assert role.scopes == frozenset()
+
+
+@pytest.mark.anyio
+async def test_list_user_workspaces_includes_direct_memberships_without_org_membership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+
+    class _ScalarResult:
+        def __init__(self, values: list[uuid.UUID]) -> None:
+            self._values = values
+
+        def all(self) -> list[uuid.UUID]:
+            return self._values
+
+    class _TupleResult:
+        def __init__(self, values: list[tuple[uuid.UUID, str]]) -> None:
+            self._values = values
+
+        def all(self) -> list[tuple[uuid.UUID, str]]:
+            return self._values
+
+    class _Result:
+        def __init__(
+            self,
+            *,
+            scalars: list[uuid.UUID] | None = None,
+            tuples: list[tuple[uuid.UUID, str]] | None = None,
+        ) -> None:
+            self._scalars = scalars or []
+            self._tuples = tuples or []
+
+        def scalars(self) -> _ScalarResult:
+            return _ScalarResult(self._scalars)
+
+        def tuples(self) -> _TupleResult:
+            return _TupleResult(self._tuples)
+
+    class _Session:
+        def __init__(self) -> None:
+            self._calls = 0
+
+        async def execute(self, _stmt):
+            self._calls += 1
+            if self._calls == 1:
+                return _Result(scalars=[])
+            if self._calls == 2:
+                return _Result(tuples=[(workspace_id, "Workspace A")])
+            raise AssertionError("unexpected extra query")
+
+    class _AsyncContext:
+        def __init__(self, session: _Session) -> None:
+            self._session = session
+
+        async def __aenter__(self) -> _Session:
+            return self._session
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    async def _resolve_user_by_email(_email: str) -> SimpleNamespace:
+        return SimpleNamespace(id=user_id, is_superuser=False)
+
+    monkeypatch.setattr(mcp_auth, "resolve_user_by_email", _resolve_user_by_email)
+    monkeypatch.setattr(
+        mcp_auth,
+        "get_async_session_context_manager",
+        lambda: _AsyncContext(_Session()),
+    )
+
+    workspaces = await mcp_auth.list_user_workspaces("user@example.com")
+
+    assert workspaces == [{"id": str(workspace_id), "name": "Workspace A"}]

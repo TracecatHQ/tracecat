@@ -11,7 +11,7 @@ import csv
 import json
 import re
 import uuid
-from collections import deque
+from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from io import StringIO
 from typing import Any, Literal, cast, get_args
@@ -384,9 +384,17 @@ def _build_output_type_context() -> dict[str, Any]:
 async def _build_integrations_inventory(role: Any) -> dict[str, Any]:
     """Build integration inventory for workflow and preset authoring."""
     async with IntegrationService.with_session(role=role) as svc:
+        user_id = getattr(role, "user_id", None)
+        integrations = await svc.list_integrations()
+        if user_id is not None:
+            integrations = [
+                integration
+                for integration in integrations
+                if getattr(integration, "user_id", None) == user_id
+            ]
         existing = {
             (integration.provider_id, integration.grant_type): integration
-            for integration in await svc.list_integrations()
+            for integration in integrations
         }
         mcp_integrations = await svc.list_mcp_integrations()
         oauth_providers: list[dict[str, Any]] = []
@@ -464,24 +472,35 @@ async def _resolve_agent_preset_model(
     model_provider: str | None,
 ) -> tuple[str, str]:
     """Resolve explicit or default model inputs for preset creation."""
-    if model_name is not None or model_provider is not None:
-        if not model_name or not model_provider:
-            raise ToolError(
-                "model_name and model_provider must both be provided when setting an explicit model"
-            )
-        return model_name, model_provider
-
     async with AgentManagementService.with_session(role=role) as svc:
-        if not (default_model := await svc.get_default_model()):
+        if model_name is not None or model_provider is not None:
+            if not model_name or not model_provider:
+                raise ToolError(
+                    "model_name and model_provider must both be provided when setting an explicit model"
+                )
+            try:
+                model_config = await svc.get_model_config(model_name)
+            except TracecatNotFoundError as exc:
+                raise ToolError(f"Model '{model_name}' not found") from exc
+            if model_config.provider != model_provider:
+                raise ToolError(
+                    f"Model '{model_name}' belongs to provider '{model_config.provider}', not '{model_provider}'"
+                )
+        else:
+            if not (default_model := await svc.get_default_model()):
+                raise ToolError(
+                    "No default model configured for this organization. Set one before creating a preset without explicit model fields."
+                )
+            try:
+                model_config = await svc.get_model_config(default_model)
+            except TracecatNotFoundError as exc:
+                raise ToolError(
+                    f"Default model '{default_model}' is configured but no longer exists"
+                ) from exc
+        if not await svc.check_workspace_provider_credentials(model_config.provider):
             raise ToolError(
-                "No default model configured for this organization. Set one before creating a preset without explicit model fields."
+                f"Workspace credentials for provider '{model_config.provider}' are not configured"
             )
-        try:
-            model_config = await svc.get_model_config(default_model)
-        except TracecatNotFoundError as exc:
-            raise ToolError(
-                f"Default model '{default_model}' is configured but no longer exists"
-            ) from exc
         return model_config.name, model_config.provider
 
 
@@ -4419,6 +4438,36 @@ async def _build_agent_preset_authoring_context(role: Any) -> dict[str, Any]:
         variables = await svc.list_variables(environment=DEFAULT_SECRETS_ENVIRONMENT)
 
     workspace_inventory = await _load_secret_inventory(role)
+    models_by_provider: dict[str, list[str]] = defaultdict(list)
+    for model_name, model in sorted(models.items(), key=lambda item: item[0]):
+        provider = cast(str, model.model_dump(mode="json")["provider"])
+        models_by_provider[provider].append(model_name)
+    agent_credentials = {
+        "providers": [
+            {
+                "provider": provider,
+                "configured_org": provider_status_org.get(provider, False),
+                "configured_workspace": provider_status_workspace.get(provider, False),
+                "ready_for_agent_presets": provider_status_workspace.get(
+                    provider, False
+                ),
+                "models": model_names,
+            }
+            for provider, model_names in sorted(models_by_provider.items())
+        ],
+        "default_model_workspace_ready": (
+            provider_status_workspace.get(
+                cast(str, models[default_model].model_dump(mode="json")["provider"]),
+                False,
+            )
+            if default_model in models
+            else None
+        ),
+        "notes": [
+            "Agent preset sessions require workspace-scoped credentials for the selected provider.",
+            "configured_org may still be useful for other agent flows, but it is not sufficient for run_agent_preset.",
+        ],
+    }
 
     return {
         "default_model": default_model,
@@ -4428,6 +4477,7 @@ async def _build_agent_preset_authoring_context(role: Any) -> dict[str, Any]:
         ],
         "provider_status_org": provider_status_org,
         "provider_status_workspace": provider_status_workspace,
+        "agent_credentials": agent_credentials,
         "workspace_variables": [
             {
                 "name": variable.name,
