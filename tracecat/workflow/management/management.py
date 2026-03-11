@@ -844,8 +844,19 @@ class WorkflowsManagementService(BaseWorkspaceService):
         # NOTE: We do not support adding invalid workflows
 
         dsl = external_defn.definition
-        trigger_position, viewport, action_positions = (
+        imported_trigger_position, imported_viewport, imported_action_positions = (
             external_defn.extract_layout_positions()
+        )
+        trigger_position = (
+            trigger_position
+            if trigger_position is not None
+            else imported_trigger_position
+        )
+        viewport = viewport if viewport is not None else imported_viewport
+        action_positions = (
+            action_positions
+            if action_positions is not None
+            else imported_action_positions
         )
         self.logger.trace("Constructed DSL from external definition", dsl=dsl)
         # We need to be able to control:

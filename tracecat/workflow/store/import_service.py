@@ -15,10 +15,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic, PullResult
-from tracecat.workflow.case_triggers.schemas import (
-    CaseTriggerConfig,
-    is_case_trigger_configured,
-)
+from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.folders.service import WorkflowFolderService
@@ -434,14 +431,8 @@ class WorkflowImportService(BaseWorkspaceService):
     ) -> None:
         if not remote_case_trigger:
             return
-        if not is_case_trigger_configured(
-            status=remote_case_trigger.status,
-            event_types=remote_case_trigger.event_types,
-            tag_filters=remote_case_trigger.tag_filters,
-        ):
-            return
         service = CaseTriggersService(session=self.session, role=self.role)
-        config = CaseTriggerConfig.model_validate(remote_case_trigger)
+        config = CaseTriggerConfig.model_validate(remote_case_trigger.model_dump())
         await service.upsert_case_trigger(
             WorkflowUUID.new(workflow.id),
             config,

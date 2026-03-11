@@ -11,7 +11,6 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import Author, PushObject, PushOptions, PushStatus
-from tracecat.workflow.case_triggers.schemas import is_case_trigger_configured
 from tracecat.workflow.store.schemas import (
     RemoteCaseTrigger,
     RemoteWebhook,
@@ -90,21 +89,6 @@ class WorkflowStoreService(BaseWorkspaceService):
             folder_path = workflow.folder.path
 
         # Create PushObject with data and stable path
-        case_trigger = None
-        if workflow.case_trigger and is_case_trigger_configured(
-            status=workflow.case_trigger.status,
-            event_types=workflow.case_trigger.event_types,
-            tag_filters=workflow.case_trigger.tag_filters,
-        ):
-            case_trigger = RemoteCaseTrigger(
-                status=cast(Status, workflow.case_trigger.status),
-                event_types=[
-                    CaseEventType(event_type)
-                    for event_type in workflow.case_trigger.event_types
-                ],
-                tag_filters=workflow.case_trigger.tag_filters,
-            )
-
         defn = RemoteWorkflowDefinition(
             id=workflow_id.short(),
             alias=workflow.alias,
@@ -127,7 +111,22 @@ class WorkflowStoreService(BaseWorkspaceService):
                 methods=webhook.methods,
                 status=cast(Status, webhook.status),
             ),
-            case_trigger=case_trigger,
+            case_trigger=RemoteCaseTrigger(
+                status=cast(Status, workflow.case_trigger.status)
+                if workflow.case_trigger
+                else "offline",
+                event_types=[
+                    CaseEventType(event_type)
+                    for event_type in workflow.case_trigger.event_types
+                ]
+                if workflow.case_trigger
+                else [],
+                tag_filters=workflow.case_trigger.tag_filters
+                if workflow.case_trigger
+                else [],
+            )
+            if workflow.case_trigger
+            else None,
             definition=dsl,
         )
         push_obj = PushObject(data=defn, path=stable_path)

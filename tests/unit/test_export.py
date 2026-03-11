@@ -303,3 +303,52 @@ async def test_workflow_import_applies_layout(test_role: Role):
         assert len(workflow.actions) == 1
         assert workflow.actions[0].position_x == 100.0
         assert workflow.actions[0].position_y == 200.0
+
+
+@pytest.mark.anyio
+async def test_workflow_import_prefers_explicit_layout_over_exported_layout(
+    test_role: Role,
+):
+    dsl = ExternalWorkflowDefinition(
+        definition=DSLInput(
+            **{
+                "title": "layout_override_import",
+                "description": "Workflow import with explicit layout override",
+                "entrypoint": {"expects": {}, "ref": None},
+                "actions": [
+                    {
+                        "ref": "entrypoint_1",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "ENTRYPOINT_1"},
+                    }
+                ],
+                "returns": "${{ ACTIONS.entrypoint_1.result }}",
+            }
+        ),
+        layout=WorkflowLayout(
+            trigger=WorkflowLayoutPosition(x=12.0, y=24.0),
+            viewport=WorkflowLayoutViewport(x=30.0, y=40.0, zoom=1.5),
+            actions=[
+                WorkflowLayoutActionPosition(ref="entrypoint_1", x=100.0, y=200.0)
+            ],
+        ),
+    )
+
+    async with WorkflowsManagementService.with_session(test_role) as service:
+        workflow = await service.create_workflow_from_external_definition(
+            dsl.model_dump(mode="json"),
+            trigger_position=(1.0, 2.0),
+            viewport=(3.0, 4.0, 0.75),
+            action_positions={"entrypoint_1": (5.0, 6.0)},
+        )
+        await service.session.refresh(workflow, ["actions"])
+
+        assert workflow.trigger_position_x == 1.0
+        assert workflow.trigger_position_y == 2.0
+        assert workflow.viewport_x == 3.0
+        assert workflow.viewport_y == 4.0
+        assert workflow.viewport_zoom == 0.75
+        assert workflow.actions is not None
+        assert len(workflow.actions) == 1
+        assert workflow.actions[0].position_x == 5.0
+        assert workflow.actions[0].position_y == 6.0
