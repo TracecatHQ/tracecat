@@ -8,6 +8,7 @@ from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from types import ModuleType, SimpleNamespace
 from typing import Any, cast
+from unittest.mock import AsyncMock
 
 import pytest
 import yaml
@@ -353,6 +354,72 @@ async def test_validate_template_action_remote_rejects_client_mismatch(monkeypat
             artifact_id=str(artifact.artifact_id),
             ctx=_fake_ctx(session_id="template-session"),
         )
+
+
+@pytest.mark.anyio
+async def test_run_draft_workflow_propagates_outbound_http_interception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    workflow_id = uuid.uuid4()
+    workflow_uuid = mcp_server.WorkflowUUID.new(str(workflow_id))
+    role = SimpleNamespace()
+    dsl_input = SimpleNamespace()
+    payload = {"hello": "world"}
+    create_execution = AsyncMock(
+        return_value={
+            "wf_id": workflow_uuid,
+            "wf_exec_id": f"{workflow_uuid.short()}/exec-test",
+            "message": "Draft workflow execution started",
+        }
+    )
+
+    class _WorkflowService:
+        async def get_workflow(self, _wf_id):
+            return SimpleNamespace(outbound_http_interception_enabled=True)
+
+        async def build_dsl_from_workflow(self, _workflow):
+            return dsl_input
+
+    def _with_session(*_args, **_kwargs):
+        return _AsyncContext(_WorkflowService())
+
+    async def _resolve(_workspace_id):
+        return workspace_id, role
+
+    async def _connect(*, role: object):
+        assert role is not None
+        return SimpleNamespace(
+            create_draft_workflow_execution_wait_for_start=create_execution
+        )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        "tracecat.workflow.management.management.WorkflowsManagementService.with_session",
+        _with_session,
+    )
+    monkeypatch.setattr(
+        mcp_server, "_validate_and_parse_trigger_inputs", lambda *_: payload
+    )
+    monkeypatch.setattr(
+        mcp_server.WorkflowExecutionsService,
+        "connect",
+        _connect,
+    )
+
+    result = await _tool(mcp_server.run_draft_workflow)(
+        workspace_id=str(workspace_id),
+        workflow_id=str(workflow_id),
+        inputs=json.dumps(payload),
+    )
+
+    assert _payload(result)["message"] == "Draft workflow execution started"
+    create_execution.assert_awaited_once_with(
+        dsl=dsl_input,
+        wf_id=workflow_uuid,
+        payload=payload,
+        outbound_http_interception_enabled=True,
+    )
 
 
 def test_auto_generate_layout_handles_cycles():
