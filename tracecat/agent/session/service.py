@@ -63,7 +63,8 @@ from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 from tracecat.service import BaseWorkspaceService
-from tracecat.tiers.entitlements import Entitlement, check_entitlement
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -150,6 +151,7 @@ class AgentSessionService(BaseWorkspaceService):
             entity_id=args.entity_id,
             channel_context=channel_context,
             tools=tools,
+            outbound_http_interception_enabled=args.outbound_http_interception_enabled,
             agent_preset_id=logical_preset_id,
             agent_preset_version_id=pinned_preset_version_id,
             # Harness
@@ -1000,6 +1002,7 @@ class AgentSessionService(BaseWorkspaceService):
                 entity_type=AgentSessionEntity(agent_session.entity_type),
                 entity_id=agent_session.entity_id,
                 tools=agent_session.tools,
+                outbound_http_interception_enabled=agent_session.outbound_http_interception_enabled,
                 agent_preset_id=agent_session.agent_preset_id,
                 agent_preset_version_id=agent_session.agent_preset_version_id,
             )
@@ -1804,6 +1807,7 @@ class AgentSessionService(BaseWorkspaceService):
             entity_id=parent.entity_id,
             channel_context=parent.channel_context,
             tools=[],
+            outbound_http_interception_enabled=parent.outbound_http_interception_enabled,
             agent_preset_id=None,
             # Harness - inherit from parent
             harness_type=parent.harness_type,

@@ -65,6 +65,7 @@ def _build_session(role: Role, *, session_id: uuid.UUID) -> AgentSession:
         entity_type=AgentSessionEntity.COPILOT.value,
         entity_id=uuid.uuid4(),
         tools=["core.http_request"],
+        outbound_http_interception_enabled=True,
     )
     session.id = session_id
     return session
@@ -112,8 +113,10 @@ async def test_run_turn_stamps_tracecat_search_attributes(
     temporal_client.start_workflow.assert_awaited_once()
     kwargs = temporal_client.start_workflow.await_args.kwargs
     search_attributes = kwargs["search_attributes"]
+    workflow_args = temporal_client.start_workflow.await_args.args[1]
     assert isinstance(search_attributes, TypedSearchAttributes)
     pairs = _search_attr_map(search_attributes)
+    assert workflow_args.outbound_http_interception_enabled is True
     assert pairs[TemporalSearchAttr.TRIGGER_TYPE.value] == TriggerType.MANUAL.value
     assert (
         pairs[TemporalSearchAttr.EXECUTION_TYPE.value] == ExecutionType.PUBLISHED.value

@@ -345,6 +345,7 @@ class DraftWorkflowContext:
 
     dsl: DSLInput
     registry_lock: dict[str, str] | None
+    outbound_http_interception_enabled: bool
 
 
 async def validate_draft_workflow(
@@ -364,7 +365,11 @@ async def validate_draft_workflow(
             dsl: DSLInput = await mgmt_service.build_dsl_from_workflow(workflow)
             # Draft executions use None for registry_lock to resolve at runtime (latest registry)
             # This avoids stale locks when actions are edited in the UI
-            return DraftWorkflowContext(dsl=dsl, registry_lock=None)
+            return DraftWorkflowContext(
+                dsl=dsl,
+                registry_lock=None,
+                outbound_http_interception_enabled=workflow.outbound_http_interception_enabled,
+            )
         except TracecatValidationError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

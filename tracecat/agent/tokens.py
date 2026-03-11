@@ -86,8 +86,20 @@ class MCPTokenClaims(BaseModel):
     """Optional user ID for audit/traceability."""
     session_id: uuid.UUID
     """Agent session ID for traceability."""
+    outbound_http_interception_enabled: bool = Field(
+        default=False,
+        description="Whether outbound HTTP interception is enabled for tool execution.",
+    )
     organization_id: OrganizationID
     """Organization UUID for authorization context."""
+    entity_type: str | None = Field(
+        default=None,
+        description="Entity type associated with the originating agent session.",
+    )
+    entity_id: uuid.UUID | None = Field(
+        default=None,
+        description="Entity ID associated with the originating agent session.",
+    )
     allowed_actions: list[str]
     """Set of allowed action names (e.g., {"tools.slack.post_message", "core.http_request"})."""
     user_mcp_servers: list[UserMCPServerClaim] = Field(default_factory=list)
@@ -104,6 +116,9 @@ def mint_mcp_token(
     organization_id: OrganizationID,
     allowed_actions: list[str],
     session_id: uuid.UUID,
+    outbound_http_interception_enabled: bool = False,
+    entity_type: str | None = None,
+    entity_id: uuid.UUID | None = None,
     user_id: UserID | None = None,
     user_mcp_servers: list[UserMCPServerClaim] | None = None,
     allowed_internal_tools: list[str] | None = None,
@@ -149,7 +164,13 @@ def mint_mcp_token(
         "organization_id": str(organization_id),
         "allowed_actions": allowed_actions,
         "session_id": str(session_id),
+        "outbound_http_interception_enabled": outbound_http_interception_enabled,
     }
+
+    if entity_type is not None:
+        payload["entity_type"] = entity_type
+    if entity_id is not None:
+        payload["entity_id"] = str(entity_id)
 
     if user_id is not None:
         payload["user_id"] = str(user_id)

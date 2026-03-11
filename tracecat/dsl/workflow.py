@@ -229,6 +229,9 @@ class DSLWorkflow:
         self.start_to_close_timeout = args.timeout
         """The activity execution timeout."""
         self.execution_type = args.execution_type
+        self.outbound_http_interception_enabled = (
+            args.outbound_http_interception_enabled
+        )
         """Execution type (draft or published). Draft executions use draft aliases for child workflows."""
         wf_info = workflow.info()
         # Tracecat wf exec id == Temporal wf exec id
@@ -631,6 +634,8 @@ class DSLWorkflow:
             wf_run_id=uuid.UUID(wf_info.run_id, version=4),
             environment=self.runtime_config.environment,
             logical_time=self.time_anchor,
+            trigger_type=get_trigger_type(wf_info),
+            execution_type=self.execution_type,
         )
         ctx_run.set(self.run_context)
 
@@ -955,6 +960,7 @@ class DSLWorkflow:
                             max_tool_calls=action_args.max_tool_calls,
                             use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
+                        outbound_http_interception_enabled=self.outbound_http_interception_enabled,
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
@@ -1018,6 +1024,7 @@ class DSLWorkflow:
                             max_tool_calls=0,
                             use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
+                        outbound_http_interception_enabled=self.outbound_http_interception_enabled,
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
@@ -1094,6 +1101,7 @@ class DSLWorkflow:
                             max_tool_calls=preset_action_args.max_tool_calls,
                             use_workspace_credentials=preset_action_args.use_workspace_credentials,
                         ),
+                        outbound_http_interception_enabled=self.outbound_http_interception_enabled,
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
@@ -1273,6 +1281,7 @@ class DSLWorkflow:
                 wf_id=prepared.wf_id,
                 trigger_inputs=trigger_inputs,
                 parent_run_context=self.run_context,
+                outbound_http_interception_enabled=self.outbound_http_interception_enabled,
                 runtime_config=runtime_config,
                 execution_type=self.execution_type,
                 time_anchor=child_time_anchor,
@@ -1407,6 +1416,7 @@ class DSLWorkflow:
                         wf_id=prepared.wf_id,
                         trigger_inputs=trigger_inputs,
                         parent_run_context=self.run_context,
+                        outbound_http_interception_enabled=self.outbound_http_interception_enabled,
                         runtime_config=config,
                         execution_type=self.execution_type,
                         time_anchor=child_time_anchor,
@@ -1699,9 +1709,12 @@ class DSLWorkflow:
             task=task,
             run_context=run_context,
             exec_context=new_context,
+            outbound_http_interception_enabled=self.outbound_http_interception_enabled,
             interaction_context=ctx_interaction.get(),
             stream_id=stream_id,
             session_id=session_id,
+            entity_type=AgentSessionEntity.WORKFLOW.value,
+            entity_id=self.run_context.wf_id,
             registry_lock=self.registry_lock,
         )
 
@@ -1868,6 +1881,7 @@ class DSLWorkflow:
             dsl=dsl,
             wf_id=handler_wf_id,
             parent_run_context=ctx_run.get(),
+            outbound_http_interception_enabled=self.outbound_http_interception_enabled,
             trigger_inputs=InlineObject(
                 data=ErrorHandlerWorkflowInput(
                     message=message,

@@ -70,6 +70,10 @@ TRACECAT__PUBLIC_API_URL = os.environ.get(
 TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
+TRACECAT__OUTBOUND_HTTP_GATEWAY_URL = os.environ.get(
+    "TRACECAT__OUTBOUND_HTTP_GATEWAY_URL"
+)
+"""Optional explicit gateway endpoint for outbound HTTP interception from actions in draft/test runs."""
 
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(
     os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE") or 64
