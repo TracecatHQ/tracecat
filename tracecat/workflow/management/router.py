@@ -56,6 +56,7 @@ from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerCreate,
     CaseTriggerRead,
     CaseTriggerUpdate,
+    is_case_trigger_configured,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
@@ -69,6 +70,7 @@ from tracecat.workflow.management.schemas import (
     WorkflowDefinitionReadMinimal,
     WorkflowEntrypointValidationRequest,
     WorkflowEntrypointValidationResponse,
+    WorkflowLayout,
     WorkflowMoveToFolder,
     WorkflowRead,
     WorkflowReadMinimal,
@@ -595,19 +597,26 @@ async def export_workflow(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot export draft: {e}",
             ) from e
-        external_defn = ExternalWorkflowDefinition(
-            workspace_id=workflow.workspace_id,
-            workflow_id=WorkflowUUID.new(workflow.id),
-            definition=dsl,
-            case_trigger=CaseTriggerConfig.model_validate(
+        case_trigger = None
+        if workflow.case_trigger and is_case_trigger_configured(
+            status=workflow.case_trigger.status,
+            event_types=workflow.case_trigger.event_types,
+            tag_filters=workflow.case_trigger.tag_filters,
+        ):
+            case_trigger = CaseTriggerConfig.model_validate(
                 {
                     "status": workflow.case_trigger.status,
                     "event_types": workflow.case_trigger.event_types,
                     "tag_filters": workflow.case_trigger.tag_filters,
                 }
             )
-            if workflow.case_trigger
-            else None,
+
+        external_defn = ExternalWorkflowDefinition(
+            workspace_id=workflow.workspace_id,
+            workflow_id=WorkflowUUID.new(workflow.id),
+            definition=dsl,
+            layout=WorkflowLayout.from_workflow(workflow),
+            case_trigger=case_trigger,
         )
     else:
         # Existing behavior: fetch from WorkflowDefinition

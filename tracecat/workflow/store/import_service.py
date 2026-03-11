@@ -15,7 +15,10 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic, PullResult
-from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
+from tracecat.workflow.case_triggers.schemas import (
+    CaseTriggerConfig,
+    is_case_trigger_configured,
+)
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.folders.service import WorkflowFolderService
@@ -429,16 +432,39 @@ class WorkflowImportService(BaseWorkspaceService):
     async def _update_case_trigger(
         self, workflow: Workflow, remote_case_trigger: RemoteCaseTrigger | None
     ) -> None:
-        if not remote_case_trigger:
+        if remote_case_trigger is None:
+            await self._clear_case_trigger(workflow)
+            return
+        if not is_case_trigger_configured(
+            status=remote_case_trigger.status,
+            event_types=remote_case_trigger.event_types,
+            tag_filters=remote_case_trigger.tag_filters,
+        ):
+            await self._clear_case_trigger(workflow)
             return
         service = CaseTriggersService(session=self.session, role=self.role)
-        config = CaseTriggerConfig.model_validate(remote_case_trigger)
+        config = CaseTriggerConfig.model_validate(remote_case_trigger.model_dump())
         await service.upsert_case_trigger(
             WorkflowUUID.new(workflow.id),
             config,
             create_missing_tags=True,
             commit=False,
         )
+
+    async def _clear_case_trigger(self, workflow: Workflow) -> None:
+        await self.session.refresh(workflow, ["case_trigger"])
+        case_trigger = workflow.case_trigger
+        if case_trigger is None:
+            case_trigger = await CaseTriggersService(
+                session=self.session, role=self.role
+            )._ensure_case_trigger_exists(WorkflowUUID.new(workflow.id), commit=False)
+            workflow.case_trigger = case_trigger
+
+        case_trigger.status = "offline"
+        case_trigger.event_types = []
+        case_trigger.tag_filters = []
+        self.session.add(case_trigger)
+        await self.session.flush()
 
     async def _update_tags(
         self, workflow: Workflow, remote_tags: list[RemoteWorkflowTag] | None = None

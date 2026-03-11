@@ -2,10 +2,10 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="img/banner-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="img/banner-light.svg">
-    <img src="img/banner-light.svg" alt="The open source AI automation platform for security teams.">
+    <img src="img/banner-light.svg" alt="The AI-native security automation platform.">
   </picture>
   <p align="center">
-    Open source AI automation platform for security teams.
+    The AI-native security automation platform.
   </p>
 
   <br>
@@ -21,13 +21,12 @@
 
 ## Introduction
 
-[Tracecat](https://tracecat.com) is the open source AI platform for security teams.
-It includes everything security teams need to automate work: agents, workflows, case management, and over 100+ integrations.
+[Tracecat](https://tracecat.com) is the AI-native security automation platform.
 
-Purpose-built for agents and (human) builders:
-- **Visual builder**: build custom agents and workflows with a simple, intuitive UI
-- **Tracecat MCP**: build and run agents and workflows from your own harness (e.g. Claude code, Codex)
-- **Code-native**: sync custom Python scripts from your Git repo into Tracecat
+Purpose-built for agents and open source for builders:
+- **Prompt-to-automations**: build end-to-end automations with agents, workflows, and tables from your own agent harness (e.g. Claude code, Codex, OpenCode).
+- **Code-native**: sync custom Python scripts from your Git repo into Tracecat.
+- **All-in-one**: agents, workflows, lookup tables, and case management. Everything security teams need to automate work in one place. 
 - **Self-host anywhere**: Docker, Kubernetes, AWS Fargate.
 
 Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run on [Temporal](https://temporal.io) for security, reliability, and scale.
