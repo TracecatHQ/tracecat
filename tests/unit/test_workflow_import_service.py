@@ -1,8 +1,6 @@
 """Tests for WorkflowImportService functionality."""
 
-from types import SimpleNamespace
-from typing import cast
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -191,19 +189,33 @@ class TestWorkflowImportService:
         assert tag_names == {"test", "import"}
 
     @pytest.mark.anyio
-    async def test_update_case_trigger_ignores_missing_remote_block(
+    async def test_update_case_trigger_clears_existing_trigger_when_remote_block_missing(
         self,
         import_service: WorkflowImportService,
+        sample_dsl: DSLInput,
     ) -> None:
-        with patch(
-            "tracecat.workflow.store.import_service.CaseTriggersService"
-        ) as case_trigger_service_cls:
-            await import_service._update_case_trigger(
-                cast(Workflow, SimpleNamespace(id=WorkflowUUID.new_uuid4())),
-                None,
-            )
+        workflow = await import_service.wf_mgmt.create_db_workflow_from_dsl(
+            sample_dsl, workflow_id=WorkflowUUID.new_uuid4()
+        )
+        case_trigger_service = CaseTriggersService(
+            import_service.session, role=import_service.role
+        )
+        await case_trigger_service.upsert_case_trigger(
+            WorkflowUUID.new(workflow.id),
+            CaseTriggerConfig(
+                status="online",
+                event_types=[CaseEventType.CASE_CREATED],
+                tag_filters=[],
+            ),
+        )
 
-        case_trigger_service_cls.assert_not_called()
+        await import_service._update_case_trigger(workflow, None)
+        await import_service.session.refresh(workflow, ["case_trigger"])
+
+        assert workflow.case_trigger is not None
+        assert workflow.case_trigger.status == "offline"
+        assert workflow.case_trigger.event_types == []
+        assert workflow.case_trigger.tag_filters == []
 
     @pytest.mark.anyio
     async def test_update_case_trigger_clears_existing_trigger_from_inert_remote_block(
@@ -226,14 +238,20 @@ class TestWorkflowImportService:
             ),
         )
 
-        await import_service._update_case_trigger(
-            workflow,
-            RemoteCaseTrigger(
-                status="offline",
-                event_types=[],
-                tag_filters=[],
-            ),
-        )
+        with patch(
+            "tracecat.workflow.store.import_service.CaseTriggersService.upsert_case_trigger",
+            new_callable=AsyncMock,
+        ) as mock_upsert:
+            await import_service._update_case_trigger(
+                workflow,
+                RemoteCaseTrigger(
+                    status="offline",
+                    event_types=[],
+                    tag_filters=[],
+                ),
+            )
+
+        mock_upsert.assert_not_awaited()
         await import_service.session.refresh(workflow, ["case_trigger"])
 
         assert workflow.case_trigger is not None
