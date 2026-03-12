@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from enum import StrEnum
+
 from tracecat.auth.api_keys import ORG_API_KEY_PREFIX, WORKSPACE_API_KEY_PREFIX
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.scopes import ADMIN_SCOPES, ORG_OWNER_SCOPES
@@ -36,8 +38,14 @@ ORG_API_KEY_ASSIGNABLE_SCOPES: frozenset[str] = (
     frozenset(ORG_OWNER_SCOPES) - ALL_API_KEY_MANAGEMENT_SCOPES
 )
 
-ORG_API_KEY_KIND = "organization"
-WORKSPACE_API_KEY_KIND = "workspace"
+
+class APIKeyKind(StrEnum):
+    ORGANIZATION = "organization"
+    WORKSPACE = "workspace"
+
+
+ORG_API_KEY_KIND = APIKeyKind.ORGANIZATION
+WORKSPACE_API_KEY_KIND = APIKeyKind.WORKSPACE
 API_KEY_KINDS = (ORG_API_KEY_KIND, WORKSPACE_API_KEY_KIND)
 API_KEY_PREFIX_TO_KIND = {
     ORG_API_KEY_PREFIX: ORG_API_KEY_KIND,
