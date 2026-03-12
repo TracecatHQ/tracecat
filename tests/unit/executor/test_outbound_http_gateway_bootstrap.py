@@ -284,6 +284,37 @@ async def main():
 asyncio.run(main())
 """
 
+_HTTPX_MUTATING_AUTH_SCRIPT = """\
+import json, httpx
+
+class QueryAuth(httpx.Auth):
+    def auth_flow(self, request):
+        request.url = request.url.copy_merge_params({'sig': 'sync'})
+        yield request
+
+with httpx.Client() as client:
+    request = client.build_request('GET', 'https://example.com/auth')
+    response = client.send(request, auth=QueryAuth())
+    print(json.dumps({'status': response.status_code, 'body': response.json()}))
+"""
+
+_HTTPX_ASYNC_MUTATING_AUTH_SCRIPT = """\
+import asyncio, json, httpx
+
+class QueryAuth(httpx.Auth):
+    async def async_auth_flow(self, request):
+        request.url = request.url.copy_merge_params({'sig': 'async'})
+        yield request
+
+async def main():
+    async with httpx.AsyncClient() as client:
+        request = client.build_request('GET', 'https://example.com/auth')
+        response = await client.send(request, auth=QueryAuth())
+        print(json.dumps({'status': response.status_code, 'body': response.json()}))
+
+asyncio.run(main())
+"""
+
 _URLLIB_SCRIPT = """\
 import json, urllib.request
 request = urllib.request.Request(
@@ -462,6 +493,28 @@ def test_bootstrap_applies_httpx_send_auth(script: str) -> None:
         "payload"
     ]["headers"].get("authorization")
     assert auth_header == ("Basic YWxpY2U6d29uZGVybGFuZA==")
+
+
+@pytest.mark.parametrize(
+    ("script", "expected_url"),
+    [
+        (_HTTPX_MUTATING_AUTH_SCRIPT, "https://example.com/auth?sig=sync"),
+        (_HTTPX_ASYNC_MUTATING_AUTH_SCRIPT, "https://example.com/auth?sig=async"),
+    ],
+)
+def test_bootstrap_forwards_httpx_auth_mutated_url(
+    script: str,
+    expected_url: str,
+) -> None:
+    """httpx auth flows that rewrite the URL should dispatch the rewritten URL."""
+    with _mock_gateway() as (gateway_url, state):
+        completed = _run_script(script, gateway_url)
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout.strip())
+    assert payload == {"status": 200, "body": {"ok": True}}
+    [request] = state["requests"]
+    assert request["payload"]["url"] == expected_url
 
 
 @pytest.mark.parametrize(

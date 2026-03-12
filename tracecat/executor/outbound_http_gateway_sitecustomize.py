@@ -744,6 +744,7 @@ def _patch_httpx(httpx_module: types.ModuleType) -> None:
                 "Streaming responses are not supported with outbound HTTP interception"
             )
         request, auth_flow = _prepare_httpx_auth(self, request, auth, sentinel)
+        request_url = str(request.url)
         body = request.content
         envelope = _dispatch_to_gateway(
             method=request.method,
@@ -786,6 +787,7 @@ def _patch_httpx(httpx_module: types.ModuleType) -> None:
         request, auth_flow = await _prepare_httpx_auth_async(
             self, request, auth, sentinel
         )
+        request_url = str(request.url)
         body = await request.aread()
         envelope = await _dispatch_to_gateway_async(
             method=request.method,
