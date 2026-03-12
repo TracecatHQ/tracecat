@@ -30,7 +30,7 @@ repos:
   - repo: https://github.com/betterleaks/betterleaks
     rev: v1.1.0
     hooks:
-      - id: betterleaks
+      - id: gitleaks-docker
   - repo: https://github.com/astral-sh/uv-pre-commit
     rev: 0.9.7
     hooks:

@@ -1,10 +1,19 @@
 "use client"
 
-import { createContext, useContext, useState } from "react"
+import { createContext, useCallback, useContext, useState } from "react"
+
+export type SettingsSection =
+  | "profile"
+  | "workspace-general"
+  | "workspace-runtime"
+  | "workspace-files"
+  | "workspace-sync"
 
 interface SettingsModalContextValue {
   open: boolean
   setOpen: (open: boolean) => void
+  activeSection: SettingsSection
+  setActiveSection: (section: SettingsSection) => void
 }
 
 const SettingsModalContext = createContext<SettingsModalContextValue | null>(
@@ -16,9 +25,20 @@ export function SettingsModalProvider({
 }: {
   children: React.ReactNode
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpenRaw] = useState(false)
+  const [activeSection, setActiveSection] = useState<SettingsSection>("profile")
+
+  const setOpen = useCallback((value: boolean) => {
+    setOpenRaw(value)
+    if (!value) {
+      setActiveSection("profile")
+    }
+  }, [])
+
   return (
-    <SettingsModalContext.Provider value={{ open, setOpen }}>
+    <SettingsModalContext.Provider
+      value={{ open, setOpen, activeSection, setActiveSection }}
+    >
       {children}
     </SettingsModalContext.Provider>
   )

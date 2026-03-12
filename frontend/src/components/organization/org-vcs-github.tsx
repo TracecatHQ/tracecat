@@ -122,7 +122,7 @@ export function GitHubAppSetup() {
       setDeleteDialogOpen(false)
       toast({
         title: "GitHub App credentials deleted",
-        description: "Workflow sync has been disconnected.",
+        description: "Git sync has been disconnected.",
       })
     } catch (error) {
       console.error("Failed to delete GitHub App credentials:", error)
