@@ -96,7 +96,7 @@ def test_resolve_timeout_ms_returns_none_for_disabled_timeout_objects() -> None:
 
 
 @contextmanager
-def _mock_gateway() -> Any:
+def _mock_gateway(response: dict[str, Any] | None = None) -> Any:
     """Start a local HTTP server that mimics the outbound HTTP gateway.
 
     Yields a tuple of (base_url, state) where state["requests"] collects
@@ -116,14 +116,14 @@ def _mock_gateway() -> Any:
                     "payload": payload,
                 }
             )
-            response = {
+            gateway_response = response or {
                 "status_code": 200,
                 "headers": {"Content-Type": "application/json", "X-Gateway": "ok"},
                 "body_base64": base64.b64encode(b'{"ok":true}').decode("ascii"),
                 "url": payload["url"],
                 "reason_phrase": "OK",
             }
-            encoded = json.dumps(response).encode("utf-8")
+            encoded = json.dumps(gateway_response).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(encoded)))
@@ -289,6 +289,18 @@ async def main():
 asyncio.run(main())
 """
 
+_URLLIB_HTTP_ERROR_SCRIPT = """\
+import json, urllib.error, urllib.request
+try:
+    urllib.request.urlopen('https://example.com/missing')
+except urllib.error.HTTPError as exc:
+    print(json.dumps({
+        'status': exc.code,
+        'body': json.loads(exc.read().decode()),
+        'reason': exc.reason,
+    }))
+"""
+
 _REQUESTS_MULTIPART_SCRIPT = """\
 import json, requests
 response = requests.post(
@@ -423,6 +435,28 @@ print(json.dumps(json.loads(response.read().decode())))
     assert completed.returncode == 0, completed.stderr
     assert json.loads(completed.stdout.strip()) == {"local": True}
     assert gateway_state["requests"] == []
+
+
+def test_bootstrap_urllib_raises_http_error_for_intercepted_error_statuses() -> None:
+    """urllib interception should preserve HTTPError behavior for 4xx/5xx responses."""
+    with _mock_gateway(
+        response={
+            "status_code": 404,
+            "headers": {"Content-Type": "application/json"},
+            "body_base64": base64.b64encode(b'{"error":"missing"}').decode("ascii"),
+            "url": "https://example.com/missing",
+            "reason_phrase": "Not Found",
+        }
+    ) as (gateway_url, gateway_state):
+        completed = _run_script(_URLLIB_HTTP_ERROR_SCRIPT, gateway_url)
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout.strip()) == {
+        "status": 404,
+        "body": {"error": "missing"},
+        "reason": "Not Found",
+    }
+    assert len(gateway_state["requests"]) == 1
 
 
 def test_bootstrap_patches_modules_imported_before_hook_install() -> None:

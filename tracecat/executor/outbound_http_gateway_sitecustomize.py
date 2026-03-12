@@ -422,6 +422,23 @@ def _build_urllib_response(
     return response
 
 
+def _raise_urllib_http_error(
+    urllib_request_module: types.ModuleType,
+    url: str,
+    envelope: _GatewayDispatchResponse,
+) -> None:
+    headers = email.message.Message()
+    for key, value in (envelope.get("headers") or {}).items():
+        headers[key] = value
+    raise urllib_request_module.HTTPError(
+        str(envelope.get("url") or url),
+        int(envelope["status_code"]),
+        envelope.get("reason_phrase") or "",
+        headers,
+        io.BytesIO(envelope["body"]),
+    )
+
+
 class _AiohttpProxyResponse:
     def __init__(
         self,
@@ -751,6 +768,8 @@ def _patch_urllib_request(urllib_request_module: types.ModuleType) -> None:
             timeout_ms=_resolve_timeout_ms(timeout),
             follow_redirects=True,
         )
+        if int(envelope["status_code"]) >= 400:
+            _raise_urllib_http_error(urllib_request_module, url, envelope)
         return _build_urllib_response(url, envelope)
 
     patched.__tracecat_outbound_http_gateway__ = True
