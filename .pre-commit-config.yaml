@@ -27,10 +27,10 @@ repos:
           - --verbose
       - id: ruff-format
         verbose: true
-  - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.25.1
+  - repo: https://github.com/betterleaks/betterleaks
+    rev: v1.1.0
     hooks:
-      - id: gitleaks
+      - id: betterleaks
   - repo: https://github.com/astral-sh/uv-pre-commit
     rev: 0.9.7
     hooks:
