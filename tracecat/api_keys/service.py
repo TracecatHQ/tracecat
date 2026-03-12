@@ -21,7 +21,9 @@ from tracecat.api_keys.constants import (
 )
 from tracecat.audit.logger import audit_log
 from tracecat.auth.api_keys import generate_managed_api_key
-from tracecat.authz.controls import require_scope
+from tracecat.auth.credentials import compute_effective_scopes
+from tracecat.auth.types import Role
+from tracecat.authz.controls import has_scope, require_scope
 from tracecat.db.models import OrganizationApiKey, Scope, WorkspaceApiKey
 from tracecat.exceptions import (
     TracecatAuthorizationError,
@@ -129,6 +131,23 @@ async def _paginate_keys[T: OrganizationApiKey | WorkspaceApiKey](
     )
 
 
+async def _ensure_role_can_assign_scopes(
+    role: Role, scopes: list[Scope], *, kind: APIKeyKind
+) -> None:
+    if not scopes:
+        return
+
+    effective_scopes = await compute_effective_scopes(role)
+    denied = [
+        scope.name for scope in scopes if not has_scope(effective_scopes, scope.name)
+    ]
+    if denied:
+        joined = ", ".join(sorted(denied))
+        raise TracecatAuthorizationError(
+            f"Cannot assign {kind} API key scopes not held by the caller: {joined}"
+        )
+
+
 class OrganizationApiKeyService(BaseOrgService):
     service_name = "organization_api_keys"
 
@@ -193,6 +212,7 @@ class OrganizationApiKeyService(BaseOrgService):
         scope_ids: list[uuid.UUID],
     ) -> tuple[OrganizationApiKey, str]:
         scopes = await self._resolve_assignable_scopes(scope_ids)
+        await _ensure_role_can_assign_scopes(self.role, scopes, kind=ORG_API_KEY_KIND)
         generated = generate_managed_api_key(prefix=ORG_API_KEY_PREFIX)
         api_key = OrganizationApiKey(
             organization_id=self.organization_id,
@@ -233,7 +253,11 @@ class OrganizationApiKeyService(BaseOrgService):
         if description_provided:
             api_key.description = description
         if scope_ids is not None:
-            api_key.scopes = await self._resolve_assignable_scopes(scope_ids)
+            scopes = await self._resolve_assignable_scopes(scope_ids)
+            await _ensure_role_can_assign_scopes(
+                self.role, scopes, kind=ORG_API_KEY_KIND
+            )
+            api_key.scopes = scopes
         await self.session.commit()
         await self.session.refresh(api_key, ["scopes"])
         return api_key
@@ -326,6 +350,9 @@ class WorkspaceApiKeyService(BaseWorkspaceService):
         scope_ids: list[uuid.UUID],
     ) -> tuple[WorkspaceApiKey, str]:
         scopes = await self._resolve_assignable_scopes(scope_ids)
+        await _ensure_role_can_assign_scopes(
+            self.role, scopes, kind=WORKSPACE_API_KEY_KIND
+        )
         generated = generate_managed_api_key(prefix=WORKSPACE_API_KEY_PREFIX)
         api_key = WorkspaceApiKey(
             organization_id=self.organization_id,
@@ -367,7 +394,11 @@ class WorkspaceApiKeyService(BaseWorkspaceService):
         if description_provided:
             api_key.description = description
         if scope_ids is not None:
-            api_key.scopes = await self._resolve_assignable_scopes(scope_ids)
+            scopes = await self._resolve_assignable_scopes(scope_ids)
+            await _ensure_role_can_assign_scopes(
+                self.role, scopes, kind=WORKSPACE_API_KEY_KIND
+            )
+            api_key.scopes = scopes
         await self.session.commit()
         await self.session.refresh(api_key, ["scopes"])
         return api_key
