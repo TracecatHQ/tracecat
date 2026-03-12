@@ -1,3 +1,4 @@
+import uuid
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -10,7 +11,7 @@ class Role(BaseModel):
 
     Params
     ------
-    type : Literal["user", "service"]
+    type : Literal["user", "service", "api_key"]
         The type of role.
     user_id : UUID | None
         The user's ID, or the service's user_id.
@@ -34,11 +35,14 @@ class Role(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    type: Literal["user", "service"] = Field(frozen=True)
+    type: Literal["user", "service", "api_key"] = Field(frozen=True)
     workspace_id: WorkspaceID | None = Field(default=None, frozen=True)
     organization_id: OrganizationID | None = Field(default=None, frozen=True)
     user_id: UserID | None = Field(default=None, frozen=True)
     service_id: InternalServiceID = Field(frozen=True)
+    api_key_id: uuid.UUID | None = Field(default=None, frozen=True)
+    api_key_name: str | None = Field(default=None, frozen=True)
+    api_key_kind: str | None = Field(default=None, frozen=True)
     is_platform_superuser: bool = Field(default=False, frozen=True)
     """Whether this role belongs to a platform superuser (User.is_superuser=True)."""
     scopes: frozenset[str] | None = Field(default=None, frozen=True)
@@ -63,6 +67,14 @@ class Role(BaseModel):
             return False
         return "org:workspace:read" in self.scopes
 
+    @property
+    def actor_id(self) -> UserID | None:
+        """Return the auditable actor identifier for this role, if present."""
+        if self.type == "api_key":
+            if self.api_key_id is not None:
+                return self.api_key_id
+        return self.user_id
+
     def to_headers(self) -> dict[str, str]:
         headers = {
             "x-tracecat-role-type": self.type,
@@ -76,6 +88,15 @@ class Role(BaseModel):
             headers["x-tracecat-role-organization-id"] = str(self.organization_id)
         if self.scopes:
             headers["x-tracecat-role-scopes"] = ",".join(sorted(self.scopes))
+        if self.api_key_id is not None:
+            api_key_id = self.api_key_id
+            headers["x-tracecat-role-api-key-id"] = str(api_key_id)
+        if self.api_key_name is not None:
+            api_key_name = self.api_key_name
+            headers["x-tracecat-role-api-key-name"] = str(api_key_name)
+        if self.api_key_kind is not None:
+            api_key_kind = self.api_key_kind
+            headers["x-tracecat-role-api-key-kind"] = str(api_key_kind)
         return headers
 
 
@@ -97,6 +118,10 @@ class PlatformRole(BaseModel):
     def is_platform_superuser(self) -> bool:
         """Platform roles always have superuser privileges."""
         return True
+
+    @property
+    def actor_id(self) -> UserID:
+        return self.user_id
 
 
 def system_role() -> Role:

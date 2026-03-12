@@ -669,6 +669,30 @@ export type AgentSettingsUpdate = {
   agent_case_chat_inject_content?: boolean
 }
 
+export type ApiKeyCreate = {
+  name: string
+  description?: string | null
+  scope_ids?: Array<string>
+}
+
+export type ApiKeyScopeList = {
+  items?: Array<ApiKeyScopeRead>
+}
+
+export type ApiKeyScopeRead = {
+  id: string
+  name: string
+  resource: string
+  action: string
+  description?: string | null
+}
+
+export type ApiKeyUpdate = {
+  name?: string | null
+  description?: string | null
+  scope_ids?: Array<string> | null
+}
+
 /**
  * Settings for the app.
  */
@@ -2405,6 +2429,30 @@ export type CursorPaginatedResponse_InboxItemRead_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_OrganizationApiKeyRead_ = {
+  items: Array<OrganizationApiKeyRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_TableRowRead_ = {
   items: Array<TableRowRead>
   /**
@@ -2455,6 +2503,30 @@ export type CursorPaginatedResponse_WorkflowReadMinimal_ = {
 
 export type CursorPaginatedResponse_WorkflowRunReadMinimal_ = {
   items: Array<WorkflowRunReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_WorkspaceApiKeyRead_ = {
+  items: Array<WorkspaceApiKeyRead>
   /**
    * Cursor for next page
    */
@@ -4221,6 +4293,27 @@ export type OrgUpdate = {
   is_active?: boolean | null
 }
 
+export type OrganizationApiKeyCreateResponse = {
+  api_key: string
+  key: OrganizationApiKeyRead
+}
+
+export type OrganizationApiKeyRead = {
+  id: string
+  name: string
+  description?: string | null
+  key_id: string
+  preview: string
+  created_by?: string | null
+  revoked_by?: string | null
+  last_used_at?: string | null
+  revoked_at?: string | null
+  created_at: string
+  updated_at: string
+  scopes?: Array<ApiKeyScopeRead>
+  organization_id: string
+}
+
 /**
  * Read schema for organization-scoped secrets.
  */
@@ -4915,7 +5008,7 @@ export type RetryPromptPart = {
  *
  * Params
  * ------
- * type : Literal["user", "service"]
+ * type : Literal["user", "service", "api_key"]
  * The type of role.
  * user_id : UUID | None
  * The user's ID, or the service's user_id.
@@ -4937,7 +5030,7 @@ export type RetryPromptPart = {
  * - A service's `user_id` is the user it's acting on behalf of. This can be None for internal services.
  */
 export type Role = {
-  type: "user" | "service"
+  type: "user" | "service" | "api_key"
   workspace_id?: string | null
   organization_id?: string | null
   user_id?: string | null
@@ -4954,12 +5047,15 @@ export type Role = {
     | "tracecat-schedule-runner"
     | "tracecat-service"
     | "tracecat-ui"
+  api_key_id?: string | null
+  api_key_name?: string | null
+  api_key_kind?: string | null
   is_platform_superuser?: boolean
   scopes?: Array<string> | null
   [key: string]: unknown | string | boolean
 }
 
-export type type3 = "user" | "service"
+export type type3 = "user" | "service" | "api_key"
 
 export type service_id =
   | "tracecat-api"
@@ -7604,6 +7700,27 @@ export type WorkflowUpdate = {
   error_handler?: string | null
 }
 
+export type WorkspaceApiKeyCreateResponse = {
+  api_key: string
+  key: WorkspaceApiKeyRead
+}
+
+export type WorkspaceApiKeyRead = {
+  id: string
+  name: string
+  description?: string | null
+  key_id: string
+  preview: string
+  created_by?: string | null
+  revoked_by?: string | null
+  last_used_at?: string | null
+  revoked_at?: string | null
+  created_at: string
+  updated_at: string
+  scopes?: Array<ApiKeyScopeRead>
+  workspace_id: string
+}
+
 export type WorkspaceCreate = {
   name: string
   settings?: WorkspaceSettingsUpdate | null
@@ -8000,6 +8117,51 @@ export type WorkspacesRevokeWorkspaceInvitationData = {
 }
 
 export type WorkspacesRevokeWorkspaceInvitationResponse = void
+
+export type ApiKeysListWorkspaceApiKeysData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type ApiKeysListWorkspaceApiKeysResponse =
+  CursorPaginatedResponse_WorkspaceApiKeyRead_
+
+export type ApiKeysCreateWorkspaceApiKeyData = {
+  requestBody: ApiKeyCreate
+  workspaceId: string
+}
+
+export type ApiKeysCreateWorkspaceApiKeyResponse = WorkspaceApiKeyCreateResponse
+
+export type ApiKeysListWorkspaceApiKeyScopesData = {
+  workspaceId: string
+}
+
+export type ApiKeysListWorkspaceApiKeyScopesResponse = ApiKeyScopeList
+
+export type ApiKeysGetWorkspaceApiKeyData = {
+  apiKeyId: string
+  workspaceId: string
+}
+
+export type ApiKeysGetWorkspaceApiKeyResponse = WorkspaceApiKeyRead
+
+export type ApiKeysUpdateWorkspaceApiKeyData = {
+  apiKeyId: string
+  requestBody: ApiKeyUpdate
+  workspaceId: string
+}
+
+export type ApiKeysUpdateWorkspaceApiKeyResponse = WorkspaceApiKeyRead
+
+export type ApiKeysRevokeWorkspaceApiKeyData = {
+  apiKeyId: string
+  workspaceId: string
+}
+
+export type ApiKeysRevokeWorkspaceApiKeyResponse = void
 
 export type WorkflowsListWorkflowsData = {
   cursor?: string | null
@@ -8738,6 +8900,43 @@ export type OrganizationGetInvitationByTokenData = {
 }
 
 export type OrganizationGetInvitationByTokenResponse = OrgInvitationReadMinimal
+
+export type ApiKeysListOrganizationApiKeysData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+}
+
+export type ApiKeysListOrganizationApiKeysResponse =
+  CursorPaginatedResponse_OrganizationApiKeyRead_
+
+export type ApiKeysCreateOrganizationApiKeyData = {
+  requestBody: ApiKeyCreate
+}
+
+export type ApiKeysCreateOrganizationApiKeyResponse =
+  OrganizationApiKeyCreateResponse
+
+export type ApiKeysListOrganizationApiKeyScopesResponse = ApiKeyScopeList
+
+export type ApiKeysGetOrganizationApiKeyData = {
+  apiKeyId: string
+}
+
+export type ApiKeysGetOrganizationApiKeyResponse = OrganizationApiKeyRead
+
+export type ApiKeysUpdateOrganizationApiKeyData = {
+  apiKeyId: string
+  requestBody: ApiKeyUpdate
+}
+
+export type ApiKeysUpdateOrganizationApiKeyResponse = OrganizationApiKeyRead
+
+export type ApiKeysRevokeOrganizationApiKeyData = {
+  apiKeyId: string
+}
+
+export type ApiKeysRevokeOrganizationApiKeyResponse = void
 
 export type AgentListModelsResponse = {
   [key: string]: ModelConfig
@@ -11088,6 +11287,92 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/api-keys": {
+    get: {
+      req: ApiKeysListWorkspaceApiKeysData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_WorkspaceApiKeyRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ApiKeysCreateWorkspaceApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: WorkspaceApiKeyCreateResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/api-keys/scopes": {
+    get: {
+      req: ApiKeysListWorkspaceApiKeyScopesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ApiKeyScopeList
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/api-keys/{api_key_id}": {
+    get: {
+      req: ApiKeysGetWorkspaceApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceApiKeyRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: ApiKeysUpdateWorkspaceApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceApiKeyRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/api-keys/{api_key_id}/revoke": {
+    post: {
+      req: ApiKeysRevokeWorkspaceApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workflows": {
     get: {
       req: WorkflowsListWorkflowsData
@@ -12389,6 +12674,87 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: OrgInvitationReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/api-keys": {
+    get: {
+      req: ApiKeysListOrganizationApiKeysData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_OrganizationApiKeyRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ApiKeysCreateOrganizationApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: OrganizationApiKeyCreateResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/api-keys/scopes": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ApiKeyScopeList
+      }
+    }
+  }
+  "/organization/api-keys/{api_key_id}": {
+    get: {
+      req: ApiKeysGetOrganizationApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrganizationApiKeyRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: ApiKeysUpdateOrganizationApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrganizationApiKeyRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/api-keys/{api_key_id}/revoke": {
+    post: {
+      req: ApiKeysRevokeOrganizationApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

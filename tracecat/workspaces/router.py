@@ -46,6 +46,7 @@ WorkspaceUserInPath = Annotated[
     RoleACL(
         allow_user=True,
         allow_service=False,
+        allow_api_key=True,
         require_workspace="yes",
         workspace_id_in_path=True,
     ),

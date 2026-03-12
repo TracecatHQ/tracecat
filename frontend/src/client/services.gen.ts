@@ -148,6 +148,29 @@ import type {
   AgentSetDefaultModelResponse,
   AgentUpdateProviderCredentialsData,
   AgentUpdateProviderCredentialsResponse,
+  ApiKeysCreateOrganizationApiKeyData,
+  ApiKeysCreateOrganizationApiKeyResponse,
+  ApiKeysCreateWorkspaceApiKeyData,
+  ApiKeysCreateWorkspaceApiKeyResponse,
+  ApiKeysGetOrganizationApiKeyData,
+  ApiKeysGetOrganizationApiKeyResponse,
+  ApiKeysGetWorkspaceApiKeyData,
+  ApiKeysGetWorkspaceApiKeyResponse,
+  ApiKeysListOrganizationApiKeyScopesResponse,
+  ApiKeysListOrganizationApiKeysData,
+  ApiKeysListOrganizationApiKeysResponse,
+  ApiKeysListWorkspaceApiKeyScopesData,
+  ApiKeysListWorkspaceApiKeyScopesResponse,
+  ApiKeysListWorkspaceApiKeysData,
+  ApiKeysListWorkspaceApiKeysResponse,
+  ApiKeysRevokeOrganizationApiKeyData,
+  ApiKeysRevokeOrganizationApiKeyResponse,
+  ApiKeysRevokeWorkspaceApiKeyData,
+  ApiKeysRevokeWorkspaceApiKeyResponse,
+  ApiKeysUpdateOrganizationApiKeyData,
+  ApiKeysUpdateOrganizationApiKeyResponse,
+  ApiKeysUpdateWorkspaceApiKeyData,
+  ApiKeysUpdateWorkspaceApiKeyResponse,
   ApprovalsSubmitApprovalsData,
   ApprovalsSubmitApprovalsResponse,
   AuthAuthDatabaseLoginData,
@@ -1311,6 +1334,158 @@ export const workspacesRevokeWorkspaceInvitation = (
     path: {
       workspace_id: data.workspaceId,
       invitation_id: data.invitationId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Workspace Api Keys
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_WorkspaceApiKeyRead_ Successful Response
+ * @throws ApiError
+ */
+export const apiKeysListWorkspaceApiKeys = (
+  data: ApiKeysListWorkspaceApiKeysData
+): CancelablePromise<ApiKeysListWorkspaceApiKeysResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/api-keys",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Workspace Api Key
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkspaceApiKeyCreateResponse Successful Response
+ * @throws ApiError
+ */
+export const apiKeysCreateWorkspaceApiKey = (
+  data: ApiKeysCreateWorkspaceApiKeyData
+): CancelablePromise<ApiKeysCreateWorkspaceApiKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/api-keys",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Workspace Api Key Scopes
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns ApiKeyScopeList Successful Response
+ * @throws ApiError
+ */
+export const apiKeysListWorkspaceApiKeyScopes = (
+  data: ApiKeysListWorkspaceApiKeyScopesData
+): CancelablePromise<ApiKeysListWorkspaceApiKeyScopesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/api-keys/scopes",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workspace Api Key
+ * @param data The data for the request.
+ * @param data.apiKeyId
+ * @param data.workspaceId
+ * @returns WorkspaceApiKeyRead Successful Response
+ * @throws ApiError
+ */
+export const apiKeysGetWorkspaceApiKey = (
+  data: ApiKeysGetWorkspaceApiKeyData
+): CancelablePromise<ApiKeysGetWorkspaceApiKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/api-keys/{api_key_id}",
+    path: {
+      api_key_id: data.apiKeyId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Workspace Api Key
+ * @param data The data for the request.
+ * @param data.apiKeyId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkspaceApiKeyRead Successful Response
+ * @throws ApiError
+ */
+export const apiKeysUpdateWorkspaceApiKey = (
+  data: ApiKeysUpdateWorkspaceApiKeyData
+): CancelablePromise<ApiKeysUpdateWorkspaceApiKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/api-keys/{api_key_id}",
+    path: {
+      api_key_id: data.apiKeyId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Workspace Api Key
+ * @param data The data for the request.
+ * @param data.apiKeyId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const apiKeysRevokeWorkspaceApiKey = (
+  data: ApiKeysRevokeWorkspaceApiKeyData
+): CancelablePromise<ApiKeysRevokeWorkspaceApiKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/api-keys/{api_key_id}/revoke",
+    path: {
+      api_key_id: data.apiKeyId,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",
@@ -3809,6 +3984,135 @@ export const organizationGetInvitationByToken = (
     url: "/organization/invitations/token/{token}",
     path: {
       token: data.token,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Organization Api Keys
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_OrganizationApiKeyRead_ Successful Response
+ * @throws ApiError
+ */
+export const apiKeysListOrganizationApiKeys = (
+  data: ApiKeysListOrganizationApiKeysData = {}
+): CancelablePromise<ApiKeysListOrganizationApiKeysResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/api-keys",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Organization Api Key
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns OrganizationApiKeyCreateResponse Successful Response
+ * @throws ApiError
+ */
+export const apiKeysCreateOrganizationApiKey = (
+  data: ApiKeysCreateOrganizationApiKeyData
+): CancelablePromise<ApiKeysCreateOrganizationApiKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/api-keys",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Organization Api Key Scopes
+ * @returns ApiKeyScopeList Successful Response
+ * @throws ApiError
+ */
+export const apiKeysListOrganizationApiKeyScopes =
+  (): CancelablePromise<ApiKeysListOrganizationApiKeyScopesResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/api-keys/scopes",
+    })
+  }
+
+/**
+ * Get Organization Api Key
+ * @param data The data for the request.
+ * @param data.apiKeyId
+ * @returns OrganizationApiKeyRead Successful Response
+ * @throws ApiError
+ */
+export const apiKeysGetOrganizationApiKey = (
+  data: ApiKeysGetOrganizationApiKeyData
+): CancelablePromise<ApiKeysGetOrganizationApiKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/api-keys/{api_key_id}",
+    path: {
+      api_key_id: data.apiKeyId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Organization Api Key
+ * @param data The data for the request.
+ * @param data.apiKeyId
+ * @param data.requestBody
+ * @returns OrganizationApiKeyRead Successful Response
+ * @throws ApiError
+ */
+export const apiKeysUpdateOrganizationApiKey = (
+  data: ApiKeysUpdateOrganizationApiKeyData
+): CancelablePromise<ApiKeysUpdateOrganizationApiKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/organization/api-keys/{api_key_id}",
+    path: {
+      api_key_id: data.apiKeyId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Organization Api Key
+ * @param data The data for the request.
+ * @param data.apiKeyId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const apiKeysRevokeOrganizationApiKey = (
+  data: ApiKeysRevokeOrganizationApiKeyData
+): CancelablePromise<ApiKeysRevokeOrganizationApiKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/api-keys/{api_key_id}/revoke",
+    path: {
+      api_key_id: data.apiKeyId,
     },
     errors: {
       422: "Validation Error",
