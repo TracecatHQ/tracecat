@@ -373,6 +373,48 @@ def _build_requests_response(
     response.reason = envelope.get("reason_phrase")
     response.request = prepared_request
     response.encoding = None
+    response.raw = types.SimpleNamespace(
+        _original_response=types.SimpleNamespace(msg=_to_http_message(envelope))
+    )
+    response.history = []
+    return response
+
+
+def _to_http_message(envelope: _GatewayDispatchResponse) -> email.message.Message:
+    message = email.message.Message()
+    for key, value in (envelope.get("headers") or {}).items():
+        message[key] = value
+    return message
+
+
+def _finalize_requests_response(
+    requests_module: types.ModuleType,
+    session: object,
+    prepared_request: object,
+    response: object,
+    *,
+    stream: bool | None,
+    timeout: object | None,
+    verify: object | None,
+    cert: object | None,
+    proxies: object | None,
+) -> object:
+    response = requests_module.hooks.dispatch_hook(
+        "response",
+        prepared_request.hooks,
+        response,
+        stream=stream,
+        timeout=timeout,
+        verify=verify,
+        cert=cert,
+        proxies=proxies,
+    )
+    if hasattr(session, "cookies") and getattr(response, "raw", None) is not None:
+        requests_module.cookies.extract_cookies_to_jar(
+            session.cookies, prepared_request, response.raw
+        )
+    if not _bool_or_default(stream, False):
+        _ = response.content
     return response
 
 
@@ -575,7 +617,18 @@ def _patch_requests(requests_module: types.ModuleType) -> None:
             timeout_ms=_resolve_timeout_ms(timeout),
             follow_redirects=_resolve_follow_redirects(allow_redirects, True),
         )
-        return _build_requests_response(requests_module, prepared, envelope)
+        response = _build_requests_response(requests_module, prepared, envelope)
+        return _finalize_requests_response(
+            requests_module,
+            self,
+            prepared,
+            response,
+            stream=stream,
+            timeout=timeout,
+            verify=verify,
+            cert=cert,
+            proxies=proxies,
+        )
 
     patched.__tracecat_outbound_http_gateway__ = True
     session_cls.request = patched

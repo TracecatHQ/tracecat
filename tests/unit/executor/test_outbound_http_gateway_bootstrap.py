@@ -10,6 +10,7 @@ import sysconfig
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -96,7 +97,11 @@ def test_resolve_timeout_ms_returns_none_for_disabled_timeout_objects() -> None:
 
 
 @contextmanager
-def _mock_gateway(response: dict[str, Any] | None = None) -> Any:
+def _mock_gateway(
+    response: dict[str, Any]
+    | Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
+    | None = None,
+) -> Any:
     """Start a local HTTP server that mimics the outbound HTTP gateway.
 
     Yields a tuple of (base_url, state) where state["requests"] collects
@@ -116,7 +121,9 @@ def _mock_gateway(response: dict[str, Any] | None = None) -> Any:
                     "payload": payload,
                 }
             )
-            gateway_response = response or {
+            gateway_response = (
+                response(payload, state) if callable(response) else response
+            ) or {
                 "status_code": 200,
                 "headers": {"Content-Type": "application/json", "X-Gateway": "ok"},
                 "body_base64": base64.b64encode(b'{"ok":true}').decode("ascii"),
@@ -311,6 +318,14 @@ response = requests.post(
 print(json.dumps({'status': response.status_code, 'body': response.json()}))
 """
 
+_REQUESTS_SESSION_COOKIE_SCRIPT = """\
+import json, requests
+session = requests.Session()
+session.get('https://example.com/login')
+response = session.get('https://example.com/data')
+print(json.dumps({'status': response.status_code, 'body': response.json()}))
+"""
+
 
 @pytest.mark.parametrize(
     ("script", "expected_method"),
@@ -382,6 +397,42 @@ def test_bootstrap_routes_requests_multipart_via_gateway() -> None:
     assert 'name="kind"' in decoded_body
     assert 'name="file"; filename="hello.txt"' in decoded_body
     assert "hello world" in decoded_body
+
+
+def test_bootstrap_preserves_requests_session_cookies() -> None:
+    """Set-Cookie responses should update the session jar for later intercepted requests."""
+
+    def gateway_response(
+        payload: dict[str, Any],
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        if payload["url"] == "https://example.com/login":
+            return {
+                "status_code": 200,
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Set-Cookie": "sessionid=abc123; Path=/",
+                },
+                "body_base64": base64.b64encode(b'{"ok":true}').decode("ascii"),
+                "url": payload["url"],
+                "reason_phrase": "OK",
+            }
+        return {
+            "status_code": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body_base64": base64.b64encode(b'{"ok":true}').decode("ascii"),
+            "url": payload["url"],
+            "reason_phrase": "OK",
+        }
+
+    with _mock_gateway(response=gateway_response) as (gateway_url, state):
+        completed = _run_script(_REQUESTS_SESSION_COOKIE_SCRIPT, gateway_url)
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout.strip())
+    assert payload == {"status": 200, "body": {"ok": True}}
+    assert len(state["requests"]) == 2
+    assert state["requests"][1]["payload"]["headers"]["Cookie"] == "sessionid=abc123"
 
 
 def test_bootstrap_bypasses_tracecat_api_host() -> None:
