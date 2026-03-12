@@ -17,7 +17,7 @@ WorkspaceUserRole = Annotated[
     RoleACL(
         allow_user=True,
         allow_service=False,
-        allow_api_key=True,
+        allow_api_key=False,
         require_workspace="yes",
     ),
 ]
@@ -54,7 +54,7 @@ OrgUserRole = Annotated[
     RoleACL(
         allow_user=True,
         allow_service=False,
-        allow_api_key=True,
+        allow_api_key=False,
         require_workspace="no",
     ),
 ]
