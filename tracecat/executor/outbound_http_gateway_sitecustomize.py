@@ -553,6 +553,14 @@ def _patch_requests(requests_module: types.ModuleType) -> None:
                 cert=cert,
                 json=json,
             )
+        effective_verify = (
+            verify if verify is not None else getattr(self, "verify", True)
+        )
+        effective_cert = cert if cert is not None else getattr(self, "cert", None)
+        if effective_verify is not True or effective_cert is not None:
+            raise TracecatOutboundHTTPGatewayError(
+                "TLS verify/cert overrides are not supported with outbound HTTP interception"
+            )
         body, content_type = _encode_body(
             prepared.body,
             content_type=prepared.headers.get("Content-Type"),

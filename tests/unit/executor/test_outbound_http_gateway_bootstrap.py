@@ -354,6 +354,16 @@ def test_bootstrap_errors_on_explicit_proxy_override() -> None:
     assert "explicit proxy overrides are not supported" in completed.stderr.lower()
 
 
+def test_bootstrap_errors_on_requests_tls_overrides() -> None:
+    """requests TLS overrides should fail fast instead of being silently ignored."""
+    script = "import requests; requests.get('https://example.com/test', verify=False)"
+    with _mock_gateway() as (gateway_url, _state):
+        completed = _run_script(script, gateway_url)
+
+    assert completed.returncode != 0
+    assert "tls verify/cert overrides are not supported" in completed.stderr.lower()
+
+
 def test_bootstrap_routes_requests_multipart_via_gateway() -> None:
     """Buffered requests multipart uploads should be dispatched through the gateway."""
     with _mock_gateway() as (gateway_url, state):
