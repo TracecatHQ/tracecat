@@ -57,7 +57,7 @@ export function WorkspaceSyncSettings({
     })
   }
 
-  const currentGitUrl = form.watch("git_repo_url")
+  const persistedGitUrl = workspace.settings?.git_repo_url || undefined
 
   return (
     <div className="space-y-6">
@@ -92,7 +92,7 @@ export function WorkspaceSyncSettings({
         </form>
       </Form>
 
-      {currentGitUrl && (
+      {persistedGitUrl && (
         <div className="rounded-lg border bg-muted/30 p-4">
           <div className="mb-4 flex items-center justify-between">
             <div>
@@ -127,7 +127,7 @@ export function WorkspaceSyncSettings({
         open={pullDialogOpen}
         onOpenChange={setPullDialogOpen}
         workspaceId={workspace.id}
-        gitRepoUrl={currentGitUrl || undefined}
+        gitRepoUrl={persistedGitUrl}
         onPullSuccess={() => {
           console.log("Workflows pulled successfully")
         }}

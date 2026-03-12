@@ -27,6 +27,7 @@ from tracecat.workspaces.schemas import (
     WorkspaceInvitationCreate,
     WorkspaceSettings,
     WorkspaceSettingsUpdate,
+    WorkspaceUpdate,
 )
 from tracecat.workspaces.service import WorkspaceService
 
@@ -153,6 +154,59 @@ class TestWorkspaceService:
 
         assert membership is None
         assert deleted_workspace is None
+
+    async def test_update_workspace_merges_partial_settings(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+    ) -> None:
+        """Partial settings updates should preserve unrelated keys."""
+        svc_workspace.settings = {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "validate_attachment_magic_number": True,
+        }
+        session.add(svc_workspace)
+        await session.commit()
+
+        updated = await service.update_workspace(
+            svc_workspace,
+            WorkspaceUpdate(
+                settings=WorkspaceSettingsUpdate(
+                    workflow_unlimited_timeout_enabled=True
+                )
+            ),
+        )
+
+        assert updated.settings == {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "validate_attachment_magic_number": True,
+            "workflow_unlimited_timeout_enabled": True,
+        }
+
+    async def test_update_workspace_preserves_other_settings_when_clearing_one_key(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+    ) -> None:
+        """Explicit null updates should only clear the targeted setting key."""
+        svc_workspace.settings = {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "workflow_default_timeout_seconds": 300,
+        }
+        session.add(svc_workspace)
+        await session.commit()
+
+        updated = await service.update_workspace(
+            svc_workspace,
+            WorkspaceUpdate(settings=WorkspaceSettingsUpdate(git_repo_url=None)),
+        )
+
+        assert updated.settings == {
+            "git_repo_url": None,
+            "workflow_default_timeout_seconds": 300,
+        }
 
 
 @pytest.mark.parametrize(

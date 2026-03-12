@@ -4,6 +4,7 @@ import secrets
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from pydantic import UUID4
 from sqlalchemy import select, update
@@ -41,6 +42,7 @@ from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workspaces.schemas import (
     WorkspaceInvitationCreate,
     WorkspaceSearch,
+    WorkspaceSettings,
     WorkspaceUpdate,
 )
 
@@ -162,6 +164,14 @@ class WorkspaceService(BaseOrgService):
         """Update a workspace."""
         set_fields = params.model_dump(exclude_unset=True)
         self.logger.info("Updating workspace", set_fields=set_fields)
+        if (settings_update := set_fields.pop("settings", None)) is not None:
+            workspace.settings = cast(
+                WorkspaceSettings,
+                {
+                    **(workspace.settings or {}),
+                    **settings_update,
+                },
+            )
         for field, value in set_fields.items():
             setattr(workspace, field, value)
         self.session.add(workspace)

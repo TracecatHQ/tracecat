@@ -12,11 +12,13 @@ const mockLogout = jest.fn()
 const mockUseEntitlements = jest.fn()
 const mockUseUserScopes = jest.fn()
 const mockUseWorkspaceManager = jest.fn()
+const mockClearLastWorkspaceId = jest.fn()
 
 let mockScopes = ["*"]
 let mockWorkspaceId: string | undefined = "workspace-123"
 let mockHasGitSync = false
 let mockOpen = true
+let mockWorkspaces = [{ id: "workspace-123", name: "Workspace 123" }]
 
 jest.mock("@/components/settings/settings-modal-context", () => ({
   useSettingsModal: () => ({
@@ -86,8 +88,8 @@ jest.mock("@/hooks/use-entitlements", () => ({
 }))
 
 jest.mock("@/lib/hooks", () => ({
-  useUserScopes: () => {
-    mockUseUserScopes()
+  useUserScopes: (workspaceId?: string, options?: { enabled?: boolean }) => {
+    mockUseUserScopes(workspaceId, options)
     return {
       userScopes: { scopes: mockScopes },
       isLoading: false,
@@ -96,7 +98,9 @@ jest.mock("@/lib/hooks", () => ({
   useWorkspaceManager: () => {
     mockUseWorkspaceManager()
     return {
+      clearLastWorkspaceId: mockClearLastWorkspaceId,
       getLastWorkspaceId: () => mockWorkspaceId,
+      workspaces: mockWorkspaces,
     }
   },
 }))
@@ -112,6 +116,7 @@ describe("SettingsModal workspace navigation", () => {
     mockWorkspaceId = "workspace-123"
     mockHasGitSync = false
     mockOpen = true
+    mockWorkspaces = [{ id: "workspace-123", name: "Workspace 123" }]
   })
 
   it("shows workspace settings sections for wildcard scopes", () => {
@@ -152,5 +157,21 @@ describe("SettingsModal workspace navigation", () => {
     expect(mockUseWorkspaceManager).not.toHaveBeenCalled()
     expect(mockUseUserScopes).not.toHaveBeenCalled()
     expect(mockUseEntitlements).not.toHaveBeenCalled()
+  })
+
+  it("falls back to the first accessible workspace when the last viewed cookie is stale", () => {
+    mockWorkspaceId = "missing-workspace"
+    mockWorkspaces = [
+      { id: "workspace-456", name: "Workspace 456" },
+      { id: "workspace-789", name: "Workspace 789" },
+    ]
+
+    render(<SettingsModal />)
+
+    expect(mockUseUserScopes).toHaveBeenCalledWith("workspace-456", {
+      enabled: true,
+    })
+    expect(mockClearLastWorkspaceId).toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "General" })).toBeInTheDocument()
   })
 })

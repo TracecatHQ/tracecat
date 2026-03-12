@@ -9,6 +9,7 @@ import {
   UserIcon,
   WorkflowIcon,
 } from "lucide-react"
+import { useEffect } from "react"
 import { ProfileSettings } from "@/components/settings/profile-settings"
 import {
   type SettingsSection,
@@ -73,12 +74,37 @@ function SettingsModalContent() {
   const { hasEntitlement } = useEntitlements()
 
   const contextWorkspaceId = useOptionalWorkspaceId()
-  const { getLastWorkspaceId } = useWorkspaceManager()
-  const workspaceId = contextWorkspaceId ?? getLastWorkspaceId()
-
-  const { userScopes, isLoading: scopesLoading } = useUserScopes(
-    workspaceId ?? undefined
+  const { clearLastWorkspaceId, getLastWorkspaceId, workspaces } =
+    useWorkspaceManager()
+  const lastWorkspaceId = getLastWorkspaceId()
+  const fallbackWorkspace = workspaces?.find(
+    (workspace) => workspace.id === lastWorkspaceId
   )
+  const workspaceId =
+    contextWorkspaceId ?? fallbackWorkspace?.id ?? workspaces?.[0]?.id
+
+  useEffect(() => {
+    if (
+      contextWorkspaceId ||
+      !lastWorkspaceId ||
+      !workspaces ||
+      fallbackWorkspace
+    ) {
+      return
+    }
+
+    clearLastWorkspaceId()
+  }, [
+    clearLastWorkspaceId,
+    contextWorkspaceId,
+    fallbackWorkspace,
+    lastWorkspaceId,
+    workspaces,
+  ])
+
+  const { userScopes, isLoading: scopesLoading } = useUserScopes(workspaceId, {
+    enabled: !!workspaceId,
+  })
   const canAdministerWorkspace =
     !scopesLoading &&
     hasGrantedScope("workspace:update", userScopes?.scopes ?? [])

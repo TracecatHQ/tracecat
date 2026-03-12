@@ -5545,7 +5545,12 @@ export function useWorkspaceSettings(
  * When `workspaceId` is provided, workspace-specific role assignments are
  * included in effective scope computation.
  */
-export function useUserScopes(workspaceId?: string) {
+export function useUserScopes(
+  workspaceId?: string,
+  options?: {
+    enabled?: boolean
+  }
+) {
   const {
     data: userScopes,
     isLoading,
@@ -5562,6 +5567,7 @@ export function useUserScopes(workspaceId?: string) {
       })
       return response.data
     },
+    enabled: options?.enabled ?? true,
   })
 
   return {
