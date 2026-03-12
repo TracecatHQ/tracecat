@@ -387,6 +387,32 @@ async def main():
 asyncio.run(main())
 """
 
+_AIOHTTP_SESSION_RAISE_FOR_STATUS_SCRIPT = """\
+import asyncio, aiohttp
+
+async def main():
+    async with aiohttp.ClientSession(raise_for_status=True) as session:
+        async with session.get('https://example.com/missing') as response:
+            await response.read()
+
+asyncio.run(main())
+"""
+
+_AIOHTTP_REQUEST_RAISE_FOR_STATUS_OVERRIDE_SCRIPT = """\
+import asyncio, json, aiohttp
+
+async def main():
+    async with aiohttp.ClientSession(raise_for_status=True) as session:
+        async with session.get(
+            'https://example.com/missing',
+            raise_for_status=False,
+        ) as response:
+            payload = await response.json()
+            print(json.dumps({'status': response.status, 'body': payload}))
+
+asyncio.run(main())
+"""
+
 _URLLIB_HTTP_ERROR_SCRIPT = """\
 import json, urllib.error, urllib.request
 try:
@@ -594,6 +620,48 @@ def test_bootstrap_preserves_aiohttp_session_cookies() -> None:
     }
     assert len(state["requests"]) == 2
     assert state["requests"][1]["payload"]["headers"]["Cookie"] == "sessionid=abc123"
+
+
+def test_bootstrap_honors_aiohttp_session_raise_for_status() -> None:
+    """aiohttp session-level raise_for_status should still raise for intercepted errors."""
+    with _mock_gateway(
+        response={
+            "status_code": 404,
+            "headers": {"Content-Type": "application/json"},
+            "body_base64": base64.b64encode(b'{"error":"missing"}').decode("ascii"),
+            "url": "https://example.com/missing",
+            "reason_phrase": "Not Found",
+        }
+    ) as (gateway_url, gateway_state):
+        completed = _run_script(_AIOHTTP_SESSION_RAISE_FOR_STATUS_SCRIPT, gateway_url)
+
+    assert completed.returncode != 0
+    assert "clientresponseerror" in completed.stderr.lower()
+    assert len(gateway_state["requests"]) == 1
+
+
+def test_bootstrap_honors_aiohttp_request_raise_for_status_override() -> None:
+    """Per-request raise_for_status overrides should win over the session default."""
+    with _mock_gateway(
+        response={
+            "status_code": 404,
+            "headers": {"Content-Type": "application/json"},
+            "body_base64": base64.b64encode(b'{"error":"missing"}').decode("ascii"),
+            "url": "https://example.com/missing",
+            "reason_phrase": "Not Found",
+        }
+    ) as (gateway_url, gateway_state):
+        completed = _run_script(
+            _AIOHTTP_REQUEST_RAISE_FOR_STATUS_OVERRIDE_SCRIPT,
+            gateway_url,
+        )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout.strip()) == {
+        "status": 404,
+        "body": {"error": "missing"},
+    }
+    assert len(gateway_state["requests"]) == 1
 
 
 def test_bootstrap_preserves_requests_session_cookies() -> None:

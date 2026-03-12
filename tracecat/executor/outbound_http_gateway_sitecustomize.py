@@ -25,7 +25,7 @@ import socket
 import ssl
 import sys
 import types
-from collections.abc import Iterable, Mapping
+from collections.abc import Awaitable, Iterable, Mapping
 from http.cookies import SimpleCookie
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -557,6 +557,21 @@ def _update_aiohttp_cookie_jar(
         )
 
 
+async def _apply_aiohttp_raise_for_status(
+    response: _AiohttpProxyResponse,
+    raise_for_status: object | None,
+) -> None:
+    if raise_for_status is None:
+        return
+    if callable(raise_for_status):
+        maybe_awaitable = raise_for_status(response)
+        if isinstance(maybe_awaitable, Awaitable):
+            await maybe_awaitable
+        return
+    if raise_for_status:
+        response.raise_for_status()
+
+
 def _build_urllib3_response(
     urllib3_module: types.ModuleType,
     envelope: _GatewayDispatchResponse,
@@ -1031,6 +1046,14 @@ def _patch_aiohttp(aiohttp_module: types.ModuleType) -> None:
         )
         response = _AiohttpProxyResponse(aiohttp_module, envelope)
         _update_aiohttp_cookie_jar(aiohttp_module, self, response)
+        effective_raise_for_status = kwargs.get(
+            "raise_for_status",
+            getattr(self, "_raise_for_status", None),
+        )
+        await _apply_aiohttp_raise_for_status(
+            response,
+            effective_raise_for_status,
+        )
         return response
 
     patched.__tracecat_outbound_http_gateway__ = True
