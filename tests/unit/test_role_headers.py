@@ -71,6 +71,26 @@ class TestRoleToHeaders:
 
         assert "x-tracecat-role-workspace-role" not in headers
 
+    def test_to_headers_includes_api_key_metadata(self):
+        role = Role(
+            type="api_key",
+            service_id="tracecat-api",
+            organization_id=uuid4(),
+            workspace_id=uuid4(),
+            api_key_id=uuid4(),
+            api_key_name="CI automation",
+            api_key_kind="workspace",
+            scopes=frozenset({"workflow:read"}),
+        )
+
+        headers = role.to_headers()
+
+        assert headers["x-tracecat-role-type"] == "api_key"
+        assert headers["x-tracecat-role-service-id"] == "tracecat-api"
+        assert headers["x-tracecat-role-api-key-id"] == str(role.api_key_id)
+        assert headers["x-tracecat-role-api-key-name"] == "CI automation"
+        assert headers["x-tracecat-role-api-key-kind"] == "workspace"
+
 
 @pytest.mark.anyio
 class TestAuthenticateServiceRoundtrip:
