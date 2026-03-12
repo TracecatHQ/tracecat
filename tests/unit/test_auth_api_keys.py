@@ -6,7 +6,11 @@ import pytest
 
 from tracecat.auth.api_keys import (
     DEFAULT_API_KEY_PREFIX,
+    ORG_API_KEY_PREFIX,
+    WORKSPACE_API_KEY_PREFIX,
     generate_api_key,
+    generate_managed_api_key,
+    parse_managed_api_key,
     verify_api_key,
 )
 
@@ -31,6 +35,25 @@ def test_generate_api_key_rejects_non_positive_length(length: int) -> None:
 def test_verify_api_key_round_trip() -> None:
     generated = generate_api_key()
     assert verify_api_key(generated.raw, generated.salt_b64, generated.hashed)
+
+
+@pytest.mark.parametrize("prefix", [ORG_API_KEY_PREFIX, WORKSPACE_API_KEY_PREFIX])
+def test_generate_managed_api_key_round_trip(prefix: str) -> None:
+    generated = generate_managed_api_key(prefix=prefix)
+
+    assert generated.raw.startswith(prefix)
+    assert generated.key_id
+    assert verify_api_key(generated.raw, generated.salt_b64, generated.hashed)
+
+    parsed = parse_managed_api_key(generated.raw)
+    assert parsed is not None
+    assert parsed.prefix == prefix
+    assert parsed.key_id == generated.key_id
+    assert parsed.secret
+
+
+def test_parse_managed_api_key_rejects_invalid_shape() -> None:
+    assert parse_managed_api_key("tc_org_sk_missing_") is None
 
 
 def test_make_api_key_preview_uses_prefix_and_tail() -> None:
