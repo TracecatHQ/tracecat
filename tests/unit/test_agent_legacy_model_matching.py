@@ -1,5 +1,5 @@
 import pytest
-from sqlalchemy import null
+from sqlalchemy import insert, null
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.legacy_model_matching import (
@@ -16,11 +16,14 @@ async def test_enabled_catalog_match_handles_null_source_ids_in_workspace_subset
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
+    organization_id = svc_role.organization_id
+    assert organization_id is not None
+
     await session.execute(
-        AgentEnabledModel.__table__.insert(),
+        insert(AgentEnabledModel),
         [
             {
-                "organization_id": svc_role.organization_id,
+                "organization_id": organization_id,
                 "workspace_id": None,
                 "source_id": None,
                 "model_provider": "openai",
@@ -28,7 +31,7 @@ async def test_enabled_catalog_match_handles_null_source_ids_in_workspace_subset
                 "enabled_config": None,
             },
             {
-                "organization_id": svc_role.organization_id,
+                "organization_id": organization_id,
                 "workspace_id": svc_role.workspace_id,
                 "source_id": None,
                 "model_provider": "openai",
@@ -41,7 +44,7 @@ async def test_enabled_catalog_match_handles_null_source_ids_in_workspace_subset
 
     match_result = await resolve_enabled_catalog_match_for_provider_model(
         session,
-        organization_id=svc_role.organization_id,
+        organization_id=organization_id,
         workspace_id=svc_role.workspace_id,
         model_provider="openai",
         model_name="gpt-5.2",

@@ -1573,117 +1573,90 @@ export function OrgSettingsAgentForm() {
             settings.
           </p>
         </div>
-        <Card>
-          <CardContent className="space-y-4 pt-6">
-            {!models?.length ? (
-              <p className="text-sm text-muted-foreground">
-                Enable at least one model from the sections below before
-                choosing a default.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                <Select
-                  disabled={isSelectionUpdating || isUpdating || modelsLoading}
-                  onValueChange={(selectionKey) => {
-                    const nextModel = modelLookupByKey.get(selectionKey)
-                    if (
-                      !nextModel ||
-                      hasSameModelSelection(
-                        toModelSelection(nextModel),
-                        defaultModel
-                      )
-                    ) {
-                      return
-                    }
-                    void handleSetDefaultModel(toModelSelection(nextModel))
-                  }}
-                  value={currentDefaultModelKey}
-                >
-                  <SelectTrigger
-                    className={cn(
-                      "cursor-pointer border-0 bg-transparent px-4 shadow-none transition-colors hover:bg-muted/20 focus:ring-0 focus-visible:ring-0 [&>span]:w-full [&>span]:text-left",
-                      currentDefaultModel ? "h-10 py-1" : "h-auto min-h-16 py-3"
+        {!models?.length ? (
+          <p className="text-sm text-muted-foreground">
+            Enable at least one model from the sections below before choosing a
+            default.
+          </p>
+        ) : (
+          <Select
+            disabled={isSelectionUpdating || isUpdating || modelsLoading}
+            onValueChange={(selectionKey) => {
+              const nextModel = modelLookupByKey.get(selectionKey)
+              if (
+                !nextModel ||
+                hasSameModelSelection(toModelSelection(nextModel), defaultModel)
+              ) {
+                return
+              }
+              void handleSetDefaultModel(toModelSelection(nextModel))
+            }}
+            value={currentDefaultModelKey}
+          >
+            <SelectTrigger className="h-12 px-4 [&>svg]:shrink-0">
+              {currentDefaultModel ? (
+                <div className="flex min-w-0 items-center gap-3 text-left">
+                  <ProviderIcon
+                    className="size-5 rounded-sm p-0.5"
+                    providerId={getProviderIconId(
+                      currentDefaultModel.model_provider
                     )}
-                  >
-                    {currentDefaultModel ? (
-                      <div className="flex min-w-0 items-center gap-3 text-left">
-                        <ProviderIcon
-                          className="size-6 rounded-sm p-0.5"
-                          providerId={getProviderIconId(
-                            currentDefaultModel.model_provider
-                          )}
-                        />
-                        <div className="min-w-0 space-y-0.5">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <p className="truncate text-sm font-medium">
-                              {currentDefaultModel.model_name}
-                            </p>
-                          </div>
-                          <p className="truncate text-xs text-muted-foreground">
-                            {selectedDefaultCatalogModel?.source_name ??
-                              currentDefaultModel.source_name ??
-                              currentDefaultModel.model_provider}
-                          </p>
+                  />
+                  <div className="min-w-0 space-y-0.5">
+                    <span className="block truncate text-sm font-medium text-foreground">
+                      {getModelLabel(currentDefaultModel)}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {selectedDefaultCatalogModel?.source_name ??
+                        currentDefaultModel.source_name ??
+                        currentDefaultModel.model_provider}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <SelectValue placeholder="Choose a default model" />
+              )}
+            </SelectTrigger>
+            <SelectContent>
+              {models.map((model) => {
+                const isSelected = hasSameModelSelection(
+                  toModelSelection(model),
+                  defaultModel
+                )
+                const modelKey = getModelSelectionKey(toModelSelection(model))
+                return (
+                  <SelectItem key={modelKey} value={modelKey}>
+                    <div className="flex min-w-0 items-start gap-3 py-1">
+                      <ProviderIcon
+                        className="mt-0.5 size-5 rounded-sm p-0.5"
+                        providerId={getProviderIconId(model.model_provider)}
+                      />
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="truncate text-sm font-medium">
+                            {getModelLabel(model)}
+                          </span>
+                          {isSelected ? (
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                              Current default
+                            </span>
+                          ) : null}
                         </div>
-                      </div>
-                    ) : (
-                      <div className="min-w-0 space-y-1 text-left">
-                        <p className="text-sm font-medium text-foreground">
-                          Choose a default model
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Click to choose from enabled models.
+                        <p className="truncate text-xs text-muted-foreground">
+                          {getModelSourceLabel(model)}
                         </p>
                       </div>
-                    )}
-                  </SelectTrigger>
-                  <SelectContent>
-                    {models.map((model) => {
-                      const isSelected = hasSameModelSelection(
-                        toModelSelection(model),
-                        defaultModel
-                      )
-                      const modelKey = getModelSelectionKey(
-                        toModelSelection(model)
-                      )
-                      return (
-                        <SelectItem key={modelKey} value={modelKey}>
-                          <div className="flex min-w-0 items-start gap-3 py-1">
-                            <ProviderIcon
-                              className="mt-0.5 size-5 rounded-sm p-0.5"
-                              providerId={getProviderIconId(
-                                model.model_provider
-                              )}
-                            />
-                            <div className="min-w-0 space-y-1">
-                              <div className="flex min-w-0 items-center gap-2">
-                                <span className="truncate text-sm font-medium">
-                                  {getModelLabel(model)}
-                                </span>
-                                {isSelected ? (
-                                  <span className="shrink-0 text-xs text-muted-foreground">
-                                    Current default
-                                  </span>
-                                ) : null}
-                              </div>
-                              <p className="truncate text-xs text-muted-foreground">
-                                {getModelSourceLabel(model)}
-                              </p>
-                            </div>
-                          </div>
-                        </SelectItem>
-                      )
-                    })}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+                    </div>
+                  </SelectItem>
+                )
+              })}
+            </SelectContent>
+          </Select>
+        )}
 
-            {isSelectionUpdating || isUpdating ? (
-              <p className="text-xs text-muted-foreground">Saving changes…</p>
-            ) : null}
-          </CardContent>
-        </Card>
+        {isSelectionUpdating || isUpdating ? (
+          <p className="text-xs text-muted-foreground">Saving changes…</p>
+        ) : null}
       </section>
 
       <section className="space-y-4">
@@ -1750,8 +1723,8 @@ export function OrgSettingsAgentForm() {
               Custom sources
             </h3>
             <p className="text-sm text-muted-foreground">
-              Add only genuinely custom endpoints such as Ollama, vLLM,
-              customer-run LiteLLM, or curated manual model lists.
+              Add custom sources like Ollama, vLLM, self-hosted LiteLLM, or
+              curated manual model lists.
             </p>
           </div>
           <Button onClick={() => setIsCreateSourceOpen(true)} variant="outline">

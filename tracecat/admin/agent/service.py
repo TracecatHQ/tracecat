@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from typing import ClassVar
 
 import orjson
-from sqlalchemy import delete, func, select, tuple_
+from sqlalchemy import delete, func, or_, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from tracecat import config
 from tracecat.admin.agent.schemas import PlatformCatalogEntry, PlatformCatalogRead
 from tracecat.agent.builtin_catalog import get_builtin_catalog_models
 from tracecat.agent.types import ModelDiscoveryStatus
-from tracecat.db.models import AgentCatalog, PlatformSetting
+from tracecat.db.models import (
+    AgentCatalog,
+    AgentEnabledModel,
+    OrganizationSetting,
+    PlatformSetting,
+)
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BasePlatformService
 
@@ -86,6 +92,19 @@ class AdminAgentService(BasePlatformService):
     async def _upsert_platform_catalog_rows(self) -> None:
         builtin_rows = list(get_builtin_catalog_models())
         current_keys = {(row.model_provider, row.model_id) for row in builtin_rows}
+        stale_rows_stmt = select(
+            AgentCatalog.model_provider,
+            AgentCatalog.model_name,
+        ).where(AgentCatalog.organization_id.is_(None))
+
+        if current_keys:
+            stale_rows_stmt = stale_rows_stmt.where(
+                ~tuple_(AgentCatalog.model_provider, AgentCatalog.model_name).in_(
+                    current_keys
+                )
+            )
+        stale_keys = set((await self.session.execute(stale_rows_stmt)).tuples().all())
+        await self._prune_stale_platform_model_selections(stale_keys)
 
         if current_keys:
             stale_stmt = delete(AgentCatalog).where(
@@ -128,6 +147,70 @@ class AdminAgentService(BasePlatformService):
             },
         )
         await self.session.execute(stmt)
+
+    async def _prune_stale_platform_model_selections(
+        self,
+        stale_keys: set[tuple[str, str]],
+    ) -> None:
+        if not stale_keys:
+            return
+
+        conditions = [
+            (AgentEnabledModel.source_id.is_(None))
+            & (AgentEnabledModel.model_provider == model_provider)
+            & (AgentEnabledModel.model_name == model_name)
+            for model_provider, model_name in stale_keys
+        ]
+        await self.session.execute(delete(AgentEnabledModel).where(or_(*conditions)))
+
+        default_settings = (
+            (
+                await self.session.execute(
+                    select(OrganizationSetting).where(
+                        OrganizationSetting.key == "agent_default_model"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        affected_org_ids: set[uuid.UUID] = set()
+        for setting in default_settings:
+            try:
+                value = orjson.loads(setting.value)
+            except orjson.JSONDecodeError:
+                continue
+            match value:
+                case {
+                    "source_id": None,
+                    "model_provider": str(model_provider),
+                    "model_name": str(model_name),
+                } if (model_provider, model_name) in stale_keys:
+                    affected_org_ids.add(setting.organization_id)
+                case _:
+                    continue
+
+        if not affected_org_ids:
+            return
+
+        cleared_value = orjson.dumps(None)
+        affected_settings = (
+            (
+                await self.session.execute(
+                    select(OrganizationSetting).where(
+                        OrganizationSetting.organization_id.in_(affected_org_ids),
+                        OrganizationSetting.key.in_(
+                            ("agent_default_model", "agent_default_model_ref")
+                        ),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for setting in affected_settings:
+            setting.value = cleared_value
+            setting.is_encrypted = False
 
     async def list_platform_catalog(
         self,
