@@ -1,0 +1,88 @@
+tracecat/audit/enums.py
+  507c8312207b9fff 8-9
+tracecat/audit/service.py
+  507c8312207b9fff 187,189-192,194-197,215-216,219-223,225-233,237-238,247,249,255,257
+tracecat/agent/router.py
+  507c8312207b9fff 25-26,35,37,45,48
+tracecat/authz/seeding.py
+  507c8312207b9fff 92-139,209-231,257-279
+tracecat/api/app.py
+  507c8312207b9fff 39-50,423,430,436,444
+tracecat/audit/logger.py
+  507c8312207b9fff 59
+tracecat/authz/scopes.py
+  507c8312207b9fff 92-101,130-134,140-144,158-161,172-175,230-234,249-253,258-261,281-284
+tracecat/workspaces/router.py
+  507c8312207b9fff 49-50
+tracecat/auth/credentials.py
+  507c8312207b9fff 8-9,25,27-34,37-43,52,59,63,70,72-75,87,89-92,132-134,152-154,310-394,399,417-427,429-506,511,535-539,786-787,790,801,828-835,876,909-911,913,924,927-928,931,941-1013,1015-1017,1027-1037,1045-1119,1121,1132-1133,1136,1141,1146-1214,1216,1223,1225-1226,1229,1234,1258,1260,1276-1277,1280,1290-1308
+tracecat/audit/types.py
+  507c8312207b9fff 34-37
+tracecat/auth/api_keys.py
+  507c8312207b9fff 11-14,16,19,32-54,58-80,116-133,138,140-157
+tests/unit/test_auth_api_keys.py
+  507c8312207b9fff 9-14,16-17,40-56,63-79
+tests/unit/test_auth_credentials_api_keys.py
+  507c8312207b9fff 1-136
+tracecat/auth/dependencies.py
+  507c8312207b9fff 21,25-26,63,67-76,85-94
+tracecat/api_keys/router.py
+  05d5766cc6da0f2d 76,80-81,197,201-202
+tests/unit/test_role_headers.py
+  507c8312207b9fff 75-82,84-114
+tracecat/auth/types.py
+  507c8312207b9fff 1-2,15-16,39-40,44-45,48-50,71-77,83-89,92-100,113-121,123-125
+tracecat/db/tenant_rls.py
+  507c8312207b9fff 77,81,85
+tracecat/db/models.py
+  507c8312207b9fff 277-280,967-1005,1012-1034,1037-1098,4039-4069,4137-4167
+alembic/versions/548aa7691799_add_api_key_tables.py
+  1c4334265371b141 22
+  507c8312207b9fff 1-3,5-14,16,18-21,24-74,76-219,221-223,225-247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "54b361e559f93c8279debfce1a7085825ffe136a",
+  "prompts": {
+    "05d5766cc6da0f2d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce004-2984-7ac2-a50a-b990a3279802",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 12,
+      "total_deletions": 6,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    },
+    "1c4334265371b141": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cdf2e-45e5-7f80-9e60-98171c812a46",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 20,
+      "total_deletions": 8,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "507c8312207b9fff": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cde2d-d564-7ff1-864b-902e369a8aba",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1515,
+      "overriden_lines": 0
+    }
+  }
+}
