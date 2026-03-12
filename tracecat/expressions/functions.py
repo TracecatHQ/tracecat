@@ -527,6 +527,11 @@ def serialize_json(x: Any) -> str:
     return orjson.dumps(x).decode()
 
 
+def serialize(x: Any) -> str:
+    """Serialize a JSON-compatible value to string."""
+    return orjson.dumps(x).decode()
+
+
 def prettify_json(x: Any) -> str:
     """Convert object to formatted JSON string."""
     return json.dumps(x, indent=2)
@@ -1147,6 +1152,7 @@ _FUNCTION_MAPPING = {
     "deserialize_ndjson": deserialize_ndjson,
     "deserialize_yaml": deserialize_yaml,
     "prettify_json": prettify_json,
+    "serialize": serialize,
     "serialize_json": serialize_json,
     "serialize_yaml": serialize_yaml,
     # Time related
