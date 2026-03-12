@@ -722,6 +722,7 @@ async def _build_workflow_yaml_envelope(
     service: WorkflowsManagementService,
     workflow: Any,
     workflow_id: str,
+    draft: bool,
 ) -> dict[str, Any]:
     """Build the MCP workflow YAML envelope for a workflow."""
     payload: dict[str, Any] = {
@@ -780,17 +781,33 @@ async def _build_workflow_yaml_envelope(
         )
         payload["case_trigger"] = None
 
-    try:
-        dsl = await service.build_dsl_from_workflow(workflow)
-        payload["definition"] = dsl.model_dump(mode="json", exclude_none=True)
-    except Exception as e:
-        logger.warning(
-            "Could not build DSL for workflow",
-            workflow_id=workflow_id,
-            error=str(e),
-        )
-        payload["definition_error"] = (
-            "Failed to build workflow definition. Check server logs for details."
+    if draft:
+        try:
+            dsl = await service.build_dsl_from_workflow(workflow)
+            payload["definition"] = dsl.model_dump(mode="json", exclude_none=True)
+        except Exception as e:
+            logger.warning(
+                "Could not build DSL for workflow",
+                workflow_id=workflow_id,
+                error=str(e),
+            )
+            payload["definition_error"] = (
+                "Failed to build workflow definition. Check server logs for details."
+            )
+    else:
+        definition_service = WorkflowDefinitionsService(service.session, role=role)
+        if (
+            defn := await definition_service.get_definition_by_workflow_id(
+                WorkflowUUID.new(workflow.id)
+            )
+        ) is None:
+            raise ToolError(
+                f"No published definition found for workflow {workflow_id}. "
+                "Publish the workflow before exporting with draft=False."
+            )
+        payload["version"] = defn.version
+        payload["definition"] = DSLInput.model_validate(defn.content).model_dump(
+            mode="json", exclude_none=True
         )
 
     return payload
@@ -2421,7 +2438,6 @@ async def get_workflow_file(
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
-        _ = draft
 
         async with WorkflowsManagementService.with_session(role=role) as svc:
             workflow = await svc.get_workflow(wf_id)
@@ -2443,11 +2459,13 @@ async def get_workflow_file(
                 service=svc,
                 workflow=workflow,
                 workflow_id=workflow_id,
+                draft=draft,
             )
             content = _serialize_workflow_yaml_envelope(yaml_payload)
             result_payload = _build_workflow_file_payload(
                 workflow=workflow,
                 relative_path=relative_path,
+                extra={"draft": draft},
             )
 
         if _get_context_transport(ctx) == "stdio":
@@ -3526,6 +3544,18 @@ async def validate_template_action(
             )
             await _consume_template_file_artifact(artifact=artifact, sha256=sha256)
             return result
+
+        if _get_context_transport(ctx) != "stdio":
+            if template_path is not None:
+                raise ToolError(
+                    "template_path is only supported for stdio clients; use "
+                    "prepare_template_file_upload and artifact_id for remote "
+                    "template validation"
+                )
+            raise ToolError(
+                "artifact_id is required for remote template validation; use "
+                "prepare_template_file_upload first"
+            )
 
         if template_path is None:
             raise ToolError("template_path is required for local template validation")
@@ -4969,6 +4999,7 @@ async def import_csv(
     workspace_id: str,
     csv_path: str,
     table_name: str | None = None,
+    ctx: Context | None = None,
 ) -> str:
     """Create a new table from a CSV file with auto-inferred schema.
 
@@ -4983,6 +5014,11 @@ async def import_csv(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        if _get_context_transport(ctx) != "stdio":
+            raise ToolError(
+                "csv_path is only supported for stdio clients; remote CSV "
+                "imports are not supported"
+            )
         path = Path(csv_path).expanduser()
         if not path.exists():
             raise ToolError(f"CSV file not found: {path}")
@@ -5009,6 +5045,8 @@ async def import_csv(
                     "column_mapping": column_mapping,
                 }
             )
+    except ToolError:
+        raise
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:

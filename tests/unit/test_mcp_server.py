@@ -170,7 +170,9 @@ async def test_validate_workflow_returns_expression_details(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_validate_template_action_requires_template_path_or_artifact(monkeypatch):
+async def test_validate_template_action_stdio_requires_template_path_or_artifact(
+    monkeypatch,
+):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
 
@@ -179,6 +181,7 @@ async def test_validate_template_action_requires_template_path_or_artifact(monke
     with pytest.raises(ToolError, match="template_path is required"):
         await _tool(mcp_server.validate_template_action)(
             workspace_id=str(uuid.uuid4()),
+            ctx=_fake_ctx(transport="stdio"),
         )
 
 
@@ -212,6 +215,7 @@ async def test_validate_template_action_stdio_reads_file(monkeypatch, tmp_path: 
         await _tool(mcp_server.validate_template_action)(
             workspace_id=str(workspace_id),
             template_path=str(template_path),
+            ctx=_fake_ctx(transport="stdio"),
         )
     )
     assert payload["valid"] is True
@@ -310,6 +314,28 @@ async def test_validate_template_action_remote_uses_artifact(monkeypatch):
     stored = await mcp_server._load_template_file_artifact(str(artifact.artifact_id))
     assert stored is not None
     assert stored.used is True
+
+
+@pytest.mark.anyio
+async def test_validate_template_action_remote_rejects_template_path(
+    monkeypatch, tmp_path: Path
+):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    template_path = tmp_path / "template.yaml"
+    template_path.write_text(
+        "definition:\n  action: tools.test.run\n", encoding="utf-8"
+    )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+    with pytest.raises(ToolError, match="template_path is only supported for stdio"):
+        await _tool(mcp_server.validate_template_action)(
+            workspace_id=str(uuid.uuid4()),
+            template_path=str(template_path),
+            ctx=_fake_ctx(),
+        )
 
 
 @pytest.mark.anyio
@@ -839,6 +865,98 @@ async def test_get_workflow_file_remote_returns_download_metadata(monkeypatch):
     assert uploaded["key"].startswith(
         f"{workspace_id}/mcp/workflow-files/remote-session/"
     )
+
+
+@pytest.mark.anyio
+async def test_get_workflow_file_draft_false_uses_published_definition(
+    monkeypatch, tmp_path: Path
+):
+    workspace_id = uuid.uuid4()
+    workflow_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id, organization_id=uuid.uuid4())
+    workflow = SimpleNamespace(
+        id=workflow_id,
+        title="Published workflow",
+        description="Example description",
+        status="offline",
+        version=None,
+        alias=None,
+        entrypoint=None,
+        folder_id=None,
+        trigger_position_x=1.0,
+        trigger_position_y=2.0,
+        viewport_x=3.0,
+        viewport_y=4.0,
+        viewport_zoom=0.5,
+        actions=[],
+        schedules=[],
+    )
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id):
+            return workflow
+
+        async def build_dsl_from_workflow(self, _workflow):
+            raise AssertionError("draft export should not build DSL from workflow")
+
+    class _DefinitionService:
+        def __init__(self, _session, *, role):
+            self.role = role
+
+        async def get_definition_by_workflow_id(self, _workflow_id, *, version=None):
+            _ = version
+            return SimpleNamespace(
+                version=3,
+                content={
+                    "title": "Published definition",
+                    "description": "Published description",
+                    "entrypoint": {"ref": "step_a"},
+                    "actions": [
+                        {
+                            "ref": "step_a",
+                            "action": "core.workflow.execute",
+                            "args": {},
+                        }
+                    ],
+                },
+            )
+
+    class _CaseTriggerService:
+        def __init__(self, _session, *, role):
+            self.role = role
+
+        async def get_case_trigger(self, _workflow_id):
+            raise mcp_server.TracecatNotFoundError("not found")
+
+    monkeypatch.setattr(
+        mcp_server,
+        "_resolve_workspace_role",
+        lambda _workspace_id: asyncio.sleep(0, result=(workspace_id, role)),
+    )
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+    monkeypatch.setattr(mcp_server, "WorkflowDefinitionsService", _DefinitionService)
+    monkeypatch.setattr(mcp_server, "CaseTriggersService", _CaseTriggerService)
+
+    result = await _tool(mcp_server.get_workflow_file)(
+        workspace_id=str(workspace_id),
+        workflow_id=str(workflow_id),
+        draft=False,
+        base_dir=str(tmp_path),
+        ctx=_fake_ctx(transport="stdio"),
+    )
+
+    payload = _payload(result)
+    exported = yaml.safe_load(Path(payload["saved_path"]).read_text(encoding="utf-8"))
+    assert payload["draft"] is False
+    assert exported["version"] == 3
+    assert exported["definition"]["title"] == "Published definition"
 
 
 @pytest.mark.anyio
@@ -2748,6 +2866,7 @@ async def test_import_csv(monkeypatch, tmp_path: Path):
         workspace_id=str(uuid.uuid4()),
         csv_path=str(csv_path),
         table_name="test_table",
+        ctx=_fake_ctx(transport="stdio"),
     )
     payload = _payload(result)
     assert payload["id"] == str(table_id)
@@ -2769,6 +2888,25 @@ async def test_import_csv_rejects_missing_file(monkeypatch):
         await _tool(mcp_server.import_csv)(
             workspace_id=str(uuid.uuid4()),
             csv_path="/tmp/does-not-exist.csv",
+            ctx=_fake_ctx(transport="stdio"),
+        )
+
+
+@pytest.mark.anyio
+async def test_import_csv_remote_rejects_local_path(monkeypatch, tmp_path: Path):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+    csv_path = tmp_path / "people.csv"
+    csv_path.write_text("Name,Age\nAlice,30\n", encoding="utf-8")
+
+    with pytest.raises(ToolError, match="csv_path is only supported for stdio"):
+        await _tool(mcp_server.import_csv)(
+            workspace_id=str(uuid.uuid4()),
+            csv_path=str(csv_path),
+            ctx=_fake_ctx(),
         )
 
 
@@ -2988,6 +3126,7 @@ async def test_import_csv_empty_raises(monkeypatch, tmp_path: Path):
         await _tool(mcp_server.import_csv)(
             workspace_id=str(uuid.uuid4()),
             csv_path=str(csv_path),
+            ctx=_fake_ctx(transport="stdio"),
         )
 
 
