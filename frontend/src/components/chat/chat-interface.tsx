@@ -9,8 +9,6 @@ import type {
   AgentSessionEntity,
   AgentSessionsGetSessionVercelResponse,
 } from "@/client"
-import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
-import { AgentPresetMenu } from "@/components/chat/agent-preset-menu"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
@@ -118,15 +116,10 @@ export function ChatInterface({
     selectedPresetConfig,
     selectedPresetId: effectivePresetId,
     selectedPresetVersionId,
-    versions,
-    versionsIsLoading,
-    versionsError,
     handlePresetChange,
-    handlePresetVersionChange,
     presetMenuLabel,
     presetMenuDisabled,
     showPresetSpinner,
-    versionMenuDisabled,
   } = useChatPresetManager({
     workspaceId,
     chat,
@@ -291,35 +284,6 @@ export function ChatInterface({
 
           {/* Right-side actions */}
           <div className="flex items-center gap-1">
-            {presetsEnabled && (
-              <>
-                <AgentPresetMenu
-                  label={presetMenuLabel}
-                  presets={presetOptions}
-                  presetsIsLoading={presetsIsLoading}
-                  presetsError={presetsError}
-                  selectedPresetId={effectivePresetId}
-                  disabled={presetMenuDisabled}
-                  showSpinner={showPresetSpinner}
-                  noPresetDescription="Use workspace default case agent instructions."
-                  onSelect={(presetId) => void handlePresetChange(presetId)}
-                />
-                {effectivePresetId ? (
-                  <AgentPresetVersionSelect
-                    versions={versions}
-                    versionsIsLoading={versionsIsLoading}
-                    versionsError={versionsError}
-                    selectedVersionId={selectedPresetVersionId}
-                    currentVersionId={
-                      selectedPreset?.current_version_id ?? null
-                    }
-                    onSelect={handlePresetVersionChange}
-                    disabled={versionMenuDisabled}
-                    triggerClassName="h-8 w-[10rem] text-xs"
-                  />
-                ) : null}
-              </>
-            )}
             {/* New chat icon button with tooltip */}
             <AlertDialog
               open={newChatDialogOpen}
