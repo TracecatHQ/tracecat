@@ -72,7 +72,7 @@ def upgrade() -> None:
             ["organization_id"],
             ["organization.id"],
             name=op.f("fk_organization_api_key_organization_id_organization"),
-            ondelete="RESTRICT",
+            ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
             ["revoked_by"],

@@ -1003,6 +1003,12 @@ class ApiKeyMixin:
 class OrganizationApiKey(OrganizationModel, ApiKeyMixin):
     __tablename__ = "organization_api_key"
 
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     scopes: Mapped[list[Scope]] = relationship(
         "Scope",
         secondary="organization_api_key_scope",
