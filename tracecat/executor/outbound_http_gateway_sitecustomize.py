@@ -733,6 +733,8 @@ def _patch_urllib_request(urllib_request_module: types.ModuleType) -> None:
             method = "POST" if data is not None else "GET"
             headers = {}
             body = data
+        if urlsplit(url).scheme.lower() not in {"http", "https"}:
+            return original(self, fullurl, data=data, timeout=timeout)
         if _should_bypass(url):
             return original(self, fullurl, data=data, timeout=timeout)
         encoded_body, content_type = _encode_body(

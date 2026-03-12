@@ -407,6 +407,24 @@ requests.get('http://127.0.0.1:%s/test-data')
     assert gateway_state["requests"] == []
 
 
+def test_bootstrap_bypasses_non_http_urllib_urls() -> None:
+    """urllib file:// requests should bypass outbound interception."""
+    with TemporaryDirectory(prefix="tracecat_outbound_http_gateway_file_") as tmpdir:
+        file_path = Path(tmpdir) / "sample.json"
+        file_path.write_text('{"local": true}')
+        script = f"""\
+import json, urllib.request
+response = urllib.request.urlopen({file_path.as_uri()!r})
+print(json.dumps(json.loads(response.read().decode())))
+"""
+        with _mock_gateway() as (gateway_url, gateway_state):
+            completed = _run_script(script, gateway_url)
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout.strip()) == {"local": True}
+    assert gateway_state["requests"] == []
+
+
 def test_bootstrap_patches_modules_imported_before_hook_install() -> None:
     """Modules imported before hook installation should still be patched from sys.modules."""
     if _SITE_PACKAGES is None:
