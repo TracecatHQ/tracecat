@@ -5,9 +5,10 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import null, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.builtin_catalog import BuiltInCatalogModel
 from tracecat.agent.schemas import (
     DefaultModelSelection,
     EnabledModelRuntimeConfig,
@@ -142,8 +143,15 @@ async def test_sync_model_catalogs_on_startup_refreshes_platform_and_sources() -
 
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
-        "tracecat.agent.service.get_async_session_context_manager",
+        "tracecat.agent.service.get_async_session_bypass_rls_context_manager",
         session_cm,
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.service.get_async_session_context_manager",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("startup sync must use the RLS-bypass session")
+        ),
+        raising=False,
     )
     monkeypatch.setattr(
         "tracecat.agent.service.try_pg_advisory_lock",
@@ -493,6 +501,258 @@ async def test_delete_model_source_skips_enabled_model_delete_when_catalog_is_em
     session.flush.assert_not_awaited()
     session.delete.assert_awaited_once_with(source)
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_delete_model_source_clears_default_model_selection(
+    session: AsyncSession,
+    svc_admin_role: Role,
+) -> None:
+    service = AgentManagementService(session, role=svc_admin_role)
+    source = AgentModelSource(
+        organization_id=svc_admin_role.organization_id,
+        model_provider=CustomModelSourceType.MANUAL_CUSTOM.value,
+        display_name="Manual source",
+        declared_models=[],
+    )
+    session.add(source)
+    await session.flush()
+
+    selection = ModelSelection(
+        source_id=source.id,
+        model_provider="anthropic",
+        model_name="claude-3-7-sonnet",
+    )
+    session.add_all(
+        [
+            AgentCatalog(
+                organization_id=svc_admin_role.organization_id,
+                source_id=source.id,
+                model_provider=selection.model_provider,
+                model_name=selection.model_name,
+            ),
+            AgentEnabledModel(
+                organization_id=svc_admin_role.organization_id,
+                workspace_id=None,
+                source_id=source.id,
+                model_provider=selection.model_provider,
+                model_name=selection.model_name,
+                enabled_config=None,
+            ),
+        ]
+    )
+    await session.commit()
+
+    await service.set_default_model_selection(selection)
+
+    await service.delete_model_source(source.id)
+
+    assert await service.get_default_model() is None
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_upsert_catalog_rows_prunes_stale_workspace_subset_and_default(
+    session: AsyncSession,
+    svc_admin_role: Role,
+) -> None:
+    service = AgentManagementService(session, role=svc_admin_role)
+    source = AgentModelSource(
+        organization_id=svc_admin_role.organization_id,
+        model_provider=CustomModelSourceType.MANUAL_CUSTOM.value,
+        display_name="Manual source",
+        declared_models=[],
+    )
+    session.add(source)
+    await session.flush()
+
+    stale_selection = ModelSelection(
+        source_id=source.id,
+        model_provider="openai",
+        model_name="qwen-old",
+    )
+    session.add_all(
+        [
+            AgentCatalog(
+                organization_id=svc_admin_role.organization_id,
+                source_id=source.id,
+                model_provider=stale_selection.model_provider,
+                model_name=stale_selection.model_name,
+            ),
+            AgentEnabledModel(
+                organization_id=svc_admin_role.organization_id,
+                workspace_id=None,
+                source_id=source.id,
+                model_provider=stale_selection.model_provider,
+                model_name=stale_selection.model_name,
+                enabled_config=None,
+            ),
+        ]
+    )
+    await session.commit()
+    await service.set_default_model_selection(stale_selection)
+    await session.execute(
+        AgentEnabledModel.__table__.insert().values(
+            organization_id=svc_admin_role.organization_id,
+            workspace_id=svc_admin_role.workspace_id,
+            source_id=source.id,
+            model_provider=stale_selection.model_provider,
+            model_name=stale_selection.model_name,
+            enabled_config=null(),
+        )
+    )
+    await session.commit()
+
+    await service._upsert_catalog_rows(
+        source_type=ModelSourceType.MANUAL_CUSTOM,
+        source_name="Manual source",
+        source_id=source.id,
+        organization_scoped=True,
+        models=[
+            {
+                "model_provider": "openai",
+                "model_name": "qwen-new",
+                "metadata": {"slot": "new"},
+            }
+        ],
+    )
+
+    assert await service.get_default_model() is None
+    assert await service.get_workspace_model_subset(svc_admin_role.workspace_id) == (
+        WorkspaceModelSubsetRead(inherit_all=True, models=[])
+    )
+    assert [
+        (row.source_id, row.model_provider, row.model_name)
+        for row in await service._list_org_enabled_rows()
+    ] == []
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_upsert_builtin_catalog_rows_prunes_stale_workspace_subset_and_default(
+    session: AsyncSession,
+    svc_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = AgentManagementService(session, role=svc_admin_role)
+    stale_selection = ModelSelection(
+        source_id=None,
+        model_provider="openai",
+        model_name="gpt-stale",
+    )
+    session.add_all(
+        [
+            AgentCatalog(
+                id=uuid.uuid4(),
+                organization_id=None,
+                source_id=None,
+                model_provider=stale_selection.model_provider,
+                model_name=stale_selection.model_name,
+            ),
+            AgentEnabledModel(
+                organization_id=svc_admin_role.organization_id,
+                workspace_id=None,
+                source_id=None,
+                model_provider=stale_selection.model_provider,
+                model_name=stale_selection.model_name,
+                enabled_config=None,
+            ),
+        ]
+    )
+    await session.commit()
+    await service.set_default_model_selection(stale_selection)
+    await session.execute(
+        AgentEnabledModel.__table__.insert().values(
+            organization_id=svc_admin_role.organization_id,
+            workspace_id=svc_admin_role.workspace_id,
+            source_id=None,
+            model_provider=stale_selection.model_provider,
+            model_name=stale_selection.model_name,
+            enabled_config=null(),
+        )
+    )
+    await session.commit()
+
+    monkeypatch.setattr(
+        "tracecat.agent.service.get_builtin_catalog_models",
+        lambda: [
+            BuiltInCatalogModel(
+                agent_catalog_id=uuid.uuid4(),
+                source_type=ModelSourceType.OPENAI,
+                model_provider="openai",
+                model_id="gpt-fresh",
+                display_name="GPT Fresh",
+                mode="chat",
+                enableable=True,
+                readiness_message=None,
+                metadata={"slot": "fresh"},
+            )
+        ],
+    )
+
+    await service._upsert_builtin_catalog_rows()
+
+    assert await service.get_default_model() is None
+    assert await service.get_workspace_model_subset(svc_admin_role.workspace_id) == (
+        WorkspaceModelSubsetRead(inherit_all=True, models=[])
+    )
+    assert [
+        (row.source_id, row.model_provider, row.model_name)
+        for row in await service._list_org_enabled_rows()
+    ] == []
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_disable_model_removes_workspace_subset_rows(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = AgentManagementService(session, role=svc_role)
+    selection = ModelSelection(
+        source_id=None,
+        model_provider="openai",
+        model_name="gpt-5.2",
+    )
+    session.add_all(
+        [
+            AgentCatalog(
+                id=uuid.uuid4(),
+                organization_id=None,
+                source_id=None,
+                model_provider=selection.model_provider,
+                model_name=selection.model_name,
+            ),
+            AgentEnabledModel(
+                organization_id=svc_role.organization_id,
+                workspace_id=None,
+                source_id=None,
+                model_provider=selection.model_provider,
+                model_name=selection.model_name,
+                enabled_config=None,
+            ),
+        ]
+    )
+    await session.commit()
+    await session.execute(
+        AgentEnabledModel.__table__.insert().values(
+            organization_id=svc_role.organization_id,
+            workspace_id=svc_role.workspace_id,
+            source_id=None,
+            model_provider=selection.model_provider,
+            model_name=selection.model_name,
+            enabled_config=null(),
+        )
+    )
+    await session.commit()
+
+    await service.disable_model(selection)
+
+    assert await service.get_workspace_model_subset(svc_role.workspace_id) == (
+        WorkspaceModelSubsetRead(inherit_all=True, models=[])
+    )
+    assert await service._list_org_enabled_rows() == []
 
 
 @pytest.mark.anyio
