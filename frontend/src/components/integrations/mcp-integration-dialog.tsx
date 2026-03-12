@@ -855,10 +855,12 @@ export function MCPIntegrationDialog({
                         <FormItem>
                           <FormLabel>Stdio environment variables</FormLabel>
                           <FormControl>
-                            <Textarea
+                            <CodeEditor
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              language="json"
+                              className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[80px]"
                               placeholder='{"GITHUB_TOKEN": "${{ SECRETS.github.TOKEN }}"}'
-                              className="font-mono text-sm min-h-[80px]"
-                              {...field}
                             />
                           </FormControl>
                           <FormDescription className="text-xs">
