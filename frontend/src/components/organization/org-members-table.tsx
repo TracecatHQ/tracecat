@@ -3,11 +3,11 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogTrigger } from "@radix-ui/react-dialog"
 import { DotsHorizontalIcon, PlusIcon } from "@radix-ui/react-icons"
-import { FolderIcon, GlobeIcon, Trash2Icon } from "lucide-react"
+import { FolderIcon, GlobeIcon, Trash2Icon, XIcon } from "lucide-react"
 import { useState } from "react"
-import { useForm } from "react-hook-form"
+import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
-import { type OrgMemberRead, organizationGetInvitationToken } from "@/client"
+import type { OrgMemberRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
@@ -62,6 +62,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  buildInvitationAcceptUrl,
+  getInvitationToken,
+  useInvitations,
+} from "@/hooks/use-invitations"
 import { getRelativeTime } from "@/lib/event-history"
 import {
   useOrgMembers,
@@ -74,6 +79,12 @@ import { toast } from "../ui/use-toast"
 const invitationFormSchema = z.object({
   email: z.string().email("Invalid email address"),
   role_id: z.string().uuid("Please select a role"),
+  workspace_assignments: z.array(
+    z.object({
+      workspace_id: z.string().uuid("Select a workspace"),
+      role_id: z.string().uuid("Select a role"),
+    })
+  ),
 })
 
 type InvitationFormValues = z.infer<typeof invitationFormSchema>
@@ -81,12 +92,15 @@ type InvitationFormValues = z.infer<typeof invitationFormSchema>
 function InviteMemberDialogButton() {
   const canInviteMembers = useScopeCheck("org:member:invite") === true
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const { createInvitation, createInvitationIsPending } = useOrgMembers()
+  const { createInvitation, createPending } = useInvitations()
   const { roles } = useRbacRoles()
+  const { workspaces } = useWorkspaceManager()
 
-  // Include organization preset roles and custom roles (custom roles have no slug prefix)
   const orgRoles = roles.filter(
-    (r) => !r.slug || r.slug.startsWith("organization-")
+    (role) => !role.slug || role.slug.startsWith("organization-")
+  )
+  const workspaceRoles = roles.filter(
+    (role) => !role.slug || role.slug.startsWith("workspace-")
   )
 
   const form = useForm<InvitationFormValues>({
@@ -94,19 +108,46 @@ function InviteMemberDialogButton() {
     defaultValues: {
       email: "",
       role_id: "",
+      workspace_assignments: [],
     },
   })
 
-  const handleCreateInvitation = async (values: InvitationFormValues) => {
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "workspace_assignments",
+  })
+
+  const selectedWorkspaceIds = form
+    .watch("workspace_assignments")
+    .map((assignment) => assignment.workspace_id)
+    .filter(Boolean)
+
+  const availableWorkspaces = (workspaces ?? []).filter(
+    (workspace) => !selectedWorkspaceIds.includes(workspace.id)
+  )
+
+  async function handleCreateInvitation(values: InvitationFormValues) {
     try {
       await createInvitation({
         email: values.email,
         role_id: values.role_id,
+        workspace_assignments: values.workspace_assignments,
+      })
+      toast({
+        title: "Invitation created",
+        description: "Invitation sent successfully.",
       })
       form.reset()
       setIsCreateDialogOpen(false)
-    } catch {
-      // Error handled in hook
+    } catch (error) {
+      toast({
+        title: "Failed to create invitation",
+        description:
+          error instanceof Error
+            ? error.message
+            : "The invitation could not be created.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -115,7 +156,15 @@ function InviteMemberDialogButton() {
   }
 
   return (
-    <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+    <Dialog
+      open={isCreateDialogOpen}
+      onOpenChange={(open) => {
+        setIsCreateDialogOpen(open)
+        if (!open) {
+          form.reset()
+        }
+      }}
+    >
       <DialogTrigger asChild>
         <Button size="sm">
           <PlusIcon className="mr-2 size-4" />
@@ -159,7 +208,7 @@ function InviteMemberDialogButton() {
               name="role_id"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Role</FormLabel>
+                  <FormLabel>Organization role</FormLabel>
                   <Select
                     onValueChange={field.onChange}
                     defaultValue={field.value}
@@ -178,12 +227,108 @@ function InviteMemberDialogButton() {
                     </SelectContent>
                   </Select>
                   <FormDescription>
-                    The role to assign when the invitation is accepted.
+                    The organization role to apply when the invitation is
+                    accepted.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
             />
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">Workspace access</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={availableWorkspaces.length === 0}
+                  onClick={() => append({ workspace_id: "", role_id: "" })}
+                >
+                  Add workspace
+                </Button>
+              </div>
+              {fields.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No workspace access selected. The user will only be invited to
+                  the organization.
+                </p>
+              )}
+              {fields.map((field, index) => (
+                <div key={field.id} className="flex items-start gap-2">
+                  <div className="flex flex-1 items-start gap-2">
+                    <FormField
+                      control={form.control}
+                      name={
+                        `workspace_assignments.${index}.workspace_id` as const
+                      }
+                      render={({ field: workspaceField }) => (
+                        <FormItem className="flex-1">
+                          <Select
+                            value={workspaceField.value}
+                            onValueChange={workspaceField.onChange}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select workspace" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(workspaces ?? [])
+                                .filter(
+                                  (workspace) =>
+                                    !selectedWorkspaceIds.includes(
+                                      workspace.id
+                                    ) || workspace.id === workspaceField.value
+                                )
+                                .map((workspace) => (
+                                  <SelectItem
+                                    key={workspace.id}
+                                    value={workspace.id}
+                                  >
+                                    {workspace.name}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name={`workspace_assignments.${index}.role_id` as const}
+                      render={({ field: roleField }) => (
+                        <FormItem className="w-40">
+                          <Select
+                            value={roleField.value}
+                            onValueChange={roleField.onChange}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select role" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {workspaceRoles.map((role) => (
+                                <SelectItem key={role.id} value={role.id}>
+                                  {role.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 shrink-0"
+                    onClick={() => remove(index)}
+                  >
+                    <XIcon className="size-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
             <DialogFooter>
               <Button
                 type="button"
@@ -192,8 +337,8 @@ function InviteMemberDialogButton() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={createInvitationIsPending}>
-                {createInvitationIsPending ? "Sending..." : "Send invitation"}
+              <Button type="submit" disabled={createPending}>
+                {createPending ? "Sending..." : "Send invitation"}
               </Button>
             </DialogFooter>
           </form>
@@ -211,31 +356,45 @@ export function OrgMembersTable() {
   const canInviteMembers = useScopeCheck("org:member:invite") === true
   const canRemoveMembers = useScopeCheck("org:member:remove") === true
   const canReadRbac = useScopeCheck("org:rbac:read") === true
-  const { orgMembers, deleteOrgMember, revokeInvitation } = useOrgMembers()
+  const { orgMembers, deleteOrgMember } = useOrgMembers()
+  const { revokeInvitation } = useInvitations()
 
-  const handleRemoveMember = async () => {
-    if (selectedMember?.user_id) {
-      try {
-        await deleteOrgMember({
-          userId: selectedMember.user_id,
-        })
-      } catch (error) {
-        console.error("Failed to remove member", error)
-      } finally {
-        setSelectedMember(null)
-      }
+  async function handleRemoveMember() {
+    if (!selectedMember?.user_id) {
+      return
+    }
+    try {
+      await deleteOrgMember({
+        userId: selectedMember.user_id,
+      })
+    } catch (error) {
+      console.error("Failed to remove member", error)
+    } finally {
+      setSelectedMember(null)
     }
   }
 
-  const handleRevokeInvitation = async () => {
-    if (selectedMember?.invitation_id) {
-      try {
-        await revokeInvitation(selectedMember.invitation_id)
-      } catch {
-        // Error handled in hook
-      } finally {
-        setSelectedMember(null)
-      }
+  async function handleRevokeInvitation() {
+    if (!selectedMember?.invitation_id) {
+      return
+    }
+    try {
+      await revokeInvitation(selectedMember.invitation_id)
+      toast({
+        title: "Invitation revoked",
+        description: "Invitation has been revoked.",
+      })
+    } catch (error) {
+      toast({
+        title: "Failed to revoke invitation",
+        description:
+          error instanceof Error
+            ? error.message
+            : "The invitation could not be revoked.",
+        variant: "destructive",
+      })
+    } finally {
+      setSelectedMember(null)
     }
   }
 
@@ -355,11 +514,12 @@ export function OrgMembersTable() {
                     return <div className="text-xs">-</div>
                   }
                   const date = new Date(lastLoginAt)
-                  const ago = getRelativeTime(date)
                   return (
                     <div className="space-x-2 text-xs">
                       <span>{date.toLocaleString()}</span>
-                      <span className="text-muted-foreground">({ago})</span>
+                      <span className="text-muted-foreground">
+                        ({getRelativeTime(date)})
+                      </span>
                     </div>
                   )
                 },
@@ -384,28 +544,26 @@ export function OrgMembersTable() {
                       <DropdownMenuContent align="end">
                         {isInvited ? (
                           <>
-                            {canInviteMembers && (
+                            {canInviteMembers && member.invitation_id && (
                               <>
                                 <DropdownMenuItem
                                   onSelect={async () => {
-                                    if (!member.invitation_id) return
                                     try {
-                                      const { token } =
-                                        await organizationGetInvitationToken({
-                                          invitationId: member.invitation_id,
-                                        })
-                                      const url = `${window.location.origin}/invitations/accept?token=${token}`
+                                      const token = await getInvitationToken(
+                                        member.invitation_id as string
+                                      )
+                                      const url = `${window.location.origin}${buildInvitationAcceptUrl(token)}`
                                       await navigator.clipboard.writeText(url)
                                       toast({
                                         title: "Copied",
                                         description:
-                                          "Invitation link copied to clipboard",
+                                          "Invitation link copied to clipboard.",
                                       })
                                     } catch {
                                       toast({
                                         title: "Error",
                                         description:
-                                          "Failed to copy invitation link",
+                                          "Failed to copy invitation link.",
                                         variant: "destructive",
                                       })
                                     }
@@ -413,16 +571,20 @@ export function OrgMembersTable() {
                                 >
                                   Copy invitation link
                                 </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <AlertDialogTrigger asChild>
-                                  <DropdownMenuItem
-                                    className="text-rose-500 focus:text-rose-600"
-                                    onSelect={() => setSelectedMember(member)}
-                                  >
-                                    Revoke invitation
-                                  </DropdownMenuItem>
-                                </AlertDialogTrigger>
                               </>
+                            )}
+                            {canInviteMembers && canRemoveMembers && (
+                              <DropdownMenuSeparator />
+                            )}
+                            {canRemoveMembers && (
+                              <AlertDialogTrigger asChild>
+                                <DropdownMenuItem
+                                  className="text-rose-500 focus:text-rose-600"
+                                  onSelect={() => setSelectedMember(member)}
+                                >
+                                  Revoke invitation
+                                </DropdownMenuItem>
+                              </AlertDialogTrigger>
                             )}
                           </>
                         ) : (
@@ -486,7 +648,7 @@ export function OrgMembersTable() {
               </AlertDialogTitle>
               <AlertDialogDescription>
                 {selectedMember?.status === "invited"
-                  ? `Are you sure you want to revoke the invitation for ${selectedMember?.email}? They will no longer be able to join this organization with this invitation.`
+                  ? `Are you sure you want to revoke the invitation for ${selectedMember.email}? They will no longer be able to join this organization with this invitation.`
                   : "Are you sure you want to remove this user from the organization? This action cannot be undone."}
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -540,8 +702,10 @@ function ManageUserRolesDialog({
   const canCreateAssignment = useScopeCheck("org:rbac:create") === true
   const canDeleteAssignment = useScopeCheck("org:rbac:delete") === true
 
-  const handleAddRole = async () => {
-    if (!roleId || !userId) return
+  async function handleAddRole() {
+    if (!roleId || !userId) {
+      return
+    }
     await createUserAssignment({
       user_id: userId,
       role_id: roleId,
@@ -551,7 +715,7 @@ function ManageUserRolesDialog({
     setWorkspaceId("org-wide")
   }
 
-  const handleRemoveRole = async (assignmentId: string) => {
+  async function handleRemoveRole(assignmentId: string) {
     await deleteUserAssignment(assignmentId)
   }
 
