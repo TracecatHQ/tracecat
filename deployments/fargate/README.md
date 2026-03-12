@@ -33,6 +33,20 @@ Terraform stack for Tracecat on AWS ECS Fargate (`>1.0.0-beta.xx`).
 - `TRACECAT__DISABLE_NSJAIL=true`
 - `TRACECAT__EXECUTOR_BACKEND=direct` (executor + agent-executor)
 
+## Default sizing
+
+- `worker_desired_count=2`
+- `executor_desired_count=2`
+- `agent_executor_desired_count=1`
+- `tracecat_db_instance_class=db.t4g.medium`
+- `tracecat_db_allocated_storage=20`
+- `temporal_db_instance_class=db.t4g.2xlarge`
+- `temporal_db_allocated_storage=50`
+- `temporal_cpu=8192`
+- `temporal_memory=16384`
+
+Temporal PostgreSQL TLS is enabled by default for the Fargate auto-setup task because RDS for PostgreSQL 15 and later defaults `rds.force_ssl=1`. Host verification remains disabled in this stack until the task mounts the AWS RDS CA bundle; EKS and Helm already handle CA-backed verification explicitly.
+
 ## Quick start
 
 ```bash

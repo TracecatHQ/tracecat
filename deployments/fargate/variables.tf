@@ -471,7 +471,7 @@ variable "agent_executor_memory" {
 variable "agent_executor_desired_count" {
   type        = number
   description = "Desired number of agent-executor instances to run"
-  default     = 2
+  default     = 1
 }
 
 variable "agent_queue" {
@@ -496,6 +496,18 @@ variable "temporal_memory" {
   default = "16384"
 }
 
+variable "temporal_db_tls_enabled" {
+  type        = bool
+  description = "Enable TLS for Temporal's PostgreSQL connections and auto-setup schema bootstrap."
+  default     = true
+}
+
+variable "temporal_db_tls_enable_host_verification" {
+  type        = bool
+  description = "Enable TLS host verification for Temporal's PostgreSQL connections. Keep false unless you mount the RDS CA bundle into the Temporal task."
+  default     = false
+}
+
 variable "temporal_num_history_shards" {
   type        = string
   description = "Number of history shards for Temporal"
@@ -512,14 +524,40 @@ variable "caddy_memory" {
   default = "512"
 }
 
+variable "tracecat_db_instance_class" {
+  type        = string
+  description = "Instance class for the Tracecat application RDS instance."
+  default     = null
+}
+
+variable "temporal_db_instance_class" {
+  type        = string
+  description = "Instance class for the Temporal RDS instance."
+  default     = null
+}
+
+variable "tracecat_db_allocated_storage" {
+  type        = number
+  description = "Allocated storage in GiB for the Tracecat application RDS instance."
+  default     = null
+}
+
+variable "temporal_db_allocated_storage" {
+  type        = number
+  description = "Allocated storage in GiB for the Temporal RDS instance."
+  default     = null
+}
+
 variable "db_instance_class" {
-  type    = string
-  default = "db.t4g.2xlarge"
+  type        = string
+  description = "Deprecated shared fallback for both RDS instance classes. Prefer tracecat_db_instance_class and temporal_db_instance_class."
+  default     = null
 }
 
 variable "db_allocated_storage" {
-  type    = string
-  default = "5"
+  type        = number
+  description = "Deprecated shared fallback for both RDS storage sizes in GiB. Prefer tracecat_db_allocated_storage and temporal_db_allocated_storage."
+  default     = null
 }
 
 variable "db_engine_version" {

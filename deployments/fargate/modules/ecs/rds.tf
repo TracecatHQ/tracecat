@@ -64,8 +64,8 @@ resource "aws_db_instance" "core_database" {
   identifier                  = "core-database"
   engine                      = "postgres"
   engine_version              = var.db_engine_version
-  instance_class              = var.db_instance_class
-  allocated_storage           = var.db_allocated_storage
+  instance_class              = var.tracecat_db_instance_class
+  allocated_storage           = var.tracecat_db_allocated_storage
   storage_encrypted           = true
   storage_type                = "gp3"
   username                    = "postgres"
@@ -102,8 +102,8 @@ resource "aws_db_instance" "temporal_database" {
   identifier                  = "temporal-database"
   engine                      = "postgres"
   engine_version              = var.db_engine_version
-  instance_class              = var.db_instance_class
-  allocated_storage           = 5
+  instance_class              = var.temporal_db_instance_class
+  allocated_storage           = var.temporal_db_allocated_storage
   storage_encrypted           = true
   storage_type                = "gp3"
   username                    = "postgres"

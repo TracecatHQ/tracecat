@@ -5,6 +5,11 @@ terraform {
 locals {
   # Only set aws_role_arn if both aws_account_id and aws_role_name are provided
   aws_role_arn = var.aws_account_id != null && var.aws_role_name != null ? "arn:aws:iam::${var.aws_account_id}:role/${var.aws_role_name}" : null
+
+  tracecat_db_instance_class    = coalesce(var.tracecat_db_instance_class, var.db_instance_class, "db.t4g.medium")
+  temporal_db_instance_class    = coalesce(var.temporal_db_instance_class, var.db_instance_class, "db.t4g.2xlarge")
+  tracecat_db_allocated_storage = coalesce(var.tracecat_db_allocated_storage, var.db_allocated_storage, 20)
+  temporal_db_allocated_storage = coalesce(var.temporal_db_allocated_storage, var.db_allocated_storage, 50)
 }
 
 module "network" {
@@ -122,32 +127,36 @@ module "ecs" {
   temporal_api_key_arn = var.temporal_api_key_arn
 
   # Compute / memory
-  api_cpu                         = var.api_cpu
-  api_memory                      = var.api_memory
-  worker_cpu                      = var.worker_cpu
-  worker_memory                   = var.worker_memory
-  worker_desired_count            = var.worker_desired_count
-  executor_cpu                    = var.executor_cpu
-  executor_memory                 = var.executor_memory
-  executor_desired_count          = var.executor_desired_count
-  executor_client_timeout         = var.executor_client_timeout
-  executor_queue                  = var.executor_queue
-  executor_worker_pool_size       = var.executor_worker_pool_size
-  agent_executor_cpu              = var.agent_executor_cpu
-  agent_executor_memory           = var.agent_executor_memory
-  agent_executor_desired_count    = var.agent_executor_desired_count
-  agent_queue                     = var.agent_queue
-  agent_executor_worker_pool_size = var.agent_executor_worker_pool_size
-  ui_cpu                          = var.ui_cpu
-  ui_memory                       = var.ui_memory
-  temporal_cpu                    = var.temporal_cpu
-  temporal_memory                 = var.temporal_memory
-  temporal_num_history_shards     = var.temporal_num_history_shards
-  caddy_cpu                       = var.caddy_cpu
-  caddy_memory                    = var.caddy_memory
-  db_instance_class               = var.db_instance_class
-  db_allocated_storage            = var.db_allocated_storage
-  db_engine_version               = var.db_engine_version
+  api_cpu                                  = var.api_cpu
+  api_memory                               = var.api_memory
+  worker_cpu                               = var.worker_cpu
+  worker_memory                            = var.worker_memory
+  worker_desired_count                     = var.worker_desired_count
+  executor_cpu                             = var.executor_cpu
+  executor_memory                          = var.executor_memory
+  executor_desired_count                   = var.executor_desired_count
+  executor_client_timeout                  = var.executor_client_timeout
+  executor_queue                           = var.executor_queue
+  executor_worker_pool_size                = var.executor_worker_pool_size
+  agent_executor_cpu                       = var.agent_executor_cpu
+  agent_executor_memory                    = var.agent_executor_memory
+  agent_executor_desired_count             = var.agent_executor_desired_count
+  agent_queue                              = var.agent_queue
+  agent_executor_worker_pool_size          = var.agent_executor_worker_pool_size
+  ui_cpu                                   = var.ui_cpu
+  ui_memory                                = var.ui_memory
+  temporal_cpu                             = var.temporal_cpu
+  temporal_memory                          = var.temporal_memory
+  temporal_num_history_shards              = var.temporal_num_history_shards
+  temporal_db_tls_enabled                  = var.temporal_db_tls_enabled
+  temporal_db_tls_enable_host_verification = var.temporal_db_tls_enable_host_verification
+  caddy_cpu                                = var.caddy_cpu
+  caddy_memory                             = var.caddy_memory
+  tracecat_db_instance_class               = local.tracecat_db_instance_class
+  temporal_db_instance_class               = local.temporal_db_instance_class
+  tracecat_db_allocated_storage            = local.tracecat_db_allocated_storage
+  temporal_db_allocated_storage            = local.temporal_db_allocated_storage
+  db_engine_version                        = var.db_engine_version
 
   # Sentry configuration
   sentry_dsn = var.sentry_dsn

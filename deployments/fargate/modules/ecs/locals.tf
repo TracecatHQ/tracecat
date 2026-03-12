@@ -173,15 +173,25 @@ locals {
   ]
 
   temporal_env = [
+    # RDS for PostgreSQL 15+ defaults rds.force_ssl=1, so both Temporal server
+    # config generation and temporal-sql-tool bootstrap must opt into TLS.
     for k, v in {
-      DB                         = "postgres12"
-      DB_PORT                    = "5432"
-      POSTGRES_USER              = "postgres"
-      LOG_LEVEL                  = var.temporal_log_level
-      TEMPORAL_BROADCAST_ADDRESS = "0.0.0.0"
-      BIND_ON_IP                 = "0.0.0.0"
-      NUM_HISTORY_SHARDS         = var.temporal_num_history_shards
+      DB                                = "postgres12"
+      DBNAME                            = "temporal"
+      DB_PORT                           = "5432"
+      POSTGRES_USER                     = "postgres"
+      VISIBILITY_DBNAME                 = "temporal_visibility"
+      LOG_LEVEL                         = var.temporal_log_level
+      TEMPORAL_BROADCAST_ADDRESS        = "0.0.0.0"
+      BIND_ON_IP                        = "0.0.0.0"
+      NUM_HISTORY_SHARDS                = var.temporal_num_history_shards
+      SQL_TLS                           = var.temporal_db_tls_enabled
+      SQL_TLS_ENABLED                   = var.temporal_db_tls_enabled
+      SQL_TLS_DISABLE_HOST_VERIFICATION = !var.temporal_db_tls_enable_host_verification
+      SQL_HOST_VERIFICATION             = var.temporal_db_tls_enable_host_verification
+      SQL_HOST_NAME                     = local.temp_db_hostname
+      SQL_TLS_SERVER_NAME               = local.temp_db_hostname
     } :
-    { name = k, value = tostring(v) }
+    { name = k, value = tostring(v) } if v != null
   ]
 }
