@@ -8,7 +8,7 @@ import re
 import time
 import uuid
 from base64 import urlsafe_b64decode
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -210,6 +210,19 @@ def _extract_scope_uuids(scopes: list[str], resource: str) -> set[uuid.UUID]:
     return ids
 
 
+def get_email_claim(claims: Mapping[str, object]) -> str | None:
+    """Extract an email claim from FastMCP token claims."""
+    match claims:
+        case {"email": str(raw_email)} if email := raw_email.strip():
+            return email
+        case {"upstream_claims": {"email": str(raw_email)}} if (
+            email := raw_email.strip()
+        ):
+            return email
+        case _:
+            return None
+
+
 def _decode_unverified_id_token_claims(id_token: str) -> dict[str, object]:
     """Decode a JWT payload without signature verification.
 
@@ -231,8 +244,7 @@ def get_token_identity() -> MCPTokenIdentity:
         raise ValueError("Authentication required")
 
     claims = access_token.claims
-    raw_email = claims.get("email")
-    email = raw_email.strip() if isinstance(raw_email, str) else None
+    email = get_email_claim(claims)
     raw_client_ids = [
         claims.get("client_id"),
         claims.get("azp"),

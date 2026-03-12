@@ -410,6 +410,29 @@ def test_get_token_identity_extracts_ids_from_claims_and_scopes(
     assert identity.workspace_ids == frozenset({ws_id, extra_ws_id})
 
 
+def test_get_token_identity_reads_email_from_upstream_claims(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = type(
+        "T",
+        (),
+        {
+            "client_id": "tracecat-client",
+            "scopes": [],
+            "claims": {
+                "client_id": "tracecat-client",
+                "upstream_claims": {"email": " user@example.com "},
+            },
+        },
+    )()
+    monkeypatch.setattr(mcp_auth, "get_access_token", lambda: token)
+
+    identity = mcp_auth.get_token_identity()
+
+    assert identity.client_id == "tracecat-client"
+    assert identity.email == "user@example.com"
+
+
 def test_get_token_identity_prefers_token_client_id_over_sub(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -523,6 +546,41 @@ async def test_list_workspaces_for_request_without_claimed_org_ids(
         return []
 
     monkeypatch.setattr(mcp_auth, "get_token_identity", lambda: identity)
+    monkeypatch.setattr(mcp_auth, "list_user_workspaces", _list_user_workspaces)
+
+    await mcp_auth.list_workspaces_for_request()
+
+    assert captured["email"] == "user@example.com"
+    assert captured["organization_ids"] is None
+
+
+@pytest.mark.anyio
+async def test_list_workspaces_for_request_reads_email_from_upstream_claims(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    token = type(
+        "T",
+        (),
+        {
+            "client_id": "tracecat-client",
+            "scopes": [],
+            "claims": {
+                "client_id": "tracecat-client",
+                "upstream_claims": {"email": " user@example.com "},
+            },
+        },
+    )()
+
+    async def _list_user_workspaces(
+        email: str,
+        organization_ids: frozenset[uuid.UUID] | None = None,
+    ) -> list[dict[str, str]]:
+        captured["email"] = email
+        captured["organization_ids"] = organization_ids
+        return []
+
+    monkeypatch.setattr(mcp_auth, "get_access_token", lambda: token)
     monkeypatch.setattr(mcp_auth, "list_user_workspaces", _list_user_workspaces)
 
     await mcp_auth.list_workspaces_for_request()

@@ -15,7 +15,7 @@ from fastmcp.server.middleware.middleware import CallNext, Middleware, Middlewar
 from fastmcp.tools.tool import ToolResult
 
 from tracecat.logger import logger
-from tracecat.mcp.auth import MCPTokenIdentity, get_token_identity
+from tracecat.mcp.auth import MCPTokenIdentity, get_email_claim, get_token_identity
 from tracecat.mcp.config import (
     TRACECAT_MCP__MAX_INPUT_SIZE_BYTES,
     TRACECAT_MCP__TOOL_TIMEOUT_SECONDS,
@@ -27,6 +27,7 @@ class AccessTokenClaims(TypedDict, total=False):
     client_id: str
     azp: str
     sub: str
+    upstream_claims: dict[str, str]
 
 
 class AccessTokenLike(Protocol):
@@ -351,9 +352,9 @@ def get_mcp_client_id(context: MiddlewareContext) -> str:  # type: ignore[type-a
         if access_token is None:
             access_token = cast(AccessTokenLike | None, get_access_token())
         if access_token is not None:
-            email = access_token.claims.get("email")
+            email = get_email_claim(access_token.claims)
             if email:
-                return str(email)
+                return email
             client_id = (
                 access_token.claims.get("client_id")
                 or access_token.claims.get("azp")
