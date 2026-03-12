@@ -1,9 +1,9 @@
-"""HTTP-level tests for organization invitation endpoints."""
+"""HTTP-level tests for unified invitation endpoints."""
 
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import status
@@ -12,15 +12,15 @@ from fastapi.testclient import TestClient
 from tracecat.api.app import app
 from tracecat.auth.types import Role
 from tracecat.auth.users import current_active_user
-from tracecat.db.engine import get_async_session
+from tracecat.invitations.router import InvitationGroup
 
 
 @pytest.mark.anyio
 async def test_list_my_pending_invitations_success(
-    client: TestClient, test_admin_role: Role
+    client: TestClient,
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    mock_session = await app.dependency_overrides[get_async_session]()
-
     mock_user = SimpleNamespace(
         id=test_admin_role.user_id,
         email="user@example.com",
@@ -31,34 +31,39 @@ async def test_list_my_pending_invitations_success(
         email="alice@example.com",
     )
     organization_id = uuid.uuid4()
+    mock_organization = SimpleNamespace(name="Acme Security", slug="acme-security")
+    mock_role = SimpleNamespace(name="Organization Member", slug="organization-member")
     mock_invitation = SimpleNamespace(
         token="invitation-token-123",
         organization_id=organization_id,
+        workspace_id=None,
+        workspace=None,
         expires_at=datetime.now(UTC) + timedelta(days=7),
         created_at=datetime.now(UTC),
+        role_obj=mock_role,
+        inviter=mock_inviter,
+        organization=mock_organization,
     )
-    mock_organization = SimpleNamespace(name="Acme Security")
-    mock_role = SimpleNamespace(name="Organization Member", slug="organization-member")
-
-    tuples_result = Mock()
-    tuples_result.all.return_value = [
-        (mock_invitation, mock_organization, mock_inviter, mock_role),
-    ]
-    pending_result = Mock()
-    pending_result.tuples.return_value = tuples_result
-
-    mock_session.execute.side_effect = [pending_result]
+    group = InvitationGroup(
+        invitation=mock_invitation,
+        workspace_invitations=[],
+        accept_token=mock_invitation.token,
+    )
+    monkeypatch.setattr(
+        "tracecat.invitations.router.list_pending_invitation_groups_for_email",
+        AsyncMock(return_value=[group]),
+    )
     app.dependency_overrides[current_active_user] = lambda: mock_user
 
     try:
-        response = client.get("/organization/invitations/pending/me")
+        response = client.get("/invitations/pending/me")
     finally:
         app.dependency_overrides.pop(current_active_user, None)
 
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()
     assert len(payload) == 1
-    assert payload[0]["token"] == mock_invitation.token
+    assert payload[0]["accept_token"] == mock_invitation.token
     assert payload[0]["organization_id"] == str(organization_id)
     assert payload[0]["organization_name"] == "Acme Security"
     assert payload[0]["inviter_name"] == "Alice Admin"
@@ -69,24 +74,22 @@ async def test_list_my_pending_invitations_success(
 
 @pytest.mark.anyio
 async def test_list_my_pending_invitations_empty_result(
-    client: TestClient, test_admin_role: Role
+    client: TestClient,
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    mock_session = await app.dependency_overrides[get_async_session]()
     mock_user = SimpleNamespace(
         id=test_admin_role.user_id,
         email="user@example.com",
     )
-
-    tuples_result = Mock()
-    tuples_result.all.return_value = []
-    pending_result = Mock()
-    pending_result.tuples.return_value = tuples_result
-
-    mock_session.execute.side_effect = [pending_result]
+    monkeypatch.setattr(
+        "tracecat.invitations.router.list_pending_invitation_groups_for_email",
+        AsyncMock(return_value=[]),
+    )
     app.dependency_overrides[current_active_user] = lambda: mock_user
 
     try:
-        response = client.get("/organization/invitations/pending/me")
+        response = client.get("/invitations/pending/me")
     finally:
         app.dependency_overrides.pop(current_active_user, None)
 

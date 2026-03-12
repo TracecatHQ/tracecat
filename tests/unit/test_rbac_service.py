@@ -440,7 +440,7 @@ class TestRBACServiceUserAssignments:
         session: AsyncSession,
         role: Role,
     ):
-        """Cannot assign org role to user outside organization."""
+        """Direct org assignment backfills org membership for existing users."""
         service = RBACService(session, role=role)
         custom_role = await service.create_role(name="Direct User Role")
 
@@ -452,13 +452,22 @@ class TestRBACServiceUserAssignments:
         session.add(external_user)
         await session.commit()
 
-        with pytest.raises(
-            TracecatNotFoundError, match="User not found in organization"
-        ):
-            await service.create_user_assignment(
-                user_id=external_user.id,
-                role_id=custom_role.id,
+        assignment = await service.create_user_assignment(
+            user_id=external_user.id,
+            role_id=custom_role.id,
+        )
+
+        assert assignment.user_id == external_user.id
+        assert assignment.role_id == custom_role.id
+
+        result = await session.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == external_user.id,
+                OrganizationMembership.organization_id == role.organization_id,
             )
+        )
+        membership = result.scalar_one()
+        assert membership.user_id == external_user.id
 
 
 @pytest.mark.anyio

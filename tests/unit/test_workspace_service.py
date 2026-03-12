@@ -12,6 +12,7 @@ from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.db.models import (
+    Invitation,
     Membership,
     Organization,
     OrganizationMembership,
@@ -438,6 +439,31 @@ def create_workspace_admin_role(
     )
 
 
+async def create_workspace_invitation_row(
+    session: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    email: str,
+    role_id: str,
+    invited_by: uuid.UUID | None,
+) -> Invitation:
+    invitation = Invitation(
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+        email=email,
+        role_id=uuid.UUID(role_id),
+        status=InvitationStatus.PENDING,
+        invited_by=invited_by,
+        token=WorkspaceService._generate_invitation_token(),
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    session.add(invitation)
+    await session.commit()
+    await session.refresh(invitation)
+    return invitation
+
+
 @pytest.mark.anyio
 class TestCreateInvitation:
     """Tests for WorkspaceService.create_invitation()."""
@@ -491,9 +517,7 @@ class TestCreateInvitation:
         await service.create_invitation(inv_workspace.id, params)
 
         # Try to create duplicate - should fail
-        with pytest.raises(
-            TracecatValidationError, match="pending invitation already exists"
-        ):
+        with pytest.raises(TracecatValidationError, match="invitation already exists"):
             await service.create_invitation(inv_workspace.id, params)
 
     async def test_create_invitation_unique_constraint_violation(
@@ -524,10 +548,10 @@ class TestCreateInvitation:
         # Revoke it so the pending check passes
         await service.revoke_invitation(inv_workspace.id, invitation.id)
 
-        # Try to create another invitation for the same email
-        # This should fail due to the unique constraint (revoked != expired)
-        with pytest.raises(TracecatValidationError, match="invitation already exists"):
-            await service.create_invitation(inv_workspace.id, params)
+        # Re-inviting replaces non-pending rows in the consolidated model.
+        new_invitation = await service.create_invitation(inv_workspace.id, params)
+        assert new_invitation.id != invitation.id
+        assert new_invitation.email == email
 
     async def test_create_invitation_replaces_expired_invitation(
         self,
@@ -698,12 +722,14 @@ class TestAcceptInvitation:
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
         service = WorkspaceService(session, role=role)
 
-        # Create invitation for basic_user's email
-        params = WorkspaceInvitationCreate(
+        invitation = await create_workspace_invitation_row(
+            session,
+            organization_id=inv_org.id,
+            workspace_id=inv_workspace.id,
             email=basic_user.email,
             role_id=rbac_roles["workspace-editor"],
+            invited_by=admin_user.id,
         )
-        invitation = await service.create_invitation(inv_workspace.id, params)
 
         # Accept invitation
         membership = await service.accept_invitation(invitation.token, basic_user.id)
@@ -779,11 +805,14 @@ class TestAcceptInvitation:
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
         service = WorkspaceService(session, role=role)
 
-        params = WorkspaceInvitationCreate(
+        invitation = await create_workspace_invitation_row(
+            session,
+            organization_id=inv_org.id,
+            workspace_id=inv_workspace.id,
             email=basic_user.email,
             role_id=rbac_roles["workspace-editor"],
+            invited_by=admin_user.id,
         )
-        invitation = await service.create_invitation(inv_workspace.id, params)
 
         # Accept once
         await service.accept_invitation(invitation.token, basic_user.id)
@@ -817,11 +846,14 @@ class TestAcceptInvitation:
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
         service = WorkspaceService(session, role=role)
 
-        params = WorkspaceInvitationCreate(
+        invitation = await create_workspace_invitation_row(
+            session,
+            organization_id=inv_org.id,
+            workspace_id=inv_workspace.id,
             email=basic_user.email,
             role_id=rbac_roles["workspace-editor"],
+            invited_by=admin_user.id,
         )
-        invitation = await service.create_invitation(inv_workspace.id, params)
 
         # Revoke invitation
         await service.revoke_invitation(inv_workspace.id, invitation.id)
@@ -850,11 +882,14 @@ class TestAcceptInvitation:
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
         service = WorkspaceService(session, role=role)
 
-        params = WorkspaceInvitationCreate(
+        invitation = await create_workspace_invitation_row(
+            session,
+            organization_id=inv_org.id,
+            workspace_id=inv_workspace.id,
             email=basic_user.email,
             role_id=rbac_roles["workspace-admin"],
+            invited_by=admin_user.id,
         )
-        invitation = await service.create_invitation(inv_workspace.id, params)
 
         with pytest.raises(
             TracecatValidationError, match="already a member of this workspace"
@@ -888,6 +923,7 @@ class TestRevokeInvitation:
 
         await session.refresh(invitation)
         assert invitation.status == InvitationStatus.REVOKED
+        assert invitation.accepted_at is None
 
     async def test_revoke_invitation_not_found(
         self,
@@ -916,11 +952,14 @@ class TestRevokeInvitation:
         role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
         service = WorkspaceService(session, role=role)
 
-        params = WorkspaceInvitationCreate(
+        invitation = await create_workspace_invitation_row(
+            session,
+            organization_id=inv_org.id,
+            workspace_id=inv_workspace.id,
             email=basic_user.email,
             role_id=rbac_roles["workspace-editor"],
+            invited_by=admin_user.id,
         )
-        invitation = await service.create_invitation(inv_workspace.id, params)
 
         # Accept the invitation
         await service.accept_invitation(invitation.token, basic_user.id)

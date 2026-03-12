@@ -386,7 +386,7 @@ def test_should_allow_saml_user_auto_provisioning_for_first_superadmin() -> None
 
 
 def test_should_allow_saml_user_auto_provisioning_for_pending_invitation() -> None:
-    invitation = cast(saml.OrganizationInvitation, SimpleNamespace(token="inv-123"))
+    invitation = cast(saml.Invitation, SimpleNamespace(token="inv-123"))
     assert (
         saml.should_allow_saml_user_auto_provisioning(
             pending_invitation=invitation,
@@ -512,7 +512,7 @@ def test_should_allow_saml_org_access_matrix(
     expected: bool,
 ) -> None:
     pending_invitation = (
-        cast(saml.OrganizationInvitation, SimpleNamespace(token="inv-123"))
+        cast(saml.Invitation, SimpleNamespace(token="inv-123"))
         if has_pending_invitation
         else None
     )

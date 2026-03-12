@@ -87,11 +87,9 @@ export function SignUp({
 
   useEffect(() => {
     if (user) {
-      // Always redirect to /workspaces after login
-      // Invitation acceptance is handled atomically during registration
-      router.push("/workspaces")
+      router.push(returnUrl ?? "/workspaces")
     }
-  }, [user, router])
+  }, [user, router, returnUrl])
 
   if (appInfoIsLoading) {
     return <CenteredSpinner />
