@@ -36,12 +36,6 @@ from tracecat.api.common import (
     generic_exception_handler,
     tracecat_exception_handler,
 )
-from tracecat.api_keys.router import (
-    org_router as org_api_keys_router,
-)
-from tracecat.api_keys.router import (
-    workspace_router as workspace_api_keys_router,
-)
 from tracecat.auth.credentials import authenticated_user_only
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
@@ -127,6 +121,12 @@ from tracecat.registry.repositories.router import router as registry_repos_route
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
 from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
+from tracecat.service_accounts.router import (
+    org_router as org_service_accounts_router,
+)
+from tracecat.service_accounts.router import (
+    workspace_router as workspace_service_accounts_router,
+)
 from tracecat.settings.router import router as org_settings_router
 from tracecat.settings.service import SettingsService, get_setting_override
 from tracecat.storage.blob import configure_bucket_lifecycle, ensure_bucket_exists
@@ -420,7 +420,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(webhook_router)
     app.include_router(agent_channels_router)
     app.include_router(workspaces_router)
-    app.include_router(workspace_api_keys_router)
+    app.include_router(workspace_service_accounts_router)
     app.include_router(workflow_management_router)
     app.include_router(workflow_graph_router)
     app.include_router(workflow_executions_router)
@@ -433,7 +433,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(tags_router)
     app.include_router(users_router)
     app.include_router(org_router)
-    app.include_router(org_api_keys_router)
+    app.include_router(org_service_accounts_router)
     app.include_router(agent_router)
     app.include_router(agent_channels_management_router)
     app.include_router(agent_preset_router)

@@ -25,13 +25,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from tracecat import config
-from tracecat.api_keys.constants import (
-    API_KEY_HEADER_NAME,
-    ORG_API_KEY_KIND,
+from tracecat.auth.api_keys import (
     ORG_API_KEY_PREFIX,
-    WORKSPACE_API_KEY_KIND,
+    WORKSPACE_API_KEY_PREFIX,
+    parse_managed_api_key,
+    verify_api_key,
 )
-from tracecat.auth.api_keys import parse_managed_api_key, verify_api_key
 from tracecat.auth.executor_tokens import verify_executor_token
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import (
@@ -49,14 +48,14 @@ from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
     Organization,
-    OrganizationApiKey,
     OrganizationMembership,
     RoleScope,
     Scope,
+    ServiceAccount,
+    ServiceAccountApiKey,
     User,
     UserRoleAssignment,
     Workspace,
-    WorkspaceApiKey,
 )
 from tracecat.db.models import (
     Role as DBRole,
@@ -65,6 +64,7 @@ from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 from tracecat.organization.management import get_default_organization_id
+from tracecat.service_accounts.constants import API_KEY_HEADER_NAME
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 internal_service_key_header_scheme = APIKeyHeader(
@@ -129,7 +129,7 @@ async def compute_effective_scopes(role: Role) -> frozenset[str]:
     if role.is_platform_superuser:
         return frozenset({"*"})
 
-    if role.type == "api_key":
+    if role.type == "service_account":
         return role.scopes or frozenset()
 
     if role.type == "service":
@@ -296,6 +296,16 @@ async def _authenticate_service(
         scopes = frozenset(
             stripped for s in scopes_header.split(",") if (stripped := s.strip())
         )
+    service_account_id = (
+        uuid.UUID(raw_service_account_id)
+        if (
+            raw_service_account_id := request.headers.get(
+                "x-tracecat-role-service-account-id"
+            )
+        )
+        is not None
+        else None
+    )
     service_id: InternalServiceID = service_role_id  # type: ignore[assignment]
     return Role(
         type="service",
@@ -303,6 +313,7 @@ async def _authenticate_service(
         user_id=user_id,
         workspace_id=workspace_id,
         organization_id=organization_id,
+        service_account_id=service_account_id,
         scopes=scopes,
     )
 
@@ -318,51 +329,14 @@ async def _authenticate_api_key(
         return None
 
     async with get_async_session_bypass_rls_context_manager() as session:
-        if parsed.prefix == ORG_API_KEY_PREFIX:
-            stmt = (
-                select(OrganizationApiKey)
-                .where(OrganizationApiKey.key_id == parsed.key_id)
-                .options(selectinload(OrganizationApiKey.scopes))
-            )
-            result = await session.execute(stmt)
-            record = result.scalar_one_or_none()
-            if record is None or record.revoked_at is not None:
-                raise CREDENTIALS_EXCEPTION
-            if not verify_api_key(api_key, record.salt, record.hashed):
-                raise CREDENTIALS_EXCEPTION
-
-            resolved_workspace_id: uuid.UUID | None = None
-            if workspace_id is not None:
-                workspace_org_id = await _get_workspace_org_id(workspace_id)
-                if workspace_org_id is None:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail="Workspace not found",
-                    )
-                if workspace_org_id != record.organization_id:
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
-                    )
-                resolved_workspace_id = workspace_id
-
-            record.last_used_at = datetime.now(UTC)
-            session.add(record)
-            await session.commit()
-            return Role(
-                type="api_key",
-                service_id="tracecat-api",
-                organization_id=record.organization_id,
-                workspace_id=resolved_workspace_id,
-                scopes=frozenset(scope.name for scope in record.scopes),
-                api_key_id=record.id,
-                api_key_name=record.name,
-                api_key_kind=ORG_API_KEY_KIND,
-            )
-
         stmt = (
-            select(WorkspaceApiKey)
-            .where(WorkspaceApiKey.key_id == parsed.key_id)
-            .options(selectinload(WorkspaceApiKey.scopes))
+            select(ServiceAccountApiKey)
+            .where(ServiceAccountApiKey.key_id == parsed.key_id)
+            .options(
+                selectinload(ServiceAccountApiKey.service_account).selectinload(
+                    ServiceAccount.scopes
+                )
+            )
         )
         result = await session.execute(stmt)
         record = result.scalar_one_or_none()
@@ -370,33 +344,54 @@ async def _authenticate_api_key(
             raise CREDENTIALS_EXCEPTION
         if not verify_api_key(api_key, record.salt, record.hashed):
             raise CREDENTIALS_EXCEPTION
-        if require_workspace == "no" or workspace_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
-            )
-        if record.workspace_id != workspace_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
-            )
+        service_account = record.service_account
+        if service_account.disabled_at is not None:
+            raise CREDENTIALS_EXCEPTION
+
+        resolved_workspace_id: uuid.UUID | None = service_account.workspace_id
+        if service_account.workspace_id is None:
+            if parsed.prefix != ORG_API_KEY_PREFIX:
+                raise CREDENTIALS_EXCEPTION
+            if workspace_id is not None:
+                workspace_org_id = await _get_workspace_org_id(workspace_id)
+                if workspace_org_id is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Workspace not found",
+                    )
+                if workspace_org_id != service_account.organization_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+                    )
+                resolved_workspace_id = workspace_id
+        else:
+            if parsed.prefix != WORKSPACE_API_KEY_PREFIX:
+                raise CREDENTIALS_EXCEPTION
+            if require_workspace == "no" or workspace_id is None:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+                )
+            if service_account.workspace_id != workspace_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+                )
 
         record.last_used_at = datetime.now(UTC)
         session.add(record)
         await session.commit()
         return Role(
-            type="api_key",
+            type="service_account",
             service_id="tracecat-api",
-            organization_id=record.organization_id,
-            workspace_id=record.workspace_id,
-            scopes=frozenset(scope.name for scope in record.scopes),
-            api_key_id=record.id,
-            api_key_name=record.name,
-            api_key_kind=WORKSPACE_API_KEY_KIND,
+            organization_id=service_account.organization_id,
+            workspace_id=resolved_workspace_id,
+            service_account_id=service_account.id,
+            scopes=frozenset(scope.name for scope in service_account.scopes),
         )
 
 
 @contextmanager
 def TemporaryRole(
-    type: Literal["user", "service", "api_key"] = "service",
+    type: Literal["user", "service", "service_account"] = "service",
     user_id: uuid.UUID | None = None,
     service_id: InternalServiceID = "tracecat-service",
 ):

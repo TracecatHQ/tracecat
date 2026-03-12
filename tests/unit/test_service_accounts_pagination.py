@@ -7,14 +7,17 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.api_keys.service import OrganizationApiKeyService, _paginate_keys
 from tracecat.auth.types import Role
-from tracecat.db.models import OrganizationApiKey
+from tracecat.db.models import ServiceAccount
 from tracecat.pagination import CursorPaginationParams
+from tracecat.service_accounts.service import (
+    OrganizationServiceAccountService,
+    _paginate_service_accounts,
+)
 
 
 class _ScalarResult:
-    def all(self) -> list[OrganizationApiKey]:
+    def all(self) -> list[ServiceAccount]:
         return []
 
 
@@ -38,40 +41,41 @@ class _RecordingSession:
 
 
 @pytest.mark.anyio
-async def test_paginate_keys_uses_ascending_order_for_reverse() -> None:
+async def test_paginate_service_accounts_uses_ascending_order_for_reverse() -> None:
     session = _RecordingSession()
 
-    await _paginate_keys(
+    await _paginate_service_accounts(
         cast(AsyncSession, session),
-        stmt=select(OrganizationApiKey),
-        model=OrganizationApiKey,
+        stmt=select(ServiceAccount),
         params=CursorPaginationParams(limit=20, reverse=True),
         total_estimate=0,
     )
 
     compiled = str(session.last_stmt.compile())
 
-    assert "organization_api_key.created_at ASC" in compiled
-    assert "organization_api_key.id ASC" in compiled
+    assert "service_account.created_at ASC" in compiled
+    assert "service_account.id ASC" in compiled
 
 
 @pytest.mark.anyio
-async def test_organization_list_keys_uses_filtered_total_count() -> None:
+async def test_organization_list_uses_filtered_total_count() -> None:
     session = _RecordingSession()
-    service = OrganizationApiKeyService(
+    organization_id = uuid.uuid4()
+    service = OrganizationServiceAccountService(
         cast(AsyncSession, session),
         role=Role(
             type="user",
             user_id=uuid.uuid4(),
             service_id="tracecat-api",
-            organization_id=uuid.uuid4(),
-            scopes=frozenset({"org:api_key:read"}),
+            organization_id=organization_id,
+            scopes=frozenset({"org:service_account:read"}),
         ),
     )
 
-    page = await service.list_keys(CursorPaginationParams(limit=20))
+    page = await service.list_service_accounts(CursorPaginationParams(limit=20))
 
     compiled_count = str(session.last_scalar_stmt.compile())
     assert "count(*)" in compiled_count.lower()
-    assert "WHERE organization_api_key.organization_id =" in compiled_count
+    assert "WHERE service_account.organization_id =" in compiled_count
+    assert "service_account.workspace_id IS NULL" in compiled_count
     assert page.total_estimate == 7

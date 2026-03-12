@@ -1,0 +1,261 @@
+"""HTTP-level tests for service account endpoints."""
+
+import uuid
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from fastapi import status
+from fastapi.testclient import TestClient
+
+from tracecat.auth.types import Role
+from tracecat.contexts import ctx_role
+from tracecat.exceptions import TracecatValidationError
+from tracecat.pagination import CursorPaginatedResponse
+from tracecat.service_accounts import router as service_accounts_router
+from tracecat.service_accounts.schemas import (
+    ServiceAccountScopeRead,
+)
+
+
+def _scope_read(name: str, *, action: str = "read") -> ServiceAccountScopeRead:
+    resource = name.rsplit(":", maxsplit=1)[0]
+    return ServiceAccountScopeRead(
+        id=uuid.uuid4(),
+        name=name,
+        resource=resource,
+        action=action,
+        description=f"{name} description",
+    )
+
+
+def _organization_service_account_read(organization_id: uuid.UUID):
+    now = datetime(2024, 1, 1, tzinfo=UTC)
+    scope = _scope_read("workflow:read")
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        organization_id=organization_id,
+        workspace_id=None,
+        owner_user_id=None,
+        name="Org automation",
+        description="test service account",
+        disabled_at=None,
+        created_at=now,
+        updated_at=now,
+        scopes=[scope],
+        api_keys=[
+            SimpleNamespace(
+                id=uuid.uuid4(),
+                name="Primary",
+                key_id="key_123",
+                preview="tc_org_sk_...abcd",
+                created_by=None,
+                revoked_by=None,
+                last_used_at=None,
+                revoked_at=None,
+                created_at=now,
+                updated_at=now,
+            )
+        ],
+    )
+
+
+def _strip_org_service_account_read_access(
+    scopes: frozenset[str] | None,
+) -> frozenset[str]:
+    return frozenset(
+        scope
+        for scope in (scopes or frozenset())
+        if scope not in {"org:service_account:read", "org:service_account:update"}
+    )
+
+
+@pytest.mark.anyio
+async def test_list_organization_service_accounts_requires_read_scope(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    role_without_read = test_admin_role.model_copy(
+        update={
+            "scopes": _strip_org_service_account_read_access(test_admin_role.scopes)
+        }
+    )
+    token = ctx_role.set(role_without_read)
+    try:
+        response = client.get("/organization/service-accounts")
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.anyio
+async def test_list_organization_service_account_scopes_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    role_with_scope = test_admin_role.model_copy(
+        update={
+            "scopes": frozenset(
+                set(test_admin_role.scopes or frozenset())
+                | {"org:service_account:read"}
+            ),
+        }
+    )
+    scope = _scope_read("workflow:read")
+
+    with patch.object(
+        service_accounts_router, "OrganizationServiceAccountService"
+    ) as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.list_assignable_scopes.return_value = [scope]
+        mock_service_cls.return_value = mock_svc
+
+        token = ctx_role.set(role_with_scope)
+        try:
+            response = client.get("/organization/service-accounts/scopes")
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {
+        "items": [
+            {
+                "id": str(scope.id),
+                "name": "workflow:read",
+                "resource": "workflow",
+                "action": "read",
+                "description": "workflow:read description",
+            }
+        ]
+    }
+
+
+@pytest.mark.anyio
+async def test_get_organization_service_account_requires_read_scope(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    role_without_read = test_admin_role.model_copy(
+        update={
+            "scopes": _strip_org_service_account_read_access(test_admin_role.scopes)
+        }
+    )
+    token = ctx_role.set(role_without_read)
+    try:
+        response = client.get(f"/organization/service-accounts/{uuid.uuid4()}")
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.anyio
+async def test_list_organization_service_accounts_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    role_with_scope = test_admin_role.model_copy(
+        update={
+            "scopes": frozenset(
+                set(test_admin_role.scopes or frozenset())
+                | {"org:service_account:read"}
+            ),
+        }
+    )
+    organization_id = role_with_scope.organization_id
+    assert organization_id is not None
+    service_account = _organization_service_account_read(organization_id)
+    page = CursorPaginatedResponse(
+        items=[service_account],
+        next_cursor=None,
+        prev_cursor=None,
+        has_more=False,
+        has_previous=False,
+        total_estimate=1,
+    )
+
+    with patch.object(
+        service_accounts_router, "OrganizationServiceAccountService"
+    ) as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.list_service_accounts.return_value = page
+        mock_service_cls.return_value = mock_svc
+
+        token = ctx_role.set(role_with_scope)
+        try:
+            response = client.get("/organization/service-accounts")
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
+    assert payload["items"][0]["id"] == str(service_account.id)
+    assert payload["items"][0]["organization_id"] == str(organization_id)
+
+
+@pytest.mark.anyio
+async def test_list_organization_service_accounts_hides_internal_errors(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    role_with_scope = test_admin_role.model_copy(
+        update={
+            "scopes": frozenset(
+                set(test_admin_role.scopes or frozenset())
+                | {"org:service_account:read"}
+            ),
+        }
+    )
+
+    with patch.object(
+        service_accounts_router, "OrganizationServiceAccountService"
+    ) as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.list_service_accounts.side_effect = RuntimeError(
+            "constraint service_account_name_key"
+        )
+        mock_service_cls.return_value = mock_svc
+
+        token = ctx_role.set(role_with_scope)
+        try:
+            response = client.get("/organization/service-accounts")
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert response.json() == {"detail": "Internal server error"}
+
+
+@pytest.mark.anyio
+async def test_list_organization_service_accounts_returns_bad_request_for_validation_errors(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    role_with_scope = test_admin_role.model_copy(
+        update={
+            "scopes": frozenset(
+                set(test_admin_role.scopes or frozenset())
+                | {"org:service_account:read"}
+            ),
+        }
+    )
+
+    with patch.object(
+        service_accounts_router, "OrganizationServiceAccountService"
+    ) as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.list_service_accounts.side_effect = TracecatValidationError(
+            "Invalid cursor for service accounts"
+        )
+        mock_service_cls.return_value = mock_svc
+
+        token = ctx_role.set(role_with_scope)
+        try:
+            response = client.get("/organization/service-accounts")
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == {"detail": "Invalid cursor for service accounts"}

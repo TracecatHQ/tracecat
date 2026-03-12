@@ -12,10 +12,10 @@ from tracecat.auth.credentials import _authenticate_api_key
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
     Organization,
-    OrganizationApiKey,
     Scope,
+    ServiceAccount,
+    ServiceAccountApiKey,
     Workspace,
-    WorkspaceApiKey,
 )
 
 
@@ -25,7 +25,7 @@ async def _get_scopes(session, *names: str) -> list[Scope]:
 
 
 @pytest.mark.anyio
-async def test_authenticate_org_api_key_for_workspace_route(
+async def test_authenticate_org_service_account_key_for_workspace_route(
     session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -41,15 +41,21 @@ async def test_authenticate_org_api_key_for_workspace_route(
     await seed_system_scopes(session)
     scopes = await _get_scopes(session, "org:read", "workflow:read")
     generated = generate_managed_api_key(prefix="tc_org_sk_")
+    service_account = ServiceAccount(
+        organization_id=organization.id,
+        name="Org automation",
+        scopes=scopes,
+    )
+    session.add(service_account)
+    await session.flush()
     session.add(
-        OrganizationApiKey(
-            organization_id=organization.id,
-            name="Org automation",
+        ServiceAccountApiKey(
+            service_account_id=service_account.id,
+            name="Primary",
             key_id=generated.key_id,
             hashed=generated.hashed,
             salt=generated.salt_b64,
             preview=generated.preview(),
-            scopes=scopes,
         )
     )
     await session.commit()
@@ -74,15 +80,15 @@ async def test_authenticate_org_api_key_for_workspace_route(
     )
 
     assert role is not None
-    assert role.type == "api_key"
-    assert role.api_key_kind == "organization"
+    assert role.type == "service_account"
+    assert role.service_account_id == service_account.id
     assert role.organization_id == organization.id
     assert role.workspace_id == workspace.id
     assert role.scopes == frozenset({"org:read", "workflow:read"})
 
 
 @pytest.mark.anyio
-async def test_workspace_api_key_rejects_org_route(
+async def test_workspace_service_account_key_rejects_org_route(
     session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -103,16 +109,22 @@ async def test_workspace_api_key_rejects_org_route(
     await seed_system_scopes(session)
     scopes = await _get_scopes(session, "workflow:read")
     generated = generate_managed_api_key(prefix="tc_ws_sk_")
+    service_account = ServiceAccount(
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+        name="Workspace automation",
+        scopes=scopes,
+    )
+    session.add(service_account)
+    await session.flush()
     session.add(
-        WorkspaceApiKey(
-            organization_id=organization.id,
-            workspace_id=workspace.id,
-            name="Workspace automation",
+        ServiceAccountApiKey(
+            service_account_id=service_account.id,
+            name="Primary",
             key_id=generated.key_id,
             hashed=generated.hashed,
             salt=generated.salt_b64,
             preview=generated.preview(),
-            scopes=scopes,
         )
     )
     await session.commit()

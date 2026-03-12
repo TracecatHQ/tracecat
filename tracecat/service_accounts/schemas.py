@@ -9,7 +9,7 @@ from tracecat.core.schemas import Schema
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 
 
-class ApiKeyScopeRead(Schema):
+class ServiceAccountScopeRead(Schema):
     id: UUID
     name: str
     resource: str
@@ -17,10 +17,9 @@ class ApiKeyScopeRead(Schema):
     description: str | None = None
 
 
-class ApiKeyRead(Schema):
+class ServiceAccountApiKeyRead(Schema):
     id: UUID
     name: str
-    description: str | None = None
     key_id: str
     preview: str
     created_by: UserID | None = None
@@ -29,38 +28,44 @@ class ApiKeyRead(Schema):
     revoked_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
-    scopes: list[ApiKeyScopeRead] = Field(default_factory=list)
 
 
-class OrganizationApiKeyRead(ApiKeyRead):
+class ServiceAccountRead(Schema):
+    id: UUID
     organization_id: OrganizationID
+    workspace_id: WorkspaceID | None = None
+    owner_user_id: UserID | None = None
+    name: str
+    description: str | None = None
+    disabled_at: datetime | None = None
+    last_used_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+    scopes: list[ServiceAccountScopeRead] = Field(default_factory=list)
+    api_key: ServiceAccountApiKeyRead | None = None
 
 
-class WorkspaceApiKeyRead(ApiKeyRead):
-    workspace_id: WorkspaceID
-
-
-class ApiKeyCreate(Schema):
+class ServiceAccountCreate(Schema):
     name: str = Field(default=..., min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=512)
     scope_ids: list[UUID] = Field(default_factory=list)
+    initial_key_name: str = Field(default="Primary", min_length=1, max_length=255)
 
 
-class ApiKeyUpdate(Schema):
+class ServiceAccountUpdate(Schema):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=512)
     scope_ids: list[UUID] | None = None
 
 
-class OrganizationApiKeyCreateResponse(Schema):
+class ServiceAccountApiKeyCreate(Schema):
+    name: str = Field(default="Primary", min_length=1, max_length=255)
+
+
+class ServiceAccountCreateResponse(Schema):
     api_key: str
-    key: OrganizationApiKeyRead
+    service_account: ServiceAccountRead
 
 
-class WorkspaceApiKeyCreateResponse(Schema):
-    api_key: str
-    key: WorkspaceApiKeyRead
-
-
-class ApiKeyScopeList(Schema):
-    items: list[ApiKeyScopeRead] = Field(default_factory=list)
+class ServiceAccountScopeList(Schema):
+    items: list[ServiceAccountScopeRead] = Field(default_factory=list)

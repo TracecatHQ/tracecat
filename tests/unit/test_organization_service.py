@@ -16,9 +16,10 @@ from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_MEMBER_SCOPES, ORG_OWNER
 from tracecat.db.models import (
     AccessToken,
     Organization,
-    OrganizationApiKey,
     OrganizationInvitation,
     OrganizationMembership,
+    ServiceAccount,
+    ServiceAccountApiKey,
     User,
 )
 from tracecat.db.models import (
@@ -420,18 +421,25 @@ class TestOrganizationServiceDeleteOrganization:
         assert membership_result.scalars().all() == []
 
     @pytest.mark.anyio
-    async def test_owner_can_delete_organization_with_org_api_keys(
+    async def test_owner_can_delete_organization_with_service_accounts(
         self,
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
     ) -> None:
         generated = generate_managed_api_key(prefix=ORG_API_KEY_PREFIX)
+        service_account = ServiceAccount(
+            organization_id=org1.id,
+            name="Org automation",
+            description="cleanup test",
+            owner_user_id=admin_in_org1.id,
+        )
+        session.add(service_account)
+        await session.flush()
         session.add(
-            OrganizationApiKey(
-                organization_id=org1.id,
-                name="Org automation",
-                description="cleanup test",
+            ServiceAccountApiKey(
+                service_account_id=service_account.id,
+                name="Primary",
                 key_id=generated.key_id,
                 hashed=generated.hashed,
                 salt=generated.salt_b64,
@@ -456,13 +464,11 @@ class TestOrganizationServiceDeleteOrganization:
         org_result = await session.execute(
             select(Organization).where(Organization.id == org1.id)
         )
-        api_key_result = await session.execute(
-            select(OrganizationApiKey).where(
-                OrganizationApiKey.organization_id == org1.id
-            )
+        service_account_result = await session.execute(
+            select(ServiceAccount).where(ServiceAccount.organization_id == org1.id)
         )
         assert org_result.scalar_one_or_none() is None
-        assert api_key_result.scalars().all() == []
+        assert service_account_result.scalars().all() == []
 
     @pytest.mark.anyio
     async def test_delete_organization_requires_exact_confirmation(

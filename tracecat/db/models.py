@@ -964,8 +964,16 @@ class WebhookApiKey(WorkspaceModel):
     webhook: Mapped[Webhook | None] = relationship(back_populates="api_key")
 
 
-class ApiKeyMixin:
-    """Shared columns for organization/workspace API keys."""
+class ServiceAccount(OrganizationModel):
+    """A machine identity scoped to an organization or workspace."""
+
+    __tablename__ = "service_account"
+    __table_args__ = (
+        CheckConstraint(
+            "workspace_id IS NULL OR organization_id IS NOT NULL",
+            name="service_account_workspace_requires_org",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -974,8 +982,69 @@ class ApiKeyMixin:
         unique=True,
         index=True,
     )
+    organization_id: Mapped[OrganizationID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    disabled_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+    scopes: Mapped[list[Scope]] = relationship(
+        "Scope",
+        secondary="service_account_scope",
+        lazy="select",
+    )
+    api_keys: Mapped[list[ServiceAccountApiKey]] = relationship(
+        "ServiceAccountApiKey",
+        back_populates="service_account",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class ServiceAccountApiKey(RecordModel):
+    """Credential material for a service account."""
+
+    __tablename__ = "service_account_api_key"
+    __table_args__ = (
+        Index(
+            "ix_service_account_api_key_active_unique",
+            "service_account_id",
+            unique=True,
+            postgresql_where=text("revoked_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    service_account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("service_account.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
     key_id: Mapped[str] = mapped_column(
         String(32), nullable=False, unique=True, index=True
     )
@@ -999,36 +1068,9 @@ class ApiKeyMixin:
         nullable=True,
     )
 
-
-class OrganizationApiKey(OrganizationModel, ApiKeyMixin):
-    __tablename__ = "organization_api_key"
-
-    organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("organization.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    scopes: Mapped[list[Scope]] = relationship(
-        "Scope",
-        secondary="organization_api_key_scope",
-        lazy="select",
-    )
-
-
-class WorkspaceApiKey(WorkspaceModel, ApiKeyMixin):
-    __tablename__ = "workspace_api_key"
-
-    organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("organization.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    scopes: Mapped[list[Scope]] = relationship(
-        "Scope",
-        secondary="workspace_api_key_scope",
-        lazy="select",
+    service_account: Mapped[ServiceAccount] = relationship(
+        "ServiceAccount",
+        back_populates="api_keys",
     )
 
 
@@ -4036,31 +4078,14 @@ class RoleScope(Base):
     )
 
 
-class OrganizationApiKeyScope(Base):
-    """Junction table linking organization API keys to scopes."""
+class ServiceAccountScope(Base):
+    """Junction table linking service accounts to scopes."""
 
-    __tablename__ = "organization_api_key_scope"
+    __tablename__ = "service_account_scope"
 
-    api_key_id: Mapped[uuid.UUID] = mapped_column(
+    service_account_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("organization_api_key.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    scope_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("scope.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-
-
-class WorkspaceApiKeyScope(Base):
-    """Junction table linking workspace API keys to scopes."""
-
-    __tablename__ = "workspace_api_key_scope"
-
-    api_key_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("workspace_api_key.id", ondelete="CASCADE"),
+        ForeignKey("service_account.id", ondelete="CASCADE"),
         primary_key=True,
     )
     scope_id: Mapped[uuid.UUID] = mapped_column(
